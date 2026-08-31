@@ -91,11 +91,12 @@ than a narrowing one.
 A test that re-types an API to feed it input the real signature
 forbids, or to reach a surface the type deliberately hides, so the
 runtime guard can be exercised. `check.refuses` is the shared helper
-for the invalid-input half and carries the class's one library cast.
+for the invalid-input half, `check.is_exposed` for the absent-surface
+half, and together they carry the class's two library casts.
 
 ```text
--- cosmic/hash_test.tl:151
-  local bad = {variant = "invalid"} as hash.Options
+-- cosmic/hash_test.tl:233
+  local ok, err = pcall(hash.digest, "md4" as hash.Algo, "abc")
 ```
 
 **Why it is a floor.** A test that proves a runtime guard rejects input

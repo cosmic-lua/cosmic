@@ -128,6 +128,17 @@ local function refuses(f: any, ...: any): string
   return message
 end
 
+--- Report whether a module exposes a member by a given name, past
+--- what its declared type carries — a removed export, a retired
+--- alias, a name that should not resolve.
+--- @param module any The module (or record) to probe
+--- @param name string The member name to look up
+--- @return boolean True when `module[name]` is non-nil
+local function is_exposed(module: any, name: string): boolean
+  -- cast: probe module surface for a name its declared type may not carry
+  return (module as {string: any})[name] ~= nil
+end
+
 --- Assert that a (value, err) pair represents failure.
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
@@ -316,6 +327,7 @@ local record CheckModule
   truthy: function(value: any, label?: string)
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
   refuses: function(f: any, ...: any): string
+  is_exposed: function(module: any, name: string): boolean
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -334,6 +346,7 @@ local M: CheckModule = {
   truthy = truthy,
   must = must,
   refuses = refuses,
+  is_exposed = is_exposed,
   failed = failed,
   enforcing = enforcing,
   enforce_skip = enforce_skip,

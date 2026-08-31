@@ -58,14 +58,14 @@ cosmic/_teal_engine.tl	231	tl compiler surface
 cosmic/_teal_engine.tl	232	tl compiler surface
 cosmic/_teal_engine.tl	251	pcall return shape
 cosmic/check.tl	121	type-defeating test probe
-cosmic/check.tl	287	record union after guard
+cosmic/check.tl	139	type-defeating test probe
+cosmic/check.tl	298	record union after guard
 cosmic/check_assertions_test.tl	101	type-defeating test probe
 cosmic/check_assertions_test.tl	321	type-defeating test probe
 cosmic/check_assertions_test.tl	341	function shape
 cosmic/compress_test.tl	24	enum relation
 cosmic/compress_test.tl	36	enum relation
 cosmic/compress_test.tl	139	enum relation
-cosmic/compress_test.tl	157	type-defeating test probe
 cosmic/coverage/init.tl	44	module surface record
 cosmic/coverage/init.tl	45	module surface record
 cosmic/coverage/init.tl	92	map view of a declared value
@@ -77,9 +77,6 @@ cosmic/embed/init.tl	103	userdata boundary
 cosmic/errno.tl	52	binding constant by name
 cosmic/errno.tl	119	binding constant by name
 cosmic/fd.tl	187	binding contract shape
-cosmic/fd_read_test.tl	101	type-defeating test probe
-cosmic/fd_read_test.tl	102	type-defeating test probe
-cosmic/fd_read_test.tl	104	type-defeating test probe
 cosmic/fetch/extras.tl	184	generic T
 cosmic/fetch/extras.tl	199	generic T
 cosmic/fetch/extras.tl	202	generic T
@@ -104,7 +101,6 @@ cosmic/fs/find_close_test.tl	87	metatable access
 cosmic/fs/octal.tl	23	numeric narrowing
 cosmic/fs/ops.tl	411	userdata boundary
 cosmic/fs/ops.tl	425	userdata boundary
-cosmic/fs/traps_test.tl	11	type-defeating test probe
 cosmic/fs/tree.tl	23	userdata boundary
 cosmic/fs/types.tl	214	userdata boundary
 cosmic/fs/types.tl	217	userdata boundary
@@ -122,13 +118,11 @@ cosmic/fs/walk.tl	89	record union after guard
 cosmic/fs/walk.tl	116	userdata boundary
 cosmic/fs/walk.tl	146	generic T
 cosmic/fs/walk.tl	157	userdata boundary
-cosmic/fuzzy_test.tl	79	type-defeating test probe
 cosmic/hash.tl	104	enum relation
 cosmic/hash.tl	141	enum relation
 cosmic/hash.tl	203	enum relation
-cosmic/hash_test.tl	151	type-defeating test probe
-cosmic/hash_test.tl	236	type-defeating test probe
-cosmic/hash_test.tl	271	type-defeating test probe
+cosmic/hash_test.tl	233	type-defeating test probe
+cosmic/hash_test.tl	268	type-defeating test probe
 cosmic/literal_example.tl	20	decoded data shaping
 cosmic/log_test.tl	103	type-defeating test probe
 cosmic/log_test.tl	114	type-defeating test probe
@@ -146,7 +140,6 @@ cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
 cosmic/quicksand/box/run.tl	211	record union after guard
 cosmic/quicksand/caps.tl	63	binding constant by name
 cosmic/quicksand/init.tl	73	function shape
-cosmic/quicksand/init_test.tl	170	type-defeating test probe
 cosmic/quicksand/proc.tl	259	binding constant by name
 cosmic/quicksand/proc.tl	262	binding constant by name
 cosmic/quicksand/proxy.tl	115	container variance
@@ -164,10 +157,7 @@ cosmic/re.tl	333	binding contract shape
 cosmic/sandbox/init.tl	175	runtime capability probe
 cosmic/sandbox/init.tl	180	runtime capability probe
 cosmic/sandbox/init.tl	195	runtime capability probe
-cosmic/sandbox/init_test.tl	21	type-defeating test probe
-cosmic/sandbox/init_test.tl	48	type-defeating test probe
-cosmic/sandbox/init_test.tl	107	container variance
-cosmic/sandbox/init_test.tl	116	type-defeating test probe
+cosmic/sandbox/init_test.tl	103	container variance
 cosmic/searcher.tl	98	proved-value narrowing
 cosmic/searcher.tl	324	proved-value narrowing
 cosmic/searcher_test.tl	58	dynamic name lookup
@@ -193,9 +183,7 @@ cosmic/sqlite/init.tl	295	incremental record construction
 cosmic/sqlite/lifecycle_test.tl	12	sqlite row column read
 cosmic/sqlite/row_iter.tl	64	incremental record construction
 cosmic/stream.tl	237	runtime capability probe
-cosmic/string_test.tl	30	type-defeating test probe
-cosmic/string_test.tl	32	type-defeating test probe
-cosmic/string_test.tl	235	proved-value narrowing
+cosmic/string_test.tl	234	proved-value narrowing
 cosmic/sys.tl	46	enum relation
 cosmic/sys_test.tl	14	enum relation
 cosmic/sys_test.tl	29	enum relation

@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for fuzzy string matching utilities.
 
+local check = require("cosmic.check")
 local fuzzy = require("cosmic.fuzzy")
 
 -- distance tests
@@ -76,8 +77,7 @@ local function test_distance_longer_strings()
 end
 
 local function test_levenshtein_alias_is_gone()
-  local f = fuzzy as {string: any} -- cast: record as map for introspection
-  assert(f["levenshtein"] == nil,
+  assert(not check.is_exposed(fuzzy, "levenshtein"),
     "the levenshtein alias is retired (#1002); distance is the name")
 end
 

@@ -167,6 +167,5 @@ local function test_new_and_merge_on_umbrella()
   -- Box exists only as a TYPE, never as a value export.
   assert(type(quicksand.new) == "function", "quicksand.new is the constructor")
   assert(type(quicksand.merge) == "function", "quicksand.merge composes options")
-  local q = quicksand as {string: any} -- cast: record as map for introspection
-  assert(q["Box"] == nil, "the Box VALUE re-export is gone (#989)")
+  assert(not check.is_exposed(quicksand, "Box"), "the Box VALUE re-export is gone (#989)")
 end
