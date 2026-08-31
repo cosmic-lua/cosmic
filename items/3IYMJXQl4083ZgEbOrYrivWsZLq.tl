@@ -6,7 +6,9 @@ return {
   ["id"] = "3IYMJXQl4083ZgEbOrYrivWsZLq",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1585,
-  ["reviewer"] = "review-rivW_sZLq-w9p2",
   ["speccers"] = "6c2afc8a-db7e-5772-90f9-63faf496a1d7",
   ["title"] = "casts: the 26 type-defeating test probes behind two named helpers — check.refuses, and one for absent surfaces",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d127c7386db207c2e258f4b206597d95edc15b58",
+  ["verdict_spec"] = "08d81e1af012301bbf0ac4af6d78ee127ce97c766f36ea4f9af521656b57bd26",
 }
