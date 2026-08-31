@@ -40,6 +40,8 @@ local MAKE_BLOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK
 local MAKE_SYM < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SYM
 local REFER < const > = unix.LANDLOCK_ACCESS_FS_REFER -- ABI 2+
 local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE -- ABI 3+
+local NET_BIND_TCP < const > = unix.LANDLOCK_ACCESS_NET_BIND_TCP -- ABI 4+
+local NET_CONNECT_TCP < const > = unix.LANDLOCK_ACCESS_NET_CONNECT_TCP -- ABI 4+
 
 --- Convenience masks. `ALL` is the full current set; `RW` covers read
 --- + write (including creating and removing files) but *not* execute —
@@ -77,6 +79,10 @@ local WRITE < const > = WRITE_FILE | TRUNCATE | REMOVE_FILE | REMOVE_DIR
 | REFER
 local RW < const > = READ | WRITE
 local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
+--- Both TCP net rights, for a rule granting connect and bind alike.
+--- Needs ABI 4 (Linux 6.7+); there is no partial net enforcement below
+--- it, so unlike `ALL` this is never silently stripped.
+local NET_ALL < const > = NET_BIND_TCP | NET_CONNECT_TCP
 
 --- A single path -> access-mask rule in a restrict() call.
 --- `access` is an OR of cosmic.landlock.* flag constants (READ, EXEC,
@@ -95,15 +101,31 @@ local record Rule
   optional: boolean
 end
 
---- Options for `restrict`. `handled` narrows which access categories
+--- A single port -> access-mask rule, granting `access` (NET_BIND_TCP
+--- and/or NET_CONNECT_TCP) on `port`, a host-byte-order TCP port. Must
+--- be a subset of the call's `handled_net` mask.
+local record NetRule
+  port: integer
+  access: integer
+end
+
+--- Options for `restrict`. `handled` narrows which fs access categories
 --- the sandbox controls (categories outside it are left unrestricted;
 --- defaults to cosmic.landlock.ALL). `rules` lists allowed paths.
+--- `handled_net` does the same for TCP (NET_BIND_TCP / NET_CONNECT_TCP;
+--- nil or 0 leaves the net domain untouched by this call — omitting it
+--- entirely, rather than passing 0, matters: any non-nil value widens
+--- the create_ruleset request to the ABI-4 struct layout, which an
+--- older kernel rejects). `net_rules` lists allowed ports. Needs ABI 4;
+--- see `restrict`'s doc for what happens below it.
 --- `no_new_privs` defaults to true (sets PR_SET_NO_NEW_PRIVS before the
 --- restrict, which the kernel requires unless the caller already set it
 --- or holds CAP_SYS_ADMIN).
 local record RestrictOptions
   handled: integer
   rules: {Rule}
+  handled_net: integer
+  net_rules: {NetRule}
   no_new_privs: boolean
   --- Turn an unsupported host into a successful no-op instead of an
   --- error — the explicit fail-open escape hatch, matching
@@ -127,6 +149,7 @@ end
 
 local record LandlockModule
   type Rule = Rule
+  type NetRule = NetRule
   type RestrictOptions = RestrictOptions
   type Enforcement = Enforcement
   EXECUTE: integer
@@ -144,15 +167,27 @@ local record LandlockModule
   MAKE_SYM: integer
   REFER: integer
   TRUNCATE: integer
+  NET_BIND_TCP: integer
+  NET_CONNECT_TCP: integer
   READ: integer
   EXEC: integer
   WRITE: integer
   RW: integer
   ALL: integer
+  NET_ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
   restrict: function(opts?: RestrictOptions): Enforcement | nil, string
 end
+
+-- Declared before the functions below so restrict() can reach
+-- available()/abi() through the module table (M.available()/M.abi(),
+-- not the local upvalues) — where tests intercept them
+-- (landlock_net_test.tl monkeypatches landlock.available/landlock.abi
+-- to exercise the ABI-4 net gate without a real ABI-4 kernel, or any
+-- real landlock support at all), mirroring cosmic.env's
+-- M-before-functions layout for the same reason.
+local M: LandlockModule
 
 --- Per-ABI "max access" mask. Categories above the kernel's supported
 --- ABI MUST be stripped before create_ruleset or it returns EINVAL.
@@ -164,6 +199,12 @@ local function abi_mask(abi_version: integer): integer
   if abi_version >= 3 then mask = mask | TRUNCATE end
   return mask
 end
+
+-- ABI 4 (Linux 6.7+) introduced TCP port rules via a wholly separate
+-- struct field (handled_access_net); below it there is no partial
+-- grant to offer, unlike the fs bits abi_mask strips above, so a net
+-- request either goes through whole or refuses.
+local NET_ABI < const > = 4
 
 -- The kernel's ABI answer cannot change within a process; probe once
 -- and cache, matching pledge.available() / unveil.available().
@@ -216,11 +257,17 @@ end
 --- truncate is governed by its "wpath" group — where that matters.
 local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   opts = opts or {}
-  if not available() then
+  -- M.available()/M.abi(), not the local upvalues: see the M
+  -- forward-declaration comment above — these are the reads a mocked
+  -- landlock.available/landlock.abi must reach to prove the ABI-4 net
+  -- gate below without a real old kernel or a real landlock-enabled
+  -- host at all (both mocked true keeps this whole branch off any real
+  -- syscall, since the ABI check below returns before either is made).
+  if not M.available() then
     if opts.best_effort then return {abi = 0, handled = 0, stripped = 0} end
     return nil, "landlock: unsupported on this host"
   end
-  local abi_version = abi()
+  local abi_version = M.abi()
   if abi_version == nil then
     -- Unreachable past the available() gate; kept so the narrowing is
     -- honest rather than cast.
@@ -230,7 +277,23 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   local requested = opts.handled or ALL
   local handled = requested & mask
   local stripped = requested & ~ mask
-  local rs, cerr = unix.landlock_create_ruleset(handled, 0)
+  -- handled_net is only ever sent when non-zero: a nil/absent third
+  -- argument keeps create_ruleset on the ABI-1 struct layout, while any
+  -- non-nil value (even 0) widens the request to the ABI-4 layout,
+  -- which a kernel below it rejects with E2BIG.
+  local net_handled = opts.handled_net or 0
+  if net_handled ~= 0 and abi_version < NET_ABI then
+    return nil, string.format(
+      "landlock: net section requires ABI %d, this kernel is ABI %d",
+      NET_ABI, abi_version)
+  end
+  local rs: integer = nil
+  local cerr: string = nil
+  if net_handled ~= 0 then
+    rs, cerr = unix.landlock_create_ruleset(handled, 0, net_handled)
+  else
+    rs, cerr = unix.landlock_create_ruleset(handled, 0)
+  end
   if not rs then
     return nil, "landlock: create_ruleset: " .. tostring(cerr)
   end
@@ -275,6 +338,19 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
       unix.close(pfd)
     end
   end
+  for _, nr in ipairs(opts.net_rules or {}) do
+    -- Intersect against the actual handled_net set, mirroring the fs
+    -- rule loop above: a caller narrowing handled_net must get exactly
+    -- that access, never a kernel EINVAL.
+    local naccess = (nr.access or 0) & net_handled
+    if naccess ~= 0 then
+      local ok, rerr = unix.landlock_add_net_rule(rsfd, nr.port, naccess, 0)
+      if not ok then
+        return fail(string.format("landlock: add_net_rule(port %d): %s",
+            nr.port, tostring(rerr)))
+      end
+    end
+  end
   if opts.no_new_privs ~= false then
     local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
     if not ok then
@@ -297,7 +373,7 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   return {abi = abi_version, handled = handled, stripped = stripped}
 end
 
-local M: LandlockModule = {
+M = {
   EXECUTE = EXECUTE,
   WRITE_FILE = WRITE_FILE,
   READ_FILE = READ_FILE,
@@ -313,11 +389,14 @@ local M: LandlockModule = {
   MAKE_SYM = MAKE_SYM,
   REFER = REFER,
   TRUNCATE = TRUNCATE,
+  NET_BIND_TCP = NET_BIND_TCP,
+  NET_CONNECT_TCP = NET_CONNECT_TCP,
   READ = READ,
   EXEC = EXEC,
   WRITE = WRITE,
   RW = RW,
   ALL = ALL,
+  NET_ALL = NET_ALL,
   abi = abi,
   available = available,
   restrict = restrict,
