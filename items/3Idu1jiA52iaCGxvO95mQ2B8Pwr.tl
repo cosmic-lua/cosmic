@@ -5,6 +5,7 @@ return {
   ["claim"] = "964d508a-c0a9-5869-b24c-303d4052a523",
   ["id"] = "3Idu1jiA52iaCGxvO95mQ2B8Pwr",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 296,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage cosmo.FetchStream chunked-edge-case tests",
 }
