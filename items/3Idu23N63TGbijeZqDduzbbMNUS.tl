@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 300,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "orch9-review-uzbb2",
   ["title"] = "salvage cosmo encoding/escaping primitive value-correctness tests",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "7defd8de5a534e8d9f71c16e7dd1cf16299172bb",
+  ["verdict_spec"] = "f10aa783d37514b566014b2673bbf4663a6d23f6b0796c9cd0ea60590ce1c8ce",
 }
