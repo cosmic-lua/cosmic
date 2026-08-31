@@ -1,92 +1,118 @@
 ## Change
 
-Bump the vendored Lua from 5.4.6 to 5.4.9 in `third_party/lua/`, re-applying the
-fork's integration over upstream's changes.
+Give `third_party/lua` the structure `third_party/sqlite3` already has — pristine
+upstream sources, a mechanical rewrite, and numbered patches — and land the
+5.4.6 → 5.4.9 bump as the first exercise of it.
 
-### The gap, and why it matters here
+Backporting the individual safety fixes was the cheaper option and is rejected
+deliberately: it treats the symptom, leaves the version string describing a tree it
+no longer matches, and leaves the next bump exactly as expensive as this one.
 
-`third_party/lua/lua.h` declares `LUA_VERSION_RELEASE "6"` and
-`third_party/lua/README.cosmo` names the provenance as `lua/lua@6443185167c7`,
-"New release number (5.4.6)", 2 May 2023. Upstream's 5.4 line has since reached
-**5.4.9** (25 Aug 2026) and is now closed — lua.org states no further 5.4 releases
-are planned.
+### The gap that motivates moving at all
 
-Between them are **50 bug-fix commits touching 32 files, +488/-296**. Several are
-memory-safety or GC correctness in an interpreter that runs arbitrary user code:
-
-```
-Bug: Use after free in 'luaV_finishset'
-Bug: shift overflow in utf-8 decode
-Bug: new metatable in weak table can fool the GC
-Bug: Issues with write barrier for __newindex
-Bug: Constructors with nils can overflow counters
-Bug: GC checks stack space before running finalizer
-Bug: Loading a binary chunk does not run the GC
-Bug: luaL_traceback may need more than 5 stack slots
-Bug: Bad stack manipulation in 'multiline' (REPL)
-```
-
-**Two were probed directly and are absent from this tree**, so the gap is real
-rather than inferred:
+`third_party/lua/lua.h` declares `LUA_VERSION_RELEASE "6"`; `README.cosmo` names
+`lua/lua@6443185167c7`, "New release number (5.4.6)", 2 May 2023. Upstream's 5.4
+line reached **5.4.9** (25 Aug 2026) and is now closed. Between them: **50 bug-fix
+commits, 32 files, +488/-296**, including a use-after-free, a GC write-barrier bug,
+and an integer overflow. Two were probed and are absent here:
 
 ```
 $ grep -c "anchor 't'" third_party/lua/lvm.c
-0                                    # the luaV_finishset use-after-free fix
+0                                   # luaV_finishset use-after-free fix
 
 $ grep -n "count > 5" third_party/lua/lutf8lib.c
 91:    if (count > 5 || res > MAXUTF || res < limits[count])
-                                     # the pre-fix form; upstream now returns
-                                     # early on c >= 0xfe before the shift
+                                    # pre-fix form; upstream returns early
+                                    # on c >= 0xfe before the shift
 ```
 
-### The cost, measured, and where it actually lands
+### What the divergence actually is
 
-`third_party/lua` diverges from stock 5.4.6 by **3,312 changed lines across 58
-files** — `lapi.c` 515, `lauxlib.c` 453, `lvm.c` 120, `ldo.c` 114, `lobject.c` 96,
-`lcode.c` 68, `lparser.c` 64, `llex.c` 63 and so on. **Almost none of that is this
-fork's.** Measured against `jart/cosmopolitan@3293fad0`, this fork's own changes
-under `third_party/lua` are 13 files, +2,169/-332, and they are bindings sharing
-the directory rather than interpreter code:
+It reads as 3,312 changed lines across 58 files with **zero pristine files**, which
+sounds intractable. Decomposed, it is mostly mechanical:
+
+| | lines |
+|---|---|
+| banner/header blocks (cosmo's license box replacing Lua's `/* $Id */`) | 980 |
+| include-path rewrites to full repo paths | 801 |
+| **mechanical subtotal** | **1,781** |
+| **semantic remainder** | **1,531** |
+
+and the semantic half is concentrated: `lapi.c` 453 and `lauxlib.c` 408 are **56% of
+it**, then `lctype.h` 94, `luaconf.h` 67, `lvm.c` 56, `lua.h` 41, `ldo.c` 41.
+
+Separately, **27 files in that directory are not Lua at all** — bindings and glue
+that merely share the folder, ~8,700 lines:
 
 ```
-+1655 -239  lunix.c            +174 -2   luaencodeluadata.c
- +169 -22   luaencodejsondata.c +46  -0   lrepl.c
-  +45 -0    lreplmod.c          +45 -58   lua.main.c
-   +6 -5    lauxlib.c   <- the ONLY core Lua file this fork touches
+lunix.c 5111   luac.main.c 746   luaencodeluadata.c 616   lrepl.c 534
+luaencodejsondata.c 433   lua.main.c 416   luacallwithtrace.c 89
+luaencodeurl.c 84   serialize.c 68   luaparseurl.c 60   visitor.c 59
+cosmo.h 49   luapushheaders.c 45   lreplmod.c 45  … and 13 smaller
 ```
 
-So the rebase is over **upstream cosmopolitan's** integration, not ours. Take the
-5.4.9 sources, re-apply that integration, and verify. The upstream delta being
-+488/-296 is what makes this tractable: it is a small change to rebase a large
-patch set across.
+Five stock files are dropped outright: `lctype.c`, `lua.c`, `onelua.c`,
+`ljumptab.h`, `lopnames.h`.
 
-### The decision this item must make first
+### The model is already in this tree
 
-Upstream cosmopolitan (`jart/cosmopolitan`) is the natural owner of this bump —
-the integration being rebased is theirs — but that repo is running roughly two
-commits a month, and doing the bump here increases this fork's divergence from it,
-which is a property this project has chosen to protect. Settle which before
-starting:
+`third_party/sqlite3/update.sh` fetches pristine upstream by URL, verifies sha256,
+applies a mechanical `rewrite_includes`, then applies `patches/*.patch` in order.
+Its own comment states the principle this item is applying to Lua:
 
-- do it here and carry a larger delta (and offer it upstream as a PR); or
-- do it here narrowly by backporting only the safety-relevant commits, keeping the
-  version at 5.4.6 and the delta small; or
-- wait for upstream, having established that waiting is acceptable given the fixes
-  named above.
+> any further deviation must be checked into patches/ as a numbered patch so
+> version bumps stay mechanical
 
-The middle option deserves explicit consideration: it is smaller and it targets the
-actual risk, at the cost of a version string that no longer describes the tree.
+So this is not a new mechanism. It is the second use of one this fork already
+built, for the dependency where the payoff is largest.
+
+### The work, in landing order
+
+1. **Move the 27 non-Lua files out of `third_party/lua/`.** They are bindings, not
+   interpreter. Mostly `git mv` plus `BUILD.mk` and include-path updates. After
+   this the directory is Lua plus a delta, which is what makes the rest legible.
+2. **Write `third_party/lua/update.sh`** on the sqlite3 model: fetch a pinned
+   `lua-<version>.tar.gz` by URL, verify sha256, install the pristine sources,
+   apply the mechanical transform (the banner block and the include rewrite — both
+   are scriptable and together account for 1,781 of the 3,312 lines), then apply
+   `patches/*.patch`.
+3. **Extract the 1,531 semantic lines into numbered patches**, starting with the two
+   files carrying the majority. Each patch gets a header saying what it is for, as
+   sqlite3's do.
+4. **Bump to 5.4.9** by running the machinery, and update `README.cosmo` with the
+   version and sha256.
+
+Each step is its own PR; step 1 is independent and can land first.
+
+### The acceptance test that proves the extraction lost nothing
+
+Before bumping, run `update.sh` pinned at **5.4.6** and byte-compare the result
+against the current tree. Identical output means the mechanical transform plus the
+patch set fully capture the divergence — nothing was silently dropped. Only then
+change the version argument to 5.4.9. Without this check, an incomplete extraction
+is indistinguishable from a successful one until something breaks at runtime.
 
 ### Gate
 
-`make -j$(nproc) o//tool/lua/test` — which includes the binding annotation ratchet
-(`definitions coverage`, `return arity`) that would catch a binding broken by the
-rebase. Re-probe both fixes above afterwards. Cosmic side: a cosmos release, a
-`3p/cosmos/cosmos_pin.tl` bump, and `bin/cosmic --make ci`, since the Teal
-compiler and the whole stdlib run on this interpreter.
+`make -j$(nproc) o//tool/lua/test`, including the binding annotation ratchet
+(`definitions coverage`, `return arity`) that catches a binding broken by the move.
+Re-probe both absent fixes above. Cosmic side: a cosmos release, a
+`3p/cosmos/cosmos_pin.tl` bump, and `bin/cosmic --make ci` — the Teal compiler and
+the whole stdlib run on this interpreter.
+
+### The cost, stated
+
+This grows the diff against `jart/cosmopolitan` in a directory that already
+diverges heavily, which is a property this project otherwise protects. Taken
+deliberately: the current shape charges its cost at every bump forever, upstream is
+running about two commits a month so waiting for them to do it is not a plan, and
+the restructure is offerable upstream as a PR on its own merits — the sqlite3 one
+established the pattern there.
 
 ## Non-goals
 
-- **Not Lua 5.5.** That is a separate capture; 5.4.9 is the terminal release of the
-  line this tree is already on.
-- No change to the fork's own bindings beyond what the rebase requires.
+- **Not Lua 5.5.** Separate item. 5.4.9 is the terminal release of the line this
+  tree already targets, and the machinery built here is what makes 5.5 assessable.
+- **No behaviour change to the bindings.** Step 1 moves files; it does not change
+  what they do.
+- No attempt to upstream any of the semantic patches to lua.org.
