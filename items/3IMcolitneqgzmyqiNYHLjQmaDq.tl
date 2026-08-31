@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "orch9-2-HLjQ",
+  ["claim"] = "orch9-2-HLjQ",
   ["id"] = "3IMcolitneqgzmyqiNYHLjQmaDq",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["repo"] = "cosmic-lua/cosmopolitan",
