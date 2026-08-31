@@ -25,7 +25,9 @@ local function build_large(): {any}
 end
 
 local large_table = build_large()
-local large_json = json.encode(large_table)
+-- build_large's output always encodes; the fallback is never taken and
+-- exists only so large_json stays a plain string, not string | nil.
+local large_json = json.encode(large_table) or "[]"
 
 local function scenarios(): {pt.Scenario}, string
   return {

@@ -353,10 +353,13 @@ local function write_version(dest: string): boolean, string
   -- `return`, because this one is `require`d. cosmo.EncodeLua is called
   -- directly, not through the codec wrapper: a C binding, so the stamp
   -- bytes are identical whichever generation runs this generator.
-  local stamp = "return " .. cosmo.EncodeLua({
-      cosmic = declared_version(),
-      cosmos = cosmos is string and cosmos or "unknown",
-    }) .. "\n"
+  -- EncodeLua returns nil only when a strict option refuses an
+  -- out-of-domain value; no options are passed for this plain
+  -- two-string-field table, so the fallback is never taken.
+  local stamp = "return " .. (cosmo.EncodeLua({
+        cosmic = declared_version(),
+        cosmos = cosmos is string and cosmos or "unknown",
+      }) or "{}") .. "\n"
   local out = fs.join(dest, VERSION_STORED)
   local mok, merr = fs.make_dirs(fs.dirname(out))
   if not mok then

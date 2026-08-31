@@ -456,7 +456,7 @@ local function main(): integer, string
     _G.arg = opts.script_args as {string} -- cast: arg map includes 0/-1 keys
     -- Arm line-coverage collection when COSMIC_COVERAGE names a
     -- directory (guarded so the common path never loads the module)
-    local cov_dump: function() = nil
+    local cov_dump: function() | nil = nil
     if os.getenv("COSMIC_COVERAGE") then
       cov_dump = require("cosmic.coverage").enable_from_env()
     end

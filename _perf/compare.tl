@@ -353,7 +353,7 @@ end
 --- @param base Results? The baseline file the deltas came from
 --- @param cur Results? The current file the deltas came from
 --- @return string The report text
-local function format(deltas: {pt.Delta}, base?: pt.Results, cur?: pt.Results): string
+local function format(deltas: {pt.Delta}, base?: pt.Results | nil, cur?: pt.Results | nil): string
   local lines: {string} = {}
   local counts: {string: integer} = {}
   if base and cur then
@@ -462,7 +462,7 @@ local record compare
   loudest_control: function(controls: {pt.Results}, threshold_pct?: number): {string: pt.Delta}
   format_delta: function(d: pt.Delta): string
   format_identity: function(base: pt.Results, cur: pt.Results): string
-  format: function(deltas: {pt.Delta}, base?: pt.Results, cur?: pt.Results): string
+  format: function(deltas: {pt.Delta}, base?: pt.Results | nil, cur?: pt.Results | nil): string
 end
 
 local M: compare = {

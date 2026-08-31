@@ -157,7 +157,7 @@ end
 --- @param run function(): integer The entry to run
 --- @return integer Exit code from the entry
 local function with_coverage(run: function(): integer): integer
-  local cov_dump: function() = nil
+  local cov_dump: function() | nil = nil
   if os.getenv("COSMIC_COVERAGE") then
     cov_dump = require("cosmic.coverage").enable_from_env()
   end

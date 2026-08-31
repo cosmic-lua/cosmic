@@ -181,6 +181,10 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   end
 
   local sel = v.select as Selection -- cast: a graph verb always has one
+  local target = v.target
+  if not target then
+    return false, "not a graph verb"
+  end
   local picked, serr = selection.files(candidates(proj, sel), paths, proj.root)
   if not picked then
     io.stderr:write((serr or "make: no such selection") .. "\n")
@@ -210,10 +214,10 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   -- never got past `compile`. Best-effort: a first run has no summary
   -- to remove, and that is not this stage's failure to report.
   local summary = fs.join(project.BUILD_DIR,
-    v.target .. "-summary.txt")
+    target .. "-summary.txt")
   local _ok, _err = fs.remove(summary)
 
-  local code, gerr = graph.run(proj, v.target, overrides, cosmic)
+  local code, gerr = graph.run(proj, target, overrides, cosmic)
   if gerr and gerr ~= "" then
     io.stderr:write(gerr .. "\n")
     return false, "make"

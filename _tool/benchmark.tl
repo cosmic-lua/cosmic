@@ -318,8 +318,9 @@ end
 local function format_results(file_path: string, run_result: RunResult): string
   local lines: {string} = {}
 
-  if run_result.message then
-    table.insert(lines, file_path .. ": ERROR: " .. run_result.message)
+  local message = run_result.message
+  if message then
+    table.insert(lines, file_path .. ": ERROR: " .. message)
     return table.concat(lines, "\n")
   end
 
@@ -332,9 +333,10 @@ local function format_results(file_path: string, run_result: RunResult): string
   table.insert(lines, "pkg: " .. file_path)
 
   for _, result in ipairs(run_result.results) do
-    if result.error then
+    local err = result.error
+    if err then
       table.insert(lines, result.name .. ": FAIL")
-      table.insert(lines, "  error: " .. result.error)
+      table.insert(lines, "  error: " .. err)
     else
       -- Go-style output: BenchmarkName    N    ns/op
       local iter_str = tostring(result.iterations)

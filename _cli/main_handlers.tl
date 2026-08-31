@@ -124,8 +124,9 @@ local function handle_compile(file: string, output?: string, write_if_changed?: 
     {include_dirs = include_dirs, strict = strict, chunk_name = file})
   local exit_code: integer
   local err_msg: string
-  if result.ok then
-    exit_code, err_msg = write_output(result.code, output, write_if_changed)
+  local code = result.code
+  if result.ok and code then
+    exit_code, err_msg = write_output(code, output, write_if_changed)
   else
     -- With hints, like --check types: `--make build` compiles through
     -- this path, so it is where a project author actually meets the
@@ -144,8 +145,9 @@ local function handle_format(file: string, output?: string, write_if_changed?: b
   local result = fmt.format_file(file)
   local exit_code: integer
   local err_msg: string
-  if result.ok then
-    exit_code, err_msg = write_output(result.code, output, write_if_changed)
+  local code = result.code
+  if result.ok and code then
+    exit_code, err_msg = write_output(code, output, write_if_changed)
   else
     io.stderr:write(fmt.format_issues(result.errors) .. "\n")
     exit_code = 1
@@ -176,6 +178,12 @@ local function handle_check_format(file: string): integer
     instrument.finish(span, 1)
     return 1
   end
+  local code = result.code
+  if not code then
+    io.stderr:write(file .. ": format produced no output\n")
+    instrument.finish(span, 1)
+    return 1
+  end
 
   local fs = require("cosmic.fs")
   local original, read_err = fs.read(file)
@@ -185,7 +193,7 @@ local function handle_check_format(file: string): integer
     return 1
   end
 
-  if original == result.code then
+  if original == code then
     io.write("Format check passed: " .. file .. "\n")
     instrument.finish(span, 0)
     return 0
@@ -196,7 +204,7 @@ local function handle_check_format(file: string): integer
     orig_lines[#orig_lines + 1] = line
   end
   local fmt_lines: {string} = {}
-  for line in (result.code .. "\n"):gmatch("([^\n]*)\n") do
+  for line in (code .. "\n"):gmatch("([^\n]*)\n") do
     fmt_lines[#fmt_lines + 1] = line
   end
   local max = math.max(#orig_lines, #fmt_lines)

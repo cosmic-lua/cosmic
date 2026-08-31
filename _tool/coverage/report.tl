@@ -297,7 +297,7 @@ local function analyze(entry: FileEntry): FileReport
     total = 0,
     missing = {},
   }
-  local exec: {integer: boolean} = nil
+  local exec: {integer: boolean} | nil = nil
   local source, rerr = fs.read(entry.parse)
   if not source then
     report.note = rerr or ("cannot read " .. entry.parse)
