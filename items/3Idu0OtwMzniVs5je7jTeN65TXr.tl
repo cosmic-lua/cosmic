@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 299,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "orch9-review-json",
   ["title"] = "salvage the JSONTestSuite + json.org corpus into tool/lua",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "ad626a26c00d8219259a34b703a87b3204b5a53b",
+  ["verdict_spec"] = "3c7a8019fbe7c93341010d4fcde858709b1a4d88f99c499fb9621320a9da7c16",
 }
