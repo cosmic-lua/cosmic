@@ -320,12 +320,13 @@ local function test_embed_uses_deflate()
   assert(reader:close())
 end
 
--- Test that embedded .lua files are stored uncompressed (method=0): the
--- produced executable loads them at boot, so storing skips a per-launch
--- inflate().
-local function test_embed_stores_lua()
-  -- Compressible content that deflate WOULD shrink, to prove the store is a
-  -- deliberate .lua policy and not just deflate declining to grow the file.
+-- Test that a .lua file OUTSIDE the measured boot-path set is deflated
+-- like any other entry: the boot set (cosmic.embed.init's BOOT_SET) is
+-- a positive keep list, not a blanket ".lua" exemption -- an arbitrary
+-- embedded module a bare launch never loads gets the size win too.
+local function test_embed_deflates_non_boot_lua()
+  -- Compressible content that deflate WOULD shrink, to prove this is a
+  -- deliberate boot-set policy and not just deflate declining to grow it.
   local compressible = "-- " .. string.rep("abcdefghij", 100) .. "\nreturn 1\n"
   local input = write_temp("store_test.lua", compressible)
   local output = fs.join(tmpdir, "cosmic-store")
@@ -340,12 +341,41 @@ local function test_embed_stores_lua()
   local name = input:gsub("^/+", "")
   local stat = check.must(reader:stat(name),
     "stat should return metadata for embedded file")
-  assert(stat.method == 0,
-    "embedded .lua should be stored (method=0), got: " .. tostring(stat.method))
-  assert(stat.compressed_size == stat.size,
-    "stored .lua should not be compressed: " .. tostring(stat.compressed_size) .. " vs " .. tostring(stat.size))
+  assert(stat.method == 8,
+    "a non-boot-set .lua should be deflated (method=8), got: " .. tostring(stat.method))
+  assert(stat.compressed_size < stat.size,
+    "deflate should reduce size: " .. tostring(stat.compressed_size) .. " >= " .. tostring(stat.size))
   -- Content must still round-trip identically.
-  assert(reader:read(name) == compressible, "stored .lua content should match")
+  assert(reader:read(name) == compressible, "deflated .lua content should match")
+  assert(reader:close())
+end
+
+-- Test that a boot-path entry (main.lua: the /zip entry point, loaded
+-- before require() exists to resolve anything else) is stored, not
+-- deflated -- the one case BOOT_SET keeps out of the deflate-by-default
+-- policy above.
+local function test_embed_stores_boot_set_entry()
+  write_temp("boot/main.lua", 'print("boot")\n')
+  local output = fs.join(tmpdir, "cosmic-boot-store")
+
+  local __r14 = check.must(check.must(
+      child.start({cosmic, "--embed", fs.join(tmpdir, "boot"), "--output", output})):wait())
+  local ok, out = __r14.ok, __r14.stdout
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  local data = fs.read(output)
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
+
+  -- A user main.lua is wrapped behind the generated searcher entry, so
+  -- the boot-set name "main.lua" now holds the generated wrapper.
+  local stat = check.must(reader:stat("main.lua"),
+    "stat should return metadata for the boot-set entry")
+  assert(stat.method == 0,
+    "main.lua is in the boot set and should be stored (method=0), got: " ..
+    tostring(stat.method))
+  assert(stat.compressed_size == stat.size,
+    "stored main.lua should not be compressed: " .. tostring(stat.compressed_size) ..
+    " vs " .. tostring(stat.size))
   assert(reader:close())
 end
 
