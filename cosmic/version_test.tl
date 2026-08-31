@@ -11,14 +11,14 @@ local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local function test_v_flag()
   local r = check.must(child.run({cosmic, "-v"}))
   assert(r.ok, "cosmic -v should succeed")
-  assert(r.stdout:find("Lua 5.4"), "should contain Lua version, got: " .. r.stdout)
+  assert(r.stdout:find("Lua 5.5"), "should contain Lua version, got: " .. r.stdout)
 end
 
 --- cosmic --version should produce the same output as -v
 local function test_version_flag()
   local r = check.must(child.run({cosmic, "--version"}))
   assert(r.ok, "cosmic --version should succeed")
-  assert(r.stdout:find("Lua 5.4"), "should contain Lua version, got: " .. r.stdout)
+  assert(r.stdout:find("Lua 5.5"), "should contain Lua version, got: " .. r.stdout)
 end
 
 --- -v and --version should produce identical output
@@ -34,14 +34,14 @@ local function test_full_version_format()
   assert(r.ok, "cosmic -v should succeed")
   local output = r.stdout:gsub("%s+$", "")
   -- the binary has version.lua embedded, so should show full format:
-  -- cosmic-lua <version> (cosmos <version>, Lua 5.4)
+  -- cosmic-lua <version> (cosmos <version>, Lua 5.5)
   if output:find("^cosmic%-lua ") then
     assert(output:find("^cosmic%-lua %S+"), "should have cosmic version after 'cosmic-lua '")
     assert(output:find("%(cosmos %S+,"), "should have cosmos version in parens")
-    assert(output:find("Lua 5%.4%)"), "should end with Lua version in parens")
+    assert(output:find("Lua 5%.5%)"), "should end with Lua version in parens")
   else
     -- fallback: just Lua version (bootstrap binary without version.lua)
-    assert(output == "Lua 5.4", "fallback should be plain 'Lua 5.4', got: " .. output)
+    assert(output == "Lua 5.5", "fallback should be plain 'Lua 5.5', got: " .. output)
   end
 end
 

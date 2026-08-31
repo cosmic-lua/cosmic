@@ -5,7 +5,7 @@
 cosmic is a batteries-included Lua distribution built on [Cosmopolitan Libc](https://github.com/jart/cosmopolitan). it produces fat-binary executables that run on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD from a single file. the language is [Teal](https://github.com/teal-language/tl) (typed Lua) compiled to Lua 5.4.
 
 the primary artifact is `cosmic-lua` — a single executable containing:
-- Lua 5.4 runtime (via Cosmopolitan)
+- Lua 5.5 runtime (via Cosmopolitan)
 - Teal compiler and type checker
 - a standard library (`cosmic.*` modules) for fs, networking, crypto, json, sqlite, etc.
 - embedded documentation index
