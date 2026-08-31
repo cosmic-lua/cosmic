@@ -2,6 +2,7 @@ return {
   ["3p/tl/tl_patch/ast_cache.tl"] = {["covered"] = 0, ["total"] = 1},
   ["3p/tl/tl_patch/cast.tl"] = {["covered"] = 0, ["total"] = 1},
   ["3p/tl/tl_patch/closure.tl"] = {["covered"] = 0, ["total"] = 1},
+  ["3p/tl/tl_patch/for_control_var.tl"] = {["covered"] = 0, ["total"] = 1},
   ["3p/tl/tl_patch/narrow.tl"] = {["covered"] = 0, ["total"] = 1},
   ["_build/cast_sites.tl"] = {["covered"] = 29, ["total"] = 94},
   ["_build/casts.tl"] = {["covered"] = 47, ["total"] = 65},
