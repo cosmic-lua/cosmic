@@ -65,7 +65,7 @@ local function test_interactive_mode()
   local __r6 = check.must(proc:wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic -i should succeed")
-  assert(out:find("Lua 5.4", 1, true), "expected output to contain 'Lua 5.4'")
+  assert(out:find("Lua 5.5", 1, true), "expected output to contain 'Lua 5.5'")
   assert(out:find("hello", 1, true), "expected output to contain 'hello'")
 end
 
@@ -75,6 +75,6 @@ local function test_repl_no_args()
   local __r7 = check.must(proc:wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic with no args should enter REPL")
-  assert(out:find("Lua 5.4", 1, true), "expected output to contain 'Lua 5.4'")
+  assert(out:find("Lua 5.5", 1, true), "expected output to contain 'Lua 5.5'")
   assert(out:find("repl test", 1, true), "expected output to contain 'repl test'")
 end

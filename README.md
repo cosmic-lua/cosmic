@@ -7,7 +7,7 @@ single fat binary — `cosmic-lua` — that runs on Linux, macOS, Windows,
 FreeBSD, OpenBSD, and NetBSD, on both x86_64 and aarch64, with no
 installation step and no dependencies.
 
-the binary contains the Lua 5.4 runtime, the Teal compiler and type
+the binary contains the Lua 5.5 runtime, the Teal compiler and type
 checker, a typed standard library (`cosmic.*`: fs, net, fetch, json,
 sqlite, crypto hashing, sandboxing, and more), embedded documentation,
 and tooling for building your own single-file executables.
