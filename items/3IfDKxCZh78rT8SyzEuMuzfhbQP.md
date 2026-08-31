@@ -1,6 +1,11 @@
 ## Change
 
-Bump vendored Lua from 5.4.9 to 5.5.1 and run cosmic's gate against it. Measured,
+Bump vendored Lua from 5.4.9 to 5.5.1 and run cosmic's gate against it.
+
+**In flight:** cosmic-lua/cosmopolitan#294 (interpreter) and cosmic-lua/cosmic#1587
+(the carried tl patch). Both draft; neither is useful alone. Steps 1-3 and 5 below
+are done and verified in #294 — what remains is step 4, the cosmos release and pin
+bump, which is the only thing that runs cosmic's own suite on a 5.5 runtime. Measured,
 this is a days-scale experiment, not a migration — **no Teal bump is required and
 there is no dependency blocker.**
 
@@ -128,17 +133,21 @@ overestimates or misreadings that measuring properly refuted:
 
 ### What to do
 
-1. Run `update.sh` at 5.5.1; resolve the 8 deep hunks (upstream's `op_order`
-   restructuring in `lvm.c` is the substantive one), leaving the 15 shallow
-   header hunks to mechanical re-application.
-2. Confirm the round-trip invariant still holds: re-running at 5.5.1 from the
-   committed tree must produce an empty `git diff --stat third_party/lua`.
-3. `make -j$(nproc) o//tool/lua/test` must pass with the binding ratchets intact.
+1. ~~Run `update.sh` at 5.5.1 and resolve the rejected hunks.~~ Done in #294.
+   The dry-run estimate of 8 deep hunks was low: applied SEQUENTIALLY, as
+   `update.sh` really does, 28 files rejected across the three patches. Also
+   found: `update.sh` never reached patches 2 and 3 on a real run, because
+   `patch -p1` returns non-zero on any failed hunk and `set -e` aborts first.
+2. ~~Confirm the round-trip invariant.~~ Verified independently: the real
+   unmodified script re-run from the committed tree applies with zero rejects
+   and leaves `git diff --stat third_party/lua` empty.
+3. ~~`make o//tool/lua/test`.~~ Exit 0 from a cleaned `o/`, ratchets intact.
 4. Cut a cosmos release, bump `3p/cosmos/cosmos_pin.tl`, and run
    `bin/cosmic --make ci`. **This is the real proof.** Everything above is static
    analysis plus a hand-built interpreter; running cosmic's own suite on a 5.5
    runtime is what actually settles it.
-5. Update the version-banner literals (`cosmic/version_test.tl:14,21,37,44`,
+5. ~~Update the version-banner literals~~ — `README.cosmo` is done in #294; the
+   cosmic-side banner literals and docs still move with the pin bump in step 4: (`cosmic/version_test.tl:14,21,37,44`,
    `cosmic/binary_test.tl:68,78` — they read `_VERSION` at run time, so only the
    expected strings move) and the docs that name 5.4 (`docs/guides/index.md:3`,
    which ships in the binary; `README.md:10`; `AGENTS.md`).
@@ -151,6 +160,13 @@ overestimates or misreadings that measuring properly refuted:
   interpreter, which the tree will not have until this bump lands. Once cosmos
   ships 5.5, worth wiring as a build check — it is the only thing that catches
   a NEW const-control-variable break in one pass.
+- `third_party/lua/test/` in the fork is the vendored upstream **Lua 5.4** test
+  suite (41 tracked files, guarded by its own `local version = "Lua 5.4"` in
+  `all.lua`, referenced by no makefile or workflow). This bump makes it stale
+  rather than breaking it — it would refuse to run against 5.5 by its own guard,
+  and three of its files no longer parse. #294 deliberately leaves it alone,
+  since replacing it means vendoring the 5.5 suite, a separate artifact with its
+  own provenance. Worth its own item if the suite is meant to be live at all.
 - 5.5 prints floats with enough digits to round-trip. Cosmic formats via explicit
   `%.17g` (`cosmic/_literal_format.tl:76`) and via the C encoder for JSON, so the
   practical impact looks nil — not confirmed inside `ljson.c`.
