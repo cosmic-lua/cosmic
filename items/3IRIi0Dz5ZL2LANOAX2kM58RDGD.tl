@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "orch9-4-kM58",
+  ["claim"] = "orch9-4-kM58",
   ["id"] = "3IRIi0Dz5ZL2LANOAX2kM58RDGD",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
   ["repo"] = "whilp/cosmopolitan",
