@@ -6,7 +6,15 @@ local errstr = require("cosmic.errno").format
 local Stat = types.Stat
 local Dir = types.Dir
 
--- Wrap a raw unix.Dir with __close support
+--- Wrap a raw unix.Dir with __close support. Exported (beyond
+--- open_dir/open_dir_fd's internal use) as a test seam: a caller can
+--- hand it a stub matching unix.Dir's method shape to exercise the
+--- fd()/tell() EOPNOTSUPP-to-(-1) clamp below without a real
+--- /zip/... path or Windows runtime, the same pattern
+--- cosmic.quicksand.proxy.dial's exported `resolve` uses for its
+--- resolver seam.
+--- @param raw unix.Dir raw directory handle to wrap
+--- @return Dir the wrapped handle
 local function wrap_dir(raw: unix.Dir): Dir
   local is_closed = false
 
@@ -203,6 +211,7 @@ local record FsDirModule
   cwd: function(): string | nil, string
   open_dir: function(path: string): Dir | nil, string
   open_dir_fd: function(fd: integer): Dir | nil, string
+  wrap_dir: function(raw: unix.Dir): Dir
 end
 
 local M: FsDirModule = {
@@ -216,6 +225,7 @@ local M: FsDirModule = {
   cwd = cwd,
   open_dir = open_dir,
   open_dir_fd = open_dir_fd,
+  wrap_dir = wrap_dir,
 }
 
 return M

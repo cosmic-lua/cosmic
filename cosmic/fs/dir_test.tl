@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
+local fs_dir = require("cosmic.fs.dir")
 local cfd = require("cosmic.fd")
 local unix = require("cosmo.unix")
 
@@ -145,6 +146,40 @@ local function test_dir_fd()
 
   d:close()
   teardown(test_dir)
+end
+
+-- fd()/tell() EOPNOTSUPP-to-(-1) clamp. A real repro needs a /zip/...
+-- path or Windows (unix.Dir's own doc comment) — neither is reachable
+-- from this suite, so a stub matching unix.Dir's method shape stands
+-- in for the real handle, via the wrap_dir test seam dir.tl exports
+-- for exactly this. Without the `or -1` clamp in dir.tl's fd()/tell(),
+-- these fail: raw:fd()/raw:tell() returning nil would pass straight
+-- through, breaking the declared `integer` (never nil) return.
+local function fake_raw_reporting_eopnotsupp(): unix.Dir
+  local raw: {string: any} = {
+    read = function(_self: any): string | nil return nil end,
+    close = function(_self: any) end,
+    rewind = function(_self: any) end,
+    -- The EOPNOTSUPP case itself: the binding reports it as a bare
+    -- nil (its other two returns, an error string and Errno, are
+    -- dropped by dir.tl's `raw:fd() or -1` / `raw:tell() or -1` today
+    -- regardless, so this stub matches only the value the clamp sees).
+    fd = function(_self: any): integer | nil return nil end,
+    tell = function(_self: any): integer | nil return nil end,
+  }
+  return raw as unix.Dir -- cast: test double for userdata boundary
+end
+
+local function test_dir_fd_clamps_nil_to_sentinel()
+  local d = fs_dir.wrap_dir(fake_raw_reporting_eopnotsupp())
+  assert(d:fd() == -1,
+    "fd() should clamp a nil (EOPNOTSUPP) raw:fd() to -1, got: " .. tostring(d:fd()))
+end
+
+local function test_dir_tell_clamps_nil_to_sentinel()
+  local d = fs_dir.wrap_dir(fake_raw_reporting_eopnotsupp())
+  assert(d:tell() == -1,
+    "tell() should clamp a nil (EOPNOTSUPP) raw:tell() to -1, got: " .. tostring(d:tell()))
 end
 
 -- Filesystem statistics tests
