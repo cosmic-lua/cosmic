@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 295,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-lIn8_Hcv9-1",
   ["title"] = "salvage the Lua syntax-extension tests",
 }
