@@ -399,7 +399,7 @@ end
 -- syscalls and apply would fail.
 local function test_apply_enforces_fs_and_sys()
   local avail = sandbox.availability()
-  if not (avail.fs and avail.sys) then
+  if not (avail.fs.available and avail.sys.available) then
     check.enforce_skip("sandbox fs+sys unavailable on this host")
     return
   end
@@ -453,7 +453,7 @@ end
 -- everything afterwards.
 local function test_invalid_sys_leaves_fs_unapplied()
   local avail = sandbox.availability()
-  if not avail.fs then
+  if not avail.fs.available then
     check.enforce_skip("sandbox fs unavailable on this host")
     return
   end

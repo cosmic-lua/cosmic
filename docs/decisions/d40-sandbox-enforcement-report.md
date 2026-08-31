@@ -62,7 +62,9 @@
   - `_cli/driver.tl`'s `fence()` is the one caller that needs the
     all-skipped case to still succeed — its own doc already states a
     host that cannot enforce at all runs the recipe unfenced by
-    design. It passes `allow_unenforced = true` and checks
+    design, the same "fail-closed where enforceable, honest where not"
+    posture [D7](d07-contained-where-enforceable.md) settles for
+    containment generally. It passes `allow_unenforced = true` and checks
     `enforced.fs.state ~= "full"` (not `== "skipped"`) before its
     `COSMIC_FENCE`-gated warning: the old boolean read a degraded
     restrict as full enforcement (the defect above, reproduced at this
