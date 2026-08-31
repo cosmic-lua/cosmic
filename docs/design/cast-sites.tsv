@@ -93,9 +93,10 @@ cosmic/format/init.tl	141	numeric narrowing
 cosmic/format/init.tl	142	numeric narrowing
 cosmic/format/init.tl	162	numeric narrowing
 cosmic/format/init.tl	163	numeric narrowing
+cosmic/fs/dir_test.tl	170	userdata boundary
 cosmic/fs/find.tl	163	userdata boundary
 cosmic/fs/find.tl	187	userdata boundary
-cosmic/fs/find.tl	312	userdata boundary
+cosmic/fs/find.tl	316	userdata boundary
 cosmic/fs/find_close_test.tl	85	metatable access
 cosmic/fs/find_close_test.tl	87	metatable access
 cosmic/fs/octal.tl	23	numeric narrowing

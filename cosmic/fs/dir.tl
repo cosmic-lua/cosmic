@@ -6,7 +6,15 @@ local errstr = require("cosmic.errno").format
 local Stat = types.Stat
 local Dir = types.Dir
 
--- Wrap a raw unix.Dir with __close support
+--- Wrap a raw unix.Dir with __close support. Exported (beyond
+--- open_dir/open_dir_fd's internal use) as a test seam: a caller can
+--- hand it a stub matching unix.Dir's method shape to exercise the
+--- fd()/tell() EOPNOTSUPP-to-(-1) clamp below without a real
+--- /zip/... path or Windows runtime, the same pattern
+--- cosmic.quicksand.proxy.dial's exported `resolve` uses for its
+--- resolver seam.
+--- @param raw unix.Dir raw directory handle to wrap
+--- @return Dir the wrapped handle
 local function wrap_dir(raw: unix.Dir): Dir
   local is_closed = false
 
@@ -14,7 +22,7 @@ local function wrap_dir(raw: unix.Dir): Dir
     -- The second return is the dirent d_type (fs.DT_DIR / DT_REG /
     -- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
     -- so "is this entry a directory" needs no stat(2) call.
-    read = function(_self: Dir): string, integer
+    read = function(_self: Dir): string | nil, integer
       if is_closed then return nil end
       local name, kind = raw:read()
       return name, kind
@@ -27,14 +35,18 @@ local function wrap_dir(raw: unix.Dir): Dir
     end,
     fd = function(_self: Dir): integer
       if is_closed then return -1 end
-      return (raw:fd())
+      -- raw:fd() reports EOPNOTSUPP (nil) on a /zip/... path or on
+      -- Windows; -1 is the same not-a-live-fd sentinel close() uses.
+      return raw:fd() or -1
     end,
     rewind = function(_self: Dir)
       if not is_closed then raw:rewind() end
     end,
     tell = function(_self: Dir): integer
       if is_closed then return -1 end
-      return (raw:tell())
+      -- raw:tell() reports EOPNOTSUPP (nil) on a /zip/... path or on
+      -- Windows; -1 is the same not-a-live-position sentinel fd() uses.
+      return raw:tell() or -1
     end,
     closed = function(_self: Dir): boolean
       return is_closed
@@ -199,6 +211,7 @@ local record FsDirModule
   cwd: function(): string | nil, string
   open_dir: function(path: string): Dir | nil, string
   open_dir_fd: function(fd: integer): Dir | nil, string
+  wrap_dir: function(raw: unix.Dir): Dir
 end
 
 local M: FsDirModule = {
@@ -212,6 +225,7 @@ local M: FsDirModule = {
   cwd = cwd,
   open_dir = open_dir,
   open_dir_fd = open_dir_fd,
+  wrap_dir = wrap_dir,
 }
 
 return M
