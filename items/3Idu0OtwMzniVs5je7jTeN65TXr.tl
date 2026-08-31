@@ -5,6 +5,7 @@ return {
   ["claim"] = "c0e18796-6aa2-57aa-86cc-c1ea554b8dc6",
   ["id"] = "3Idu0OtwMzniVs5je7jTeN65TXr",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 299,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage the JSONTestSuite + json.org corpus into tool/lua",
 }
