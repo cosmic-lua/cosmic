@@ -1,5 +1,5 @@
 return {
   ["docs.yml"] = "success",
   ["fuzz.yml"] = "success",
-  ["release.yml"] = "failure",
+  ["release.yml"] = "success",
 }
