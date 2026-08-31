@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 298,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-mDcRqNPp-1",
   ["title"] = "salvage lsqlite3 readonly() tests",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "bbb7e2b2333ad7ed3cd621f25f0f7e2cb192b3d9",
+  ["verdict_spec"] = "796e65a672215a1c5cce64b8a0d1a3b3a85a1699520b8cb740cda57050e4501c",
 }
