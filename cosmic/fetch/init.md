@@ -118,7 +118,7 @@ local record Options
   --  It is a policy, not a notification: do not reach for it to
   --  observe failures, because the failure that ends the call is
   --  exactly the one it does not see.
-  should_retry: function(Response, Error): boolean
+  should_retry: function(Response | nil, Error): boolean
 end
 ```
 

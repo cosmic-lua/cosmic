@@ -110,7 +110,7 @@ function decode(str: string, opts?: DecodeOptions): any, string
 ### encode
 
 ```teal
-function encode(value: any, opts?: Options): string | nil, string
+function encode(value: any, opts?: Options): string | nil, string | nil
 ```
 
  Encode a Lua value as a JSON string.

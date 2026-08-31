@@ -223,7 +223,7 @@ function which(prog: string): string | nil, string
 ### interpreter
 
 ```teal
-function interpreter(): string | nil, string
+function interpreter(): string | nil, string | nil
 ```
 
  Absolute path of the running cosmic interpreter — for re-invoking it
