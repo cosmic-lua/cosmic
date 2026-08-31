@@ -34,7 +34,7 @@ modules with per-OS differences:
 
 ## Sandbox Behavior Per OS
 
-the sandbox family is where OSes differ most. all four modules are **fail-closed**: on a host that cannot enforce a policy, the mechanism modules' `apply`/`allow`/`commit`/`restrict` return `false, "... unsupported on this host"` (and `sandbox.apply` returns `nil, "sandbox: ... unsupported on this host"`) rather than reporting a sandbox that does not exist. every module exposes `available()` so callers can branch, and `best_effort = true` opts into skip-if-unenforceable — `sandbox.apply` then reports which sections actually enforced via its returned `Availability` record. `sandbox.Fs` groups mean three things: `ro` read-only (no execute), `exec` read+execute, `rw` read+write (no execute).
+the sandbox family is where OSes differ most. all four modules are **fail-closed**: on a host that cannot enforce a policy, `pledge.apply`/`unveil.allow`/`unveil.commit` return `false, "... unsupported on this host"`, `landlock.restrict` returns `nil, "... unsupported on this host"`, and `sandbox.apply` returns `nil, "sandbox: ... unsupported on this host"` — rather than reporting a sandbox that does not exist. every module exposes `available()` so callers can branch, and `best_effort = true` opts into skip-if-unenforceable: `sandbox.apply` then reports a per-section `Report` (`state`: `"full"` | `"degraded"` | `"skipped"`, plus which `mechanism` and `abi` enforced it and what's `missing`) instead of a bare boolean, and refuses outright when every requested section ends up skipped unless `allow_unenforced = true` says the caller expects that. `sandbox.Fs` groups mean three things: `ro` read-only (no execute), `exec` read+execute, `rw` read+write (no execute).
 
 | mechanism | enforced on | on violation | notes |
 |-----------|------------|--------------|-------|
@@ -47,7 +47,7 @@ the sandbox family is where OSes differ most. all four modules are **fail-closed
 
 ```teal
 local sandbox = require("cosmic.sandbox")
-if sandbox.availability().fs then
+if sandbox.availability().fs.available then
   assert(sandbox.apply {fs = {ro = {"/usr"}, rw = {"/tmp"}}})
 end
 ```

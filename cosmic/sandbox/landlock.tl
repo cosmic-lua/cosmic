@@ -111,9 +111,24 @@ local record RestrictOptions
   best_effort: boolean
 end
 
+--- What a `restrict` call actually enforced. `abi` is the kernel's
+--- Landlock ABI version (0 when `restrict` no-op'd via `best_effort`
+--- on an unsupported host). `handled` is the access-category mask the
+--- ruleset ended up controlling — the requested `handled` (default
+--- `ALL`) intersected with what this kernel's ABI supports. `stripped`
+--- is the requested rights that did NOT make it into `handled` because
+--- this ABI does not have them yet (only ever a subset of `REFER` and
+--- `TRUNCATE` — see `abi_mask` below); zero means nothing was stripped.
+local record Enforcement
+  abi: integer
+  handled: integer
+  stripped: integer
+end
+
 local record LandlockModule
   type Rule = Rule
   type RestrictOptions = RestrictOptions
+  type Enforcement = Enforcement
   EXECUTE: integer
   WRITE_FILE: integer
   READ_FILE: integer
@@ -136,7 +151,7 @@ local record LandlockModule
   ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
-  restrict: function(opts?: RestrictOptions): boolean, string
+  restrict: function(opts?: RestrictOptions): Enforcement | nil, string
 end
 
 --- Per-ABI "max access" mask. Categories above the kernel's supported
@@ -187,36 +202,42 @@ end
 ---
 --- Access outside the allowlist fails with EACCES after this returns.
 --- Access categories above the running kernel's ABI are stripped from
---- `handled` automatically, so `cosmic.landlock.ALL` stays portable.
---- The ruleset fd is always closed before return.
+--- `handled` automatically, so `cosmic.landlock.ALL` stays portable —
+--- and the returned `Enforcement` says exactly which ones, so a caller
+--- can tell "fully enforced" from "enforced, minus what this kernel
+--- can't handle yet" instead of a bare boolean. The ruleset fd is
+--- always closed before return.
 ---
 --- Known gap: TRUNCATE is only handleable on landlock ABI >= 3, so on
 --- older kernels a restricted process can still truncate(2) files
---- outside its allowlist. (Cosmopolitan's C unveil path plugs this with
---- a seccomp filter; this module does not.) Pair with `cosmic.pledge`
---- — truncate is governed by its "wpath" group — where that matters.
-local function restrict(opts?: RestrictOptions): boolean, string
+--- outside its allowlist (that gap is exactly what `Enforcement.
+--- stripped` reports). (Cosmopolitan's C unveil path plugs this with a
+--- seccomp filter; this module does not.) Pair with `cosmic.pledge` —
+--- truncate is governed by its "wpath" group — where that matters.
+local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   opts = opts or {}
   if not available() then
-    if opts.best_effort then return true end
-    return false, "landlock: unsupported on this host"
+    if opts.best_effort then return {abi = 0, handled = 0, stripped = 0} end
+    return nil, "landlock: unsupported on this host"
   end
   local abi_version = abi()
   if abi_version == nil then
     -- Unreachable past the available() gate; kept so the narrowing is
     -- honest rather than cast.
-    return false, "landlock: unsupported on this host"
+    return nil, "landlock: unsupported on this host"
   end
   local mask = abi_mask(abi_version)
-  local handled = (opts.handled or ALL) & mask
+  local requested = opts.handled or ALL
+  local handled = requested & mask
+  local stripped = requested & ~ mask
   local rs, cerr = unix.landlock_create_ruleset(handled, 0)
   if not rs then
-    return false, "landlock: create_ruleset: " .. tostring(cerr)
+    return nil, "landlock: create_ruleset: " .. tostring(cerr)
   end
   local rsfd = rs
-  local function fail(msg: string): boolean, string
+  local function fail(msg: string): Enforcement | nil, string
     unix.close(rsfd)
-    return false, msg
+    return nil, msg
   end
   for i, rule in ipairs(opts.rules or {}) do
     if not rule.path then
@@ -271,9 +292,9 @@ local function restrict(opts?: RestrictOptions): boolean, string
   local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
   unix.close(rsfd)
   if not ok then
-    return false, "landlock: restrict_self: " .. tostring(rerr)
+    return nil, "landlock: restrict_self: " .. tostring(rerr)
   end
-  return true
+  return {abi = abi_version, handled = handled, stripped = stripped}
 end
 
 local M: LandlockModule = {

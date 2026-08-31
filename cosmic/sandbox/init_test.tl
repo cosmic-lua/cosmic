@@ -28,15 +28,23 @@ end
 -- is_available() is their conjunction.
 local function test_availability_agrees_with_mechanisms()
   local avail = sandbox.availability()
-  assert(type(avail.fs) == "boolean", "availability().fs should be boolean")
-  assert(type(avail.sys) == "boolean", "availability().sys should be boolean")
-  check.equal(avail.sys, pledge.available(), "sys must mirror pledge.available()")
+  assert(type(avail.fs.available) == "boolean",
+    "availability().fs.available should be boolean")
+  assert(type(avail.sys.available) == "boolean",
+    "availability().sys.available should be boolean")
+  check.equal(avail.sys.available, pledge.available(),
+    "sys must mirror pledge.available()")
+  check.equal(avail.sys.mechanism, "pledge", "sys mechanism must be pledge")
   if sys.host_os() == "linux" then
-    check.equal(avail.fs, landlock.available(), "fs must mirror landlock on Linux")
+    check.equal(avail.fs.available, landlock.available(),
+      "fs must mirror landlock on Linux")
+    check.equal(avail.fs.mechanism, "landlock", "fs mechanism must be landlock on Linux")
   else
-    check.equal(avail.fs, unveil.available(), "fs must mirror unveil off Linux")
+    check.equal(avail.fs.available, unveil.available(),
+      "fs must mirror unveil off Linux")
+    check.equal(avail.fs.mechanism, "unveil", "fs mechanism must be unveil off Linux")
   end
-  check.equal(sandbox.is_available(), avail.fs and avail.sys,
+  check.equal(sandbox.is_available(), avail.fs.available and avail.sys.available,
     "is_available is the per-section conjunction")
 end
 
@@ -73,6 +81,27 @@ local function test_validation_rejects_before_enforcing()
   err = check.refuses(sandbox.apply, {fs = {}})
   assert(err:find("no groups", 1, true),
     "groupless fs must be rejected: " .. err)
+
+  -- strict and best_effort contradict: strict already refuses any gap,
+  -- so best_effort's "skip instead of failing" would never trigger.
+  err = check.refuses(sandbox.apply,
+    {fs = {ro = {"/tmp"}}, strict = true, best_effort = true})
+  assert(err:find("strict", 1, true) and err:find("best_effort", 1, true),
+    "strict + best_effort must be rejected: " .. err)
+
+  -- strict and allow_unenforced contradict for the same reason:
+  -- tolerating an all-skipped result is meaningless once strict
+  -- already refuses any single skipped section.
+  err = check.refuses(sandbox.apply,
+    {fs = {ro = {"/tmp"}}, strict = true, allow_unenforced = true})
+  assert(err:find("strict", 1, true) and err:find("allow_unenforced", 1, true),
+    "strict + allow_unenforced must be rejected: " .. err)
+
+  -- allow_unenforced only ever has something to tolerate when
+  -- best_effort produced a "skipped" section in the first place.
+  err = check.refuses(sandbox.apply, {fs = {ro = {"/tmp"}}, allow_unenforced = true})
+  assert(err:find("allow_unenforced", 1, true) and err:find("best_effort", 1, true),
+    "allow_unenforced without best_effort must be rejected: " .. err)
 
   -- validate() is the same checker without enforcement, for callers
   -- (Box) that carry a policy across a process boundary.
@@ -118,11 +147,11 @@ end
 local function test_fail_closed_when_unavailable()
   local avail = sandbox.availability()
   local apply_any = sandbox.apply
-  if avail.fs and avail.sys then
+  if avail.fs.available and avail.sys.available then
     check.enforce_skip("sandbox fully available on this host; fail-closed path not exercisable")
     return
   end
-  if not avail.fs then
+  if not avail.fs.available then
     local ok, err = apply_any({fs = {ro = {"/tmp"}}})
     assert(not ok and err:find("unsupported", 1, true),
       "fs section must fail closed: " .. tostring(err))
@@ -131,17 +160,111 @@ local function test_fail_closed_when_unavailable()
     local ok2, err2 = apply_any({fs = {ro = {"/tmp"}}, sys = {promises = "stdio"}})
     assert(not ok2 and err2:find("unsupported", 1, true),
       "combined policy must fail closed on the missing section: " .. tostring(err2))
-    -- best_effort skips the unenforceable section — and the returned
-    -- report SAYS so, instead of a bare success.
-    local enforced = check.must(
-      sandbox.apply({fs = {ro = {"/tmp"}}, best_effort = true}))
-    check.equal(enforced.fs, false, "the report must show fs was skipped")
+    -- best_effort skips the unenforceable section, and with nothing
+    -- else requested apply refuses outright rather than returning a
+    -- report nobody asked to trust as success (the footgun this
+    -- change closes) — unless allow_unenforced says otherwise.
+    local ok3, err3 = apply_any({fs = {ro = {"/tmp"}}, best_effort = true})
+    assert(not ok3 and err3:find("nothing enforced", 1, true),
+      "an all-skipped best_effort apply must refuse by default: " .. tostring(err3))
+    local enforced = check.must(sandbox.apply({fs = {ro = {"/tmp"}},
+          best_effort = true, allow_unenforced = true}))
+    check.equal(enforced.fs.state, "skipped", "the report must show fs was skipped")
   end
-  if not avail.sys then
+  if not avail.sys.available then
     local ok, err = apply_any({sys = {promises = "stdio"}})
     assert(not ok and err:find("unsupported", 1, true),
       "sys section must fail closed: " .. tostring(err))
   end
+end
+
+-- The full/degraded/strict reporting exercised here depends on THIS
+-- kernel's Landlock ABI (full on ABI >= 3, degraded below it, and
+-- strict's pre-check reads the same ABI) -- facts this sandbox's own
+-- host cannot promise either way. Monkeypatching the landlock shard's
+-- available()/abi()/restrict() (the same module table cosmic.sandbox
+-- already required, since require() caches it) exercises every branch
+-- deterministically on any host, Landlock or not, rather than skipping
+-- the report-building logic itself wherever the live kernel disagrees.
+local function with_mock_landlock(mocks: {string: function}, body: function(): boolean)
+  local saved: {string: function} = {}
+  for name, fn in pairs(mocks) do
+    saved[name] = (landlock as {string: function})[name]; -- cast: record to map probe
+    (landlock as {string: function})[name] = fn -- cast: record to map probe
+  end
+  local ok, err = pcall(body)
+  for name, fn in pairs(saved) do
+    (landlock as {string: function})[name] = fn -- cast: record to map probe
+  end
+  if not ok then error(err, 0) end
+end
+
+local function test_apply_reports_full_landlock_enforcement()
+  if sys.host_os() ~= "linux" then
+    check.enforce_skip("landlock is the Linux-only fs mechanism")
+    return
+  end
+  with_mock_landlock({
+      available = function(): boolean return true end,
+      restrict = function(_opts: landlock.RestrictOptions): landlock.Enforcement | nil, string
+        return {abi = 3, handled = landlock.ALL, stripped = 0}
+      end,
+    }, function(): boolean
+      local report = check.must(sandbox.apply({fs = {ro = {"/tmp"}}}))
+      check.equal(report.fs.state, "full", "abi 3, nothing stripped -> full")
+      check.equal(report.fs.mechanism, "landlock", "mechanism must name landlock")
+      check.equal(report.fs.abi, 3, "abi must carry through from Enforcement")
+      check.equal(report.fs.missing, "", "missing must be empty when full")
+      return true
+    end)
+end
+
+local function test_apply_reports_degraded_landlock_enforcement()
+  if sys.host_os() ~= "linux" then
+    check.enforce_skip("landlock is the Linux-only fs mechanism")
+    return
+  end
+  with_mock_landlock({
+      available = function(): boolean return true end,
+      restrict = function(_opts: landlock.RestrictOptions): landlock.Enforcement | nil, string
+        return {abi = 2, handled = landlock.ALL & ~ landlock.TRUNCATE,
+          stripped = landlock.TRUNCATE}
+      end,
+    }, function(): boolean
+      local report = check.must(sandbox.apply({fs = {ro = {"/tmp"}}}))
+      -- The old two-boolean Availability read this exact shape (a
+      -- landlock restrict that succeeded but stripped rights) as plain
+      -- `true` -- the same value a fully-capable kernel gets. This is
+      -- the epic's defect 4, and the assertion below is the fix.
+      check.equal(report.fs.state, "degraded",
+        "a landlock restrict that stripped rights must report degraded, not full")
+      assert(report.fs.missing:find("TRUNCATE", 1, true),
+        "missing must name what this kernel's ABI stripped: " .. report.fs.missing)
+      return true
+    end)
+end
+
+-- strict must refuse a would-be-degraded restrict BEFORE calling it --
+-- enforcement is irreversible, so there is no applying it and then
+-- refusing. restrict() erroring if strict calls it anyway is the
+-- guard: it proves the refusal happens strictly before enforcement.
+local function test_strict_refuses_a_would_be_degraded_restrict_before_applying()
+  if sys.host_os() ~= "linux" then
+    check.enforce_skip("landlock is the Linux-only fs mechanism")
+    return
+  end
+  with_mock_landlock({
+      available = function(): boolean return true end,
+      abi = function(): integer | nil, string return 2 end,
+      restrict = function(_opts: landlock.RestrictOptions): landlock.Enforcement | nil, string
+        error("strict must refuse before restrict() is ever called")
+      end,
+    }, function(): boolean
+      local ok, err = sandbox.apply({fs = {ro = {"/tmp"}}, strict = true})
+      assert(not ok and err:find("degraded", 1, true),
+        "strict must refuse a would-be-degraded fs section: " .. tostring(err))
+      return true
+    end)
 end
 
 -- The fs -> landlock mapping, pure and inspectable (ported from the
@@ -199,16 +322,17 @@ local function test_plan_landlock_mapping()
   check.equal(rules[3].path, "/c")
 end
 
--- The no_new_privs and handled tuning flags must reach the planned
--- RestrictOptions.
+-- The no_new_privs tuning flag must reach the planned RestrictOptions;
+-- handled is no longer a facade/plan concern (R3) so the plan always
+-- requests the full landlock.ALL mask.
 local function test_plan_tuning_flags()
   local opts_default = plan.for_landlock({ro = {"/usr"}})
   check.equal(opts_default.no_new_privs, true, "no_new_privs defaults on")
-  check.equal(opts_default.handled, landlock.ALL, "handled defaults to ALL")
+  check.equal(opts_default.handled, landlock.ALL, "handled is always ALL from the plan")
 
-  local tuned = plan.for_landlock({ro = {"/usr"}}, false, landlock.READ)
+  local tuned = plan.for_landlock({ro = {"/usr"}}, false)
   check.equal(tuned.no_new_privs, false, "no_new_privs=false must reach the plan")
-  check.equal(tuned.handled, landlock.READ, "a narrowed handled mask must reach the plan")
+  check.equal(tuned.handled, landlock.ALL, "handled stays ALL regardless of no_new_privs")
 end
 
 -- fs.optional rides each planned rule: the skip happens at open time
@@ -253,6 +377,20 @@ local function test_merge_composes_policies()
   check.equal(merged.best_effort, true, "scalars persist from the earlier policy")
   assert(merged.sys and merged.sys.promises == "stdio", "sys merges in")
   assert(sandbox.validate(merged), "the merged policy validates")
+
+  -- allow_unenforced and strict are scalars like best_effort: the
+  -- later policy's value wins when set, an unset one leaves the
+  -- earlier value alone.
+  local later = sandbox.merge(
+    {fs = {ro = {"/etc"}}, allow_unenforced = true, best_effort = true},
+    {fs = {ro = {"/srv"}}})
+  check.equal(later.allow_unenforced, true,
+    "allow_unenforced persists when the later policy leaves it unset")
+  local overridden = sandbox.merge(
+    {fs = {ro = {"/etc"}}, strict = true},
+    {fs = {ro = {"/srv"}}, strict = false})
+  check.equal(overridden.strict, false,
+    "a later explicit strict = false must override an earlier true")
 end
 
 -- Live enforcement of a combined policy, in a subprocess (applying is
