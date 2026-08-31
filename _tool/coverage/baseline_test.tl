@@ -184,7 +184,7 @@ end
 -- object to, so `--baseline` says it out loud. Percentage, not raw
 -- counts: a file that grew lines and covered more of them has not
 -- lowered anything.
-local function test_lowered_names_only_real_declines()
+local function test_moved_names_only_real_declines()
   local before = fixture({{"a.tl", 8, 10}, {"b.tl", 5, 10}, {"c.tl", 10, 10}})
   -- a.tl unchanged, b.tl lowered, c.tl grew but stayed 100%
   local after = fixture({{"a.tl", 8, 10}, {"b.tl", 3, 10}, {"c.tl", 12, 12}})
@@ -198,7 +198,7 @@ end
 -- A file the rewrite does not mention cannot have been lowered by it,
 -- and a malformed baseline is not a decline report -- both answer with
 -- nothing rather than guessing.
-local function test_lowered_is_silent_when_it_cannot_tell()
+local function test_moved_is_silent_when_it_cannot_tell()
   local before = fixture({{"gone.tl", 9, 10}})
   local after = fixture({})
   assert(#baseline.moved(before, after) == 0,

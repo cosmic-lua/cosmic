@@ -47,12 +47,21 @@ belongs here the day it is written.
 
 The floors are deliberately **conservative** — most are well under what
 a full lane achieves, because the file is a floor and not a snapshot.
-Do not "refresh" it to make one row pass. A rewrite lowers only the rows
-this machine measures far enough below their floor to FAIL the ratchet,
-and leaves every other row exactly as committed — but for the
-environment-sensitive rows above, the rows that fail on a laptop are
-precisely the ones a laptop cannot measure. Baking that machine's
-environment into them is the failure this whole file is about.
+Do not "refresh" it to make one row pass. A rewrite writes this
+machine's exact measurement into every row, raises and drops alike, and
+the only thing that can refuse it is `corpus_guard`'s breadth check —
+it fires when more than half the committed floor's rows would drop at
+once, not on any single row. For the environment-sensitive rows above,
+that guard is not a safety net: the rows a laptop or a partial run
+cannot measure are precisely the ones that would drop, and a run
+dropping only a handful of them — a laptop missing root, Landlock, a
+real tty, a free port — stays well under the 50% threshold and writes
+straight through, silently. Nothing catches that but reading the diff.
+Baking that machine's environment into the committed floor is the
+failure this whole file is about — treat every `--baseline` diff
+touching a row in the table above as suspect until you have checked it
+against this file, not as pre-cleared because the tool ran without
+complaint.
 
 ## Why this file exists
 

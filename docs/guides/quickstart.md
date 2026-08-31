@@ -127,9 +127,11 @@ and commit it to start the ratchet:
 cosmic --make coverage --baseline    # writes .cosmic-coverage
 ```
 
-it is a floor, not a snapshot: a later rewrite lowers only the rows that
-failed the ratchet and leaves every other row as committed, so the file
-stays still between real regressions.
+it is a floor, not a snapshot: a later rewrite writes this run's exact
+measurement into every row, raises and drops alike, and refuses
+outright if it would lower more than half the floor's rows at
+once — that shape is a partial or stale run, not a real regression.
+review a `--baseline` diff like any other change before committing it.
 
 ## when something fails
 
