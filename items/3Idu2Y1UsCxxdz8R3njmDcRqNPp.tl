@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 298,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-mDcRqNPp-1",
   ["title"] = "salvage lsqlite3 readonly() tests",
 }
