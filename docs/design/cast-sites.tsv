@@ -73,7 +73,7 @@ cosmic/coverage/init.tl	93	map view of a declared value
 cosmic/coverage/init.tl	173	function shape
 cosmic/deep.tl	52	generic T
 cosmic/deep.tl	121	generic T
-cosmic/embed/init.tl	103	userdata boundary
+cosmic/embed/init.tl	104	userdata boundary
 cosmic/errno.tl	52	binding constant by name
 cosmic/errno.tl	119	binding constant by name
 cosmic/fd.tl	187	binding contract shape
