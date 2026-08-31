@@ -69,9 +69,10 @@ assert(db:exec("CREATE TABLE IF NOT EXISTS files (" ..
     "path TEXT PRIMARY KEY, size INTEGER, digest TEXT)"))
 
 check.must(fs.visit("testdata", function(e: fs.Entry, _ctx: any)
-      local path, st = e.path, e.stat
+      local path = e.path
       -- e.path is the FULL path; do not join it with e.name
-      if st:is_file() then
+      local st, _serr = e:stat()
+      if st and st:is_file() then
         local data = fs.read(path)
         if data then
           assert(db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..

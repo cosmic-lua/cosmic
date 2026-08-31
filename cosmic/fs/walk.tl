@@ -32,7 +32,11 @@ end
 --- went wrong, and it belongs on the result rather than in a third
 --- slot they have to know to ask for.
 local record Walked
-  --- Subtree failures, in encounter order; nil when the walk was clean.
+  --- Subtree failures, in the order a stat was actually attempted:
+  --- an opendir failure or a DT_UNKNOWN stat fallback lands here
+  --- immediately; a decisive-d_type entry's stat failure lands here
+  --- only if and when a visitor calls e:stat(). nil when the walk was
+  --- clean.
   errors: {string}
 end
 
@@ -58,43 +62,88 @@ end
 local walk_tree: function<T>(string,
 function(Entry, T): (WalkAction ...), T, {string}, integer, integer): boolean
 
+--- Build the lazy, memoized Stat accessor for one entry. The stat runs
+--- at most once, on the first call; AT_SYMLINK_NOFOLLOW keeps a
+--- symlinked directory reporting S_ISLNK rather than S_ISDIR, the same
+--- guard walk_entries relies on for cycle safety. A failure is pushed
+--- onto errs — the walk's shared subtree-error list — so it surfaces
+--- as Walked.errors whether the stat ran here or from a visitor's own
+--- e:stat() call.
+local function lazy_stat(full_path: string, errs: {string}):
+  function(self: Entry): WalkStat | nil, string
+  local wst: WalkStat | nil
+  local werr: string
+  local done = false
+  return function(_self: Entry): WalkStat | nil, string
+    if not done then
+      done = true
+      local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
+      if st then
+        wst, werr = types.wrap(st)
+      end
+      if not wst then
+        werr = werr or errstr(serr, "stat: " .. full_path)
+        errs[#errs + 1] = werr
+      end
+    end
+    return wst, werr
+  end
+end
+
 --- Shared per-directory loop. Consumes (and closes) an already-open
 --- handle, appends subtree errors to errs, and returns true when a
 --- visitor asked to stop the walk. Entries visited here are at depth;
 --- max_depth of 0 means unlimited.
+---
+--- Classifies from the dirent d_type — DT_DIR descends without a
+--- stat (a symlinked dir always reports DT_LNK, never DT_DIR, so cycle
+--- safety holds by construction); a decisive non-DT_DIR kind also
+--- skips the stat; only DT_UNKNOWN forces one immediately, since the
+--- recursion decision needs it. Mirrors find.tl's identical fallback.
 local function walk_entries<T>(dir: string, h: WalkDirHandle,
     visitor: function(Entry, T): (WalkAction ...), ctx: T,
     errs: {string}, depth: integer, max_depth: integer): boolean
   while true do
-    local entry = h:read()
+    local entry, kind = h:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
       local full_path = fs_path.join(dir, entry)
-      -- Use AT_SYMLINK_NOFOLLOW so symlinked dirs are seen as S_ISLNK, not S_ISDIR.
-      -- This prevents infinite recursion through symlink cycles.
-      local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
-      local wst: WalkStat | nil
-      local werr: string
-      if st then
-        wst, werr = types.wrap(st)
+      local e: Entry = {path = full_path, name = entry, depth = depth,
+        stat = lazy_stat(full_path, errs)}
+      local is_dir: boolean
+      local skip_entirely = false
+      if kind == unix.DT_DIR then
+        -- d_type never follows symlinks, so this is a real directory
+        -- (a symlinked dir reports DT_LNK); no stat(2) needed.
+        is_dir = true
+      elseif kind ~= unix.DT_UNKNOWN then
+        is_dir = false
+      else
+        -- Filesystem doesn't expose d_type: force the stat now, since
+        -- the recursion decision needs it. A failure is recorded by
+        -- lazy_stat itself and the entry is skipped, matching
+        -- find.tl's identical DT_UNKNOWN fallback (find.tl:219-235)
+        -- and this function's own prior behavior.
+        local st = e:stat()
+        if st then
+          is_dir = st:is_dir()
+        else
+          skip_entirely = true
+        end
       end
-      if wst is WalkStat then
-        local e: Entry = {path = full_path, name = entry, stat = wst, depth = depth}
+      if not skip_entirely then
         local action = visitor(e, ctx)
         if action == "stop" then
           h:close()
           return true
         end
-        -- cast: record union after guard
-        if action ~= "skip" and unix.S_ISDIR((st as unix.Stat):mode())
+        if action ~= "skip" and is_dir
         and (max_depth == 0 or depth < max_depth) then
           if walk_tree(full_path, visitor, ctx, errs, depth + 1, max_depth) then
             h:close()
             return true
           end
         end
-      else
-        errs[#errs + 1] = werr or errstr(serr, "stat: " .. full_path)
       end
     end
   end
@@ -122,12 +171,15 @@ end
 ---
 --- The visitor receives (fs.Entry, ctx): Entry carries `path` (the
 --- FULL path — never join it with name), `name` (the basename),
---- `stat` (fs.Stat) and `depth` (entries directly in dir are depth 1).
---- Its return controls traversal: nil continues, "skip" does not
---- descend into the entry (dirs only), "stop" ends the walk now.
+--- `depth` (entries directly in dir are depth 1), and `stat()` — a
+--- lazy, memoized `fs.Stat | nil, string` accessor, computed only on
+--- the first call a visitor actually makes. Its return controls
+--- traversal: nil continues, "skip" does not descend into the entry
+--- (dirs only), "stop" ends the walk now.
 ---
 ---   fs.visit(dir, function(e: fs.Entry, acc: {string})
----     if e.stat:is_file() then table.insert(acc, e.path) end
+---     local st = e:stat()
+---     if st and st:is_file() then table.insert(acc, e.path) end
 ---   end, {})
 ---
 --- Slot 2 means failure, period: if the root cannot be opened, visit
@@ -135,7 +187,10 @@ end
 --- subdirectory, a vanished entry) do not stop the walk; they ride on
 --- the result as `walked.errors` — nil when the walk was clean — so a
 --- partial walk is never mistaken for a complete one, and a two-slot
---- return still says everything.
+--- return still says everything. Because a stat is now only ever taken
+--- when something asks for it, a walk can finish with `errors == nil`
+--- even though some entry no visitor called `stat()` on would have
+--- failed to stat — the walk no longer stats what nobody asked for.
 --- @param dir string The directory to walk
 --- @param visitor function Called per entry: function(e: Entry, ctx): nil|"skip"|"stop"
 --- @param ctx T Optional context passed to every visitor call

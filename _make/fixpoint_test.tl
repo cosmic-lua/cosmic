@@ -72,10 +72,15 @@ local function copy_tree(dest: string)
   assert(fs.make_dirs(dest))
   local failure: string = nil
   assert(fs.visit(repo, function(e: fs.Entry): fs.WalkAction
-        local path, entry, st = e.path, e.name, e.stat
+        local path, entry = e.path, e.name
         local rel = path:sub(#repo + 2)
         if entry == ".git" or rel == "o" then
           return "skip"
+        end
+        local st, serr = e:stat()
+        if not st then
+          failure = rel .. ": " .. serr
+          return "stop"
         end
         if not st:is_file() then
           return nil

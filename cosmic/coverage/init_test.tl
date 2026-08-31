@@ -27,7 +27,8 @@ end
 local function cov_files_in(dir: string): {string}
   local found: {string} = {}
   assert(fs.visit(dir, function(e: fs.Entry, ctx: {string})
-        if not e.stat:is_dir() and e.path:match("%.cov$") then
+        local st, _serr = e:stat()
+        if st and not st:is_dir() and e.path:match("%.cov$") then
           ctx[#ctx + 1] = e.path
         end
       end, found))

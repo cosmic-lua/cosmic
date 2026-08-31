@@ -175,7 +175,7 @@ local function test_walk_with_visitor()
   assert(fs.visit(walk_dir, function(e: fs.Entry, c: any)
         assert(c is WalkContext, "visitor must receive the context it was given")
         c.count = c.count + 1
-        local stat_obj = e.stat
+        local stat_obj = check.must(e:stat())
         if stat_obj:is_dir() then
           c.dirs = c.dirs + 1
         end

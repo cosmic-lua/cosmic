@@ -3,8 +3,10 @@
 
 -- Example_visit demonstrates walking a directory tree. The visitor
 -- receives an fs.Entry: e.path is the FULL path (already complete),
--- e.name the basename, e.stat the entry's Stat, e.depth the depth.
+-- e.name the basename, e:stat() the entry's Stat (lazy, memoized),
+-- e.depth the depth.
 local function Example_visit()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
   -- Build a small tree under a temp directory.
@@ -20,7 +22,8 @@ local function Example_visit()
   -- Collect entries and sort for deterministic output.
   local entries: {string} = {}
   assert(fs.visit(tmpdir, function(e: fs.Entry, ctx: {string})
-        local kind = e.stat:is_dir() and "dir" or "file"
+        local st = check.must(e:stat())
+        local kind = st:is_dir() and "dir" or "file"
         table.insert(ctx, kind .. " " .. e.name .. " depth=" .. e.depth)
       end, entries))
 

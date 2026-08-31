@@ -100,7 +100,7 @@ local record fs_types
     is_socket: function(self: Stat): boolean
   end
 
-  --- Stat passed to walk visitors: the same wrapped Stat.
+  --- Stat as Entry.stat() returns it: the same wrapped Stat.
   type WalkStat = Stat
 
   --- Minimal read+close view of a raw `unix.Dir`, for internal
@@ -146,13 +146,14 @@ local record fs_types
 
   --- One visited entry, as cosmic.fs.visit hands to its visitor: the
   --- full path (already complete — never join it with name), the
-  --- basename, the entry's Stat, and its depth (entries directly under
-  --- the walk root are depth 1).
+  --- basename, its depth (entries directly under the walk root are
+  --- depth 1), and stat() — a lazy, memoized accessor for the entry's
+  --- Stat, computed only on the first call a visitor actually makes.
   record Entry
     path: string
     name: string
-    stat: Stat
     depth: integer
+    stat: function(self: Entry): Stat | nil, string
   end
 
   --- Wrap a raw cosmo.unix Stat so it carries the type predicates.
