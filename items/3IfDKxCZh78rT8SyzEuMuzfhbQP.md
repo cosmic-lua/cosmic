@@ -2,17 +2,39 @@
 
 Bump vendored Lua from 5.4.9 to 5.5.1 and run cosmic's gate against it.
 
-**In flight:** cosmic-lua/cosmopolitan#294 (interpreter) and cosmic-lua/cosmic#1587
-(the carried tl patch). Both draft; neither is useful alone. Steps 1-3 and 5 below
-are done and verified in #294 — what remains is step 4, the cosmos release and pin
-bump, which is the only thing that runs cosmic's own suite on a 5.5 runtime. Measured,
-this is a days-scale experiment, not a migration — **no Teal bump is required and
-there is no dependency blocker.**
+**Both halves are MERGED:**
+- cosmic-lua/cosmopolitan#294 -> `6dfa6728a` on master (`LUA_VERSION` now 5/5/1)
+- cosmic-lua/cosmic#1587 -> `beb0f15c` on main (`for_control_var.tl` present)
 
-An earlier version of this item said the opposite (blocked on Teal's release
-cadence, months-scale). That was wrong, and so were two later claims about the
-const-control-variable rule; all three corrections are recorded below, because
-every one of them came from measuring the wrong thing.
+They landed separately, and that was safe: the only cross-repo coupling is
+`3p/cosmos/cosmos_pin.tl`, which neither PR touches. cosmic's main still runs the
+5.4 pin with an inert patch; master carries 5.5 with no consumer yet.
+
+Steps 1-3 below are done and verified. What remains is **step 4**, which is also
+the only step that proves anything about cosmic on 5.5.
+
+**Step 4 is currently BLOCKED on cosmic's release pipeline, for an unrelated
+reason.** `release.yml` has been failing since 2026-08-31T13:04Z on `de5268e98`
+(#1588, the `_perf` helper dedupe) — not on the perf work in this item, and not on
+either merge above, both of which landed after that run started. The failure is the
+perf gate, not a build or test error:
+
+```
+embed_run_startup    1.42 ms -> 1.64 ms   +14.9%  (noise ±10.0%)  regression
+49 scenarios: 1 regression, 1 faster, 47 ok
+perf gate: this release regressed against the previous one and was not published.
+```
+
+Last good release is `2026-08-30-ce897b1`. No cosmos release can be cut, and so no
+pin can be bumped, until that gate passes or a release is dispatched with
+`perf_gate: false`. A regression in `embed_run_startup` immediately following a
+refactor OF THE BENCHMARK HARNESS is worth suspecting as an artifact of the
+refactor rather than a real slowdown — worth its own item either way.
+
+(One oddity in that log, noted but not chased: the A/A self-check the gate runs to
+separate real regressions from noise printed numbers identical to the comparison
+that triggered it, regression line included. An A/A run reporting the same
+regression as A/B suggests it did not actually re-measure.)
 
 ### The interpreter: 8 real conflicts, measured
 
