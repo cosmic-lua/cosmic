@@ -438,12 +438,18 @@ io.write("stripped=" .. tostring(enf.stripped) .. "\n")
   assert(abi_v and abi_v >= 1, "abi must be >= 1 when landlock is available: " .. s)
   assert((handled_v & landlock.READ) == landlock.READ,
     "a full-ALL request must still hand back READ in handled: " .. s)
-  if abi_v >= 3 then
-    check.equal(stripped_v, 0, "abi >= 3 must strip nothing from ALL: " .. s)
-  else
-    assert(stripped_v ~= 0,
-      "abi < 3 must strip TRUNCATE (and REFER below 2) from ALL: " .. s)
-  end
+  -- What a full `ALL` request must lose on THIS kernel's ABI: every rung
+  -- below the ABI that introduced it, mirroring abi_mask exactly (REFER
+  -- at 2, TRUNCATE at 3, IOCTL_DEV at 5, RESOLVE_UNIX at 9) so this
+  -- assertion tracks the ladder instead of assuming "abi >= 3 strips
+  -- nothing" — true only while TRUNCATE was the newest rung.
+  local want_stripped = 0
+  if abi_v < 2 then want_stripped = want_stripped | landlock.REFER end
+  if abi_v < 3 then want_stripped = want_stripped | landlock.TRUNCATE end
+  if abi_v < 5 then want_stripped = want_stripped | landlock.IOCTL_DEV end
+  if abi_v < 9 then want_stripped = want_stripped | landlock.RESOLVE_UNIX end
+  check.equal(stripped_v, want_stripped,
+    "stripped must match exactly what this kernel's ABI cannot handle yet: " .. s)
   check.enforced("landlock enforcement report")
 end
 
