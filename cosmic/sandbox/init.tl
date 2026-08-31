@@ -33,11 +33,10 @@
 --- Applying is irreversible and process-wide; policies can only be
 --- narrowed by further calls. `cosmic.quicksand` consumes the same
 --- `fs`/`sys` schemas for its boxed workloads.
-local cosmo = require("cosmo")
 local landlock = require("cosmic.sandbox.landlock")
 local pledge = require("cosmic.sandbox.pledge")
-local unveil = require("cosmic.sandbox.unveil")
 local plan = require("cosmic.sandbox.plan")
+local section = require("cosmic.sandbox.section")
 
 --- Filesystem policy; the record (ro/rw/exec allowlists plus
 --- `optional`) is defined in cosmic.sandbox.plan beside its mapping.
@@ -45,6 +44,9 @@ local type Fs = plan.Fs
 
 --- Network policy (per-port TCP, Landlock ABI 4+), defined in plan beside its mapping.
 local type Net = plan.Net
+
+--- Signal / abstract-UNIX-socket scoping (Landlock ABI 6+), defined in plan beside its mapping.
+local type Scope = plan.Scope
 
 --- System-call policy: pledge promise groups as a space-separated
 --- string (the internal pledge shard's `Promise` enum names every
@@ -67,6 +69,7 @@ local record Options
   fs: Fs
   sys: Sys
   net: Net
+  scope: Scope
   best_effort: boolean
   allow_unenforced: boolean
   strict: boolean
@@ -90,33 +93,26 @@ local record Availability
   sys: MechanismInfo
 end
 
---- One section's enforcement result. `state` is `"full"`, `"degraded"`
---- (landlock enforced, but this kernel's ABI stripped some requested
---- rights), or `"skipped"` (best_effort passed an unenforceable
---- section). `mechanism` names what enforced it; `abi` is its ABI
---- version where meaningful (0 otherwise); `missing` renders what was
---- stripped/skipped, "" when full.
-local record Section
-  state: string
-  mechanism: string
-  abi: integer
-  missing: string
-end
+--- One section's enforcement result, defined in cosmic.sandbox.section
+--- beside the code that builds it.
+local type Section = section.Section
 
---- Per-section report from a successful apply: `fs`/`sys`/`net` are
---- set exactly when requested. Replaces the old two-boolean shape,
+--- Per-section report from a successful apply: `fs`/`sys`/`net`/`scope`
+--- are set exactly when requested. Replaces the old two-boolean shape,
 --- which could not tell full enforcement from a landlock restrict that
 --- silently dropped TRUNCATE/REFER.
 local record Report
   fs: Section
   sys: Section
   net: Section
+  scope: Section
 end
 
 local record SandboxModule
   type Fs = Fs
   type Sys = Sys
   type Net = Net
+  type Scope = Scope
   type Options = Options
   type Availability = Availability
   type MechanismInfo = MechanismInfo
@@ -136,37 +132,19 @@ for _, p in ipairs(pledge.PROMISES) do
   valid_promise[p] = true
 end
 
---- Which mechanism enforces `fs` on this host: landlock on Linux,
---- unveil natively on OpenBSD. (On Linux the libc backs unveil with
---- landlock too; the facade uses the landlock shard directly there.)
-local function fs_mechanism(): string
-  if cosmo.GetHostOs() == "LINUX" then
-    return "landlock"
-  end
-  return "unveil"
-end
-
---- True when this host can enforce an fs section.
-local function fs_available(): boolean
-  if fs_mechanism() == "landlock" then
-    return landlock.available()
-  end
-  return unveil.available()
-end
-
 --- Report what this host can enforce, per section. Sections requested
 --- in `apply` beyond this fail closed (or are skipped under
 --- `best_effort`).
 ---
 --- @return Availability per-section enforceability
 local function availability(): Availability
-  local mech = fs_mechanism()
+  local mech = section.fs_mechanism()
   local fs_abi = 0
   if mech == "landlock" then
     fs_abi = landlock.abi() or 0
   end
   return {
-    fs = {available = fs_available(), mechanism = mech, abi = fs_abi},
+    fs = {available = section.fs_available(), mechanism = mech, abi = fs_abi},
     sys = {available = pledge.available(), mechanism = "pledge", abi = 0},
   }
 end
@@ -179,88 +157,6 @@ end
 local function is_available(): boolean
   local a = availability()
   return a.fs.available and a.sys.available
-end
-
--- Render which of the (only ever) two strippable Landlock rights are
--- set in `stripped`, plus the ABI that stripped them. Used both for a
--- real degraded Section's `missing` and for strict's pre-enforcement
--- refusal message, so the wording matches whichever path produced it.
-local function landlock_missing(stripped: integer, abi_version: integer): string
-  if stripped == 0 then return "" end
-  local names: {string} = {}
-  if stripped & landlock.REFER ~= 0 then names[#names + 1] = "REFER" end
-  if stripped & landlock.TRUNCATE ~= 0 then names[#names + 1] = "TRUNCATE" end
-  return table.concat(names, ", ") .. " unsupported on this kernel (Landlock ABI "
-  .. tostring(abi_version) .. ")"
-end
-
---- Human text for a section this host cannot enforce at all — used
---- both for the fail-closed error and for a best_effort "skipped"
---- Section's `missing`.
-local function unsupported_text(section: string): string
-  if section == "fs" then
-    return "fs unsupported on this host"
-    .. " (needs Landlock on Linux, or unveil on OpenBSD)"
-  end
-  if section == "net" then
-    return "net unsupported on this host (needs Linux Landlock ABI >= 4; this kernel is ABI " .. tostring(landlock.abi() or 0) .. ")"
-  end
-  return "sys unsupported on this host"
-  .. " (needs pledge: Linux seccomp, or OpenBSD)"
-end
-
--- The unveil equivalents of the landlock group masks: ro exposes read
--- only, exec exposes read + execute, rw exposes read + write +
--- create/remove.
-local function apply_fs_unveil(fs: Fs): boolean, string
-  local groups: {{{string}, unveil.Perm}} = {
-    {fs.ro, "r"},
-    {fs.rw, "rwc"},
-    {fs.exec, "rx"},
-  }
-  local opts: unveil.Options = {missing_ok = fs.optional == true}
-  for _, g in ipairs(groups) do
-    for _, p in ipairs(g[1] or {}) do
-      local ok, err = unveil.allow(p, g[2], opts)
-      if not ok then return false, err end
-    end
-  end
-  return unveil.commit()
-end
-
---- Apply the fs section via this host's mechanism and report what
---- happened. Landlock reports exactly what it enforced (a full-or-
---- degraded Section); unveil has no partial concept, so a successful
---- commit is always "full".
-local function apply_fs(fs: Fs, no_new_privs: boolean): Section | nil, string
-  if fs_mechanism() == "landlock" then
-    local enf, err = landlock.restrict(plan.for_landlock(fs, no_new_privs))
-    if not enf then return nil, err end
-    return {
-      state = enf.stripped ~= 0 and "degraded" or "full",
-      mechanism = "landlock",
-      abi = enf.abi,
-      missing = landlock_missing(enf.stripped, enf.abi),
-    }
-  end
-  local ok, err = apply_fs_unveil(fs)
-  if not ok then return nil, err end
-  return {state = "full", mechanism = "unveil", abi = 0, missing = ""}
-end
-
---- Apply the sys (pledge) section and report what happened. Pledge has
---- no partial-enforcement concept here, so success is always "full".
-local function apply_sys(sys: Sys): Section | nil, string
-  local ok, err = pledge.apply(sys.promises, {exec = sys.exec_promises})
-  if not ok then return nil, err end
-  return {state = "full", mechanism = "pledge", abi = 0, missing = ""}
-end
-
--- Apply the net section via landlock. ABI 4 is a hard gate, not a bitmask like fs's, so success is always "full".
-local function apply_net(net: Net, no_new_privs: boolean): Section | nil, string
-  local enf, err = landlock.restrict(plan.for_landlock_net(net, no_new_privs))
-  if not enf then return nil, err end
-  return {state = "full", mechanism = "landlock", abi = enf.abi, missing = ""}
 end
 
 -- Structural validation, all before any enforcement. Returns nil when
@@ -279,8 +175,9 @@ local function check_promises(promises: string, label: string): string
 end
 
 local function check_policy(opts: Options): string
-  if opts == nil or (opts.fs == nil and opts.sys == nil and opts.net == nil) then
-    return "sandbox: policy must set fs, sys, and/or net"
+  if opts == nil or (opts.fs == nil and opts.sys == nil and opts.net == nil
+    and opts.scope == nil) then
+    return "sandbox: policy must set fs, sys, net, and/or scope"
   end
   if opts.strict and opts.best_effort then
     return "sandbox: strict and best_effort are mutually exclusive"
@@ -332,6 +229,9 @@ local function check_policy(opts: Options): string
   end
   if opts.net then
     local nerr = plan.validate_net(opts.net); if nerr then return nerr end
+  end
+  if opts.scope then
+    local serr = plan.validate_scope(opts.scope); if serr then return serr end
   end
   return nil
 end
@@ -404,17 +304,6 @@ local function merge(...: Options): Options
   return out
 end
 
--- One section's apply-or-skip, shared by fs/sys/net: not requested is a
--- no-op; not enforceable builds the "skipped" Section the fail-closed
--- check above already let through under best_effort; else apply_fn runs.
-local function one_section(requested: boolean, ok: boolean, mechanism: string, abi: integer, name: string, apply_fn: function(): Section | nil, string): Section | nil, string
-  if not requested then return nil end
-  if not ok then return {state = "skipped", mechanism = mechanism, abi = abi, missing = unsupported_text(name)} end
-  local section, err = apply_fn()
-  if not section then return nil, "sandbox: " .. name .. ": " .. tostring(err) end
-  return section
-end
-
 --- Apply a sandbox policy to the current process. Irreversible.
 ---
 --- Validated and checked against this host's enforceability for every
@@ -435,7 +324,7 @@ end
 --- "degraded" or "skipped" into a refusal instead, before anything is
 --- applied.
 ---
---- @param opts Options fs, sys, and/or net sections plus tuning flags
+--- @param opts Options fs, sys, net, and/or scope sections plus tuning flags
 --- @return Report? What was enforced, on success
 --- @return string? Error message on failure
 local function apply(opts: Options): Report | nil, string
@@ -445,47 +334,58 @@ local function apply(opts: Options): Report | nil, string
   local do_fs = opts.fs ~= nil
   local do_sys = opts.sys ~= nil
   local do_net = opts.net ~= nil
-  local fs_ok = do_fs and fs_available()
+  local do_scope = opts.scope ~= nil
+  local fs_ok = do_fs and section.fs_available()
   local sys_ok = do_sys and pledge.available()
   local net_ok = do_net and landlock.available() and (landlock.abi() or 0) >= 4
+  local scope_ok = do_scope and landlock.available() and (landlock.abi() or 0) >= 6
 
-  if do_fs and not fs_ok and not opts.best_effort then return nil, "sandbox: " .. unsupported_text("fs") end
-  if do_sys and not sys_ok and not opts.best_effort then return nil, "sandbox: " .. unsupported_text("sys") end
-  if do_net and not net_ok and not opts.best_effort then return nil, "sandbox: " .. unsupported_text("net") end
+  if do_fs and not fs_ok and not opts.best_effort then return nil, "sandbox: " .. section.unsupported_text("fs") end
+  if do_sys and not sys_ok and not opts.best_effort then return nil, "sandbox: " .. section.unsupported_text("sys") end
+  if do_net and not net_ok and not opts.best_effort then return nil, "sandbox: " .. section.unsupported_text("net") end
+  if do_scope and not scope_ok and not opts.best_effort then return nil, "sandbox: " .. section.unsupported_text("scope") end
 
   -- strict must fail BEFORE anything is applied, so a would-be-degraded landlock
   -- restrict is predicted rather than tried and undone (enforcement is irreversible):
-  -- ABI < 2 strips REFER, ABI < 3 also strips TRUNCATE from the always-full `ALL` request.
-  if opts.strict and fs_ok and fs_mechanism() == "landlock" then
+  -- ABI < 2 strips REFER, ABI < 3 strips TRUNCATE, ABI < 5 strips IOCTL_DEV,
+  -- ABI < 9 strips RESOLVE_UNIX from the always-full `ALL` request.
+  if opts.strict and fs_ok and section.fs_mechanism() == "landlock" then
     local abi_version = landlock.abi() or 0
     local would_strip = 0
     if abi_version < 2 then would_strip = would_strip | landlock.REFER end
     if abi_version < 3 then would_strip = would_strip | landlock.TRUNCATE end
+    if abi_version < 5 then would_strip = would_strip | landlock.IOCTL_DEV end
+    if abi_version < 9 then would_strip = would_strip | landlock.RESOLVE_UNIX end
     if would_strip ~= 0 then
       return nil, "sandbox: strict: fs would be enforced in degraded form: "
-      .. landlock_missing(would_strip, abi_version)
+      .. section.landlock_missing(would_strip, abi_version)
     end
   end
 
-  local fs_section, fs_err = one_section(do_fs, fs_ok, fs_mechanism(), 0, "fs", function(): Section | nil, string return apply_fs(opts.fs, opts.no_new_privs ~= false) end)
+  local fs_section, fs_err = section.one_section(do_fs, fs_ok, section.fs_mechanism(), 0, "fs", function(): Section | nil, string return section.apply_fs(opts.fs, opts.no_new_privs ~= false) end)
   if fs_err then return nil, fs_err end
 
-  local sys_section, sys_err = one_section(do_sys, sys_ok, "pledge", 0, "sys", function(): Section | nil, string return apply_sys(opts.sys) end)
+  local sys_section, sys_err = section.one_section(do_sys, sys_ok, "pledge", 0, "sys", function(): Section | nil, string return section.apply_sys(opts.sys.promises, opts.sys.exec_promises) end)
   if sys_err then return nil, sys_err end
 
-  local net_section, net_err = one_section(do_net, net_ok, "landlock", landlock.abi() or 0, "net", function(): Section | nil, string return apply_net(opts.net, opts.no_new_privs ~= false) end)
+  local net_section, net_err = section.one_section(do_net, net_ok, "landlock", landlock.abi() or 0, "net", function(): Section | nil, string return section.apply_net(opts.net, opts.no_new_privs ~= false) end)
   if net_err then return nil, net_err end
 
+  local scope_section, scope_err = section.one_section(do_scope, scope_ok, "landlock", landlock.abi() or 0, "scope", function(): Section | nil, string return section.apply_scope(opts.scope, opts.no_new_privs ~= false) end)
+  if scope_err then return nil, scope_err end
+
   local function skipped(s: Section): boolean return s == nil or s.state == "skipped" end
-  if skipped(fs_section) and skipped(sys_section) and skipped(net_section) and not opts.allow_unenforced then
+  if skipped(fs_section) and skipped(sys_section) and skipped(net_section) and skipped(scope_section)
+  and not opts.allow_unenforced then
     local reasons: {string} = {}
     if fs_section then reasons[#reasons + 1] = "fs: " .. fs_section.missing end
     if sys_section then reasons[#reasons + 1] = "sys: " .. sys_section.missing end
     if net_section then reasons[#reasons + 1] = "net: " .. net_section.missing end
+    if scope_section then reasons[#reasons + 1] = "scope: " .. scope_section.missing end
     return nil, "sandbox: nothing enforced (" .. table.concat(reasons, "; ") .. ")"
   end
 
-  return {fs = fs_section, sys = sys_section, net = net_section}
+  return {fs = fs_section, sys = sys_section, net = net_section, scope = scope_section}
 end
 
 local M: SandboxModule = {

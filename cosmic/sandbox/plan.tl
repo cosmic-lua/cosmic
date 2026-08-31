@@ -39,6 +39,21 @@ local record Net
   bind_tcp: {integer}
 end
 
+--- The facade's signal / abstract-UNIX-socket scoping policy, Landlock
+--- ABI 6+ only. `signal = true` confines signal delivery to the sandbox
+--- domain (a domain member may signal only another member); `abstract_
+--- unix = true` does the same for abstract UNIX sockets. Landlock
+--- scoping is deny-outside-the-domain rather than a per-target grant,
+--- so there is nothing path- or pid-like to list — a boolean is the
+--- honest shape for each category. A policy setting neither key is
+--- rejected (the same "say what you mean" rule fs/net apply to their
+--- groupless case); a policy with no `scope` section at all skips
+--- scoping entirely.
+local record Scope
+  signal: boolean
+  abstract_unix: boolean
+end
+
 -- Add rules for every path in `paths` with the given access mask,
 -- de-duplicating by path: a path listed in several groups gets the
 -- union of their masks (landlock ORs per inode anyway; deduping keeps
@@ -186,18 +201,72 @@ local function validate_net(net: Net): string
   return check_ports(net.bind_tcp, "net.bind_tcp")
 end
 
+--- Translate a scope policy to `landlock.restrict` options. Pure: no
+--- syscalls. `scoped` is built from which keys are TRUE — Landlock
+--- scoping has no per-target grant to plan, only "confine this
+--- category or don't" — so unlike the fs/net path, no `rules` are ever
+--- produced. `handled` (fs) and `handled_net` stay 0: a scope-only
+--- restrict call must not also deny every path or claim the net
+--- domain, mirroring `for_landlock_net`'s reasoning.
+---
+--- @param scope Scope nil treated as empty (no scope policy)
+--- @param no_new_privs boolean? default true
+--- @return RestrictOptions options for landlock.restrict
+local function for_landlock_scope(scope: Scope, no_new_privs?: boolean): RestrictOptions
+  local scoped = 0
+  if scope and scope.signal then
+    scoped = scoped | landlock.SCOPE_SIGNAL
+  end
+  if scope and scope.abstract_unix then
+    scoped = scoped | landlock.SCOPE_ABSTRACT_UNIX_SOCKET
+  end
+  return {
+    handled = 0,
+    rules = {},
+    scoped = scoped,
+    no_new_privs = no_new_privs ~= false,
+  }
+end
+
+--- Validate a scope policy's structure, before any enforcement: key
+--- types and the "at least one key" requirement.
+---
+--- @param scope Scope the section to check
+--- @return string? Error message, nil when valid
+local function validate_scope(scope: Scope): string | nil
+  if type(scope) ~= "table" then
+    return "sandbox: scope must be a table"
+  end
+  for _, name in ipairs({"signal", "abstract_unix"}) do
+    local v = (scope as {string: any})[name] -- cast: record to map probe
+    if v ~= nil and type(v) ~= "boolean" then
+      return "sandbox: scope." .. name .. " must be a boolean"
+    end
+  end
+  if scope.signal == nil and scope.abstract_unix == nil then
+    return "sandbox: scope policy has no keys — pass scope = { signal = true }"
+    .. " and/or scope = { abstract_unix = true }, or omit scope to skip scoping"
+  end
+  return nil
+end
+
 local record PlanModule
   type Fs = Fs
   type Net = Net
+  type Scope = Scope
   for_landlock: function(fs: Fs, no_new_privs?: boolean): RestrictOptions
   for_landlock_net: function(net: Net, no_new_privs?: boolean): RestrictOptions
   validate_net: function(net: Net): string
+  for_landlock_scope: function(scope: Scope, no_new_privs?: boolean): RestrictOptions
+  validate_scope: function(scope: Scope): string | nil
 end
 
 local M: PlanModule = {
   for_landlock = for_landlock,
   for_landlock_net = for_landlock_net,
   validate_net = validate_net,
+  for_landlock_scope = for_landlock_scope,
+  validate_scope = validate_scope,
 }
 
 return M

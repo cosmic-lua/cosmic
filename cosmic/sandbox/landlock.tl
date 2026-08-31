@@ -42,6 +42,11 @@ local REFER < const > = unix.LANDLOCK_ACCESS_FS_REFER -- ABI 2+
 local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE -- ABI 3+
 local NET_BIND_TCP < const > = unix.LANDLOCK_ACCESS_NET_BIND_TCP -- ABI 4+
 local NET_CONNECT_TCP < const > = unix.LANDLOCK_ACCESS_NET_CONNECT_TCP -- ABI 4+
+local IOCTL_DEV < const > = unix.LANDLOCK_ACCESS_FS_IOCTL_DEV -- ABI 5+
+local SCOPE_ABSTRACT_UNIX_SOCKET < const > = unix.LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET -- ABI 6+
+local SCOPE_SIGNAL < const > = unix.LANDLOCK_SCOPE_SIGNAL -- ABI 6+
+local TSYNC < const > = unix.LANDLOCK_RESTRICT_SELF_TSYNC -- ABI 8+
+local RESOLVE_UNIX < const > = unix.LANDLOCK_ACCESS_FS_RESOLVE_UNIX -- ABI 9+
 
 --- Convenience masks. `ALL` is the full current set; `RW` covers read
 --- + write (including creating and removing files) but *not* execute —
@@ -53,8 +58,11 @@ local EXEC < const > = EXECUTE
 --- rejects a rule carrying directory-only rights (READ_DIR, MAKE_*,
 --- REMOVE_*, REFER) on a regular file with EINVAL, so restrict() masks
 --- file rules down to these — mirroring what the libc unveil path does
---- after fstat.
+--- after fstat. IOCTL_DEV and RESOLVE_UNIX belong here too: both attach
+--- to the target device/socket node itself, not to a containing
+--- directory, the same shape as WRITE_FILE and TRUNCATE.
 local FILE_BITS < const > = READ_FILE | WRITE_FILE | EXECUTE | TRUNCATE
+| IOCTL_DEV | RESOLVE_UNIX
 --- TRUNCATE is part of WRITE, not an extra. It is a SEPARATE right
 --- from ABI 3 on, and `ALL` -- the handled set -- includes it, so
 --- leaving it out of the grant made "read-write" mean "create, but
@@ -73,16 +81,30 @@ local FILE_BITS < const > = READ_FILE | WRITE_FILE | EXECUTE | TRUNCATE
 --- widens nothing across trees. `abi_mask` strips it below ABI 2 (on
 --- ABI 1 kernels landlock denies cross-directory moves outright and no
 --- grant can allow them).
+--- IOCTL_DEV rides the same composite from ABI 5 on: a tree granted rw
+--- supports every ordinary file operation, and ioctl(2) on a device
+--- node under it (a tty's line discipline, a block device's geometry)
+--- is one -- without it, `rw` on a device node let a process open,
+--- read, and write it but not drive it, the same half-working shape
+--- TRUNCATE closed for regular files. `abi_mask` strips it below ABI 5.
+--- RESOLVE_UNIX follows the identical pattern from ABI 9: pathname
+--- UNIX-socket resolution is an ordinary file operation on a tree
+--- granted rw. `abi_mask` strips it below ABI 9.
 local WRITE < const > = WRITE_FILE | TRUNCATE | REMOVE_FILE | REMOVE_DIR
 | MAKE_REG | MAKE_DIR | MAKE_SYM
 | MAKE_SOCK | MAKE_FIFO | MAKE_CHAR | MAKE_BLOCK
-| REFER
+| REFER | IOCTL_DEV | RESOLVE_UNIX
 local RW < const > = READ | WRITE
-local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
+local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE | IOCTL_DEV | RESOLVE_UNIX
 --- Both TCP net rights, for a rule granting connect and bind alike.
 --- Needs ABI 4 (Linux 6.7+); there is no partial net enforcement below
 --- it, so unlike `ALL` this is never silently stripped.
 local NET_ALL < const > = NET_BIND_TCP | NET_CONNECT_TCP
+--- Both scope categories, for confining signal delivery and abstract
+--- UNIX sockets to the domain together. Needs ABI 6 (Linux 6.12+);
+--- like `NET_ALL` there is no partial scope enforcement below it, so
+--- this is never silently stripped either.
+local SCOPE_ALL < const > = SCOPE_SIGNAL | SCOPE_ABSTRACT_UNIX_SOCKET
 
 --- A single path -> access-mask rule in a restrict() call.
 --- `access` is an OR of cosmic.landlock.* flag constants (READ, EXEC,
@@ -118,6 +140,12 @@ end
 --- the create_ruleset request to the ABI-4 struct layout, which an
 --- older kernel rejects). `net_rules` lists allowed ports. Needs ABI 4;
 --- see `restrict`'s doc for what happens below it.
+--- `scoped` confines signal delivery and/or abstract UNIX sockets to
+--- the resulting domain (SCOPE_SIGNAL / SCOPE_ABSTRACT_UNIX_SOCKET); nil
+--- or 0 leaves both unscoped by this call, and — like `handled_net` —
+--- any non-nil value widens the request to the ABI-6 struct layout.
+--- Needs ABI 6; below it a scope request refuses outright, the same
+--- hard gate `handled_net` has below ABI 4.
 --- `no_new_privs` defaults to true (sets PR_SET_NO_NEW_PRIVS before the
 --- restrict, which the kernel requires unless the caller already set it
 --- or holds CAP_SYS_ADMIN).
@@ -126,6 +154,7 @@ local record RestrictOptions
   rules: {Rule}
   handled_net: integer
   net_rules: {NetRule}
+  scoped: integer
   no_new_privs: boolean
   --- Turn an unsupported host into a successful no-op instead of an
   --- error — the explicit fail-open escape hatch, matching
@@ -139,8 +168,9 @@ end
 --- ruleset ended up controlling — the requested `handled` (default
 --- `ALL`) intersected with what this kernel's ABI supports. `stripped`
 --- is the requested rights that did NOT make it into `handled` because
---- this ABI does not have them yet (only ever a subset of `REFER` and
---- `TRUNCATE` — see `abi_mask` below); zero means nothing was stripped.
+--- this ABI does not have them yet (a subset of `REFER`, `TRUNCATE`,
+--- `IOCTL_DEV`, and `RESOLVE_UNIX` — see `abi_mask` below); zero means
+--- nothing was stripped.
 local record Enforcement
   abi: integer
   handled: integer
@@ -169,12 +199,18 @@ local record LandlockModule
   TRUNCATE: integer
   NET_BIND_TCP: integer
   NET_CONNECT_TCP: integer
+  IOCTL_DEV: integer
+  SCOPE_ABSTRACT_UNIX_SOCKET: integer
+  SCOPE_SIGNAL: integer
+  TSYNC: integer
+  RESOLVE_UNIX: integer
   READ: integer
   EXEC: integer
   WRITE: integer
   RW: integer
   ALL: integer
   NET_ALL: integer
+  SCOPE_ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
   restrict: function(opts?: RestrictOptions): Enforcement | nil, string
@@ -197,6 +233,8 @@ local function abi_mask(abi_version: integer): integer
   | MAKE_FIFO | MAKE_BLOCK | MAKE_SYM | EXECUTE
   if abi_version >= 2 then mask = mask | REFER end
   if abi_version >= 3 then mask = mask | TRUNCATE end
+  if abi_version >= 5 then mask = mask | IOCTL_DEV end
+  if abi_version >= 9 then mask = mask | RESOLVE_UNIX end
   return mask
 end
 
@@ -205,6 +243,17 @@ end
 -- grant to offer, unlike the fs bits abi_mask strips above, so a net
 -- request either goes through whole or refuses.
 local NET_ABI < const > = 4
+
+-- ABI 6 (Linux 6.12+) introduced domain scoping via its own struct
+-- field (scoped), the same shape as handled_net one ABI tier down:
+-- there is no partial scope to offer, so a scope request either goes
+-- through whole or refuses.
+local SCOPE_ABI < const > = 6
+
+-- ABI 8 (Linux 6.16+) introduced landlock_restrict_self's all-threads
+-- flag. Below it the flag bit is unknown to the kernel and EINVALs, so
+-- it is only ever OR'd into the restrict_self call at or above this ABI.
+local TSYNC_ABI < const > = 8
 
 -- The kernel's ABI answer cannot change within a process; probe once
 -- and cache, matching pledge.available() / unveil.available().
@@ -287,9 +336,21 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
       "landlock: net section requires ABI %d, this kernel is ABI %d",
       NET_ABI, abi_version)
   end
+  -- scoped is the same shape one struct field further: only ever sent
+  -- when non-zero, and sending it widens the request to the ABI-6
+  -- layout, which requires also sending net_handled (even when 0) since
+  -- scoped sits behind it positionally.
+  local scoped = opts.scoped or 0
+  if scoped ~= 0 and abi_version < SCOPE_ABI then
+    return nil, string.format(
+      "landlock: scope section requires ABI %d, this kernel is ABI %d",
+      SCOPE_ABI, abi_version)
+  end
   local rs: integer = nil
   local cerr: string = nil
-  if net_handled ~= 0 then
+  if scoped ~= 0 then
+    rs, cerr = unix.landlock_create_ruleset(handled, 0, net_handled, scoped)
+  elseif net_handled ~= 0 then
     rs, cerr = unix.landlock_create_ruleset(handled, 0, net_handled)
   else
     rs, cerr = unix.landlock_create_ruleset(handled, 0)
@@ -365,7 +426,17 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   -- the seal-vs-keep rule lives in cosmic._seal_coverage, shared with
   -- pledge/unveil.
   seal_coverage()
-  local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
+  -- TSYNC applies the domain to every thread of the calling process, not
+  -- just the one that called restrict_self. Unconditional whenever the
+  -- kernel knows the flag: cosmic runs single-threaded today, so this
+  -- is a no-op in practice, but the day that stops being true a
+  -- restrict() call still confines the whole process rather than
+  -- leaving every thread but the caller's outside the domain — no
+  -- vocabulary needed, since there is no world where a caller wants
+  -- LESS than all-threads confinement from its own restrict.
+  local self_flags = 0
+  if abi_version >= TSYNC_ABI then self_flags = self_flags | TSYNC end
+  local ok, rerr = unix.landlock_restrict_self(rsfd, self_flags)
   unix.close(rsfd)
   if not ok then
     return nil, "landlock: restrict_self: " .. tostring(rerr)
@@ -391,12 +462,18 @@ M = {
   TRUNCATE = TRUNCATE,
   NET_BIND_TCP = NET_BIND_TCP,
   NET_CONNECT_TCP = NET_CONNECT_TCP,
+  IOCTL_DEV = IOCTL_DEV,
+  SCOPE_ABSTRACT_UNIX_SOCKET = SCOPE_ABSTRACT_UNIX_SOCKET,
+  SCOPE_SIGNAL = SCOPE_SIGNAL,
+  TSYNC = TSYNC,
+  RESOLVE_UNIX = RESOLVE_UNIX,
   READ = READ,
   EXEC = EXEC,
   WRITE = WRITE,
   RW = RW,
   ALL = ALL,
   NET_ALL = NET_ALL,
+  SCOPE_ALL = SCOPE_ALL,
   abi = abi,
   available = available,
   restrict = restrict,
