@@ -37,8 +37,8 @@ _types/tlast.tl	320	module surface record
 _types/tlast.tl	321	module surface record
 _types/tlast.tl	331	tl compiler surface
 _types/tlast.tl	341	metatable access
-_types/tlast_test.tl	47	module surface record
-_types/tlast_test.tl	57	tl compiler surface
+_types/tlast_test.tl	50	module surface record
+_types/tlast_test.tl	60	tl compiler surface
 cmd/cosmic/embed_gen.tl	294	decoded data shaping
 cmd/cosmic/embed_gen.tl	334	decoded data shaping
 cmd/cosmic/main.tl	456	container variance

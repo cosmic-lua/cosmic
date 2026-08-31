@@ -256,17 +256,25 @@ w:close()
 ]==]
 
 --- Dump the serialized AST chunk using the base runtime.
+---
+--- Scratch goes under `dest`, the directory the generator was handed and
+--- is already writing its output into, rather than somewhere under `o/`:
+--- `generate` is also called directly by `_types/tlast_test.tl`, and a
+--- second writable-path assumption is a second way to fail somewhere the
+--- build does not. `DUMPER` is executed where it lies for the same
+--- reason -- it is already an executable file in the tree, so no copy is
+--- made and no freshly created path has to be executable.
 --- @param src string The serialized Lua source
+--- @param dest string The generator's output directory
 --- @return string|nil The stripped bytecode, or nil on failure
 --- @return string The error
-local function dump_via_base(src: string): string | nil, string
-  local work, terr = fs.temp_dir("o/tlast-bytecode-XXXXXX")
+local function dump_via_base(src: string, dest: string): string | nil, string
+  local work, terr = fs.temp_dir(fs.join(dest, "tlast-bytecode-XXXXXX"))
   if not work then
     return nil, "tl_ast: " .. (terr or "cannot make a temporary directory")
   end
   local srcfile = fs.join(work, "chunk.lua")
   local prog = fs.join(work, "convert.lua")
-  local exe = fs.join(work, "runtime")
   local out = fs.join(work, "out.luac")
   local sok, serr = fs.write(srcfile, src)
   if not sok then
@@ -276,15 +284,7 @@ local function dump_via_base(src: string): string | nil, string
   if not pok then
     return nil, "tl_ast: " .. prog .. ": " .. (perr or "cannot write")
   end
-  local cok, cerr = fs.copy(DUMPER, exe)
-  if not cok then
-    return nil, "tl_ast: " .. DUMPER .. ": " .. (cerr or "cannot copy")
-  end
-  local xok, xerr = fs.set_mode(exe, fs.octal("755"))
-  if not xok then
-    return nil, "tl_ast: " .. exe .. ": " .. (xerr or "cannot set mode")
-  end
-  local r, rerr = child.run({exe, prog, srcfile, out},
+  local r, rerr = child.run({DUMPER, prog, srcfile, out},
     {stdout = "inherit", stderr = "inherit"})
   if r == nil then
     return nil, "tl_ast: " .. tostring(rerr or "start failed")
@@ -348,7 +348,7 @@ local function generate(dest: string): string | nil
   -- module-shipping rationale in _make/bytecode.tl does not apply).
   local out = fs.join(dest, OUT_NAME)
   local previous = fs.read(out)
-  local dumped, derr = dump_via_base(src)
+  local dumped, derr = dump_via_base(src, dest)
   if not dumped then
     return derr or "cannot dump the serialized chunk"
   end
