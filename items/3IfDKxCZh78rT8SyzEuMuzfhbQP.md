@@ -12,6 +12,17 @@ upstream Lua lives.
 
 ### Why it is not a bump
 
+**Note: its blocker changes this calculus.** The 5.4.9 item now restructures
+`third_party/lua` into pristine sources plus a mechanical transform plus numbered
+patches, on the `third_party/sqlite3/update.sh` model. Once that lands, moving to
+5.5 is not "rebase 3,312 lines across +6,583/-4,029" — it is: point `update.sh` at
+the 5.5.1 tarball, let the mechanical transform run, and see which of the ~1,531
+lines of semantic patch still apply. The ones that fail are the real work, and they
+fail *loudly and individually* rather than as one intractable merge. The interpreter
+half of this item is therefore best re-measured after its blocker, not before.
+
+The raw churn, for scale:
+
 | | files | churn |
 |---|---|---|
 | 5.4.6 → 5.4.9 | 32 | +488 / -296 |
@@ -57,8 +68,11 @@ The interpreter is only part of it. Cosmic *is* a Lua 5.4 distribution:
 
 ### Sequencing
 
-Do the 5.4.9 bump first regardless. It is small, it lands the memory-safety fixes,
-and it does not commit anyone to 5.5. Nothing here should block on this capture,
+Do the blocker first regardless. It lands the memory-safety fixes, it commits
+nobody to 5.5, and it converts the interpreter half of this item from a rebase into
+a patch-reapplication whose failures are enumerable. Re-measure the cost here after
+it lands; the numbers below describe today's shape, not the shape this item will
+meet. Nothing here should block on this capture,
 and this capture should not be pulled until the four questions above are answered.
 
 ## Non-goals
