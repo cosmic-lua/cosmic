@@ -5,5 +5,6 @@ return {
   ["lane"] = "release.yml",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1593,
+  ["reviewer"] = "review-2fxCxAFy-1",
   ["title"] = "lane repair: release.yml is red",
 }
