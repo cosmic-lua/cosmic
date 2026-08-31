@@ -195,7 +195,7 @@ local function supervisor(
   local net = opts and opts.net
   if net and net.allow then
     local h, perr = proxy.start({
-        bind_ip = cosmo.ParseIp("127.0.0.1"),
+        bind_ip = assert(cosmo.ParseIp("127.0.0.1")), -- assert: literal IP always parses
         bind_port = 0,
         -- NetRule and ProxyRule are the same nominal record now;
         -- proxy.start's rules.validate still runtime-checks raw config.
@@ -227,6 +227,7 @@ local function supervisor(
   local pid, ferr = unix.fork()
   if not pid then
     die("fork workload: " .. tostring(ferr))
+    return -- unreachable
   end
   if pid == 0 then
     local serr = workload_setup(opts)

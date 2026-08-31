@@ -110,7 +110,7 @@ end
 --- 2=stderr
 --- @return boolean True if fd is a terminal
 local function is_tty(fd?: integer): boolean
-  return (unix.isatty(fd or 1))
+  return unix.isatty(fd or 1) or false
 end
 
 --- Gets the terminal window size for a file descriptor.

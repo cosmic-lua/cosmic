@@ -100,10 +100,16 @@ local function spawn(prog: string, argv: {string}, envp: {string} | nil,
     end
   end
 
-  local pid: integer
+  local pid: integer | nil
   local serr: string
   if wired then
-    local p, e = unix.spawn(prog, argv, envp)
+    local p: integer | nil
+    local e: string
+    if envp then
+      p, e = unix.spawn(prog, argv, envp)
+    else
+      p, e = unix.spawn(prog, argv)
+    end
     pid = p
     serr = e
   end

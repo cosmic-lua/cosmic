@@ -114,11 +114,12 @@ local function parse_table(toks: {Token}, i: integer, where: string,
     elseif t.tk == "[" and toks[i + 1] and toks[i + 1].kind == "string"
     and toks[i + 2] and toks[i + 2].tk == "]"
     and toks[i + 3] and toks[i + 3].tk == "=" then
-      key = lit_lex.string_value(toks[i + 1].tk)
-      if not key then
+      local sval = lit_lex.string_value(toks[i + 1].tk)
+      if not sval then
         return nil, where .. ":" .. tostring(toks[i + 1].y) ..
         ": a " .. noun .. " has a malformed string key"
       end
+      key = sval
       key_line = t.y
       i = i + 4
     else

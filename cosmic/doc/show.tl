@@ -290,12 +290,13 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
     for _, rec in ipairs(doc.records) do
       local found = find_method(rec, symbol)
       if found then
+        local text = found
         local matching_examples = find_matching_examples(doc.examples, symbol)
         if #matching_examples > 0 then
-          found = found .. "**Examples:**\n\n"
-          for _, example in ipairs(matching_examples) do found = found .. render_example(example) end
+          text = text .. "**Examples:**\n\n"
+          for _, example in ipairs(matching_examples) do text = text .. render_example(example) end
         end
-        return found
+        return text
       end
     end
   end

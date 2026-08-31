@@ -137,7 +137,7 @@ local record Options
   --- It is a policy, not a notification: do not reach for it to
   --- observe failures, because the failure that ends the call is
   --- exactly the one it does not see.
-  should_retry: function(Response, Error): boolean
+  should_retry: function(Response | nil, Error): boolean
 end
 
 -- Shared helpers, attached via metatable so every Response answers the
@@ -269,12 +269,16 @@ local RETRYABLE_STATUS: {integer: boolean} = {[429] = true, [502] = true, [503] 
 --- 429/502/503/504 responses are retried, but only for idempotent methods.
 --- invalid_request/tls/blocked/protocol/proxy/too_large failures are
 --- never retried.
-local function default_should_retry(resp: Response, errobj: Error, method: string): boolean
+local function default_should_retry(resp: Response | nil, errobj: Error,
+    method: string): boolean
   if not IDEMPOTENT[method] then
     return false
   end
   if errobj then
     return RETRYABLE_KIND[errobj.kind] or false
+  end
+  if not resp then
+    return false
   end
   return RETRYABLE_STATUS[resp.status] or false
 end
@@ -309,7 +313,7 @@ local function Fetch(url: string, opts?: Options): Response | nil, Error
   local should_retry = opts and opts.should_retry
   local method = string.upper((opts and opts.method) or "GET")
 
-  local resp: Response
+  local resp: Response | nil
   local errobj: Error
   for attempt = 1, max_attempts do
     resp, errobj = do_fetch(url, opts)

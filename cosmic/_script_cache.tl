@@ -215,6 +215,9 @@ local function compile_cached(input_path: string,
     return nil, teal.format_issues(result.errors, {hints = true})
   end
   local generated = result.code
+  if not generated then
+    return nil, "compile reported ok but produced no code for " .. input_path
+  end
   store(input_path, source, generated, mode)
   return generated
 end

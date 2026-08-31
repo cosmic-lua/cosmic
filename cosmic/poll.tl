@@ -135,7 +135,7 @@ local function new(): Poller
     if timeout_ms and timeout_ms >= 0 then
       deadline_ms = time.monotonic_ms() + timeout_ms
     end
-    local res: {integer: integer}
+    local res: {integer: integer} | nil
     local err: string
     local eno: integer
     while true do
