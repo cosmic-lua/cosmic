@@ -169,6 +169,38 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
   return collected, nil
 end
 
+--- The measured boot-path set: every zip entry a bare `cosmic-lua`
+--- launch actually loads before it does anything else, keyed by its
+--- stored name. Measured by starting a built `cosmic` binary with
+--- `-e 'for k in pairs(package.loaded) do print(k) end'` and keeping
+--- only the modules that resolve from `/zip` (the `cosmo.*` bindings
+--- in that same list are native, not zip entries), plus `main.lua`
+--- itself -- the entry point `loadfile`s before `require` exists to
+--- resolve anything.
+---
+--- This is a positive keep list for the same reason the strip floor
+--- (cosmic.embed.floor) is one: a module that starts loading at boot
+--- has to be added here explicitly, or it silently regresses back to
+--- deflated and costs every launch an inflate() it used to skip.
+local BOOT_SET < const >: {string: boolean} = {
+  ["main.lua"] = true,
+  ["_cli/args.lua"] = true,
+  ["_cli/main_handlers.lua"] = true,
+  ["_cli/require_hints.lua"] = true,
+  ["_cli/run.lua"] = true,
+  ["cosmic/_fields.lua"] = true,
+  ["cosmic/env.lua"] = true,
+  ["cosmic/errno.lua"] = true,
+  ["cosmic/flags.lua"] = true,
+  ["cosmic/flags/command.lua"] = true,
+  ["cosmic/flags/getopt.lua"] = true,
+  ["cosmic/flags/parse.lua"] = true,
+  ["cosmic/flags/types.lua"] = true,
+  ["cosmic/instrument.lua"] = true,
+  ["cosmic/searcher.lua"] = true,
+  ["cosmic/tty.lua"] = true,
+}
+
 --- Sentinel first line of the generated entry wrapper; recognizing it
 --- keeps wrapping idempotent across extract/embed roundtrips.
 local WRAP_SENTINEL < const > = "-- cosmic-embed searcher wrapper (#687); app entry: /zip/main.user.lua"
@@ -377,10 +409,14 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
   end
 
   -- Remove existing entries that conflict, then add new ones.
-  -- Store .lua uncompressed; deflate everything else. The produced
-  -- executable loads its embedded Lua at boot, so a deflated .lua costs an
-  -- inflate() on every launch. Bulk assets, which the entry point does not
-  -- necessarily read at startup, stay compressed to hold the size down.
+  -- Store exactly the measured boot-path set (BOOT_SET above);
+  -- deflate everything else, .lua included. Only the handful of
+  -- modules a bare launch actually loads before doing anything pay
+  -- for zero-copy; those are also the only ones where a per-launch
+  -- inflate() shows up in startup at all. Everything else -- the doc
+  -- index, the Teal compiler, the rest of the standard library, bulk
+  -- assets -- loads later or not at all for a given run, so shrinking
+  -- it costs nothing bare boot measures.
   for _, file_info in ipairs(files_to_embed) do
     -- The error is deliberately discarded: "entry not found" is the
     -- NORMAL result for a name not already in the base, and the
@@ -391,10 +427,9 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
     -- it does, a genuinely failed removal would surface as the
     -- duplicate entry it creates.
     local _ok, _err = appender:remove(file_info.stored_name)
-    local is_lua = file_info.stored_name:sub(-4) == ".lua"
     local add: czip.AddOptions = {
       mode = file_info.mode,
-      method = is_lua and "store" or "deflate",
+      method = BOOT_SET[file_info.stored_name] and "store" or "deflate",
       -- Default the epoch rather than letting the binding fall back to
       -- `time(NULL)`. Without a fixed default, two runs of the same
       -- inputs seconds apart would produce different binaries --
