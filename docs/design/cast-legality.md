@@ -154,10 +154,14 @@ any}, {any: any}): {any: any}` — a concrete map, not opaque, so the
 outer `as T` here is refused where `copy<T>`'s was not. Widening
 `merge_impl`'s return to `any`, matching `copy_impl`'s own declared
 contract, is the entire repair — no signature callers see changes,
-because the function is local and only `merge` calls it. The other two
-refused sites (`cosmic/fetch/extras.tl:239`, `cosmic/fs/walk.tl:146`)
-are the same shape: a freshly built or shallow-copied map cast to `T`,
-not `T` itself.
+because the function is local and only `merge` calls it. The other
+three refused sites are close but not all the same shape:
+`cosmic/fetch/extras.tl:239` and `cosmic/fs/walk.tl:146` cast a
+freshly built or shallow-copied map to `T` itself, while
+`cosmic/fetch/extras.tl:202` (`local prepared = o as PrepareOptions --
+cast: copied map as mirror record`) casts the same kind of concrete
+map — not to `T`, but to the named record `PrepareOptions` — so the
+class's boundary is a little broader than "cast to `T`" alone.
 
 **Metatable access is the confirmed gap.** `getmetatable` is not typed
 `any` in pinned tl — it returns a record-shaped type — so the operand
@@ -222,11 +226,19 @@ git ls-files '*.tl' | grep -v '/testdata/' \
   | xargs grep -n 'as {any: any}\|as {string: any}'
 ```
 
-finds 53 occurrences; 8 are inside `*_test.tl` files that hold the
-literal text as fixture *data* (a string written to a scratch file,
-never a real cast in that file's own source — the same divergence
-`docs/design/casts.md`'s Method section already documents for the `--
-cast: ` grep). Of the **45 real, tracked sites** (31 in closable
+finds 53 occurrences; 8 hold the literal text as fixture or hint
+*data*, never a real cast in that file's own source — the same
+divergence `docs/design/casts.md`'s Method section already documents
+for the `-- cast: ` grep. Seven of the eight are inside `*_test.tl`
+files, the text written to a scratch file or embedded as sample
+output (`_cli/lint_test.tl:410,417`,
+`_cli/main_handlers_test.tl:233,238`, `_perf/skew_test.tl:33`,
+`_tool/lint_test.tl:59`, `cosmic/teal_test.tl:372`). The eighth,
+`cosmic/_teal_hints.tl:125`, is ordinary (non-test) source: a hint
+string literal —
+`` "  hint: cast first, e.g. `local obj = val as {string: any}`" `` —
+suggested to a user hitting an `any`-indexing error, not a cast run
+anywhere in that file. Of the **45 real, tracked sites** (31 in closable
 classes, 14 in floor classes — the floor share shrank from the item's
 cited 22 as `check.is_exposed` closed test-probe sites), **28 are
 refused and 17 are allowed**. The 17 are not a rule bug: each one's
