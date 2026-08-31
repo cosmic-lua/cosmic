@@ -5,6 +5,7 @@ return {
   ["claim"] = "57eb6357-a2aa-5e9c-bb3d-8ce9500def50",
   ["id"] = "3Idu2bXn7v5T14LfXWZlIn8Hcv9",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 295,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage the Lua syntax-extension tests",
 }
