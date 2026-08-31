@@ -64,6 +64,30 @@ build once from the pin, keep that binary aside, restore it before each
 strict rebuild, and let it compile the tree while the patched `tl.lua`
 is linked into the artifact.
 
+**A bare spot-check resolves the binary's own embedded copy, not the
+live tree.** `cosmic --check types <file>` with no `--include-dir`
+resolves every `require("cosmic.*")` the file makes through
+`cosmic/_teal_engine.tl`'s `default_include_dirs()` — `/zip/.types`,
+`/zip/.tl` (bundled `.tl` source), `/zip` (compiled `.lua`) — none of
+which is the project root; `--make ci`'s own per-file check
+(`_make/check.tl`) is unaffected only because it explicitly passes
+`{"."}` ahead of those defaults. Verified: with an already-built
+`o/bin/cosmic`, editing a required module (removing an exported field
+from `cosmic/errno.tl`, say) and then bare-spot-checking a file that
+requires it (`cosmic/env.tl`) still reports "Type check passed" —
+`cmd/cosmic/embed_gen.tl` embedded that module's `.tl` source under
+`.tl/` and its compiled form at the zip root when the binary was
+built, and that snapshot, not the edited file on disk, is what
+resolves. Re-run with `--include-dir .` on the argv (or rebuild) and
+the same binary reports the error correctly. The file named on the
+command line is always read live (`fs.read`, not the module search
+path) — only a file it `require()`s can go stale this way — so the
+trap is invisible on the very file you just edited and only bites the
+files around it. A full clean rebuild between edits is the reliable
+way to get an authoritative before/after count; `--include-dir .` on
+each spot-check call is a cheaper per-file workaround once you know to
+reach for it.
+
 **Proof of life.** `cosmic/teal_narrowing_test.tl` pins today's
 boundary: `test_nil_union_is_admitted_outside_an_index` asserts that the
 checker does *not* complain about five sinks in one program. Run the
