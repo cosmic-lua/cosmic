@@ -214,7 +214,7 @@ local function generated_payload(root: string, unit: string, out: {Staged})
   local _ok, _err = fs.visit(dir, function(e: fs.Entry): fs.WalkAction
       if e.stat:is_file() then
         local inside = e.path:sub(#dir + 2)
-        out[#out + 1] = {source = fs.join(rel, inside), stored = inside}
+        out[#out + 1] = {source = fs.join(rel, inside), stored = inside, is_module = bytecode.is_module_path(inside)}
       end
       return nil
     end)
@@ -313,9 +313,10 @@ end
 --- artifact layout once the plan has named it.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact being staged
+--- @param runtime string The base that loads the payload; modules stage as SOURCE and `_make.bytecode` compiles them with it
 --- @return string|nil The staging directory, or nil on failure
 --- @return string The error message
-local function stage(proj: Project, binary: Binary): string | nil, string
+local function stage(proj: Project, binary: Binary, runtime: string): string | nil, string
   local dir = fs.join(project.BUILD_DIR, "stage", binary.name)
   -- Clear rather than merge: a file removed from the project must not
   -- survive in the artifact because it is still sitting in the stage.
@@ -327,9 +328,8 @@ local function stage(proj: Project, binary: Binary): string | nil, string
   end
   local entries = plan(proj, binary)
   local clash = collision(entries)
-  if clash then
-    return nil, clash
-  end
+  if clash then return nil, clash end
+  local mods: {string} = {}
   for _, s in ipairs(entries) do
     local content = s.content
     if not content then
@@ -340,11 +340,7 @@ local function stage(proj: Project, binary: Binary): string | nil, string
       end
       content = body
     end
-    local code, berr = bytecode.for_stage(content, s.stored, s.is_module)
-    if not code then
-      return nil, "make: " .. berr
-    end
-    content = code
+    if s.is_module then mods[#mods + 1] = s.stored end
     local dst = fs.join(dir, s.stored)
     local mok, merr = fs.make_dirs(fs.dirname(dst))
     if not mok then
@@ -357,6 +353,8 @@ local function stage(proj: Project, binary: Binary): string | nil, string
       (werr or "unknown error")
     end
   end
+  local cok, cerr = bytecode.compile_staged(runtime, dir, mods)
+  if not cok then return nil, cerr end
   return dir
 end
 
@@ -441,7 +439,8 @@ end
 --- @return string|nil The artifact path, or nil on failure
 --- @return string The error message
 local function build(proj: Project, binary: Binary, cosmic: string): string | nil, string
-  local dir, serr = stage(proj, binary)
+  local bases = bases_of(proj, binary, cosmic)
+  local dir, serr = stage(proj, binary, fs.join(proj.root, bases[1][2]))
   if not dir then
     return nil, serr or "make: staging failed"
   end
@@ -454,7 +453,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
   local first: string = nil
   -- One staged payload, embedded onto each declared runtime. Staging
   -- again per variant would only invite the two to differ.
-  for _, pair in ipairs(bases_of(proj, binary, cosmic)) do
+  for _, pair in ipairs(bases) do
     local out = fs.join(bindir, binary.name .. pair[1])
     -- The other half of the provider exemption: the validator lets a
     -- project define `cosmic/**` when it defines the whole namespace, and
@@ -482,7 +481,8 @@ local record ArtifactModule
   bases_of: function(proj: Project, binary: Binary, cosmic: string): {{string, string}}
   scope_of: function(proj: Project, binary: Binary): {File}
   plan: function(proj: Project, binary: Binary): {Staged}
-  stage: function(proj: Project, binary: Binary): string | nil, string
+  stage: function(proj: Project, binary: Binary,
+  runtime: string): string | nil, string
   build: function(proj: Project, binary: Binary, cosmic: string): string | nil, string
   replace_if_changed: function(staged: string, out: string): string | nil
 end

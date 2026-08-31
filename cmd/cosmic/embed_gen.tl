@@ -71,35 +71,17 @@ local TREES: {string} = {
   "docs/guides",
 }
 
---- Compile Lua source to bytecode -- a private copy of `_make.bytecode.
---- dump` (see it for "why not stripped"; this file runs as a GENERATOR
---- without `--include-dir .`, so it cannot safely depend on that module).
-local function dump_bytecode(body: string, chunkname: string): string | nil, string
-  local source = body
-  if source:sub(1, 2) == "#!" then
-    source = "--" .. source:sub(3)
-  end
-  local chunk, lerr = load(source, "@" .. chunkname)
-  if not chunk then
-    return nil, chunkname .. ": " .. (lerr or "cannot load")
-  end
-  return string.dump(chunk, false), nil
-end
-
---- Copy one file into the payload, optionally as Lua bytecode.
---- @param as_bytecode boolean `to` is a Lua module: dump bytecode
+--- Copy one file into the payload.
+---
+--- Lua modules go in as SOURCE. `_make.artifact` compiles the staged
+--- payload to bytecode afterwards, with the artifact's own base runtime
+--- -- see `_make.bytecode`'s `compile_staged` for why the dumper cannot
+--- be a generator running under whichever cosmic happens to be building.
 --- @return boolean, string Success, or false plus the reason
-local function put(from: string, to: string, dest: string, as_bytecode?: boolean): boolean, string
+local function put(from: string, to: string, dest: string): boolean, string
   local body, rerr = fs.read(from)
   if not body then
     return false, from .. ": " .. (rerr or "cannot read")
-  end
-  if as_bytecode then
-    local code, berr = dump_bytecode(body, "/zip/" .. to)
-    if not code then
-      return false, "bytecode " .. berr
-    end
-    body = code
   end
   local out = fs.join(dest, to)
   local mok, merr = fs.make_dirs(fs.dirname(out))
@@ -441,9 +423,7 @@ local function generate(out: string): string
     if not fs.is_file(pair[2]) then
       return pair[2] .. ": missing; run `cosmic --make fetch` first"
     end
-    -- tl.lua is `require`d like any module; make is a native binary.
-    local as_bytecode = pair[1]:sub(-4) == ".lua"
-    local ok, err = put(pair[2], pair[1], dest, as_bytecode)
+    local ok, err = put(pair[2], pair[1], dest)
     if not ok then
       return err
     end

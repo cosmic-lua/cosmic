@@ -17,6 +17,7 @@
 --- the chunk name is constant. Rebuilding the same pinned bytes yields
 --- the same cache, byte for byte.
 
+local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 
 local TL_LUA < const > = "o/3p/tl/tl.lua"
@@ -229,6 +230,76 @@ end
 
 --- Generate the cache into `dest`.
 --- @param dest string The unit's output directory
+
+--- The runtime the artifact carries this payload on, and so the one
+--- that must dump it. Named here for the same reason
+--- `cmd/cosmic/embed_gen.tl` names it: it is what the binary runs on.
+local DUMPER < const > = "o/3p/cosmos/lua"
+
+--- The Lua that `dump_via_base` runs inside `DUMPER`. STRIPPED, unlike
+--- the module dumpers in `_make/bytecode.tl` and `cmd/cosmic/embed_gen.
+--- tl` -- see the call site for why. Those three copies exist because
+--- each runs somewhere the others cannot be required from.
+local CONVERTER < const > = [==[
+local src, out = ...
+local fh = assert(io.open(src, "rb"))
+local body = fh:read("a")
+fh:close()
+local chunk, lerr = load(body, "=.tl_ast")
+if not chunk then
+  io.stderr:write("tl_ast: " .. tostring(lerr) .. "\n")
+  os.exit(1)
+end
+local w = assert(io.open(out, "wb"))
+w:write(string.dump(chunk, true))
+w:close()
+]==]
+
+--- Dump the serialized AST chunk using the base runtime.
+--- @param src string The serialized Lua source
+--- @return string|nil The stripped bytecode, or nil on failure
+--- @return string The error
+local function dump_via_base(src: string): string | nil, string
+  local work, terr = fs.temp_dir("o/tlast-bytecode-XXXXXX")
+  if not work then
+    return nil, "tl_ast: " .. (terr or "cannot make a temporary directory")
+  end
+  local srcfile = fs.join(work, "chunk.lua")
+  local prog = fs.join(work, "convert.lua")
+  local exe = fs.join(work, "runtime")
+  local out = fs.join(work, "out.luac")
+  local sok, serr = fs.write(srcfile, src)
+  if not sok then
+    return nil, "tl_ast: " .. srcfile .. ": " .. (serr or "cannot write")
+  end
+  local pok, perr = fs.write(prog, CONVERTER)
+  if not pok then
+    return nil, "tl_ast: " .. prog .. ": " .. (perr or "cannot write")
+  end
+  local cok, cerr = fs.copy(DUMPER, exe)
+  if not cok then
+    return nil, "tl_ast: " .. DUMPER .. ": " .. (cerr or "cannot copy")
+  end
+  local xok, xerr = fs.set_mode(exe, fs.octal("755"))
+  if not xok then
+    return nil, "tl_ast: " .. exe .. ": " .. (xerr or "cannot set mode")
+  end
+  local r, rerr = child.run({exe, prog, srcfile, out},
+    {stdout = "inherit", stderr = "inherit"})
+  if r == nil then
+    return nil, "tl_ast: " .. tostring(rerr or "start failed")
+  end
+  if not r.ok then
+    return nil, "tl_ast: " .. DUMPER .. " refused the serialized chunk"
+  end
+  local code, drerr = fs.read(out)
+  local _rok, _rerr = fs.remove_all(work)
+  if not code then
+    return nil, "tl_ast: " .. out .. ": " .. (drerr or "cannot read")
+  end
+  return code, nil
+end
+
 --- @return string|nil The error message, nil on success
 local function generate(dest: string): string | nil
   local body = fs.read(TL_LUA)
@@ -268,16 +339,19 @@ local function generate(dest: string): string | nil
   end
   local src = serialize(prelude_ast, stdlib_ast,
     hooks.type_mt as {any: any}) -- cast: metatable as plain table identity
-  local thaw, terr = load(src, "=.tl_ast")
-  if not thaw then
-    return "serialized chunk does not load: " .. (terr or "unknown")
-  end
+  -- Dumped by the runtime that will LOAD it, not by this process: see
+  -- `_make.bytecode`'s `compile_staged` for why those differ across a
+  -- cosmos pin that moves Lua, and why a mismatch is unrecoverable.
+  --
   -- Stripped: the chunk is data reconstruction, not code anyone
   -- debugs, and its line info is thousands of entries of noise (the
   -- module-shipping rationale in _make/bytecode.tl does not apply).
   local out = fs.join(dest, OUT_NAME)
   local previous = fs.read(out)
-  local dumped = string.dump(thaw, true)
+  local dumped, derr = dump_via_base(src)
+  if not dumped then
+    return derr or "cannot dump the serialized chunk"
+  end
   if previous == dumped then
     return nil
   end
