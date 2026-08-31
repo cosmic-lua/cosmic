@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 293,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-Apfg_iqa2-1",
   ["title"] = "salvage cosmo.unix.execvp/execvpe/fexecve and daemon tests",
 }
