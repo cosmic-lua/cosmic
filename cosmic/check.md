@@ -19,6 +19,7 @@ local record CheckModule
   truthy: function(value: any, label?: string)
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
   refuses: function(f: any, ...: any): string
+  is_exposed: function(module: any, name: string): boolean
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -100,6 +101,25 @@ function refuses(f: any, ...: any): string
 **Returns:**
 
 - string - The message the call refused with
+
+### is_exposed
+
+```teal
+function is_exposed(module: any, name: string): boolean
+```
+
+ Report whether a module exposes a member by a given name, past
+ what its declared type carries — a removed export, a retired
+ alias, a name that should not resolve.
+
+**Parameters:**
+
+- `module` (any) - The module (or record) to probe
+- `name` (string) - The member name to look up
+
+**Returns:**
+
+- boolean - True when `module[name]` is non-nil
 
 ### failed
 
