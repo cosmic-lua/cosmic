@@ -5,6 +5,7 @@ return {
   ["claim"] = "work9c-agent-1",
   ["id"] = "3IYMJXQl4083ZgEbOrYrivWsZLq",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
+  ["pr"] = 1585,
   ["speccers"] = "6c2afc8a-db7e-5772-90f9-63faf496a1d7",
   ["title"] = "casts: the 26 type-defeating test probes behind two named helpers — check.refuses, and one for absent surfaces",
 }
