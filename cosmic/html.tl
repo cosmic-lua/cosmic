@@ -36,14 +36,43 @@ local function unescape(str: string): string
   return (out:gsub("&amp;", "&"))
 end
 
+--- Escaped HTML, wrapped so a raw `string` cannot reach an HTML-mode
+--- `cosmic.template` render's output by accident. The only two ways to
+--- get one are safe() (escapes, then wraps) and trusted() (wraps
+--- without escaping — the explicit hatch for markup that is already
+--- rendered, such as a nested template's output).
+local record SafeHtml
+  raw: string
+end
+
+--- Escape str and wrap it as SafeHtml.
+--- @param str string The string to escape
+--- @return SafeHtml The escaped, wrapped string
+local function safe(str: string): SafeHtml
+  return {raw = escape(str)}
+end
+
+--- Wrap str as SafeHtml WITHOUT escaping it.
+--- @param str string Markup already known to be safe HTML
+--- @return SafeHtml The wrapped string, unescaped
+local function trusted(str: string): SafeHtml
+  return {raw = str}
+end
+
 local record HtmlModule
+  type SafeHtml = SafeHtml
+
   escape: function(str: string): string
   unescape: function(str: string): string
+  safe: function(str: string): SafeHtml
+  trusted: function(str: string): SafeHtml
 end
 
 local M: HtmlModule = {
   escape = escape,
   unescape = unescape,
+  safe = safe,
+  trusted = trusted,
 }
 
 return M
