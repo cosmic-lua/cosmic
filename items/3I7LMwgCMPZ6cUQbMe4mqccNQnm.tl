@@ -6,7 +6,6 @@ return {
   ["parent"] = "3I1IfJ228vyPoO9rhbHhc6RjxJB",
   ["pr"] = 1596,
   ["title"] = "sandbox: net section — per-port TCP policy via landlock ABI 4 (R7)",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "b1a148690bfd022e0c777b7876ecccf380052f7c",
   ["verdict_spec"] = "d0ed1c3c0ad776398c1460e1ce0ffbf7c603122ab307fb7a215b9bc6ebe6c0bd",
 }
