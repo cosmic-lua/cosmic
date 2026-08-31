@@ -391,6 +391,12 @@ local record FsFindModule
   find_iter: function(dir: string, opts?: FindOptions): FileIter | nil, string
   find_info: function(dir: string, opts?: FindOptions): FoundInfo | nil, string
   glob: function(dir: string, pattern: string): Found | nil, string
+  --- Convert a glob pattern to a Lua pattern.
+  --- Supports * (any run) and ? (one char); every other character —
+  --- including [ ] brackets and Lua-pattern magic like % — is literal.
+  --- @param glob string The glob pattern
+  --- @return string The equivalent Lua pattern
+  glob_to_pattern: function(glob: string): string
 end
 
 local M: FsFindModule = {
@@ -398,6 +404,7 @@ local M: FsFindModule = {
   find_iter = find_iter,
   find_info = find_info,
   glob = glob,
+  glob_to_pattern = glob_to_pattern,
 }
 
 return M

@@ -28,14 +28,13 @@ local fs = require("cosmic.fs")
 --- `--- reads:` line so a diff in any of them invalidates the gate's
 --- cached verdict. The original narrow scope ({"_make", "_cli"},
 --- where the first duplications lived) is how a _fuzz duplication
---- passed four green ci runs. Two trees wait outside: _perf (five
---- duplicated bench helpers) and cosmic (whose glob_to_pattern
---- _make/project.tl copies) join once their standing duplicates are
+--- passed four green ci runs. One tree waits outside: _perf (five
+--- duplicated bench helpers) joins once its standing duplicates are
 --- exported and required — the gate is zero-tolerance, so a tree
 --- enters only clean.
 local TREES < const >: {string} = {
   "_build", "_cli", "_docs", "_eval", "_fuzz", "_make", "_tool", "_types",
-  "cmd",
+  "cmd", "cosmic",
 }
 
 --- Normalized bodies shorter than this are skipped. Measured basis
