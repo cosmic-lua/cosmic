@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 295,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-lIn8_Hcv9-1",
   ["title"] = "salvage the Lua syntax-extension tests",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "b8f633d4522b487b9eb3e14cdb936b3b30f6b116",
+  ["verdict_spec"] = "a7638d6ba253a09ecd19c3568437661695a4ec584071948402f3435be4d01411",
 }
