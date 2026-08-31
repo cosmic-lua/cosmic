@@ -7,7 +7,7 @@
 local net = require("cosmic.net")
 local fetch = require("cosmic.fetch")
 local proc = require("cosmic.proc")
-local signal = require("cosmic.signal")
+local server = require("_perf.bench.server")
 local pt = require("_perf.perf_types")
 
 local LOCALHOST = "127.0.0.1"
@@ -21,21 +21,6 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 local server_pid: integer
 local listener: net.Socket
 
---- Read from a connection until the end of the request headers.
---- @param conn Socket The accepted connection
---- @return boolean True when a full request head was read
-local function read_request(conn: net.Socket): boolean
-  local buf = ""
-  while not buf:find("\r\n\r\n", 1, true) do
-    local data = conn:recv(4096)
-    if data == nil or #data == 0 then
-      return false
-    end
-    buf = buf .. data
-  end
-  return true
-end
-
 --- Accept loop run inside the forked server child. Never returns.
 --- @param srv Socket The listening socket
 local function serve_loop(srv: net.Socket)
@@ -43,7 +28,7 @@ local function serve_loop(srv: net.Socket)
     local conn = srv:accept()
     if conn then
       local cc = conn
-      if read_request(cc) then
+      if server.read_request(cc) then
         local _ok, _err = cc:send(RESPONSE)
       end
       local _ok, _err = cc:close()
@@ -175,15 +160,7 @@ local function scenarios(): {pt.Scenario}, string
 end
 
 local function cleanup()
-  if server_pid and server_pid > 0 then
-    local _ok, _err = signal.kill(server_pid, signal.SIGKILL)
-    local _ok, _err = proc.wait(server_pid)
-    server_pid = nil
-  end
-  if listener then
-    local _ok, _err = listener:close()
-    listener = nil
-  end
+  server_pid, listener = server.cleanup(server_pid, listener)
 end
 
 local M: pt.BenchModule = {

@@ -6,6 +6,7 @@
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local czip = require("cosmic.zip")
+local binary = require("_perf.bench.binary")
 local pt = require("_perf.perf_types")
 
 -- Deliberately dir-heavy: embed.embed()'s dominant, roughly-fixed cost is
@@ -27,29 +28,6 @@ local extract_dir: string
 --- @return string An existing writable directory
 local function tmp_base(): string
   return os.getenv("TEST_TMPDIR") or os.getenv("TMPDIR") or "/tmp"
-end
-
---- Locate the cosmic binary to benchmark.
---- PERF_BIN wins; then TEST_BIN/cosmic (set by the test harness); then
---- the interpreter running this script (arg[-1], per cosmic.child docs).
---- @return string Path to the binary, or nil if none was found
-local function find_bin(): string | nil
-  local envbin = os.getenv("PERF_BIN")
-  if envbin and #envbin > 0 then
-    return envbin
-  end
-  local test_bin = os.getenv("TEST_BIN")
-  if test_bin and #test_bin > 0 then
-    local p = fs.join(test_bin, "cosmic")
-    if fs.is_file(p) then
-      return p
-    end
-  end
-  local last = rawget(arg, -1)
-  if last is string then
-    return last
-  end
-  return nil
 end
 
 --- Create DIRS directories of FILES_PER_DIR small files under srcdir.
@@ -105,7 +83,7 @@ local function count_zip_files(exe_path: string): integer, string
 end
 
 local function scenarios(): {pt.Scenario}, string
-  local bin = find_bin()
+  local bin = binary.find_bin()
   if bin == nil or #bin == 0 then
     return nil, "cannot locate cosmic binary (set PERF_BIN)"
   end
@@ -193,10 +171,7 @@ local function scenarios(): {pt.Scenario}, string
 end
 
 local function cleanup()
-  if tmpdir then
-    local _ok, _err = fs.remove_all(tmpdir)
-    tmpdir = nil
-  end
+  tmpdir = binary.cleanup(tmpdir)
 end
 
 local M: pt.BenchModule = {
