@@ -242,7 +242,7 @@ return {
   ["cosmic/rand.tl"] = {["covered"] = 66, ["total"] = 73},
   ["cosmic/re.tl"] = {["covered"] = 115, ["total"] = 125},
   ["cosmic/sandbox/init.tl"] = {["covered"] = 119, ["total"] = 147},
-  ["cosmic/sandbox/landlock.tl"] = {["covered"] = 66, ["total"] = 114},
+  ["cosmic/sandbox/landlock.tl"] = {["covered"] = 73, ["total"] = 138},
   ["cosmic/sandbox/plan.tl"] = {["covered"] = 24, ["total"] = 24},
   ["cosmic/sandbox/pledge.tl"] = {["covered"] = 24, ["total"] = 35},
   ["cosmic/sandbox/unveil.tl"] = {["covered"] = 22, ["total"] = 39},

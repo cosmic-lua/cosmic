@@ -52,11 +52,11 @@ end
 -- policies are safe to exercise in-process: nothing may be applied.
 local function test_validation_rejects_before_enforcing()
   local err = check.refuses(sandbox.apply, nil)
-  assert(err:find("fs and/or sys", 1, true),
+  assert(err:find("fs, sys, and/or net", 1, true),
     "nil policy must be rejected: " .. err)
 
   err = check.refuses(sandbox.apply, {})
-  assert(err:find("fs and/or sys", 1, true),
+  assert(err:find("fs, sys, and/or net", 1, true),
     "empty policy must be rejected: " .. err)
 
   err = check.refuses(sandbox.apply, {fs = {deny = {"/proc"}}})

@@ -63,6 +63,8 @@ return {
   ["cosmic/re.tl"] = 3,
   ["cosmic/sandbox/init.tl"] = 3,
   ["cosmic/sandbox/init_test.tl"] = 4,
+  ["cosmic/sandbox/landlock_net_test.tl"] = 3,
+  ["cosmic/sandbox/plan.tl"] = 1,
   ["cosmic/searcher.tl"] = 2,
   ["cosmic/searcher_test.tl"] = 1,
   ["cosmic/shape.tl"] = 1,

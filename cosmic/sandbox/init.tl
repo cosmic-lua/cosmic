@@ -43,6 +43,9 @@ local plan = require("cosmic.sandbox.plan")
 --- `optional`) is defined in cosmic.sandbox.plan beside its mapping.
 local type Fs = plan.Fs
 
+--- Network policy (per-port TCP, Landlock ABI 4+), defined in plan beside its mapping.
+local type Net = plan.Net
+
 --- System-call policy: pledge promise groups as a space-separated
 --- string (the internal pledge shard's `Promise` enum names every
 --- valid token). `exec_promises` optionally sets the promises children
@@ -63,6 +66,7 @@ end
 local record Options
   fs: Fs
   sys: Sys
+  net: Net
   best_effort: boolean
   allow_unenforced: boolean
   strict: boolean
@@ -99,18 +103,20 @@ local record Section
   missing: string
 end
 
---- Per-section report from a successful apply: `fs`/`sys` are set
---- exactly when requested. Replaces the old two-boolean shape, which
---- could not tell full enforcement from a landlock restrict that
+--- Per-section report from a successful apply: `fs`/`sys`/`net` are
+--- set exactly when requested. Replaces the old two-boolean shape,
+--- which could not tell full enforcement from a landlock restrict that
 --- silently dropped TRUNCATE/REFER.
 local record Report
   fs: Section
   sys: Section
+  net: Section
 end
 
 local record SandboxModule
   type Fs = Fs
   type Sys = Sys
+  type Net = Net
   type Options = Options
   type Availability = Availability
   type MechanismInfo = MechanismInfo
@@ -196,6 +202,9 @@ local function unsupported_text(section: string): string
     return "fs unsupported on this host"
     .. " (needs Landlock on Linux, or unveil on OpenBSD)"
   end
+  if section == "net" then
+    return "net unsupported on this host (needs Linux Landlock ABI >= 4; this kernel is ABI " .. tostring(landlock.abi() or 0) .. ")"
+  end
   return "sys unsupported on this host"
   .. " (needs pledge: Linux seccomp, or OpenBSD)"
 end
@@ -247,6 +256,13 @@ local function apply_sys(sys: Sys): Section | nil, string
   return {state = "full", mechanism = "pledge", abi = 0, missing = ""}
 end
 
+-- Apply the net section via landlock. ABI 4 is a hard gate, not a bitmask like fs's, so success is always "full".
+local function apply_net(net: Net, no_new_privs: boolean): Section | nil, string
+  local enf, err = landlock.restrict(plan.for_landlock_net(net, no_new_privs))
+  if not enf then return nil, err end
+  return {state = "full", mechanism = "landlock", abi = enf.abi, missing = ""}
+end
+
 -- Structural validation, all before any enforcement. Returns nil when
 -- valid, an error string otherwise.
 local function check_promises(promises: string, label: string): string
@@ -263,8 +279,8 @@ local function check_promises(promises: string, label: string): string
 end
 
 local function check_policy(opts: Options): string
-  if opts == nil or (opts.fs == nil and opts.sys == nil) then
-    return "sandbox: policy must set fs and/or sys"
+  if opts == nil or (opts.fs == nil and opts.sys == nil and opts.net == nil) then
+    return "sandbox: policy must set fs, sys, and/or net"
   end
   if opts.strict and opts.best_effort then
     return "sandbox: strict and best_effort are mutually exclusive"
@@ -313,6 +329,9 @@ local function check_policy(opts: Options): string
     if perr then return perr end
     perr = check_promises(sys.exec_promises, "sys.exec_promises")
     if perr then return perr end
+  end
+  if opts.net then
+    local nerr = plan.validate_net(opts.net); if nerr then return nerr end
   end
   return nil
 end
@@ -385,6 +404,17 @@ local function merge(...: Options): Options
   return out
 end
 
+-- One section's apply-or-skip, shared by fs/sys/net: not requested is a
+-- no-op; not enforceable builds the "skipped" Section the fail-closed
+-- check above already let through under best_effort; else apply_fn runs.
+local function one_section(requested: boolean, ok: boolean, mechanism: string, abi: integer, name: string, apply_fn: function(): Section | nil, string): Section | nil, string
+  if not requested then return nil end
+  if not ok then return {state = "skipped", mechanism = mechanism, abi = abi, missing = unsupported_text(name)} end
+  local section, err = apply_fn()
+  if not section then return nil, "sandbox: " .. name .. ": " .. tostring(err) end
+  return section
+end
+
 --- Apply a sandbox policy to the current process. Irreversible.
 ---
 --- Validated and checked against this host's enforceability for every
@@ -405,7 +435,7 @@ end
 --- "degraded" or "skipped" into a refusal instead, before anything is
 --- applied.
 ---
---- @param opts Options fs and/or sys sections plus tuning flags
+--- @param opts Options fs, sys, and/or net sections plus tuning flags
 --- @return Report? What was enforced, on success
 --- @return string? Error message on failure
 local function apply(opts: Options): Report | nil, string
@@ -414,25 +444,18 @@ local function apply(opts: Options): Report | nil, string
 
   local do_fs = opts.fs ~= nil
   local do_sys = opts.sys ~= nil
+  local do_net = opts.net ~= nil
   local fs_ok = do_fs and fs_available()
   local sys_ok = do_sys and pledge.available()
+  local net_ok = do_net and landlock.available() and (landlock.abi() or 0) >= 4
 
-  if do_fs and not fs_ok then
-    if not opts.best_effort then
-      return nil, "sandbox: " .. unsupported_text("fs")
-    end
-  end
-  if do_sys and not sys_ok then
-    if not opts.best_effort then
-      return nil, "sandbox: " .. unsupported_text("sys")
-    end
-  end
+  if do_fs and not fs_ok and not opts.best_effort then return nil, "sandbox: " .. unsupported_text("fs") end
+  if do_sys and not sys_ok and not opts.best_effort then return nil, "sandbox: " .. unsupported_text("sys") end
+  if do_net and not net_ok and not opts.best_effort then return nil, "sandbox: " .. unsupported_text("net") end
 
-  -- strict must fail BEFORE anything is applied, so a would-be-degraded
-  -- landlock restrict is predicted rather than tried and undone
-  -- (enforcement is irreversible): ABI < 2 strips REFER, ABI < 3 also
-  -- strips TRUNCATE, from the always-full `ALL` request (R3 dropped the
-  -- facade's own `handled` knob, so the running ABI is the only variable).
+  -- strict must fail BEFORE anything is applied, so a would-be-degraded landlock
+  -- restrict is predicted rather than tried and undone (enforcement is irreversible):
+  -- ABI < 2 strips REFER, ABI < 3 also strips TRUNCATE from the always-full `ALL` request.
   if opts.strict and fs_ok and fs_mechanism() == "landlock" then
     local abi_version = landlock.abi() or 0
     local would_strip = 0
@@ -444,41 +467,25 @@ local function apply(opts: Options): Report | nil, string
     end
   end
 
-  local fs_section: Section = nil
-  local sys_section: Section = nil
+  local fs_section, fs_err = one_section(do_fs, fs_ok, fs_mechanism(), 0, "fs", function(): Section | nil, string return apply_fs(opts.fs, opts.no_new_privs ~= false) end)
+  if fs_err then return nil, fs_err end
 
-  if do_fs then
-    if fs_ok then
-      local section, err = apply_fs(opts.fs, opts.no_new_privs ~= false)
-      if not section then return nil, "sandbox: fs: " .. tostring(err) end
-      fs_section = section
-    else
-      fs_section = {state = "skipped", mechanism = fs_mechanism(), abi = 0,
-        missing = unsupported_text("fs")}
-    end
-  end
+  local sys_section, sys_err = one_section(do_sys, sys_ok, "pledge", 0, "sys", function(): Section | nil, string return apply_sys(opts.sys) end)
+  if sys_err then return nil, sys_err end
 
-  if do_sys then
-    if sys_ok then
-      local section, err = apply_sys(opts.sys)
-      if not section then return nil, "sandbox: sys: " .. tostring(err) end
-      sys_section = section
-    else
-      sys_section = {state = "skipped", mechanism = "pledge", abi = 0,
-        missing = unsupported_text("sys")}
-    end
-  end
+  local net_section, net_err = one_section(do_net, net_ok, "landlock", landlock.abi() or 0, "net", function(): Section | nil, string return apply_net(opts.net, opts.no_new_privs ~= false) end)
+  if net_err then return nil, net_err end
 
-  local fs_skipped = fs_section == nil or fs_section.state == "skipped"
-  local sys_skipped = sys_section == nil or sys_section.state == "skipped"
-  if fs_skipped and sys_skipped and not opts.allow_unenforced then
+  local function skipped(s: Section): boolean return s == nil or s.state == "skipped" end
+  if skipped(fs_section) and skipped(sys_section) and skipped(net_section) and not opts.allow_unenforced then
     local reasons: {string} = {}
     if fs_section then reasons[#reasons + 1] = "fs: " .. fs_section.missing end
     if sys_section then reasons[#reasons + 1] = "sys: " .. sys_section.missing end
+    if net_section then reasons[#reasons + 1] = "net: " .. net_section.missing end
     return nil, "sandbox: nothing enforced (" .. table.concat(reasons, "; ") .. ")"
   end
 
-  return {fs = fs_section, sys = sys_section}
+  return {fs = fs_section, sys = sys_section, net = net_section}
 end
 
 local M: SandboxModule = {
