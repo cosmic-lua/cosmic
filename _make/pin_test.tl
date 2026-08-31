@@ -135,7 +135,7 @@ local function serve(body: string, status?: integer): integer, integer
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
   local port = check.must(s:local_endpoint()).port
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     assert(signal.setitimer({
           which = signal.ITIMER_REAL,
@@ -160,7 +160,7 @@ local function serve(body: string, status?: integer): integer, integer
     os.exit(0)
   end
   assert(s:close())
-  return math.tointeger(port), pid
+  return check.must(math.tointeger(port)), pid
 end
 
 --- A project holding one pin pointing at `url`.

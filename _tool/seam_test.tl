@@ -89,7 +89,7 @@ local function exit_of(name: string, src: string, filter?: string): integer
   local result = teal.compile(aug.source, {strict = true, chunk_name = name})
   assert(result.ok, "the augmented source compiles strictly")
   local lua_path = fs.join(tmpdir, (name:gsub("%.tl$", ".lua")))
-  assert(fs.write(lua_path, result.code))
+  assert(fs.write(lua_path, check.must(result.code)))
   -- Never a silent skip: a missing bootstrap means the grammar below
   -- was never exercised (same rule as _perf/skew_test.tl).
   assert(fs.is_file(BOOTSTRAP), BOOTSTRAP ..

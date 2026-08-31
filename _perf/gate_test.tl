@@ -23,7 +23,7 @@ local function write_multi(path: string, rows: {string: number}, bin_sha?: strin
     }
   end
   local payload: {string: any} = {meta = {bin_sha = bin_sha}, results = results}
-  local encoded = json.encode(payload)
+  local encoded = check.must(json.encode(payload))
   assert(fs.write(path, encoded))
 end
 
