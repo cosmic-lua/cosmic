@@ -62,7 +62,8 @@ local record Options
   --- Module namespaces these files supply themselves (`cosmic`, ...).
   --- A supplied namespace leaves the strip floor, so the artifact ships
   --- one definition of it instead of the project's winning on
-  --- `package.path` while the base's rides along underneath.
+  --- `package.path` while the base's rides along underneath. Supplying
+  --- `cosmic` also switches on the BOOT_SET compression policy below.
   provides: {string: boolean}
   --- Fixed modification time for every added entry, so two builds of
   --- one tree agree byte-for-byte.
@@ -182,6 +183,8 @@ end
 --- (cosmic.embed.floor) is one: a module that starts loading at boot
 --- has to be added here explicitly, or it silently regresses back to
 --- deflated and costs every launch an inflate() it used to skip.
+--- Scoped to `opts.provides.cosmic` (see `write()` below): only a
+--- caller embedding cosmic's own tree can match one of these names.
 local BOOT_SET < const >: {string: boolean} = {
   ["main.lua"] = true,
   ["_cli/args.lua"] = true,
@@ -408,15 +411,10 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
     end
   end
 
+  -- See BOOT_SET above: applies only when embedding cosmic's own tree.
+  local builds_own_tree = opts.provides ~= nil and opts.provides["cosmic"] == true
+
   -- Remove existing entries that conflict, then add new ones.
-  -- Store exactly the measured boot-path set (BOOT_SET above);
-  -- deflate everything else, .lua included. Only the handful of
-  -- modules a bare launch actually loads before doing anything pay
-  -- for zero-copy; those are also the only ones where a per-launch
-  -- inflate() shows up in startup at all. Everything else -- the doc
-  -- index, the Teal compiler, the rest of the standard library, bulk
-  -- assets -- loads later or not at all for a given run, so shrinking
-  -- it costs nothing bare boot measures.
   for _, file_info in ipairs(files_to_embed) do
     -- The error is deliberately discarded: "entry not found" is the
     -- NORMAL result for a name not already in the base, and the
@@ -427,9 +425,13 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
     -- it does, a genuinely failed removal would surface as the
     -- duplicate entry it creates.
     local _ok, _err = appender:remove(file_info.stored_name)
+    local stored_uncompressed = file_info.stored_name:sub(-4) == ".lua"
+    if builds_own_tree then
+      stored_uncompressed = BOOT_SET[file_info.stored_name] == true
+    end
     local add: czip.AddOptions = {
       mode = file_info.mode,
-      method = BOOT_SET[file_info.stored_name] and "store" or "deflate",
+      method = stored_uncompressed and "store" or "deflate",
       -- Default the epoch rather than letting the binding fall back to
       -- `time(NULL)`. Without a fixed default, two runs of the same
       -- inputs seconds apart would produce different binaries --

@@ -320,16 +320,22 @@ local function test_embed_uses_deflate()
   assert(reader:close())
 end
 
--- Test that a .lua file OUTSIDE the measured boot-path set is deflated
--- like any other entry: the boot set (cosmic.embed.init's BOOT_SET) is
--- a positive keep list, not a blanket ".lua" exemption -- an arbitrary
--- embedded module a bare launch never loads gets the size win too.
-local function test_embed_deflates_non_boot_lua()
+-- Test that a plain .lua file embedded through the public `cosmic --embed`
+-- CLI (no `provides.cosmic`) is stored uncompressed, not deflated. BOOT_SET
+-- (cosmic.embed.init's positive keep list) governs compression only when
+-- this project provides the whole `cosmic` namespace -- i.e. is building
+-- cosmic's OWN module tree, see test_embed_boot_set_scoped_to_own_tree
+-- below. Any other caller -- this CLI, a downstream project's own
+-- `--make build`, an ad hoc `embed.write()` call -- gets the pre-BOOT_SET
+-- policy: every .lua loads at that app's boot the same way cosmic's bare
+-- launch does, so it is stored uncompressed rather than paying a per-launch
+-- inflate() on every one of its own modules.
+local function test_embed_stores_lua_by_default()
   -- Compressible content that deflate WOULD shrink, to prove this is a
-  -- deliberate boot-set policy and not just deflate declining to grow it.
+  -- deliberate store policy and not just deflate declining to grow it.
   local compressible = "-- " .. string.rep("abcdefghij", 100) .. "\nreturn 1\n"
-  local input = write_temp("store_test.lua", compressible)
-  local output = fs.join(tmpdir, "cosmic-store")
+  local input = write_temp("plain_mod.lua", compressible)
+  local output = fs.join(tmpdir, "cosmic-store-default")
 
   local __r13 = check.must(check.must(child.start({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r13.ok, __r13.stdout
@@ -341,19 +347,22 @@ local function test_embed_deflates_non_boot_lua()
   local name = input:gsub("^/+", "")
   local stat = check.must(reader:stat(name),
     "stat should return metadata for embedded file")
-  assert(stat.method == 8,
-    "a non-boot-set .lua should be deflated (method=8), got: " .. tostring(stat.method))
-  assert(stat.compressed_size < stat.size,
-    "deflate should reduce size: " .. tostring(stat.compressed_size) .. " >= " .. tostring(stat.size))
+  assert(stat.method == 0,
+    "a plain .lua file with no provides.cosmic should be stored (method=0), got: " ..
+    tostring(stat.method))
+  assert(stat.compressed_size == stat.size,
+    "stored .lua should not be compressed: " .. tostring(stat.compressed_size) ..
+    " vs " .. tostring(stat.size))
   -- Content must still round-trip identically.
-  assert(reader:read(name) == compressible, "deflated .lua content should match")
+  assert(reader:read(name) == compressible, "stored .lua content should match")
   assert(reader:close())
 end
 
 -- Test that a boot-path entry (main.lua: the /zip entry point, loaded
 -- before require() exists to resolve anything else) is stored, not
--- deflated -- the one case BOOT_SET keeps out of the deflate-by-default
--- policy above.
+-- deflated -- true here because it is a .lua file under the default
+-- policy above, same as test_embed_stores_lua_by_default; main.lua is
+-- ALSO always a BOOT_SET member, so it stores either way.
 local function test_embed_stores_boot_set_entry()
   write_temp("boot/main.lua", 'print("boot")\n')
   local output = fs.join(tmpdir, "cosmic-boot-store")
@@ -376,6 +385,45 @@ local function test_embed_stores_boot_set_entry()
   assert(stat.compressed_size == stat.size,
     "stored main.lua should not be compressed: " .. tostring(stat.compressed_size) ..
     " vs " .. tostring(stat.size))
+  assert(reader:close())
+end
+
+-- Test that BOOT_SET's narrower policy -- store only the measured
+-- boot-path set, deflate every other .lua -- applies exactly when this
+-- call is embedding cosmic's OWN module tree (`opts.provides.cosmic`,
+-- the same fact `_make/artifact.tl` passes for cosmic's own binary and
+-- `_make/converge.tl`'s TOOLCHAIN check reads). Calls `embed.write()`
+-- directly rather than through the CLI, since the CLI never sets
+-- `provides` -- exercising the path `_make/artifact.tl` actually takes
+-- when this project builds itself.
+local function test_embed_boot_set_scoped_to_own_tree()
+  local embed = require("cosmic.embed")
+  local appdir = fs.join(tmpdir, "toolchain")
+  assert(fs.make_dirs(fs.join(appdir, "cosmic")))
+  local boot_content = "-- " .. string.rep("abcdefghij", 100) .. "\nreturn 1\n"
+  assert(fs.write(fs.join(appdir, "cosmic/env.lua"), boot_content))
+  local non_boot_content = "-- " .. string.rep("abcdefghij", 100) .. "\nreturn 2\n"
+  assert(fs.write(fs.join(appdir, "cosmic/other.lua"), non_boot_content))
+
+  local output = fs.join(tmpdir, "cosmic-provides-cosmic")
+  local count, werr = embed.write({appdir},
+    {output = output, exe_path = cosmic, provides = {cosmic = true}})
+  assert(count, "embed.write should succeed: " .. tostring(werr))
+
+  local data = fs.read(output)
+  local reader = check.must(zip.open_string(data), "failed to open zip from data")
+
+  local boot_stat = check.must(reader:stat("cosmic/env.lua"),
+    "stat should return metadata for the boot-set entry")
+  assert(boot_stat.method == 0,
+    "cosmic/env.lua is in BOOT_SET and should be stored when provides.cosmic is set, got: " ..
+    tostring(boot_stat.method))
+
+  local other_stat = check.must(reader:stat("cosmic/other.lua"),
+    "stat should return metadata for the non-boot-set entry")
+  assert(other_stat.method == 8,
+    "a non-boot-set .lua should still be deflated when provides.cosmic is set, got: " ..
+    tostring(other_stat.method))
   assert(reader:close())
 end
 
