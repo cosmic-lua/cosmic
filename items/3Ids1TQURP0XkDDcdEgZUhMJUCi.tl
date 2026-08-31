@@ -3,5 +3,6 @@ return {
   ["claim"] = "work9-agent-6",
   ["id"] = "3Ids1TQURP0XkDDcdEgZUhMJUCi",
   ["parent"] = "3HyRcrR35sYRwZl3guddvOBhFoK",
+  ["pr"] = 1590,
   ["title"] = "embed policy: store exactly the measured boot set, deflate the rest",
 }
