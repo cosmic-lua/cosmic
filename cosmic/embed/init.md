@@ -62,7 +62,8 @@ local record Options
   --  Module namespaces these files supply themselves (`cosmic`, ...).
   --  A supplied namespace leaves the strip floor, so the artifact ships
   --  one definition of it instead of the project's winning on
-  --  `package.path` while the base's rides along underneath.
+  --  `package.path` while the base's rides along underneath. Supplying
+  --  `cosmic` also switches on the BOOT_SET compression policy below.
   provides: {string: boolean}
   --  Fixed modification time for every added entry, so two builds of
   --  one tree agree byte-for-byte.
