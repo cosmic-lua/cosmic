@@ -5,6 +5,7 @@ return {
   ["claim"] = "orch9-1-skK4",
   ["id"] = "3Idu2DNos7KKxrY1ttqskK4s4BS",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 303,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "orch-refine-skK4",
   ["title"] = "salvage cosmo.path/readlink/Slurp-range tests",
