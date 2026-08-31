@@ -2,75 +2,75 @@
 
 Bump vendored Lua from 5.4.9 to 5.5.1 and run cosmic's gate against it.
 
-**Both halves are MERGED**, and so is the build fix the pin bump turned out to
-need:
-- cosmic-lua/cosmopolitan#294 -> `6dfa6728a` on master (`LUA_VERSION` now 5/5/1)
-- cosmic-lua/cosmic#1587 -> `beb0f15c` on main (`for_control_var.tl`)
-- cosmic-lua/cosmic#1592 -> `cc57a408` on main (bytecode dumped by the base
-  runtime; see **The bootstrap the bump needed** below)
+**DONE. cosmic runs on Lua 5.5.1**, merged as `a5b36f4a` on main. Four PRs:
 
-### Step 4 is DONE as an experiment, and it found things
+| PR | landed | what |
+|---|---|---|
+| cosmic-lua/cosmopolitan#294 | `6dfa6728a` | Lua 5.4.9 -> 5.5.1 in the fork |
+| cosmic-lua/cosmic#1587 | `beb0f15c` | carried tl patch: `for` control vars |
+| cosmic-lua/cosmic#1592 | `cc57a408` | bytecode dumped by the base runtime |
+| cosmic-lua/cosmic#1594 | `a5b36f4a` | both pins move to 5.5 |
 
-`bin/cosmic --make ci` on a real Lua 5.5.1 runtime: **`ci: PASS (5 stages)`**.
-That is the proof this item existed to get, and it is not merged only because
-the pin bump has to stage behind a release (below).
+CI green on all five lanes for the final move, including the two this session
+could not produce locally: `repro` (fresh container, cold from pins, artifact
+byte-identical) and `smoke` on real macOS and Windows.
 
-Three things the run surfaced that static analysis had not:
+### What the experiment actually found
 
-1. **The pin bump alone produces a binary that cannot run.** Lua bytecode is
-   version-stamped. Cosmic dumped it with the BUILDER's Lua while the artifact
-   loads it with the BASE's; those agree only while the running cosmic was
-   itself built on the cosmos the pin names. Generation 1 staged 5.4 bytecode
-   onto a 5.5 base, so `o/bin/cosmic` died on `cosmic.searcher` with `bad
-   binary format (version mismatch)` -- and convergence cannot heal it, since
-   healing means re-execing into exactly that binary. `--make build` reported
-   PASS and handed back an unrunnable artifact. Fixed in #1592; three producers
-   had to change, not one (staged modules, `tl.lua`, `.tl_ast.luac`), and the
-   count of payload files matching the base went 0/272 -> 270/272 -> 272/272.
+Step 4 was the point of this item, and running it surfaced three things static
+analysis had not:
 
-2. **A latent `cosmic.sqlite` bug, masked by 5.4.** `bind.tl` chose
-   positional-vs-named binding on `#list > 0`. For `{nil, "middle", nil}` --
-   the nil-hole shape that API exists to support -- the table has no border, so
-   `#` is undefined by the manual, and the answer moves: 5.4 says 2, 5.5 says 0.
-   On 5.5 that sent positional values down the named path, where `?`
-   placeholders have no name and every parameter bound NULL, silently. Fixed in
-   the code (probe the statement's placeholder positions), not the test.
+1. **The pin bump alone produces an unrunnable binary.** Bytecode is
+   version-stamped; cosmic dumped it with the BUILDER's Lua while the artifact
+   loads it with the BASE's. Those agree only while the running cosmic was built
+   on the cosmos the pin names. Generation 1 staged 5.4 bytecode onto a 5.5 base
+   -> `bad binary format (version mismatch)` on `cosmic.searcher`, and
+   convergence could not heal it, since healing means re-execing into that
+   binary. `--make build` reported PASS and handed back an artifact that could
+   not run. Three producers needed fixing, not one (staged modules, `tl.lua`,
+   `.tl_ast.luac`); payload files matching the base went 0/272 -> 270/272 ->
+   272/272, and 273/273 on the final cold build.
 
-3. **The fence is inert in a dev container and enforced in CI.** A first cut of
-   the bytecode fix execed a COPY of the runtime from a temp path; that passed
-   locally and failed CI's coverage stage, because landlock is ENOSYS here (as
-   `cosmic/coverage/SENSITIVITY.md` already records) and enforced there. Worth
-   knowing generally: a local `--make ci` cannot see a fence denial.
+2. **A latent `cosmic.sqlite` bug that 5.4 was masking.** `bind.tl` dispatched
+   positional-vs-named on `#list > 0`. For `{nil, "middle", nil}` -- the
+   nil-hole shape that API exists to support -- the table has no border, so `#`
+   is undefined by the manual, and the answer moves: 5.4 says 2, 5.5 says 0. On
+   5.5 that sent positional values down the named path, where `?` placeholders
+   have no name, and every parameter bound NULL silently. Fixed in the code
+   (probe the statement's placeholder positions), not the test.
 
-### What is left, and what blocks it
+3. **A dev container cannot see a fence denial.** landlock is ENOSYS here and
+   enforced in CI, so a first cut that execed a copied runtime from a temp path
+   passed locally and failed CI's coverage stage. `cosmic/coverage/
+   SENSITIVITY.md` already records the sensitivity; worth knowing that a green
+   local `--make ci` is not evidence about the fence.
 
-Only the pin bump itself, which is **verified green and staged**, not unproven.
-It cannot land until a cosmic release carries #1592: `--make` runs the RUNNING
-binary's embedded `_make`, so before that the fix does not execute and
-generation 1 stages 5.4 bytecode again. Confirmed by building the 5.5 pin both
-ways -- with the pinned 5.4 cosmic (0x54, broken) and with a cosmic carrying the
-fix (0x55, works).
+### Corrections to earlier versions of this item
 
-    land #1592  ->  cut a release  ->  bump bin/cosmic.pin  ->  bump cosmos_pin
+Recorded because each came from measuring the wrong thing:
 
-**The release step is itself blocked, for an unrelated reason.** `release.yml`
-has failed its perf gate since `de5268e9` (#1588, the `_perf` helper dedupe) on
-`embed_run_startup 1.42 ms -> 1.64 ms +14.9% (noise ±10.0%)`. Last good release
-is `2026-08-30-ce897b1`. A regression in that scenario immediately after a
-refactor OF THE BENCHMARK HARNESS is worth suspecting as an artifact of the
-refactor; either way it needs its own item, and until it is resolved (or a
-release is dispatched with `perf_gate: false`) no release can carry #1592.
+1. It claimed no released Teal supports `gen_target = "5.5"`. True, and
+   irrelevant: 5.5 does not need its own target, and `gen_target` stayed "5.4".
+2. It said the const-control-variable rule covered only numeric `for`, and that
+   the 11 generic-for reassignments were harmless. Wrong -- the rule is the
+   FIRST variable of EITHER form. The error was probing with `for _, line in`,
+   whose reassigned variable is the second.
+3. It reported `release.yml`'s perf gate as a blocker needing investigation.
+   It was noise: `embed_run_startup +14.9%` did not reproduce on the next run
+   against the same baseline, exactly as the gate's own message predicts.
 
-The bump's contents, ready to apply:
+### Known unverified, carried forward
 
-- `3p/cosmos/cosmos_pin.tl` -> version `2026.08.31-6dfa6728a`, sha256
-  `424879a86b575a539fc254045934cca70e4eb86916cc0b608ac1439ce4a26d0c`
-  (computed from the published `cosmos.zip`; its `lua -v` reports 5.5.1)
-- `cosmic/version_test.tl`, `cosmic/binary_test.tl` -> "Lua 5.5", including the
-  escaped pattern `Lua 5%.5%)` that a plain literal substitution misses
-- `README.md` and `AGENTS.md` RUNTIME mentions -> 5.5. Codegen statements
-  ("Teal compiled to Lua 5.4") stay: `gen_target` remains `"5.4"`, correct for
-  both runtimes.
+- Lua 5.5's other incompatibilities were checked by source search, not
+  exercised individually. `--make ci` on a 5.5 runtime is what covers them,
+  and it passes -- but that is coverage by suite, not by case.
+- `third_party/lua/test/` in the fork is still the vendored **5.4** test suite
+  (guarded by its own version check, wired into no build). Stale rather than
+  broken, and left alone deliberately; worth its own item if that suite is
+  meant to be live.
+- The forin half of the carried tl patch retires when a tl pin bump carries
+  teal-language/tl#1058 -- its anchors will stop matching and the fetch will
+  fail loudly, which is the signal. The fornum half is permanent.
 
 ### The interpreter: 8 real conflicts, measured
 
