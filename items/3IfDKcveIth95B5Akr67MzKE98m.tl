@@ -1,6 +1,5 @@
 return {
   ["builders"] = "work9c-agent-4",
-  ["claim"] = "work9c-agent-4",
   ["id"] = "3IfDKcveIth95B5Akr67MzKE98m",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["repo"] = "cosmic-lua/cosmopolitan",
