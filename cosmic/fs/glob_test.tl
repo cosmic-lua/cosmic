@@ -73,6 +73,25 @@ local function test_glob_invalid_patterns()
   assert(paths == nil and err ~= nil, "expected empty pattern rejected")
 end
 
+-- glob_to_pattern: reachable from the public cosmic.fs entry point (not
+-- just cosmic.fs.find, which is internal), and its escaping still holds
+-- for a bracket-bearing glob.
+
+local function test_glob_to_pattern_reachable_from_fs()
+  assert(fs.glob_to_pattern("*.lua") == "^.*%.lua$",
+    "expected fs.glob_to_pattern to be the public entry point's converter")
+end
+
+local function test_glob_to_pattern_escapes_brackets()
+  -- "*[a-z]*" must not smuggle a Lua character class through: [ ] and
+  -- - are escaped, so the pattern matches the glob literally, not any
+  -- run of lowercase letters.
+  local pattern = fs.glob_to_pattern("*[a-z]*")
+  assert(pattern == "^.*%[a%-z%].*$", "got: " .. pattern)
+  assert(("[a-z]"):match(pattern) ~= nil, "expected literal [a-z] to match")
+  assert(("xyz"):match(pattern) == nil, "expected a run of letters not to match")
+end
+
 -- walk max_depth tests
 
 local function collect_depth(max_depth: integer): {string}

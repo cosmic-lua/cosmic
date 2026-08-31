@@ -90,19 +90,6 @@ local function payload_depth(segs: {string}): integer | nil
   return nil
 end
 
---- Convert a glob (`*` any run, `?` one char) to an anchored Lua
---- pattern. Every other character, including Lua-pattern magic, is
---- literal — a `.cosmicignore` line is a glob, never a Lua pattern.
---- @param glob string The glob to convert
---- @return string An anchored Lua pattern
-local function glob_to_pattern(glob: string): string
-  local pattern = glob
-  :gsub("([%.%^%$%(%)%[%]%+%-%%])", "%%%1")
-  :gsub("%*", ".*")
-  :gsub("%?", ".")
-  return "^" .. pattern .. "$"
-end
-
 --- Read `.cosmicignore` from the root, returning one Lua pattern per
 --- non-empty, non-comment line. A trailing `/` is accepted and dropped
 --- so `build/` and `build` mean the same thing.
@@ -118,7 +105,7 @@ local function read_ignore(root: string): {string}
     local trimmed = line:match("^%s*(.-)%s*$")
     if trimmed ~= "" and trimmed:sub(1, 1) ~= "#" then
       local pat = trimmed:gsub("/+$", "")
-      patterns[#patterns + 1] = glob_to_pattern(pat)
+      patterns[#patterns + 1] = fs.glob_to_pattern(pat)
     end
   end
   return patterns
