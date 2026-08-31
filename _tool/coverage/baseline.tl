@@ -320,7 +320,7 @@ end
 --- and nothing else in this module says which happened. This names
 --- every row whose percentage changed, in path order, so the rewrite's
 --- stderr carries the fact whether or not the diff gets opened.
---- `corpus_guard` counts the same rows to decide whether to refuse.
+--- `corpus_guard` needs drops only, not this — see `dropped_count`.
 --- @param before string The existing baseline text
 --- @param after string The text about to replace it
 --- @return {string} One message per row that moved, in path order
@@ -355,6 +355,40 @@ local function lowered(before: string, after: string): {string}
   return out
 end
 
+--- How many of `before`'s rows would strictly LOWER in `after` — drops
+--- only, never raises.
+---
+--- Kept separate from `lowered` above: that function narrates every row
+--- that MOVED, in either direction, for the rewrite's stderr output, so
+--- its count is not what `corpus_guard` means by "dropped." A row that
+--- raised is not a drop no matter how many other rows moved alongside
+--- it, so the guard needs its own count rather than the length of
+--- `lowered`'s result.
+--- @param before string The existing baseline text
+--- @param after string The text about to replace it
+--- @return integer How many rows strictly lowered
+local function dropped_count(before: string, after: string): integer
+  local old_parsed = parse(before)
+  local new_parsed = parse(after)
+  if not old_parsed or not new_parsed then
+    return 0
+  end
+  local olds = old_parsed.rows
+  local news = new_parsed.rows
+  local count = 0
+  for path, was in pairs(olds) do
+    local now = news[path]
+    if now then
+      local before_pct = pct(was.covered, was.total)
+      local after_pct = pct(now.covered, now.total)
+      if after_pct < before_pct then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
 --- Refuse a rewrite that would lower more than half the committed
 --- floor's rows.
 ---
@@ -385,7 +419,7 @@ local function corpus_guard(before: string, after: string): boolean, string
   if total == 0 then
     return true, ""
   end
-  local dropped = #lowered(before, after)
+  local dropped = dropped_count(before, after)
   if dropped * 2 <= total then
     return true, ""
   end
