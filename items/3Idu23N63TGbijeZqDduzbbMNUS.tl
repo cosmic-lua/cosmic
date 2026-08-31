@@ -7,6 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 300,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "orch9-review-uzbb",
+  ["reviewer"] = "orch9-review-uzbb2",
   ["title"] = "salvage cosmo encoding/escaping primitive value-correctness tests",
 }
