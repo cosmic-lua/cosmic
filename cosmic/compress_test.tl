@@ -154,8 +154,8 @@ end
 -- Contract test: the bespoke prefixed-deflate surface is gone.
 
 local function test_prefixed_deflate_surface_removed()
-  local m = compress as {string: any} -- cast: probe removed surface
-  assert(m["deflate"] == nil, "deflate must be removed")
-  assert(m["inflate"] == nil, "inflate must be removed")
-  assert(m["uncompress"] == nil, "uncompress must be removed (renamed decompress)")
+  assert(not check.is_exposed(compress, "deflate"), "deflate must be removed")
+  assert(not check.is_exposed(compress, "inflate"), "inflate must be removed")
+  assert(not check.is_exposed(compress, "uncompress"),
+    "uncompress must be removed (renamed decompress)")
 end

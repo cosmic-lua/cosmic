@@ -147,11 +147,8 @@ local function test_password_argon2d_roundtrip()
 end
 
 local function test_password_invalid_variant()
-  -- cast: deliberate invalid input past Variant enum, for runtime guard
-  local bad = {variant = "invalid"} as hash.Options
-  local encoded, err = hash.hash_password("password", bad)
-  assert(encoded == nil, "password should fail with invalid variant")
-  assert(err and err:match("invalid variant"), "error should mention invalid variant")
+  local err = check.refuses(hash.hash_password, "password", {variant = "invalid"})
+  assert(err:match("invalid variant"), "error should mention invalid variant, got: " .. err)
 end
 
 -- Malformed hash is an error, not a mismatch: nil + message, so a

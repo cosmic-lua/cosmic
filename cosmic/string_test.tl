@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local str = require("cosmic.string")
 
 -- capitalize tests
@@ -26,10 +27,8 @@ end
 -- verbatim. Use the stdlib directly.
 
 local function test_upper_lower_removed()
-  -- cast: probe removed surface
-  assert((str as {string: any}).upper == nil, "str.upper should be removed")
-  -- cast: probe removed surface
-  assert((str as {string: any}).lower == nil, "str.lower should be removed")
+  assert(not check.is_exposed(str, "upper"), "str.upper should be removed")
+  assert(not check.is_exposed(str, "lower"), "str.lower should be removed")
 end
 
 -- trim tests

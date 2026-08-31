@@ -1,14 +1,10 @@
 #!/usr/bin/env cosmic
 --- Tests for the fs batch: copy_tree, temp_file, glob-only patterns,
---- Dir:read d_type, access default. Reaches fs directly and typed,
---- except for the one removed-surface probe (fsa) that asserts
---- retired names are absent from the typed record.
+--- Dir:read d_type, access default. Reaches fs directly and typed.
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
-
-local fsa = fs as {string: any} -- cast: probe removed surface
 
 local function write_file(path: string, content: string, mode?: integer)
   assert(fs.write(path, content, {mode = mode}))
@@ -117,8 +113,9 @@ local function test_tmpfile_default_template()
 end
 
 local function test_mkstemp_is_gone()
-  assert(fsa.mkstemp == nil, "fs.mkstemp should be dropped in favor of temp_file")
-  assert(type(fsa.temp_fd) == "function", "fs.temp_fd stays, returning a Handle")
+  assert(not check.is_exposed(fs, "mkstemp"),
+    "fs.mkstemp should be dropped in favor of temp_file")
+  assert(check.is_exposed(fs, "temp_fd"), "fs.temp_fd stays, returning a Handle")
 end
 
 -- 3. patterns: the plain argument is ALWAYS a glob; Lua patterns move to
@@ -198,7 +195,7 @@ local function test_is_accessible()
   assert(not fs.is_accessible(fs.join(TEST_TMPDIR, "missing.txt"), fs.R_OK),
     "missing path is not accessible")
   assert(fs.is_present(path), "and is_present is the no-mode question")
-  assert(fsa.access == nil, "the access alias is retired (#988)")
+  assert(not check.is_exposed(fs, "access"), "the access alias is retired (#988)")
   assert(fs.remove(path))
 end
 
@@ -213,7 +210,7 @@ local function test_retired_aliases_are_gone()
     "fstat", "fstatfs", "sync", "write_atomic", "walk", "access",
   }
   for _, name in ipairs(retired) do
-    assert(fsa[name] == nil, name .. " is retired (#987/#988)")
+    assert(not check.is_exposed(fs, name), name .. " is retired (#987/#988)")
   end
   local live = {
     "is_present", "absolute_path", "relative_path", "split_extension",
@@ -223,9 +220,11 @@ local function test_retired_aliases_are_gone()
     "sync_all", "visit",
   }
   for _, name in ipairs(live) do
-    assert(type(fsa[name]) == "function", name .. " is the name that answers")
+    assert(check.is_exposed(fs, name), name .. " is the name that answers")
   end
-  assert(fsa.rename == nil, "fs.rename is deleted (move is the superset)")
-  assert(fsa.major == nil and fsa.minor == nil, "fs.major/minor are deleted")
-  assert(fsa.ext == nil, "fs.ext is deleted (split_extension's second return)")
+  assert(not check.is_exposed(fs, "rename"), "fs.rename is deleted (move is the superset)")
+  assert(not check.is_exposed(fs, "major") and not check.is_exposed(fs, "minor"),
+    "fs.major/minor are deleted")
+  assert(not check.is_exposed(fs, "ext"),
+    "fs.ext is deleted (split_extension's second return)")
 end

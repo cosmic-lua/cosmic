@@ -18,10 +18,9 @@ local function test_module_exports()
   assert(type(sandbox.is_available) == "function", "is_available should be a function")
   assert(type(sandbox.validate) == "function", "validate should be a function")
   assert(type(sandbox.merge) == "function", "merge should be a function")
-  local sa = sandbox as {string: any} -- cast: record as map for introspection
-  assert(sa["plan_landlock"] == nil,
+  assert(not check.is_exposed(sandbox, "plan_landlock"),
     "plan_landlock left the public surface (#989: cosmic.sandbox.plan)")
-  assert(sa["available"] == nil,
+  assert(not check.is_exposed(sandbox, "available"),
     "the deprecated available alias is gone (#989); availability() is the name")
 end
 
@@ -44,39 +43,36 @@ end
 -- Structural validation happens before any enforcement, so rejected
 -- policies are safe to exercise in-process: nothing may be applied.
 local function test_validation_rejects_before_enforcing()
-  -- cast: deliberate invalid input
-  local apply_any = sandbox.apply as function(any): boolean, string
+  local err = check.refuses(sandbox.apply, nil)
+  assert(err:find("fs and/or sys", 1, true),
+    "nil policy must be rejected: " .. err)
 
-  local ok, err = apply_any(nil)
-  assert(not ok and err:find("fs and/or sys", 1, true),
-    "nil policy must be rejected: " .. tostring(err))
+  err = check.refuses(sandbox.apply, {})
+  assert(err:find("fs and/or sys", 1, true),
+    "empty policy must be rejected: " .. err)
 
-  ok, err = apply_any({})
-  assert(not ok and err:find("fs and/or sys", 1, true),
-    "empty policy must be rejected: " .. tostring(err))
+  err = check.refuses(sandbox.apply, {fs = {deny = {"/proc"}}})
+  assert(err:find("deny", 1, true),
+    "fs.deny must be rejected with a migration message: " .. err)
 
-  ok, err = apply_any({fs = {deny = {"/proc"}}})
-  assert(not ok and err:find("deny", 1, true),
-    "fs.deny must be rejected with a migration message: " .. tostring(err))
-
-  ok, err = apply_any({fs = {ro = "x"}})
-  assert(not ok and err:find("fs.ro", 1, true),
-    "non-list fs group must be rejected: " .. tostring(err))
+  err = check.refuses(sandbox.apply, {fs = {ro = "x"}})
+  assert(err:find("fs.ro", 1, true),
+    "non-list fs group must be rejected: " .. err)
 
   -- Using `exec` instead of `exec_promises` must be rejected: silently
   -- accepting it would validate the policy and then run exec'd
   -- children with NO promises — a silent widening, in the one module
   -- whose headline is fail-closed.
-  ok, err = apply_any({sys = {promises = "stdio", exec = "stdio"}})
-  assert(not ok and err:find("exec_promises", 1, true),
-    "sys.exec must be rejected with a migration message: " .. tostring(err))
+  err = check.refuses(sandbox.apply, {sys = {promises = "stdio", exec = "stdio"}})
+  assert(err:find("exec_promises", 1, true),
+    "sys.exec must be rejected with a migration message: " .. err)
 
   -- A groupless fs section is ambiguous (deny-all or forgot-the-key?)
   -- and must be spelled explicitly: fs = { ro = {} } to deny, or no
   -- fs at all.
-  ok, err = apply_any({fs = {}})
-  assert(not ok and err:find("no groups", 1, true),
-    "groupless fs must be rejected: " .. tostring(err))
+  err = check.refuses(sandbox.apply, {fs = {}})
+  assert(err:find("no groups", 1, true),
+    "groupless fs must be rejected: " .. err)
 
   -- validate() is the same checker without enforcement, for callers
   -- (Box) that carry a policy across a process boundary.
@@ -86,9 +82,9 @@ local function test_validation_rejects_before_enforcing()
   assert(sandbox.validate({fs = {ro = {"/tmp"}}}),
     "validate must accept a valid policy")
 
-  ok, err = apply_any({sys = {promises = "stdio bogus_promise"}})
-  assert(not ok and err:find("bogus_promise", 1, true),
-    "unknown promise must be rejected by name: " .. tostring(err))
+  err = check.refuses(sandbox.apply, {sys = {promises = "stdio bogus_promise"}})
+  assert(err:find("bogus_promise", 1, true),
+    "unknown promise must be rejected by name: " .. err)
 
   -- The rejection above must have enforced nothing: this process can
   -- still read its own test tmpdir.
@@ -112,11 +108,9 @@ local function test_promise_list_matches_validator()
   -- is available, validate indirectly via the subprocess tests below —
   -- here just assert the validator accepts each token by rejecting a
   -- string that appends one bogus token.
-  -- cast: deliberate invalid input
-  local apply_any = sandbox.apply as function(any): boolean, string
-  local _, err = apply_any({sys = {promises = all .. " not_a_promise"}})
-  assert(err and err:find("not_a_promise", 1, true),
-    "only the bogus token may be rejected, got: " .. tostring(err))
+  local err = check.refuses(sandbox.apply, {sys = {promises = all .. " not_a_promise"}})
+  assert(err:find("not_a_promise", 1, true),
+    "only the bogus token may be rejected, got: " .. err)
 end
 
 -- Fail-closed + best_effort, exercisable in-process only on hosts

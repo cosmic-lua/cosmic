@@ -407,3 +407,15 @@ local function test_refuses_throws_on_an_empty_message()
   assert(threw, "refuses must throw on an empty refusal message")
   assert(msg:find("expected a refusal", 1, true), "got: " .. msg)
 end
+
+-- is_exposed: a present member, an absent one
+
+local function test_is_exposed_true_for_a_present_member()
+  local probe = {greet = function(): string return "hi" end}
+  assert(check.is_exposed(probe, "greet"), "expected greet to be exposed")
+end
+
+local function test_is_exposed_false_for_an_absent_member()
+  local probe = {greet = function(): string return "hi" end}
+  assert(not check.is_exposed(probe, "farewell"), "expected farewell to be absent")
+end
