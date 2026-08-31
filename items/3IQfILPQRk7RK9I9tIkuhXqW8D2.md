@@ -112,3 +112,27 @@ none needed. `cosmic.check`'s contract is in AGENTS.md and
 `docs/design/nil-flow.md`'s `## Method`, re-run, which the parent item
 has already exercised twice. The four narrowing rules this item's
 counts assume landed as `57dda9bd`.
+
+## Rework note (2026-08-31)
+
+The prior review (review-uhXq_W8D2-w9p2) requested changes for a
+PR-description gap only: the Acceptance section's two quoted-evidence
+requirements (the re-run census scan output, and the `cosmic/**`
+test-share/library-share numbers before/after) were not yet in the PR
+body. No code defect was found and no diff change was requested.
+
+The builder added a `## Evidence` section to the PR description
+(comment https://github.com/cosmic-lua/cosmic/pull/1579#issuecomment-5473358697)
+quoting exactly those numbers; the diff and head sha (`16d8843c`) are
+unchanged.
+
+This review (review-uhXq_W8D2-1) independently re-derived the census's
+Method from scratch in a fresh worktree — reading the two-hinge patch
+description straight from `docs/design/nil-flow.md`, applying it to a
+build-local `o/3p/tl/tl.lua`, and running the acceptance scan against
+both the merge-base (`0c6040de`) and this PR's head (`16d8843c`) — and
+got the exact same numbers the builder quoted: 12 sites at the same
+12 file:line locations at the baseline, 0 at head; total strict-scan
+error count 197 -> 185; `cosmic/**` test share 101 and library share 27
+unmoved on both sides. The quoted evidence is accurate, not merely
+asserted.
