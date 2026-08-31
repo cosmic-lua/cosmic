@@ -336,7 +336,7 @@ The outermost table is typed by the decoder; everything under it is
 `any`, so each field read costs its own cast.
 
 ```text
--- _tool/coverage/baseline.tl:165
+-- _tool/coverage/baseline.tl:138
   return {covered = covered as integer, total = total as integer} -- cast: math.type checked above
 ```
 

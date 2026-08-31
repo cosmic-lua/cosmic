@@ -8,21 +8,25 @@
 --- baseline, when the total percentage declines, or when the file set
 --- drifts (a new file missing from the baseline, or a stale baseline
 --- entry). `cosmic --make coverage` runs the check; `cosmic --make
---- coverage --baseline` rewrites it, lowering only the rows this run
---- would have failed on and leaving every other row exactly as
---- committed — a floor moves down by a deliberate rewrite and up only
---- by hand. The file is a committed floor read and written through
---- `_tool.floor` (the same module `_build/casts.tl` and
---- `_build/public_surface.tl` share), one `["path"] = {["covered"] = C,
---- ["total"] = T},` row per line (the same shape and sort the other two
---- floors use), and `merge=union` in `.gitattributes` means two branches
---- editing the same region produce both rows instead of a conflict;
---- `parse` resolves a repeated path to its lower percentage via the
---- `on_duplicate` resolver `floor.parse` forwards.
+--- coverage --baseline` rewrites it with the HONEST measurement — every
+--- row becomes exactly what this run measured, raises included, and
+--- `moved` narrates every row that moved, in either direction, on
+--- stderr. The one guard left is on breadth, not direction: a rewrite
+--- that would lower more than half the committed floor's rows refuses
+--- outright, because that is what a partial or stale run produces (a
+--- narrowed test selection, `.cov` files a rebuild left behind), not a
+--- real project-wide decline — see `corpus_guard`. The file is a
+--- committed floor read and written through `_tool.floor` (the same
+--- module `_build/casts.tl` and `_build/public_surface.tl` share), one
+--- `["path"] = {["covered"] = C, ["total"] = T},` row per line (the
+--- same shape and sort the other two floors use), and `merge=union` in
+--- `.gitattributes` means two branches editing the same region produce
+--- both rows instead of a conflict; `parse` resolves a repeated path to
+--- its lower percentage via the `on_duplicate` resolver `floor.parse`
+--- forwards.
 ---
 --- A library module: `require`d for its API (`gate`, `text_for`,
---- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
---- here.
+--- `moved`, ...) by the `coverage` verb. There is no standalone CLI here.
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local rep = require("_tool.coverage.report")
@@ -67,51 +71,20 @@ end
 --- when their per-file rows are disjoint. `compare` sums the rows
 --- instead: the same number, with nothing left to collide on.
 ---
---- `floor` is the baseline being replaced, and a row is rewritten ONLY
---- when this run would fail the ratchet against it -- the same
---- `pct < floor_pct - file_tolerance_pp` test `compare` raises a problem
---- on. Every other row keeps the floor's numbers byte for byte: an
---- improvement, a flat percentage over a grown line universe, and a
---- decline sitting inside the per-file slack all leave the row alone.
----
---- Two consequences of that rule:
----
---- A decline inside the tolerance does not lower the floor, so a run of
---- them cannot accumulate into a slow slide downward. The floor holds
---- where it was set until a check actually fails against it.
----
---- A file whose line universe grew at a flat percentage keeps its old
---- absolute counts, so a row's numbers can lag the file's current size.
---- Improved rows already behave that way, which makes the whole-tree
---- sum `compare` derives an approximation of the same kind.
----
---- The narrowness earns two things. The file is a floor, not a
---- snapshot: several rows were set by hand to the number the strictest
---- environment produces -- the non-root CI builder, a host without
---- Landlock or namespaces -- and only that environment can measure
---- them. A rewrite from whatever machine is at hand would raise them to
---- what THIS machine reaches, the ratchet cannot object (raising a
---- floor is not a decline), and CI fails on a row nobody edited. And a
---- rewrite that touches only the failing rows leaves the rest of the
---- file still, so two changes landing near each other have almost no
---- lines in common to conflict on.
+--- The fresh measurement IS the row. `render` does not read a previous
+--- floor and does not clamp — a row this run measures higher than the
+--- committed floor raises, and a row it measures lower lowers, exactly
+--- like any other edit to a committed file. Saying which rows moved is
+--- `moved`'s job, not this one's, and refusing a rewrite that moves too
+--- many of them at once is `corpus_guard`'s, called from `text_for`
+--- before this function's output ever reaches disk.
 --- @param reports {FileReport} Sorted results from report.compute
---- @param floor {string: Entry} The baseline being replaced, if any
 --- @return string | nil The rendered baseline
 --- @return string? Error message when a row falls outside the floor format's domain
-local function render(reports: {FileReport}, prev?: {string: Entry}): string | nil, string
+local function render(reports: {FileReport}): string | nil, string
   local value: {string: Entry} = {}
   for _, r in ipairs(reports) do
-    local covered, total = r.covered, r.total
-    local was = prev and prev[r.display]
-    if was then
-      local slack = file_tolerance_pp(total)
-      local fails = pct(covered, total) < pct(was.covered, was.total) - slack
-      if not fails then
-        covered, total = was.covered, was.total
-      end
-    end
-    value[r.display] = {covered = covered, total = total}
+    value[r.display] = {covered = r.covered, total = r.total}
   end
   return floor.format(value)
 end
@@ -338,44 +311,24 @@ local function gate(baseline_path: string, only: string, paths: {string}): integ
   return check(baseline_path, paths)
 end
 
---- A fresh baseline for the given report inputs, as text.
----
---- Split from `write` below when the `coverage` verb needed the bytes
---- rather than a stream: the verb owns the file it writes (the build
---- has no redirect), while the recipe path captures stdout.
---- @param paths {string} Report inputs (see report.compute)
---- @param previous string The baseline being replaced, for the floor rule
---- @return string|nil The baseline text, or nil on failure
---- @return string The error message
-local function text_for(paths: {string},
-    previous?: string): string | nil, string
-  local reports, cerr = rep.compute(paths)
-  if not reports then
-    return nil, cerr or "coverage: no data"
-  end
-  local prev_rows: {string: Entry} = nil
-  if previous then
-    local prev = parse(previous)
-    if prev then
-      prev_rows = prev.rows
-    end
-  end
-  return render(reports, prev_rows)
+--- One row a rewrite moved, in either direction.
+local record Move
+  path: string
+  raised: boolean -- true when `after` covers more than `before`
+  message: string -- the rendered "path before% -> after% (c/t -> c/t)" line
 end
 
---- Which rows a rewrite would LOWER, and by how much.
----
---- A rewrite is not a refresh: `.cosmic-coverage` is a floor, and several
---- files' floors were measured on a machine that is not this one. The
---- ratchet is silent about it -- lowering a row is exactly what
---- `--baseline` is for -- so the only thing standing between an
---- environment-sensitive floor and being quietly re-baselined onto the
---- nearest laptop is that somebody reads the diff. This names the rows
---- so the reading happens whether or not the diff is opened.
+--- Which rows a rewrite MOVED, and by how much — in either direction.
+--- `render` writes the fresh measurement verbatim (see above), so a
+--- rewrite can raise a row that was wrongly low, lower one a partial
+--- run under-measured, or leave a row untouched. The direction rides
+--- alongside each message: `write_baseline` (`_make/policy.tl`) must
+--- not print a raise as though it were a drop. `corpus_guard` needs
+--- drops only, not this — see `dropped_count`.
 --- @param before string The existing baseline text
 --- @param after string The text about to replace it
---- @return {string} One message per lowered row, in path order
-local function lowered(before: string, after: string): {string}
+--- @return {Move} One entry per row that moved, in path order
+local function moved(before: string, after: string): {Move}
   local old_parsed = parse(before)
   local new_parsed = parse(after)
   if not old_parsed or not new_parsed then
@@ -388,14 +341,18 @@ local function lowered(before: string, after: string): {string}
     paths[#paths + 1] = path
   end
   table.sort(paths)
-  local out: {string} = {}
+  local out: {Move} = {}
   local function note(path: string, was: Entry, now: Entry)
     local before_pct = pct(was.covered, was.total)
     local after_pct = pct(now.covered, now.total)
-    if after_pct < before_pct then
-      out[#out + 1] = string.format("%s %.1f%% -> %.1f%% (%d/%d -> %d/%d)",
-        path, before_pct, after_pct, was.covered, was.total,
-        now.covered, now.total)
+    if after_pct ~= before_pct then
+      out[#out + 1] = {
+        path = path,
+        raised = after_pct > before_pct,
+        message = string.format("%s %.1f%% -> %.1f%% (%d/%d -> %d/%d)",
+          path, before_pct, after_pct, was.covered, was.total,
+          now.covered, now.total),
+      }
     end
   end
   for _, path in ipairs(paths) do
@@ -406,16 +363,126 @@ local function lowered(before: string, after: string): {string}
   return out
 end
 
+--- How many of `before`'s rows would strictly LOWER in `after` — drops
+--- only, never raises. Kept separate from `moved` above: `moved` finds
+--- every row that moved in EITHER direction, so its count is not what
+--- `corpus_guard` means by "dropped" — a raised row is not a drop no
+--- matter how many others moved alongside it.
+--- @param before string The existing baseline text
+--- @param after string The text about to replace it
+--- @return integer How many rows strictly lowered
+local function dropped_count(before: string, after: string): integer
+  local old_parsed = parse(before)
+  local new_parsed = parse(after)
+  if not old_parsed or not new_parsed then
+    return 0
+  end
+  local olds = old_parsed.rows
+  local news = new_parsed.rows
+  local count = 0
+  for path, was in pairs(olds) do
+    local now = news[path]
+    if now then
+      local before_pct = pct(was.covered, was.total)
+      local after_pct = pct(now.covered, now.total)
+      if after_pct < before_pct then
+        count = count + 1
+      end
+    end
+  end
+  return count
+end
+
+--- Refuse a rewrite that would lower more than half the committed
+--- floor's rows.
+---
+--- Breadth, not magnitude: nothing here judges how far any one row
+--- fell, only how many of the floor's rows this rewrite would drop at
+--- once. A majority-lowering rewrite is what a partial or stale run
+--- produces — a narrowed test selection, `.cov` files a rebuild left
+--- behind — not a real project-wide decline, so it is a measurement
+--- problem to fix and rerun rather than a floor to accept. No
+--- tolerance knob, no magic percentage: the count is exact and the line
+--- is "more than half". A genuine, deliberate decline across most of
+--- the tree is not blocked — deleting `.cosmic-coverage` and starting
+--- the floor again is the explicit, diff-visible way around this
+--- guard, and the refusal message says so.
+--- @param before string The existing baseline text
+--- @param after string The text about to replace it
+--- @return boolean True when the rewrite may proceed
+--- @return string Refusal message when it may not (empty otherwise)
+local function corpus_guard(before: string, after: string): boolean, string
+  local parsed = parse(before)
+  if not parsed then
+    return true, ""
+  end
+  local total = 0
+  for _ in pairs(parsed.rows) do
+    total = total + 1
+  end
+  if total == 0 then
+    return true, ""
+  end
+  local dropped = dropped_count(before, after)
+  if dropped * 2 <= total then
+    return true, ""
+  end
+  return false, string.format(
+    "coverage --baseline REFUSED: this run would lower %d of %d floor rows" ..
+    " — that is a measurement problem, not a decision. Run 'bin/cosmic" ..
+    " --make test' first so every .cov is fresh; a genuine project-wide" ..
+    " decline is accepted by deleting .cosmic-coverage and starting the" ..
+    " floor again.",
+    dropped, total)
+end
+
+--- A fresh baseline for the given report inputs, as text.
+---
+--- Split from `write` below when the `coverage` verb needed the bytes
+--- rather than a stream: the verb owns the file it writes (the build
+--- has no redirect), while the recipe path captures stdout.
+---
+--- `previous`, when given, plays no part in the row values any more
+--- (see `render`) — its only job here is `corpus_guard`: when more
+--- than half of `previous`'s rows would lower in this rewrite,
+--- `text_for` refuses and returns the refusal message instead of the
+--- text, because that is what a partial or stale run looks like, not a
+--- real decline.
+--- @param paths {string} Report inputs (see report.compute)
+--- @param previous string The baseline being replaced, for the corpus guard
+--- @return string|nil The baseline text, or nil on failure or refusal
+--- @return string The error or refusal message
+local function text_for(paths: {string},
+    previous?: string): string | nil, string
+  local reports, cerr = rep.compute(paths)
+  if not reports then
+    return nil, cerr or "coverage: no data"
+  end
+  local text, rerr = render(reports)
+  if not text then
+    return nil, rerr
+  end
+  if previous then
+    local ok, refusal = corpus_guard(previous, text)
+    if not ok then
+      return nil, refusal
+    end
+  end
+  return text
+end
+
 local record BaselineModule
   type Entry = Entry
   type Baseline = Baseline
-  render: function(reports: {FileReport}, prev?: {string: Entry}): string | nil, string
+  type Move = Move
+  render: function(reports: {FileReport}): string | nil, string
   parse: function(text: string): Baseline | nil, string
   compare: function(reports: {FileReport}, entries: {string: Entry}): {string}
   check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string
-  lowered: function(before: string, after: string): {string}
+  moved: function(before: string, after: string): {Move}
+  corpus_guard: function(before: string, after: string): boolean, string
 end
 
 local M: BaselineModule = {
@@ -425,7 +492,8 @@ local M: BaselineModule = {
   check = check,
   gate = gate,
   text_for = text_for,
-  lowered = lowered,
+  moved = moved,
+  corpus_guard = corpus_guard,
 }
 
 return M

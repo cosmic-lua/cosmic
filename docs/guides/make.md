@@ -435,10 +435,17 @@ line.
 the coverage floor is `.cosmic-coverage`, namespaced because a bare
 `.coverage` is coverage.py's binary data file and cosmic targets
 polyglot repos. it is one row per file and no shared total line, and
-`coverage --baseline` lowers only the rows the ratchet would have
-failed on — every other row survives byte for byte, so two changes
-touching different files leave the file with nothing in common to
-conflict on. declare `.cosmic-coverage merge=union` in `.gitattributes`
+`coverage --baseline` writes this run's exact measurement into every
+row — raises and drops alike, with no clamp — so a row a change did
+not touch reappears with the same numbers this run measured, and two
+changes touching different files still have nothing in common to
+conflict on. the guard left is on breadth, not direction: a rewrite
+that would lower more than half the committed floor's rows refuses
+outright, because that shape is what a partial or stale run produces —
+a narrowed test selection, `.cov` files a rebuild left behind — not a
+real project-wide decline; a legitimate rewrite still wants reading
+like any other diff before it is committed. declare `.cosmic-coverage
+merge=union` in `.gitattributes`
 and what conflict remains resolves itself: both sides' rows land, and
 the ratchet reads a repeated path as its LOWER percentage — the safe
 direction, since a merge that raised a floor would fail a build for a
