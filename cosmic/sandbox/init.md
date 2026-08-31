@@ -67,6 +67,7 @@ end
 local record Options
   fs: Fs
   sys: Sys
+  net: Net
   best_effort: boolean
   allow_unenforced: boolean
   strict: boolean
@@ -121,15 +122,16 @@ end
 
 ### Report
 
- Per-section report from a successful apply: `fs`/`sys` are set
- exactly when requested. Replaces the old two-boolean shape, which
- could not tell full enforcement from a landlock restrict that
+ Per-section report from a successful apply: `fs`/`sys`/`net` are
+ set exactly when requested. Replaces the old two-boolean shape,
+ which could not tell full enforcement from a landlock restrict that
  silently dropped TRUNCATE/REFER.
 
 ```teal
 local record Report
   fs: Section
   sys: Section
+  net: Section
 end
 ```
 
@@ -151,6 +153,12 @@ end
  `optional`) is defined in cosmic.sandbox.plan beside its mapping.
 
 alias of `cosmic.sandbox.plan.Fs` — field and method table: `cosmic --docs cosmic.sandbox.plan.Fs`
+
+### Net
+
+ Network policy (per-port TCP, Landlock ABI 4+), defined in plan beside its mapping.
+
+alias of `cosmic.sandbox.plan.Net` — field and method table: `cosmic --docs cosmic.sandbox.plan.Net`
 
 ## Functions
 
@@ -249,7 +257,7 @@ function apply(opts: Options): Report | nil, string
 
 **Parameters:**
 
-- `opts` (Options) - fs and/or sys sections plus tuning flags
+- `opts` (Options) - fs, sys, and/or net sections plus tuning flags
 
 **Returns:**
 
