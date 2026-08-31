@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "orch-scout9-9",
+  ["claim"] = "orch-scout9-9",
   ["id"] = "3I7LBrUNPB3uYAcUtrihQEJFNoz",
   ["parent"] = "3I1IfJ228vyPoO9rhbHhc6RjxJB",
   ["title"] = "sandbox: honest per-section report — full/degraded/skipped, strict, the handled drop, and the R8 decision record",
