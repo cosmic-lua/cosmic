@@ -47,9 +47,36 @@ candidate wordings:
    that the measure stays honest and still ratchets; the cost is that
    "floor" becomes a thing someone can grow.
 
+3. **Zero outside what the checker itself permits.** A third shape, decided
+   purely on types rather than on a count or a location: `x as T` is legal
+   only when `x`'s static type is one the checker cannot see into — `any`, a
+   userdata declared in a `.d.tl`, or a type variable bound by the enclosing
+   generic — and refused otherwise, carried as a fourth group in
+   `3p/tl/tl_patch/`. The two refused halves are each independently
+   indefensible: a cast whose operand already relates to the target asserts
+   nothing, and one whose operand does not relate is a lie. Both pass silently
+   today (`"hi" as integer`, `A as B`, `a as A` and `a as any` all type-check
+   on the pinned checker), so this tightens nothing that currently holds.
+
+   The virtue is that "floor" stops being a number anyone can grow: the
+   boundary is a property of each site's types, re-decided by the checker on
+   every build, and it lands where werror already lives rather than at CI. It
+   also forces the probe-helper compression the other candidates only request
+   — a helper whose parameters are `any` removes the call-site cast entirely,
+   leaving one cast inside the helper whose operand is `any`.
+
+   The cost is that it is not free for the floor as it stands: the 53 sites
+   casting to an open map are refused (22 of them in floor classes), and
+   metatable access is refused outright because `getmetatable` is not typed
+   `any`, so it needs a wrapper that returns one. **This wording cannot be
+   priced from the evidence in this item** — choosing it needs the census from
+   `pZcc2Wyy` (prototype a type-decided cast rule in the tl patch set), which
+   reports refusals joined to these 21 classes. Candidates 1 and 2 can be
+   decided today; candidate 3 cannot.
+
 ## What this item does
 
-Decide between them (or a third), then land the `docs/goals.md`
+Decide between them, then land the `docs/goals.md`
 amendment as its own PR. The evidence is `docs/design/casts.md`'s
 `## The floor` section and `docs/design/cast-sites.tsv`; the floor
 arithmetic assumes generic T is incompressible at 8, which its own
