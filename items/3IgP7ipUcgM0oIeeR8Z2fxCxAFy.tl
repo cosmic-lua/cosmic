@@ -4,5 +4,6 @@ return {
   ["id"] = "3IgP7ipUcgM0oIeeR8Z2fxCxAFy",
   ["lane"] = "release.yml",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["pr"] = 1593,
   ["title"] = "lane repair: release.yml is red",
 }
