@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 297,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-3g5OV2tF-1",
   ["title"] = "salvage cosmo.EncodeJson/EncodeLua default-mode formatting tests",
 }
