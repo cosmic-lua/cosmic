@@ -201,7 +201,11 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   end
 
   -- copy docs to temp before switching branches (checkout will clear working dir)
-  local temp_dir = fs.temp_dir("/tmp/docs-publish-XXXXXX")
+  local temp_dir, temp_dir_err = fs.temp_dir("/tmp/docs-publish-XXXXXX")
+  if not temp_dir then
+    return false, temp_dir_err
+  end
+
   local ok, err = run({"cp", "-r", docs_dir .. "/.", temp_dir})
   if not ok then
     local _ok, _err = fs.remove_all(temp_dir)

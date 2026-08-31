@@ -34,36 +34,36 @@ local function check(workspace: string): integer, {string}
   end
 
   local res, err = support.run(workspace, BIN, {"list", "testdata/items.json"})
-  if support.expect_exit(acc, "list items.json", res, err, true) then
+  if support.expect_exit(acc, "list items.json", res, err, true) and res then
     support.expect_stdout(acc, "list items.json", res, "alpha\nbeta\ngamma\ndelta\n")
   end
 
   res, err = support.run(workspace, BIN, {"filter", "testdata/items.json", "fruit"})
-  if support.expect_exit(acc, "filter fruit", res, err, true) then
+  if support.expect_exit(acc, "filter fruit", res, err, true) and res then
     support.expect_stdout(acc, "filter fruit", res, "alpha\ngamma\n")
   end
 
   -- S-trap: delta has count 0 and must still appear in the veg filter.
   res, err = support.run(workspace, BIN, {"filter", "testdata/items.json", "veg"})
-  if support.expect_exit(acc, "filter veg", res, err, true) then
+  if support.expect_exit(acc, "filter veg", res, err, true) and res then
     support.expect_stdout(acc, "filter veg", res, "beta\ndelta\n")
   end
 
   -- S-trap: the total must include delta's 0, and the line must be
   -- exactly one line -- a multi-return printed raw would trail a nil.
   res, err = support.run(workspace, BIN, {"summary", "testdata/items.json"})
-  if support.expect_exit(acc, "summary items.json", res, err, true) then
+  if support.expect_exit(acc, "summary items.json", res, err, true) and res then
     support.expect_stdout(acc, "summary items.json", res, "items=4 total=10 kinds=2\n")
   end
 
   res, err = support.run(workspace, BIN, {"summary", "testdata/missing.json"})
-  if support.expect_exit(acc, "summary missing.json", res, err, false) then
+  if support.expect_exit(acc, "summary missing.json", res, err, false) and res then
     support.expect_empty_stdout(acc, "summary missing.json", res)
     support.expect_stderr_contains(acc, "summary missing.json", res, "testdata/missing.json")
   end
 
   res, err = support.run(workspace, BIN, {"list", "bad.json"})
-  if support.expect_exit(acc, "list bad.json", res, err, false) then
+  if support.expect_exit(acc, "list bad.json", res, err, false) and res then
     support.expect_empty_stdout(acc, "list bad.json", res)
     support.expect_nonempty_stderr(acc, "list bad.json", res)
   end
