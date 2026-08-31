@@ -103,13 +103,29 @@ end
 --- Bind one Params table, dispatching on its shape: a non-empty array
 --- part binds positionally, other non-empty tables bind by name, an
 --- empty table binds nothing.
+---
+--- The array-part probe walks the placeholder positions rather than
+--- asking for `#`. A list with nil holes -- `{nil, "middle", nil}`, the
+--- shape this API exists to support -- has no border, so `#` is
+--- undefined by the manual and the answer really does move: Lua 5.4
+--- reports 2 and Lua 5.5 reports 0. Reading it would send exactly the
+--- values a caller passed positionally down the named path, where `?`
+--- placeholders have no name to look up and every one of them binds
+--- NULL, silently.
 --- @param raw_stmt lsqlite3.Statement The prepared statement to bind into
 --- @param ok_code number lsqlite3.OK
 --- @param params Params The parameter table
 --- @return number The first failing bind's result code, or ok_code
 local function bind_params(raw_stmt: lsqlite3.Statement, ok_code: number, params: Params): number
   local list = params as {any} -- cast: array-part probe of the params table
-  if #list > 0 then
+  local positional = false
+  for i = 1, raw_stmt:bind_parameter_count() do
+    if list[i] ~= nil then
+      positional = true
+      break
+    end
+  end
+  if positional then
     return bind_list(raw_stmt, ok_code, list)
   end
   local named = params as {string: any} -- cast: map view of the params table

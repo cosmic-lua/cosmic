@@ -31,16 +31,16 @@ _tool/discover.tl	90	tl compiler surface
 _types/gentype.tl	19	module surface record
 _types/gentype.tl	24	module surface record
 _types/gentype.tl	30	module surface record
-_types/tlast.tl	105	tl compiler surface
-_types/tlast.tl	158	metatable access
-_types/tlast.tl	249	module surface record
-_types/tlast.tl	250	module surface record
-_types/tlast.tl	260	tl compiler surface
-_types/tlast.tl	270	metatable access
-_types/tlast_test.tl	47	module surface record
-_types/tlast_test.tl	57	tl compiler surface
-cmd/cosmic/embed_gen.tl	312	decoded data shaping
-cmd/cosmic/embed_gen.tl	352	decoded data shaping
+_types/tlast.tl	106	tl compiler surface
+_types/tlast.tl	159	metatable access
+_types/tlast.tl	320	module surface record
+_types/tlast.tl	321	module surface record
+_types/tlast.tl	331	tl compiler surface
+_types/tlast.tl	341	metatable access
+_types/tlast_test.tl	50	module surface record
+_types/tlast_test.tl	60	tl compiler surface
+cmd/cosmic/embed_gen.tl	294	decoded data shaping
+cmd/cosmic/embed_gen.tl	334	decoded data shaping
 cmd/cosmic/main.tl	456	container variance
 cosmic/_literal_format.tl	113	container variance
 cosmic/_literal_format.tl	131	container variance
@@ -173,8 +173,8 @@ cosmic/signal.tl	287	incremental record construction
 cosmic/sqlite/bind.tl	40	metatable access
 cosmic/sqlite/bind.tl	49	metatable access
 cosmic/sqlite/bind.tl	56	binding contract shape
-cosmic/sqlite/bind.tl	111	container variance
-cosmic/sqlite/bind.tl	115	container variance
+cosmic/sqlite/bind.tl	120	container variance
+cosmic/sqlite/bind.tl	131	container variance
 cosmic/sqlite/close_test.tl	59	metatable access
 cosmic/sqlite/close_test.tl	61	metatable access
 cosmic/sqlite/close_test.tl	172	metatable access

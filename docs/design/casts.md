@@ -251,7 +251,7 @@ type, an element enum where the element is `string`, a bare `table`
 narrowed to a shape. Teal's containers are invariant.
 
 ```text
--- cosmic/sqlite/bind.tl:111
+-- cosmic/sqlite/bind.tl:120
   local list = params as {any} -- cast: array-part probe of the params table
 ```
 
