@@ -59,7 +59,8 @@ cosmic Teal sources:        248 numeric for loops, 0 control-variable reassignme
 tl.lua 0.24.8 (embedded):    58 numeric for loops, 0 control-variable reassignments
 ```
 
-Both clean. Cosmic does reassign generic `for-in` control variables at 11 sites
+Both clean as of this measurement — and now guarded regardless, see the carried
+patch below. Cosmic does reassign generic `for-in` control variables at 11 sites
 (`cosmic/string.tl:209`, `cosmic/env.tl:147`, `_tool/doc/dtl.tl:73,87`,
 `_types/gentype_render.tl:123,141,288` and others) — **harmless**, since 5.5
 accepts that form.
@@ -84,6 +85,37 @@ need its own target. Second, it treated the three carried tl patches
 (`3p/tl/tl_patch/`) as work this item implies; they are only implicated by a *Teal*
 bump, which this item does not require. Re-porting them onto Teal's post-rewrite
 39-module tree remains real future work, but it belongs to a tl pin bump, not here.
+
+### The carried patch, landed
+
+The scan above establishes that *today's* sources are clean. It does not make the
+hazard go away: Teal still ACCEPTS `for i = 1, 3 do i = i + 1 end` and emits it
+verbatim, so any cosmic source or any user project built with cosmic can introduce
+the crash at any time, and would only find out at run time on 5.5.
+
+That is closed by a carried tl patch — `3p/tl/tl_patch/fornum.tl`, cosmic-lua/cosmic#1587
+— which makes the generator emit `local i = i` immediately after `do`, but only when
+the body reassigns the control variable:
+
+```
+reassigning:      for i = 1, 3 do local i = i;
+                     i = i + 1
+                     s = s + i
+                  end
+non-reassigning:  BYTE-IDENTICAL to unpatched
+
+unpatched on 5.5: attempt to assign to const variable 'i'
+patched on 5.5:   result: 9        patched on 5.4: result: 9
+```
+
+Two entries, each anchored to a `find` string occurring exactly once in the pinned
+`tl.lua`: `fornum-shadow-check` sets `node.fornum_modifies_control_var` in the
+checker, `fornum-shadow-emit` injects the shadow in the generator.
+
+**It is carried indefinitely.** #1058 shadows the generic `for-in` form, which 5.5
+accepts unchanged; upstream Teal has no numeric-for equivalent, so there is no
+version to wait for that retires this patch. It brings the carried set to four,
+and joins the re-porting work a *Teal* pin bump implies.
 
 ### What to do
 
