@@ -5,6 +5,7 @@ return {
   ["claim"] = "orch9-build-2",
   ["id"] = "3Idu23N63TGbijeZqDduzbbMNUS",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 300,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage cosmo encoding/escaping primitive value-correctness tests",
 }
