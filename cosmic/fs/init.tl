@@ -208,6 +208,10 @@ local record FsModule
   --- Matching files with their FileInfo, keyed by FULL path; same
   --- options and slots as find.
   find_info: function(dir: string, opts?: fs_find.FindOptions): FoundInfo | nil, string
+  --- Convert a glob pattern to a Lua pattern.
+  --- Supports * (any run) and ? (one char); every other character —
+  --- including [ ] brackets and Lua-pattern magic like % — is literal.
+  glob_to_pattern: function(glob: string): string
 
   -- Access mode constants
   F_OK: integer
@@ -305,6 +309,7 @@ local M: FsModule = {
   find = fs_find.find,
   find_iter = fs_find.find_iter,
   find_info = fs_find.find_info,
+  glob_to_pattern = fs_find.glob_to_pattern,
 
   -- Access mode constants (re-exported from fs_ops)
   F_OK = fs_ops.F_OK,
