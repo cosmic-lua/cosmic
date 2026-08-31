@@ -4,6 +4,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
+local binary = require("_perf.bench.binary")
 local pt = require("_perf.perf_types")
 
 local DIRS = 10
@@ -201,10 +202,7 @@ local function scenarios(): {pt.Scenario}, string
 end
 
 local function cleanup()
-  if tmpdir then
-    local _ok, _err = fs.remove_all(tmpdir)
-    tmpdir = nil
-  end
+  tmpdir = binary.cleanup(tmpdir)
 end
 
 local M: pt.BenchModule = {

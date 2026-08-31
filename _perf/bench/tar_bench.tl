@@ -10,6 +10,7 @@
 local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
 local tar = require("cosmic.tar")
+local binary = require("_perf.bench.binary")
 local pt = require("_perf.perf_types")
 
 local BLOCK = 512
@@ -143,10 +144,7 @@ local function scenarios(): {pt.Scenario}, string
 end
 
 local function cleanup()
-  if tmpdir then
-    local _ok, _err = fs.remove_all(tmpdir)
-    tmpdir = nil
-  end
+  tmpdir = binary.cleanup(tmpdir)
 end
 
 local M: pt.BenchModule = {
