@@ -133,24 +133,29 @@ local function fence(verb: string, args: {string}): string | nil
   -- will still work — and every fenced recipe then reports only the
   -- lines it ran before the fence landed.
   require("cosmic.coverage").keep_on_restrict()
+  -- allow_unenforced: a host that cannot enforce at all runs the
+  -- recipe unfenced by design (see above), so an all-skipped result
+  -- here is success, not the hard failure `apply` uses everywhere else
+  -- to kill the footgun of a silently-empty "success".
   local enforced, err = sandbox.apply({
       fs = fs_policy,
       best_effort = true,
+      allow_unenforced = true,
     })
-  if enforced is sandbox.Availability then
-    -- best_effort does not skip silently: apply reports what it
-    -- enforced. A host that cannot enforce runs unfenced by design
-    -- (see above) — say so when the caller explicitly asked for the
-    -- fence (COSMIC_FENCE set), and stay quiet on the implicit
-    -- default, where a per-recipe warning would drown a whole build
-    -- on such hosts.
-    if not enforced.fs and os.getenv("COSMIC_FENCE") ~= nil then
-      io.stderr:write("fence: unenforceable on this host; '"
-        .. verb .. "' runs unfenced\n")
-    end
-    return nil
+  if enforced == nil then
+    return "fence for '" .. verb .. "' failed: " .. (err or "unknown error")
   end
-  return "fence for '" .. verb .. "' failed: " .. (err or "unknown error")
+  -- `enforced.fs` is never nil: fs is the only section requested above.
+  -- Not `== "skipped"`: a degraded landlock restrict (this kernel's ABI
+  -- stripped some requested rights) used to read as full enforcement
+  -- through the old boolean report — this is that gap closed. Quiet by
+  -- default, a stderr line only when the caller explicitly asked for
+  -- the fence (COSMIC_FENCE set); dispatch proceeds either way.
+  if enforced.fs.state ~= "full" and os.getenv("COSMIC_FENCE") ~= nil then
+    io.stderr:write("fence: unenforceable on this host; '"
+      .. verb .. "' runs unfenced\n")
+  end
+  return nil
 end
 
 --- Run one driver entry with line coverage armed.

@@ -49,18 +49,18 @@ end
 
 --- Translate an fs policy to `landlock.restrict` options. Pure: no
 --- syscalls, no side effects (`optional` rides each rule; the skip
---- happens at open time, inside `landlock.restrict`). `no_new_privs` and `handled` default
---- so landlock applies without CAP_SYS_ADMIN and controls the full
---- current access set; the facade's Options can override both. An
---- empty or nil policy produces an empty rules list, which denies
---- everything when applied.
+--- happens at open time, inside `landlock.restrict`). `no_new_privs`
+--- defaults on so landlock applies without CAP_SYS_ADMIN; the facade's
+--- Options can override it. `handled` always requests the full current
+--- access set (`landlock.ALL`) — narrowing which categories a ruleset
+--- controls is a mechanism-level knob (`landlock.RestrictOptions.
+--- handled`), not a facade concern (R3). An empty or nil policy
+--- produces an empty rules list, which denies everything when applied.
 ---
 --- @param fs Fs nil treated as empty (deny-all)
 --- @param no_new_privs boolean? default true
---- @param handled integer? default landlock.ALL
 --- @return RestrictOptions options for landlock.restrict
-local function for_landlock(fs: Fs, no_new_privs?: boolean,
-    handled?: integer): RestrictOptions
+local function for_landlock(fs: Fs, no_new_privs?: boolean): RestrictOptions
   local rules: {Rule} = {}
   local seen: {string: integer} = {}
   add_rules(rules, seen, fs and fs.ro or nil, landlock.READ)
@@ -72,7 +72,7 @@ local function for_landlock(fs: Fs, no_new_privs?: boolean,
     end
   end
   return {
-    handled = handled or landlock.ALL,
+    handled = landlock.ALL,
     rules = rules,
     no_new_privs = no_new_privs ~= false,
   }
@@ -80,7 +80,7 @@ end
 
 local record PlanModule
   type Fs = Fs
-  for_landlock: function(fs: Fs, no_new_privs?: boolean, handled?: integer): RestrictOptions
+  for_landlock: function(fs: Fs, no_new_privs?: boolean): RestrictOptions
 end
 
 local M: PlanModule = {

@@ -62,7 +62,7 @@ return {
   ["cosmic/rand_test.tl"] = 2,
   ["cosmic/re.tl"] = 3,
   ["cosmic/sandbox/init.tl"] = 3,
-  ["cosmic/sandbox/init_test.tl"] = 1,
+  ["cosmic/sandbox/init_test.tl"] = 4,
   ["cosmic/searcher.tl"] = 2,
   ["cosmic/searcher_test.tl"] = 1,
   ["cosmic/shape.tl"] = 1,

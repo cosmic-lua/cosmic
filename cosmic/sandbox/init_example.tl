@@ -11,12 +11,13 @@ local function Example_apply()
   local cosmic = arg[-1]
   local script = [[
 local sandbox = require("cosmic.sandbox")
-local applied, err = sandbox.apply{
+local report, err = sandbox.apply{
   fs = { ro = { "/etc" }, rw = { "/tmp" } },
   sys = { promises = "stdio rpath wpath" },
   best_effort = true,
+  allow_unenforced = true,
 }
-assert(applied, err)
+assert(report, err)
 io.write("sandboxed\n")
 ]]
   local r = check.must(child.run({cosmic, "-e", script}))
@@ -26,12 +27,11 @@ io.write("sandboxed\n")
 end
 
 -- Example_availability shows the enforceability report: what THIS host
--- can enforce, per section, and the boolean shorthand. A best_effort
--- apply returns the same record shape saying what it actually did.
+-- can enforce, per section, and the boolean shorthand.
 local function Example_availability()
   local sandbox = require("cosmic.sandbox")
   local a = sandbox.availability()
-  io.write(type(a.fs) == "boolean" and "fs known\n" or "fs unknown\n")
+  io.write(type(a.fs.available) == "boolean" and "fs known\n" or "fs unknown\n")
   io.write(type(sandbox.is_available()) == "boolean" and "one answer\n" or "?\n")
   -- Output:
   -- fs known

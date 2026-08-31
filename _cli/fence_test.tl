@@ -58,7 +58,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local cosmic = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
 
 local function test_the_fence_denies_an_undeclared_write()
-  if not sandbox.availability().fs then
+  if not sandbox.availability().fs.available then
     -- Not strict: without Landlock there is no mechanism to block an
     -- otherwise-supported operation, so this is a host limitation
     -- rather than an outer sandbox to blame.
@@ -106,7 +106,7 @@ end
 -- holds on every platform and is covered by an ordinary test; only a
 -- kernel can prove the second half.
 local function test_the_fence_confines_a_test_to_its_own_step()
-  if not sandbox.availability().fs then
+  if not sandbox.availability().fs.available then
     check.enforce_skip("no landlock on this host; the fence cannot bite")
     return
   end
@@ -203,7 +203,7 @@ local function test_the_fence_permits_a_real_compile()
   assert(r.ok, "a real compile must SUCCEED under the fence; a fence " ..
     "that denies everything is not enforcement: " .. r.stderr)
   assert(fs.is_file(built), "…and produce its output")
-  if sandbox.availability().fs then
+  if sandbox.availability().fs.available then
     check.enforced("recipe fence permits a compile")
   else
     check.enforce_skip("no landlock: the compile ran unfenced, so this proves " ..

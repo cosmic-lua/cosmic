@@ -368,6 +368,58 @@ io.write("restrict-ok\n")
   check.enforced("landlock handled/rule-access intersection")
 end
 
+-- restrict() reports what it enforced -- abi, the actual handled mask,
+-- and any rights this kernel's ABI stripped from a full request -- so
+-- a caller (cosmic.sandbox) can tell "fully enforced" from "degraded"
+-- instead of a bare boolean. Enforcement is irreversible, so the live
+-- check runs in a subprocess.
+local function test_restrict_reports_what_it_enforced()
+  if not landlock.available() then
+    check.enforce_skip("landlock unavailable (kernel lacks landlock)")
+    return
+  end
+  local dir = fs.join(tmpdir, "enforcement-report")
+  assert(fs.make_dirs(dir))
+
+  local script = fs.join(tmpdir, "landlock_enforcement.lua")
+  assert(fs.write(script, string.format([[
+local ll = require("cosmic.sandbox.landlock")
+local enf, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
+if not enf then
+  io.write("skipped: " .. tostring(err) .. "\n")
+  os.exit(0)
+end
+io.write("abi=" .. tostring(enf.abi) .. "\n")
+io.write("handled=" .. tostring(enf.handled) .. "\n")
+io.write("stripped=" .. tostring(enf.stripped) .. "\n")
+]], dir)))
+
+  local h = check.must(child.start({cosmic, script}))
+  local __r = check.must(h:wait())
+  if not __r.ok then
+    check.enforce_skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    return
+  end
+  local s = __r.stdout
+  if s:find("skipped", 1, true) then
+    check.enforce_skip("landlock restrict blocked: " .. s, true)
+    return
+  end
+  local abi_v = tonumber(s:match("abi=(%-?%d+)"))
+  local handled_v = tonumber(s:match("handled=(%-?%d+)"))
+  local stripped_v = tonumber(s:match("stripped=(%-?%d+)"))
+  assert(abi_v and abi_v >= 1, "abi must be >= 1 when landlock is available: " .. s)
+  assert((handled_v & landlock.READ) == landlock.READ,
+    "a full-ALL request must still hand back READ in handled: " .. s)
+  if abi_v >= 3 then
+    check.equal(stripped_v, 0, "abi >= 3 must strip nothing from ALL: " .. s)
+  else
+    assert(stripped_v ~= 0,
+      "abi < 3 must strip TRUNCATE (and REFER below 2) from ALL: " .. s)
+  end
+  check.enforced("landlock enforcement report")
+end
+
 -- Landlock ABI knowledge lives in exactly one place: this module's own
 -- bare probe of the kernel's ABI syscall. A second bare call site
 -- appearing anywhere else under cosmic/ is a duplicate probe reappearing
