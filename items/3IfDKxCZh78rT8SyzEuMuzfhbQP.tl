@@ -5,6 +5,7 @@ return {
   ["id"] = "3IfDKxCZh78rT8SyzEuMuzfhbQP",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["resolution"] = "completed",
   ["speccers"] = "e277faa5-ee02-55c9-8d7e-4d688b76f501",
   ["title"] = "bump vendored Lua to 5.5.1: 8 interpreter conflicts, no Teal bump needed",
 }
