@@ -5,5 +5,6 @@ return {
   ["id"] = "3IQgClLoZWULsYecdD3WOmDZwXf",
   ["parent"] = "3IPXQuYuMp4cgz8Q98id6zXhql2",
   ["pr"] = 1580,
+  ["reviewer"] = "review-WOmD_ZwXf-w9p2",
   ["title"] = "library latent-nil: the cosmic/** sites outside fs/ and time.tl",
 }
