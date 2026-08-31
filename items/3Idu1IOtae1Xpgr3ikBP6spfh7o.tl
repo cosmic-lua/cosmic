@@ -1,7 +1,8 @@
 return {
   ["block_reason"] = {["3ISCk9jyvgHUio3gPwQuZkSURUB"] = "waits on the salvage inventory table"},
   ["blocked_by"] = "3ISCk9jyvgHUio3gPwQuZkSURUB",
-  ["builders"] = "scout-4 work9-agent-scout orch-3-P6spfh7o orch-peek6 work9-peek3 orch-peek3 orch-scout9-2 orch-scout9-26",
+  ["builders"] = "scout-4 work9-agent-scout orch-3-P6spfh7o orch-peek6 work9-peek3 orch-peek3 orch-scout9-2 orch-scout9-26 orch-scout9-46",
+  ["claim"] = "orch-scout9-46",
   ["id"] = "3Idu1IOtae1Xpgr3ikBP6spfh7o",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["repo"] = "cosmic-lua/cosmopolitan",
