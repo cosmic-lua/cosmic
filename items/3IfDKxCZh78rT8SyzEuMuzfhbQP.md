@@ -5,8 +5,9 @@ this is a days-scale experiment, not a migration — **no Teal bump is required 
 there is no dependency blocker.**
 
 An earlier version of this item said the opposite (blocked on Teal's release
-cadence, months-scale). That was wrong, twice over, and the corrections are
-recorded below because both were the result of measuring the wrong thing.
+cadence, months-scale). That was wrong, and so were two later claims about the
+const-control-variable rule; all three corrections are recorded below, because
+every one of them came from measuring the wrong thing.
 
 ### The interpreter: 8 real conflicts, measured
 
@@ -32,90 +33,98 @@ Checksums: tarball `1c4b4068d67061f2a2231ad2b5422e77acea1487ea9890f6320af614f437
 `ltests.h` `6d2e3db39c58bdadc3a0aaf3ded12873e0b56ad898ce11a872717da72efb4829`
 (both from the `v5.5.1` tag).
 
-### Cosmic's exposure: zero, verified on a real 5.5 interpreter
+### Cosmic's exposure: five real breaks, found by parsing what Teal emits
 
-Lua 5.5's manual §8 lists 12 incompatibilities — 4 language, 1 library, 7 API.
-Every one scores zero hits in code cosmic ships or consumes; the C-API items appear
-only in vendored upstream source that a bump replaces wholesale, or in
+Lua 5.5's manual section 8 lists 12 incompatibilities — 4 language, 1 library,
+7 API. Eleven score zero hits in code cosmic ships or consumes; the C-API items
+appear only in vendored upstream source that a bump replaces wholesale, or in
 `tool/net/redbean.c`, which is not a binding cosmic wraps.
 
-The one that could plausibly have bitten is "the control variable in for loops is
-read only". The manual does not say whether that covers generic `for-in` as well as
-numeric `for`. **Settled empirically** by building stock Lua 5.5.1 (`cc -O1
--DLUA_USE_LINUX`) and running both forms:
+The twelfth — "the control variable in for loops is read only" — **does** bite,
+in five places. Getting this right took two wrong answers first, both recorded
+below, because the manual does not say WHICH variable of a generic `for` it
+means and a careless probe answers the question the wrong way round.
+
+Measured on a real 5.5.1 interpreter:
 
 ```
-$ lua55 -e 'for _,line in ipairs{"ab"} do line = line:sub(1,-2) print(line) end'
-a                                     ← for-in assignment is ACCEPTED
-
-$ lua55 -e 'for i=1,2 do i = i + 1 end'
-attempt to assign to const variable 'i'   ← numeric for is REJECTED
+for p in ipairs{1} do p = 9 end        --> attempt to assign to const 'p'
+for k,v in pairs{a=1} do k = "z" end   --> attempt to assign to const 'k'
+for i = 1, 2 do i = i + 1 end          --> attempt to assign to const 'i'
+for _,v in ipairs{1} do v = 9 end      --> accepted
 ```
 
-So only the numeric form errors. Scanning for it:
+The rule is **the FIRST variable of either loop form**, numeric and generic
+alike. Only the first: a generic for's later variables stay ordinary locals.
+
+Grepping sources cannot settle this, because what has to load on 5.5 is what
+Teal EMITS. So the check is a parse sweep: build the tree, then `loadfile` every
+emitted `.lua` under a real 5.5.1 binary. Excluding `o/stage/**` (5.4 bytecode,
+which fails on version, not syntax), 833 text sources parse and **5 fail**:
 
 ```
-cosmic Teal sources:        248 numeric for loops, 0 control-variable reassignments
-tl.lua 0.24.8 (embedded):    58 numeric for loops, 0 control-variable reassignments
+o/cosmic/string.lua:209          const 'line'    <-- SHIPPED PUBLIC API
+o/_build/snippets_test.lua:151   const 'line'
+o/_tool/doc/dtl.lua:73           const 'param_part'
+o/_tool/doc/index.lua:222        const 'base_name'
+o/_types/gentype_render.lua:123  const 'part'
 ```
 
-Both clean as of this measurement — and now guarded regardless, see the carried
-patch below. Cosmic does reassign generic `for-in` control variables at 11 sites
-(`cosmic/string.tl:209`, `cosmic/env.tl:147`, `_tool/doc/dtl.tl:73,87`,
-`_types/gentype_render.tl:123,141,288` and others) — **harmless**, since 5.5
-accepts that form.
+`cosmic.string.lines` is the serious one. A parse error kills the whole module,
+not just the loop, so on 5.5 `require("cosmic.string")` would fail outright.
 
-### Why no Teal bump is needed
-
-[teal-language/tl#1058](https://github.com/teal-language/tl/pull/1058) ("compat:
-Lua 5.3 semantics for control variables in Lua 5.4+", merged 2026-02-01) states
-that `--gen-target 5.4` is the correct setting for both Lua 5.4 and Lua 5.5. So
-`gen_target` stays `"5.4"` (`cosmic/_teal_engine.tl:64`, mirrored in
-`tlconfig.lua:11`) and no 5.5 target mode is required.
-
-That PR is not in the pinned 0.24.8 — verified: the pinned compiler emits a bare
-`line = line:sub(1, -2)` inside a `for-in` with no `local line = line` shadow. It
-does not matter, because the form it would shadow is the one 5.5 accepts, and the
-pinned compiler emits no numeric-for reassignments at all.
-
-**Two corrections to earlier versions of this item.** First, it claimed the blocker
-was that no released Teal supports `gen_target = "5.5"` — true (v0.24.8 is still
-the newest tag, and it contains no `"5.5"`) but irrelevant, because 5.5 does not
-need its own target. Second, it treated the three carried tl patches
-(`3p/tl/tl_patch/`) as work this item implies; they are only implicated by a *Teal*
-bump, which this item does not require. Re-porting them onto Teal's post-rewrite
-39-module tree remains real future work, but it belongs to a tl pin bump, not here.
+(Two further files report `unexpected symbol near '{'` under both 5.4 and 5.5:
+the `.docs/index.lua` payloads, which are bare table literals loaded as
+`load("return " .. source)` in `cosmic/doc/query.tl:29` — never chunks. A 5.4
+control sweep reports exactly the same two, and nothing else.)
 
 ### The carried patch, landed
 
-The scan above establishes that *today's* sources are clean. It does not make the
-hazard go away: Teal still ACCEPTS `for i = 1, 3 do i = i + 1 end` and emits it
-verbatim, so any cosmic source or any user project built with cosmic can introduce
-the crash at any time, and would only find out at run time on 5.5.
+Closed by a carried tl patch — `3p/tl/tl_patch/for_control_var.tl`,
+cosmic-lua/cosmic#1587 — which makes the generator emit `local i = i` as the
+body's first statement, but only when the body reassigns the loop's first
+variable. Four entries: a checker half and a generator half for each loop form,
+each anchored to a `find` string occurring exactly once in the pinned `tl.lua`.
 
-That is closed by a carried tl patch — `3p/tl/tl_patch/fornum.tl`, cosmic-lua/cosmic#1587
-— which makes the generator emit `local i = i` immediately after `do`, but only when
-the body reassigns the control variable:
+After the patch, the same sweep over the rebuilt tree reports **0** real
+failures — the two data payloads and nothing else, identical to 5.4.
+
+Discrimination is exact, and byte-identical output is preserved where no shadow
+is needed:
 
 ```
-reassigning:      for i = 1, 3 do local i = i;
-                     i = i + 1
-                     s = s + i
-                  end
-non-reassigning:  BYTE-IDENTICAL to unpatched
-
-unpatched on 5.5: attempt to assign to const variable 'i'
-patched on 5.5:   result: 9        patched on 5.4: result: 9
+for line in f() do              -->  for line in f() do local line = line;
+  line = line:sub(1, -2)                line = line:sub(1, -2)
+for _, v in ipairs{...} do      -->  unchanged (later var: 5.5 allows it)
+for i = 1, 3 do print(i) end    -->  unchanged (never reassigned)
 ```
 
-Two entries, each anchored to a `find` string occurring exactly once in the pinned
-`tl.lua`: `fornum-shadow-check` sets `node.fornum_modifies_control_var` in the
-checker, `fornum-shadow-emit` injects the shadow in the generator.
+Non-vacuity proven with `_make.patch`'s `reverse` (the documented probe — a
+`package.path` prepend is silently outranked by the binary's own `/zip`
+searcher, and reports a confident wrong answer): de-patched, both
+shadow-expected cases emit nothing. Five cases are pinned in `3p/tl/tl_test.tl`.
 
-**It is carried indefinitely.** #1058 shadows the generic `for-in` form, which 5.5
-accepts unchanged; upstream Teal has no numeric-for equivalent, so there is no
-version to wait for that retires this patch. It brings the carried set to four,
-and joins the re-porting work a *Teal* pin bump implies.
+**Half of it is carried indefinitely.** teal-language/tl#1058 does exactly this
+for the GENERIC form, so the `forin` half is ours only until a tl pin bump
+carries #1058 — at which point its anchors stop matching and the fetch fails
+loudly, which is the signal to drop that half. There is no numeric-for
+equivalent upstream and no reason to expect one, so the `fornum` half is
+permanent.
+
+**Three corrections to earlier versions of this item**, all of them
+overestimates or misreadings that measuring properly refuted:
+
+1. It claimed the blocker was that no released Teal supports
+   `gen_target = "5.5"` — true (v0.24.8 is still the newest tag, and it contains
+   no `"5.5"`) but irrelevant, because 5.5 does not need its own target.
+2. It treated the carried tl patches as work only a *Teal* bump implies. That
+   held until this item added one of its own.
+3. It said the const-control-variable rule covered only the numeric form, and
+   that cosmic's 11 generic-for reassignments were "harmless, since 5.5 accepts
+   that form" — and that #1058 therefore "fixes the wrong thing". All wrong.
+   The error was probing with `for _, line in ...`, whose reassigned variable is
+   the SECOND one, and generalizing from the one case the rule does not cover.
+   #1058 fixes a real half; it simply has no numeric-for twin.
 
 ### What to do
 
@@ -138,6 +147,10 @@ and joins the re-porting work a *Teal* pin bump implies.
 
 - The other 11 incompatibilities were checked by source search, not by running
   cosmic on 5.5. Step 4 is what covers them.
+- The parse sweep above is a hand-run probe, not a gate: it needs a 5.5
+  interpreter, which the tree will not have until this bump lands. Once cosmos
+  ships 5.5, worth wiring as a build check — it is the only thing that catches
+  a NEW const-control-variable break in one pass.
 - 5.5 prints floats with enough digits to round-trip. Cosmic formats via explicit
   `%.17g` (`cosmic/_literal_format.tl:76`) and via the C encoder for JSON, so the
   practical impact looks nil — not confirmed inside `ljson.c`.
