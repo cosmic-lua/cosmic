@@ -180,6 +180,15 @@ local record LandlockModule
   restrict: function(opts?: RestrictOptions): Enforcement | nil, string
 end
 
+-- Declared before the functions below so restrict() can reach
+-- available()/abi() through the module table (M.available()/M.abi(),
+-- not the local upvalues) — where tests intercept them
+-- (landlock_net_test.tl monkeypatches landlock.available/landlock.abi
+-- to exercise the ABI-4 net gate without a real ABI-4 kernel, or any
+-- real landlock support at all), mirroring cosmic.env's
+-- M-before-functions layout for the same reason.
+local M: LandlockModule
+
 --- Per-ABI "max access" mask. Categories above the kernel's supported
 --- ABI MUST be stripped before create_ruleset or it returns EINVAL.
 local function abi_mask(abi_version: integer): integer
@@ -248,11 +257,17 @@ end
 --- truncate is governed by its "wpath" group — where that matters.
 local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   opts = opts or {}
-  if not available() then
+  -- M.available()/M.abi(), not the local upvalues: see the M
+  -- forward-declaration comment above — these are the reads a mocked
+  -- landlock.available/landlock.abi must reach to prove the ABI-4 net
+  -- gate below without a real old kernel or a real landlock-enabled
+  -- host at all (both mocked true keeps this whole branch off any real
+  -- syscall, since the ABI check below returns before either is made).
+  if not M.available() then
     if opts.best_effort then return {abi = 0, handled = 0, stripped = 0} end
     return nil, "landlock: unsupported on this host"
   end
-  local abi_version = abi()
+  local abi_version = M.abi()
   if abi_version == nil then
     -- Unreachable past the available() gate; kept so the narrowing is
     -- honest rather than cast.
@@ -358,7 +373,7 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
   return {abi = abi_version, handled = handled, stripped = stripped}
 end
 
-local M: LandlockModule = {
+M = {
   EXECUTE = EXECUTE,
   WRITE_FILE = WRITE_FILE,
   READ_FILE = READ_FILE,

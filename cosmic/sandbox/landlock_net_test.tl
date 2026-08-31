@@ -152,6 +152,39 @@ local function test_net_fails_closed_below_abi_4()
     end)
 end
 
+-- test_net_fails_closed_below_abi_4 proves the FACADE gate
+-- (sandbox.apply's net_ok check in init.tl, which calls landlock.abi()
+-- and landlock.available() through this module's table and so sees the
+-- mock above). restrict() has its OWN ABI-4 gate on the same net
+-- request (landlock.tl's "abi_version < NET_ABI" check) for a caller
+-- that reaches landlock.restrict() directly, bypassing the facade
+-- entirely — that gate needs its own proof, or removing it regresses
+-- silently past both the facade test and everything else in this
+-- suite (confirmed by mutating it: nothing failed).
+--
+-- Mocking landlock.available/landlock.abi reaches restrict()'s own
+-- checks because restrict() reads them back through the module table
+-- (M.available()/M.abi()), not local upvalues — see the M
+-- forward-declaration in landlock.tl. With both mocked, the ABI check
+-- below returns before restrict() ever calls a real landlock syscall,
+-- so this needs no real kernel support and runs in-process safely (no
+-- risk of actually restricting this test process).
+local function test_restrict_own_abi_gate_below_abi_4()
+  with_mock_landlock({
+      available = function(): boolean return true end,
+      abi = function(): integer | nil, string return 3 end,
+    }, function(): boolean
+      local ok, err = landlock.restrict({
+          handled = 0,
+          handled_net = landlock.NET_CONNECT_TCP,
+          net_rules = {{port = 80, access = landlock.NET_CONNECT_TCP}},
+        })
+      assert(not ok and err:find("ABI", 1, true),
+        "restrict() must gate its own net request below ABI 4: " .. tostring(err))
+      return true
+    end)
+end
+
 -- Live: bind two loopback listeners, grant connect_tcp to only one.
 -- Enforcement is irreversible, so it applies in a subprocess.
 local function test_connect_tcp_allows_granted_port_denies_other()
