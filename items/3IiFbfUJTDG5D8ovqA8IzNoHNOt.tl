@@ -1,6 +1,6 @@
 return {
   ["id"] = "3IiFbfUJTDG5D8ovqA8IzNoHNOt",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
-  ["repo"] = "whilp/cosmopolitan",
+  ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "unix.tiocgwinsz: cols slot doubles as error string on failure",
 }
