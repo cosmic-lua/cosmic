@@ -1,5 +1,6 @@
 return {
-  ["builders"] = "orchestrator-5-builder-b8CT-qoDU",
+  ["builders"] = "orchestrator-5-builder-b8CT-qoDU wave10-2-fdcensus",
+  ["claim"] = "wave10-2-fdcensus",
   ["id"] = "3IR2RMdNvdkoLQaNLhJb8CTqoDU",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
