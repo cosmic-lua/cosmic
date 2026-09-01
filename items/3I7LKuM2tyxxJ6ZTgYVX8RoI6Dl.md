@@ -73,3 +73,13 @@ the wave-2 pin bump (3I7LNDrF, at attach) — mirrored in `blocked_by`.
 
 none needed — all three vocabulary questions are now settled owner
 decisions recorded above; the constants arrive via the blocked_by chain.
+
+## Rework note (2026-09-01)
+
+The `request changes` verdict on head `b6af16e6` was cured externally to the diff: the
+PR description was updated with the missing acceptance evidence (the ubuntu-lane ABI-7
+CI run, which of the two new live tests ran live vs. would skip, and an explicit
+TSYNC/ABI-9 not-live-exercised statement), citing real check-run data. A second
+fresh-context review independently re-verified those citations against the actual job
+logs and confirmed the head SHA is unchanged (no code diff moved) before recording
+accept.
