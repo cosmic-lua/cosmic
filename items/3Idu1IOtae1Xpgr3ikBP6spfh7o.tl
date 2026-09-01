@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 306,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-P6sp_fh7o-1788256209",
   ["title"] = "salvage cosmo.unix.getlogin/uname/tcattr tests",
 }
