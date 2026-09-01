@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave14-2-readlinkdoc",
+  ["claim"] = "wave14-2-readlinkdoc",
   ["id"] = "3Ik1c2WOTJDdwydaOx8PqCYYKXS",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
