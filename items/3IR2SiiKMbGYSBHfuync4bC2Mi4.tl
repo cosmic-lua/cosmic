@@ -1,6 +1,6 @@
 return {
   ["id"] = "3IR2SiiKMbGYSBHfuync4bC2Mi4",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
-  ["repo"] = "whilp/cosmopolitan",
+  ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "cosmopolitan census: unix sandboxing, namespaces and limits — 16 nil-admitting bindings",
 }
