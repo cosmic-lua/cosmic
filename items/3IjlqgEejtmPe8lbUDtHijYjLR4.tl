@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave11-3-dirfddoc",
+  ["claim"] = "wave11-3-dirfddoc",
   ["id"] = "3IjlqgEejtmPe8lbUDtHijYjLR4",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
