@@ -6,8 +6,12 @@
 -- their holder a container.
 
 local check = require("cosmic.check")
+local cmp = require("_work.gitcompare")
+local decision = require("_work.decision")
 local flow = require("_work.flow")
 local gitboard = require("_work.gitboard")
+local intake = require("_work.intake")
+local prio = require("_work.priority")
 local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
@@ -388,3 +392,80 @@ local function test_set_refuses_every_flow_field_flag()
   assert(after.lane == before.lane, "lane untouched: " .. after.lane)
 end
 test_set_refuses_every_flow_field_flag()
+
+-- The derived order is a closure over `beats` across EVERY item, open,
+-- held or done: holding the middle of a chain A > B > C leaves A and C
+-- placed and A's dominance count whole. A held root is not ended — it
+-- is still listed by `flow.roots` — but intake walks past it the way
+-- it walks past a root with live work, and filing evidence under it
+-- clears the hold in the same commit as the child.
+local function test_holding_a_root_keeps_the_order_total_and_reopens_on_evidence()
+  local s = init_state_repo("hold-order")
+  local a = file_item(s, "outcome A", "")
+  local b = file_item(s, "outcome B", "")
+  local c = file_item(s, "outcome C", "")
+  assert(cmp.cmd_compare(s, a, b) == 0)
+  assert(cmp.cmd_compare(s, b, c) == 0)
+  local function own_of(id: string): integer
+    local _, own = prio.key_of(prio.positions(check.must(store.list(s))), id)
+    return own
+  end
+  local function offered(): decision.Action
+    local all = check.must(store.list(s))
+    return intake.intake_action(all, {}, flow.by_id(all), prio.positions(all))
+  end
+  local a_own_before = own_of(a)
+  assert(a_own_before == 2, "A dominates B and C transitively: " .. a_own_before)
+  assert(cmp.cmd_hold(s, b, "B's win condition verified") == 0)
+  local all = check.must(store.list(s))
+  local at = prio.positions(all)
+  assert(prio.is_placed(at, a) and prio.is_placed(at, c),
+    "holding B severs no chain: A and C keep their positions")
+  assert(own_of(a) == a_own_before, "and A's dominance count is unchanged")
+  local ordered, live, held = flow.roots(all)
+  local listed: {string: boolean} = {}
+  for _, r in ipairs(ordered) do
+    listed[r.id] = true
+  end
+  assert(listed[a] and listed[c] and listed[b],
+    "a held root is not ended, so nothing leaves the general listing")
+  assert(held[b] and not held[a] and not held[c] and not live[b],
+    "roots names B held, and nothing live")
+  -- Intake never offers B: with A open and idle it offers A; with A
+  -- held too it skips over B to C; with every root held, the fallback.
+  local first = check.must(offered())
+  assert(first.kind == "intake" and first.item.id == a,
+    "the top-ranked idle root is offered first")
+  assert(cmp.cmd_hold(s, a, "A verified") == 0)
+  local second = check.must(offered())
+  assert(second.kind == "intake" and second.item.id == c,
+    "with A held, intake walks past held B to C")
+  assert(cmp.cmd_hold(s, c, "C verified") == 0)
+  local third = check.must(offered())
+  assert(third.kind == "intake" and third.item == nil
+    and third.reason:find("every open root has live work", 1, true) ~= nil,
+    "every root held: the fallback, never B: " .. third.reason)
+  -- Evidence under B reopens it in the child's own commit.
+  local before = commits(s)
+  assert(graph.cmd_new(s, "verification failed after all", b, nil, "") == 0)
+  assert(commits(s) == before + 1,
+    ("the child and the cleared hold are one commit: %d -> %d"):format(
+      before, commits(s)))
+  assert(not check.must(store.load(s, b)).is_held,
+    "filing a child under a held root clears the hold")
+  local _, live2, held2 = flow.roots(check.must(store.list(s)))
+  assert(live2[b] and not held2[b], "B is live now, and no longer held")
+  -- Ending that child leaves B open, idle and unheld: it is offered
+  -- again with nothing further said — the skip was the hold's alone.
+  local kid: string = nil
+  for _, i in ipairs(check.must(store.list(s))) do
+    if i.parent == b then
+      kid = i.id
+    end
+  end
+  assert(verbs.cmd_done(s, kid, "not-planned", false, "") == 0)
+  local again = check.must(offered())
+  assert(again.kind == "intake" and again.item.id == b,
+    "an unheld idle root is offered again")
+end
+test_holding_a_root_keeps_the_order_total_and_reopens_on_evidence()

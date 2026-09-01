@@ -1,7 +1,8 @@
 --- The `compare` verb: the priority relation as a mutation, so a
 --- judgment about which of two items matters more is recorded the
 --- same way every other board fact is — one commit, one verdict line,
---- one refusal when it does not hold.
+--- one refusal when it does not hold. `hold`/`unhold` live beside it:
+--- a root's standing in the derived order is what both verbs govern.
 ---
 --- Its own module rather than another entry in `_work.gitverbs`,
 --- which sits close enough to the file-length cap that the cap has
@@ -91,13 +92,87 @@ local function cmd_compare(s: store.Store, winner: string,
       loser:sub(1, 8), note, band, own))
 end
 
+--- Mark a root HELD: its win condition verified, so intake walks past
+--- it — without ending it. A held root keeps every edge and its place
+--- in the derived order, and it is still open: evidence filed under it
+--- (`new --parent`, `attach`) clears the marker in the same commit, so
+--- a hold is never a decision that needs reopening. The reason rides
+--- in the commit subject and the verdict line, not on the item — the
+--- log is the record, exactly as it is for a comparison.
+--- @param s store.Store The store
+--- @param id string The root held
+--- @param reason string Why the win condition holds; required
+--- @return integer 0 on success, 1 otherwise
+local function cmd_hold(s: store.Store, id: string, reason: string): integer
+  if (reason or ""):match("%S") == nil then
+    return gate.verdict_line("hold", false,
+      "REFUSED: hold records why the win condition holds — pass --reason "
+      .. "'<what was verified, and how>'")
+  end
+  local it, lerr = store.load(s, id)
+  if it == nil then
+    return gate.verdict_line("hold", false, lerr)
+  end
+  if not item.is_root(it) then
+    return gate.verdict_line("hold", false,
+      ("REFUSED: %s is not a root — only an outcome's win condition holds"):format(
+        id:sub(1, 8)))
+  end
+  if not item.is_open(it) then
+    return gate.verdict_line("hold", false,
+      ("REFUSED: %s is done (%s) — a finished root is not held"):format(
+        id:sub(1, 8), it.resolution))
+  end
+  if it.is_held then
+    return gate.verdict_line("hold", false,
+      ("%s is already held"):format(id:sub(1, 8)))
+  end
+  it.is_held = true
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("hold %s %s"):format(id:sub(1, 8), reason))
+  if not ok then
+    return gate.verdict_line("hold", false, err)
+  end
+  return gate.verdict_line("hold", true,
+    ("%s held: %s — intake walks past it until evidence is filed under it")
+    :format(id:sub(1, 8), reason))
+end
+
+--- Clear a root's hold marker by hand: the correction for an erroneous
+--- hold, where filing a child would record evidence that does not exist.
+--- @param s store.Store The store
+--- @param id string The root released
+--- @return integer 0 on success, 1 otherwise
+local function cmd_unhold(s: store.Store, id: string): integer
+  local it, lerr = store.load(s, id)
+  if it == nil then
+    return gate.verdict_line("unhold", false, lerr)
+  end
+  if not it.is_held then
+    return gate.verdict_line("unhold", false,
+      ("%s is not held"):format(id:sub(1, 8)))
+  end
+  it.is_held = false
+  local ok, err = gate.commit_and_publish(s, it, nil,
+    ("unhold %s"):format(id:sub(1, 8)))
+  if not ok then
+    return gate.verdict_line("unhold", false, err)
+  end
+  return gate.verdict_line("unhold", true,
+    ("%s no longer held — intake offers it again"):format(id:sub(1, 8)))
+end
+
 local record gitcompare
   cmd_compare: function(s: store.Store, winner: string,
   loser: string): integer
+  cmd_hold: function(s: store.Store, id: string, reason: string): integer
+  cmd_unhold: function(s: store.Store, id: string): integer
 end
 
 local M: gitcompare = {
   cmd_compare = cmd_compare,
+  cmd_hold = cmd_hold,
+  cmd_unhold = cmd_unhold,
 }
 
 return M

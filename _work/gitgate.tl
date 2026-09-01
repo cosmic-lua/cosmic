@@ -294,18 +294,22 @@ end
 
 --- The locks a decomposition clears on the parent that just gained a
 --- child: it is no longer workable, so a claim or review standing on
---- it locks nothing anyone can build.
+--- it locks nothing anyone can build. A hold clears the same way: new
+--- evidence under a held root is the claim that its win condition no
+--- longer holds, so the marker leaves in the commit that files it.
 ---
 --- Returned rather than saved, so the caller commits it TOGETHER with
 --- the child; committed on its own it would survive a refused child.
 --- @param parent item.Item The item that gained a child
 --- @return {item.Item} The parent when it changed, empty otherwise
 local function containered(parent: item.Item): {item.Item}
-  if (parent.claim or "") == "" and (parent.reviewer or "") == "" then
+  if (parent.claim or "") == "" and (parent.reviewer or "") == ""
+  and not parent.is_held then
     return {}
   end
   parent.claim = ""
   parent.reviewer = ""
+  parent.is_held = false
   return {parent}
 end
 

@@ -352,19 +352,27 @@ end
 --- chain reaches it). Nothing marks a root as important: having been
 --- compared against something is the only claim to importance the
 --- board recognises.
+--- A held root (`is_held`) is still open and still listed; the third
+--- return names it so intake walks past it like one with live work.
 --- @param items {Item} All items
 --- @return {Item} Open placed roots, priority order
 --- @return {string: boolean} root id -> has live work
-local function roots(items: {Item}): {Item}, {string: boolean}
+--- @return {string: boolean} root id -> is held
+local function roots(items: {Item}): {Item}, {string: boolean},
+  {string: boolean}
   local index = by_id(items)
   local at = prio.positions(items)
   local out: {Item} = {}
   local live: {string: boolean} = {}
+  local held: {string: boolean} = {}
   for _, i in ipairs(items) do
     if it.is_open(i) then
       if it.is_root(i) then
         if prio.is_placed(at, i.id) then
           out[#out + 1] = i
+        end
+        if i.is_held then
+          held[i.id] = true
         end
       else
         local root = root_of(i, index)
@@ -374,7 +382,7 @@ local function roots(items: {Item}): {Item}, {string: boolean}
       end
     end
   end
-  return prio.sorted(out, at), live
+  return prio.sorted(out, at), live, held
 end
 
 --- The triage queue: open, childless, parentless items that no
@@ -429,7 +437,8 @@ local record flow
   root_of: function(i: Item, index: Index): Item | nil
   item_problems: function(i: Item, index: Index): {string}
   graph_problems: function(items: {Item}): {string}
-  roots: function(items: {Item}): {Item}, {string: boolean}
+  roots: function(items: {Item}): {Item}, {string: boolean},
+  {string: boolean}
   untriaged: function(items: {Item}): {Item}
   ready_gaps: function(body: string): {string}
 end
