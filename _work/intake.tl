@@ -66,9 +66,12 @@ local function intake_action(items: {Item}, specs: Specs, index: flow.Index,
       .. "refine it until `check` passes",
     }
   end
-  local ordered, live = flow.roots(items)
+  -- A held root — its win condition verified — is walked past exactly
+  -- like one with live work: nothing to decompose until evidence
+  -- filed under it clears the hold.
+  local ordered, live, held = flow.roots(items)
   for _, g in ipairs(ordered) do
-    if not live[g.id] then
+    if not live[g.id] and not held[g.id] then
       return {
         kind = "intake",
         item = g,

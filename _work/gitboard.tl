@@ -18,6 +18,7 @@
 ---   cosmic --make run _work/gitboard.tl new "an outcome"
 ---   cosmic --make run _work/gitboard.tl new "a piece of it" --parent 2ai3
 ---   cosmic --make run _work/gitboard.tl compare 2ai3 2akQ
+---   cosmic --make run _work/gitboard.tl hold 2ai3 --reason "..." | unhold 2ai3
 ---   cosmic --make run _work/gitboard.tl attach 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl block 2akQ 2ai3 | unblock 2akQ 2ai3
 ---   cosmic --make run _work/gitboard.tl set 2akQ --title "a truer title"
@@ -64,7 +65,8 @@ local view = require("_work.gitview")
 local MUTATES: {string: boolean} = {
   ["new"] = true, ["attach"] = true, ["block"] = true, ["unblock"] = true,
   ["spec"] = true, ["take"] = true, ["drop"] = true, ["verdict"] = true,
-  ["done"] = true, ["compare"] = true, ["set"] = true,
+  ["done"] = true, ["compare"] = true, ["set"] = true, ["hold"] = true,
+  ["unhold"] = true,
 }
 
 local function dir_flag(): flags.Flag
@@ -117,6 +119,14 @@ local CSPEC: flags.CommandSpec = {
     {name = "compare", summary = "record that ID outranks OTHER "
       .. "(a standing reverse edge is reversed)",
       spec = {usage = "ID OTHER [options]", flags = {dir_flag()}}},
+    {name = "hold", summary = "mark root ID held: its win condition verified; "
+      .. "intake walks past it until evidence is filed under it",
+      spec = {usage = "ID [options]", flags = {dir_flag(),
+          {long = "reason", arg = "WHY",
+            help = "what verified the win condition, and how"}}}},
+    {name = "unhold", summary = "clear root ID's hold marker by hand "
+      .. "(filing a child under it clears it too)",
+      spec = {usage = "ID [options]", flags = {dir_flag()}}},
     {name = "block", summary = "record that ID waits on BLOCKER",
       spec = {usage = "ID BLOCKER [options]",
         summary = "record that ID waits on BLOCKER, the reason on the "
@@ -355,6 +365,12 @@ local function main(...: string): integer
       return 1
     end
     return cmp.cmd_compare(s, id, other)
+  end
+  if d.command == "hold" then
+    return cmp.cmd_hold(s, id, d.parsed.values["reason"] or "")
+  end
+  if d.command == "unhold" then
+    return cmp.cmd_unhold(s, id)
   end
   if d.command == "block" or d.command == "unblock" then
     local blocker, berr = resolve_id(s, d.parsed.args[2] or "")

@@ -100,6 +100,10 @@ local record Item
   --- Why a finished item ended: "completed" | "not-planned"; "" while
   --- open. A non-empty resolution IS what "done" means.
   resolution: string
+  --- Whether this root's win condition is verified to hold. A marker,
+  --- not an ending: the root stays open and keeps its place in the
+  --- order; intake walks past it, and evidence filed under it clears it.
+  is_held: boolean
   --- Content problems `decode` found on this item (`problems(it)`,
   --- possibly several), carried alongside a successful decode instead
   --- of failing it — a read-time snapshot, not a stored fact: nil for
@@ -135,6 +139,7 @@ local SPEC < const > = shape.record({
     verdict_head = shape.optional(shape.string),
     verdict_spec = shape.optional(shape.string),
     resolution = shape.optional(shape.string),
+    is_held = shape.optional(shape.boolean),
   })
 
 --- The type `shape.into` hands `decode` back: SPEC typed, with every
@@ -160,6 +165,7 @@ local record Raw
   verdict_head: string | nil
   verdict_spec: string | nil
   resolution: string | nil
+  is_held: boolean | nil
 end
 
 local VERDICTS: {string: boolean} = {
@@ -222,6 +228,9 @@ local function problems(it: Item): {string}
     or (it.base or "") ~= "") then
     out[#out + 1] =
     "claim/reviewer/pr/verdict/repo/base belong to worked items, not roots"
+  end
+  if not is_root(it) and it.is_held then
+    out[#out + 1] = "is_held marks an outcome root; a parented item is never held"
   end
   if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
     out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
@@ -337,6 +346,7 @@ local function decode(t: {string: any}): Item | nil, string
     verdict_head = raw.verdict_head or "",
     verdict_spec = raw.verdict_spec or "",
     resolution = raw.resolution or "",
+    is_held = raw.is_held or false,
   }
   local bad = problems(it)
   if #bad > 0 then
@@ -401,6 +411,7 @@ local function encode(it: Item): {string: any}
   if (it.verdict_head or "") ~= "" then t.verdict_head = it.verdict_head end
   if (it.verdict_spec or "") ~= "" then t.verdict_spec = it.verdict_spec end
   if (it.resolution or "") ~= "" then t.resolution = it.resolution end
+  if it.is_held then t.is_held = true end
   return t
 end
 
