@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave17-1-solinger",
+  ["claim"] = "wave17-1-solinger",
   ["id"] = "3IkCZjvsgMDfhZH1TB0Slra1T3x",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
