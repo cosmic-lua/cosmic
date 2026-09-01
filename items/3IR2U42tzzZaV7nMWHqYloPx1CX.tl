@@ -6,4 +6,6 @@ return {
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "wave3-3-YloP",
   ["title"] = "cosmopolitan census: re, getopt and argon2 — 7 nil-admitting bindings",
+  ["verdict"] = "accept",
+  ["verdict_spec"] = "65c62cc053c0003eb5db3889779c79aa0965458717f61cd2f7221e79b48ecd1f",
 }
