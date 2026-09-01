@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 308,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-TLb0_ldVZ-1788256737",
   ["title"] = "cosmo.unix: setfsuid/setfsgid silently report success on a refused privilege change",
 }
