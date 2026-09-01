@@ -1,7 +1,7 @@
 ## Goal
 
 G3, via the cosmo-contracts container: `unix.clearenv` stops declaring
-`true|nil`. Like `unix.sigpending` (`NEW-1`), `clearenv` takes NO
+`true|nil`. Like `unix.sigpending` (`3IjV9vt125uCtcWaDZb57rZCQvc`), `clearenv` takes NO
 argument at all, so there is no argument shape to misuse. This libc's
 own `clearenv()` (`libc/intrin/clearenv.c`) unconditionally sets
 `environ = 0` and returns `0` — there is no failure path in the
