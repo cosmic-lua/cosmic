@@ -51,3 +51,13 @@ local function test_unescape_aliases_and_unknowns()
   assert(html.unescape("&amp;lt;") == "&lt;",
     "decoding must not cascade: &amp;lt; is the TEXT &lt;")
 end
+
+local function test_safe_escapes_and_wraps()
+  local out = html.safe("<b>")
+  assert(out.raw == "&lt;b&gt;", "expected escaped markup, got: " .. out.raw)
+end
+
+local function test_trusted_wraps_without_escaping()
+  local out = html.trusted("<b>")
+  assert(out.raw == "<b>", "trusted must not escape, got: " .. out.raw)
+end
