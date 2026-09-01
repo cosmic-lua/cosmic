@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave9-2-sigprocmask",
+  ["claim"] = "wave9-2-sigprocmask",
   ["id"] = "3IjRZ9hD9NrStsAnyhMzwK6ZzAh",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
