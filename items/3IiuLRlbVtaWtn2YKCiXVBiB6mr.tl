@@ -5,6 +5,7 @@ return {
   ["claim"] = "wave4-22-rematch",
   ["id"] = "3IiuLRlbVtaWtn2YKCiXVBiB6mr",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
+  ["pr"] = 319,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "cosmo.re: re.Regex:match's slot 2 shares the captures table with the error string",
 }
