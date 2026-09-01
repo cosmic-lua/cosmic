@@ -46,7 +46,7 @@ return {
   ["cosmic/quicksand/proxy/serve.tl"] = 1,
   ["cosmic/re.tl"] = 1,
   ["cosmic/re_ops_test.tl"] = 1,
-  ["cosmic/sandbox/init.tl"] = 4,
+  ["cosmic/sandbox/init.tl"] = 5,
   ["cosmic/sandbox/init_test.tl"] = 1,
   ["cosmic/shm.tl"] = 1,
   ["cosmic/sqlite/advanced_test.tl"] = 1,

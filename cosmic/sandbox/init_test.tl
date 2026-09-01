@@ -374,6 +374,14 @@ local function test_merge_composes_policies()
   check.equal(merged.fs.ro[2], "/srv", "later list appends")
   check.equal(#merged.fs.exec, 1, "unmerged groups survive")
   check.equal(merged.fs.optional, true, "optional is set by the later policy")
+
+  local net_merged = sandbox.merge(
+    {net = {connect_tcp = {80, 443}, bind_tcp = {9000}}},
+    {net = {connect_tcp = {443, 8080}}})
+  assert(net_merged.net, "merged policy carries net")
+  check.equal(#net_merged.net.connect_tcp, 3, "connect_tcp concats and dedupes")
+  check.equal(net_merged.net.connect_tcp[1], 80, "order is first-seen")
+  check.equal(#net_merged.net.bind_tcp, 1, "bind_tcp present in only one policy survives unmerged")
   check.equal(merged.best_effort, true, "scalars persist from the earlier policy")
   assert(merged.sys and merged.sys.promises == "stdio", "sys merges in")
   assert(sandbox.validate(merged), "the merged policy validates")
