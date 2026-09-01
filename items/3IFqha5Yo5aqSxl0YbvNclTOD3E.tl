@@ -5,5 +5,6 @@ return {
   ["parent"] = "3I9mIYjYmuf4Tg314guEhvh5iA3",
   ["pr"] = 304,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-NclT-1",
   ["title"] = "cosmo.cov: an optional one-shot instruction budget on the collector's own hook",
 }
