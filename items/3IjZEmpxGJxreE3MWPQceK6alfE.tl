@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave15-2-unixdirdemo",
+  ["claim"] = "wave15-2-unixdirdemo",
   ["id"] = "3IjZEmpxGJxreE3MWPQceK6alfE",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
