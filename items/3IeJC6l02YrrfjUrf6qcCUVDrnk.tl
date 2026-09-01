@@ -1,6 +1,7 @@
 return {
   ["beats"] = "3Ier1JgXOToUGYF2gsW1DTjeU72 3Ier0INQ6CrOk6wdkPxpmspheru",
-  ["builders"] = "work9b-agent-1",
+  ["builders"] = "work9b-agent-1 wave-lok152-cCUV",
+  ["claim"] = "wave-lok152-cCUV",
   ["id"] = "3IeJC6l02YrrfjUrf6qcCUVDrnk",
   ["parent"] = "3I1IoF4k4xEZz3fd6VMKpIfXaNr",
   ["speccers"] = "5405327b-8c97-571b-92f7-39493f6c2cfc",
