@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave19-1-walcheckpoint",
+  ["claim"] = "wave19-1-walcheckpoint",
   ["id"] = "3Iiv1T1cnZkPE4JPf9JfHSkSCge",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
