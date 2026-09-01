@@ -6,6 +6,7 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 312,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-9kMa_JTLB-r2",
   ["title"] = "ConvertLuaArrayToStringList frees uninitialized memory on a bad argv/envp element (spawn/spawnp/exec* crash)",
   ["verdict"] = "request changes",
   ["verdict_head"] = "df1334ba4660e2ac58d4b24ff0073cbdafc25c8c",
