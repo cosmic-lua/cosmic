@@ -68,6 +68,7 @@ local record Options
   fs: Fs
   sys: Sys
   net: Net
+  scope: Scope
   best_effort: boolean
   allow_unenforced: boolean
   strict: boolean
@@ -102,28 +103,10 @@ local record Availability
 end
 ```
 
-### Section
-
- One section's enforcement result. `state` is `"full"`, `"degraded"`
- (landlock enforced, but this kernel's ABI stripped some requested
- rights), or `"skipped"` (best_effort passed an unenforceable
- section). `mechanism` names what enforced it; `abi` is its ABI
- version where meaningful (0 otherwise); `missing` renders what was
- stripped/skipped, "" when full.
-
-```teal
-local record Section
-  state: string
-  mechanism: string
-  abi: integer
-  missing: string
-end
-```
-
 ### Report
 
- Per-section report from a successful apply: `fs`/`sys`/`net` are
- set exactly when requested. Replaces the old two-boolean shape,
+ Per-section report from a successful apply: `fs`/`sys`/`net`/`scope`
+ are set exactly when requested. Replaces the old two-boolean shape,
  which could not tell full enforcement from a landlock restrict that
  silently dropped TRUNCATE/REFER.
 
@@ -132,6 +115,7 @@ local record Report
   fs: Section
   sys: Section
   net: Section
+  scope: Section
 end
 ```
 
@@ -159,6 +143,19 @@ alias of `cosmic.sandbox.plan.Fs` — field and method table: `cosmic --docs cos
  Network policy (per-port TCP, Landlock ABI 4+), defined in plan beside its mapping.
 
 alias of `cosmic.sandbox.plan.Net` — field and method table: `cosmic --docs cosmic.sandbox.plan.Net`
+
+### Scope
+
+ Signal / abstract-UNIX-socket scoping (Landlock ABI 6+), defined in plan beside its mapping.
+
+alias of `cosmic.sandbox.plan.Scope` — field and method table: `cosmic --docs cosmic.sandbox.plan.Scope`
+
+### Section
+
+ One section's enforcement result, defined in cosmic.sandbox.section
+ beside the code that builds it.
+
+alias of `cosmic.sandbox.section.Section` — field and method table: `cosmic --docs cosmic.sandbox.section.Section`
 
 ## Functions
 
@@ -257,7 +254,7 @@ function apply(opts: Options): Report | nil, string
 
 **Parameters:**
 
-- `opts` (Options) - fs, sys, and/or net sections plus tuning flags
+- `opts` (Options) - fs, sys, net, and/or scope sections plus tuning flags
 
 **Returns:**
 
