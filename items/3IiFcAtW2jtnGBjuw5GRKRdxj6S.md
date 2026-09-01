@@ -108,21 +108,29 @@ print("bad fd:", unix.isatty(999999))
 print("stdin:", unix.isatty(0))
 local fd = unix.open("/etc/hostname", unix.O_RDONLY)
 print("regular file (valid fd, not a tty):", unix.isatty(fd))
+print("bad fd, arg count:", select("#", unix.isatty(999999)))
 '
-bad fd:	false	nil	nil
-stdin:	false	nil	nil
-regular file (valid fd, not a tty):	false	nil	nil
+bad fd:	false
+stdin:	false
+regular file (valid fd, not a tty):	false
+bad fd, arg count:	1
 ```
+
+(Corrected 2026-09-01 — a fresh-context review found the transcript originally recorded here
+padded each line with trailing `nil nil`, which does not reproduce: `unix.isatty` returns a
+single boolean, confirmed by the `select("#", ...)` line above. The finding itself is
+unaffected by the correction.)
 
 All three cases — a genuinely invalid fd (should be `EBADF` per the
 doc), a valid non-tty fd (should be `ENOTTY` per the doc, and the one
 case the doc itself calls the normal/non-error outcome), and the
 harness's actual stdin (redirected to a pipe, so also non-tty here —
 returns `false` either way, correctly by accident) — are
-indistinguishable: all return `false, nil, nil`. A caller cannot tell
+indistinguishable: all return a bare `false`. A caller cannot tell
 "this fd is not a terminal" from "this fd is not even valid" — the
 `nil, error, errno` branch the docs promise for the latter is
-unreachable.
+unreachable (it is dead code, not merely untaken: no case reaches a
+second or third return value at all).
 
 **Cosmic-side spend** (`grep -rn 'unix\.isatty' /home/user/cosmic/cosmic/`):
 
