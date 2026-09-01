@@ -3,6 +3,7 @@ return {
   ["claim"] = "wave14-2-readlinkdoc",
   ["id"] = "3Ik1c2WOTJDdwydaOx8PqCYYKXS",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
+  ["pr"] = 329,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "cosmopolitan: unix.readlink's dirfd param doc is stale — it's actually a buffer size",
 }
