@@ -45,37 +45,20 @@ $ grep -c '^function ' tool/net/definitions.lua
 ```
 
 209 + 192 + 38 = 439, so the walk classifies every declaration and
-nothing is silently dropped. By module, the 192 NIL rows
-(`awk -F'\t' '$1=="NIL"{print $2}' … | sed 's/[:.].*//' | sort | uniq -c`):
+nothing is silently dropped.
 
-| module | nil-admitting |
-|---|---|
-| `unix` | 127 |
-| `lsqlite3` | 22 |
-| `cosmo` | 22 |
-| `zip` | 14 |
-| `re` | 5 |
-| `getopt` | 1 |
-| `argon2` | 1 |
-| `path`, `cov`, `repl` | 0 |
-
-`path` is exact in all 7 of its bindings — sibling 3IQtfuCx (#276)
-closed the last one — and `cov` and `repl` contribute no rows, so
-neither module gets a census slice.
-
-**This measurement supersedes the per-module figures in the parent's
-bounce note**, which reported `unix` 128 (its walk predates #277's
-`clock_gettime`), `lsqlite3` 30 and "`cov` and `repl` declare 2
-bindings between them". Re-derived here at `1e165815`, `lsqlite3`
-carries 22 NIL rows of 108 declarations, and `cov`/`repl` declare 7
-between them, all EXACT. The command above is the one to re-run; the
-parent's is not reproducible from its note.
+Re-measured 2026-09-01 at HEAD `fd0884d9` (two commits ahead of
+`1e165815`: `8180f14b` unix.capget, `fd0884d9` unix.isatty — neither in
+this slice's scope): totals are now 211 EXACT / 191 NIL / 38 NONE = 440.
+The delta is fully accounted for by those two commits; re-running the
+scope-filter below at HEAD still yields exactly this slice's 12
+bindings, all still NIL. Not a bounce.
 
 **This slice's scope: the 12 nil-admitting bindings below.**
 
 ```text
-unix.fork unix.commandv unix.spawn unix.spawnp unix.wait 
-unix.daemon unix.nice unix.getpriority unix.setpriority 
+unix.fork unix.commandv unix.spawn unix.spawnp unix.wait
+unix.daemon unix.nice unix.getpriority unix.setpriority
 unix.getrusage unix.prctl unix.Memory:wait
 ```
 
@@ -88,7 +71,7 @@ with evidence:
    no correct caller passes (the `path.join(nil)` class, closed by
    #276). Each is a raise-candidate: file one capture per binding,
    unparented, then `attach` it under this item's parent container
-   with `--repo whilp/cosmopolitan`.
+   with `--repo cosmic-lua/cosmopolitan`.
 2. **environmental or data-dependent** — a correct caller can meet the
    failure (ENOENT, EINTR, bad input data). The union stays; verify the
    tuple is exactly `T|nil, err string, errno?` with nothing else
@@ -107,9 +90,13 @@ The evidence standard, per row:
   checkout, listing the wrapper sites that guard or assert it today
 
 Record the summary table (binding, class, probe command, capture id or
-"exact") back onto THIS item with `gitboard spec`, then finish per
-review.md's research-slice clause — the deliverable is board state, and
-there is no product PR.
+"exact") back onto THIS item.
+
+Note: several of these (`unix.fork`, `unix.wait`, `unix.spawn`) are
+process-lifecycle primitives — probing them for real means actually
+forking/waiting child processes; be careful your probes don't leave
+orphaned processes or hang the sandbox (use short-lived children,
+always reap with `wait`, add timeouts where relevant).
 
 ## Non-goals
 
@@ -143,3 +130,34 @@ none needed. The classes, the evidence standard and the capture rule
 are stated in full above, so this slice is workable without reading the
 parent. It writes no repo files, so it is parallel-safe with every
 sibling census slice and with any contract slice they seed.
+
+## Summary Table
+
+Scope count: 12. Row count: 12 — match.
+
+Read of the spec's three classes as applied here: none of this slice's
+12 bindings is class-1 (nil reachable ONLY via a degenerate argument
+shape) — every one has a genuine environmental or data-dependent
+failure path a correct caller can hit. All 12 are therefore class-2;
+within class-2 the disposition is either "tuple exact" (capture column
+reads `exact`) or "tuple deviation" (needs its own capture). One
+binding, `unix.wait`, has a deviation.
+
+| # | Binding | Class | C source | definitions.lua | Probe (from cosmopolitan repo root, against `o//tool/lua/lua`) | Cosmic-side spend | Capture |
+|---|---|---|---|---|---|---|---|
+| 1 | `unix.fork` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:578-581` | `4655` | `o//tool/lua/lua -e 'local u=require("unix");local p=u.fork();if p==0 then u.exit(0) end;print(p);u.wait(p)'` — resource-exhaustion only (EAGAIN/ENOMEM); no argument to be degenerate | `cosmic/proc/init.tl:230`; `cosmic/child/init.tl:330`; `cosmic/quicksand/{proc.tl:245,proxy.tl:121,proxy/serve.tl:401,init.tl:119,box/run.tl:270,319}` — all narrow `pid == nil` | exact |
+| 2 | `unix.commandv` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:859-874` | `4676` | `o//tool/lua/lua -e 'local u=require("unix");print(u.commandv("this-definitely-does-not-exist-xyz123"))'` → `nil  commandv: ENOENT: No such file or directory  2` (data-dependent: prog absent from PATH) | `cosmic/proc/init.tl:136`; `cosmic/child/init.tl:223` | exact |
+| 3 | `unix.spawn` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:769-809` | `4795` | `o//tool/lua/lua -e 'local u=require("unix");print(u.spawn("/nonexistent/prog/xyz123",{"x"}))'` → `nil  spawn: ENOENT: No such file or directory  2`. See out-of-scope note: a malformed `argv`/`envp` element does not nil-return here — it crashes (`ConvertLuaArrayToStringList` frees uninitialized memory) — so the nil-admitting path is *purely* the environmental ENOENT case, strengthening class-2. This crash is filed separately as its own item. | `cosmic/child/fast.tl:109-111`; `cosmic/child/init.tl:298` | exact |
+| 4 | `unix.spawnp` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:814-854` | `4810` | `o//tool/lua/lua -e 'local u=require("unix");print(u.spawnp("this-definitely-does-not-exist-xyz123",{"x"}))'` → `nil  spawnp: ENOENT: No such file or directory  2`. Same crash caveat as spawn applies (shared helper) | none found under `cosmic/` (unused by any wrapper today) | exact |
+| 5 | `unix.wait` | 2, tuple DEVIATION | `third_party/lua/cosmo/lunix.c:1304-1316` | `4938` | `o//tool/lua/lua -e 'local u=require("unix");local wp,s2,s3=u.wait(99999);print(wp,s2,s3,u.ECHILD)'` → `nil  wait: ECHILD: No child process  10  10`; success case: `o//tool/lua/lua -e 'local u=require("unix");local p=u.fork();if p==0 then u.exit(3) end;local wp,ws,ru=u.wait(p);print(wp,type(ws),ws,type(ru))'` → `wpid  number  768  userdata` — slot2 is `wstatus:integer` on success vs. the error string on failure, slot3 is `rusage:userdata` on success vs. `errno` on failure: the nanosleep-shaped deviation | `cosmic/proc/init.tl:251-258` already documents and guards this exact deviation ("On failure the binding returns (nil, err, errno): the error string arrives in the second slot, where the status word would have been"); also consumed at `cosmic/quicksand/proc.tl:284,291`, `proxy.tl:75,84,95,169,174`, `proxy/serve.tl:383`, `init.tl:136`, `box/run.tl:343`, `child/io.tl:132,134`, `child/init.tl:161` | CAP-1 (filed as `unix.wait`'s own capture) |
+| 6 | `unix.daemon` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:3028-3039` | `5585` | success: fork+daemon(true,true) → `true nil nil`; failure path is fork()/setsid()/chdir() failing inside `daemon(3)` — resource/environment-dependent, no argument shape (both args are `lua_toboolean`-coerced, never invalid) | `cosmic/proc/init.tl:106` | exact |
+| 7 | `unix.nice` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:3044-3055` | `6779` | `o//tool/lua/lua -e 'local u=require("unix");local p=u.fork();if p==0 then u.setuid(1000);print(u.nice(-5));u.exit(0) end;u.wait(p)'` → `nil  nice: EACCES: Permission denied  13` (privilege-dependent); `unix.nice(-1)` as root returns `-1  nil  nil` (errno checked, not rc==-1) | `cosmic/proc/rusage.tl:75` | exact |
+| 8 | `unix.getpriority` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:3065-3077` | `6804` | `o//tool/lua/lua -e 'local u=require("unix");print(u.getpriority(u.PRIO_PROCESS,999999))'` → `nil  getpriority: ESRCH: No such process  3` | `cosmic/proc/rusage.tl:88` | exact |
+| 9 | `unix.setpriority` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:3087-3099` | `6824` | `o//tool/lua/lua -e 'local u=require("unix");print(u.setpriority(u.PRIO_PROCESS,999999,0))'` → `nil  setpriority: ESRCH: No such process  3` | `cosmic/proc/rusage.tl:102` | exact |
+| 10 | `unix.getrusage` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:1264-1273` | `6842` | `o//tool/lua/lua -e 'local u=require("unix");print(u.getrusage(99999))'` → `nil  getrusage: EINVAL: Invalid argument  22` | `cosmic/proc/rusage.tl:27`; `cosmic/instrument.tl:62,103` | exact |
+| 11 | `unix.prctl` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:1018-1026` | `7434` | `o//tool/lua/lua -e 'local u=require("unix");print(u.prctl(999999))'` → `nil  prctl: EINVAL: Invalid argument  22` (bad/unsupported `PR_*` option — data-dependent, also platform-dependent on non-Linux) | `cosmic/quicksand/proc.tl:45,49,73,78`; `cosmic/quicksand/caps.tl:77,109,126,168`; `cosmic/sandbox/landlock.tl:416` | exact |
+| 12 | `unix.Memory:wait` | 2, tuple exact | `third_party/lua/cosmo/lunix.c:3878-3915` | `7804` | `o//tool/lua/lua -e 'local u=require("unix");local m=u.mapshared(4096);m:store(0,5);print(m:wait(0,999))'` → `nil  futex_wait: EAGAIN: Resource temporarily unavailable  11`; timeout case similarly yields `ETIMEDOUT`. No argument-shape nil path — an out-of-range `expect`/nonzero-high-bits word throws, never nil-returns | `cosmic/shm.tl:223-258` (`mem:wait`) already pcall-guards and narrows exactly this tuple, with an explicit comment on the deviation-free shape and the EINTR-retry loop | exact |
+
+Out-of-scope finding filed separately: a memory-corruption crash in
+`ConvertLuaArrayToStringList` (shared by execve/execvp/execvpe/
+fexecve/spawn/spawnp) — see row 3's note.
