@@ -7,10 +7,9 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 303,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-skK4-2",
   ["speccers"] = "orch-refine-skK4",
   ["title"] = "salvage cosmo.path/readlink/Slurp-range tests",
-  ["verdict"] = "request changes",
-  ["verdict_head"] = "833618eb8d60c07ffb0ec2935348fa7450650b08",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "de2e0645ea10c8dbe50f09debbaeedb8a47f94fd",
   ["verdict_spec"] = "81a23ba2f1d158088ae8ac2633c87429370ef23635ae4fb596091a9200b36ec1",
 }
