@@ -106,6 +106,11 @@ Split the body in two on the way over:
    this test needs BOTH the network-policy follow-up above AND that
    format-string fix landed first.
 
+`tool/lua/BUILD.mk:222-251` gets one new three-line rule
+(`o/$(MODE)/tool/lua/test_fetch_proxy.ok: o/$(MODE)/tool/lua/lua.dbg
+tool/lua/test_fetch_proxy.lua`, run, `@touch $@`) and one new
+`TOOL_LUA_TESTS` line.
+
 ## Non-goals
 
 - No binding change. `cosmo.Fetch`'s proxy contract, `kind` taxonomy,
