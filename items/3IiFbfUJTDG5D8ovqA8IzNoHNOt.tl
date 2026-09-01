@@ -5,6 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 335,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-IzNo_HNOt-lok152",
+  ["reviewer"] = "review-tiocgwinsz-fresh1",
   ["title"] = "unix.tiocgwinsz: cols slot doubles as error string on failure",
 }
