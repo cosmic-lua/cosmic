@@ -3,6 +3,7 @@ return {
   ["claim"] = "wave2-7-UiTB",
   ["id"] = "3IiFXXGKKbNEItlrsPwUiTBvfQ2",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
+  ["pr"] = 309,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "cosmo.unix.capget: success values share slots with the failure tuple",
 }
