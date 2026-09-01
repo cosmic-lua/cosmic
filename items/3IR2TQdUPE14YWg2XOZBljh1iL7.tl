@@ -6,4 +6,6 @@ return {
   ["repo"] = "whilp/cosmopolitan",
   ["speccers"] = "d6d4a5ca-5feb-579c-b294-e39c72bf3099 review-Bljh-1",
   ["title"] = "cosmopolitan census: the top-level cosmo surface — 22 nil-admitting bindings",
+  ["verdict"] = "accept",
+  ["verdict_spec"] = "c6916a2f17cbc070378e600f9422962735b3e8f19e3c6e1e2e71b850ede9d181",
 }
