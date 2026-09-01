@@ -16,6 +16,7 @@ local item = require("_work.item")
 local prio = require("_work.priority")
 local publish = require("_work.publish")
 local review = require("_work.review")
+local spec = require("_work.spec")
 local store = require("_work.store")
 
 --- Print a verb's verdict line and return its exit code.
@@ -371,6 +372,28 @@ local function pr_collision_refusal(all: {item.Item}, id: string,
   return nil
 end
 
+--- The repositories a spec reaches (`spec.reached_repos`) that are
+--- neither the item's own `repo` field nor declared under its
+--- `## Access` heading (`spec.declared_repos`) — an undeclared source
+--- strands a claim before it starts and a review just as surely,
+--- since neither session's grant is anything this board can see. The
+--- item's own `repo` is the one exemption that needs no declaring: it
+--- is where the diff lands, not a source read on the side.
+--- @param it item.Item The item
+--- @param body string Its spec sidecar
+--- @return {string} Undeclared repo slugs, in first-seen order
+local function undeclared_repos(it: item.Item, body: string): {string}
+  local declared = spec.declared_repos(body)
+  local own = (it.repo or ""):lower()
+  local out: {string} = {}
+  for _, repo in ipairs(spec.reached_repos(body)) do
+    if repo ~= own and not declared[repo] then
+      out[#out + 1] = repo
+    end
+  end
+  return out
+end
+
 --- The problems that keep an item from being taken: it must be
 --- workable, placed in the priority order, its spec must fill the
 --- spec-bar sections, and its own chain must be traceable. The one
@@ -407,6 +430,11 @@ local function ready_problems(s: store.Store, it: item.Item,
   for _, gap in ipairs(flow.ready_gaps(body)) do
     out[#out + 1] = ("spec: %s"):format(gap)
   end
+  for _, repo in ipairs(undeclared_repos(it, body)) do
+    out[#out + 1] = ("spec reaches %s with no declared read access — name "
+      .. "it under \"## Access\"; undeclared, it strands the claim now "
+      .. "and the review just as surely"):format(repo)
+  end
   return out
 end
 
@@ -430,6 +458,7 @@ local record gitgate
   number: integer, repo: string | nil, base: string | nil): string
   pr_collision_refusal: function(all: {item.Item}, id: string,
   number: integer): string
+  undeclared_repos: function(it: item.Item, body: string): {string}
   ready_problems: function(s: store.Store, it: item.Item,
   all: {item.Item}): {string}
 end
@@ -449,6 +478,7 @@ local M: gitgate = {
   containered = containered,
   handover_refusal = handover_refusal,
   pr_collision_refusal = pr_collision_refusal,
+  undeclared_repos = undeclared_repos,
   ready_problems = ready_problems,
 }
 

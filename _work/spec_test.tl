@@ -80,3 +80,48 @@ local function test_revision_is_a_content_digest()
   assert(spec.revision("") == spec.revision(""), "no sidecar is stable")
 end
 test_revision_is_a_content_digest()
+
+-- `reached_repos` reads a `github.com` URL wherever it sits, HTTPS or
+-- SSH, deduplicated regardless of which section carries it.
+local function test_reached_repos_finds_github_urls_anywhere()
+  local body = [[
+## Change
+git clone https://github.com/jart/cosmopolitan /tmp/upstream
+
+## Evidence
+git@github.com:jart/cosmopolitan.git also names it, again.
+]]
+  local repos = spec.reached_repos(body)
+  assert(#repos == 1 and repos[1] == "jart/cosmopolitan",
+    "expected one dedup'd slug, got: " .. table.concat(repos, ", "))
+end
+test_reached_repos_finds_github_urls_anywhere()
+
+-- A bare `owner/repo`-shaped mention is not a URL, so it is not a
+-- reach — the module and doc paths this repo is full of would
+-- otherwise false-positive on nearly every spec.
+local function test_reached_repos_ignores_bare_paths()
+  local repos = spec.reached_repos(
+    "## Change\nEdit `cosmic/fs` per `docs/decisions`.\n")
+  assert(#repos == 0, "bare paths are not repos: " .. table.concat(repos, ", "))
+end
+test_reached_repos_ignores_bare_paths()
+
+-- `declared_repos` reads only the `## Access` section, by URL or by a
+-- bare `owner/repo` mention — cheap because the section exists to be
+-- written once and read, not parsed strictly.
+local function test_declared_repos_reads_only_access()
+  local body = [[
+## Change
+See jart/cosmopolitan for prior art.
+
+## Access
+- jart/cosmopolitan (read-only, upstream history)
+]]
+  local declared = spec.declared_repos(body)
+  assert(declared["jart/cosmopolitan"], "declared under Access")
+  local undeclared = spec.declared_repos("## Change\njart/cosmopolitan\n")
+  assert(not undeclared["jart/cosmopolitan"],
+    "a mention outside Access is not a declaration")
+end
+test_declared_repos_reads_only_access()
