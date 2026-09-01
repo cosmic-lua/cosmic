@@ -300,10 +300,13 @@ hits: unwrapped in cosmic today.
 
 **P10 — `unix.setfsgid`** (definitions.lua:5665, lunix.c:1564-1569)
 ```
+$ id
+uid=0(root) gid=0(root) groups=0(root)
 $ o//tool/lua/lua -e '
 local unix = require("unix")
 local pid = unix.fork()
 if pid == 0 then
+  unix.setgid(65534)
   unix.setuid(65534)
   local ok, err, errno = unix.setfsgid(0)
   io.stderr:write("setfsgid(0) as unpriv: ok=", tostring(ok), " err=", tostring(err), " errno=", tostring(errno), "\n")
@@ -311,9 +314,18 @@ if pid == 0 then
   for line in f:lines() do if line:match("^Gid:") then io.stderr:write(line, "\n") end end
   os.exit(0)
 else unix.wait(pid) end'
+W2026-09-01T07:19:47.196984:third_party/lua/cosmo/lunix.c:242:lua:2864] syscall supposed to return 0 / -1 but got 65534
 setfsgid(0) as unpriv: ok=true err=nil errno=nil
-Gid:	0	0	0	0
+Gid:	65534	65534	65534	65534
 ```
+(Corrected 2026-09-01 — a fresh-context review found the original transcript here dropped
+only the UID, not the GID, before attempting `setfsgid(0)`: with the process's real GID still
+0, that call is a legitimate no-op permitted by POSIX, not a refused-privilege demonstration.
+Re-run with `unix.setgid(65534)` added before `unix.setuid(65534)`, mirroring P9's
+methodology exactly — the underlying claim holds: `ok=true` while the `Gid:` line's fs-field
+stays `65534`, so the kernel really did refuse/no-op the fs-credential restore while the
+binding reported success.)
+
 Identical pattern to setfsuid. `grep -rn 'unix\.setfsgid' cosmic/` → no
 hits.
 
