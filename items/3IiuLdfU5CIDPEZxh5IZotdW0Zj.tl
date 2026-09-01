@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 318,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-Zotd_W0Zj-r1",
   ["title"] = "cosmo.re: re.Regex:find's slot 2 shares the stop offset with the error string",
 }
