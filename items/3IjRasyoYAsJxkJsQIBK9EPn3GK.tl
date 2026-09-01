@@ -9,4 +9,7 @@ return {
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "4d89c837-e662-53f2-91fc-28226ce8d8d4",
   ["title"] = "cosmopolitan: unix.localtime gets its first test, against the new table shape",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "b81b267d278b0a1c32a432e7affea82ee065e0c7",
+  ["verdict_spec"] = "75c9d7ea319d7ca949669296b66ed7780ecfe573cfe77885521ca4a5ce29f171",
 }
