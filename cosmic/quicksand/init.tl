@@ -84,30 +84,34 @@ local function probe_landlock(): boolean
   return landlock.available()
 end
 
---- Probe whether the Box namespace trio can actually be entered: a
---- scratch child attempts unshare(CLONE_NEWUSER | CLONE_NEWNET |
---- CLONE_NEWNS) followed by the uid_map / gid_map writes — exactly the
---- setup sequence Box:run's supervisor performs — and reports the
+--- True when this host's Landlock ABI is >= 4 — the per-port TCP
+--- rights (NET_BIND_TCP / NET_CONNECT_TCP) that back the sandbox `net`
+--- section. Delegates to the same cached abi() probe as probe_landlock,
+--- so no extra syscall.
+local function probe_landlock_net(): boolean
+  return (landlock.abi() or 0) >= 4
+end
+
+--- Attempt unshare(flags) followed by the uid_map / gid_map writes in a
+--- scratch child — exactly the setup sequence Box:run's supervisor
+--- performs for whatever flags it ends up using — and report the
 --- outcome over a pipe. unshare is irreversible for the caller, so the
---- attempt must never run in this process.
+--- attempt must never run in this process. Any probe failure (pipe,
+--- fork, unshare, map writes) reports unavailable — fail-closed.
 ---
---- CLONE_NEWUSER exists as a compile-time constant on every Linux
---- build, but hosts routinely disable unprivileged user namespaces
---- (sysctls, seccomp, AppArmor), and others allow the unshare while
---- blocking the /proc/self/*_map writes; testing the constant reported
---- user_ns = true on such hosts and Box:run then failed partway
---- through setup with EPERM. Any probe failure (pipe, fork, unshare,
---- map writes) reports unavailable — fail-closed.
+--- Captures this process's real uid/gid BEFORE forking, not after
+--- unsharing in the child: once CLONE_NEWUSER takes effect, uid_map is
+--- still empty, so geteuid()/getegid() read back as the overflow uid/gid
+--- (nobody), not this process's real host identity, and a mapping built
+--- from that value is rejected with EPERM regardless of what this probe
+--- is trying to measure.
 ---
---- @return boolean true when the Box userns setup sequence works here
-local function probe_ns(): boolean
-  if unix.CLONE_NEWUSER == nil or unix.CLONE_NEWNET == nil
-  or unix.CLONE_NEWNS == nil then
-    return false
-  end
-  local flags = (unix.CLONE_NEWUSER)
-  | (unix.CLONE_NEWNET)
-  | (unix.CLONE_NEWNS)
+--- @param flags integer the unshare(2) flags to attempt
+--- @return boolean true when the scratch child's unshare + map writes
+---   both succeeded
+local function probe_unshare(flags: integer): boolean
+  local host_uid = unix.geteuid()
+  local host_gid = unix.getegid()
   local r, w = unix.pipe(unix.O_CLOEXEC)
   if not r then return false end
   local rfd = r
@@ -121,7 +125,7 @@ local function probe_ns(): boolean
   if pid == 0 then
     local ok = unix.unshare(flags)
     if ok then
-      ok = qproc.setup_userns_maps(nil, nil)
+      ok = qproc.setup_userns_maps(host_uid, host_gid)
     end
     unix.write(wfd, ok and "1" or "0")
     unix.exit(0) -- exits: forked probe child; the answer is on the pipe
@@ -131,6 +135,49 @@ local function probe_ns(): boolean
   unix.close(rfd)
   unix.wait(pid)
   return b == "1"
+end
+
+--- Probe the Box namespace setup in two tiers, so a host that
+--- restricts network namespaces specifically (netns disabled while
+--- plain user namespaces stay allowed, a max_net_namespaces limit, a
+--- seccomp filter on the clone flags, ...) is told apart from one
+--- where user namespaces are blocked outright.
+---
+--- Tries the full trio first (CLONE_NEWUSER | CLONE_NEWNET |
+--- CLONE_NEWNS — exactly what Box:run's supervisor unshares). A trio
+--- success proves both tiers at once, so the second probe only runs on
+--- trio failure. On failure, retries with CLONE_NEWNET dropped — the
+--- same user+mount subset Box:run's clone_flags falls back to when the
+--- Landlock net tier covers containment instead — which tells "netns
+--- specifically is restricted" apart from "user namespaces don't work
+--- at all". The single combined probe this replaced conflated the two:
+--- any host-side reason netns couldn't start failed the whole
+--- unshare() call, which surfaced as user_ns = false even on a host
+--- where plain user+mount namespaces were fine.
+---
+--- CLONE_NEWUSER exists as a compile-time constant on every Linux
+--- build, but hosts routinely disable unprivileged user namespaces
+--- (sysctls, seccomp, AppArmor), and others allow the unshare while
+--- blocking the /proc/self/*_map writes; testing the constant reported
+--- user_ns = true on such hosts and Box:run then failed partway
+--- through setup with EPERM — the same reasoning applies to net_ns,
+--- which used to be a bare CLONE_NEWNET-exists check.
+---
+--- @return boolean true when USER|NS works, whether or not the trio below does
+--- @return boolean true when the full USER|NET|NS trio works here
+local function probe_ns(): boolean, boolean
+  if unix.CLONE_NEWUSER == nil or unix.CLONE_NEWNS == nil then
+    return false, false
+  end
+  local base = (unix.CLONE_NEWUSER) | (unix.CLONE_NEWNS)
+  if unix.CLONE_NEWNET == nil then
+    return probe_unshare(base), false
+  end
+  local trio = base | (unix.CLONE_NEWNET)
+  if probe_unshare(trio) then
+    return true, true
+  end
+  return probe_unshare(base), false
 end
 
 local cached: Capabilities = nil
@@ -145,16 +192,26 @@ local function capabilities(): Capabilities
   local host = cosmo.GetHostOs()
   local is_linux = host == "LINUX"
   local has_landlock = is_linux and probe_landlock()
+  -- Two distinct scratch-child probes, not one: user_ns and net_ns must
+  -- be free to disagree (see probe_ns), so both come from that single
+  -- call rather than user_ns from probe_ns() and net_ns from a
+  -- compile-time constant check.
+  local ns_user_ok = false
+  local ns_net_ok = false
+  if is_linux then
+    ns_user_ok, ns_net_ok = probe_ns()
+  end
   cached = {
     linux = is_linux,
-    user_ns = is_linux and probe_ns(),
+    user_ns = ns_user_ok,
     mount_ns = is_linux and unix.CLONE_NEWNS ~= nil,
-    net_ns = is_linux and unix.CLONE_NEWNET ~= nil,
+    net_ns = ns_net_ok,
     uts_ns = is_linux and unix.CLONE_NEWUTS ~= nil,
     pid_ns = is_linux and unix.CLONE_NEWPID ~= nil,
     pivot_root = is_linux and unix.pivot_root ~= nil,
     cap_net_admin = is_linux and unix.geteuid ~= nil and unix.geteuid() == 0,
     landlock = has_landlock,
+    landlock_net = is_linux and probe_landlock_net(),
     pledge = probe(unix.pledge),
     -- unveil is DERIVED, never probed: for unveil, unix.unveil(nil, nil) is
     -- the commit call -- probing it would lock this very process into a

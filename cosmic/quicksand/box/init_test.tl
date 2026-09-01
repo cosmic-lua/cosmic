@@ -124,3 +124,135 @@ local function test_fs_deny_rejected_at_new()
   assert(err2:find("deny", 1, true),
     "deny next to an allowlist is still rejected: " .. err2)
 end
+
+-- Monkeypatching quicksand.capabilities (the same technique
+-- landlock_net_test.tl uses on cosmic.sandbox.landlock) exercises
+-- preflight's net-tier logic deterministically without depending on a
+-- specific kernel to match each case: user_ns/net_ns/landlock_net are
+-- whatever this host reports them as, and reliably steering any one of
+-- them independently (net_ns false while user_ns stays true is real --
+-- see cosmic.quicksand.init_test's live max_net_namespaces test -- but
+-- getting a CI host into that state on demand is not) would need a
+-- kernel-level fixture this suite doesn't have. run() always forks
+-- before it unshares (see box/run.tl), so calling it directly here —
+-- as test_run_on_linux_returns_clean_shape already does — never
+-- touches this process's own namespaces.
+local function with_mock_capabilities(overrides: {string: any}, body: function(): boolean)
+  local real = quicksand.capabilities()
+  local mocked: {string: any} = {}
+  for k, v in pairs(real as {string: any}) do mocked[k] = v end -- cast: record to map probe
+  for k, v in pairs(overrides) do mocked[k] = v end
+  local saved = (quicksand as {string: function}).capabilities; -- cast: record to map probe
+  (quicksand as {string: function}).capabilities = function(): any return mocked end -- cast: record to map probe
+  local ok, err = pcall(body);
+  (quicksand as {string: function}).capabilities = saved -- cast: record to map probe
+  if not ok then error(err, 0) end
+end
+
+-- Non-goal: a host with neither tier refuses a net policy outright,
+-- naming both gaps — the "as it does today" refusal this item must not
+-- weaken.
+local function test_net_refuses_with_neither_tier()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = false,
+    }, function(): boolean
+      local code, err = j:run({"/bin/true"})
+      assert(code == nil, "must refuse when neither net tier is available")
+      assert(err and err:find("network namespaces unavailable", 1, true)
+        and err:find("landlock net tier unavailable", 1, true),
+        "error should name both gaps: " .. tostring(err))
+      return true
+    end)
+end
+
+-- The Landlock net tier alone must not trip the netns-specific refusal:
+-- preflight lets the box proceed past that check. Whatever happens
+-- next (a real unshare can still fail on a host without genuine
+-- user_ns support) is a different, real error — never this one.
+local function test_net_proceeds_with_landlock_net_only()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = true,
+    }, function(): boolean
+      local code, err = j:run({"/bin/true"})
+      if code == nil then
+        assert(not err:find("network namespaces unavailable", 1, true),
+          "landlock_net = true must not hit the netns refusal: " .. tostring(err))
+      end
+      return true
+    end)
+end
+
+-- net_tier() reports "none" for a Box with no net policy at all — there
+-- is nothing to name a tier for, regardless of host capabilities.
+local function test_net_tier_none_without_net_policy()
+  local j = check.must(Box.new({}))
+  assert(j:net_tier() == "none",
+    "no net policy should report tier 'none', got: " .. j:net_tier())
+end
+
+-- Isolation tier: net_ns available, Landlock net tier not — net_tier()
+-- must say "netns" alone.
+local function test_net_tier_netns_when_available()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {["example.com:443"] = {}}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = true, landlock_net = false,
+    }, function(): boolean
+      assert(j:net_tier() == "netns",
+        "expected tier 'netns', got: " .. j:net_tier())
+      return true
+    end)
+end
+
+-- Backstop tier: net_ns unavailable, Landlock net tier available —
+-- net_tier() must say "landlock" alone. Mirrors the mechanism
+-- run_test.tl's test_landlock_net_backstop_when_net_ns_unavailable
+-- exercises end to end (a real proxy-port-only connection); this pins
+-- the reporting side of that same scenario without paying for a fork.
+local function test_net_tier_landlock_only_when_net_ns_unavailable()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {["example.com:443"] = {}}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = true,
+    }, function(): boolean
+      assert(j:net_tier() == "landlock",
+        "expected tier 'landlock', got: " .. j:net_tier())
+      return true
+    end)
+end
+
+-- Defense in depth: both tiers available — net_tier() must say both are
+-- active, not just one (this is the case NetOptions' doc comment calls
+-- out: "Both apply together when available").
+local function test_net_tier_both_when_defense_in_depth()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {["example.com:443"] = {}}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = true, landlock_net = true,
+    }, function(): boolean
+      assert(j:net_tier() == "netns+landlock",
+        "expected tier 'netns+landlock', got: " .. j:net_tier())
+      return true
+    end)
+end
+
+-- The Landlock backstop only ever fires alongside the allowlist proxy
+-- (workload_setup only applies it when a proxy_port exists, which only
+-- happens when net.allow is set): a net section present but with no
+-- `allow` must not falsely report "landlock" just because the ABI
+-- supports it.
+local function test_net_tier_landlock_requires_allow()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = true,
+    }, function(): boolean
+      assert(j:net_tier() == "none",
+        "net section without allow must not report 'landlock', got: " .. j:net_tier())
+      return true
+    end)
+end

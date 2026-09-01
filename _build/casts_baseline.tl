@@ -51,6 +51,7 @@ return {
   ["cosmic/net/connect.tl"] = 1,
   ["cosmic/net/socket.tl"] = 3,
   ["cosmic/quicksand/box/init.tl"] = 1,
+  ["cosmic/quicksand/box/init_test.tl"] = 4,
   ["cosmic/quicksand/box/merge.tl"] = 2,
   ["cosmic/quicksand/box/merge_test.tl"] = 3,
   ["cosmic/quicksand/box/run.tl"] = 1,

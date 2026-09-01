@@ -12,6 +12,7 @@
 local quicksand = require("cosmic.quicksand")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
+local net = require("cosmic.net")
 local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -209,6 +210,91 @@ end
     .. tostring(r.stdout) .. tostring(r.stderr))
   assert(r.stdout:find("ok"),
     "workload PID should be <= 2, got: " .. tostring(r.stdout))
+end
+
+-- The Landlock net tier backs a Box's network policy when net_ns is
+-- unavailable: forcing net_ns false (the only deterministic way to
+-- exercise "netns cannot start" — a live host is always either net_ns-
+-- capable or lacks landlock outright, never usefully one without the
+-- other, the same reasoning landlock_net_test.tl's ABI mock uses)
+-- proves the box still runs, confined to the proxy port rather than
+-- refusing outright. `srv_other` stands in for a host the workload
+-- must NOT be able to reach directly, bypassing the proxy's own
+-- hostname allowlist.
+local function test_landlock_net_backstop_when_net_ns_unavailable()
+  local c = quicksand.capabilities()
+  if not (c.linux and c.user_ns and c.landlock_net) then
+    check.enforce_skip("landlock net tier unavailable (needs Linux Landlock ABI >= 4)")
+    return
+  end
+
+  local srv_other = check.must(net.listen_tcp("127.0.0.1", 0))
+  local port_other = check.must(srv_other:local_endpoint()).port
+
+  local workload = [[
+local net = require("cosmic.net")
+local proxy_url = os.getenv("HTTP_PROXY") or ""
+local proxy_port = tonumber(proxy_url:match(":(%d+)$"))
+if not proxy_port then io.write("no-proxy-port\n") os.exit(1) end
+local c1 = net.dial("127.0.0.1", proxy_port)
+io.write(c1 and "allowed-ok\n" or "allowed-fail\n")
+if c1 then c1:close() end
+local c2 = net.dial("127.0.0.1", ]] .. tostring(port_other) .. [[)
+io.write(c2 and "denied-leaked\n" or "denied-blocked\n")
+if c2 then c2:close() end
+]]
+
+  local r = run_script("box_net_backstop.lua", string.format([[
+local qs = require("cosmic.quicksand")
+local real = qs.capabilities()
+qs.capabilities = function()
+  local c = {}
+  for k, v in pairs(real) do c[k] = v end
+  c.net_ns = false
+  return c
+end
+local j, nerr = qs.new({ net = { allow = {} } })
+if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
+if j:net_tier() ~= "landlock" then
+  io.stderr:write("net_tier: expected 'landlock', got " .. tostring(j:net_tier()) .. "\n")
+  os.exit(1)
+end
+local code, rerr = j:run({%q, "-e", %q})
+if code == nil then
+  io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
+end
+if code ~= 0 then
+  io.stderr:write("run exit=" .. tostring(code) .. "\n"); os.exit(1)
+end
+io.write("ok\n")
+]], cosmic, workload))
+  check.must(srv_other:close())
+  if not r then return end
+  assert(r.ok, "netns-less landlock net backstop box must succeed: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  local s = r.stdout
+  assert(s:find("allowed-ok", 1, true), "connect to the proxy port must be allowed: " .. s)
+  assert(s:find("denied-blocked", 1, true),
+    "connect to a port outside the backstop must be denied: " .. s)
+  check.enforced("quicksand box landlock net backstop (no net_ns)")
+end
+
+-- net_tier() must reflect this host's REAL capabilities, not a mock:
+-- with net_ns actually available, the expected answer is "netns" alone
+-- or "netns+landlock" depending on whether this kernel's real
+-- landlock_net also holds — derived here from the same Capabilities
+-- record capabilities() returns, not asserted as a fixed constant, so
+-- the test stays correct across hosts with either ABI.
+local function test_net_tier_reflects_real_capabilities()
+  local c = quicksand.capabilities()
+  if not (c.linux and c.user_ns and c.net_ns) then
+    check.enforce_skip("box namespaces unavailable on this host")
+    return
+  end
+  local j = check.must(quicksand.new({net = {allow = {["example.com:443"] = {}}}}))
+  local want = c.landlock_net and "netns+landlock" or "netns"
+  assert(j:net_tier() == want,
+    "expected net_tier " .. want .. ", got " .. tostring(j:net_tier()))
 end
 
 -- Opt-out of PID namespace via pid_ns = false still runs.

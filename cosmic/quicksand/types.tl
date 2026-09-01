@@ -39,6 +39,14 @@ local record NetRule
   header_value: string
 end
 
+--- `allow` is the hostname allowlist enforced by the sidecar proxy.
+--- Containment around the proxy itself has two tiers: with a network
+--- namespace (`net_ns`) the workload can reach nothing but the proxy by
+--- construction; without one but with a Landlock net tier (ABI >= 4,
+--- `landlock_net`), the workload runs in the host's real network
+--- namespace and Box confines its outbound TCP to the proxy's port
+--- instead — degraded, not none. Both apply together when available
+--- (defense in depth). With neither, Box:run refuses.
 local record NetOptions
   proxy_env: boolean -- set HTTP(S)_PROXY in the child env
   allow: {string: NetRule}
@@ -96,14 +104,19 @@ end
 --- instead of bailing out on ENOSYS partway through a setup sequence.
 local record Capabilities
   linux: boolean -- host is Linux
-  user_ns: boolean -- unshare(NEWUSER|NEWNET|NEWNS) + uid_map verified in a scratch child
+  user_ns: boolean -- unshare(NEWUSER|NEWNS) + uid_map verified in a scratch child,
+  -- independently of whether NEWNET also works (see net_ns)
   mount_ns: boolean -- CLONE_NEWNS available
-  net_ns: boolean -- CLONE_NEWNET available
+  net_ns: boolean -- unshare(NEWUSER|NEWNET|NEWNS) + uid_map verified in a scratch
+  -- child; false when only the user_ns subset above works (netns specifically
+  -- restricted: e.g. a max_net_namespaces limit or a seccomp filter on the
+  -- clone flags)
   uts_ns: boolean -- CLONE_NEWUTS available (for hostname isolation)
   pid_ns: boolean -- CLONE_NEWPID available
   pivot_root: boolean -- unix.pivot_root exported
   cap_net_admin: boolean -- holds CAP_NET_ADMIN (e.g. effective uid 0)
   landlock: boolean -- kernel advertises landlock ABI >= 1
+  landlock_net: boolean -- kernel advertises landlock ABI >= 4 (per-port TCP policy)
   pledge: boolean -- unix.pledge non-ENOSYS (Linux via seccomp + OpenBSD)
   unveil: boolean -- unix.unveil non-ENOSYS (OpenBSD, or Linux+Landlock)
   caps: boolean -- prctl capability bounding-set API available (PR_CAPBSET_*)
