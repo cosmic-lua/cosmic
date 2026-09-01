@@ -266,6 +266,21 @@ local function merged_list(a: {string}, b: {string}): {string}
   return out
 end
 
+local function merged_int_list(a: {integer}, b: {integer}): {integer}
+  if a == nil and b == nil then return nil end
+  local out: {integer} = {}
+  local seen: {integer: boolean} = {}
+  for _, list in ipairs({a or {}, b or {}}) do
+    for _, p in ipairs(list) do
+      if not seen[p] then
+        seen[p] = true
+        out[#out + 1] = p
+      end
+    end
+  end
+  return out
+end
+
 --- Compose policies left-to-right, mirroring quicksand's Box merge:
 --- fs path lists concat and dedupe; scalars (best_effort,
 --- allow_unenforced, strict, no_new_privs, fs.optional, the sys
@@ -293,6 +308,13 @@ local function merge(...: Options): Options
         out.sys = {
           promises = o.sys.promises or sbase.promises,
           exec_promises = o.sys.exec_promises or sbase.exec_promises,
+        }
+      end
+      if o.net then
+        local nbase: Net = out.net or {}
+        out.net = {
+          connect_tcp = merged_int_list(nbase.connect_tcp, o.net.connect_tcp),
+          bind_tcp = merged_int_list(nbase.bind_tcp, o.net.bind_tcp),
         }
       end
       if o.best_effort ~= nil then out.best_effort = o.best_effort end
