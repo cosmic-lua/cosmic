@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave20-1-tiocgwinsz",
+  ["claim"] = "wave20-1-tiocgwinsz",
   ["id"] = "3IiFbfUJTDG5D8ovqA8IzNoHNOt",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
