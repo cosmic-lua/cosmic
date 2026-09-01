@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave21-1-pinbump",
+  ["claim"] = "wave21-1-pinbump",
   ["id"] = "3IkMf7BY1UOxBTAIwbNFQwRZJDA",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
   ["repo"] = "cosmic-lua/cosmic",
