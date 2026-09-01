@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave2-8-kPjH",
+  ["claim"] = "wave2-8-kPjH",
   ["id"] = "3IR2TpB3LzucKMLBikykPjHSBKS",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "whilp/cosmopolitan",
