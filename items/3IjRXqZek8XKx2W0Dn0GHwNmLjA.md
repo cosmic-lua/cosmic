@@ -11,7 +11,11 @@ trigger.
 
 ## Evidence
 
-Measured against cosmic-lua/cosmopolitan master `275b73b1d`.
+Measured against a live fetch of cosmic-lua/cosmopolitan master
+`e028f15b2`, built fresh in `/home/user/wt-7Gbq-census` (unchanged
+since the prior pass's `275b73b1d` — `e028f15b2`'s own diff touches
+only `unix.nanosleep` and does not shift `LuaUnixRaise`'s content,
+only nearby line numbers upstream of it in the same file).
 
 `third_party/lua/cosmo/lunix.c`, `LuaUnixRaise` (lines 1298-1304):
 
@@ -33,7 +37,7 @@ valid domain explicitly: `if (0 <= sig && sig <= 64)` (line 52) else
 existence-check-only" call (mirroring `kill(pid, 0)`, already exact
 per this item's row 1), not a degenerate input — it must stay valid.
 
-The annotation (`tool/net/definitions.lua:5028-5035`):
+The annotation (`tool/net/definitions.lua:5029-5036`):
 
 ```
 --- Triggers signal in current process.
@@ -96,7 +100,7 @@ with the failure being unreachable through cosmic's public API.
    ```
 
 2. `tool/net/definitions.lua`, same commit — the return block (lines
-   5032-5034) becomes exactly `---@return integer rc` and the
+   5033-5035) becomes exactly `---@return integer rc` and the
    error/errno lines are deleted; add one prose sentence:
 
    ```
@@ -111,8 +115,8 @@ with the failure being unreachable through cosmic's public API.
    function unix.raise(sig) end
    ```
 
-3. `tool/lua/test_signal.lua`: add beside the existing
-   sigaction/sigprocmask coverage:
+3. `tool/lua/test_signal.lua`: add, beside the existing
+   sigaction/sigprocmask coverage, before the trailing `print("PASS")`:
 
    ```lua
    -- raise()'s only documented failure is an invalid signal number
@@ -152,6 +156,7 @@ Run from the cosmopolitan repo root:
 
 none needed. Independent of every other capture in this batch (touches
 only `LuaUnixRaise`, its own annotation block, and an appended block in
-`tool/lua/test_signal.lua`); both this capture and `3IjRZ9hD9NrStsAnyhMzwK6ZzAh` append to
-`tool/lua/test_signal.lua`, so whichever merges second rebases a
-two-line append — neither blocks the other.
+`tool/lua/test_signal.lua`); both this capture and
+`3IjRZ9hD9NrStsAnyhMzwK6ZzAh` append to `tool/lua/test_signal.lua`, so
+whichever merges second rebases a two-line append — neither blocks the
+other.
