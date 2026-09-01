@@ -2,7 +2,6 @@ return {
   ["block_reason"] = {["3IivGU58CJHrof9ObOc0YFjout2"] = "tuple-deviation fix mechanism for the re.* family not yet settled"},
   ["blocked_by"] = "3IivGU58CJHrof9ObOc0YFjout2",
   ["builders"] = "wave4-21-remsearch",
-  ["claim"] = "wave4-21-remsearch",
   ["id"] = "3IiuLzg3ht2L0LYdpXks1wAh7VN",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
