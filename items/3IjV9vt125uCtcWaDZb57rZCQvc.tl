@@ -5,6 +5,8 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 321,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-57rZ-4d89c837",
   ["title"] = "cosmopolitan: unix.sigpending drops its unreachable nil — unix.Sigset|nil becomes unix.Sigset",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "cb6dd7e75f8953f0bf55372ac2be8225c611b89b",
+  ["verdict_spec"] = "ed346a20c6bce3ced42b732df21f0a6039365624eadc53c80f99b77ed0c498d5",
 }
