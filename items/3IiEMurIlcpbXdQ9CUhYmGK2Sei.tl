@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 310,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-YmGK_2Sei-r1",
   ["title"] = "cosmo.Fetch: too_large error's %I format specifier never renders the byte limit",
 }
