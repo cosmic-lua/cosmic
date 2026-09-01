@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave6-1-timecapture",
+  ["claim"] = "wave6-1-timecapture",
   ["id"] = "3IjRaU2dA8zH56DfC1og37HbOug",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
