@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 318,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-Zotd_W0Zj-r1",
   ["title"] = "cosmo.re: re.Regex:find's slot 2 shares the stop offset with the error string",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "370812b7d6a76d005fb5b44e0b2e94369db32a62",
+  ["verdict_spec"] = "b7719db1583e4b611a4732ef1f960a40976900c11ad73cca77ec12e21f47648b",
 }
