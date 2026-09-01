@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 306,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-P6sp_fh7o-1788256209",
   ["title"] = "salvage cosmo.unix.getlogin/uname/tcattr tests",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "43561203ca460e8c9133073b7df8fca6c13402a6",
+  ["verdict_spec"] = "155d5eb9a02f1f571a27f071edd85f28d77af2ef4d3434085418f0c8455b0a4d",
 }
