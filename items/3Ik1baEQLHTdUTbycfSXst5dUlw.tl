@@ -1,10 +1,10 @@
 return {
   ["builders"] = "wave14-1-mkstemp",
-  ["claim"] = "wave14-1-mkstemp",
   ["id"] = "3Ik1baEQLHTdUTbycfSXst5dUlw",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 329,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["resolution"] = "completed",
   ["title"] = "unix.mkstemp: bundle success (fd, path) so slot 2 never doubles as the error string",
   ["verdict"] = "accept",
   ["verdict_head"] = "112f6dab39092a8ae0d2bf972cab6da6c58db7e0",
