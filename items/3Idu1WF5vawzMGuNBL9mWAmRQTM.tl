@@ -5,5 +5,6 @@ return {
   ["id"] = "3Idu1WF5vawzMGuNBL9mWAmRQTM",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["speccers"] = "0d674b1b-fa97-52d5-a96a-31867b975228",
   ["title"] = "salvage cosmo.Fetch's HTTP-proxy contract tests",
 }
