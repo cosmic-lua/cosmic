@@ -1,10 +1,10 @@
 return {
   ["builders"] = "wave-lok152-0Osh",
-  ["claim"] = "wave-lok152-0Osh",
   ["id"] = "3IiFX2YVXJr3YkLHKwI0Oshnsk7",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 336,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["resolution"] = "completed",
   ["title"] = "cosmo.unix: getpgrp cannot fail — retype it exact",
   ["verdict"] = "accept",
   ["verdict_head"] = "86bc3fb7313a06a5ce1ca3fb095cc1b1a65d37e3",
