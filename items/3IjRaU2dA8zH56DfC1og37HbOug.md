@@ -81,7 +81,7 @@ assert(god == unix.EOVERFLOW,
   `tool/net/definitions.lua` — both are already correct.
 - No addition to the pure-function `PROBES` ratchet in
   `tool/lua/test_definitions_conformance.lua` — kept in the same file
-  as its sibling CAP-6 (`localtime`, which is not side-effect-free, as
+  as its sibling `3IjRasyoYAsJxkJsQIBK9EPn3GK` (`localtime`, which is not side-effect-free, as
   it reads `TZ` and the on-disk zoneinfo database) rather than split
   across two suites for a pair that shares one C helper
   (`LuaUnixTime`) and one annotation shape.
@@ -101,6 +101,6 @@ Run from the cosmopolitan repo root:
 
 none needed. Independent of every other capture; touches only
 `tool/lua/test_unix_misc.lua`, appended after the existing gmtime
-block. Parallel-safe with CAP-6, which appends to the same file at a
+block. Parallel-safe with `3IjRasyoYAsJxkJsQIBK9EPn3GK`, which appends to the same file at a
 different point (after its own new localtime block; either merge
 order is fine).
