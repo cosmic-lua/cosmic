@@ -6,5 +6,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 313,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-E4Ya-4d89c837",
   ["title"] = "cosmo.lsqlite3: Database:serialize segfaults — free() on an sqlite3_malloc buffer",
 }
