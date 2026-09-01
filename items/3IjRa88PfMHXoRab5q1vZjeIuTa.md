@@ -1,7 +1,7 @@
 ## Goal
 
 G3 — `unix.setitimer`'s declared return lies the same way
-`unix.sigaction`'s does (CAP-3): `intervalns`, `valuesec`, and
+`unix.sigaction`'s does (`3IjRZi3mc1TW31yGcE7e615d4Lc`): `intervalns`, `valuesec`, and
 `valuens` are typed as plain non-nilable `integer`, but the binding's
 only failure (EINVAL for an invalid `which`) returns exactly `nil,
 error, errno` — three values that land in the first three declared
