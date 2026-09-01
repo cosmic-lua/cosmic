@@ -146,3 +146,13 @@ and the annotation block are named by `file:line`; the test file, its
 style and the make target that runs it are named; and the one design
 decision (a one-shot budget on the collector's own hook, refusing a
 foreign slot rather than seizing it) is stated rather than left open.
+
+## Rework note (2026-09-01)
+
+The `request changes` verdict on head `359c345f` was cured externally to the diff: the
+PR description was updated to include the real revert-and-run and mutation-test
+transcripts the spec's Acceptance section requires (previously only narrated). A second
+fresh-context review independently confirmed the head SHA is unchanged (no code diff
+moved), checked the transcripts' cited line numbers and error text against the actual
+PR head content, and found them precise rather than fabricated, before recording
+accept.
