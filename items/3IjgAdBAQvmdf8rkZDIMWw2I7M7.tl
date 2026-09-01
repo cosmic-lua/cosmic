@@ -1,10 +1,10 @@
 return {
   ["builders"] = "wave10-1-unixinfodemo",
-  ["claim"] = "wave10-1-unixinfodemo",
   ["id"] = "3IjgAdBAQvmdf8rkZDIMWw2I7M7",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 325,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["resolution"] = "completed",
   ["title"] = "cosmopolitan: tool/net/demo/unix-info.lua still destructures unix.getrlimit positionally, broken by #324",
   ["verdict"] = "accept",
   ["verdict_head"] = "69877ed5cbffd764095e9bfbec0b13b8dd1e7ce8",
