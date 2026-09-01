@@ -7,6 +7,8 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 319,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-research-r1",
   ["title"] = "cosmo.re: re.Regex:search's slot 2 shares the captures table with the error string",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "dcc88970811b5311ec0e2de92a8324f38a169da6",
+  ["verdict_spec"] = "15b9707e8fb11dafc749df42e5573f228eead92f4100be6aa9b9db6e46d85c25",
 }
