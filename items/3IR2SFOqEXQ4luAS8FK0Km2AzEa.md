@@ -157,18 +157,18 @@ daemon, a session-leader shell) can hit — not a degenerate argument.
 |---|---|---|---|---|
 | 1 | `unix.getlogin` | environmental | P1 | exact |
 | 2 | `unix.getsid` | environmental | P2 | exact |
-| 3 | `unix.getpgrp` | degenerate-input-only (niladic, unconditionally successful per POSIX) | P3 | **CAP-A** |
+| 3 | `unix.getpgrp` | degenerate-input-only (niladic, unconditionally successful per POSIX) | P3 | **3IiFX2YV** |
 | 4 | `unix.setpgrp` | environmental | P4 | exact — see out-of-scope note (mislabeled success value) |
 | 5 | `unix.setpgid` | environmental | P5 | exact |
 | 6 | `unix.getpgid` | environmental | P6 | exact |
 | 7 | `unix.setsid` | environmental | P7 | exact |
 | 8 | `unix.setuid` | environmental | P8 | exact |
-| 9 | `unix.setfsuid` | degenerate-input-only per the wrapper's own check, but flagged: real correct-caller failures are silently reported as success | P9 | **CAP-B** (shared with row 10) |
-| 10 | `unix.setfsgid` | same pattern as row 9 | P10 | **CAP-B** (shared) |
+| 9 | `unix.setfsuid` | degenerate-input-only per the wrapper's own check, but flagged: real correct-caller failures are silently reported as success | P9 | **3IiFXFCS** (shared with row 10) |
+| 10 | `unix.setfsgid` | same pattern as row 9 | P10 | **3IiFXFCS** (shared) |
 | 11 | `unix.setgid` | environmental | P11 | exact |
 | 12 | `unix.setresuid` | environmental | P12 | exact |
 | 13 | `unix.setresgid` | environmental | P13 | exact |
-| 14 | `unix.capget` | environmental, tuple deviation (nanosleep-class: success values `permitted`/`inheritable` share slots 2/3 with the failure tuple's `error`/`errno`) | P14 | **CAP-C** |
+| 14 | `unix.capget` | environmental, tuple deviation (nanosleep-class: success values `permitted`/`inheritable` share slots 2/3 with the failure tuple's `error`/`errno`) | P14 | **3IiFXXGK** |
 | 15 | `unix.capset` | environmental | P15 | exact |
 
 ### Probe transcripts
