@@ -184,4 +184,22 @@ local function test_narrate_moves_is_empty_for_no_movement()
     "want 0/0, got raised=" .. raised_count .. " lowered=" .. lowered_count)
 end
 
+-- The closing summary is the one line every `--baseline` run ends on,
+-- and it is what an operator believes about the rewrite. A floor moves
+-- in BOTH directions on a rewrite -- the counts in this very line say
+-- so -- and the only refusal is `corpus_guard`'s breadth check, so the
+-- line must name that check and send an environment-sensitive row to
+-- SENSITIVITY.md, never claim a raise needs a hand.
+local function test_wrote_summary_describes_the_breadth_check()
+  local line = policy.wrote_summary(2, 1)
+  assert(line == "coverage: wrote " .. policy.BASELINE .. " (2 row(s) lowered,"
+    .. " 1 raised; corpus_guard refuses only a rewrite dropping more than"
+    .. " half the rows — check any environment-sensitive row against"
+    .. " cosmic/coverage/SENSITIVITY.md)\n", "got: " .. line)
+  assert(not line:find("by hand", 1, true),
+    "a raise happens on its own; the summary must not say it needs a hand: " .. line)
+  assert(not line:find("only moves up", 1, true),
+    "a floor lowers on a rewrite too; the one-way clamp is gone: " .. line)
+end
+
 print("all policy tests passed")

@@ -116,6 +116,26 @@ local function narrate_moves(moves: {Move}): {string}, integer, integer
   return lines, raised_count, lowered_count
 end
 
+--- The line an operator reads after every successful `--baseline`
+--- write, closing the per-row narration `narrate_moves` printed above
+--- it. A rewrite raises and lowers rows alike, so the summary names
+--- the one thing that can refuse it — `corpus_guard`'s breadth check,
+--- which fires only when more than half the committed rows would drop
+--- at once — and says where the rows that check cannot vouch for are
+--- read: an environment-sensitive row this machine cannot measure
+--- lowers straight through, and only a human reading the diff against
+--- `cosmic/coverage/SENSITIVITY.md` catches it.
+--- @param lowered_count integer How many rows the rewrite lowered
+--- @param raised_count integer How many it raised
+--- @return string The newline-terminated summary line
+local function wrote_summary(lowered_count: integer, raised_count: integer): string
+  return "coverage: wrote " .. BASELINE .. " (" .. lowered_count
+  .. " row(s) lowered, " .. raised_count .. " raised; corpus_guard"
+  .. " refuses only a rewrite dropping more than half the rows —"
+  .. " check any environment-sensitive row against"
+  .. " cosmic/coverage/SENSITIVITY.md)\n"
+end
+
 --- `coverage --baseline` — rewrite the committed floor from a run.
 --- @param proj Project The scanned project
 --- @return integer Exit code
@@ -155,9 +175,7 @@ local function write_baseline(proj: Project): integer
     io.stderr:write((werr or "cannot write " .. BASELINE) .. "\n")
     return stage.verdict("coverage", false, BASELINE)
   end
-  io.write("coverage: wrote " .. BASELINE .. " (" .. lowered_count
-    .. " row(s) lowered, " .. raised_count .. " raised; a floor only"
-    .. " moves up by hand — see cosmic/coverage/SENSITIVITY.md)\n")
+  io.write(wrote_summary(lowered_count, raised_count))
   return stage.verdict("coverage", true, BASELINE)
 end
 
@@ -289,6 +307,7 @@ local record PolicyModule
   has: function(proj: Project, kinds: {Kind}): boolean
   run_coverage: function(v: Verb, proj: Project, paths: {string}, cosmic: string): integer
   narrate_moves: function(moves: {Move}): {string}, integer, integer
+  wrote_summary: function(lowered_count: integer, raised_count: integer): string
   fix: function(proj: Project, paths: {string}): integer
   write_baseline: function(proj: Project): integer
   run_ci: function(by_name: function(string): Verb | nil, proj: Project, _paths: {string}, cosmic: string): integer
@@ -301,6 +320,7 @@ local M: PolicyModule = {
   has = has,
   run_coverage = run_coverage,
   narrate_moves = narrate_moves,
+  wrote_summary = wrote_summary,
   fix = fix,
   write_baseline = write_baseline,
   run_ci = run_ci,
