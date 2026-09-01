@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 315,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-0YFj_out2-r1",
   ["title"] = "cosmo.unix: nanosleep's failure tuple shares slots with the EINTR remaining-time success values (the cited archetype, itself uncaptured)",
 }
