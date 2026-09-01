@@ -5,6 +5,7 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 307,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-RKRd_xj6S-1788257466",
   ["speccers"] = "review-95kn-1",
   ["title"] = "unix.isatty: EBADF/EPERM silently collapse to false, contradicting its own doc and declared type",
 }
