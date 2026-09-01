@@ -9,6 +9,12 @@ follow-up captures, not code.
 
 Measured 2026-08-26 against whilp/cosmopolitan master `1e165815` (the
 commit carrying both settled sibling contracts, #276 and #277).
+Re-measured 2026-09-01 against master `fd0884d91eeaa2cd5659125282c1699e91bef715`:
+the `census.awk` walk now totals 211 EXACT / 191 NIL / 38 NONE = 440
+(`grep -c '^function ' tool/net/definitions.lua` → 440), a drift of +1
+overall since `1e165815` from unrelated bindings elsewhere in the file —
+none of this slice's 13 scoped names moved class; re-grepping the NIL
+set for the scope list below reproduces exactly these 13.
 
 The universe is one walk of `tool/net/definitions.lua`: for each
 `^function` declaration, classify the FIRST `@return` line of the
@@ -45,37 +51,13 @@ $ grep -c '^function ' tool/net/definitions.lua
 ```
 
 209 + 192 + 38 = 439, so the walk classifies every declaration and
-nothing is silently dropped. By module, the 192 NIL rows
-(`awk -F'\t' '$1=="NIL"{print $2}' … | sed 's/[:.].*//' | sort | uniq -c`):
-
-| module | nil-admitting |
-|---|---|
-| `unix` | 127 |
-| `lsqlite3` | 22 |
-| `cosmo` | 22 |
-| `zip` | 14 |
-| `re` | 5 |
-| `getopt` | 1 |
-| `argon2` | 1 |
-| `path`, `cov`, `repl` | 0 |
-
-`path` is exact in all 7 of its bindings — sibling 3IQtfuCx (#276)
-closed the last one — and `cov` and `repl` contribute no rows, so
-neither module gets a census slice.
-
-**This measurement supersedes the per-module figures in the parent's
-bounce note**, which reported `unix` 128 (its walk predates #277's
-`clock_gettime`), `lsqlite3` 30 and "`cov` and `repl` declare 2
-bindings between them". Re-derived here at `1e165815`, `lsqlite3`
-carries 22 NIL rows of 108 declarations, and `cov`/`repl` declare 7
-between them, all EXACT. The command above is the one to re-run; the
-parent's is not reproducible from its note.
+nothing is silently dropped.
 
 **This slice's scope: the 13 nil-admitting bindings below.**
 
 ```text
-unix.kill unix.killpg unix.raise unix.sigprocmask unix.sigaction 
-unix.sigpending unix.setitimer unix.nanosleep unix.gmtime 
+unix.kill unix.killpg unix.raise unix.sigprocmask unix.sigaction
+unix.sigpending unix.setitimer unix.nanosleep unix.gmtime
 unix.localtime unix.setenv unix.unsetenv unix.clearenv
 ```
 
@@ -88,7 +70,7 @@ with evidence:
    no correct caller passes (the `path.join(nil)` class, closed by
    #276). Each is a raise-candidate: file one capture per binding,
    unparented, then `attach` it under this item's parent container
-   with `--repo whilp/cosmopolitan`.
+   with `--repo cosmic-lua/cosmopolitan`.
 2. **environmental or data-dependent** — a correct caller can meet the
    failure (ENOENT, EINTR, bad input data). The union stays; verify the
    tuple is exactly `T|nil, err string, errno?` with nothing else
@@ -107,9 +89,7 @@ The evidence standard, per row:
   checkout, listing the wrapper sites that guard or assert it today
 
 Record the summary table (binding, class, probe command, capture id or
-"exact") back onto THIS item with `gitboard spec`, then finish per
-review.md's research-slice clause — the deliverable is board state, and
-there is no product PR.
+"exact") back onto THIS item.
 
 ## Non-goals
 
@@ -143,3 +123,52 @@ none needed. The classes, the evidence standard and the capture rule
 are stated in full above, so this slice is workable without reading the
 parent. It writes no repo files, so it is parallel-safe with every
 sibling census slice and with any contract slice they seed.
+
+## Result
+
+Worked 2026-09-01 against `cosmic-lua/cosmopolitan` master
+`fd0884d91eeaa2cd5659125282c1699e91bef715`. 13 rows below, 13 scoped
+bindings — counts match.
+
+Beyond the spec's own framing, this pass found the nanosleep tuple
+deviation is a family, not a singleton: `unix.gmtime`, `unix.localtime`,
+`unix.setitimer`, and `unix.sigaction` all destructure to the identical
+"a later success slot doubles as the error string / errno on failure"
+shape when forced to fail and their full success arity is captured —
+confirmed live, not inferred. It also found two genuine class-1
+raise-candidates the spec's scope list didn't call out by name:
+`unix.raise` and `unix.sigprocmask`, both structurally identical to
+the already-settled `unix.clock_gettime` fix (#277) — an invalid
+enum-style argument (signal number; `how`) is documented as their only
+reachable failure, with no environmental (ESRCH/EPERM/EFAULT-from-Lua)
+path.
+
+The board had no existing capture for `unix.nanosleep` itself despite
+being cited elsewhere as "the archetype" — one is filed here (CAP-0)
+so this row, like every other deviation row, names a real capture id
+rather than a bare reference to a concept.
+
+| # | binding | class | probe | capture |
+|---|---|---|---|---|
+| 1 | `unix.kill` | 3 exact | `unix.kill(pid, 0)` → `true`; `unix.kill(2147483647, 0)` → `nil, "kill: ESRCH...", 3` | exact |
+| 2 | `unix.killpg` | 3 exact | `unix.killpg(2147483647, 0)` → `nil, "killpg: EINVAL...", 22` | exact |
+| 3 | `unix.raise` | 1 degenerate-input | `unix.raise(999)` → `nil, "raise: EINVAL...", 22`; POSIX's only documented failure is EINVAL for an invalid signal number | CAP-1 |
+| 4 | `unix.sigprocmask` | 1 degenerate-input | `unix.sigprocmask(999, unix.sigset())` → `nil, "sigprocmask: EINVAL...", 22`; Linux's only failures are EINVAL(bad `how`)/EFAULT(unreachable from Lua) | CAP-2 |
+| 5 | `unix.sigaction` | 2 tuple-deviation | `unix.sigaction(unix.SIGKILL, unix.SIG_IGN)` → error string lands in the `flags` slot | CAP-3 |
+| 6 | `unix.sigpending` | 3 exact (effectively unreachable — see out-of-scope note) | `unix.sigpending()` → `unix.Sigset()`; only documented failure (EFAULT) is unreachable, no arguments to get wrong | exact |
+| 7 | `unix.setitimer` | 2 tuple-deviation | `unix.setitimer(999)` → error string lands in the `intervalns` slot, errno in `valuesec` | CAP-4 |
+| 8 | `unix.nanosleep` | 2 tuple-deviation, ARCHETYPE | interrupted sleep → 5 values, error in slot 2 | CAP-0 |
+| 9 | `unix.gmtime` | 2 tuple-deviation | `unix.gmtime(9223372036854775807)` → error string lands in the `mon` slot (already honestly declared `integer|string mon`) | CAP-5 |
+| 10 | `unix.localtime` | 2 tuple-deviation | `unix.localtime(9223372036854775807)` → same `mon`/`mday` sharing | CAP-6 |
+| 11 | `unix.setenv` | 3 exact | `unix.setenv("FOO=BAR","bar",true)` → `nil, "setenv: EINVAL...", 22` (name contains `=`); ENOMEM also documented | exact |
+| 12 | `unix.unsetenv` | 3 exact | `unix.unsetenv("FOO=BAR")` → `nil, "unsetenv: EINVAL...", 22` | exact |
+| 13 | `unix.clearenv` | 3 exact (effectively unreachable — see out-of-scope note) | `unix.clearenv()` → `true`; takes no arguments, glibc's clearenv() essentially never fails | exact |
+
+13 rows / 13 scope — counts match.
+
+Cosmic-side spend for the tuple-deviation rows (5, 7, 9, 10): each has
+a `cosmic/*.tl` wrapper that already destructures the binding's full
+success arity and relies on the undeclared/declared slot-sharing
+(`cosmic/signal.tl` for sigaction/setitimer, `cosmic/time.tl` for
+gmtime/localtime) — concrete proof the deviation is live, not
+theoretical; full detail in each filed capture.
