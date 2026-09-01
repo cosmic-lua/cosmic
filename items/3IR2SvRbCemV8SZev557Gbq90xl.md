@@ -16,6 +16,15 @@ overall since `1e165815` from unrelated bindings elsewhere in the file —
 none of this slice's 13 scoped names moved class; re-grepping the NIL
 set for the scope list below reproduces exactly these 13.
 
+Re-verified 2026-09-01 against master `275b73b1d` (two commits past
+`fd0884d91`: `git diff --stat fd0884d9..275b73b1d -- tool/net/definitions.lua`
+touches only `lsqlite3.Database:serialize`'s annotation, outside this
+slice's scope, plus two `lunix` memory-safety fixes that don't touch
+`definitions.lua` at all) — the walk still totals 211/191/38=440, the
+scope list still re-derives to exactly these 13 names, and every probe
+and cosmic-side grep below reproduces identically; no row needed
+correction.
+
 The universe is one walk of `tool/net/definitions.lua`: for each
 `^function` declaration, classify the FIRST `@return` line of the
 contiguous `---` doc run directly above it — **NIL** when that line
@@ -144,7 +153,7 @@ reachable failure, with no environmental (ESRCH/EPERM/EFAULT-from-Lua)
 path.
 
 The board had no existing capture for `unix.nanosleep` itself despite
-being cited elsewhere as "the archetype" — one is filed here (CAP-0)
+being cited elsewhere as "the archetype" — one is filed here (`3IjRXQWcfw3QRI1RnEU5OluD87C`)
 so this row, like every other deviation row, names a real capture id
 rather than a bare reference to a concept.
 
@@ -152,14 +161,14 @@ rather than a bare reference to a concept.
 |---|---|---|---|---|
 | 1 | `unix.kill` | 3 exact | `unix.kill(pid, 0)` → `true`; `unix.kill(2147483647, 0)` → `nil, "kill: ESRCH...", 3` | exact |
 | 2 | `unix.killpg` | 3 exact | `unix.killpg(2147483647, 0)` → `nil, "killpg: EINVAL...", 22` | exact |
-| 3 | `unix.raise` | 1 degenerate-input | `unix.raise(999)` → `nil, "raise: EINVAL...", 22`; POSIX's only documented failure is EINVAL for an invalid signal number | CAP-1 |
-| 4 | `unix.sigprocmask` | 1 degenerate-input | `unix.sigprocmask(999, unix.sigset())` → `nil, "sigprocmask: EINVAL...", 22`; Linux's only failures are EINVAL(bad `how`)/EFAULT(unreachable from Lua) | CAP-2 |
-| 5 | `unix.sigaction` | 2 tuple-deviation | `unix.sigaction(unix.SIGKILL, unix.SIG_IGN)` → error string lands in the `flags` slot | CAP-3 |
+| 3 | `unix.raise` | 1 degenerate-input | `unix.raise(999)` → `nil, "raise: EINVAL...", 22`; POSIX's only documented failure is EINVAL for an invalid signal number | `3IjRXqZek8XKx2W0Dn0GHwNmLjA` |
+| 4 | `unix.sigprocmask` | 1 degenerate-input | `unix.sigprocmask(999, unix.sigset())` → `nil, "sigprocmask: EINVAL...", 22`; Linux's only failures are EINVAL(bad `how`)/EFAULT(unreachable from Lua) | `3IjRZ9hD9NrStsAnyhMzwK6ZzAh` |
+| 5 | `unix.sigaction` | 2 tuple-deviation | `unix.sigaction(unix.SIGKILL, unix.SIG_IGN)` → error string lands in the `flags` slot | `3IjRZi3mc1TW31yGcE7e615d4Lc` |
 | 6 | `unix.sigpending` | 3 exact (effectively unreachable — see out-of-scope note) | `unix.sigpending()` → `unix.Sigset()`; only documented failure (EFAULT) is unreachable, no arguments to get wrong | exact |
-| 7 | `unix.setitimer` | 2 tuple-deviation | `unix.setitimer(999)` → error string lands in the `intervalns` slot, errno in `valuesec` | CAP-4 |
-| 8 | `unix.nanosleep` | 2 tuple-deviation, ARCHETYPE | interrupted sleep → 5 values, error in slot 2 | CAP-0 |
-| 9 | `unix.gmtime` | 2 tuple-deviation | `unix.gmtime(9223372036854775807)` → error string lands in the `mon` slot (already honestly declared `integer|string mon`) | CAP-5 |
-| 10 | `unix.localtime` | 2 tuple-deviation | `unix.localtime(9223372036854775807)` → same `mon`/`mday` sharing | CAP-6 |
+| 7 | `unix.setitimer` | 2 tuple-deviation | `unix.setitimer(999)` → error string lands in the `intervalns` slot, errno in `valuesec` | `3IjRa88PfMHXoRab5q1vZjeIuTa` |
+| 8 | `unix.nanosleep` | 2 tuple-deviation, ARCHETYPE | interrupted sleep → 5 values, error in slot 2 | `3IjRXQWcfw3QRI1RnEU5OluD87C` |
+| 9 | `unix.gmtime` | 2 tuple-deviation | `unix.gmtime(9223372036854775807)` → error string lands in the `mon` slot (already honestly declared `integer|string mon`) | `3IjRaU2dA8zH56DfC1og37HbOug` |
+| 10 | `unix.localtime` | 2 tuple-deviation | `unix.localtime(9223372036854775807)` → same `mon`/`mday` sharing | `3IjRasyoYAsJxkJsQIBK9EPn3GK` |
 | 11 | `unix.setenv` | 3 exact | `unix.setenv("FOO=BAR","bar",true)` → `nil, "setenv: EINVAL...", 22` (name contains `=`); ENOMEM also documented | exact |
 | 12 | `unix.unsetenv` | 3 exact | `unix.unsetenv("FOO=BAR")` → `nil, "unsetenv: EINVAL...", 22` | exact |
 | 13 | `unix.clearenv` | 3 exact (effectively unreachable — see out-of-scope note) | `unix.clearenv()` → `true`; takes no arguments, glibc's clearenv() essentially never fails | exact |
