@@ -6,4 +6,6 @@ return {
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "wave3-7-7Gbq wave5-3-7Gbq",
   ["title"] = "cosmopolitan census: unix signals, time and environment — 13 nil-admitting bindings",
+  ["verdict"] = "request changes",
+  ["verdict_spec"] = "ab97f3602efba8da28f87761b7b37402f30b4babae4ae5e9d0d938cc5378da5c",
 }
