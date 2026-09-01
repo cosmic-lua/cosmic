@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 317,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-2b0B_BOCI-r1",
   ["title"] = "cosmo.getopt: getopt.parse's nil is reachable only via caller argument-shape errors",
 }
