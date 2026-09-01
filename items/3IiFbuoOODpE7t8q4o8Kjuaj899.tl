@@ -1,6 +1,6 @@
 return {
-  ["builders"] = "wave3-4-Kjua",
-  ["claim"] = "wave3-4-Kjua",
+  ["builders"] = "wave3-4-Kjua wave4-10-Kjua",
+  ["claim"] = "wave4-10-Kjua",
   ["id"] = "3IiFbuoOODpE7t8q4o8Kjuaj899",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
