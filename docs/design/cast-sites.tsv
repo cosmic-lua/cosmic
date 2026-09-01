@@ -154,9 +154,9 @@ cosmic/rand_test.tl	168	container variance
 cosmic/re.tl	200	proved-value narrowing
 cosmic/re.tl	287	binding contract shape
 cosmic/re.tl	333	binding contract shape
-cosmic/sandbox/init.tl	303	runtime capability probe
-cosmic/sandbox/init.tl	308	runtime capability probe
-cosmic/sandbox/init.tl	323	runtime capability probe
+cosmic/sandbox/init.tl	200	runtime capability probe
+cosmic/sandbox/init.tl	205	runtime capability probe
+cosmic/sandbox/init.tl	220	runtime capability probe
 cosmic/sandbox/init_test.tl	132	container variance
 cosmic/sandbox/init_test.tl	192	map view of a declared value
 cosmic/sandbox/init_test.tl	193	map view of a declared value
@@ -164,7 +164,11 @@ cosmic/sandbox/init_test.tl	197	map view of a declared value
 cosmic/sandbox/landlock_net_test.tl	127	map view of a declared value
 cosmic/sandbox/landlock_net_test.tl	128	map view of a declared value
 cosmic/sandbox/landlock_net_test.tl	132	map view of a declared value
-cosmic/sandbox/plan.tl	175	runtime capability probe
+cosmic/sandbox/landlock_scope_test.tl	87	map view of a declared value
+cosmic/sandbox/landlock_scope_test.tl	88	map view of a declared value
+cosmic/sandbox/landlock_scope_test.tl	92	map view of a declared value
+cosmic/sandbox/plan.tl	190	runtime capability probe
+cosmic/sandbox/plan.tl	241	runtime capability probe
 cosmic/searcher.tl	98	proved-value narrowing
 cosmic/searcher.tl	324	proved-value narrowing
 cosmic/searcher_test.tl	58	dynamic name lookup

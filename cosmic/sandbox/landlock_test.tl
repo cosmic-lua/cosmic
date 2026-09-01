@@ -15,6 +15,16 @@ local function test_module_exports()
   assert(type(landlock.EXEC) == "number", "EXEC should be a number constant")
   assert(type(landlock.RW) == "number", "RW should be a number constant")
   assert(type(landlock.ALL) == "number", "ALL should be a number constant")
+  -- The ABI 5-9 additions: device ioctl, domain scoping, and the
+  -- restrict_self all-threads flag, all reachable as module constants
+  -- the same way the ABI 1-4 rights are.
+  assert(type(landlock.IOCTL_DEV) == "number", "IOCTL_DEV should be a number constant")
+  assert(type(landlock.SCOPE_SIGNAL) == "number", "SCOPE_SIGNAL should be a number constant")
+  assert(type(landlock.SCOPE_ABSTRACT_UNIX_SOCKET) == "number",
+    "SCOPE_ABSTRACT_UNIX_SOCKET should be a number constant")
+  assert(type(landlock.SCOPE_ALL) == "number", "SCOPE_ALL should be a number constant")
+  assert(type(landlock.TSYNC) == "number", "TSYNC should be a number constant")
+  assert(type(landlock.RESOLVE_UNIX) == "number", "RESOLVE_UNIX should be a number constant")
 end
 
 local function test_access_mask_composition()
@@ -49,6 +59,23 @@ local function test_access_mask_composition()
     "RW must not include EXEC")
   assert((landlock.RW & landlock.WRITE_FILE) == landlock.WRITE_FILE,
     "RW should include WRITE_FILE")
+  -- IOCTL_DEV rides WRITE like TRUNCATE/REFER: an rw grant on a device
+  -- node must include the right to drive it (R2), not just open it.
+  assert((landlock.RW & landlock.IOCTL_DEV) == landlock.IOCTL_DEV,
+    "RW must include IOCTL_DEV, or rw on a device node means open-only")
+  assert((landlock.ALL & landlock.IOCTL_DEV) == landlock.IOCTL_DEV,
+    "ALL should include IOCTL_DEV")
+  -- RESOLVE_UNIX follows the identical pattern one ABI further.
+  assert((landlock.RW & landlock.RESOLVE_UNIX) == landlock.RESOLVE_UNIX,
+    "RW must include RESOLVE_UNIX")
+  assert((landlock.ALL & landlock.RESOLVE_UNIX) == landlock.RESOLVE_UNIX,
+    "ALL should include RESOLVE_UNIX")
+  -- Both scope categories compose into SCOPE_ALL, mirroring NET_ALL.
+  assert((landlock.SCOPE_ALL & landlock.SCOPE_SIGNAL) == landlock.SCOPE_SIGNAL,
+    "SCOPE_ALL should include SCOPE_SIGNAL")
+  assert((landlock.SCOPE_ALL & landlock.SCOPE_ABSTRACT_UNIX_SOCKET)
+    == landlock.SCOPE_ABSTRACT_UNIX_SOCKET,
+    "SCOPE_ALL should include SCOPE_ABSTRACT_UNIX_SOCKET")
 end
 
 local function test_available_returns_boolean()
@@ -411,12 +438,18 @@ io.write("stripped=" .. tostring(enf.stripped) .. "\n")
   assert(abi_v and abi_v >= 1, "abi must be >= 1 when landlock is available: " .. s)
   assert((handled_v & landlock.READ) == landlock.READ,
     "a full-ALL request must still hand back READ in handled: " .. s)
-  if abi_v >= 3 then
-    check.equal(stripped_v, 0, "abi >= 3 must strip nothing from ALL: " .. s)
-  else
-    assert(stripped_v ~= 0,
-      "abi < 3 must strip TRUNCATE (and REFER below 2) from ALL: " .. s)
-  end
+  -- What a full `ALL` request must lose on THIS kernel's ABI: every rung
+  -- below the ABI that introduced it, mirroring abi_mask exactly (REFER
+  -- at 2, TRUNCATE at 3, IOCTL_DEV at 5, RESOLVE_UNIX at 9) so this
+  -- assertion tracks the ladder instead of assuming "abi >= 3 strips
+  -- nothing" — true only while TRUNCATE was the newest rung.
+  local want_stripped = 0
+  if abi_v < 2 then want_stripped = want_stripped | landlock.REFER end
+  if abi_v < 3 then want_stripped = want_stripped | landlock.TRUNCATE end
+  if abi_v < 5 then want_stripped = want_stripped | landlock.IOCTL_DEV end
+  if abi_v < 9 then want_stripped = want_stripped | landlock.RESOLVE_UNIX end
+  check.equal(stripped_v, want_stripped,
+    "stripped must match exactly what this kernel's ABI cannot handle yet: " .. s)
   check.enforced("landlock enforcement report")
 end
 
