@@ -1,7 +1,6 @@
 return {
   ["beats"] = "3IiEMurIlcpbXdQ9CUhYmGK2Sei",
   ["builders"] = "wave2-9-MiDx wave4-4-MiDx",
-  ["claim"] = "wave4-4-MiDx",
   ["id"] = "3IiELO8IimScFulITdJMiDxAU3r",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["repo"] = "cosmic-lua/cosmopolitan",
