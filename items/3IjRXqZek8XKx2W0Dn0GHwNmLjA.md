@@ -129,7 +129,7 @@ with the failure being unreachable through cosmic's public API.
   `unix.kill`/`unix.killpg` (already exact — ESRCH/EPERM are genuinely
   environmental there, per this item's rows 1-2) and
   `unix.sigprocmask` (the sibling class-1 capture, filed separately as
-  CAP-2).
+  `3IjRZ9hD9NrStsAnyhMzwK6ZzAh`).
 - No change to `unix.sigaction`'s own inline `1 <= sig && sig <= NSIG`
   check (it correctly excludes 0, since installing a handler for "no
   signal" is meaningless) — `raise`'s domain is wider by exactly the
@@ -152,6 +152,6 @@ Run from the cosmopolitan repo root:
 
 none needed. Independent of every other capture in this batch (touches
 only `LuaUnixRaise`, its own annotation block, and an appended block in
-`tool/lua/test_signal.lua`); both this capture and CAP-2 append to
+`tool/lua/test_signal.lua`); both this capture and `3IjRZ9hD9NrStsAnyhMzwK6ZzAh` append to
 `tool/lua/test_signal.lua`, so whichever merges second rebases a
 two-line append — neither blocks the other.
