@@ -6,4 +6,6 @@ return {
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "wave3-5-YAQq",
   ["title"] = "cosmopolitan census: lsqlite3 — 22 nil-admitting bindings",
+  ["verdict"] = "accept",
+  ["verdict_spec"] = "abd430f6462e9155cc9a7ee30bfa8c8b915353ea945bb983267db3509e07bb18",
 }
