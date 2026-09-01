@@ -121,7 +121,7 @@ failure for it.
 ## Non-goals
 
 - No change to `unix.sigaction` or `unix.setitimer` — the sibling
-  class-2 tuple-deviation captures, filed separately (CAP-3, CAP-4).
+  class-2 tuple-deviation captures, filed separately (`3IjRZi3mc1TW31yGcE7e615d4Lc`, `3IjRa88PfMHXoRab5q1vZjeIuTa`).
 - No change to `unix.sigset`/`unix.Sigset` construction or the
   `newmask` argument check (`luaL_checkudata`) — already a type-shape
   error, unrelated to this fix.
@@ -141,6 +141,6 @@ Run from the cosmopolitan repo root:
 
 ## Enablement
 
-none needed. Independent of CAP-1 (different C function, different
+none needed. Independent of `3IjRXqZek8XKx2W0Dn0GHwNmLjA` (different C function, different
 `definitions.lua` block); both append to `tool/lua/test_signal.lua`,
 so whichever merges second rebases a two-line append.
