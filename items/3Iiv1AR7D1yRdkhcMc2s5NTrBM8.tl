@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave7-1-prepare",
+  ["claim"] = "wave7-1-prepare",
   ["id"] = "3Iiv1AR7D1yRdkhcMc2s5NTrBM8",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
