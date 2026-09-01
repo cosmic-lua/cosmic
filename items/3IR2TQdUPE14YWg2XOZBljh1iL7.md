@@ -68,8 +68,13 @@ bounce note**, which reported `unix` 128 (its walk predates #277's
 `clock_gettime`), `lsqlite3` 30 and "`cov` and `repl` declare 2
 bindings between them". Re-derived here at `1e165815`, `lsqlite3`
 carries 22 NIL rows of 108 declarations, and `cov`/`repl` declare 7
-between them, all EXACT. The command above is the one to re-run; the
-parent's is not reproducible from its note.
+between them: 2 EXACT (`cov.running`, `cov.snapshot`) and 5 NONE (no
+`@return` line at all — `cov.start`/`stop`/`arm`/`reset`, `repl.start`),
+not "all EXACT" as originally stated here (corrected 2026-09-01, a
+fresh-context review caught the slip; neither `cov` nor `repl` is in
+this slice's scope regardless, so the correction affects no acceptance
+criterion). The command above is the one to re-run; the parent's is not
+reproducible from its note.
 
 **This slice's scope: the 22 nil-admitting bindings below.**
 
@@ -149,8 +154,9 @@ sibling census slice and with any contract slice they seed.
 
 ## Result — re-measured 2026-09-01, whilp/cosmopolitan `2faa3113`
 
-Re-derived again at `2faa3113` (four commits past `1e165815`; only one
-touches this slice's scope, `fe7c36c4` adding `EncodeLua`'s `literal`
+Re-derived again at `2faa3113` (twenty-four commits past `1e165815`, of
+which four touch `tool/net/definitions.lua` and only one touches this
+slice's scope, `fe7c36c4` adding `EncodeLua`'s `literal`
 option — additive, does not change its nil-admitting status).
 Re-running the exact `census.awk` command from `## Evidence` at this
 commit yields the same totals (209/192/38, 439 declarations) and the
