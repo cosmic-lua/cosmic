@@ -7,6 +7,7 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 303,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "orch9r1-skK4",
   ["speccers"] = "orch-refine-skK4",
   ["title"] = "salvage cosmo.path/readlink/Slurp-range tests",
 }
