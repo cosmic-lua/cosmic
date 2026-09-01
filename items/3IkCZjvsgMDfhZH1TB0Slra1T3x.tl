@@ -1,4 +1,5 @@
 return {
+  ["beats"] = "3IjZ9uZjyrcRNlfHXoK2EZHCHTi",
   ["builders"] = "wave17-1-solinger",
   ["claim"] = "wave17-1-solinger",
   ["id"] = "3IkCZjvsgMDfhZH1TB0Slra1T3x",
