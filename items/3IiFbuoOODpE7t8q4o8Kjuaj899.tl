@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 311,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-Kjua_j899-r1",
   ["title"] = "unix.openpty: sfd/name slots double as error/errno on failure",
 }
