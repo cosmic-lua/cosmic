@@ -127,13 +127,16 @@ end
 
 -- Monkeypatching quicksand.capabilities (the same technique
 -- landlock_net_test.tl uses on cosmic.sandbox.landlock) exercises
--- preflight's net-tier logic deterministically: a live host's net_ns
--- and landlock_net are whatever they are, never independently
--- controllable, so this is the only way to prove both the refusal and
--- the fallback without a specific kernel to match each case. run()
--- always forks before it unshares (see box/run.tl), so calling it
--- directly here — as test_run_on_linux_returns_clean_shape already
--- does — never touches this process's own namespaces.
+-- preflight's net-tier logic deterministically without depending on a
+-- specific kernel to match each case: user_ns/net_ns/landlock_net are
+-- whatever this host reports them as, and reliably steering any one of
+-- them independently (net_ns false while user_ns stays true is real --
+-- see cosmic.quicksand.init_test's live max_net_namespaces test -- but
+-- getting a CI host into that state on demand is not) would need a
+-- kernel-level fixture this suite doesn't have. run() always forks
+-- before it unshares (see box/run.tl), so calling it directly here —
+-- as test_run_on_linux_returns_clean_shape already does — never
+-- touches this process's own namespaces.
 local function with_mock_capabilities(overrides: {string: any}, body: function(): boolean)
   local real = quicksand.capabilities()
   local mocked: {string: any} = {}

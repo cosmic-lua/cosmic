@@ -100,6 +100,9 @@ local COSMO_REQUIRE_ALLOWLIST < const >: {string: boolean} = {
   ["cosmic/fs/dir_test.tl"] = true,
   -- heredoc payload run inside a namespaced child process
   ["cosmic/quicksand/proc_test.tl"] = true,
+  -- heredoc payload that unshares its own nested namespace and needs the
+  -- raw unshare/uid_map primitives probe_ns itself is built on
+  ["cosmic/quicksand/init_test.tl"] = true,
   -- heredoc payloads exercising the script runner / compiler on sources
   -- that themselves use cosmo
   ["cosmic/script_test.tl"] = true,

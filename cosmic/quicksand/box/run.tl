@@ -199,6 +199,13 @@ local function supervisor(
     unix.write(err_fd, msg)
     os.exit(126) -- exits: supervisor child; setup failure is on the parent's pipe
   end
+  -- Captured before unshare: once CLONE_NEWUSER takes effect, uid_map is
+  -- still empty, so geteuid()/getegid() read back as the overflow uid/gid
+  -- (nobody), not this process's real host identity. setup_userns_maps's
+  -- own nil-default relies on the caller having captured that identity
+  -- pre-unshare for exactly this reason.
+  local host_uid = unix.geteuid()
+  local host_gid = unix.getegid()
   local caps = get_caps()
   local flags = clone_flags(opts, caps)
   local ok, err = unix.unshare(flags)
@@ -207,8 +214,8 @@ local function supervisor(
   end
 
   local pr = opts and opts.proc
-  local uid: integer = pr and pr.uid
-  local gid: integer = pr and pr.gid
+  local uid: integer = (pr and pr.uid) or host_uid
+  local gid: integer = (pr and pr.gid) or host_gid
   local ok2, err2 = qproc.setup_userns_maps(uid, gid)
   if not ok2 then
     die("setup_userns_maps: " .. tostring(err2))

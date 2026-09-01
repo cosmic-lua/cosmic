@@ -104,9 +104,13 @@ end
 --- instead of bailing out on ENOSYS partway through a setup sequence.
 local record Capabilities
   linux: boolean -- host is Linux
-  user_ns: boolean -- unshare(NEWUSER|NEWNET|NEWNS) + uid_map verified in a scratch child
+  user_ns: boolean -- unshare(NEWUSER|NEWNS) + uid_map verified in a scratch child,
+  -- independently of whether NEWNET also works (see net_ns)
   mount_ns: boolean -- CLONE_NEWNS available
-  net_ns: boolean -- CLONE_NEWNET available
+  net_ns: boolean -- unshare(NEWUSER|NEWNET|NEWNS) + uid_map verified in a scratch
+  -- child; false when only the user_ns subset above works (netns specifically
+  -- restricted: e.g. a max_net_namespaces limit or a seccomp filter on the
+  -- clone flags)
   uts_ns: boolean -- CLONE_NEWUTS available (for hostname isolation)
   pid_ns: boolean -- CLONE_NEWPID available
   pivot_root: boolean -- unix.pivot_root exported

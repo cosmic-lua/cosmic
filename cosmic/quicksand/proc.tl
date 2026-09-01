@@ -117,8 +117,20 @@ end
 --- otherwise. On kernels without the setgroups proc file the write
 --- fails with ENOENT, which is benign and ignored.
 ---
---- @param uid integer? host uid to map to inner 0 (default: euid)
---- @param gid integer? host gid to map to inner 0 (default: egid)
+--- The nil defaults read geteuid()/getegid() at THIS call, which is
+--- only correct when the caller has not unshared CLONE_NEWUSER yet.
+--- Called after unshare (its documented, common position -- see
+--- above), uid_map is still empty at that point, so geteuid()/getegid()
+--- report the overflow uid/gid (nobody) instead of the real host
+--- identity, and the map write this function then attempts is rejected
+--- with EPERM. Callers wanting "map to my own identity" after already
+--- unsharing must capture geteuid()/getegid() themselves BEFORE the
+--- unshare(2) call and pass them explicitly.
+---
+--- @param uid integer? host uid to map to inner 0 (default: euid, but
+---   see the ordering note above)
+--- @param gid integer? host gid to map to inner 0 (default: egid, but
+---   see the ordering note above)
 --- @return boolean true on success
 --- @return string? error message on failure
 local function setup_userns_maps(uid: integer, gid: integer): boolean, string
