@@ -103,15 +103,6 @@ cosmic/fs/octal.tl	23	numeric narrowing
 cosmic/fs/ops.tl	411	userdata boundary
 cosmic/fs/ops.tl	425	userdata boundary
 cosmic/fs/tree.tl	23	userdata boundary
-cosmic/fs/types.tl	215	userdata boundary
-cosmic/fs/types.tl	218	userdata boundary
-cosmic/fs/types.tl	221	userdata boundary
-cosmic/fs/types.tl	224	userdata boundary
-cosmic/fs/types.tl	227	userdata boundary
-cosmic/fs/types.tl	230	userdata boundary
-cosmic/fs/types.tl	233	userdata boundary
-cosmic/fs/types.tl	236	userdata boundary
-cosmic/fs/types.tl	239	userdata boundary
 cosmic/fs/types.tl	263	userdata boundary
 cosmic/fs/types.tl	280	userdata boundary
 cosmic/fs/types.tl	294	userdata boundary
