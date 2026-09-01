@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave9-1-raise",
+  ["claim"] = "wave9-1-raise",
   ["id"] = "3IjRXqZek8XKx2W0Dn0GHwNmLjA",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
