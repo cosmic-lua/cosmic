@@ -1,6 +1,6 @@
 return {
-  ["block_reason"] = {["3ISCk9jyvgHUio3gPwQuZkSURUB"] = "waits on the salvage inventory table"},
-  ["blocked_by"] = "3ISCk9jyvgHUio3gPwQuZkSURUB",
+  ["block_reason"] = {["3ISCk9jyvgHUio3gPwQuZkSURUB"] = "waits on the salvage inventory table", ["3IiELO8IimScFulITdJMiDxAU3r"] = "spec miscategorizes test_response_too_large_error_message as network-free; needs spec amendment before this item can complete"},
+  ["blocked_by"] = "3ISCk9jyvgHUio3gPwQuZkSURUB 3IiELO8IimScFulITdJMiDxAU3r",
   ["builders"] = "scout-6 work9-agent-scout orch-peek2 orch-scout9-6 orch-scout9-22 orch-scout9-42 orch9-scout-mWAm_RQTM orch9-hold-3 orch9-8-mWAm",
   ["claim"] = "orch9-8-mWAm",
   ["id"] = "3Idu1WF5vawzMGuNBL9mWAmRQTM",
