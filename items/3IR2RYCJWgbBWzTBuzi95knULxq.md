@@ -195,7 +195,7 @@ authors currently have to carry by hand.
 | `unix.fdatasync` | 2, exact | `o//tool/lua/lua -e 'print(require("unix").fdatasync(999999))'` → `nil	fdatasync: EBADF: Bad file descriptor	9` | exact |
 | `unix.lseek` | 2, exact | `o//tool/lua/lua -e 'print(require("unix").lseek(999999, 0))'` → `nil	lseek: EBADF: Bad file descriptor	9` | exact |
 | `unix.copy_file_range` | 2, exact | `o//tool/lua/lua -e 'print(require("unix").copy_file_range(999999, 999998, 10))'` → `nil	copy_file_range: EBADF: Bad file descriptor	9` | exact |
-| `unix.isatty` | 2, **deviation** | `o//tool/lua/lua -e 'print(require("unix").isatty(999999))'` → `false	nil	nil` (docs promise `nil, "…EBADF…", errno` for a bad fd; the implementation's `rc == -1` check is dead code because libc `isatty()` never returns -1, so EBADF/EPERM silently collapse into `false`, a value not even in the declared `true|nil` union) | ****3IiFcAtW**** |
+| `unix.isatty` | 2, **deviation** | `o//tool/lua/lua -e 'print(require("unix").isatty(999999))'` → `false` (a single return value — Lua's `print` does not pad in unfilled trailing nils; confirmed with `select("#", unix.isatty(999999))` → `1`) (docs promise `nil, "…EBADF…", errno` for a bad fd; the implementation's `rc == -1` check is dead code because libc `isatty()` never returns -1, so EBADF/EPERM silently collapse into `false`, a value not even in the declared `true|nil` union) | ****3IiFcAtW**** |
 | `unix.tiocgwinsz` | 2, **deviation** | `o//tool/lua/lua -e 'print(require("unix").tiocgwinsz(999999))'` → `nil	tiocgwinsz: EBADF: Bad file descriptor	9` for the raw call; destructured as `local rows,cols,err,errno=…` on failure `cols` receives the error string and `err` receives the errno integer | ****3IiFbfUJ**** |
 | `unix.tcgetattr` | 2, exact | `o//tool/lua/lua -e 'print(require("unix").tcgetattr(999999))'` → `nil	tcgetattr: EBADF: Bad file descriptor	9` | exact |
 | `unix.tcsetattr` | 2, exact | `o//tool/lua/lua -e 'print(require("unix").tcsetattr(999999, require("unix").TCSANOW, {}))'` → `nil	tcsetattr: EBADF: Bad file descriptor	9` | exact |
@@ -204,6 +204,14 @@ authors currently have to carry by hand.
 | `unix.login_tty` | 2, exact | `o//tool/lua/lua -e 'print(require("unix").login_tty(999999))'` → `nil	login_tty: EBADF: Bad file descriptor	9` | exact |
 
 17 rows, 17 in scope — they match. No class-1 rows, no class-3 rows (none of the 17 moved to EXACT since `1e165815`).
+
+**Correction (fresh-context review, 2026-09-01):** the `unix.isatty` row's probe transcript
+originally recorded a 3-value output (`false	nil	nil`) that does not reproduce — the actual
+call returns a single boolean (`false`), confirmed both by re-running the probe and by
+`select("#", unix.isatty(999999))` → `1`. The underlying finding (the annotation wrongly
+promises a `nil, err, errno` failure path that libc `isatty()`'s `bool32` return can never
+take) is unaffected and independently confirmed by C source reading; only the transcript
+was wrong, and it is corrected above.
 
 ### Out-of-scope finding (reported, not adopted into this slice)
 
