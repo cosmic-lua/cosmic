@@ -156,8 +156,11 @@ also 440 — still exhaustive). Per-module NIL: `unix` 122 (was 127 —
 5 unrelated fixes landed since `1e165815`: nanosleep's remainder
 bundling, sigpending/clearenv tightening, getrlimit bundling,
 raise/sigprocmask raising, and the Dir readdir/EOF fix — none touch
-this slice), `lsqlite3` 22, `cosmo` 22, `zip` 14, `re` 5, `getopt` 1,
-`argon2` 1. Direct lookup of the 22 scope bindings against the current
+this slice), `lsqlite3` 22, `cosmo` 22, `zip` 14, `re` 5, `getopt` 0
+(was 1 — `d66ca077` #317, `getopt.parse` raising on argument-shape
+errors instead of returning `nil, err`, landed before this working
+commit), `argon2` 1 (122+22+22+14+5+0+1=186, matching the stated
+total). Direct lookup of the 22 scope bindings against the current
 walk shows **all 22 remain `NIL`** — the scope list is unchanged, not
 a bounce.
 
@@ -193,7 +196,7 @@ nothing else sharing a slot. Every row's probe below was run with
 | 3 | `unix.mkdir` | 3 | :5106-5109 | `LuaUnixMkdir` :424-433 | `cosmic/errno.tl:11`, `cosmic/fs/dir.tl:116` | exact |
 | 4 | `unix.makedirs` | 3 | :5122-5125 | `LuaUnixMakedirs` :435-443 | `cosmic/fs/dir.tl:130`, `cosmic/fs/tree.tl:83` | exact |
 | 5 | `unix.mkdtemp` | 3 | :5140-5143 | `LuaUnixMkdtemp` :1772-1793 | `cosmic/fs/ops.tl:356` | exact |
-| 6 | `unix.mkstemp` | **2 tuple deviation** | :5160-5164 (`---@return integer\|nil fd, string path` at :5161) | `LuaUnixMkstemp` :1795-1817 | 3 call sites, all already comment the deviation: `cosmic/fs/ops.tl:380-381`, `cosmic/fs/file.tl:92-94`, `cosmic/embed/init.tl:375` | `3Ik1baEQLHTdUTbycfSXst5dUlw` |
+| 6 | `unix.mkstemp` | **2 tuple deviation** | :5160-5164 (`---@return integer\|nil fd, string path` at :5161) | `LuaUnixMkstemp` :1795-1817 | 3 call sites; 2 of 3 already comment the deviation explicitly (`cosmic/fs/ops.tl:380-381`, `cosmic/fs/file.tl:92-94`, both: `-- The binding returns (fd, path) on success and (nil, Errno) on failure.`); `cosmic/embed/init.tl:375` relies on the same shape (`local tmp_fd, tmp_path = unix.mkstemp(...)`, branching on `not tmp_fd`) but carries no comment naming the hazard — corrected from the prior claim that all 3 sites comment it | `3Ik1baEQLHTdUTbycfSXst5dUlw` |
 | 7 | `unix.chdir` | 3 | :5168-5171 | `LuaUnixChdir` :453-459 | `cosmic/quicksand/box/run.tl:132`, `cosmic/fs/dir.tl:155`, `cosmic/child/init.tl:384` | exact |
 | 8 | `unix.unlink` | 3 | :5181-5184 | `LuaUnixUnlink` :461-469 | 6 call sites | exact |
 | 9 | `unix.rmdir` | 3 | :5193-5196 | `LuaUnixRmdir` :471-479 | `cosmic/fs/dir.tl:142` | exact |
