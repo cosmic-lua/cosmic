@@ -1,4 +1,5 @@
 return {
+  ["beats"] = "3IiEMurIlcpbXdQ9CUhYmGK2Sei",
   ["builders"] = "wave2-9-MiDx",
   ["claim"] = "wave2-9-MiDx",
   ["id"] = "3IiELO8IimScFulITdJMiDxAU3r",
