@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 319,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-research-r1",
   ["title"] = "cosmo.re: re.Regex:search's slot 2 shares the captures table with the error string",
 }
