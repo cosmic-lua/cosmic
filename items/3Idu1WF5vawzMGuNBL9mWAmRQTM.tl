@@ -7,7 +7,9 @@ return {
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
   ["pr"] = 314,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-mWAm-4d89c837",
   ["speccers"] = "0d674b1b-fa97-52d5-a96a-31867b975228",
   ["title"] = "salvage cosmo.Fetch's HTTP-proxy contract tests",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "67b584952d07a173894dd7752c84158c9dda8f3e",
+  ["verdict_spec"] = "d9488e89469a94faae953cc53abf18c6ed9948b2a2956fb2405dccabc2523921",
 }
