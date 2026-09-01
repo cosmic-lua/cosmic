@@ -5,6 +5,7 @@ return {
   ["claim"] = "wave2-4-P6sp",
   ["id"] = "3Idu1IOtae1Xpgr3ikBP6spfh7o",
   ["parent"] = "3IOCgCWGhARL1d3P9Cxaw9ICRlj",
+  ["pr"] = 306,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "salvage cosmo.unix.getlogin/uname/tcattr tests",
 }
