@@ -137,6 +137,74 @@ local function test_spec_bar_names_a_blocker_that_is_not_an_item()
 end
 test_spec_bar_names_a_blocker_that_is_not_an_item()
 
+-- The fixture the read-access bar exists for: a spec whose own
+-- commands clone a repository the item's `repo` field does not name
+-- and nothing declares. Modeled on the spec that bounced 3IKuRFN5 —
+-- `repo` targets `whilp/cosmopolitan`, but the research clones
+-- `jart/cosmopolitan` to read upstream history no fork carries.
+local UPSTREAM_CLONE < const > = [[
+## Change
+Answer question 1 from upstream history:
+
+```
+git clone --filter=blob:none --no-checkout \
+  https://github.com/jart/cosmopolitan /tmp/upstream-cosmo
+git -C /tmp/upstream-cosmo log --oneline -- libc/runtime/zipos-open.c
+```
+
+Record the answer in `## Findings`.
+]]
+
+local function test_spec_bar_names_an_undeclared_repo()
+  local s = init_state_repo("undeclared-repo")
+  local _, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, nil, "whilp/cosmopolitan", nil) == 0)
+  assert(gitspec.cmd_spec(s, leaf, spec_file("upstream", UPSTREAM_CLONE)) == 0)
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  local found = false
+  for _, p in ipairs(problems) do
+    if p:find("jart/cosmopolitan", 1, true) then found = true end
+  end
+  assert(found, "the bar names the unreachable repo: "
+    .. table.concat(problems, "; "))
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") ~= 0,
+    "and the take is refused")
+end
+test_spec_bar_names_an_undeclared_repo()
+
+-- Declaring the same repo under `## Access` clears the bar — the gate
+-- checks that the requirement is STATED, not that it is satisfied.
+local function test_declaring_the_repo_clears_the_bar()
+  local s = init_state_repo("declared-repo")
+  local _, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, nil, "whilp/cosmopolitan", nil) == 0)
+  local declared = UPSTREAM_CLONE
+  .. "\n## Access\n- jart/cosmopolitan (read-only, upstream history)\n"
+  assert(gitspec.cmd_spec(s, leaf, spec_file("declared", declared)) == 0)
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 0, "a declared repo clears the bar: "
+    .. table.concat(problems, "; "))
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
+    "and the take proceeds")
+end
+test_declaring_the_repo_clears_the_bar()
+
+-- An item's own `repo` is where its diff lands, not a source read on
+-- the side — mentioning it by URL needs no declaration.
+local function test_the_items_own_repo_needs_no_declaring()
+  local s = init_state_repo("own-repo")
+  local _, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, nil, "jart/cosmopolitan", nil) == 0)
+  assert(gitspec.cmd_spec(s, leaf, spec_file("self", UPSTREAM_CLONE)) == 0)
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 0, "the item's own repo is not a gap: "
+    .. table.concat(problems, "; "))
+end
+test_the_items_own_repo_needs_no_declaring()
+
 -- A real blocker refuses the take and names what to finish first;
 -- recording the order is `block`'s, and the take frees when it ends.
 local function test_a_recorded_blocker_sequences_the_take()
