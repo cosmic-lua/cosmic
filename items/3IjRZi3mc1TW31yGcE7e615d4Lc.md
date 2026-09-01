@@ -1,34 +1,32 @@
 ## Goal
 
-G3 — `unix.sigaction`'s declared return lies about which slots can
-hold the error: `flags` and `mask` are typed as plain non-nilable
-`integer`/`unix.Sigset`, but the binding's only failure path (an
-EINVAL a valid-but-unactionable signal like `SIGKILL`/`SIGSTOP`
-produces, or an EFAULT unreachable from Lua) returns exactly `nil,
-error, errno` — three values that land in the FIRST three declared
-slots (`oldhandler`, `flags`, `mask`), not in the fifth/sixth
-`error`/`errno` lines the annotation names. Per AGENTS.md's contract
-rule ("When slot 1 of a declared return admits nil, slot 2 is the
-error — an annotation that deviates is a bug"), this is that bug for
-`sigaction`. The union stays (`sig` is already validated and raises
-separately, lines 2653-2656 below; the remaining failure is genuinely
-environmental — which signal was named) — only the annotation is
-dishonest.
+G3 — `unix.sigaction`'s success path pushes 3 positional values
+(`oldhandler`, `flags`, `mask`) while its failure path pushes `nil,
+error, errno` — the same slots 2 and 3 mean unrelated things
+depending on branch, and the CURRENT annotation compounds this by
+declaring `flags`/`mask` as plain non-nilable `integer`/`unix.Sigset`,
+which is simply false on the failure branch. This repo has since
+settled how a tuple-sharing deviation like this gets fixed — NOT by
+merely re-annotating the sharing as honest, but by bundling the shared
+success values into one table, matching `e028f15b2` (`unix.nanosleep`,
+#315) and `8180f14b4` (`unix.capget`, #309). This capture applies that
+same fix to `sigaction`.
 
 ## Evidence
 
-Measured against cosmic-lua/cosmopolitan master `275b73b1d`.
+Measured against a live fetch of cosmic-lua/cosmopolitan master
+`e028f15b2`, built fresh in `/home/user/wt-7Gbq-census`.
 
-`third_party/lua/cosmo/lunix.c`, `LuaUnixSigaction` (lines 2647-2728):
-`sig` is range-checked and raises at lines 2652-2656 (`luaL_argerror`
+`third_party/lua/cosmo/lunix.c`, `LuaUnixSigaction` (lines 2662-2743):
+`sig` is range-checked and raises at lines 2667-2671 (`luaL_argerror`
 if `!(1 <= sig && sig <= NSIG)`) — a separate, already-correct raise,
-not part of this capture. On success (line 2700, `if (!sigaction(sig,
-saptr, &oldsa))`) the function pushes 3 values (`oldhandler`, `flags`,
-`mask`; lines 2701-2724). On failure (line 2726) it calls
-`LuaUnixSysretErrno(L, "sigaction", olderr)`, which returns exactly 3
-values: `nil, error string, errno`.
+out of this capture's scope. On success (line 2715, `if
+(!sigaction(sig, saptr, &oldsa))`) the function pushes 3 values
+(`oldhandler`, `flags`, `mask`; lines 2716-2739). On failure (line
+2741) it calls `LuaUnixSysretErrno(L, "sigaction", olderr)`, which
+returns exactly 3 values: `nil, error string, errno`.
 
-The annotation (`tool/net/definitions.lua:6651-6655`):
+The annotation (`tool/net/definitions.lua:6669-6673`):
 
 ```
 ---@param mask? unix.Sigset
@@ -59,74 +57,145 @@ Cosmic-side spend: `grep -n 'unix.sigaction' cosmic/signal.tl` →
 unix.sigaction(sig, raw_handler, flags, mask)`, followed by
 (`cosmic/signal.tl:253-254`) `if prev == nil then -- On failure the
 binding returns (nil, err, errno): the error string -- arrives in the
-slot flags occupies on success.` — a live wrapper already coded
-against exactly this undocumented sharing.
+slot flags occupies on success.` — a live wrapper coded against
+exactly this undocumented sharing; it destructures 3 positional
+values today and MUST be rewritten to read one table's fields once
+this capture lands (see Non-goals).
+
+Precedent for the fix shape, both already merged on this master:
+
+- `e028f15b2` (#315): bundled `unix.nanosleep`'s two positional
+  remainder integers into one `unix.SleepRemainder` table, keeping
+  slot 1 the value-or-nil, slots 2/3 always error/errno.
+- `8180f14b4` (#309): bundled `unix.capget`'s three positional
+  bitmasks into one `unix.Caps` table, same shape.
 
 ## Change
 
-`tool/net/definitions.lua` only (annotation, no C or behavior change)
-— rewrite the return block at lines 6651-6655 to declare the sharing
-honestly, matching the style `unix.nanosleep`/`unix.gmtime` already
-use:
+1. `third_party/lua/cosmo/lunix.c`, `LuaUnixSigaction`: replace the
+   3-value push (lines 2716-2739) with one table carrying `handler`,
+   `flags`, `mask` fields:
 
-```
----@param mask? unix.Sigset
----@return function|integer|nil oldhandler previous handler, or nil when
---- the call failed
----@return integer|string flags previous sa_flags, or the error string
---- when the call failed — failure returns exactly `nil, error, errno`,
---- so its two values land in the slots `flags` and `mask` occupy on
---- success, not in slots of their own
----@return unix.Sigset|unix.Errno mask previous signal mask, or the
---- errno when the call failed
-function unix.sigaction(sig, handler, flags, mask) end
-```
+   ```c
+   // unix.sigaction(sig:int[, handler:func|int[, flags:int[, mask:unix.Sigset]]])
+   //     ├─→ previous:table
+   //     └─→ nil, error:str, errno:int
+   ...
+   if (!sigaction(sig, saptr, &oldsa)) {
+     lua_rawgetp(L, LUA_REGISTRYINDEX, &kSignalHandlers);
+     lua_newtable(L);           // the result table, pushed before the handler lookup consumes the stack
+     if (lua_rawgeti(L, -2, sig) != LUA_TFUNCTION) {
+       lua_pop(L, 1);
+       lua_pushinteger(L, (intptr_t)oldsa.sa_handler);
+     }
+     lua_setfield(L, -2, "handler");
+     if (saptr) {
+       if (sa.sa_sigaction == LuaUnixOnSignal) {
+         lua_pushvalue(L, -3);
+       } else {
+         lua_pushnil(L);
+       }
+       lua_rawseti(L, -3, sig);   // update the registry lua table (unchanged)
+     }
+     lua_remove(L, -2);           // remove the signal handler table from stack (unchanged)
+     lua_pushinteger(L, oldsa.sa_flags);
+     lua_setfield(L, -2, "flags");
+     LuaPushSigset(L, oldsa.sa_mask);
+     lua_setfield(L, -2, "mask");
+     return 1;
+   } else {
+     return LuaUnixSysretErrno(L, "sigaction", olderr);
+   }
+   ```
 
-Also add, in `tool/lua/test_signal.lua`, beside the existing sigaction
-coverage:
+   (The exact stack-index arithmetic above is a sketch, not a literal
+   patch — `LuaUnixSigaction`'s existing stack juggling around the
+   registry handler-table lookup is intricate; the implementer must
+   re-derive the precise `lua_newtable`/`lua_setfield`/`lua_remove`
+   ordering against the CURRENT function body at
+   `third_party/lua/cosmo/lunix.c:2662-2743`, preserving every existing
+   comment about why the registry update and the trailing-nil handling
+   work the way they do. The invariant to preserve: build ONE table
+   with `handler`/`flags`/`mask` fields, return it as the sole success
+   value.)
 
-```lua
--- sigaction's one reachable failure (a valid-but-unactionable signal
--- like SIGKILL) shares two return slots with its own success values
--- (tool/net/definitions.lua); pin that shape live.
-local prev, flags_or_err, mask_or_errno = unix.sigaction(unix.SIGKILL, unix.SIG_IGN)
-assert(prev == nil, "sigaction on SIGKILL must report nil in the oldhandler slot")
-assert(type(flags_or_err) == "string",
-  "the error string must land in the slot flags occupies on success")
-assert(mask_or_errno == unix.EINVAL,
-  "errno must land in the slot mask occupies on success")
-```
+2. `tool/net/definitions.lua`, same commit — new class plus rewritten
+   return block:
+
+   ```
+   --- Previous signal disposition returned by `sigaction`.
+   ---@class unix.SignalAction
+   ---@field handler function|integer Previous handler: a Lua function,
+   --- `SIG_IGN`, `SIG_DFL`, or a raw function pointer.
+   ---@field flags integer Previous `sa_flags`.
+   ---@field mask unix.Sigset Previous signal mask.
+
+   ---@param mask? unix.Sigset
+   ---@return unix.SignalAction|nil previous
+   ---@return string? error
+   ---@return unix.Errno? errno
+   function unix.sigaction(sig, handler, flags, mask) end
+   ```
+
+   Update the doc examples in the same comment block
+   (`tool/net/definitions.lua:6639-6653`) that destructure
+   `unix.sigaction`'s result — none currently capture `flags`/`mask`
+   from a successful call, so no example needs a field-access rewrite,
+   but re-check at implementation time.
+
+3. `tool/lua/test_signal.lua`: add, before the trailing `print("PASS")`:
+
+   ```lua
+   -- sigaction now bundles its previous-disposition success values
+   -- into one table (tool/net/definitions.lua); pin both branches.
+   local ok_action = assert(unix.sigaction(unix.SIGUSR1))
+   assert(type(ok_action) == "table" and type(ok_action.flags) == "number"
+     and ok_action.mask ~= nil,
+     "a successful sigaction query must return one table")
+   local bad_action, err, eno = unix.sigaction(unix.SIGKILL, unix.SIG_IGN)
+   assert(bad_action == nil, "sigaction on SIGKILL must report nil")
+   assert(type(err) == "string", "the error must be a string, not a table field")
+   assert(eno == unix.EINVAL, "errno must be EINVAL, not a table field")
+   ```
 
 ## Non-goals
 
-- No change to `third_party/lua/cosmo/lunix.c` — `LuaUnixSigaction`'s
-  runtime behavior is already correct; only its `definitions.lua`
-  annotation lies.
-- No change to the existing `sig` range check (lines 2652-2656) — that
-  failure already raises and is out of this capture's scope (it is
-  not part of the `nil`-admitting return this census scoped).
+- No change to the existing `sig` range check (lines 2667-2671) — that
+  failure already raises and is out of this capture's scope.
 - No addition to the pure-function `PROBES` ratchet in
   `tool/lua/test_definitions_conformance.lua` — `sigaction` installs a
   real signal disposition, so it is not the "zero-risk... no side
   effects" binding that file scopes itself to.
-- No cosmic-side edit — `cosmic/signal.tl`'s wrapper already
-  destructures and branches on exactly this shape; nothing there
-  changes.
+- **Cosmic-side edit required, but not by this capture.** This is a
+  BEHAVIOR change, unlike the honest-annotation-only fix this capture
+  previously proposed: `cosmic/signal.tl:251-252`'s
+  `local prev, prev_flags, prev_mask = unix.sigaction(...)` breaks the
+  moment this lands (`prev_flags`/`prev_mask` go from real values to
+  always-nil). Retiring that destructuring for `result.handler` /
+  `result.flags` / `result.mask` is the sibling consumption slice,
+  BLOCKED on this capture landing — do not fold it into this diff, and
+  do not bump the cosmos pin here.
 
 ## Acceptance
 
 Run from the cosmopolitan repo root:
 
 - `make -j$(nproc) o//tool/lua/test` exits 0.
-- `grep -A4 '^---@param mask? unix.Sigset' tool/net/definitions.lua |
-  grep -c '|string\|unix.Errno'` reports 2 or more (today 0: `flags`
-  and `mask` are undecorated).
-- `grep -B10 '^function unix.sigaction' tool/net/definitions.lua |
-  grep -c '^---@return string? error$'` reports 0 (today 1: the
-  phantom line this change deletes).
+- `o//tool/lua/lua -e 'local u=require("unix") local r=assert(u.sigaction(u.SIGUSR1))
+  assert(type(r)=="table") assert(type(r.flags)=="number") assert(r.mask~=nil)
+  local bad,e,en=u.sigaction(u.SIGKILL,u.SIG_IGN) assert(bad==nil)
+  assert(type(e)=="string") assert(en==u.EINVAL)'` exits 0.
+- `grep -c '^---@class unix.SignalAction' tool/net/definitions.lua`
+  reports 1 (today 0).
+- `grep -A2 '^function unix.sigaction' tool/net/definitions.lua |
+  grep -c 'integer flags, unix.Sigset mask'` reports 0 (today 1: the
+  positional 3-value return this change replaces).
 
 ## Enablement
 
-none needed. Documentation-only; independent of every other capture
-(touches a `definitions.lua` block none of the others touch, plus an
-appended `tool/lua/test_signal.lua` block).
+none needed. Documentation- and C-change; independent of
+`3IjRa88PfMHXoRab5q1vZjeIuTa` (setitimer, different C function,
+different `definitions.lua` block) and of the raise/sigprocmask
+captures. Both this capture and `3IjRa88PfMHXoRab5q1vZjeIuTa` append
+to `tool/lua/test_signal.lua`, so whichever merges second rebases a
+short append.
