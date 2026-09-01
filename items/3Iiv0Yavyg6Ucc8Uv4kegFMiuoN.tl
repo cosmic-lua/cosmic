@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave4-18-sqliteopen",
+  ["claim"] = "wave4-18-sqliteopen",
   ["id"] = "3Iiv0Yavyg6Ucc8Uv4kegFMiuoN",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
