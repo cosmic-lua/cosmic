@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 337,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-Jzdq_xLdM-lok152",
   ["title"] = "lsqlite3: let a Lua UDF be marked SQLITE_DETERMINISTIC",
 }
