@@ -1,6 +1,6 @@
 return {
-  ["builders"] = "orch9-11-Bljh",
-  ["claim"] = "orch9-11-Bljh",
+  ["builders"] = "orch9-11-Bljh review-Bljh-1",
+  ["claim"] = "review-Bljh-1",
   ["id"] = "3IR2TQdUPE14YWg2XOZBljh1iL7",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "whilp/cosmopolitan",
