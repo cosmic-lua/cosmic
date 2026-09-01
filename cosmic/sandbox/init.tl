@@ -317,6 +317,13 @@ local function merge(...: Options): Options
           bind_tcp = merged_int_list(nbase.bind_tcp, o.net.bind_tcp),
         }
       end
+      if o.scope then
+        local scbase: Scope = out.scope or {}
+        out.scope = {
+          signal = scbase.signal or o.scope.signal,
+          abstract_unix = scbase.abstract_unix or o.scope.abstract_unix,
+        }
+      end
       if o.best_effort ~= nil then out.best_effort = o.best_effort end
       if o.allow_unenforced ~= nil then out.allow_unenforced = o.allow_unenforced end
       if o.strict ~= nil then out.strict = o.strict end
