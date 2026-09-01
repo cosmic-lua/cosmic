@@ -11,9 +11,12 @@ structurally identical to the already-settled `unix.clock_gettime` fix
 
 ## Evidence
 
-Measured against cosmic-lua/cosmopolitan master `275b73b1d`.
+Measured against a live fetch of cosmic-lua/cosmopolitan master
+`e028f15b2`, built fresh in `/home/user/wt-7Gbq-census` (unchanged
+since the prior pass's `275b73b1d`, only shifted downstream of
+`unix.nanosleep`'s own fix earlier in `definitions.lua`).
 
-`third_party/lua/cosmo/lunix.c:2568-2581`:
+`third_party/lua/cosmo/lunix.c:2583-2596`:
 
 ```c
 // unix.sigprocmask(how:int, newmask:unix.Sigset)
@@ -39,7 +42,7 @@ latter is unreachable here since `oldmask` is a stack `sigset_t` and
 `newmask` is a checked `unix.Sigset` userdata, never a raw pointer Lua
 controls.
 
-The annotation (`tool/net/definitions.lua:6544-6566`):
+The annotation (`tool/net/definitions.lua:6562-6584`):
 
 ```
 ---@param how integer can be one of:
@@ -109,7 +112,8 @@ failure for it.
    ```
 
 3. `tool/lua/test_signal.lua`: add beside the existing
-   `unix.sigset`/`unix.sigprocmask` coverage:
+   `unix.sigset`/`unix.sigprocmask` coverage, before the trailing
+   `print("PASS")`:
 
    ```lua
    -- sigprocmask's only reachable failure is an invalid `how`;
@@ -121,7 +125,8 @@ failure for it.
 ## Non-goals
 
 - No change to `unix.sigaction` or `unix.setitimer` — the sibling
-  class-2 tuple-deviation captures, filed separately (`3IjRZi3mc1TW31yGcE7e615d4Lc`, `3IjRa88PfMHXoRab5q1vZjeIuTa`).
+  class-2 tuple-deviation captures, filed separately
+  (`3IjRZi3mc1TW31yGcE7e615d4Lc`, `3IjRa88PfMHXoRab5q1vZjeIuTa`).
 - No change to `unix.sigset`/`unix.Sigset` construction or the
   `newmask` argument check (`luaL_checkudata`) — already a type-shape
   error, unrelated to this fix.
@@ -141,6 +146,7 @@ Run from the cosmopolitan repo root:
 
 ## Enablement
 
-none needed. Independent of `3IjRXqZek8XKx2W0Dn0GHwNmLjA` (different C function, different
-`definitions.lua` block); both append to `tool/lua/test_signal.lua`,
-so whichever merges second rebases a two-line append.
+none needed. Independent of `3IjRXqZek8XKx2W0Dn0GHwNmLjA` (different C
+function, different `definitions.lua` block); both append to
+`tool/lua/test_signal.lua`, so whichever merges second rebases a
+two-line append.
