@@ -3,6 +3,6 @@ return {
   ["claim"] = "wave3-5-YAQq",
   ["id"] = "3IR2TE1OmxyrM9TfqkUYAQqFsja",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
-  ["repo"] = "whilp/cosmopolitan",
+  ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "cosmopolitan census: lsqlite3 — 22 nil-admitting bindings",
 }
