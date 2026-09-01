@@ -6,6 +6,7 @@ return {
   ["id"] = "3I7LNOT7EBOB53ToJw53qE6oToI",
   ["parent"] = "3I1IfJ228vyPoO9rhbHhc6RjxJB",
   ["pr"] = 1598,
+  ["reviewer"] = "review-3qE6-3",
   ["title"] = "quicksand: Box consumes the landlock net tier where netns cannot start",
   ["verdict"] = "request changes",
   ["verdict_head"] = "189e82f2e3dc8f560b26d5f105f76e8846faa954",
