@@ -266,6 +266,50 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")
   assert(got["untracked/loose.tl"] == nil,
     "only the counted trees are walked")
+  -- Every shape above is well-formed, so the walk that read it must
+  -- close what it opened. A count that came out right over a stack
+  -- that did not balance is right by accident, and the next shape of
+  -- the same kind will not be.
+  local bad = nilret.unbalanced(root)
+  assert(#bad == 0,
+    "the walk left a frame behind on a well-formed fixture:\n  "
+    .. table.concat(bad, "\n  "))
+end
+
+-- The two ways a walk fails to balance, on a fixture that shows what
+-- each looks like: a body that is never closed, and an `end` that
+-- closes nothing. The tree-wide gate below rests on both being
+-- reported, in the file's own name.
+local function test_unbalanced_names_both_halves()
+  local root = fs.join(check.must(os.getenv("TEST_TMPDIR")), "balance")
+  assert(fs.make_dirs(fs.join(root, "cosmic")))
+  assert(fs.write(fs.join(root, "cosmic", "open.tl"),
+      "local function f(): string\n  return \"x\"\n"))
+  assert(fs.write(fs.join(root, "cosmic", "stray.tl"),
+      "local x = 1\nprint(x)\nend\n"))
+  assert(fs.write(fs.join(root, "cosmic", "even.tl"),
+      "local function f(): string\n  return \"x\"\nend\nprint(f())\n"))
+  local got = nilret.unbalanced(root)
+  assert(#got == 2, "two of three fixtures are unbalanced: "
+    .. table.concat(got, "; "))
+  assert(got[1] == "cosmic/open.tl: 1 frame(s) left open at end of file,"
+    .. " 0 end(s) with nothing to pop", got[1])
+  assert(got[2] == "cosmic/stray.tl: 0 frame(s) left open at end of file,"
+    .. " 1 end(s) with nothing to pop", got[2])
+end
+
+-- The type grammar under the count, checked by the tree instead of by
+-- imagination. Every committed source is well-formed, so a walk over
+-- it must close what it opened: a frame left open, or an `end` with
+-- nothing to pop, is a type-position shape the grammar mis-read — the
+-- class that a nested generic's `>>` and an alias's `record` body were
+-- each found in by hand. The fix is in `_cli/returns.tl` or
+-- `_cli/nilreturn.tl`, never in the file this names.
+local function test_the_walk_balances_over_every_committed_file()
+  local bad = nilret.unbalanced(".")
+  assert(#bad == 0,
+    "the frame walk does not balance — the type grammar mis-reads a shape"
+    .. " in:\n  " .. table.concat(bad, "\n  "))
 end
 
 local function test_the_site_counts_match_the_committed_baseline()
