@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave15-1-setitimer",
+  ["claim"] = "wave15-1-setitimer",
   ["id"] = "3IjRa88PfMHXoRab5q1vZjeIuTa",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
