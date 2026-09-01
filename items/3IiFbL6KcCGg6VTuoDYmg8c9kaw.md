@@ -7,8 +7,20 @@ descriptor/terminal census (item 95kn_ULxq, sibling to #276/#277):
 slots, but its C implementation only ever returns 2 values (success)
 or 3 (failure), so on failure the declared `writer` slot actually
 carries the error string and the declared `error` slot actually
-carries the errno integer. Fix the annotation to say so, honestly, the
-same way `unix.nanosleep` already does for its own shared slot.
+carries the errno integer.
+
+**Correction 2026-09-01**: this item originally proposed fixing the
+annotation to honestly declare the sharing (matching how
+`unix.nanosleep` was annotated at the time this item was opened,
+2026-09-01T05:12Z). Since then, this repo has settled — via
+`unix.nanosleep` itself (`e028f15b2` #315), `unix.capget` (`8180f14b4`
+#309), `unix.gmtime`/`unix.localtime` (#321), and `unix.getrlimit`
+(#324) — that the real fix for this deviation class is to BUNDLE the
+shared success values into one table, not merely re-annotate the
+sharing as honest. `unix.pipe`'s fix below is updated to match that
+now-settled convention; the evidence (C source, probes, cosmic-side
+spend) is unchanged and still holds — only the `## Change` differs
+from the original.
 
 ## Evidence
 
@@ -46,7 +58,7 @@ overclaims a fixed 4-slot shape.
 function unix.pipe(flags) end
 ```
 
-**Probe**, run from the cosmopolitan repo root after
+**Probe**, re-run yourself against current master after
 `make -j$(nproc) o//tool/lua/lua`:
 
 ```
@@ -82,9 +94,10 @@ the raw errno integer, and the variable named `errno` (declared
 `unix.Errno?`) is `nil` — nothing at that position, because the C side
 never returns a 4th value.
 
-**Cosmic-side spend** (`grep -rn 'unix\.pipe(' /home/user/cosmic/cosmic/`):
-every call site already defends against exactly this shift by checking
-only the first return value before touching the second:
+**Cosmic-side spend** (`grep -rn 'unix\.pipe(' cosmic/` in a
+cosmic-lua/cosmic checkout): every call site already defends against
+exactly this shift by checking only the first return value before
+touching the second:
 
 ```
 cosmic/quicksand/proc.tl:166:  local r, w = unix.pipe()
@@ -106,62 +119,86 @@ cosmic/child/init.tl:244:    if r == nil or w == nil then
 `cosmic/fd.tl:249-250`'s comment states the exact bug this capture
 fixes at the source, in cosmic's own words — tribal knowledge every one
 of these call sites has to carry by hand today because
-`tool/net/definitions.lua` doesn't say it.
+`tool/net/definitions.lua` doesn't say it. All six cosmic-side call
+sites destructure `reader, writer` positionally and MUST be rewritten
+to read one table's fields once this capture lands — a separate,
+blocked-on-this, cosmic-side follow-up (see Non-goals), matching the
+pattern the `unix.getrlimit`/`unix.gmtime` captures already set.
 
 ## Change
 
-Rewrite `unix.pipe`'s return annotation in
-`tool/net/definitions.lua` to declare the real, shared-slot shape,
-following the `unix.nanosleep` precedent
-(`tool/net/definitions.lua:5876-5887`) exactly: a union type in the
-slot that doubles, with prose stating the failure tuple explicitly.
+Bundle the 2-value success pair into one table return
+(`{reader=…, writer=…}|nil, string?, unix.Errno?`), matching
+`unix.capget`'s caps table, `unix.nanosleep`'s remainder table, and
+`unix.getrlimit`'s `Rlimit` table, so slot 2 always means error
+regardless of branch:
 
-Replace:
+1. `third_party/lua/cosmo/lunix.c`, `LuaUnixPipe`: on success, push
+   one table with fields `reader` and `writer` instead of two
+   positional integers:
 
-```
----@return integer|nil reader, integer writer
----@return string? error
----@return unix.Errno? errno
-```
+   ```c
+   static int LuaUnixPipe(lua_State *L) {
+     int pipefd[2], olderr = errno;
+     if (!pipe2(pipefd, luaL_optinteger(L, 1, 0))) {
+       lua_newtable(L);
+       lua_pushinteger(L, pipefd[0]); lua_setfield(L, -2, "reader");
+       lua_pushinteger(L, pipefd[1]); lua_setfield(L, -2, "writer");
+       return 1;
+     } else {
+       return LuaUnixSysretErrno(L, "pipe", olderr);
+     }
+   }
+   ```
 
-with:
+2. `tool/net/definitions.lua`, same commit — add a new class and
+   rewrite `unix.pipe`'s return block:
 
-```
----@return integer|nil reader
----@return integer|string writer the write fd on success, or the error
---- string when the call failed — failure returns exactly `nil, error,
---- errno`, so the error lands in this slot, not one of its own
----@return unix.Errno? errno the errno on failure; nil on success
-```
+   ```
+   --- A pipe's two file descriptors, as returned by `pipe`.
+   ---@class unix.Pipe
+   ---@field reader integer the read end's file descriptor
+   ---@field writer integer the write end's file descriptor
+   ```
 
-No C code changes — `LuaUnixPipe` already implements the fork's
-standard `nil, error, errno` failure convention correctly; only the
-doc comment overclaimed a shape the implementation never produces.
-Regenerating cosmic's Teal types from this file
-(`bin/cosmic --make build`) after the fix is the acceptance check on
-the cosmic side, but is not part of this capture — this capture is
-scoped to the `tool/net/definitions.lua` line, in whilp/cosmopolitan.
+   ```
+   ---@return unix.Pipe|nil
+   ---@return string? error
+   ---@return unix.Errno? errno
+   ---@nodiscard
+   function unix.pipe(flags) end
+   ```
+
+3. Add or extend a test (wherever this repo's existing `unix.pipe`
+   coverage lives — check first) asserting the new table shape on
+   success and the clean 3-value tuple on failure (an `ulimit`-forced
+   EMFILE, matching the evidence probe above, or an equivalent
+   deterministic failure trigger).
+
+No change to `unix.pipe`'s failure path — it already implements the
+fork's standard `nil, error, errno` convention correctly.
 
 ## Non-goals
 
-- No change to `LuaUnixPipe`'s C implementation or its return arity —
-  the 2-success/3-failure shape stays; only the annotation changes.
 - No change to any other binding, including `unix.tiocgwinsz` and
   `unix.openpty`, which have the identical pattern and independent
   sibling captures.
 - No change to cosmic's `cosmic/fd.tl`/`cosmic/quicksand/*` call
-  sites — they already handle the real shape correctly; nothing there
-  is broken by this doc fix.
+  sites in this PR — this is a BEHAVIOR change (the success shape
+  moves from two positional integers to one table), so every
+  positional destructuring of `unix.pipe()`'s success values breaks
+  the moment this lands. Retiring those six call sites' destructuring
+  for `.reader`/`.writer` field access is a separate, cosmic-side
+  consumption slice, blocked on this capture landing — do not fold it
+  into this diff, and do not bump the cosmos pin here.
 
 ## Acceptance
 
-- `tool/net/definitions.lua`'s `unix.pipe` annotation states the
-  `writer` slot's real dual nature (`integer|string`) and documents
-  the exact failure tuple in prose, matching `unix.nanosleep`'s style.
-- `make -j$(nproc) o//tool/lua/test` still passes (this is a comment-only
-  change; no binding behavior changes).
-- A probe run against the rebuilt binary
-  (`o//tool/lua/lua -e 'print(require("unix").pipe())'` on success, and
-  the `ulimit -n 20` EMFILE probe above on failure) still returns
-  byte-identical values to those recorded in this capture's evidence —
-  the fix documents reality, it does not change it.
+- `make -j$(nproc) o//tool/lua/test` passes.
+- `grep -c '^---@class unix.Pipe' tool/net/definitions.lua` reports 1.
+- `grep -A3 '^function unix.pipe' tool/net/definitions.lua | grep -c
+  'integer|nil reader, integer writer'` reports 0 (today 1 — confirms
+  the old positional annotation is gone).
+- Re-running the evidence probes above shows: success returns one
+  table with `.reader`/`.writer` integer fields; the `ulimit`-forced
+  EMFILE probe still returns a clean `nil, <string>, <errno>` tuple.
