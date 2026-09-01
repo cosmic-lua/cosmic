@@ -12,12 +12,13 @@ local visibility = require("cosmic.doc.visibility")
 
 local EMBEDDED = "/zip/cosmic"
 
---- Enumerate top-level module names embedded in the running binary:
+--- Enumerate top-level module names embedded under `root`:
 --- foo.lua files and directory modules (their init.lua is the module).
 --- Returned as dotted names, so the visibility rule applies unchanged.
-local function embedded_modules(): {string}
-  local d = check.must(fs.open_dir(EMBEDDED),
-    "cannot open " .. EMBEDDED .. " (test must run in the binary)")
+--- @param root string The directory to enumerate under
+local function embedded_modules(root: string): {string}
+  local d = check.must(fs.open_dir(root),
+    "cannot open " .. root .. " (test must run in the binary)")
   local found: {string} = {}
   while true do
     local name = d:read()
@@ -26,7 +27,7 @@ local function embedded_modules(): {string}
       local lua = string.match(name, "^(.+)%.lua$")
       if lua and lua ~= "init" then
         found[#found + 1] = "cosmic." .. lua
-      elseif not lua and fs.is_dir(EMBEDDED .. "/" .. name) then
+      elseif not lua and fs.is_file(root .. "/" .. name .. "/init.lua") then
         found[#found + 1] = "cosmic." .. name
       end
     end
@@ -35,7 +36,26 @@ local function embedded_modules(): {string}
   return found
 end
 
-local public = visibility.public_of(embedded_modules())
+local public = visibility.public_of(embedded_modules(EMBEDDED))
+
+--- A directory with no `init.lua` yet — a WIP module landing file by
+--- file ahead of its entry point — is not a module, matching
+--- `_build/public_surface.tl`'s tree-side `modules()`, which gates the
+--- same way on `init.tl`.
+local function test_embedded_modules_requires_an_entry_point()
+  local root = fs.join(check.must(os.getenv("TEST_TMPDIR")), "embedded_surface")
+  assert(fs.make_dirs(fs.join(root, "box")))
+  assert(fs.make_dirs(fs.join(root, "wip")))
+  assert(fs.write(fs.join(root, "shiny.lua"), "return {}\n"))
+  assert(fs.write(fs.join(root, "box", "init.lua"), "return {}\n"))
+  assert(fs.write(fs.join(root, "box", "shard.lua"), "return {}\n"))
+  assert(fs.write(fs.join(root, "wip", "types.lua"), "return {}\n"))
+
+  local got = embedded_modules(root)
+  table.sort(got)
+  assert(table.concat(got, " ") == "cosmic.box cosmic.shiny",
+    "got: " .. table.concat(got, " "))
+end
 
 --- The surface is not empty and not everything: a rule that classified
 --- every module the same way would pass every test below while saying
