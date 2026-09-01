@@ -1,11 +1,11 @@
 return {
   ["beats"] = "3IiuEB99e5PMeFcuuCUA6BTPuE8",
   ["builders"] = "wave4-3-9kMa",
-  ["claim"] = "wave4-3-9kMa",
   ["id"] = "3IiuTQHNOS7D0PZByJG9kMaJTLB",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 312,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["resolution"] = "completed",
   ["title"] = "ConvertLuaArrayToStringList frees uninitialized memory on a bad argv/envp element (spawn/spawnp/exec* crash)",
   ["verdict"] = "accept",
   ["verdict_head"] = "561c3c93caf32b8ee5c5d4605c7233a6dc27c67e",
