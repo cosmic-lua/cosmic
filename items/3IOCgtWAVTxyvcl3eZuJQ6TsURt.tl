@@ -9,4 +9,7 @@ return {
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "wave11-1-retiretestnet",
   ["title"] = "cosmopolitan: retire test/tool/net — 40 checks in no workflow, asserting contracts the fork replaced",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "bd93261b134bd40550e0360d84b267041cabcd2b",
+  ["verdict_spec"] = "2a2e9a5270c3c24235bc954e8a2f56be05505807b9225af95ed554a384a1d019",
 }
