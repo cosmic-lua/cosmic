@@ -1,7 +1,7 @@
 ## Goal
 
 G3 — `unix.localtime`'s declared failure shape is already honest,
-identical in structure to `unix.gmtime`'s (CAP-5) — but unlike
+identical in structure to `unix.gmtime`'s (`3IjRaU2dA8zH56DfC1og37HbOug`) — but unlike
 `gmtime`, `localtime` has NO test coverage at all in the tree today,
 success or failure. This capture adds both.
 
@@ -11,7 +11,7 @@ Measured against cosmic-lua/cosmopolitan master `275b73b1d`.
 
 `third_party/lua/cosmo/lunix.c:2844-2849`: `LuaUnixLocaltime` calls
 the same shared `LuaUnixTime(L, "localtime", localtime_r)` helper
-`LuaUnixGmtime` uses (CAP-5), swapping `gmtime_r` for `localtime_r`;
+`LuaUnixGmtime` uses (`3IjRaU2dA8zH56DfC1og37HbOug`), swapping `gmtime_r` for `localtime_r`;
 the success/failure push shapes are identical.
 
 The annotation (`tool/net/definitions.lua:7150-7166`) already declares
@@ -60,14 +60,14 @@ string, `mday` the errno `75`.)
 
 Cosmic-side spend: `grep -n 'unix.localtime' cosmic/time.tl` →
 `cosmic/time.tl:157-162`, the same shape as `gmtime`'s wrapper
-(CAP-5): `local year, mon, mday, ... = unix.localtime(unixts) if year
+(`3IjRaU2dA8zH56DfC1og37HbOug`): `local year, mon, mday, ... = unix.localtime(unixts) if year
 == nil then ... return nil, errno.format(mon as string, "localtime")
 end`.
 
 ## Change
 
 `tool/lua/test_unix_misc.lua` only, appended after the existing
-gmtime block (and, if CAP-5 lands first, after its new
+gmtime block (and, if `3IjRaU2dA8zH56DfC1og37HbOug` lands first, after its new
 gmtime-failure block too — either order is fine, both append at the
 same point):
 
@@ -122,11 +122,11 @@ Run from the cosmopolitan repo root:
 - `grep -c 'localtime' tool/lua/test_unix_misc.lua` reports 1 or more
   (today 0).
 - `grep -c 'EOVERFLOW' tool/lua/test_unix_misc.lua` reports 2 once
-  both this capture and CAP-5 have landed (1 if only this one has).
+  both this capture and `3IjRaU2dA8zH56DfC1og37HbOug` have landed (1 if only this one has).
 
 ## Enablement
 
-none needed. Independent of CAP-5 in content (different binding,
+none needed. Independent of `3IjRaU2dA8zH56DfC1og37HbOug` in content (different binding,
 different C function) though both append to the same file — whichever
 merges second rebases a short append; the `TZ` non-goal above is the
 only real interaction to watch.
