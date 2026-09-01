@@ -6,7 +6,9 @@ return {
   ["id"] = "3IYMJwleEM9gBhpvVDF0hVX9EMj",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1605,
-  ["reviewer"] = "review-0hVX_9EMj-r1",
   ["speccers"] = "b69eb093-c2d4-5f3a-b5dd-826817f161b7",
   ["title"] = "casts: the 22 userdata-boundary sites down to one per handle type — declare each method table's self",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d90d95ce03d2541ae533c41246ec5ad9b7f27bc3",
+  ["verdict_spec"] = "d6a5963fb885eb41efc1f365e8c0798c60120f3fcfc1f91d91d2c97c73c1df67",
 }
