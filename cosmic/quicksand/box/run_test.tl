@@ -255,6 +255,10 @@ qs.capabilities = function()
 end
 local j, nerr = qs.new({ net = { allow = {} } })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
+if j:net_tier() ~= "landlock" then
+  io.stderr:write("net_tier: expected 'landlock', got " .. tostring(j:net_tier()) .. "\n")
+  os.exit(1)
+end
 local code, rerr = j:run({%q, "-e", %q})
 if code == nil then
   io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
@@ -273,6 +277,24 @@ io.write("ok\n")
   assert(s:find("denied-blocked", 1, true),
     "connect to a port outside the backstop must be denied: " .. s)
   check.enforced("quicksand box landlock net backstop (no net_ns)")
+end
+
+-- net_tier() must reflect this host's REAL capabilities, not a mock:
+-- with net_ns actually available, the expected answer is "netns" alone
+-- or "netns+landlock" depending on whether this kernel's real
+-- landlock_net also holds — derived here from the same Capabilities
+-- record capabilities() returns, not asserted as a fixed constant, so
+-- the test stays correct across hosts with either ABI.
+local function test_net_tier_reflects_real_capabilities()
+  local c = quicksand.capabilities()
+  if not (c.linux and c.user_ns and c.net_ns) then
+    check.enforce_skip("box namespaces unavailable on this host")
+    return
+  end
+  local j = check.must(quicksand.new({net = {allow = {["example.com:443"] = {}}}}))
+  local want = c.landlock_net and "netns+landlock" or "netns"
+  assert(j:net_tier() == want,
+    "expected net_tier " .. want .. ", got " .. tostring(j:net_tier()))
 end
 
 -- Opt-out of PID namespace via pid_ns = false still runs.

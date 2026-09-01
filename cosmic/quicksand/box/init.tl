@@ -2,7 +2,9 @@
 ---
 --- Composes the quicksand primitives (netns, proxy, proc) plus the
 --- cosmic.sandbox facade into a single `box:run(argv)` call that
---- returns an exit code.
+--- returns an exit code. `box:net_tier()` reports which tier(s) —
+--- netns isolation, the Landlock backstop, or both — back the `net`
+--- policy on this host.
 ---
 --- Usage:
 ---
@@ -51,12 +53,14 @@ end
 
 --- Box instance. `run(argv)` returns an integer exit code on success
 --- or nil + error on failure. `close()` releases any parent-held
---- resources; idempotent and safe to call after `run`.
+--- resources; idempotent and safe to call after `run`. `net_tier()`
+--- reports which tier backs the `net` policy on this host.
 local record Box
   opts: BoxOptions
   _closed: boolean
   run: function(self: Box, argv: {string}): integer | nil, string
   close: function(self: Box): boolean
+  net_tier: function(self: Box): string
 end
 
 -- Validate structural shape only — we cannot test syscall-level
@@ -145,6 +149,32 @@ local function preflight(opts: BoxOptions): boolean, string
   return true
 end
 
+--- Which tier(s) actually confine a Box's `net` policy on this host,
+--- given its capabilities. Mirrors the same signals
+--- cosmic.quicksand.box.run's clone_flags (the netns isolation) and
+--- workload_setup (the Landlock backstop) branch on, so the answer
+--- matches what run() actually applies without needing to load that
+--- module: `"netns"` when a real network namespace isolates the
+--- workload, `"landlock"` when only the Landlock net tier confines its
+--- outbound TCP to the proxy port, `"netns+landlock"` when both apply
+--- (defense in depth — see NetOptions), `"none"` when no net policy was
+--- requested (or, standalone from preflight, neither tier is
+--- available — preflight refuses that case before run() ever gets
+--- here).
+local function net_tier(opts: BoxOptions, c: types.Capabilities): string
+  local net = opts and opts.net
+  if not net then return "none" end
+  local has_netns = c.net_ns == true
+  -- The Landlock backstop only ever applies alongside the allowlist
+  -- proxy (workload_setup's `proxy_port` is set exactly when net.allow
+  -- is); a net section with no `allow` enforces nothing to report.
+  local has_landlock = net.allow ~= nil and c.landlock_net == true
+  if has_netns and has_landlock then return "netns+landlock" end
+  if has_netns then return "netns" end
+  if has_landlock then return "landlock" end
+  return "none"
+end
+
 local record RunModule
   run: function(opts: BoxOptions, argv: {string}): integer | nil, string
 end
@@ -171,6 +201,17 @@ local function close(self: Box): boolean
   return true
 end
 
+--- Report which tier(s) back this Box's `net` policy on the current
+--- host — see `net_tier` above for the vocabulary. Pure: no syscalls,
+--- callable before or after `run()` (the answer is fully determined by
+--- `opts` and this host's capabilities, so it never changes between
+--- calls on one host).
+---
+--- @return string "netns" | "landlock" | "netns+landlock" | "none"
+local function box_net_tier(self: Box): string
+  return net_tier(self.opts, caps())
+end
+
 --- Build a Box from an options table. Validates structural shape; a
 --- bad `opts` returns nil + error without touching syscalls.
 ---
@@ -185,6 +226,7 @@ local function new(opts?: BoxOptions): Box | nil, string
     _closed = false,
     run = run,
     close = close,
+    net_tier = box_net_tier,
   }
   return j
 end

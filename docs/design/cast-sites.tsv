@@ -131,7 +131,7 @@ cosmic/net/connect.tl	96	function shape
 cosmic/net/socket.tl	334	function shape
 cosmic/net/socket.tl	397	function shape
 cosmic/net/socket.tl	437	function shape
-cosmic/quicksand/box/init.tl	86	runtime capability probe
+cosmic/quicksand/box/init.tl	90	runtime capability probe
 cosmic/quicksand/box/init_test.tl	143	map view of a declared value
 cosmic/quicksand/box/init_test.tl	145	map view of a declared value
 cosmic/quicksand/box/init_test.tl	146	map view of a declared value

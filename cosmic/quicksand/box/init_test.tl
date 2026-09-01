@@ -185,3 +185,74 @@ local function test_net_proceeds_with_landlock_net_only()
       return true
     end)
 end
+
+-- net_tier() reports "none" for a Box with no net policy at all — there
+-- is nothing to name a tier for, regardless of host capabilities.
+local function test_net_tier_none_without_net_policy()
+  local j = check.must(Box.new({}))
+  assert(j:net_tier() == "none",
+    "no net policy should report tier 'none', got: " .. j:net_tier())
+end
+
+-- Isolation tier: net_ns available, Landlock net tier not — net_tier()
+-- must say "netns" alone.
+local function test_net_tier_netns_when_available()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {["example.com:443"] = {}}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = true, landlock_net = false,
+    }, function(): boolean
+      assert(j:net_tier() == "netns",
+        "expected tier 'netns', got: " .. j:net_tier())
+      return true
+    end)
+end
+
+-- Backstop tier: net_ns unavailable, Landlock net tier available —
+-- net_tier() must say "landlock" alone. Mirrors the mechanism
+-- run_test.tl's test_landlock_net_backstop_when_net_ns_unavailable
+-- exercises end to end (a real proxy-port-only connection); this pins
+-- the reporting side of that same scenario without paying for a fork.
+local function test_net_tier_landlock_only_when_net_ns_unavailable()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {["example.com:443"] = {}}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = true,
+    }, function(): boolean
+      assert(j:net_tier() == "landlock",
+        "expected tier 'landlock', got: " .. j:net_tier())
+      return true
+    end)
+end
+
+-- Defense in depth: both tiers available — net_tier() must say both are
+-- active, not just one (this is the case NetOptions' doc comment calls
+-- out: "Both apply together when available").
+local function test_net_tier_both_when_defense_in_depth()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {allow = {["example.com:443"] = {}}}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = true, landlock_net = true,
+    }, function(): boolean
+      assert(j:net_tier() == "netns+landlock",
+        "expected tier 'netns+landlock', got: " .. j:net_tier())
+      return true
+    end)
+end
+
+-- The Landlock backstop only ever fires alongside the allowlist proxy
+-- (workload_setup only applies it when a proxy_port exists, which only
+-- happens when net.allow is set): a net section present but with no
+-- `allow` must not falsely report "landlock" just because the ABI
+-- supports it.
+local function test_net_tier_landlock_requires_allow()
+  if not quicksand.capabilities().linux then return end
+  local j = check.must(Box.new({net = {}}))
+  with_mock_capabilities({
+      linux = true, user_ns = true, net_ns = false, landlock_net = true,
+    }, function(): boolean
+      assert(j:net_tier() == "none",
+        "net section without allow must not report 'landlock', got: " .. j:net_tier())
+      return true
+    end)
+end
