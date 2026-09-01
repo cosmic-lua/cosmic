@@ -6,6 +6,6 @@ return {
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "wave13-1-fsnscensus",
   ["title"] = "cosmopolitan census: unix filesystem namespace operations — 22 nil-admitting bindings",
-  ["verdict"] = "request changes",
-  ["verdict_spec"] = "97a15b185c7c03fd1b2bdd18b689828ed09fc5be9c72b4d255d703a8f3ada489",
+  ["verdict"] = "accept",
+  ["verdict_spec"] = "bafebabd1c60f6fef4b4b445d7d9ddfb579c63b8d9cd10c9e7053200f9564f4a",
 }
