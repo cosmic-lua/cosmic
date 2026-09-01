@@ -211,32 +211,32 @@ local raw_predicates: {string: any} = {
 -- which is where the abbreviations live -- the public record above
 -- shows only the spelled names.
 local statfs_methods: {string: any} = {
-  block_size_bytes = function(self: any): integer
-    return (self as unix.Statfs):bsize() -- cast: userdata boundary
+  block_size_bytes = function(self: unix.Statfs): integer
+    return self:bsize()
   end,
-  fragment_size_bytes = function(self: any): integer
-    return (self as unix.Statfs):frsize() -- cast: userdata boundary
+  fragment_size_bytes = function(self: unix.Statfs): integer
+    return self:frsize()
   end,
-  total_blocks = function(self: any): integer
-    return (self as unix.Statfs):blocks() -- cast: userdata boundary
+  total_blocks = function(self: unix.Statfs): integer
+    return self:blocks()
   end,
-  free_blocks = function(self: any): integer
-    return (self as unix.Statfs):bfree() -- cast: userdata boundary
+  free_blocks = function(self: unix.Statfs): integer
+    return self:bfree()
   end,
-  available_blocks = function(self: any): integer
-    return (self as unix.Statfs):bavail() -- cast: userdata boundary
+  available_blocks = function(self: unix.Statfs): integer
+    return self:bavail()
   end,
-  total_files = function(self: any): integer
-    return (self as unix.Statfs):files() -- cast: userdata boundary
+  total_files = function(self: unix.Statfs): integer
+    return self:files()
   end,
-  free_files = function(self: any): integer
-    return (self as unix.Statfs):ffree() -- cast: userdata boundary
+  free_files = function(self: unix.Statfs): integer
+    return self:ffree()
   end,
-  id = function(self: any): integer, integer
-    return (self as unix.Statfs):fsid() -- cast: userdata boundary
+  id = function(self: unix.Statfs): integer, integer
+    return self:fsid()
   end,
-  max_name_bytes = function(self: any): integer
-    return (self as unix.Statfs):namelen() -- cast: userdata boundary
+  max_name_bytes = function(self: unix.Statfs): integer
+    return self:namelen()
   end,
 }
 

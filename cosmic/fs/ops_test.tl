@@ -346,3 +346,21 @@ local function test_set_umask_round_trips()
   assert(prev == 0, "the previous mask comes back, got " .. tostring(prev))
   fs.set_umask(original)
 end
+
+local function test_statfs_reports_plausible_values()
+  local info = check.must(fs.statfs("."))
+
+  assert(info:block_size_bytes() > 0, "block_size_bytes should be positive")
+  assert(info:fragment_size_bytes() > 0, "fragment_size_bytes should be positive")
+  assert(info:total_blocks() > 0, "total_blocks should be positive")
+  assert(info:free_blocks() <= info:total_blocks(), "free blocks can't exceed total")
+  assert(info:available_blocks() <= info:total_blocks(),
+    "available blocks can't exceed total")
+  assert(info:total_files() >= 0, "total_files should be non-negative")
+  assert(info:free_files() <= info:total_files(), "free files can't exceed total")
+  assert(info:max_name_bytes() > 0, "max_name_bytes should be positive")
+
+  local fsid1, fsid2 = info:id()
+  assert(math.type(fsid1) == "integer", "id()'s first value should be an integer")
+  assert(math.type(fsid2) == "integer", "id()'s second value should be an integer")
+end
