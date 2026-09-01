@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 336,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-0Osh_nsk7-lok152",
   ["title"] = "cosmo.unix: getpgrp cannot fail — retype it exact",
 }
