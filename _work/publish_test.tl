@@ -203,5 +203,3 @@ local function test_an_unreachable_remote_refuses_cleanly()
   assert(not ok, "a sync against an unreadable remote must refuse")
   assert(err ~= store.LOST_RACE, "an unreadable remote is not a race: " .. err)
 end
-
-print("all publish tests passed")
