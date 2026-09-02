@@ -13,7 +13,7 @@ local function Example_handler()
 
   local received: number = 0
   local blockmask = signal.sigset(signal.SIGUSR1)
-  local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
+  local oldmask = check.must(signal.sigprocmask(signal.SIG_BLOCK, blockmask))
 
   local on_usr1 = function(sig: number)
     received = sig

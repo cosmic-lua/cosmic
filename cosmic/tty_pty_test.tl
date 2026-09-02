@@ -220,7 +220,7 @@ local function test_getpass_reads_without_echoing()
   local pty = with_pty()
   local result = fs.join(TEST_TMPDIR, "read_password.out")
 
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     -- Child: adopt the pty as our controlling terminal, so fd 0 is a
     -- tty and read_password takes the echo-suppressing branch.
@@ -277,7 +277,7 @@ local function test_getpass_restores_echo_afterwards()
   local pty = with_pty()
   local result = fs.join(TEST_TMPDIR, "getpass_restore.out")
 
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     if not tty.login_tty(pty.subordinate) then os.exit(1) end
     local pw = tty.read_password("pw: ")
