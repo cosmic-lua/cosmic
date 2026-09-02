@@ -5,7 +5,7 @@ goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
 when a goal holds — and **instruments** — how we see and steer, orthogonal
 to the outcomes they serve. outcomes are ordered, by paired comparison
 ([D25](decisions/d25-outcomes-and-instruments.md), method in
-`skills/work/SKILL.md`): each answer is committed on the board as
+`skills/work/decompose.md`): each answer is committed on the board as
 one `gitboard compare` edge, and the order is DERIVED from those
 comparisons rather than asserted anywhere. the list below is that
 order written out for a reader, so changing it means re-asking the
