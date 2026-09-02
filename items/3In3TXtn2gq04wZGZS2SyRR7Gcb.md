@@ -23,11 +23,13 @@ backup base64 base85 completion`):
 - `recover` doesn't fit either: `shell.c` does inline
   `ext/recover/sqlite3recover.c`/`.h` and `ext/recover/dbdata.c`, but
   `dbdata.c` alone (`sqlite3_dbdata_init`, correct signature, confirmed at
-  `shell.c:20715`) already accounts for the item separately named
+  `shell.c:20716`) already accounts for the item separately named
   `dbdata` in `h38H_4UJ0`'s list. The rest of the recover machinery
   exposes a bespoke public API (`sqlite3_recover
   *sqlite3_recover_init(sqlite3*, const char*, const char*)`,
-  `third_party/sqlite3/sqlite3.c:19560`) — a different return type and
+  declared at `third_party/sqlite3/shell.c:19560` and defined at
+  `:23510` — inside shell.c's inlined `ext/recover/sqlite3recover.c`/
+  `.h` section, NOT in `sqlite3.c`) — a different return type and
   argument list than the registry table requires, so it cannot be
   entered in `kSqliteExtensions[]` at all.
 
