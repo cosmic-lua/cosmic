@@ -119,6 +119,25 @@ local function test_containered_clears_the_locks()
     "the claim and the review clear together")
 end
 
+-- The take refusal counts what awaits a verdict by KIND: a research
+-- handover outranking a take must be named "handover", never "diff"
+-- — the noun `next`'s review reason already gets right (#1625).
+local function test_review_debt_refusal_names_a_handover_not_a_diff()
+  local handed = make_item({claim = "other", builders = "other",
+      result = ("ab"):rep(32)})
+  local taking = make_item()
+  local refusal = gate.review_debt_refusal({handed, taking}, "me", taking)
+  assert(refusal ~= nil, "the handover outranks the todo take")
+  assert(refusal:find("1 handover(s) await a verdict", 1, true) ~= nil,
+    "names it a handover: " .. tostring(refusal))
+  assert(not refusal:find("diff", 1, true),
+    "never calls a handover a diff: " .. refusal)
+  local diffed = make_item({claim = "other", builders = "other", pr = 3})
+  local diff_refusal = gate.review_debt_refusal({diffed, taking}, "me", taking)
+  assert(diff_refusal:find("1 diff(s) await a verdict", 1, true) ~= nil,
+    "a diff's wording is unchanged: " .. tostring(diff_refusal))
+end
+
 -- The distance guard: named on either involvement list refuses,
 -- either half is enough, and an unnamed session is never involved.
 local function test_distance_refusal_covers_builders_and_speccers()

@@ -146,3 +146,30 @@ local function test_a_research_handover_review_cites_no_pr()
   assert(report:find("  " .. lines[#lines], 1, true),
     "`next` prints the handover reading under the action: " .. report)
 end
+
+--- A finish of an accepted handover cites `done`, not a PR to merge —
+--- `done` skips the merge read entirely with no `pr` on the item, so
+--- guidance that told a session to await one would be lying. A diff's
+--- finish notes still cite `pr` and merge; with no item, they stand.
+local function test_a_handovers_finish_notes_cite_no_pr()
+  local handed = check.must(item.decode({id = fresh_id(), title = "a handover",
+        claim = "who", builders = "who", result = ("ab"):rep(32),
+        verdict = "accept"}))
+  local lines = guidance.lines("finish", handed)
+  assert(#lines > 0 and #lines <= MAX_LINES, "within the budget: " .. #lines)
+  for _, line in ipairs(lines) do
+    assert(#line <= guidance.WIDTH, "within the width: " .. line)
+  end
+  local text = table.concat(lines, " ")
+  assert(text:find("`done ID` ends it", 1, true),
+    "the handover reading names done directly: " .. text)
+  assert(not text:find("--pr", 1, true) and not text:find("`pr`", 1, true),
+    "nothing cites the pr field: " .. text)
+  local diff = check.must(item.decode({id = fresh_id(), title = "a diff",
+        claim = "who", pr = 7, verdict = "accept"}))
+  local diff_text = table.concat(guidance.lines("finish", diff), " ")
+  assert(diff_text:find("verifies the PR its `pr` field names", 1, true),
+    "a diff's finish notes still cite the PR: " .. diff_text)
+  assert(table.concat(guidance.lines("finish"), " ") == diff_text,
+    "and with no item, the diff reading stands")
+end

@@ -241,6 +241,12 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   local outcome = "recorded"
   if kind == "accept" then
     outcome = "awaiting merge — land it"
+    -- A handover has no PR to land — `done` skips that read when
+    -- `pr` is 0 — so its accept outcome names the verb that actually
+    -- ends it rather than a merge it will never await.
+    if (it.result or "") ~= "" then
+      outcome = "accepted — `done ID` ends it"
+    end
   elseif kind == "request changes" then
     outcome = "rework — the claimant fixes on the same PR"
   end

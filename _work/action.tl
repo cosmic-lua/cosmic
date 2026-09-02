@@ -172,11 +172,19 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
         -- the hold.
         merge_held = merge_held + 1
       elseif #acts < CANDIDATES then
+        -- A handover has no PR to merge — `done` skips that read when
+        -- `pr` is 0 — so its accepted reason names the verb that
+        -- actually ends it rather than a merge it will never await.
+        local reason = ("%s is accepted, awaiting merge — finishing beats "
+          .. "starting"):format(i.id:sub(1, 8))
+        if (i.result or "") ~= "" then
+          reason = ("%s is accepted — `done ID` ends it"):format(
+            i.id:sub(1, 8))
+        end
         acts[#acts + 1] = {
           kind = "finish",
           item = i,
-          reason = ("%s is accepted, awaiting merge — finishing beats "
-            .. "starting"):format(i.id:sub(1, 8)),
+          reason = reason,
         }
       end
     elseif stage == flow.STAGE_REVIEW then

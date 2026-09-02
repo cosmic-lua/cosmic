@@ -109,8 +109,16 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
         moved = ", spec changed since"
       end
     end
-    out[#out + 1] = ("verdict: %s (head %s%s)"):format(it.verdict,
-      it.verdict_head, moved)
+    -- A handover's verdict carries no head — `verdict` leaves it ""
+    -- for a PR-less item — so the line cites the recorded digest
+    -- where a diff's verdict cites the head it judged.
+    if it.result ~= "" then
+      out[#out + 1] = ("verdict: %s (result %s%s)"):format(it.verdict,
+        it.result:sub(1, 7), moved)
+    else
+      out[#out + 1] = ("verdict: %s (head %s%s)"):format(it.verdict,
+        it.verdict_head, moved)
+    end
   end
   -- Which edges still bind is `flow.binds`, the same predicate
   -- `flow.is_blocked` is built from, so this heading, the `[blocked]`

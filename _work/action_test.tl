@@ -437,3 +437,30 @@ local function test_the_review_reason_names_what_awaits_the_verdict()
   assert(b.reason == "a PR awaits a verdict — verdicts before new work",
     "a diff's reason is unchanged: " .. b.reason)
 end
+
+-- An accepted handover has no PR to merge, so its finish reason names
+-- `done`, not a merge it will never await; an accepted diff's reason
+-- is the one it always was.
+local function test_an_accepted_handovers_finish_reason_names_done()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local accepted = make({parent = root.id, claim = "who", builders = "who",
+      result = ("ab"):rep(32), verdict = "accept"})
+  items[#items + 1] = accepted
+  local a = act.next_action(items, ready_specs(items), "me")
+  assert(a.kind == "finish" and a.item.id == accepted.id, a.kind)
+  assert(a.reason:find("`done ID` ends it", 1, true),
+    "names done directly: " .. a.reason)
+  assert(not a.reason:find("merge", 1, true) and not a.reason:find("PR", 1, true),
+    "and claims no merge: " .. a.reason)
+  local diffs: {Item} = {}
+  local other = placed_root(diffs)
+  local diff = make({parent = other.id, claim = "who", pr = 1,
+      verdict = "accept"})
+  diffs[#diffs + 1] = diff
+  local b = act.next_action(diffs, ready_specs(diffs), "me")
+  assert(b.kind == "finish" and b.item.id == diff.id, b.kind)
+  assert(b.reason == ("%s is accepted, awaiting merge — finishing beats "
+      .. "starting"):format(diff.id:sub(1, 8)),
+    "a diff's reason is unchanged: " .. b.reason)
+end
