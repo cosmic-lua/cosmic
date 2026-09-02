@@ -221,6 +221,20 @@ at the bottom of the order until activated.
   the order and gets eval tasks and win conditions like everything
   else.
 
+## Holding
+
+an outcome graduates here once a VERIFICATION item under it is
+accepted and its root is marked held (`gitboard hold`) — see
+`skills/work/decompose.md` for the procedure. each entry names the
+outcome, the date it was verified, and the VERIFICATION item that
+carries the evidence:
+
+- `### G<n> — <original title>` — held YYYY-MM-DD, verified by
+  `items/<id>` (PR #<n>); the `measured by:` output is quoted there.
+  filing a new item under it reopens it automatically.
+
+nothing is held yet.
+
 ## Instruments
 
 instruments are how we see and steer. they carry win conditions about
