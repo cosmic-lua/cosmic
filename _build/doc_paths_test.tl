@@ -15,10 +15,11 @@
 --
 -- The reasons come in three shapes and the three lists ARE the whole
 -- allowlist: a RULE over the span's text (a glob, a `<name>`
--- placeholder, a build output, the board branch); a HISTORY file whose paths name the tree of its day; a
--- literal SPAN — the reader's example project, a sibling repository, a
--- deletion recorded by name. A stale pointer is fixed in the prose,
--- never excused here, and an excuse nothing needs any more fails too,
+-- placeholder, a build output, the board branch); a HISTORY file
+-- whose paths name the tree of its day; a literal SPAN — the reader's
+-- example project, a sibling repository, a deletion recorded by name.
+-- A stale pointer is fixed in the prose, never excused here, and an
+-- excuse nothing needs any more fails too,
 -- so the lists shrink as readily as they grow.
 
 local check = require("cosmic.check")
