@@ -29,7 +29,7 @@ local function serve(responses: {string}): integer, integer
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
   local port = check.must(s:local_endpoint()).port
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     assert(signal.setitimer({
           which = signal.ITIMER_REAL,
