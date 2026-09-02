@@ -61,8 +61,9 @@ end
 --- at `record`, `interface`, `enum`, `type` and `function` — each opens
 --- a declaration of its own, and each is an IDENTIFIER to the lexer, so
 --- a head that swallowed them as names would run on into the body — and
---- at `macroexp` when a name follows it, the one spelling that declares
---- one (`local macroexp = 1` binds a value called `macroexp`).
+--- at `macroexp` when it sits directly after the `local` with a name
+--- after it, the one spelling that declares one (`local macroexp = 1`
+--- binds a value called `macroexp`; `local a, macroexp` names two).
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the `local` or `global`
 --- @return integer Index of the first token past the head
@@ -73,7 +74,7 @@ local function skip_declaration_head(tokens: {Token}, i: integer): integer
     if t.tk == "record" or t.tk == "interface" or t.tk == "enum"
     or t.tk == "type" or t.tk == "function" then
       return j
-    elseif t.tk == "macroexp" and tokens[j + 1] ~= nil
+    elseif t.tk == "macroexp" and j == i + 1 and tokens[j + 1] ~= nil
     and tokens[j + 1].kind == "identifier" then
       return j
     elseif t.kind == "identifier" or t.tk == "," then
@@ -132,15 +133,45 @@ local function skip_type_alias(tokens: {Token}, i: integer): integer, boolean
   return after, false
 end
 
+--- Whether a token can END an item of a record body: what the grammar
+--- leaves the walk standing after, just before a nested declaration.
+---
+--- An item is the body's header (`record R`, `R<T>`, `is {T}`,
+--- `is A, B`, `userdata`, a `where` expression), a field with its type,
+--- a `type` alias, a nested body or a macroexp closed by `end`. Each
+--- ends on a name, a literal, a closer, `...` or `end`. A `where`
+--- expression is the one item with the whole expression grammar in it,
+--- and a name called `record` at its tail after an operator is not a
+--- declaration — but after a `>` nothing tells a comparison from a
+--- generic's closer, and the closer is the shape the tree writes.
+--- @param t tl.Token The candidate
+--- @return boolean True when an item can end on it
+local function ends_item(t: Token): boolean
+  if t.kind == "identifier" or t.kind == "string"
+  or t.kind == "integer" or t.kind == "number" then
+    return true
+  end
+  if t.kind == "keyword" then
+    return t.tk == "end" or t.tk == "nil" or t.tk == "true" or t.tk == "false"
+  end
+  return t.tk == ">" or t.tk == ">>" or t.tk == ")" or t.tk == "]"
+  or t.tk == "}" or t.tk == "..."
+end
+
 --- Whether `record`/`interface`/`enum` at `i` opens a body rather than
---- naming a value. Each is an identifier to the lexer, so only what
---- follows separates `local record R` and the nested `record Inner`
---- from a field or variable that happens to be called `record` — which
---- is followed by `:`, `=`, `.` or a closer, never by a name.
+--- naming a value. Each is an identifier to the lexer, so a name after
+--- it is necessary but not enough: `t.record` followed by a line that
+--- starts with a name has the same two tokens, and tl reads that as a
+--- field access. The token BEFORE decides, exactly where tl accepts a
+--- declaration: after `local`/`global` (`local record R`), or at item
+--- start inside a `record`/`interface` body (the nested `record Inner`),
+--- which is wherever the previous item ended.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the candidate
+--- @param stack {Frame} The frames open at `i`
 --- @return boolean True when a body follows
-local function opens_body(tokens: {Token}, i: integer): boolean
+local function opens_body(tokens: {Token}, i: integer,
+    stack: {Frame}): boolean
   local t = tokens[i]
   if t.kind ~= "identifier" then
     return false
@@ -153,7 +184,17 @@ local function opens_body(tokens: {Token}, i: integer): boolean
   -- a string when it is an enum, and nothing after it says a body
   -- opens — `skip_type_alias` reports that one from the alias itself.
   local nxt = tokens[i + 1]
-  return nxt ~= nil and (nxt.kind == "identifier" or nxt.tk == "<")
+  if nxt == nil or not (nxt.kind == "identifier" or nxt.tk == "<") then
+    return false
+  end
+  local prev = tokens[i - 1]
+  if prev == nil then
+    return false
+  end
+  if #stack > 0 and stack[#stack].kind == "fields" then
+    return ends_item(prev)
+  end
+  return prev.tk == "local" or prev.tk == "global"
 end
 
 --- Whether `macroexp` at `i` opens a body rather than naming a value.
@@ -164,8 +205,9 @@ end
 --- spellings declare one — `local macroexp NAME(...)`, where a name
 --- follows, and a record field's `= macroexp(...)`, which only a field
 --- body holds. A value that happens to be called `macroexp` is neither:
---- `local macroexp = 1` puts `=` after it, and a call of it never sits
---- after `=` inside a record body.
+--- `local macroexp = 1` puts `=` after it, `t.macroexp` followed by a
+--- line that starts with a name puts `.` before it, and a call of it
+--- never sits after `=` inside a record body.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the candidate
 --- @param stack {Frame} The frames open at `i`
@@ -180,12 +222,14 @@ local function opens_macroexp(tokens: {Token}, i: integer,
   if nxt == nil then
     return false
   end
-  if nxt.kind == "identifier" then
-    return true
-  end
   local prev = tokens[i - 1]
-  return (nxt.tk == "(" or nxt.tk == "<")
-  and prev ~= nil and prev.tk == "="
+  if prev == nil then
+    return false
+  end
+  if nxt.kind == "identifier" then
+    return prev.tk == "local" or prev.tk == "global"
+  end
+  return (nxt.tk == "(" or nxt.tk == "<") and prev.tk == "="
   and #stack > 0 and stack[#stack].kind == "fields"
 end
 
@@ -251,7 +295,7 @@ local function walk(content: string, file: string): Walk
       end
       stack[#stack + 1] = {kind = "fn", lies = lies}
       i = j
-    elseif opens_body(tokens, i) then
+    elseif opens_body(tokens, i, stack) then
       stack[#stack + 1] = {kind = "fields", lies = false}
       i = i + 1
     elseif word and (tk == "do" or tk == "if") then

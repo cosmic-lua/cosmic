@@ -228,6 +228,40 @@ local function test_count_reads_the_innermost_declared_return()
       "end",
       "print(none(1))",
     }, "\n") .. "\n"
+  -- All four declaring words are IDENTIFIERS to the lexer, so a field
+  -- access spelled with one, followed by a line that starts with a
+  -- name, is the same two tokens as a declaration. A tell that reads
+  -- only what FOLLOWS opens a frame here that no `end` ever pops; the
+  -- token before decides, and `.` declares nothing. The controls are
+  -- the shapes the tell must keep opening: a declaration after
+  -- `global`, and the bodies a record nests, each at item start behind
+  -- whatever ended the item before it -- a name, a generic's `>`, an
+  -- `end`.
+  local field_access = table.concat({
+      "local t = {record = 1, enum = 2, interface = 3, macroexp = 4}",
+      "local x = t.macroexp",
+      "print(x)",
+      "local y = t.record",
+      "print(y)",
+      "local z = t.enum",
+      "print(z)",
+      "local w = t.interface",
+      "print(w)",
+      "global record Outer",
+      "  n: integer",
+      "  record Inner",
+      "    m: integer",
+      "  end",
+      "  box: Box<Inner>",
+      "  enum Kind",
+      "    \"a\"",
+      "  end",
+      "  interface Face",
+      "    kind: Kind",
+      "  end",
+      "end",
+      "print(Outer)",
+    }, "\n") .. "\n"
   local quoted = table.concat({
       "local function fine(): string",
       "  local s = \"local function f(): string return nil end\"",
@@ -253,6 +287,7 @@ local function test_count_reads_the_innermost_declared_return()
   assert(fs.write(fs.join(root, "cosmic", "inner.tl"), inner_record))
   assert(fs.write(fs.join(root, "cosmic", "macro.tl"), macro_bodies))
   assert(fs.write(fs.join(root, "cosmic", "mlie.tl"), macro_lying))
+  assert(fs.write(fs.join(root, "cosmic", "access.tl"), field_access))
   assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
   assert(fs.write(fs.join(root, "cosmic", "testdata", "fixture.tl"), lies))
   assert(fs.write(fs.join(root, "untracked", "loose.tl"), lies))
@@ -296,6 +331,9 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/mlie.tl"] == 1,
     "a macroexp opens a frame whose declared slot 1 decides, like a"
     .. " function: " .. tostring(got["cosmic/mlie.tl"]))
+  assert(got["cosmic/access.tl"] == nil,
+    "a field access spelled with a declaring word declares nothing: "
+    .. tostring(got["cosmic/access.tl"]))
   assert(got["cosmic/quoted.tl"] == nil,
     "a return quoted inside a string is not a return")
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")
