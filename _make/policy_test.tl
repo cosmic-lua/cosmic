@@ -202,4 +202,98 @@ local function test_wrote_summary_describes_the_breadth_check()
     "a floor lowers on a rewrite too; the one-way clamp is gone: " .. line)
 end
 
+--- A project root `write_baseline` can run against, built the way a
+--- real `--baseline` finds one: five three-line modules under `lib/`,
+--- one `.cov` under `o/.coverage` measuring them, and a committed floor
+--- the run moves in both directions -- `lib/raised.tl` up (1/3 -> 3/3),
+--- `lib/lowered_a.tl` and `lib/lowered_b.tl` down (3/3 -> 1/3 and
+--- 2/3 -> 1/3), the two `same_*` rows untouched. Two drops of five rows
+--- stays under `corpus_guard`'s half, so the rewrite proceeds.
+--- @param name string Subdirectory of TEST_TMPDIR to build it in
+--- @return string The fixture root
+--- @return Project The scanned project, its modules all under `lib/`
+local function write_baseline_fixture(name: string): string, Project
+  local root = fs.join(tmpdir, name)
+  check.must(fs.remove_all(root))
+  check.must(fs.make_dirs(fs.join(root, "lib")))
+  check.must(fs.make_dirs(fs.join(root, "o", ".coverage")))
+  local files: {types.File} = {}
+  local hits: {string} = {}
+  -- Module stem and how many of its three lines this run covers.
+  local run: {{string, integer}} = {
+    {"raised", 3}, {"lowered_a", 1}, {"lowered_b", 1}, {"same_a", 2}, {"same_b", 3},
+  }
+  for _, m in ipairs(run) do
+    local path = "lib/" .. m[1] .. ".tl"
+    check.must(fs.write(fs.join(root, path),
+        "local x = 1\nlocal y = 2\nreturn x + y\n"))
+    files[#files + 1] = {path = path, kind = "module"}
+    local lines: {string} = {}
+    for line = 1, m[2] do
+      lines[#lines + 1] = "[" .. line .. "]=1"
+    end
+    hits[#hits + 1] = '["@' .. path .. '"]={' .. table.concat(lines, ",") .. "}"
+  end
+  check.must(fs.write(fs.join(root, "o/.coverage/run.cov"),
+      "return {version=1,hits={" .. table.concat(hits, ",") .. "}}"))
+  check.must(fs.write(fs.join(root, policy.BASELINE), baseline_fixture({
+          {"lib/raised.tl", 1, 3}, {"lib/lowered_a.tl", 3, 3},
+          {"lib/lowered_b.tl", 2, 3}, {"lib/same_a.tl", 2, 3}, {"lib/same_b.tl", 3, 3},
+        })))
+  return root, {root = root, binaries = {}, files = files}
+end
+
+-- The two seams above are positional integers -- `narrate_moves`
+-- returns (lines, raised, lowered) and `wrote_summary` takes (lowered,
+-- raised) -- so the checker cannot tell a swap at either call site from
+-- the right order, and the unit tests, which feed each seam known
+-- inputs, stay green while a real run prints inverted counts. This is
+-- the run: floor on disk, `.cov` on disk, `write_baseline` itself, with
+-- one row raised and two lowered, counts chosen unequal so a swap at
+-- either seam reads "1 row(s) lowered, 2 raised" and fails here.
+local function test_write_baseline_prints_each_move_and_unequal_counts()
+  local root, proj = write_baseline_fixture("policy-write-baseline")
+  local captured = fs.join(root, "stdout.txt")
+  local cwd = check.must(fs.cwd())
+  check.must(fs.set_cwd(root))
+  local out, oerr = io.open(captured, "w")
+  assert(out, oerr)
+  io.output(out)
+  local code = policy.write_baseline(proj)
+  io.output(io.stdout)
+  out:close()
+  check.must(fs.set_cwd(cwd))
+  local printed = check.must(fs.read(captured))
+  assert(code == 0, "the rewrite must succeed, got " .. code .. ":\n" .. printed)
+
+  local raises: {string} = {}
+  local lowers: {string} = {}
+  for line in printed:gmatch("[^\n]+") do
+    local raised = line:match("^coverage: baseline RAISES (.*)$")
+    if raised then raises[#raises + 1] = raised end
+    local lowered = line:match("^coverage: baseline LOWERS (.*)$")
+    if lowered then lowers[#lowers + 1] = lowered end
+  end
+  assert(table.concat(raises, "; ") == "lib/raised.tl 33.3% -> 100.0% (1/3 -> 3/3)",
+    "exactly the one raised row, labeled RAISES, got: " ..
+    table.concat(raises, "; ") .. "\n" .. printed)
+  assert(table.concat(lowers, "; ") ==
+    "lib/lowered_a.tl 100.0% -> 33.3% (3/3 -> 1/3); " ..
+    "lib/lowered_b.tl 66.7% -> 33.3% (2/3 -> 1/3)",
+    "exactly the two lowered rows, labeled LOWERS, got: " ..
+    table.concat(lowers, "; ") .. "\n" .. printed)
+  assert(not printed:find("same_", 1, true),
+    "an unmoved row must not be narrated:\n" .. printed)
+  assert(printed:find("coverage: wrote " .. policy.BASELINE ..
+      " (2 row(s) lowered, 1 raised;", 1, true),
+    "the summary must count 2 lowered then 1 raised, in that order:\n" .. printed)
+
+  local floor = check.must(baseline.parse(
+      check.must(fs.read(fs.join(root, policy.BASELINE)))))
+  local row = floor.rows["lib/raised.tl"]
+  assert(row and row.covered == 3 and row.total == 3,
+    "the floor must hold what this run measured, got " ..
+    (row and (row.covered .. "/" .. row.total) or "missing"))
+end
+
 print("all policy tests passed")
