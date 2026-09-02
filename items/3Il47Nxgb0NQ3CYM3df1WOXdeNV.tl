@@ -1,4 +1,5 @@
 return {
+  ["base"] = "board",
   ["block_reason"] = {["3IivjobsJTu07aDTR3KISwvQilj"] = "the result field and its substate land with #1624"},
   ["blocked_by"] = "3IivjobsJTu07aDTR3KISwvQilj",
   ["builders"] = "wave6-lok152-1WOX",
