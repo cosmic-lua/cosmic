@@ -5,5 +5,6 @@ return {
   ["id"] = "3Ildy4fplJy2mKfJEgGh38H4UJ0",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["speccers"] = "c3166793-5886-5fa0-8f44-66f7df2ae6f2",
   ["title"] = "sqlite extension registry: extract the remaining fifteen ext/misc units in three batches",
 }
