@@ -25,8 +25,8 @@ local params_open = returns.params_open
 
 --- One open block: what closes on the matching `end`.
 local record Frame
-  --- "fn" for a function definition, "fields" for a record, interface
-  --- or enum body, "block" for anything else.
+  --- "fn" for a function or macroexp definition, "fields" for a
+  --- record, interface or enum body, "block" for anything else.
   kind: string
   --- For a "fn" frame: its declared slot 1 cannot be nil.
   lies: boolean
@@ -60,7 +60,9 @@ end
 --- from presenting its inner `function` as a definition. The walk stops
 --- at `record`, `interface`, `enum`, `type` and `function` — each opens
 --- a declaration of its own, and each is an IDENTIFIER to the lexer, so
---- a head that swallowed them as names would run on into the body.
+--- a head that swallowed them as names would run on into the body — and
+--- at `macroexp` when a name follows it, the one spelling that declares
+--- one (`local macroexp = 1` binds a value called `macroexp`).
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the `local` or `global`
 --- @return integer Index of the first token past the head
@@ -70,6 +72,9 @@ local function skip_declaration_head(tokens: {Token}, i: integer): integer
     local t = tokens[j]
     if t.tk == "record" or t.tk == "interface" or t.tk == "enum"
     or t.tk == "type" or t.tk == "function" then
+      return j
+    elseif t.tk == "macroexp" and tokens[j + 1] ~= nil
+    and tokens[j + 1].kind == "identifier" then
       return j
     elseif t.kind == "identifier" or t.tk == "," then
       j = j + 1
@@ -151,6 +156,39 @@ local function opens_body(tokens: {Token}, i: integer): boolean
   return nxt ~= nil and (nxt.kind == "identifier" or nxt.tk == "<")
 end
 
+--- Whether `macroexp` at `i` opens a body rather than naming a value.
+---
+--- A macroexp is a function in every way the walk cares about: a
+--- parameter list, a declared return list that can lie about nil, and
+--- a body closed by `end`. It is an identifier to the lexer, and two
+--- spellings declare one — `local macroexp NAME(...)`, where a name
+--- follows, and a record field's `= macroexp(...)`, which only a field
+--- body holds. A value that happens to be called `macroexp` is neither:
+--- `local macroexp = 1` puts `=` after it, and a call of it never sits
+--- after `=` inside a record body.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the candidate
+--- @param stack {Frame} The frames open at `i`
+--- @return boolean True when a body follows
+local function opens_macroexp(tokens: {Token}, i: integer,
+    stack: {Frame}): boolean
+  local t = tokens[i]
+  if t.kind ~= "identifier" or t.tk ~= "macroexp" then
+    return false
+  end
+  local nxt = tokens[i + 1]
+  if nxt == nil then
+    return false
+  end
+  if nxt.kind == "identifier" then
+    return true
+  end
+  local prev = tokens[i - 1]
+  return (nxt.tk == "(" or nxt.tk == "<")
+  and prev ~= nil and prev.tk == "="
+  and #stack > 0 and stack[#stack].kind == "fields"
+end
+
 --- One walk of a file: the lines holding a `return nil` whose innermost
 --- enclosing function DECLARES a slot 1 that cannot be nil, and whether
 --- the frame stack that found them balanced.
@@ -171,6 +209,9 @@ end
 --- type position — an annotation, a return list, `as`, `is`, an alias,
 --- a record field — is consumed whole by the parser above, and a
 --- `function` the walk still LANDS on is a definition by construction.
+--- A `macroexp` is the same body under another name — a parameter
+--- list, a return list that can lie, an `end` — and opens the same
+--- frame, read the same way.
 --- Reading it backwards instead charges an enclosing function's honest
 --- `return nil` to a frame no `end` ever pops.
 ---
@@ -198,7 +239,7 @@ local function walk(content: string, file: string): Walk
     local t = tokens[i]
     local tk = t.tk
     local word = t.kind == "keyword"
-    if word and tk == "function" then
+    if (word and tk == "function") or opens_macroexp(tokens, i, stack) then
       local open = params_open(tokens, i)
       local after = open > 0 and skip_balanced(tokens, open, "(", ")") or 0
       local lies = false

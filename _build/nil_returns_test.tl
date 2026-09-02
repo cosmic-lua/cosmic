@@ -202,6 +202,32 @@ local function test_count_reads_the_innermost_declared_return()
       "end",
       "print(build())",
     }, "\n") .. "\n"
+  -- `macroexp` is a function under another name -- a parameter list, a
+  -- declared return list, a body closed by `end` -- and an IDENTIFIER
+  -- to the lexer. A head that swallows it as a name opens no frame, so
+  -- its `end` pops whatever is beneath it: the record around a method,
+  -- or nothing at module scope. Both spellings must balance.
+  local macro_bodies = table.concat({
+      "local macroexp twice(x: integer): integer",
+      "  return x * 2",
+      "end",
+      "local record Shape",
+      "  n: integer",
+      "  area: function(self: Shape): integer = macroexp(self: Shape): integer",
+      "    return self.n * self.n",
+      "  end",
+      "end",
+      "local s: Shape = {n = 3}",
+      "print(twice(s:area()))",
+    }, "\n") .. "\n"
+  -- And it lies about nil exactly like a function: the declared slot 1
+  -- decides, whichever word opened the body.
+  local macro_lying = table.concat({
+      "local macroexp none(_x: integer): integer",
+      "  return nil",
+      "end",
+      "print(none(1))",
+    }, "\n") .. "\n"
   local quoted = table.concat({
       "local function fine(): string",
       "  local s = \"local function f(): string return nil end\"",
@@ -225,6 +251,8 @@ local function test_count_reads_the_innermost_declared_return()
   assert(fs.write(fs.join(root, "cosmic", "value.tl"), value_named_record))
   assert(fs.write(fs.join(root, "cosmic", "call.tl"), real_after_comma))
   assert(fs.write(fs.join(root, "cosmic", "inner.tl"), inner_record))
+  assert(fs.write(fs.join(root, "cosmic", "macro.tl"), macro_bodies))
+  assert(fs.write(fs.join(root, "cosmic", "mlie.tl"), macro_lying))
   assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
   assert(fs.write(fs.join(root, "cosmic", "testdata", "fixture.tl"), lies))
   assert(fs.write(fs.join(root, "untracked", "loose.tl"), lies))
@@ -261,6 +289,13 @@ local function test_count_reads_the_innermost_declared_return()
     "a value bound under the name `record` opens no body, so the return"
     .. " below its function is nobody's: "
     .. tostring(got["cosmic/value.tl"]))
+  assert(got["cosmic/macro.tl"] == nil,
+    "a local macroexp and a record method macroexp each declare their"
+    .. " returns honestly, so neither counts: "
+    .. tostring(got["cosmic/macro.tl"]))
+  assert(got["cosmic/mlie.tl"] == 1,
+    "a macroexp opens a frame whose declared slot 1 decides, like a"
+    .. " function: " .. tostring(got["cosmic/mlie.tl"]))
   assert(got["cosmic/quoted.tl"] == nil,
     "a return quoted inside a string is not a return")
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")
