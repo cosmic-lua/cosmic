@@ -207,7 +207,7 @@ local function test_files_iterator()
   local found: {string: boolean} = {}
 
   for filepath in check.must(fs.find_iter(walk_dir, {glob = "*.lua"})) do
-    found[fs.basename(filepath)] = true
+    found[fs.basename(check.must(filepath))] = true
   end
 
   assert(found["file1.lua"], "expected file1.lua")
@@ -316,7 +316,7 @@ end
 
 -- abspath tests
 
-local cwd = fs.cwd()
+local cwd = check.must(fs.cwd())
 
 local function test_abspath_relative()
   local result = fs.absolute_path("foo")
