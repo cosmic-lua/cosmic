@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 351,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-1IRu-lok152",
   ["title"] = "tool/lua/BUILD.mk: a .ok test rule that loses its @touch re-runs forever and no gate notices",
 }
