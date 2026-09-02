@@ -25,7 +25,7 @@
 ---   cosmic --make run _work/gitboard.tl spec 2akQ SPEC.md
 ---   cosmic --make run _work/gitboard.tl show [2akQ]
 ---   cosmic --make run _work/gitboard.tl next [--session S]
----   cosmic --make run _work/gitboard.tl take 2akQ [--pr 42]
+---   cosmic --make run _work/gitboard.tl take 2akQ [--pr 42 | --result]
 ---   cosmic --make run _work/gitboard.tl drop 2akQ --why "wave agent died"
 ---   cosmic --make run _work/gitboard.tl verdict 2akQ accept [--pr N]
 ---   cosmic --make run _work/gitboard.tl done 2akQ [--reason not-planned]
@@ -186,13 +186,16 @@ local CSPEC: flags.CommandSpec = {
         flags = {dir_flag()}}},
     {name = "take", summary = "claim ID: the pull (spec bar and doing "
       .. "bound apply), its review when it awaits a verdict, or record "
-      .. "its PR",
+      .. "its handover (--pr N for a diff, --result for a research spec)",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "session", arg = "SESSION",
             help = "the claiming session. Omit to derive it from the "
             .. "environment"},
           {long = "pr", arg = "N",
             help = "record the PR that hands the build over for review"},
+          {long = "result", help = "record the research handover: the "
+            .. "spec as it stands is the deliverable, awaiting a verdict. "
+            .. "The claim holder's own motion; never with --pr"},
           {long = "force", help = "take over another session's LIVE claim "
             .. "(a stale one needs no force), or skip the take gates"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
@@ -215,9 +218,12 @@ local CSPEC: flags.CommandSpec = {
             help = "the dropping session. Omit to derive it from the "
             .. "environment"},
           {long = "force", help = "drop another session's live claim"}}}},
-    {name = "verdict", summary = "record a review verdict; its effect follows",
+    {name = "verdict", summary = "record a review verdict on a PR or a "
+      .. "research handover (`take --result`); its effect follows",
       spec = {usage = "ID KIND [options]", flags = {dir_flag(),
-          {long = "pr", arg = "N", help = "the PR the verdict judges"},
+          {long = "pr", arg = "N", help = "the PR the verdict judges; a "
+            .. "research handover has none — omit --pr and --head, the "
+            .. "verdict judges the spec revision the handover recorded"},
           {long = "head", arg = "SHA", help = "head commit it judges"},
           {long = "session", arg = "SESSION",
             help = "the reviewing session; it rides in the commit "
@@ -399,7 +405,8 @@ local function main(...: string): integer
     local pr = math.tointeger(tonumber(d.parsed.values["pr"] or "0")) or 0
     local who = session.resolve(d.parsed.values["session"])
     return verbs.cmd_take(s, id, who, pr,
-      d.parsed.switches["force"], d.parsed.values["why"] or "")
+      d.parsed.switches["force"], d.parsed.values["why"] or "",
+      d.parsed.switches["result"])
   end
   if d.command == "drop" then
     local who = session.resolve(d.parsed.values["session"])
