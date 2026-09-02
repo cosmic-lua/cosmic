@@ -4,16 +4,23 @@
 -- `store.LOST_RACE` — never a replay of a commit whose preconditions
 -- the winner may have falsified. The re-run is the verb's, and it
 -- decides afresh against the merged board — where every gate,
--- the doing bound included, is re-applied.
+-- the doing bound included, is re-applied. The ready bar's owner
+-- rule on an item's own `repo` is the second half of this file; the
+-- write-time half of the same rule is `_work/gitowner_test.tl`.
 
 local check = require("cosmic.check")
+local fs = require("cosmic.fs")
 local fixture = require("_work.fixture")
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local gitspec = require("_work.gitspec")
+local graph = require("_work.gitgraph")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local owner = require("_work.gitowner")
 local publish = require("_work.publish")
 local store = require("_work.store")
+local verbs = require("_work.gitverbs")
 
 local init_shared = fixture.init_shared
 local init_state_repo = fixture.init_state_repo
@@ -146,4 +153,86 @@ local function test_second_claim_refusal_scopes_to_other_open_claims()
     "symmetric for the other session")
   assert(gate.second_claim_refusal(s, all, unclaimed.id, "nobody-yet") == nil,
     "a session with no live claim anywhere is free to take")
+end
+
+local ACCESS_SPEC < const > = fixture.READY_SPEC
+.. "## Access\n- whilp/cosmopolitan (the fork the diff deliberately targets)\n"
+
+--- A spec sidecar with the given body, through the spec verb.
+local function write_spec(s: store.Store, id: string, name: string,
+    body: string)
+  local path = fs.join(fixture.tmpdir, ("owner-%s.md"):format(name))
+  assert(fs.write(path, body))
+  assert(gitspec.cmd_spec(s, id, path) == 0, "spec should be accepted")
+end
+
+--- A workable, placed, specced leaf whose `repo` was written the way
+--- stale data got there — straight into the file, past the verbs —
+--- on a board that reads its origin as `cosmic-lua/cosmic`.
+local function foreign_leaf(name: string, body: string): store.Store, string
+  local s = init_shared("owner-" .. name)
+  fixture.github_origin(s, "cosmic-lua/cosmic")
+  local _, leaf = fixture.root_with_leaf(s)
+  write_spec(s, leaf, name, body)
+  local it = check.must(store.load(s, leaf))
+  it.repo = "whilp/cosmopolitan"
+  assert(store.save(s, it, "fixture: a repo written before the rule"))
+  return s, leaf
+end
+
+-- The item's own `repo` under a foreign owner is a ready-bar problem
+-- naming the field, the value and the repair, and the take is refused.
+local function test_a_foreign_owner_repo_misses_the_bar()
+  local s, leaf = foreign_leaf("foreign", fixture.READY_SPEC)
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 1, "one problem: " .. table.concat(problems, "; "))
+  assert(problems[1]:find("repo: whilp/cosmopolitan", 1, true)
+    and problems[1]:find(("gitboard set %s --repo cosmic-lua/cosmopolitan")
+      :format(leaf:sub(1, 8)), 1, true),
+    "the problem names the value and the repair: " .. problems[1])
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") ~= 0,
+    "and the take is refused")
+  assert(check.must(store.load(s, leaf)).claim == "", "nothing was written")
+end
+
+-- The same owner as the board passes, whatever the repository's name.
+local function test_a_same_owner_repo_passes_the_bar()
+  local s, leaf = foreign_leaf("same", fixture.READY_SPEC)
+  assert(graph.cmd_set(s, leaf, nil, "cosmic-lua/cosmopolitan", nil) == 0,
+    "the repair the problem names is accepted")
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 0, "a same-owner repo is no problem: "
+    .. table.concat(problems, "; "))
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
+    "and the take proceeds")
+end
+
+-- The deliberate cross-owner case: the spec names the slug under
+-- `## Access`, and the field is accepted as stated.
+local function test_a_foreign_owner_declared_under_access_passes_the_bar()
+  local s, leaf = foreign_leaf("declared", ACCESS_SPEC)
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 0, "a declared cross-owner repo is no problem: "
+    .. table.concat(problems, "; "))
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
+    "and the take proceeds")
+end
+
+-- A board with no GitHub origin has no owner to compare against and
+-- skips the rule — the local-only waiver the handover gate uses.
+local function test_a_board_with_no_origin_skips_the_owner_rule()
+  local s = init_state_repo("owner-local")
+  local _, leaf = fixture.root_with_leaf(s)
+  write_spec(s, leaf, "local", fixture.READY_SPEC)
+  local it = check.must(store.load(s, leaf))
+  it.repo = "whilp/cosmopolitan"
+  assert(store.save(s, it, "fixture: a repo on a local-only board"))
+  assert(owner.board_owner(s) == nil, "no origin, no owner")
+  local problems = gate.ready_problems(s, check.must(store.load(s, leaf)),
+    check.must(store.list(s)))
+  assert(#problems == 0, "nothing to compare against: "
+    .. table.concat(problems, "; "))
 end

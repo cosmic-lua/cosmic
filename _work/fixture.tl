@@ -86,6 +86,26 @@ local function init_shared(name: string): store.Store, store.Store
   return out[1], out[2]
 end
 
+--- Point a store's origin at GitHub for READING while its pushes keep
+--- landing where they did: `url` becomes the https form of `slug`, so
+--- `gh.slug(s, nil)` resolves the board's owner, and `pushurl` keeps
+--- the local bare path a clone from `init_shared` already publishes
+--- to. Opt-in — a fixture that never asks about the owner is
+--- unchanged — and applied to a clone, never to a local-only store:
+--- `publish` fetches only after a rejected push, so nothing here
+--- ever reaches the network.
+--- @param s store.Store A store cloned from a local bare remote
+--- @param slug string The `owner/name` the board is to read as its own
+local function github_origin(s: store.Store, slug: string)
+  local r = check.must(child.run({"git", "remote", "get-url", "origin"},
+      {cwd = s.root}))
+  assert(r.ok, "the store has an origin to keep pushing to: " .. r.stderr)
+  local bare = (r.stdout:gsub("%s+$", ""))
+  git(s.root, {"remote", "set-url", "origin",
+      ("https://github.com/%s.git"):format(slug)})
+  git(s.root, {"remote", "set-url", "--push", "origin", bare})
+end
+
 --- File an item through `new` and return its id. A KSUID orders by
 --- its one-second timestamp, so items minted inside the same second
 --- sort by their random half — "the newest item" is not something a
@@ -155,6 +175,7 @@ local record fixture
   git: function(cwd: string, argv: {string})
   init_state_repo: function(name: string): store.Store
   init_shared: function(name: string): store.Store, store.Store
+  github_origin: function(s: store.Store, slug: string)
   file_item: function(s: store.Store, title: string,
   parent: string): string
   commits: function(s: store.Store): integer
@@ -169,6 +190,7 @@ local M: fixture = {
   git = git,
   init_state_repo = init_state_repo,
   init_shared = init_shared,
+  github_origin = github_origin,
   file_item = file_item,
   commits = commits,
   commit_author_email = commit_author_email,

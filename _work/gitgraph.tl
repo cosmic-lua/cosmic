@@ -24,6 +24,7 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local owner = require("_work.gitowner")
 local prio = require("_work.priority")
 local store = require("_work.store")
 
@@ -35,7 +36,8 @@ local store = require("_work.store")
 --- @param title string The item's title
 --- @param parent string The parent id, or "" to file it without one
 --- @param spec string | nil Sidecar prose to write, or nil to write none
---- @param repo string The item's repo field; nil becomes ""
+--- @param repo string The item's repo field; nil becomes "". Refused
+--- under a foreign owner unless `spec` names it under `## Access`
 --- @return integer 0 on success, 1 otherwise
 local function cmd_new(s: store.Store, title: string, parent: string,
     spec: string | nil, repo: string): integer
@@ -60,6 +62,13 @@ local function cmd_new(s: store.Store, title: string, parent: string,
   local bad = item.problems(it)
   if #bad > 0 then
     return gate.verdict_line("new", false, table.concat(bad, "; "))
+  end
+  -- The owner rule binds at the write, so a foreign `repo` never
+  -- enters the board: the spec being filed alongside is where an
+  -- `## Access` escape would be read from.
+  local foreign = owner.repo_problem(s, it.repo, spec or "", "")
+  if foreign then
+    return gate.verdict_line("new", false, "REFUSED: " .. foreign)
   end
   -- No gate: a filed child always enters `todo`, which is unbounded
   -- by design — the queue intake writes into can always accept,
@@ -317,6 +326,10 @@ local function cmd_set(s: store.Store, id: string, title: string | nil,
       return gate.verdict_line("set", false,
         "REFUSED: --repo cannot be empty — clearing it is not supported; "
         .. "set --repo <owner>/<name> to change it")
+    end
+    local foreign = owner.repo_problem(s, repo, store.read_spec(s, id), id)
+    if foreign then
+      return gate.verdict_line("set", false, "REFUSED: " .. foreign)
     end
     it.repo = repo
     fields[#fields + 1] = "repo"

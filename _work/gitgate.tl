@@ -13,6 +13,7 @@ local gh = require("_work.gh")
 local flow = require("_work.flow")
 local health = require("_work.health")
 local item = require("_work.item")
+local owner = require("_work.gitowner")
 local prio = require("_work.priority")
 local publish = require("_work.publish")
 local review = require("_work.review")
@@ -400,8 +401,9 @@ end
 
 --- The problems that keep an item from being taken: it must be
 --- workable, placed in the priority order, its spec must fill the
---- spec-bar sections, and its own chain must be traceable. The one
---- list `check` reports and `take` enforces.
+--- spec-bar sections, its own chain must be traceable, and its
+--- `repo` must be somewhere a claiming session can land a diff. The
+--- one list `check` reports and `take` enforces.
 --- @param s store.Store The store
 --- @param it item.Item The item
 --- @param all {item.Item} Every item
@@ -438,6 +440,13 @@ local function ready_problems(s: store.Store, it: item.Item,
     out[#out + 1] = ("spec reaches %s with no declared read access — name "
       .. "it under \"## Access\"; undeclared, it strands the claim now "
       .. "and the review just as surely"):format(repo)
+  end
+  -- The item's own `repo` is exempt above because it is where the diff
+  -- lands — which is exactly why it must be somewhere the claiming
+  -- session can land one (`_work.gitowner`).
+  local foreign = owner.repo_problem(s, it.repo, body, it.id)
+  if foreign then
+    out[#out + 1] = foreign
   end
   return out
 end
