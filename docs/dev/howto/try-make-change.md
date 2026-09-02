@@ -2,7 +2,7 @@
 
 steps to exercise a change to `_make/` or `_cli/build/` on a small
 project before the full gate, for a contributor editing the build
-engine. `../../reference/make.md` has the verbs and the project model;
+engine. [docs/reference/make.md](../../reference/make.md) has the verbs and the project model;
 [../explanation/make/README.md](../explanation/make/README.md) has the
 design.
 
@@ -13,8 +13,8 @@ has its own root, so the repo's model never sees it.
 
 | fixture | exercises |
 |---|---|
-| `hello` | the smallest project: one entry, `cmd/hello/main.tl`, and an artifact that runs |
-| `pkg` | import path is position: `greet/init.tl` is `require("greet")`, `greet/loud.tl` is `require("greet.loud")` |
+| `hello` | the smallest project: one entry, `_make/testdata/hello/cmd/hello/main.tl`, and an artifact that runs |
+| `pkg` | import path is position: `_make/testdata/pkg/greet/init.tl` is `require("greet")`, `_make/testdata/pkg/greet/loud.tl` is `require("greet.loud")` |
 | `multi` | two binaries from one tree; each `cmd/<name>/` ships the root packages plus its own subtree |
 | `luaonly` | `.lua` sources are first-class; no `.tl` anywhere |
 | `assets` | payload under `embed/` ships; `README.md` and `testdata/` do not |

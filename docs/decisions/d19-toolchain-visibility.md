@@ -62,7 +62,7 @@
   replaced):** Part 2's stated premise — "the strip floor forces the
   toolchain modules under `cosmic/`" — was checked against the actual
   boot chain and is factually wrong for most of the family. The
-  stripped boot chain is `embed/init.tl` → `searcher.tl` → (optional)
+  stripped boot chain is `cmd/cosmic/main.tl` → `searcher.tl` → (optional)
   `teal.tl`; it touches nothing else. Meanwhile `format`, `example`
   and `coverage.lines` hard-`require("tl")` at load, so they CANNOT
   run in a stripped artifact — they were dead payload the floor

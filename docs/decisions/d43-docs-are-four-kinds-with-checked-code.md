@@ -4,7 +4,7 @@
 - **status:** active
 - **context:** the prose docs grew as one directory of "guides", each
   written for whatever question was pressing when it was opened.
-  `docs/guides/make.md` reached 498 lines and carried a verb table, the
+  the make guide reached 498 lines and carried a verb table, the
   rationale for convergence, the project-model table, validator
   messages, an environment-variable reference and a coverage essay in
   one scroll; `checking.md` mixed a Teal type primer, the narrowing

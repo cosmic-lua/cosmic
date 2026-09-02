@@ -62,7 +62,7 @@
     to coordinate many people across teams before implementation
     starts. here a record lands in the pull request that implements it
     and is reviewed by the same planner review every change gets
-    (`skills/work/review.md`), so three of the six states are ones no
+    (`_work/doctrine.tl`), so three of the six states are ones no
     record could ever be observed in.
   - **MADR's template** — YAML frontmatter, decision drivers, a
     pros/cons block per option. more ceremony per record than these

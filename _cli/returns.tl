@@ -40,9 +40,12 @@
 --- genuinely is not yours to know.
 ---
 --- Token-exact, via the lexer, so a signature quoted inside a string
---- or a doc comment never counts. The type grammar parsed here is the
---- return-list subset: unions, table types, generics, dotted names,
---- parenthesized lists, varargs, and nested function types.
+--- or a doc comment never counts. A signature opens at the `function`
+--- keyword, or at a `macroexp` that declares one — an identifier to the
+--- lexer, with the same parameter list and return list behind it. The
+--- type grammar parsed here is the return-list subset: unions, table
+--- types, generics, dotted names, parenthesized lists, varargs, and
+--- nested function types.
 
 local style = require("_tool.lint")
 local tl = require("tl")
@@ -238,12 +241,12 @@ end
 
 --- Index of the `(` opening a function's parameter list.
 ---
---- Only a name and a generic list may sit between `function` and `(`,
---- and only on the same line — otherwise a BARE `function` type
---- (`handler: function`) would scan forward and adopt the parameter
---- list of some later declaration.
+--- Only a name and a generic list may sit between `function` (or
+--- `macroexp`) and `(`, and only on the same line — otherwise a BARE
+--- `function` type (`handler: function`) would scan forward and adopt
+--- the parameter list of some later declaration.
 --- @param tokens {tl.Token} The file's tokens
---- @param i integer Index of the `function` keyword
+--- @param i integer Index of the `function` keyword or `macroexp`
 --- @return integer Index of the `(`, or 0 when there is none
 local function params_open(tokens: {Token}, i: integer): integer
   local line = tokens[i].y
@@ -266,6 +269,37 @@ local function params_open(tokens: {Token}, i: integer): integer
   return 0
 end
 
+--- Whether `macroexp` at `i` opens a signature rather than naming a
+--- value.
+---
+--- A macroexp declares a return list the way a function does, and the
+--- return it declares is the one its callers see. It is an IDENTIFIER
+--- to the lexer, so a scan keyed on the `function` keyword never reads
+--- it. Two spellings declare one: `local macroexp NAME(...)`, where a
+--- name follows, and a record field's `= macroexp(...)`. A value that
+--- happens to be called `macroexp` is neither: `local macroexp = 1`
+--- puts `=` after it, and a call of it, `= macroexp(1)`, has no `:`
+--- after its argument list for a return list to follow.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the candidate
+--- @return boolean True when a signature follows
+local function opens_macroexp(tokens: {Token}, i: integer): boolean
+  local t = tokens[i]
+  if t.kind ~= "identifier" or t.tk ~= "macroexp" then
+    return false
+  end
+  local nxt = tokens[i + 1]
+  if nxt == nil then
+    return false
+  end
+  if nxt.kind == "identifier" then
+    return true
+  end
+  local prev = tokens[i - 1]
+  return (nxt.tk == "(" or nxt.tk == "<")
+  and prev ~= nil and prev.tk == "="
+end
+
 --- Every declared return list that puts a slot past the error.
 --- @param file string Path, for the diagnostic
 --- @param content string The file's bytes
@@ -277,7 +311,8 @@ local function check_fallible_returns(file: string, content: string): {Diagnosti
   end
   local diagnostics: {Diagnostic} = {}
   for i, t in ipairs(tokens) do
-    if t.tk == "function" and t.kind == "keyword" then
+    if (t.tk == "function" and t.kind == "keyword")
+    or opens_macroexp(tokens, i) then
       local open = params_open(tokens, i)
       local after = open > 0 and skip_balanced(tokens, open, "(", ")") or 0
       if after > 0 and tokens[after] and tokens[after].tk == ":" then

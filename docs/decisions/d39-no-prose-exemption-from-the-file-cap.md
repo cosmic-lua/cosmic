@@ -3,15 +3,15 @@
 - **date:** 2026-08
 - **status:** active
 - **context:** `--check lint`'s file-length rule holds every file the
-  project walk sees to ≤500 lines, `.md` included (`docs/guides/lint.md`),
+  project walk sees to ≤500 lines, `.md` included (`docs/reference/lint.md`),
   and AGENTS.md is itself one of the files it gates.
   Its `## Language and Conventions` section had grown to 175 lines — 82–256,
   36% of the file's own 491 — across four blocks, and most of that length
   was restatement, not rule: a 14-row `cosmo`→`cosmic` mapping table
   duplicating what `cosmic --docs <module>` already serves per module, a
-  worked `is_main()` code block duplicating the one in `docs/guides/index.md`,
+  worked `is_main()` code block duplicating the one in `docs/howto/import-modules.md`,
   and narrowing/`check.must`/`is`/cast/`find-needle` walkthroughs duplicating
-  `docs/guides/checking.md`, `gotchas.md`, and `lint.md`. G9
+  `docs/howto/narrow-nil.md`, `type-errors.md`, and `lint.md`. G9
   (`docs/goals.md`) measures "AGENTS.md doctrine size" release over release
   and expects it to trend down; a doc that is exempt from the cap that
   measures it has no floor pushing back on that growth, and the owner's

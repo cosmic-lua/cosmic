@@ -19,7 +19,7 @@ builds every binary from. `/zip/.args` holds the default command line.
 ## why the zip root is the module root
 
 a module's import path is its path relative to the project root:
-`cosmic/fs.tl` is `require("cosmic.fs")`. inside the artifact the same
+`cosmic/fs/init.tl` is `require("cosmic.fs")`. inside the artifact the same
 rule holds with the zip root in place of the project root, so
 `require("cosmic.fs")` resolves to `/zip/cosmic/fs.lua`. one rule
 covers build time and run time, and the layout is derived, never

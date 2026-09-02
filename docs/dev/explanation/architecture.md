@@ -14,7 +14,7 @@ declarations, the doc index and the help text travel as one file that
 runs on six operating systems.
 
 the zip root is the module root. that is the same rule the repository
-follows, so `require("cosmic.fs")` resolves to `cosmic/fs.tl` in the
+follows, so `require("cosmic.fs")` resolves to `cosmic/fs/init.tl` in the
 tree and to `/zip/cosmic/fs.lua` in the artifact, and a module's
 position needs no second declaration to ship. names that are not
 modules carry a leading dot (`.types/`, `.docs/`, `.tl/`), which keeps

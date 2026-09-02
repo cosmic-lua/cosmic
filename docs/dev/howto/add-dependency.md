@@ -95,4 +95,4 @@ the pin, the way `3p/tl/tl_patch/` does for the Teal checker.
    `fetch` re-verifies it the way it re-verifies the digest.
 
 [bump-pin.md](bump-pin.md) has the steps for moving a pin later.
-`../../reference/make.md` has the `fetch` verb beside the others.
+[docs/reference/make.md](../../reference/make.md) has the `fetch` verb beside the others.

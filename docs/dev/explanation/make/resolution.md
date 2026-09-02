@@ -192,7 +192,7 @@ validated project's closure, and a footgun for anyone else who finds
 the API.
 
 the sharp edge, stated: in this repo a test of `cosmic.fs` runs
-against the tree's `cosmic/fs.lua`, not the binary's. that is what
+against the tree's `o/cosmic/fs/init.lua`, not the binary's. that is what
 you want, and it is also how a broken `cosmic.fs` breaks the thing
 running the test. it is bounded by being per child: the engine keeps
 running on its own payload, and only the spawned test sees the tree.

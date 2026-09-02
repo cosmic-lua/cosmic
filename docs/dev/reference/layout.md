@@ -86,7 +86,7 @@ counts what the tree carries against
 | `testdata/` | fixtures; never embedded |
 | `*.d.tl` | type-only; on the include path, never embedded, and exempt from the 500-line cap |
 
-`../../reference/make.md` has the full project model.
+[docs/reference/make.md](../../reference/make.md) has the full project model.
 
 ## `o/`
 
@@ -111,7 +111,7 @@ path.
 | file | declares |
 |---|---|
 | `cosmo.d.tl` | the top-level `require("cosmo")` surface |
-| `cosmo/unix.d.tl`, `path`, `getopt`, `lsqlite3`, `re`, `argon2`, `zip`, `repl`, `cov` | one `cosmo.<module>` each, from `definitions.lua` in the pinned cosmos `lua` |
+| `o/_types/types_gen/cosmo/unix.d.tl`, `path`, `getopt`, `lsqlite3`, `re`, `argon2`, `zip`, `repl`, `cov` | one `cosmo.<module>` each, from `definitions.lua` in the pinned cosmos `lua` |
 | `tl.d.tl` | the narrowed public Teal compiler API, from the pinned tl source |
 
 ## the binary's `/zip`
