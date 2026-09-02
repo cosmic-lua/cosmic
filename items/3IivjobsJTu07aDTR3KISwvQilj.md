@@ -1,76 +1,106 @@
-## Finding
+## Evidence
 
-`gitboard brief review ID` refuses for a claimed, PR-less research
-item whose recommendation has already been applied — even though
-`_work/doctrine.tl`'s own `review` topic text states plainly: "A
-research item takes the same verdicts, re-running its recorded checks
-in place of a diff... there is no PR to fetch, so `verdict` judges the
-claim and the spec revision instead."
+`gitboard brief review ID` refuses a claimed, PR-less research item
+whose recommendation has been applied, and `next` never surfaces one
+as awaiting a verdict — while `_work/doctrine.tl`'s review topic
+(lines 260-265 at board `8e9a9619`) says a research item "takes the
+same verdicts ... there is no PR to fetch, so `verdict` judges the
+claim and the spec revision instead", and the orchestrate topic
+(299-313) says applying the recommendation "leaves the item claimed
+and PR-less, ready for a verdict".
 
-## Symptom
+Measured 2026-09-01 on four applied research slices (`YloP_x1CX`,
+`YAQq_Fsja`, `aPvf_Gezb`, `7Gbq_90xl`, children of `3IQtgMjy`):
 
 ```
 $ gitboard brief review YloP_x1CX
 gitboard-brief: 3IR2U42t has no PR recorded — the handover (`take 3IR2U42t --pr N`) is what a review judges
 ```
 
-for an item whose spec was already replaced with a `## Result` section
-(the orchestrator's applied research recommendation), leaving it
-claimed and PR-less, exactly the state the doctrine's own research-slice
-clause describes as "ready for a verdict."
+and `gitboard next` offered a todo pull with all four claimed.
 
-## Provenance
+Where the tool stands (board `8e9a9619`):
 
-Discovered 2026-09-01 orchestrating a `/work` wave: four research
-slices (`YloP_x1CX`, `YAQq_Fsja`, `aPvf_Gezb`, `7Gbq_90xl`, all
-children of `3IQtgMjycyFrxa8xT2ZqwOHfdJl`) each finished with a
-recommendation, had it applied (`gitboard spec` with the recommended
-`## Result` text, plus `gitboard new`/`set`/`block` for each drafted
-capture), and were left claimed and PR-less per the orchestrate
-doctrine's own instructions — expecting them to be reviewable per
-`review.md`'s research-slice clause. `brief review` refused all four
-with the same "no PR recorded" message. `gitboard next` also does not
-surface any of the four as awaiting a verdict — it goes straight to
-offering the next todo pull, as if a PR-less claimed item is invisible
-to the review queue entirely.
+- `_work/brief.tl:81-85`: `cmd_brief` refuses `review` when
+  `(it.pr or 0) == 0`. Its own message names the cause exactly: the
+  handover is what a review judges, and a research item has no
+  handover verb — `take --pr N` is the only one.
+- `_work/flow.tl:66-76` `substate`: an item is "review" only when
+  `pr ~= 0`; a claimed PR-less item is "building" whatever happened to
+  it, so `_work/action.tl:184-196`'s review rung never sees it.
+- `_work/gitverdict.tl:127-130,171-177`: `verdict` ALREADY handles a
+  PR-less item — no head to verify, `verdict_head` stays empty, the
+  already-judged guard degrades to the spec revision (`verdict_spec`).
+  So the verdict half works; only the handover and its two readers
+  are missing.
+- `_work/gitverbs.tl:386-395` `done`: a PR-less item with a non-empty
+  `builders` and no accept is refused without a verdict — the
+  reference condition; it needs no change.
+
+The fields alone cannot tell "research applied, awaiting a verdict"
+from "builder mid-flight": both are claimed, PR-less, `builders`
+non-empty (the apply flow is `drop` → `spec` → `take` again, because
+`spec` refuses a live claim). A PR-side item gets its tell from
+`take --pr N`; the research side needs the same verb shape.
 
 ## Change
 
-To be scoped at refinement. The gap has (at least) two parts, and the
-fix likely needs both:
+Board-tooling change on the `board` branch of cosmic-lua/cosmic, as a
+PR against base `board`, one handover for research mirroring the PR
+one:
 
-1. `_work/gitverbs.tl`'s `brief` command (whatever function backs
-   `cmd_brief`/`KIND_LIST`'s `review` branch) currently gates on `it.pr
-   ~= 0` before emitting a review brief; it should also accept a
-   claimed item with no PR but at least one entry in `builders`
-   (mirroring the exact condition `_work/gitverbs.tl`'s `done` verb
-   already uses — see its comment: "A PR-less item that was ever
-   worked is evidence mid-review the same way... this keys on
-   `builders`... rather than the LIVE claim"). The review brief text
-   itself would then need a research-specific branch (no diff/PR to
-   fetch; re-run the spec's own recorded probe commands instead, per
-   `_work/brieftext.tl`'s existing `RESEARCH` template as a model for
-   how a research-specific brief already reads).
-2. Whatever priority function backs `next`'s "review outranks pull"
-   ordering does not currently treat a claimed, PR-less, `builders`-
-   nonempty item as a pending review — it should, so the standing
-   orchestrator loop's "drain reviews first" step actually surfaces
-   these instead of silently skipping straight to new pulls.
+1. `_work/item.tl`: a `result: string` field — the sha256 of the spec
+   sidecar at handover (the same digest `verdict_spec` records), empty
+   when unset. `problems` reports an item carrying both `pr ~= 0` and
+   `result ~= ""` (a deliverable is a diff or board state, never
+   both), and `result` on an item with no `builders` (a handover with
+   no work).
+2. `_work/gitverbs.tl` (`take`): `take ID --result` records the
+   handover — refused unless the caller holds the live claim (same
+   rule as `--pr`), refused when `pr ~= 0`; it stores the current
+   spec's digest and clears any standing `verdict` the way `--pr`
+   re-opens one for a new head. `take ID --pr N` on an item with
+   `result` set is refused symmetrically.
+3. `_work/flow.tl` `substate`: `result ~= ""` ranks as "review"
+   exactly as `pr ~= 0` does, so `next`'s review rung, the take gate
+   ("diff(s) await a verdict") and `show` all see it — one change at
+   the one declaration, no reader edited.
+4. `_work/brief.tl` + `_work/brieftext.tl`: `brief review` accepts an
+   item with `result ~= ""` and emits a `RESEARCH_REVIEW` template —
+   the spec verbatim, no PR/diff to fetch, the instruction to re-run
+   every probe the spec records and to judge the spec revision and
+   the captures it names (`new`/`attach`/`block` landed on the board),
+   and the same verdict command without `--pr`/`--head`. The
+   PR-based `REVIEW` template is untouched.
+5. `_work/gitverdict.tl`: for an item with `result ~= ""`, refuse when
+   the spec's current digest differs from `result` (the spec moved
+   after handover — hand it over again), the same shape as the
+   head-moved refusal for PRs; otherwise the existing PR-less path
+   records `verdict_spec` as today.
+6. Tests: `_work/gitverbs_test.tl` (take `--result` accepts on a live
+   claim, refuses without one and with a PR; `--pr` refuses with a
+   result), `_work/flow_test.tl` (substate review for a result
+   item), `_work/action_test.tl` (next offers the review ahead of a
+   todo pull), `_work/gitverdict_test.tl` (spec-moved refusal),
+   `_work/item_test.tl` (both problems), plus a `brief review` case
+   on a result item. Runner mode. `help take`, `help verdict` and the
+   doctrine's review/orchestrate lines that describe the research
+   handover name `take ID --result` where they now say "leaves the
+   item claimed and PR-less".
 
 ## Non-goals
 
-- Do not change `done`'s existing PR-less-verdict-required refusal
-  logic (`_work/gitverbs.tl` around the "evidence-only item takes a
-  verdict too" comment) — that logic is already correct and is the
-  reference this fix should match, not touch.
-- Do not change the PR-based review flow in any way.
+- No change to `done`'s PR-less refusal (`_work/gitverbs.tl:386-395`).
+- No change to the PR-based review flow or the `REVIEW` template.
+- No retroactive handover for the four items in Evidence; the
+  orchestrator hands them over with the new verb after this lands.
 
 ## Acceptance
 
-- `gitboard brief review ID` succeeds for a claimed, PR-less item with
-  a non-empty `builders` list, emitting a research-appropriate review
-  brief (re-run the spec's own probe commands; no diff to fetch).
-- `gitboard next` surfaces such an item ahead of a todo pull, the same
-  way it currently surfaces a PR awaiting a verdict.
-- A fixture modeled on this session's four real items (or a synthetic
-  equivalent) exercises both halves of the fix.
+- On a fixture item claimed by S with a spec: `take ID --result
+  --session S` → `show` reports `awaiting review`; `next --session T`
+  offers it as a review ahead of a todo pull; `brief review ID` emits
+  the research template with no unfilled `<PR_*>` placeholder;
+  `verdict ID accept --session T` records `verdict_spec`; editing the
+  spec between handover and verdict is refused.
+- `bin/cosmic --make ci` on the board branch ends `ci: PASS`.
