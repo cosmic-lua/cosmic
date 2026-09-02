@@ -1,6 +1,8 @@
 return {
   ["block_reason"] = {["3IjRZi3mc1TW31yGcE7e615d4Lc"] = "the demo fix follows the sigaction table shape landing in #338"},
   ["blocked_by"] = "3IjRZi3mc1TW31yGcE7e615d4Lc",
+  ["builders"] = "wave2-lok152-FhYf",
+  ["claim"] = "wave2-lok152-FhYf",
   ["id"] = "3IkR1A4eyhghYOIgxQBFhYfOcXT",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
