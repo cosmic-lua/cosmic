@@ -3,5 +3,6 @@ return {
   ["claim"] = "wave9-0d2b3e13-9794-4836-8792-92a108937a25-wKJb",
   ["id"] = "3IkoLdmJvBjUx5sJXF9wKJbQ00X",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
+  ["pr"] = 1636,
   ["title"] = "spawned-binary tests keep a stale PASS record across an engine edit: _make/fixtures_test.tl's prerequisites never include o/bin/cosmic",
 }
