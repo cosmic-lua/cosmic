@@ -81,7 +81,7 @@ local function test_listen_accept_connect()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     -- Child: connect to server
     local raw_client = net.socket()
@@ -345,7 +345,7 @@ local function test_accept_socket_has_close_metamethod()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local raw_client = net.socket()
     if not raw_client then os.exit(1) end
@@ -392,7 +392,7 @@ local function test_listen_tcp_dial_returned_port()
   assert(port > 0, "expected non-zero port")
 
   -- Fork: child connects and sends, parent accepts and reads
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local raw_csock = net.dial("127.0.0.1", port)
     if not raw_csock then
