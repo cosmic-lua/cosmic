@@ -36,7 +36,7 @@ local function serve(responses: {string}): integer, integer
   local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
   local port = check.must(s:local_endpoint()).port
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     for _, resp in ipairs(responses) do
       local conn = s:accept()
@@ -160,7 +160,7 @@ local function test_redirect_followed_reports_final_url()
   local s = check.must(srv, "listen_tcp failed")
   local port2 = check.must(s:local_endpoint()).port
   local final_url = "http://127.0.0.1:" .. math.tointeger(port2) .. "/final"
-  local pid2 = proc.fork()
+  local pid2 = check.must(proc.fork())
   if pid2 == 0 then
     for i = 1, 2 do
       local conn = s:accept()
@@ -193,7 +193,7 @@ local function test_opts_table_not_mutated()
   local s = check.must(srv, "listen_tcp failed")
   local port = check.must(s:local_endpoint()).port
   local redirect_url = "http://127.0.0.1:" .. math.tointeger(port) .. "/after"
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     for i = 1, 2 do
       local conn = s:accept()
