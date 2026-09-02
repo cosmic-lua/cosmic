@@ -7,9 +7,8 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 347,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-D2Gt-lok152-r2",
   ["title"] = "lunix.c: the per-binding shape comments drift from definitions.lua the same way help.txt did, and nothing gates them",
-  ["verdict"] = "request changes",
-  ["verdict_head"] = "aefa1c667daa985cd27a8a9213aa4f7670c87bd0",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "3d246f7ecc4ed8aa8d2b0e48f3230f457e703ef1",
   ["verdict_spec"] = "cb9a2df576ca7f21ccde495f499b78bf3bfb62c4e71e8bb5eef3e131f3d64b25",
 }
