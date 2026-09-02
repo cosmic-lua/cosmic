@@ -5,5 +5,6 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 362,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "MODE=cov: the .gcda writer does not merge across the ~65 test processes, so the per-file line numbers are the last process's only",
 }
