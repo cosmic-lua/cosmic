@@ -79,3 +79,11 @@ fix-up here. `.cosmic-coverage` is written only by `--make coverage
   `check: PASS (67 files)` with no `unused function` warning
   (measured under the new pin on 2026-09-02).
 - `bin/cosmic --version` reports cosmos 2026.08.31-6dfa6728a, Lua 5.5.
+
+## Access
+
+Read access to `cosmic-lua/cosmic` (the release asset the new pin
+names, and `main`'s `bin/cosmic.pin` it is copied from) and to
+`whilp/cosmic` (the host of the CURRENT pin's release asset, read only
+to confirm the old sha256 before replacing it). Nothing is written to
+either; the PR lands on this repository's `board` branch.
