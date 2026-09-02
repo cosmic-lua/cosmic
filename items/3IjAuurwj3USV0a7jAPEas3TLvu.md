@@ -101,3 +101,87 @@ class those decisions already cover; only `embed_extract_tree`
 cleared its own band and earns a bisect. Not touching
 `.github/workflows/release.yml` itself — nothing here suggests the
 workflow is wrong.
+
+## Verdict — recorded 2026-09-02: NOISE, dismissed with evidence
+
+`embed_extract_tree` does not reproduce a regression outside CI.
+Step 2's branch applies: no bisect was run, no follow-up item filed.
+P69O_Pzc2 unblocks as "noise, dismissed with evidence."
+
+**Method.** Built `a5b36f4a` (baseline) and `3c80edca` (the release
+window's tip — the actual "current" CI compared; `origin/main` has
+moved 24 commits further since and was deliberately not used, since
+that would not reproduce CI's comparison) in separate worktrees via
+`bin/cosmic --make fetch && bin/cosmic --make build`
+(`3p/cosmos/cosmos_pin.tl` is unchanged across the whole window, so
+this rebuilds the exact runtime the release used). Both builds'
+`_perf` binary-hash labels matched the CI log byte-for-byte — base
+`c02f8b1c77cd`, current `d61bb400a80c` — confirming every measurement
+below targets the precise artifacts run 33501918861 compared, not
+stand-ins.
+
+**Same-binary (A/A) self-check**
+(`o/bin/cosmic --make run _perf/gate.tl selfcheck A.json B.json --only embed`):
+
+| binary | pair | delta | self noise band |
+|---|---|---|---|
+| base `c02f8b1c77cd` | 104.20ms → 113.52ms | **+8.9%** | ±11.5% |
+| cur `d61bb400a80c` | 83.34ms → 103.60ms | **+24.3%** | ±12.2% |
+
+Both same-binary swings meet or exceed CI's own reported +15.8% and
+its ±14.4% band — an UNMODIFIED binary alone reproduces a bigger
+swing against itself than what CI flagged as a real cross-binary
+regression.
+
+**Cross-binary, interleaved A/B** (base/cur/base/cur/…, per
+`measurement.md`'s interleaving discipline,
+`o/bin/cosmic --make run _perf/run.tl --only embed`):
+
+| pair | base | cur | delta |
+|---|---|---|---|
+| 1 | 92.71ms | 102.28ms | +10.3% |
+| 2 | 75.70ms | 77.91ms | +2.9% |
+| 3 | 98.73ms | 79.54ms | **-19.4%** (cur faster) |
+| 4 | 76.80ms | 79.45ms | +3.4% |
+
+Sign flips across interleaved pairs — the signature of noise, not a
+masked real effect: a real regression holds direction under
+interleaving even when its magnitude wobbles.
+
+**Aggregate** (12 raw readings per binary — block-sequential runs +
+selfcheck + interleaved, well past "at least 3 times each"): base
+median 80.29ms (range 75.70–113.52), cur median 81.12ms (range
+77.83–105.96) — **median delta +1.0%**, far under either binary's
+own self-noise.
+
+**Code-diff review** (secondary confirmation — no mechanism found).
+`embed_extract_tree`'s measured `fn` is only `embed.extract` →
+`cosmic/zip.tl`'s `extract_entries` (`ensure_dir`/`fs.make_dirs`/
+`fs.join`/`fs.dirname`/`fs.set_mode`, `archive:save`). None of the 8
+commits touch `cosmic/zip.tl` or `cosmic/embed/*.tl`. `b614c62d` (fs
+.visit d_type/lazy-stat, the leading suspect named above) touches
+only `cosmic/fs/walk.tl` and `cosmic/fs/find.tl` — `embed.write`'s
+`collect_dir` (used only in the scenario's `setup`, not the timed
+`fn`) walks via raw `unix.opendir`, not `fs.visit`, so even the
+untimed setup path is unaffected. The four sandbox/quicksand commits
+touch only `cosmic/sandbox/**`/`cosmic/quicksand/**`, neither of
+which `embed.extract` calls (no subprocess, no sandbox in this
+scenario's path). `54d754f1` only bumps the bootstrap trust-root pin
+(`bin/cosmic.pin`); the resulting artifacts hashed byte-identical to
+CI's, so no code-gen drift entered there either. There is no
+plausible code-level mechanism in this window for a real regression
+in `embed_extract_tree`.
+
+**Environment caveat** (does not change the verdict). Measurement ran
+in a shared container (`/proc/loadavg` ~8–9 on 4 cores throughout, no
+`cpupower`/cpufreq governor control available), not the quiet,
+pinned machine `measurement.md` calls for. This likely inflates the
+absolute noise magnitudes above versus a dedicated box, but only
+reinforces the verdict: even under contention the two binaries'
+distributions fully overlap and interleaved comparisons flip sign,
+which is what noise looks like, not what a masked-but-real
+regression looks like.
+
+**Conclusion**: this reproduces the same false-red class D34/D35
+already accept for `http_stream_read_1mb` and `fs_barf_slurp_64k`.
+No bisect was warranted or run. No follow-up item is filed.
