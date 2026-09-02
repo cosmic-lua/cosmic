@@ -7,12 +7,19 @@
 --- chooses an action is also the thing that explains it: a kind
 --- cannot be added to the ordering and left without an explanation,
 --- because `_work/guidance_test.tl` asks the enumeration for its
---- kinds and demands one for each.
+--- kinds and demands one for each. One kind reads differently by
+--- what the item it names delivers — a review of a research
+--- handover (`result`) records its verdict with no PR to cite — so a
+--- kind may carry a second note set the item selects.
 ---
 --- Pure — no git, no filesystem, no network — and deliberately
 --- terse. `next` is read once a session, so what is here is what the
 --- tool can state as FACT; the judgment a person or agent brings to
 --- the action stays in the `work` skill.
+
+local item = require("_work.item")
+
+local type Item = item.Item
 
 --- The text width guidance is fitted to: the house 90 columns less
 --- the two-space indent `next` prints it under.
@@ -88,6 +95,23 @@ local NOTES < const >: {string: {string}} = {
   },
 }
 
+--- The notes for a kind when the item it names is a research
+--- handover: its deliverable is the spec at the recorded revision,
+--- so the verdict cites no PR and no head. A kind absent here reads
+--- the same for a handover as for a diff.
+local HANDOVER_NOTES < const >: {string: {string}} = {
+  ["review"] = {
+    "Claim it first — `take ID` on an item awaiting a verdict locks the spec "
+    .. "before you read a line; a claim idle past the hour lease is anyone's "
+    .. "again.",
+    "No diff to gate: judge the spec at the revision `result` records against "
+    .. "the evidence it cites, then "
+    .. "`verdict ID <accept|request-changes|reject> --session <you>`.",
+    "The verdict comes from a fresh-context reviewer that never held the "
+    .. "build; no session accepts its own work.",
+  },
+}
+
 --- `text` folded at spaces into lines of at most `width` characters.
 --- A word longer than the width takes a line to itself rather than
 --- being broken mid-word.
@@ -115,11 +139,17 @@ end
 
 --- The guidance for one action kind, folded to the width `next`
 --- prints it at and ready to be indented. Empty for a kind carrying
---- none, so a caller renders nothing rather than a blank block.
+--- none, so a caller renders nothing rather than a blank block. The
+--- item the action names selects the handover reading of a kind
+--- when it carries a `result`; without an item, the diff reading.
 --- @param kind string The action kind
+--- @param it item.Item | nil The item the action names, when it names one
 --- @return {string} The display lines, empty when the kind is unknown
-local function lines(kind: string): {string}
+local function lines(kind: string, it?: Item): {string}
   local notes = NOTES[kind]
+  if it ~= nil and (it.result or "") ~= "" and HANDOVER_NOTES[kind] ~= nil then
+    notes = HANDOVER_NOTES[kind]
+  end
   if notes == nil then
     return {}
   end
@@ -135,7 +165,7 @@ end
 local record guidance
   WIDTH: integer
   wrap: function(text: string, width: integer): {string}
-  lines: function(kind: string): {string}
+  lines: function(kind: string, it?: Item): {string}
 end
 
 local M: guidance = {

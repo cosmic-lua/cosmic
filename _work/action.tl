@@ -189,10 +189,18 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
       and not health.is_review_stale(i, ages) then
         reviewing = reviewing + 1
       elseif #acts < CANDIDATES then
+        -- What awaits the verdict is a diff or a spec, never both
+        -- (`item.problems`), and the reason names which so the
+        -- reviewer reaches for the right one.
+        local awaiting = "a PR"
+        if (i.result or "") ~= "" then
+          awaiting = "a research handover"
+        end
         acts[#acts + 1] = {
           kind = "review",
           item = i,
-          reason = "a PR awaits a verdict — verdicts before new work",
+          reason = ("%s awaits a verdict — verdicts before new work"):format(
+            awaiting),
         }
       end
     elseif stage == flow.STAGE_REWORK or stage == flow.STAGE_BUILDING then

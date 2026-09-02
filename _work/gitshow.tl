@@ -88,6 +88,12 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
     out[#out + 1] = ("reviewer: %s"):format(it.reviewer)
   end
   if it.pr ~= 0 then out[#out + 1] = ("pr: #%d"):format(it.pr) end
+  -- A research handover's deliverable is the spec at a revision, so
+  -- the digest prints where a diff's PR number would: the seven hex
+  -- the log line and a verdict's `--head` carry.
+  if it.result ~= "" then
+    out[#out + 1] = ("result: %s"):format(it.result:sub(1, 7))
+  end
   if it.verdict ~= "" then
     -- A verdict judges a head AND the spec that head is measured
     -- against, so the head alone cannot answer the question a
