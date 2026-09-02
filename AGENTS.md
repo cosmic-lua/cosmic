@@ -311,6 +311,20 @@ o/bin/cosmic --make example             # run Example_* functions
 o/bin/cosmic --make benchmark           # run every *_benchmark.tl
 ```
 
+**The `.cosmic-coverage` floor is recorded in one environment, not
+yours**: CI's `ci` lane in `.github/workflows/pr.yml` — a digest-pinned
+`buildpack-deps:noble` container, run `--privileged`, built and gated as
+the non-root `builder` user, network-fenced to loopback after `fetch`.
+Coverage is environment-sensitive (`cosmic/coverage/SENSITIVITY.md`):
+root vs. non-root, Landlock, Linux namespaces, a real tty, a free port,
+and even which compiler built the binary under test all move rows,
+sometimes by 2x. `--make coverage --baseline` therefore **refuses**
+anywhere `COSMIC_COVERAGE_ENV=1` is not set — that lane sets it for
+itself; a developer's machine never should. Move the one row your
+change actually affects by hand-editing its `covered`/`total` pair in
+`.cosmic-coverage` directly; a whole-floor rewrite is only for the
+recording environment itself.
+
 test files use a simple assertion pattern:
 ```teal
 local str = require("cosmic.string")

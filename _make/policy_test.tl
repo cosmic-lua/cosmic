@@ -8,6 +8,7 @@
 
 local baseline = require("_tool.coverage.baseline")
 local check = require("cosmic.check")
+local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local policy = require("_make.policy")
 local types = require("_make.types")
@@ -243,6 +244,71 @@ local function write_baseline_fixture(name: string): string, Project
   return root, {root = root, binaries = {}, files = files}
 end
 
+--- The current value of `COSMIC_COVERAGE_ENV`, to hand to
+--- `restore_coverage_env` once a test that flips it is done -- so the
+--- marker cannot leak into a later test.
+--- @return string | nil The value before a test changes it
+local function save_coverage_env(): string | nil
+  return env.get("COSMIC_COVERAGE_ENV")
+end
+
+--- Restore `COSMIC_COVERAGE_ENV` to what `save_coverage_env` saw.
+--- @param saved string | nil The saved value; nil means it was unset
+local function restore_coverage_env(saved: string | nil)
+  if saved then
+    assert(env.set("COSMIC_COVERAGE_ENV", saved, true))
+  else
+    assert(env.unset("COSMIC_COVERAGE_ENV"))
+  end
+end
+
+-- The recording-environment marker itself: unset (or anything but the
+-- exact recording value) reads as "not the recording environment", the
+-- exact value reads as "is".
+local function test_is_recording_env_reads_the_marker()
+  local saved = save_coverage_env()
+  assert(env.unset("COSMIC_COVERAGE_ENV"))
+  assert(not policy.is_recording_env(), "unset must not be the recording env")
+  assert(env.set("COSMIC_COVERAGE_ENV", "0", true))
+  assert(not policy.is_recording_env(), "'0' must not be the recording env")
+  assert(env.set("COSMIC_COVERAGE_ENV", policy.RECORDING_ENV_VALUE, true))
+  assert(policy.is_recording_env(), "the exact marker value must be the recording env")
+  restore_coverage_env(saved)
+end
+
+-- The guard this item adds: outside the recording environment,
+-- `write_baseline` refuses rather than rewriting the floor with
+-- whatever THIS machine measured -- the bug report's 173 unrelated
+-- rows. The floor on disk must be untouched, the exit code nonzero, and
+-- the refusal must name the escape hatches (hand-edit one row; set
+-- COSMIC_COVERAGE_ENV from the recording environment) rather than just
+-- failing silently.
+local function test_write_baseline_refuses_outside_recording_env()
+  local root, proj = write_baseline_fixture("policy-write-baseline-refused")
+  local before = check.must(fs.read(fs.join(root, policy.BASELINE)))
+  local cwd = check.must(fs.cwd())
+  check.must(fs.set_cwd(root))
+  local captured = fs.join(root, "stderr.txt")
+  local real_stderr = io.stderr
+  io.stderr = assert(io.open(captured, "w"))
+  local saved = save_coverage_env()
+  assert(env.unset("COSMIC_COVERAGE_ENV"))
+  local code = policy.write_baseline(proj)
+  restore_coverage_env(saved)
+  io.stderr:close()
+  io.stderr = real_stderr
+  check.must(fs.set_cwd(cwd))
+  local printed = check.must(fs.read(captured))
+
+  assert(code ~= 0, "a refusal must be a nonzero exit code")
+  assert(printed:find("COSMIC_COVERAGE_ENV", 1, true),
+    "the refusal must name the escape hatch: " .. printed)
+  assert(printed:find("hand-edit", 1, true),
+    "the refusal must point at hand-editing the one row: " .. printed)
+  local after = check.must(fs.read(fs.join(root, policy.BASELINE)))
+  assert(after == before, "a refused rewrite must not touch " .. policy.BASELINE)
+end
+
 -- The two seams above are positional integers -- `narrate_moves`
 -- returns (lines, raised, lowered) and `wrote_summary` takes (lowered,
 -- raised) -- so the checker cannot tell a swap at either call site from
@@ -250,7 +316,11 @@ end
 -- inputs, stay green while a real run prints inverted counts. This is
 -- the run: floor on disk, `.cov` on disk, `write_baseline` itself, with
 -- one row raised and two lowered, counts chosen unequal so a swap at
--- either seam reads "1 row(s) lowered, 2 raised" and fails here.
+-- either seam reads "1 row(s) lowered, 2 raised" and fails here. Runs
+-- as the recording environment (`save_coverage_env` /
+-- `restore_coverage_env`) -- outside it `write_baseline` now refuses
+-- before ever reaching this code, covered by
+-- `test_write_baseline_refuses_outside_recording_env` above.
 local function test_write_baseline_prints_each_move_and_unequal_counts()
   local root, proj = write_baseline_fixture("policy-write-baseline")
   local captured = fs.join(root, "stdout.txt")
@@ -259,7 +329,10 @@ local function test_write_baseline_prints_each_move_and_unequal_counts()
   local out, oerr = io.open(captured, "w")
   assert(out, oerr)
   io.output(out)
+  local saved = save_coverage_env()
+  assert(env.set("COSMIC_COVERAGE_ENV", policy.RECORDING_ENV_VALUE, true))
   local code = policy.write_baseline(proj)
+  restore_coverage_env(saved)
   io.output(io.stdout)
   out:close()
   check.must(fs.set_cwd(cwd))
