@@ -1,10 +1,10 @@
 return {
   ["base"] = "board",
   ["builders"] = "wave9-vw5h-meta",
-  ["claim"] = "wave9-vw5h-meta",
   ["id"] = "3IlIvjaZzuYcnrxR1E9Vw5h1szQ",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1639,
+  ["resolution"] = "completed",
   ["title"] = "take refusal, accept outcome, finish note and show's verdict line still speak PR-only for a research handover (after #1625)",
   ["verdict"] = "accept",
   ["verdict_head"] = "556741de644b6a45a709419eecd53a08d5be4218",
