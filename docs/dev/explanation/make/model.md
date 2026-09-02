@@ -152,7 +152,7 @@ o/<unit>/embed_gen/base       what it carries it on: the runtime
 
 `embed/` here is the generated half of the committed `embed/`
 convention. both land at the same place, and nothing downstream can
-tell which was which. `base` exists because the alternative is
+tell which is which. `base` exists because the alternative is
 embedding onto the cosmic running the build, and stripping a base
 drops zip entries without reclaiming their bytes; a cosmic built on a
 cosmic grows by its own payload every generation. a project that pins

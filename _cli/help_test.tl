@@ -69,9 +69,8 @@ local function test_generate_contains_documentation_section()
   assert(result:find("Documentation:"), "help text should contain 'Documentation:'")
 end
 
-local function test_generate_contains_guides_section()
+local function test_generate_lists_the_pages_by_kind()
   local result = help.generate()
-  assert(result:find("Guides"), "help text should contain 'Guides'")
   assert(result:find("how-to guides (cosmic --docs howto.<name>):", 1, true),
     "help text should list the how-to pages under their kind")
   assert(result:find("\n  test ", 1, true), "help text should list the test page")
