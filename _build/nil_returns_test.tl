@@ -236,7 +236,7 @@ local function test_count_reads_the_innermost_declared_return()
   -- the shapes the tell must keep opening: a declaration after
   -- `global`, and the bodies a record nests, each at item start behind
   -- whatever ended the item before it -- a name, a generic's `>`, an
-  -- `end`.
+  -- `end`, a bare `function` type.
   local field_access = table.concat({
       "local t = {record = 1, enum = 2, interface = 3, macroexp = 4}",
       "local x = t.macroexp",
@@ -258,6 +258,10 @@ local function test_count_reads_the_innermost_declared_return()
       "  end",
       "  interface Face",
       "    kind: Kind",
+      "  end",
+      "  f: function",
+      "  enum Mode",
+      "    \"b\"",
       "  end",
       "end",
       "print(Outer)",

@@ -139,7 +139,8 @@ end
 --- An item is the body's header (`record R`, `R<T>`, `is {T}`,
 --- `is A, B`, `userdata`, a `where` expression), a field with its type,
 --- a `type` alias, a nested body or a macroexp closed by `end`. Each
---- ends on a name, a literal, a closer, `...` or `end`. A `where`
+--- ends on a name, a literal, a closer, `...`, `end`, or a bare
+--- `function` — the type with no parameter list. A `where`
 --- expression is the one item with the whole expression grammar in it,
 --- and a name called `record` at its tail after an operator is not a
 --- declaration — but after a `>` nothing tells a comparison from a
@@ -152,7 +153,8 @@ local function ends_item(t: Token): boolean
     return true
   end
   if t.kind == "keyword" then
-    return t.tk == "end" or t.tk == "nil" or t.tk == "true" or t.tk == "false"
+    return t.tk == "end" or t.tk == "function"
+    or t.tk == "nil" or t.tk == "true" or t.tk == "false"
   end
   return t.tk == ">" or t.tk == ">>" or t.tk == ")" or t.tk == "]"
   or t.tk == "}" or t.tk == "..."
