@@ -6,4 +6,7 @@ return {
   ["pr"] = 368,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "test_unix_misc.lua fails when TMPDIR is unset (same pattern as #363)",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "3e8b12974de6c4df3755a931db534f64bd22c0f3",
+  ["verdict_spec"] = "ed7d71549209e69ec24d062171cfedd3eea146352d330f6e1bc93b3858fbbf63",
 }
