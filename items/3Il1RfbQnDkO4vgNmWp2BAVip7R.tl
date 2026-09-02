@@ -7,6 +7,7 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 354,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-2BAV-lok152",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "function coverage: ftrace the tool/lua tests, commit a per-file function floor, and gate o//tool/lua/test on it",
 }
