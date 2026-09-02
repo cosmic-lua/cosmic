@@ -5,8 +5,8 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 362,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "MODE=cov: the .gcda writer does not merge across the ~65 test processes, so the per-file line numbers are the last process's only",
-  ["verdict_head"] = "591b10a8e11be7f416c1587999d02b40d5849b3b",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "88a82b09120b8441237a338c8d59db572271ec78",
   ["verdict_spec"] = "e99f71cdd04489b3251bebbaa8a0b0162705c0de5c6f3ba313bbad2ea1034d97",
 }
