@@ -470,6 +470,13 @@ local function test_take_result_records_the_research_handover()
     "another session's take is the review claim, as for a PR")
   assert(check.must(store.load(s, leaf)).reviewer == "session-b",
     "and the review lock is theirs")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "session-b") == 0)
+  local judged = commits(s)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "the same spec over a standing accept is a no-op, as a repeated --pr is")
+  assert(commits(s) == judged, "nothing new to commit")
+  assert(check.must(store.load(s, leaf)).verdict == "accept",
+    "and the accept survives the re-run")
   assert(verbs.cmd_drop(s, leaf, "session-a", "out of budget", false) == 0)
   assert(check.must(store.load(s, leaf)).result == "",
     "a drop clears the handover with the claim")

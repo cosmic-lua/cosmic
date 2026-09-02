@@ -86,8 +86,11 @@ end
 --- holder's own work is done, so there is no takeover here and no
 --- gate to force — and never over a PR: an item's deliverable is a
 --- diff or board state, never both (`item.problems` holds the same
---- rule on every write). A standing verdict clears, the way a new
---- push re-opens one: the spec handed over is a new thing to judge.
+--- rule on every write). The verdict moves exactly as `--pr` moves
+--- it: the SAME spec handed over again is a no-op whatever stands on
+--- it, a moved spec re-opens a send-back (the rework answered, a new
+--- thing to judge), and an accept is never touched by a take — it is
+--- landed, and `verdict` refuses to re-judge it.
 --- @param s store.Store The store
 --- @param it item.Item The item handed over
 --- @param session string The handing-over session
@@ -122,19 +125,27 @@ local function take_result(s: store.Store, it: item.Item, session: string,
         .. "spec over, and there is none"):format(id8))
   end
   local digest = spec.revision(body)
-  if digest == (it.result or "") and (it.verdict or "") == "" then
+  local verdict = it.verdict or ""
+  local standing = "awaiting review"
+  if verdict ~= "" then
+    standing = ("its %s stands"):format(verdict)
+  end
+  if digest == (it.result or "") and verdict ~= "request changes" then
     return gate.verdict_line("take", true,
-      ("%s already records this spec's handover — awaiting review"):format(id8))
+      ("%s already records this spec's handover — %s"):format(id8, standing))
   end
   it.result = digest
-  it.verdict = ""
+  if verdict == "request changes" then
+    it.verdict = ""
+    standing = "awaiting review"
+  end
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("take %s by %s result:%s"):format(id8, session, digest:sub(1, 7)))
   if not ok then
     return gate.verdict_line("take", false, err)
   end
   return gate.verdict_line("take", true,
-    ("%s is yours result:%s — awaiting review"):format(id8, digest:sub(1, 7)))
+    ("%s is yours result:%s — %s"):format(id8, digest:sub(1, 7), standing))
 end
 
 local record gittake
