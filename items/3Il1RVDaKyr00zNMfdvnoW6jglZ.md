@@ -1,4 +1,4 @@
-## Question
+## Evidence
 
 Can the fork's toolchain produce C line coverage for the Lua binding
 sources at all? Two unknowns, in order: (1) does `cosmocc` accept
@@ -12,7 +12,7 @@ measuring machine 2026-09-02, and `build/config.mk` shows no mode with
 coverage flags (modes at lines 12-241; `dbg` at 152-162 is the
 closest shape: `-O0`, `-fsanitize=undefined`, `-fno-pie`).
 
-## Method
+## Change
 
 On a checkout with the toolchain (`make` downloads it into
 `.cosmocc/`):
@@ -36,7 +36,7 @@ On a checkout with the toolchain (`make` downloads it into
    hooks, or a `dbg`-mode `--ftrace` log post-processed into per-
    function hit counts (function-level, not line-level).
 
-## Deliverable
+## Deliverable (board state, no product PR)
 
 Board state, not a diff: this item's spec replaced by a `## Result`
 carrying the measured answers to (1)-(4) with commands and output, and
