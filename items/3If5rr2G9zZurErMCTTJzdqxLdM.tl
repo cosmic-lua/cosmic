@@ -5,9 +5,8 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 337,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-Jzdq_xLdM-lok152-r2",
   ["title"] = "lsqlite3: let a Lua UDF be marked SQLITE_DETERMINISTIC",
-  ["verdict"] = "request changes",
-  ["verdict_head"] = "2e73500bd48befc415ad9043d1a4b184a69e25a9",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "7a0cca81190256d027e58821809c7a4e37e990e8",
   ["verdict_spec"] = "6f77070988bceb0a87aa779875d5db11d2e5c79e13179d4ec0c8fa82dbac3c51",
 }
