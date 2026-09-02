@@ -5,6 +5,7 @@ return {
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["pr"] = 1636,
   ["title"] = "spawned-binary tests keep a stale PASS record across an engine edit: _make/fixtures_test.tl's prerequisites never include o/bin/cosmic",
-  ["verdict_head"] = "0b13276e79693214ab526b43ec4dd70b00da377d",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "602ce662ba8f1c325b3e329d509e580e5b2d07fe",
   ["verdict_spec"] = "4b5160ed491fd69b772359ba6d1e07bf4f3a6d8234868f6372bd8b42b7d5a2b5",
 }
