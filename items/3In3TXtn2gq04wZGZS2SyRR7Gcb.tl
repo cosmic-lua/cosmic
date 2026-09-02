@@ -3,5 +3,6 @@ return {
   ["claim"] = "research-SyRR_7Gcb-orch9",
   ["id"] = "3In3TXtn2gq04wZGZS2SyRR7Gcb",
   ["parent"] = "3If5rH0SOReSfHsOihMU6yDoYLO",
+  ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "h38H_4UJ0's 'remaining fifteen' list includes backup and recover, neither of which fits the sqlite extension registry's function-pointer shape",
 }
