@@ -1,4 +1,5 @@
 return {
+  ["base"] = "board",
   ["builders"] = "wave5-lok152-xSER",
   ["claim"] = "wave5-lok152-xSER",
   ["id"] = "3Ikx23AyF7OiRYVVsQmxSER0Rwh",
