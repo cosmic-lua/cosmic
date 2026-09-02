@@ -11,15 +11,30 @@
 -- a user would type.
 --
 -- This file requires no `_make` module and drives check+build+test+
--- benchmark through the spawned binary, so in principle it pins nearly
--- the whole engine -- too broad to name in full without the declaration
--- degenerating into a whole-tree read no more informative than
--- `_build/coldbuild_test.tl`'s. The two declared above are what its
--- assertions verify BY NAME (project.mk's `deps_*` fact strings, and
--- the embedded artifact's zip contents), so they are what the require
--- graph most concretely cannot see; the rest of the engine's behavior
--- here is exercised but not independently pinned by this file's own
--- assertions.
+-- benchmark through the spawned binary, so its verdict depends on the
+-- engine embedded in THAT binary, not on this file's own require graph
+-- -- too broad to name in full without the declaration degenerating
+-- into a whole-tree read no more informative than
+-- `_build/coldbuild_test.tl`'s. `_make/generate.tl` and
+-- `_make/artifact.tl` are what its assertions verify BY NAME (project.mk's
+-- `deps_*` fact strings, and the embedded artifact's zip contents), so
+-- they are what the require graph most concretely cannot see; the rest
+-- of the engine's behavior here is exercised but not independently
+-- pinned by this file's own assertions.
+--
+-- `o/bin/cosmic` cannot join the `reads:` list above: that declaration
+-- is scanned -- and required to already exist -- while `project.mk` is
+-- generated, which on a cold checkout runs before the very first build
+-- has produced anything under `o/` at all. Every `_make/**_test.tl` and
+-- `_cli/**_test.tl` file gets `o/bin/cosmic` as a plain make
+-- prerequisite instead, added by position in `_make/graph.tl`'s
+-- `project_mk` rather than through this header: a make prerequisite
+-- only has to exist by the time the recipe runs, and `prepare_stage`
+-- (`_make/init.tl`) always builds the binary before the graph's test
+-- rules do. D17's replace-if-changed then gives that file a fresh mtime
+-- exactly when the embedded engine changed, which is what makes this
+-- test re-run on an engine edit instead of replaying a cached verdict
+-- against an engine it no longer spawns.
 --
 -- Each is copied to a scratch directory before building: `--make` writes
 -- `o/` into the project root, and the repo's own tree stays clean.

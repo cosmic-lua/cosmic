@@ -59,6 +59,15 @@ local function assign(name: string, values: {string}): string
   return name .. " := " .. table.concat(sorted, " ")
 end
 
+--- Whether a test drives `--make` itself, or a binary it produces, by
+--- spawning cosmic -- behavior no import edge can name. Position
+--- decides it: `_make/**` and `_cli/**` are this project's own tooling.
+--- @param path string Source file path, relative to the root
+--- @return boolean
+local function exercises_the_engine(path: string): boolean
+  return path:match("^_make/") ~= nil or path:match("^_cli/") ~= nil
+end
+
 --- The facts file: what the walk found, as make variables.
 ---
 --- Nothing here is a rule, and nothing here is a path cosmic invented —
@@ -185,6 +194,17 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       end
       if #refnames > 0 then
         built[#built + 1] = refstamp.path_of(stem)
+      end
+      -- The engine's own binary joins `deps_<stem>` BY POSITION, never
+      -- `--- reads:`: that declaration requires its path to already
+      -- exist when these facts are generated, which on a cold checkout
+      -- runs before the first build has produced anything under `o/`.
+      -- A plain make prerequisite has no such requirement -- only
+      -- `prepare_stage` (`_make/init.tl`) building every binary before
+      -- the test rules run, so D17's replace-if-changed gives
+      -- `o/bin/cosmic` a fresh mtime exactly when the engine changed.
+      if f.kind == "test" and exercises_the_engine(f.path) then
+        built[#built + 1] = project.out_dir("bin/cosmic")
       end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
     end
