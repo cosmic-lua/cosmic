@@ -148,6 +148,11 @@ local function cmd_unhold(s: store.Store, id: string): integer
   if it == nil then
     return gate.verdict_line("unhold", false, lerr)
   end
+  if not item.is_open(it) then
+    return gate.verdict_line("unhold", false,
+      ("REFUSED: %s is done (%s) — a finished root is not released"):format(
+        id:sub(1, 8), it.resolution))
+  end
   if not it.is_held then
     return gate.verdict_line("unhold", false,
       ("%s is not held"):format(id:sub(1, 8)))

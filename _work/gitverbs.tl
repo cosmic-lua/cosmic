@@ -431,6 +431,7 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   end
   it.claim = ""
   it.reviewer = ""
+  it.is_held = false
   it.resolution = reason
   local ok, err = gate.commit_and_publish(s, it, nil,
     ("done %s %s (from %s)%s"):format(id:sub(1, 8), reason, from,
