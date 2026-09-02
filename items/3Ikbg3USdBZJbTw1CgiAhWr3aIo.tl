@@ -6,5 +6,6 @@ return {
   ["claim"] = "wave4-lok152-AhWr",
   ["id"] = "3Ikbg3USdBZJbTw1CgiAhWr3aIo",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["pr"] = 1617,
   ["title"] = "_work/*_test.tl to runner mode (D29): delete the 335 self-call lines across the board's 34 test files",
 }
