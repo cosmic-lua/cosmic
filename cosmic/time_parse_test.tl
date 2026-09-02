@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local time = require("cosmic.time")
 
 -- HTTP, date, and ISO 8601 formatting and parsing tests
@@ -66,18 +67,18 @@ end
 -- format_date tests
 
 local function test_format_date_epoch()
-  local s = time.format_date(0)
+  local s = check.must(time.format_date(0))
   assert(s == "1970-01-01", "expected 1970-01-01, got " .. s)
 end
 
 local function test_format_date_y2k()
-  local s = time.format_date(946684800)
+  local s = check.must(time.format_date(946684800))
   assert(s == "2000-01-01", "expected 2000-01-01, got " .. s)
 end
 
 local function test_format_date_known()
   -- 2025-01-02T10:00:00Z = 1735812000 -> date should be 2025-01-02
-  local s = time.format_date(1735812000)
+  local s = check.must(time.format_date(1735812000))
   assert(s == "2025-01-02", "expected 2025-01-02, got " .. s)
 end
 
@@ -126,7 +127,7 @@ end
 
 local function test_date_roundtrip()
   local original = 1735689600 -- 2025-01-01 midnight UTC
-  local formatted = time.format_date(original)
+  local formatted = check.must(time.format_date(original))
   local parsed = time.parse_date(formatted)
   assert(parsed == original,
     "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
@@ -135,18 +136,18 @@ end
 -- format_iso8601 tests
 
 local function test_format_iso8601_epoch()
-  local s = time.format_iso8601(0)
+  local s = check.must(time.format_iso8601(0))
   assert(s == "1970-01-01T00:00:00Z", "expected epoch, got " .. s)
 end
 
 local function test_format_iso8601_y2k()
-  local s = time.format_iso8601(946684800)
+  local s = check.must(time.format_iso8601(946684800))
   assert(s == "2000-01-01T00:00:00Z", "expected Y2K, got " .. s)
 end
 
 local function test_format_iso8601_known()
   -- 2025-01-02T10:00:00Z (same timestamp used in working PR tests)
-  local s = time.format_iso8601(1735812000)
+  local s = check.must(time.format_iso8601(1735812000))
   assert(s == "2025-01-02T10:00:00Z", "expected 2025-01-02T10:00:00Z, got " .. s)
 end
 
@@ -233,14 +234,14 @@ end
 
 local function test_iso8601_roundtrip()
   local original = 1705322245
-  local formatted = time.format_iso8601(original)
+  local formatted = check.must(time.format_iso8601(original))
   local parsed = time.parse_iso8601(formatted)
   assert(parsed == original,
     "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
 end
 
 local function test_iso8601_epoch_roundtrip()
-  local formatted = time.format_iso8601(0)
+  local formatted = check.must(time.format_iso8601(0))
   local parsed = time.parse_iso8601(formatted)
   assert(parsed == 0, "epoch roundtrip failed: " .. formatted .. " -> " .. tostring(parsed))
 end

@@ -43,7 +43,7 @@ local function test_embed_via_env()
   local stat = fs.stat(output)
   assert(stat, "output file should exist")
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local expected_name = input:gsub("^/+", "")
@@ -93,7 +93,7 @@ local function test_cli_priority_over_env()
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --embed with env override should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   -- CLI file should be present

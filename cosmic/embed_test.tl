@@ -33,7 +33,7 @@ local function test_embed_single_file()
   assert(stat:mode() & 73 ~= 0, "output should be executable")
 
   -- Verify file is in the zip
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
   local files = check.must(reader:list())
 
@@ -63,7 +63,7 @@ local function test_embed_multiple_files()
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --embed with multiple files should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local name1 = file1:gsub("^/+", "")
@@ -108,7 +108,7 @@ local function test_embed_lua_file()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Verify the lua file is in the zip with correct content
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
   local name = modfile:gsub("^/+", "")
   local content = reader:read(name)
@@ -127,7 +127,7 @@ local function test_embed_binary_file()
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "embed binary should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
   local name = input:gsub("^/+", "")
   local content = reader:read(name)
@@ -150,7 +150,7 @@ local function test_embed_directory()
   assert(ok, "embed directory should succeed: " .. (out or ""))
 
   -- Verify files are stored relative to directory root
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   -- A custom entry is wrapped: main.lua is the generated
@@ -184,7 +184,7 @@ local function test_embed_nested_directory()
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "embed nested directory should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   assert(reader:read("top.txt") == "top", "top-level file")
@@ -206,7 +206,7 @@ local function test_embed_mixed()
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "embed mixed should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local c1 = reader:read("main.user.lua")
@@ -307,7 +307,7 @@ local function test_embed_uses_deflate()
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local name = input:gsub("^/+", "")
@@ -341,7 +341,7 @@ local function test_embed_stores_lua_by_default()
   local ok, out = __r13.ok, __r13.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local name = input:gsub("^/+", "")
@@ -372,7 +372,7 @@ local function test_embed_stores_boot_set_entry()
   local ok, out = __r14.ok, __r14.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   -- A user main.lua is wrapped behind the generated searcher entry, so
@@ -410,7 +410,7 @@ local function test_embed_boot_set_scoped_to_own_tree()
     {output = output, exe_path = cosmic, provides = {cosmic = true}})
   assert(count, "embed.write should succeed: " .. tostring(werr))
 
-  local data = fs.read(output)
+  local data = check.must(fs.read(output))
   local reader = check.must(zip.open_string(data), "failed to open zip from data")
 
   local boot_stat = check.must(reader:stat("cosmic/env.lua"),
