@@ -4,5 +4,6 @@ return {
   ["id"] = "3IlWQD7zZy8JUybZvrNA1MxsGl8",
   ["parent"] = "3IQfJ1tnwZOiJrWvDOgIxsjLrBt",
   ["pr"] = 1634,
+  ["reviewer"] = "review-c2-lok152",
   ["title"] = "check.must sweep: cosmic/fetch/** — 18 sites in 5 files",
 }
