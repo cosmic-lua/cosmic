@@ -7,6 +7,8 @@ return {
   ["id"] = "3Ikbg3USdBZJbTw1CgiAhWr3aIo",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1617,
-  ["reviewer"] = "review-AhWr-lok152",
   ["title"] = "_work/*_test.tl to runner mode (D29): delete the 335 self-call lines across the board's 34 test files",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "f37f0eaf8aae48b59cc12e7b57cb1a7bb332558f",
+  ["verdict_spec"] = "0c538089256dbcf60f77373a07b02b5fd36550b4c958daf0eff5b238aceba7a1",
 }
