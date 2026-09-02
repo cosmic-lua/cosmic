@@ -115,6 +115,30 @@ fixture("hello", {hello = "hello from hello"})
 -- test case.
 fixture("runner", {runner = "hello from runner"})
 
+-- Order cannot change `check`'s verdict. `--make test` compiles a
+-- runner-mode file through the seam and the graph's proof then
+-- lets `check` skip it ("already proved"), so a check that
+-- bypassed the seam would pass after `test` and fail cold. Both
+-- orders on fresh copies, one verdict; the proof line is asserted
+-- so the skip path is known to be the one taken.
+local function test_check_verdict_does_not_depend_on_test_order()
+  local root = staged("runner")
+  local code, out = make(root, "check")
+  assert(code == 0, "check-first: cold check passes:\n" .. out)
+  assert(not out:find("already proved", 1, true),
+    "nothing is proved before any graph verb:\n" .. out)
+  code, out = make(root, "test")
+  assert(code == 0, "check-first: test passes:\n" .. out)
+
+  root = staged("runner")
+  code, out = make(root, "test")
+  assert(code == 0, "test-first: test passes:\n" .. out)
+  code, out = make(root, "check")
+  assert(code == 0, "test-first: check passes, same verdict:\n" .. out)
+  assert(out:find("already proved by their strict compile", 1, true),
+    "the seam's compile is the proof check accepted:\n" .. out)
+end
+
 -- Import path is position: greet/init.tl is `greet`, greet/loud.tl is
 -- `greet.loud`, and nothing declares either.
 fixture("pkg", {pkg = "hi pkg"})
