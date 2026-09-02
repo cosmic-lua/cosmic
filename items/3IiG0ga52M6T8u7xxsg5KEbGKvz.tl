@@ -5,6 +5,8 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 357,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "cosmo.DecodeLua: third return slot is a byte offset, not errno",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d0a274bc600542e26ff302eaaaa39d67d159f525",
+  ["verdict_spec"] = "0dd9c9b78520425aca48865744594a69d243d703f389751f9beaf9385b11b655",
 }
