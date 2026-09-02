@@ -232,6 +232,9 @@ local function problems(it: Item): {string}
   if not is_root(it) and it.is_held then
     out[#out + 1] = "is_held marks an outcome root; a parented item is never held"
   end
+  if not is_open(it) and it.is_held then
+    out[#out + 1] = "is_held marks an open root; a done item never carries it"
+  end
   if (it.repo or "") ~= "" and not it.repo:match("^[%w%-%.]+/[%w%-%._]+$") then
     out[#out + 1] = ("repo must be owner/name: %s"):format(it.repo)
   end
