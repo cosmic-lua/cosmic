@@ -4,6 +4,8 @@ return {
   ["id"] = "3IlY4BbIPV78NVGXqhFtLuMWlXc",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["pr"] = 1637,
-  ["reviewer"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "coverage --baseline rewrites 173 unrelated rows locally: the committed floor is recorded in an environment a developer's tree does not match",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "0c9f93953994d509f7519a624bf86aae6cfb5f1b",
+  ["verdict_spec"] = "4d9449e82e6059442bbc96ad09e07316a98ba0361882fc079c76792ec8b6dd88",
 }
