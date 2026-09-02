@@ -403,7 +403,7 @@ local function apply(opts: Options): Report | nil, string
   local scope_section, scope_err = section.one_section(do_scope, scope_ok, "landlock", landlock.abi() or 0, "scope", function(): Section | nil, string return section.apply_scope(opts.scope, opts.no_new_privs ~= false) end)
   if scope_err then return nil, scope_err end
 
-  local function skipped(s: Section): boolean return s == nil or s.state == "skipped" end
+  local function skipped(s: Section | nil): boolean return s == nil or s.state == "skipped" end
   if skipped(fs_section) and skipped(sys_section) and skipped(net_section) and skipped(scope_section)
   and not opts.allow_unenforced then
     local reasons: {string} = {}
@@ -414,7 +414,17 @@ local function apply(opts: Options): Report | nil, string
     return nil, "sandbox: nothing enforced (" .. table.concat(reasons, "; ") .. ")"
   end
 
-  return {fs = fs_section, sys = sys_section, net = net_section, scope = scope_section}
+  -- Guarded rather than a plain table constructor: fs_section etc. are Section |
+  -- nil (nil exactly when that section was not requested), while Report's
+  -- fields are declared non-optional — narrow each one here so an absent
+  -- section leaves its field unset, precisely as the table constructor did,
+  -- without widening Report's fields for every reader of the exported type.
+  local report: Report = {}
+  if fs_section then report.fs = fs_section end
+  if sys_section then report.sys = sys_section end
+  if net_section then report.net = net_section end
+  if scope_section then report.scope = scope_section end
+  return report
 end
 
 local M: SandboxModule = {

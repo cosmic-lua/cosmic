@@ -346,8 +346,8 @@ local function restrict(opts?: RestrictOptions): Enforcement | nil, string
       "landlock: scope section requires ABI %d, this kernel is ABI %d",
       SCOPE_ABI, abi_version)
   end
-  local rs: integer = nil
-  local cerr: string = nil
+  local rs: integer | nil = nil
+  local cerr: string | nil = nil
   if scoped ~= 0 then
     rs, cerr = unix.landlock_create_ruleset(handled, 0, net_handled, scoped)
   elseif net_handled ~= 0 then

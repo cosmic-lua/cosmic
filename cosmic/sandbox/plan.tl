@@ -182,7 +182,7 @@ end
 ---
 --- @param net Net the section to check
 --- @return string? Error message, nil when valid
-local function validate_net(net: Net): string
+local function validate_net(net: Net): string | nil
   if type(net) ~= "table" then
     return "sandbox: net must be a table"
   end
@@ -256,7 +256,7 @@ local record PlanModule
   type Scope = Scope
   for_landlock: function(fs: Fs, no_new_privs?: boolean): RestrictOptions
   for_landlock_net: function(net: Net, no_new_privs?: boolean): RestrictOptions
-  validate_net: function(net: Net): string
+  validate_net: function(net: Net): string | nil
   for_landlock_scope: function(scope: Scope, no_new_privs?: boolean): RestrictOptions
   validate_scope: function(scope: Scope): string | nil
 end
