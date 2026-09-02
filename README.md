@@ -121,5 +121,23 @@ edit; reach for a private clone instead.
 Run `bin/cosmic --make ci` before pushing machinery changes; the
 `board` workflow runs the same gate on every push to this branch.
 
+**`.cosmic-coverage` is recorded in the `board` workflow's `ci` job**
+(`.github/workflows/board.yml`: a plain `ubuntu-latest` runner, no
+pinned container, no elevated privilege — this branch's own tests need
+neither), not in a developer's clone or worktree. The coverage
+machinery itself lives on `main` (`_make/policy.tl`, embedded in
+whatever release `bin/cosmic.pin` here resolves to), not in this tree,
+so `--make coverage --baseline` run from a private clone still rewrites
+the whole floor with THIS machine's measurement — nine rows on five
+files a change never touched, on one reported run, none of them in the
+diff. Prefer hand-editing the one row your change actually moved
+(`covered`/`total` in `.cosmic-coverage`) over running `--baseline`
+here at all; once `bin/cosmic.pin` carries a release built from a
+`main` that refuses `--baseline` outside `COSMIC_COVERAGE_ENV=1`
+(cosmic-lua/cosmic's `AGENTS.md` coverage paragraph), the same refusal
+applies here automatically, and `board.yml`'s `ci` job already sets
+that marker for itself so a whole-floor rewrite stays possible from
+the one place it should be.
+
 GitHub keeps two jobs: pull requests carry fixes and their review;
 issues are the inbound queue, imported here as findings at triage.

@@ -29,6 +29,13 @@ jobs:
     runs-on: ubuntu-latest
     # A green run takes well under a minute; anything near this is a hang.
     timeout-minutes: 10
+    # This job IS the .cosmic-coverage recording environment for this
+    # branch (see README.md). The refusal itself ships from `main`'s
+    # `_make/policy.tl`, embedded in whatever release `bin/cosmic.pin`
+    # resolves to here — this marker is inert until that pin carries
+    # it, and load-bearing from the moment it does.
+    env:
+      COSMIC_COVERAGE_ENV: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
