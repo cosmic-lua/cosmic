@@ -267,7 +267,7 @@ changing.
 - **where the fence draws the line for `run` and the generator
   pre-pass.** a test reads the whole project and the reasons are in
   `_cli/grants.tl`. `run` and the mini-graph inherit that today.
-- **making the mini-graph's `/zip/.types` fallback loud.** it is silent today.
+- **making the mini-graph's `/zip/.types` fallback loud.**
   it is the one sanctioned place a build reads the running binary's
   bytes, and a silent sanctioned exception is the shape every failure
   in this chapter took.
