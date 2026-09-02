@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- reads: _make/generate.tl _make/artifact.tl
+--- reads: _make/generate.tl _make/artifact.tl o/bin/cosmic
 -- The fixture projects: small, committed, hello-world-sized trees, each
 -- exercising one thing `cosmic --make` promises.
 --
@@ -11,15 +11,22 @@
 -- a user would type.
 --
 -- This file requires no `_make` module and drives check+build+test+
--- benchmark through the spawned binary, so in principle it pins nearly
--- the whole engine -- too broad to name in full without the declaration
--- degenerating into a whole-tree read no more informative than
--- `_build/coldbuild_test.tl`'s. The two declared above are what its
--- assertions verify BY NAME (project.mk's `deps_*` fact strings, and
--- the embedded artifact's zip contents), so they are what the require
--- graph most concretely cannot see; the rest of the engine's behavior
--- here is exercised but not independently pinned by this file's own
--- assertions.
+-- benchmark through the spawned binary, so its verdict depends on the
+-- engine embedded in THAT binary, not on this file's own require graph
+-- -- too broad to name in full without the declaration degenerating
+-- into a whole-tree read no more informative than
+-- `_build/coldbuild_test.tl`'s. `o/bin/cosmic` names the spawned binary
+-- itself: a gate converges by building it first (`_make/converge.tl`),
+-- so it always exists before this declaration is read, and D17's
+-- replace-if-changed gives it a fresh mtime exactly when the embedded
+-- engine changed -- which is what makes this test re-run on an engine
+-- edit instead of replaying a cached verdict against an engine it no
+-- longer spawns. `_make/generate.tl` and `_make/artifact.tl` are what
+-- its assertions verify BY NAME (project.mk's `deps_*` fact strings,
+-- and the embedded artifact's zip contents), so they are what the
+-- require graph most concretely cannot see; the rest of the engine's
+-- behavior here is exercised but not independently pinned by this
+-- file's own assertions.
 --
 -- Each is copied to a scratch directory before building: `--make` writes
 -- `o/` into the project root, and the repo's own tree stays clean.
