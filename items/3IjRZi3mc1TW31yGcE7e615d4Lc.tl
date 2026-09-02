@@ -5,7 +5,9 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 338,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-e615_d4Lc-lok152",
   ["speccers"] = "4d89c837-e662-53f2-91fc-28226ce8d8d4",
   ["title"] = "cosmopolitan: unix.sigaction returns one table instead of sharing slots with errors",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "3fa52539b0fe237274d2eed360c2397a986e9f91",
+  ["verdict_spec"] = "32f57a49aa3b9fff7b8bbb32f14b5d2c366667db821c45d0225b4c7bb6f46505",
 }
