@@ -86,7 +86,7 @@ local function test_find_iter_symlink_cycle_terminates()
 
   local collected: {string} = {}
   for p in check.must(fs_find.find_iter(base, {glob = "*.lua"})) do
-    collected[#collected + 1] = p
+    collected[#collected + 1] = check.must(p)
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
       "files() appears to iterate infinitely (>10 results from 1 real file)")
@@ -427,7 +427,7 @@ local function test_find_iter_honors_depth_and_dirs()
   local base = setup_depth_tree()
   local names: {string: boolean} = {}
   for p in check.must(fs_find.find_iter(base, {include_dirs = true, max_depth = 1})) do
-    names[fs.basename(p)] = true
+    names[fs.basename(check.must(p))] = true
   end
   assert(names["a.txt"] and names["bdir"], "top level yielded, dirs included")
   assert(not names["c.txt"], "max_depth = 1 must not descend")
