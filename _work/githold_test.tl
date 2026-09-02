@@ -5,14 +5,16 @@
 -- (a non-root, a finished root, no reason, a repeat) and the one-commit
 -- round trip of setting and clearing it. A finished root is history on
 -- both sides — `done` drops the marker it ends over, `unhold` refuses
--- to touch one — and the per-item rule that a parented item is never
--- held is pinned at `item.problems`, where a hand edit would meet it.
--- The scratch board harness is `_work.fixture`.
+-- to touch one — and the per-item rules that a parented item is never
+-- held and a done item never carries the marker are pinned at
+-- `item.problems`, where a hand edit would meet them. The scratch
+-- board harness is `_work.fixture`.
 
 local check = require("cosmic.check")
 local cmp = require("_work.gitcompare")
 local fixture = require("_work.fixture")
 local item = require("_work.item")
+local literal = require("cosmic.literal")
 local publish = require("_work.publish")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
@@ -85,13 +87,14 @@ test_unhold_clears_the_marker_in_one_commit()
 local function test_unhold_refuses_a_done_root()
   local s = init_state_repo("unhold-done")
   local root = root_with_leaf(s)
-  -- Written by hand, not through the verbs: `done` now clears the
-  -- marker, so the only way a done root carries it is an old board or
-  -- a hand edit — exactly what the refusal has to hold against.
+  -- Written straight to the file, past the validator: `done` clears
+  -- the marker and `item.problems` refuses the shape, so the only way
+  -- a done root carries it is an old board or a hand edit — exactly
+  -- what the refusal has to hold against.
   local stale = check.must(store.load(s, root))
   stale.is_held = true
   stale.resolution = "not-planned"
-  assert(store.save(s, stale, "hand-edit: a done root still marked held"))
+  assert(literal.format_file(store.item_path(s, root), item.encode(stale)))
   local before = commits(s)
   assert(cmp.cmd_unhold(s, root) ~= 0,
     "a done root is history, not a repair target: unhold refuses it")
@@ -136,3 +139,24 @@ local function test_problems_reports_a_held_parented_item()
   assert(#problems == 1, "and the only one: " .. table.concat(problems, "; "))
 end
 test_problems_reports_a_held_parented_item()
+
+local function test_problems_reports_a_held_done_item()
+  local s = init_state_repo("held-done")
+  local root = root_with_leaf(s)
+  local ended = check.must(store.load(s, root))
+  ended.resolution = "completed"
+  assert(#item.problems(ended) == 0, "a done root is a valid item")
+  ended.is_held = true
+  local problems = item.problems(ended)
+  local found = false
+  for _, p in ipairs(problems) do
+    if p:find("a done item never carries it", 1, true) then
+      found = true
+    end
+  end
+  assert(found, "is_held on a done item is a problem: "
+    .. table.concat(problems, "; "))
+  assert(#problems == 1, "and the only one: " .. table.concat(problems, "; "))
+  assert(not store.stage(s, ended), "so the store refuses to stage it")
+end
+test_problems_reports_a_held_done_item()
