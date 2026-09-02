@@ -8,6 +8,7 @@ return {
   ["pr"] = 364,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "lsqlite3: register a sqlite extension by name, per connection",
-  ["verdict_head"] = "8e0c14f19cc7a1e33987e25875f32cfc0e7e2b17",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "8273a1df30aba35f391afcfe1f243e7f655c94ea",
   ["verdict_spec"] = "178d3ca14b1ff58be4d5a85faa0b5ec9f3abb83ab2a02347004502b5988e5aa0",
 }
