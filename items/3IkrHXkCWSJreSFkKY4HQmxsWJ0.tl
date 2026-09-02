@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 349,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-HQmx-727215df-1",
   ["title"] = "lunix.c/help.txt: the 66 unix.<Type>:<method>() shape blocks are ungated against definitions.lua, and two carry a mistyped prefix (unid./unis.) a unix.-keyed gate would skip",
 }
