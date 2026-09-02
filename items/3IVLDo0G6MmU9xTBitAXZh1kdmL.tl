@@ -6,6 +6,7 @@ return {
   ["id"] = "3IVLDo0G6MmU9xTBitAXZh1kdmL",
   ["parent"] = "3HyRcrR35sYRwZl3guddvOBhFoK",
   ["result"] = "97225848cbf6d5f3bdbf8c943a1df6b1d9f8021e156fe3ae3e2a5291edb173ef",
+  ["reviewer"] = "review-XZh1_kdmL-d7ef6110",
   ["speccers"] = "wave9-727215df-XZh1",
   ["title"] = "G9 verification: read the win condition against the release history and declare held or the gaps",
 }
