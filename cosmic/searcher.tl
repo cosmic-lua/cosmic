@@ -227,7 +227,7 @@ end
 ---
 --- Everything above answers "the tree has a `.tl` and nothing else
 --- does". What follows answers a different question, and it is the one
---- `docs/design/make/resolution.md` is about: **in a project, the tree
+--- `docs/dev/explanation/make/resolution.md` is about: **in a project, the tree
 --- answers; outside one, the binary does.**
 ---
 --- The searcher above is APPENDED, so `/zip/**` — the running binary's

@@ -296,7 +296,7 @@ local function check_fallible_returns(file: string, content: string): {Diagnosti
               .. " record. A cosmo binding's own tuple is already"
               .. " declared in the generated .d.tl: name that type"
               .. " rather than retyping its shape (see `cosmic --docs"
-              .. " guide.lint`)",
+              .. " reference.lint`)",
               file, t.y, #slots),
           }
         end

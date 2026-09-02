@@ -1,6 +1,6 @@
 --- What a spawned child resolves its requires against.
 ---
---- The behavioural half of docs/design/make/resolution.md, run against
+--- The behavioural half of docs/dev/explanation/make/resolution.md, run against
 --- fixture projects with their own roots rather than against this one:
 --- the claims are about ANY project, and asserting them here would let
 --- a rule that only holds for cosmic pass.

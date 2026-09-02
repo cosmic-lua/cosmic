@@ -72,7 +72,7 @@
   failure is fetch's own `"io"` kind, not a prefix-less special
   case); sqlite/fs may follow this record, converting per module and
   translating at boundaries. The doctrine prose in AGENTS.md,
-  `docs/stdlib.md`, and `docs/guides/modules.md` points here. A
+  `docs/explanation/errors.md`, and `docs/reference/errors.md` points here. A
   type-only public module (`cosmic/errors.tl`) is a new shape for
   the tree: position still declares it public, and its runtime value
   is an empty table carrying only the type.

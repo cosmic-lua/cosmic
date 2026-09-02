@@ -13,7 +13,7 @@
 --- spawn the target with its own closure as the resolution set. That is
 --- what makes `skills/optimize/SKILL.md`'s "measures whatever `o/` happens to
 --- hold" warning retire by construction — the run is what makes `o/`
---- fresh. See docs/design/make/resolution.md.
+--- fresh. See docs/dev/explanation/make/resolution.md.
 
 local child = require("cosmic.child")
 local fd = require("cosmic.fd")

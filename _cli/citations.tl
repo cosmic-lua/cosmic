@@ -1,7 +1,7 @@
 --- Documentation that cites the tree by `file:line` must cite a line
 --- that is really there.
 ---
---- The design documents under `docs/design/` carry their value in
+--- The census documents under `docs/dev/explanation/` carry their value in
 --- quoted citations: the prototype that measured a census is thrown
 --- away by construction, so a reader's only check on a class count is
 --- the two or three sites the document quotes. A quote that has drifted

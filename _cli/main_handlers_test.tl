@@ -246,7 +246,7 @@ end
 -- below names a `dofile` path that does not exist, so the run would have
 -- thrown had the line ever run; instead the guarded `R | nil` index passes
 -- on `narrow-truthiness`, at exit 0, with nothing logged. This is the
--- claim `cosmic --docs guide.checking` makes, pinned so it cannot rot.
+-- claim `cosmic --docs explanation.types` makes, pinned so it cannot rot.
 local function test_check_types_ignores_a_preload_written_in_the_checked_file()
   local missing = fs.join(tmpdir, "nonexistent-stock", "tl.lua")
   local probe = fs.join(tmpdir, "preload_probe.tl")

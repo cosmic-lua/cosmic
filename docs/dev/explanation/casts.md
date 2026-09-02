@@ -54,7 +54,7 @@ under several spellings and one spelling spans two shapes, so every
 site below was read rather than pattern-matched.
 
 The site inventory is committed beside this document as
-`docs/design/cast-sites.tsv`: one row per cast, holding the path, the
+`docs/dev/explanation/cast-sites.tsv`: one row per cast, holding the path, the
 line the `as` token is on, and the class. The reason comment is not
 always on the cast's line — for roughly a third of the sites it stands
 alone on the line above — so a `file:line` join between the grep's
@@ -450,7 +450,7 @@ real, so the accessor is what makes the check fail honestly.
 Five classes carry the verdict **Why it is a floor**: type-defeating
 test probe, userdata boundary, runtime capability probe, metatable
 access, and generic T. Together they hold 71 of the tree's casts today,
-by `docs/design/cast-sites.tsv`. They do not all stay that size — four
+by `docs/dev/explanation/cast-sites.tsv`. They do not all stay that size — four
 of the five compress hard, because the shape repeats and one helper can
 carry it. Summing each class's smallest reachable count — six wrap
 points, two probe helpers, five probed shapes, two metatable helpers
@@ -479,7 +479,7 @@ the goal owner's call, made by amending `docs/goals.md`, not here.
 Not a floor and not a gate. `_build/casts_baseline.tl` is the ratchet
 that holds the cast count down, per file; `cosmic --check lint` enforces
 the justification comment and checks this document's citations against
-the tree; `docs/design/cast-sites.tsv` is the site inventory, held
+the tree; `docs/dev/explanation/cast-sites.tsv` is the site inventory, held
 against the baseline and against this document's headings by
 `_build/cast_sites_test.tl`. This document is the map: what the
 remaining sites are, which can be closed, and by whom.

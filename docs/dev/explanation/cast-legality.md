@@ -27,12 +27,12 @@ COSMIC_CAST_LEGALITY=1 xargs -a <(git ls-files '*.tl' | grep -v '/testdata/') \
 ```
 
 reports **135 refusals** with the rule on, zero with it off — nothing
-here is refused today, matching `docs/design/casts.md`'s own two probes
+here is refused today, matching `docs/dev/explanation/casts.md`'s own two probes
 (`"hi" as integer` / `A as B` for unrelated records; `a as A` / `a as
 any`) which both pass clean on the pinned checker.
 
 Two lines carry two refused casts each, so the site count is **133 of
-the tree's 198 cast sites** (`docs/design/cast-sites.tsv`). The 209
+the tree's 198 cast sites** (`docs/dev/explanation/cast-sites.tsv`). The 209
 this item's own text cites has since moved: `daab8101` ("Add
 check.is_exposed and route the type-defeating test probes it fits")
 routed 13 of the 26 type-defeating-test-probe sites through that helper
@@ -59,7 +59,7 @@ not a guess.
 
 ## By class
 
-One row per class, `docs/design/cast-sites.tsv`'s 21, allowed/refused
+One row per class, `docs/dev/explanation/cast-sites.tsv`'s 21, allowed/refused
 under the rule:
 
 | class | sites | refused | allowed |
@@ -92,7 +92,7 @@ relation`, `numeric narrowing`, `dynamic name lookup`, `incremental
 record construction`, `pcall return shape`, `runtime capability probe`)
 or all but one (`container variance`, `record union after guard`,
 `binding constant by name`, `map view of a declared value`) — these are
-classes `docs/design/casts.md` already calls closable ("what closes it
+classes `docs/dev/explanation/casts.md` already calls closable ("what closes it
 here" / "what closes it upstream"), so the rule is doing exactly the
 job it is meant to: catching relation-losing casts the checker could
 already rule on, in classes with a known fix. Only `sqlite row column
@@ -101,7 +101,7 @@ field read) and its target is a scalar — the textbook legal shape.
 
 ## The five floor classes
 
-`docs/design/casts.md`'s floor — the classes with the verdict "why it
+`docs/dev/explanation/casts.md`'s floor — the classes with the verdict "why it
 is a floor" — is where the rule's own premise is tested: an operand
 "genuinely opaque" should sail through untouched. It mostly does, but
 not cleanly, and the shortfall in each case has a name.
@@ -228,7 +228,7 @@ git ls-files '*.tl' | grep -v '/testdata/' \
 
 finds 53 occurrences; 8 hold the literal text as fixture or hint
 *data*, never a real cast in that file's own source — the same
-divergence `docs/design/casts.md`'s Method section already documents
+divergence `docs/dev/explanation/casts.md`'s Method section already documents
 for the `-- cast: ` grep. Seven of the eight are inside `*_test.tl`
 files, the text written to a scratch file or embedded as sample
 output (`_cli/lint_test.tl:410,417`,
@@ -257,7 +257,7 @@ any}` spelling alone.
 
 Enabling the rule today, before any of this is fixed, would force **104
 sites** — the 133 refused minus the 29 refused floor-class sites above
-— across the sixteen non-floor classes `docs/design/casts.md` already
+— across the sixteen non-floor classes `docs/dev/explanation/casts.md` already
 holds a documented closing mechanism for. This item does not check the
 work board for which of those 104 already sit behind an open item
 (`gitboard` is out of this item's scope), so the number is not "sites
@@ -265,7 +265,7 @@ with nobody assigned" — it is the size of the gap between "a class has
 a known fix" and "the fix has landed," which is what the wording
 decision has to weigh against enabling the rule now versus after a
 drive-down pass. The five floor classes' 29 refusals are not part of
-this count: `docs/design/casts.md` already prices them as the cost of
+this count: `docs/dev/explanation/casts.md` already prices them as the cost of
 G3's floor question, separately from whatever `ke6byr5h` decides about
 `as` itself.
 

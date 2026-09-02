@@ -4,7 +4,7 @@
 -- branches, disjunctive guards, `x or fallback` with a non-nil
 -- fallback — each strictly better: more correct programs check, none
 -- stop. `narrow-nil-union` installs the shared helpers; the census is
--- docs/design/nil-flow.md.
+-- docs/dev/explanation/nil-flow.md.
 --
 -- The mechanism is _make/patch.tl: each entry is an exact `find`
 -- string replaced by an exact `replace` string in one unpacked file,
@@ -23,7 +23,7 @@
 -- answer with nothing logged. A third form is inert for a third reason:
 -- `cosmic --check types` on a file that preloads `tl` never runs that
 -- file, so the shipped checker answers at exit 0 with nothing logged —
--- `cosmic --docs guide.checking` lays the three forms side by side.
+-- `cosmic --docs howto.narrow-nil` lays the three forms side by side.
 return {
   ["narrow-and-operand"] = {
     file = "tl.lua",

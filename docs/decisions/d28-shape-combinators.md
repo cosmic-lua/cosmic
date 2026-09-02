@@ -4,7 +4,7 @@
 - **status:** active
 - **context:** `from any` is the reason on 192 of the tree's 389 `as`
   casts, and the largest of its seven shapes — 61 sites, mapped in
-  [docs/design/casts.md](../design/casts.md) — is decoded-data shaping: a
+  [docs/dev/explanation/casts.md](../dev/explanation/casts.md) — is decoded-data shaping: a
   value comes out of `json.decode`, `literal.parse`, a loaded chunk or
   `Response:json()` and is then read field by field into a shape the code
   already knows, each read costing a cast. `_eval/score.tl`'s

@@ -1,11 +1,14 @@
 #!/usr/bin/env cosmic
---- reads: docs/guides
--- Ratchets over the shipped guides: `docs/guides/make.md` teaches the
--- project model, and it SHIPS inside the binary — a wrong sentence
--- there is wrong advice delivered by the tool itself. Nothing else
--- checks it against `_make/`.
+--- reads: docs/tutorial
+--- reads: docs/howto
+--- reads: docs/reference
+--- reads: docs/explanation
+-- Ratchets over the shipped pages: `docs/reference/make.md` states the
+-- project model, and it SHIPS inside the binary — a wrong row there is
+-- a wrong fact delivered by the tool itself. Nothing else checks it
+-- against `_make/`.
 --
--- Guide prose can drift from the model it describes: a row can keep
+-- Reference prose can drift from the model it describes: a row can keep
 -- teaching a kind the model does not classify that way, and nothing
 -- but a grep would catch it, because prose is never checked against
 -- the code it claims to describe. So every claim below is checked
@@ -24,8 +27,13 @@ local project = require("_make.project")
 local ratchet = require("_build.ratchet")
 local types = require("_make.types")
 
-local GUIDE < const > = "docs/guides/make.md"
-local GUIDES_DIR < const > = "docs/guides"
+local GUIDE < const > = "docs/reference/make.md"
+
+--- The four kinds of page the binary ships. A table row in any of them
+--- is a teaching position.
+local SHIPPED < const >: {string} = {
+  "docs/tutorial", "docs/howto", "docs/reference", "docs/explanation",
+}
 
 --- How one row of a guide table teaches one thing.
 local record Taught
@@ -94,12 +102,17 @@ local function guide_rows(heading: string, header: string): {ratchet.Row}
   return rows
 end
 
---- Every guide file, in path order.
+--- Every shipped page, in path order.
 --- @return {string} Paths relative to the repo root
 local function guide_files(): {string}
-  local found = check.must(fs.find(GUIDES_DIR, {glob = "*.md"}))
+  local found: {string} = {}
+  for _, dir in ipairs(SHIPPED) do
+    for _, path in ipairs(check.must(fs.find(dir, {glob = "*.md"}))) do
+      found[#found + 1] = path
+    end
+  end
   table.sort(found)
-  assert(#found > 0, "no guide files found under " .. GUIDES_DIR)
+  assert(#found > 0, "no shipped page found under docs/<kind>/")
   return found
 end
 

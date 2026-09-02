@@ -32,12 +32,12 @@ local function hint_for_message(msg: string): string | nil
     return "  hint: warnings are errors here — rename `" .. shadowed ..
     "`, which already names something in scope (a Lua builtin such as " ..
     "`load`, `type` or `error` when you did not declare one yourself) " ..
-    "— see `cosmic --docs guide.gotchas`"
+    "— see `cosmic --docs howto.check`"
   end
   if msg:find("^unused ") then
     return "  hint: warnings are errors here — remove it, or prefix the " ..
     "name with `_` to mark it deliberately unused (`local _out`, " ..
-    "`_self: Poller`) — see `cosmic --docs guide.gotchas`"
+    "`_self: Poller`) — see `cosmic --docs howto.check`"
   end
   -- Pattern 1: number/integer mismatch
   if msg:find("got number, expected integer") then
@@ -54,11 +54,11 @@ local function hint_for_message(msg: string): string | nil
     or msg:find("for types nil and", 1, true) ~= nil)
   and not msg:find("| nil", 1, true)
   if msg:match("in assignment: got .+, expected nil$") or nil_operand then
-    return "  hint: a local declared `= nil` without a type annotation has type nil forever — annotate the optional (`local x: integer | nil = nil`) — see `cosmic --docs guide.checking`"
+    return "  hint: a local declared `= nil` without a type annotation has type nil forever — annotate the optional (`local x: integer | nil = nil`) — see `cosmic --docs reference.teal`"
   end
   -- Pattern 2: nil union not narrowed (X | nil where X expected)
   if msg:find("%| nil") and msg:find("expected") then
-    return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles — see `cosmic --docs guide.checking`"
+    return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles — see `cosmic --docs howto.narrow-nil`"
   end
   -- Pattern 2b: indexing through an un-narrowed nil union. A guard on
   -- a plain variable — truthiness, `assert(x)`, `== nil` — narrows it
@@ -67,24 +67,24 @@ local function hint_for_message(msg: string): string | nil
   -- record FIELD (guarding `o.sub` never narrows `o.sub`) or a value
   -- that was never guarded at all.
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
-    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.checking`"
+    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs howto.narrow-nil`"
   end
   -- Pattern 2c: for-in over a value the checker cannot call. The message
   -- names no type, and the usual cause is an iterator still `T | nil`
   -- from a fallible call.
   if msg:find("for loop does not return an iterator", 1, true) then
-    return "  hint: often the iterator is still `T | nil` from a fallible call: guard it before the loop (`if not it then return end`, or `assert(it)`) — see `cosmic --docs guide.checking`"
+    return "  hint: often the iterator is still `T | nil` from a fallible call: guard it before the loop (`if not it then return end`, or `assert(it)`) — see `cosmic --docs howto.narrow-nil`"
   end
   -- Pattern 2d: naming another module's type that is not exported. A
   -- standalone top-level record is file-local; importers can only name
   -- types nested in (or aliased into) the module's interface record.
   if msg:find("unknown type %w+%.%w+") then
-    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.checking`"
+    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs howto.type-errors`"
   end
   -- Pattern 2e: colon-calling a name the value's record does not
   -- declare. Also fires on a plain typo, so the hint covers both.
   if msg:find("invalid key '[%w_]+' in record") then
-    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs guide.gotchas`"
+    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs howto.type-errors`"
   end
   -- Pattern 3: excess return values (wrong number of returns)
   if msg:find("excess return values") then
@@ -105,14 +105,14 @@ local function hint_for_message(msg: string): string | nil
       if arity and arity > max_arity then max_arity = arity end
     end
     if given and given > max_arity and max_arity > 0 then
-      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs guide.gotchas`"
+      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs howto.type-errors`"
     end
   end
   -- Pattern 4a: ipairs on a nil union or on any — different fixes: a
   -- `{T} | nil` needs narrowing, a plain `any` needs a cast.
   if msg:find("attempting ipairs on something that's not an array") then
     if msg:find("| nil", 1, true) then
-      return "  hint: `{T} | nil` needs its guard before the loop (`if not xs then return end`, or `assert(xs)`); a record FIELD does not narrow — copy it to a local and guard the local — see `cosmic --docs guide.checking`"
+      return "  hint: `{T} | nil` needs its guard before the loop (`if not xs then return end`, or `assert(xs)`); a record FIELD does not narrow — copy it to a local and guard the local — see `cosmic --docs howto.narrow-nil`"
     end
     return "  hint: cast first, e.g. `local items = data as {any}`"
   end

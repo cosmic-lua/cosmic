@@ -1,6 +1,6 @@
 -- The cast-legality group of the carried tl patch: a prototype rule
 -- for `x as T`, gated off by default. It is not enabled for this tree
--- -- see docs/design/cast-legality.md for the census it produced and
+-- -- see docs/dev/explanation/cast-legality.md for the census it produced and
 -- what enabling it would cost.
 --
 -- Stock tl's `as` performs no relation check at all: it discards the
@@ -19,7 +19,7 @@
 -- once per cast at check time, so an ungated `--make ci` (and every
 -- ordinary type check) is byte-for-byte unaffected. Set it before
 -- invoking the checker to see the rule's refusals; the Method section
--- of docs/design/cast-legality.md has the exact command that built the
+-- of docs/dev/explanation/cast-legality.md has the exact command that built the
 -- census from them.
 --
 -- The mechanism is _make/patch.tl: each entry is an exact `find`
@@ -39,7 +39,7 @@
 -- answer with nothing logged. A third form is inert for a third reason:
 -- `cosmic --check types` on a file that preloads `tl` never runs that
 -- file, so the shipped checker answers at exit 0 with nothing logged --
--- `cosmic --docs guide.checking` lays the three forms side by side.
+-- `cosmic --docs howto.narrow-nil` lays the three forms side by side.
 return {
   ["cast-legality"] = {
     file = "tl.lua",
@@ -57,7 +57,7 @@ return {
                   return self.errs:invalid_at(node.e1, err)
                end
                -- cosmic carried patch (cast-legality prototype, gated
-               -- off by default -- see docs/design/cast-legality.md):
+               -- off by default -- see docs/dev/explanation/cast-legality.md):
                -- `x as T` is legal only when x's static type is one
                -- the checker cannot see into. Everything else is
                -- either a redundant cast (the operand already relates

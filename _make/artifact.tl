@@ -179,7 +179,7 @@ end
 --- clears it before each run and a name the generator stops emitting
 --- stops shipping. Why it is not `o/<unit>/` — the build's own
 --- bookkeeping lives there, and clearing it would take that too — is
---- in docs/design/make/model.md.
+--- in docs/dev/explanation/make/model.md.
 --- @param unit string The unit's directory, "" for the root
 --- @return string `o/<unit>/embed_gen`, relative to the project root
 local function gen_dir(unit: string): string

@@ -175,7 +175,7 @@ print(use({}))
   assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
     "wrong error: " .. msg)
   assert(hint:find("do not narrow", 1, true), "wrong hint: " .. hint)
-  assert(hint:find("guide.checking", 1, true), "wrong hint: " .. hint)
+  assert(hint:find("howto.narrow-nil", 1, true), "wrong hint: " .. hint)
 end
 
 local function test_hint_for_loop_nil_union_iterator()

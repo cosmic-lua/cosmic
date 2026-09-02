@@ -112,19 +112,21 @@ local function generate(): string
     end
   end
 
-  local guides = docs.guides()
-  if #guides > 0 then
-    local max_len = 0
-    for _, g in ipairs(guides) do
-      if #g[1] > max_len then
-        max_len = #g[1]
+  for _, kind in ipairs(docs.KINDS) do
+    local pages = docs.pages(kind)
+    if #pages > 0 then
+      local max_len = 0
+      for _, entry in ipairs(pages) do
+        if #entry[1] > max_len then
+          max_len = #entry[1]
+        end
       end
-    end
-    table.insert(lines, "")
-    table.insert(lines, "Guides (cosmic --docs guide.<name>):")
-    for _, g in ipairs(guides) do
-      local padding = string.rep(" ", max_len - #g[1] + 2)
-      table.insert(lines, "  " .. g[1] .. padding .. g[2])
+      table.insert(lines, "")
+      table.insert(lines, docs.kind_title(kind) .. " (cosmic --docs " .. kind .. ".<name>):")
+      for _, row in ipairs(pages) do
+        local padding = string.rep(" ", max_len - #row[1] + 2)
+        table.insert(lines, "  " .. row[1] .. padding .. row[2])
+      end
     end
   end
 

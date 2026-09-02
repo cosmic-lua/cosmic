@@ -71,7 +71,7 @@ local function check_cast_justification(file: string, content: string,
         rule = "cast-justify",
         message = string.format(
           "%s:%d: `as` cast without justification: prefer `is` narrowing"
-          .. " or check.must (see `cosmic --docs guide.checking`); a"
+          .. " or check.must (see `cosmic --docs howto.narrow-nil`); a"
           .. " deliberate cast takes a trailing `-- cast: <reason>` (or on"
           .. " the line above)",
           file, y),

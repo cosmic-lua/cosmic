@@ -111,7 +111,7 @@ local function test_unjustified_library_assert_is_flagged()
   check.equal(diags[1].line, 1)
   check.truthy(diags[1].message:find("-- assert:", 1, true),
     "the message names the marker")
-  check.truthy(diags[1].message:find("guide.lint", 1, true),
+  check.truthy(diags[1].message:find("reference.lint", 1, true),
     "the message names where the rule is written down")
 end
 

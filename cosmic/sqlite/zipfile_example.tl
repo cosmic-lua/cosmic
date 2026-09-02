@@ -1,7 +1,7 @@
 --- Examples for querying and editing a cosmic artifact with SQL.
 --- A cosmic executable is a zip, and sqlite's `zipfile` virtual table
 --- reads one directly, so `cosmic.sqlite` inspects an artifact with no
---- extraction step. See `cosmic --docs guide.artifacts` for the prose.
+--- extraction step. See `cosmic --docs howto.inspect-artifact` for the prose.
 
 -- Example_inspect_members enumerates what an artifact carries. The
 -- artifact here is the running cosmic binary itself, reached through

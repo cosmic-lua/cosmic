@@ -58,7 +58,7 @@ local function unjustified(file: string, t: Token, rule: string,
       .. " process boundary, or a typed contract violated past the"
       .. " checker. Say which, in a trailing `-- %s: <why>` (or on"
       .. " the line above); if a caller COULD receive it, return"
-      .. " `nil, err` instead (see `cosmic --docs guide.lint`)",
+      .. " `nil, err` instead (see `cosmic --docs reference.lint`)",
       file, t.y, what, marker),
   }
 end

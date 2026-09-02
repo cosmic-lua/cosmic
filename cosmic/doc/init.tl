@@ -46,9 +46,11 @@ local record DocModule
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
   module_examples: function(query: string): string | nil, string
-  guide: function(topic: string): string | nil, string
-  guide_topics: function(): {string}
-  guides: function(): {{string, string}}
+  --- The prose pages: four kinds, each a directory the binary ships.
+  KINDS: {string}
+  kind_title: function(kind: string): string
+  page: function(kind: string, topic: string): string | nil, string
+  pages: function(kind: string): {{string, string}}
 
   -- Visibility: which module names are the published API, by position.
   is_public: function(name: string): boolean
@@ -64,9 +66,10 @@ local M: DocModule = {
   search = query.search,
   render_search_results = query.render_search_results,
   module_examples = query.module_examples,
-  guide = query.guide,
-  guide_topics = query.guide_topics,
-  guides = query.guides,
+  KINDS = query.KINDS,
+  kind_title = query.kind_title,
+  page = query.page,
+  pages = query.pages,
   is_public = visibility.is_public,
   public_of = visibility.public_of,
 }

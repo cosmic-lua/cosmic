@@ -112,9 +112,9 @@ end
 -- index. Assignment to a declared non-nil type, a non-nil parameter,
 -- arithmetic and concatenation all admit an unnarrowed `T | nil`, so an
 -- unguarded union becomes a runtime nil downstream. AGENTS.md,
--- docs/stdlib.md and docs/guides/checking.md describe this boundary; if
--- this test fails, the boundary moved and those three say the wrong
--- thing.
+-- docs/explanation/errors.md and docs/explanation/types.md describe
+-- this boundary; if this test fails, the boundary moved and those three
+-- say the wrong thing.
 local function test_nil_union_is_admitted_outside_an_index()
   local path = fs.join(tmpdir, "narrow_nil_admitted.tl")
   assert(fs.write(path, [[

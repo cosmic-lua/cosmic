@@ -318,7 +318,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     --
     -- Narrowing this further needs a channel for "I read this file"
     -- that is not `require`, which the design deliberately does not
-    -- have yet (docs/design/make/engine.md). Until then the honest
+    -- have yet (docs/dev/explanation/make/engine.md). Until then the honest
     -- boundary is the one above, stated rather than implied.
     ro[#ro + 1] = "."
     -- ...and EXEC (ro is read-only now): tests exec project binaries.

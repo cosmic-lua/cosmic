@@ -53,17 +53,15 @@ local function tail_of(cases: {discover.Case}): string
   .. table.concat(parts, "\n") .. "\n}))\n"
 end
 
---- Read `path` and append the runner tail when its shape calls for
---- one. Anything that is not a runner-mode `*_test.tl` comes back
---- byte-identical.
---- @param path string The source path
---- @return Augmented | nil The source and the discovery verdict
---- @return string Error when the file cannot be read
-local function augment(path: string): Augmented | nil, string
-  local content, err = fs.read(path)
-  if content == nil then
-    return nil, err
-  end
+--- Append the runner tail to `content` when its shape calls for one.
+--- Anything that is not a runner-mode `*_test.tl` comes back
+--- byte-identical. The path is the name the source goes by: it decides
+--- whether the content is a test at all, and it is what a diagnostic
+--- names.
+--- @param path string The source's name
+--- @param content string The source
+--- @return Augmented The source and the discovery verdict
+local function augment_source(path: string, content: string): Augmented
   if not path:find("_test%.tl$") then
     return {source = content, mode = "empty"}
   end
@@ -78,13 +76,28 @@ local function augment(path: string): Augmented | nil, string
   return {source = src .. tail_of(d.cases), mode = "runner"}
 end
 
+--- Read `path` and append the runner tail when its shape calls for
+--- one.
+--- @param path string The source path
+--- @return Augmented | nil The source and the discovery verdict
+--- @return string Error when the file cannot be read
+local function augment(path: string): Augmented | nil, string
+  local content, err = fs.read(path)
+  if content == nil then
+    return nil, err
+  end
+  return augment_source(path, content)
+end
+
 local record SeamModule
   type Augmented = Augmented
   augment: function(path: string): Augmented | nil, string
+  augment_source: function(path: string, content: string): Augmented
 end
 
 local M: SeamModule = {
   augment = augment,
+  augment_source = augment_source,
 }
 
 return M

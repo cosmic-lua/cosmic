@@ -24,7 +24,7 @@
 -- answer with nothing logged. A third form is inert for a third reason:
 -- `cosmic --check types` on a file that preloads `tl` never runs that
 -- file, so the shipped checker answers at exit 0 with nothing logged —
--- `cosmic --docs guide.checking` lays the three forms side by side.
+-- `cosmic --docs howto.narrow-nil` lays the three forms side by side.
 return {
   ["ast-cache-envoptions-tl-tl"] = {
     file = "tl.tl",

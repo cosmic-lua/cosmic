@@ -19,7 +19,7 @@ package.path = package.path:sub(1, at - 1) ..
 -- binary's copy whatever the manifest said, so a test of `_cli.args`
 -- would test /zip's. cosmic.searcher is that one exception and stays
 -- the binary's, which is why it reads the manifest with io.open. The
--- scan rule is its own; see docs/design/make/resolution.md.
+-- scan rule is its own; see docs/dev/explanation/make/resolution.md.
 local searcher = require("cosmic.searcher")
 -- The /zip searcher: one zipos open per module the binary carries,
 -- where the stock searcher probes and then reopens. Installed before

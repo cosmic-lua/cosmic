@@ -244,7 +244,7 @@ the movement costs.
 
 ### G1 — the agent-eval instrument
 
-the clean-room agent studies ([agent-usability.md](agent-usability.md),
+the clean-room agent studies ([agent-usability-study.md](dev/explanation/agent-usability-study.md),
 `skills/agent-eval`) become a maintained, versioned suite: fixed
 tasks, fresh agents, scored on silent bugs, checker-caught errors, and
 cycles — run on a cadence with tracked history, and run against

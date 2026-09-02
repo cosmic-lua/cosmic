@@ -288,7 +288,7 @@ jobs:
             # reaches the same bytes either way, which is why the
             # obvious hash-gen1-hash-gen2 experiment reports IDENTICAL
             # even on a tree where generators ran stale -- see
-            # docs/design/make/resolution.md). It fires if convergence
+            # docs/dev/explanation/make/resolution.md). It fires if convergence
             # regresses, or if any step stops being idempotent.
             cp o/bin/cosmic cosmic-converged
             o/bin/cosmic --make build
@@ -460,8 +460,8 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::cosmic --docs"
-          ./cosmic.exe --docs guide.platforms > docs-smoke.txt
-          grep -q "Platform Support" docs-smoke.txt
+          ./cosmic.exe --docs reference.platforms > docs-smoke.txt
+          grep -q "Platform support" docs-smoke.txt
           ./cosmic.exe --docs fs.read > docs-fs.txt
           grep -qi "read" docs-fs.txt
           echo "::endgroup::"

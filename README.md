@@ -69,17 +69,22 @@ hello.tl` checks without running. `./cosmic-lua -i` starts a REPL, and
 
 ## learn more
 
+the docs are four kinds of page, and the binary serves them:
+`./cosmic-lua --docs tutorial` to learn, `--docs howto` for a task,
+`--docs reference` for a fact, `--docs explanation` for why.
+[docs/README.md](docs/README.md) is the same map for a browser.
+
+- [docs/tutorial/quickstart.md](docs/tutorial/quickstart.md) — your
+  first project, from an empty directory to a gated fat binary
+- [docs/explanation/errors.md](docs/explanation/errors.md) — the
+  error-handling doctrine every module follows
+- [docs/explanation/build.md](docs/explanation/build.md) — why
+  `cosmic --make` has no build file
 - [docs/goals.md](docs/goals.md) and
   [docs/decisions/](docs/decisions/) — why cosmic exists, what it
   promises, and the tradeoffs behind it
-- [docs/stdlib.md](docs/stdlib.md) — standard library tour and error
-  handling conventions
-- [docs/architecture.md](docs/architecture.md) — how the binary is put
-  together
-- [docs/build.md](docs/build.md) — `cosmic --make`: how the build
-  system sees a project
-- [docs/contributing.md](docs/contributing.md) and
-  [AGENTS.md](AGENTS.md) — developing cosmic itself
+- [docs/dev/](docs/dev/README.md) and [AGENTS.md](AGENTS.md) —
+  developing cosmic itself
 - [cosmic-lua/cosmopolitan](https://github.com/cosmic-lua/cosmopolitan) — the
   Cosmopolitan fork that provides the C core
 

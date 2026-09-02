@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Reads and regenerates the committed cast site inventory.
 ---
---- `docs/design/cast-sites.tsv` is half generated, half curated: its
+--- `docs/dev/explanation/cast-sites.tsv` is half generated, half curated: its
 --- path and line columns are a fact about the tree — the same `as`
 --- tokens `_build/casts.tl` counts, through the same lexer
 --- (`_cli.lint.cast_lines`) — but its class column is a human reading
@@ -27,7 +27,7 @@ local str = require("cosmic.string")
 
 --- The committed inventory: where this module reads and writes it,
 --- relative to the project root.
-local TSV_PATH < const > = "docs/design/cast-sites.tsv"
+local TSV_PATH < const > = "docs/dev/explanation/cast-sites.tsv"
 
 --- One `as` token found by a walk of the tree: a fact, no judgment.
 local record Site
@@ -154,7 +154,7 @@ local function main(...: string): integer
   if not rows then
     io.stderr:write(
       "cast_sites: new site(s) with no class on record — classify each"
-      .. " by hand in " .. TSV_PATH .. " (see docs/design/casts.md's"
+      .. " by hand in " .. TSV_PATH .. " (see docs/dev/explanation/casts.md's"
       .. " Classes section), then rerun:\n")
     for _, p in ipairs(problems) do
       io.stderr:write("  " .. p .. "\n")

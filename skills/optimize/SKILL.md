@@ -52,7 +52,7 @@ identity traps, and both return a number either way:
   the tree's entry file and then loads `_perf.harness` and every
   `_perf/bench/*` from the BINARY's embedded copies. Edit a scenario,
   re-run, and nothing changes. `--make run` builds first and resolves
-  both against the tree (docs/design/make/resolution.md). The one
+  both against the tree (docs/dev/explanation/make/resolution.md). The one
   exception is `$BIN --modules <manifest> o/_perf/run.lua …` where the
   manifest roots a directory holding NOTHING but `_perf` and
   `o/_perf`: the tree answers `_perf.*` and the binary still answers

@@ -13,7 +13,7 @@
 --- first start() sets SIGPIPE to SIG_IGN process-wide (EPIPE on the write,
 --- not a dead parent) — unless you already installed a SIGPIPE handler.
 --- Testing a server you start? Have it print `READY <port>` and block on
---- reading that line — the readiness pattern in `cosmic --docs guide.recipes`.
+--- reading that line — the readiness pattern in `cosmic --docs howto.spawn-child`.
 local unix = require("cosmo.unix")
 local childio = require("cosmic.child.io")
 local childfast = require("cosmic.child.fast")

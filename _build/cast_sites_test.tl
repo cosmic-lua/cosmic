@@ -8,8 +8,8 @@
 --- reads: _types
 --- reads: cmd
 --- reads: cosmic
---- reads: docs/design
--- Ratchet over `docs/design/cast-sites.tsv`, the cast site inventory.
+--- reads: docs/dev/explanation
+-- Ratchet over `docs/dev/explanation/cast-sites.tsv`, the cast site inventory.
 --
 -- The map drifts the moment a cast closes: the row survives, the site
 -- does not. Nothing read the file before this gate, so a closure could
@@ -17,7 +17,7 @@
 -- otherwise with `--make ci` still green. Three checks, all against
 -- what is actually committed: the per-file count the inventory implies
 -- agrees with the cast baseline (which subsumes the total), every
--- class named in the inventory has a heading in `docs/design/casts.md`
+-- class named in the inventory has a heading in `docs/dev/explanation/casts.md`
 -- and every heading has at least one row, and every row's line really
 -- holds an `as` cast by the lexer `_cli.lint.cast_lines` uses, not by
 -- grepping for the word `as` — the grep also matches the word in prose.
@@ -28,7 +28,7 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local lint = require("_cli.lint")
 
-local CASTS_MD < const > = "docs/design/casts.md"
+local CASTS_MD < const > = "docs/dev/explanation/casts.md"
 
 local REGEN < const > =
 "regenerate: bin/cosmic --make run _build/cast_sites.tl --reconcile" ..
@@ -61,7 +61,7 @@ local function test_per_file_counts_agree_with_the_cast_baseline()
   end
   table.sort(mismatched)
   assert(#mismatched == 0,
-    "docs/design/cast-sites.tsv disagrees with the cast baseline — "
+    "docs/dev/explanation/cast-sites.tsv disagrees with the cast baseline — "
     .. REGEN .. ":\n  " .. table.concat(mismatched, "\n  "))
 end
 

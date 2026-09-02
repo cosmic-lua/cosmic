@@ -38,9 +38,14 @@ _tool/                internal toolchain modules: the runners (testrun,
                       the pure lint checks, coverage's ratchet half and
                       doc's extraction half — embedded in the cosmic
                       binary, never in user artifacts
-_docs/                doc publishing
-docs/                 prose docs; docs/guides/** SHIPS in the binary and
-                      is what `cosmic --docs guide.<topic>` serves
+_docs/                doc publishing, and the shared halves of the docs
+                      gates: the fence checks and the derived regions
+docs/                 prose docs, one of four kinds per page:
+  tutorial/ howto/     these four SHIP in the binary and are what
+  reference/           `cosmic --docs <kind>.<topic>` serves
+  explanation/
+  dev/<kind>/          the same four kinds for contributors; not shipped
+  goals.md decisions/  the governance layer, linked from explanation
 _perf/                performance benchmark harness (see skills/optimize/)
 _types/               cosmo.* type declarations (generated) + gentype generator
 3p/
@@ -76,8 +81,8 @@ project under its own rules. the consequence to know when moving code:
 a module under `cosmic/` may not be required from outside `cosmic/`
 unless it is public, and the strip floor is `cosmic/**`, so anything a
 STRIPPED artifact must still boot with has to live there. `cosmic
---make build` at the root produces `o/bin/cosmic` today; what it does
-not yet carry is in [docs/design/make/](docs/design/make/).
+--make build` at the root produces `o/bin/cosmic`; the design is
+[docs/dev/explanation/make/](docs/dev/explanation/make/).
 
 ## Language and Conventions
 
@@ -93,6 +98,7 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **imports**: prefer `cosmic.*` over raw `cosmo.*`; `cosmo.*` is for library internals implementing wrappers
 - **tests**: `*_test.tl` alongside source, run via `cosmic --make test`
 - **examples**: `*_example.tl` with `Example_*` functions, run via `cosmic --make example`
+- **docs**: a page is one of four kinds, and its directory says which (`docs/tutorial/`, `docs/howto/`, `docs/reference/`, `docs/explanation/`; `docs/dev/<kind>/` for contributors); prose follows `skills/docs-style` (the four kinds, the sentence rules); code in a page is gated — every fence compiles (`_build/snippets_test.tl`), a fence that shows output is derived from an `Example_*` function (`bin/cosmic _docs/derive.tl`, gated by `_build/docs_test.tl`), and a tutorial's files and commands run (`_build/tutorials_test.tl`). the tradeoff is [D43](docs/decisions/d43-docs-are-four-kinds-with-checked-code.md)
 
 ### cosmo vs cosmic
 
@@ -105,17 +111,17 @@ wrappers with error handling and docs.
 
 ### Common Patterns
 
-**dual-use modules with `is_main()`**: `require("cosmic.proc").is_main()` writes a file that works as both a standalone script and an importable module; prefer it over the low-level `cosmo.is_main()`. Worked example: `cosmic --docs guide`.
+**dual-use modules with `is_main()`**: `require("cosmic.proc").is_main()` writes a file that works as both a standalone script and an importable module; prefer it over the low-level `cosmo.is_main()`. Worked example: `cosmic --docs howto.import-modules`.
 
 ### Error Handling Patterns
 
 the pattern table and worked snippets ship in the binary
-(`cosmic --docs guide.modules`, `cosmic --examples errors`); the
-doctrine prose is [docs/stdlib.md](docs/stdlib.md). the shape rules:
+(`cosmic --docs reference.errors`, `cosmic --examples errors`); the
+doctrine prose is `cosmic --docs explanation.errors`. the shape rules:
 
 **honest nil — the type must admit failure:** fallible value is `T | nil,
 string` (callers must narrow; the checker only makes them at an index,
-`cosmic --docs guide.checking`); fallible effect is `boolean, string`
+`cosmic --docs explanation.types`); fallible effect is `boolean, string`
 (`false, msg` on failure); infallible is a bare value.
 
 Errors are strings by default (`nil, err, errno` from `cosmo.unix`, formatted
@@ -131,8 +137,8 @@ carry structure returns **its own concrete error record** in slot 2 instead
 rule 11. Extras ride on the value's record (`fs.find`'s `.errors`); a
 `cosmo.*` binding's tuple is exempt by position (already in the `.d.tl`).
 Narrowing a `T | nil`, `check.must`, and `is` are worked in `cosmic --docs
-guide.checking` and `guide.gotchas`; `cast-justify`, `fallible-returns`, and
-`find-needle` are lint rules documented in `guide.lint`.
+howto.narrow-nil` and `howto.type-errors`; `cast-justify`, `fallible-returns`, and
+`find-needle` are lint rules documented in `reference.lint`.
 
 rules:
 - never throw from library code — exempt: `cosmic.check`'s assertions and

@@ -25,7 +25,7 @@ local EMPTY_PIPELINE < const >: types.Pipeline = {path = {}, stages = {}, line =
 --- The result of parsing a run of nodes: the nodes themselves, plus
 --- which stop word ended the run ("" at EOF) — `parse_nodes`'s only
 --- extra beyond success or failure, carried here rather than as a
---- third return slot (`fallible-returns`, see `cosmic --docs guide.lint`).
+--- third return slot (`fallible-returns`, see `cosmic --docs reference.lint`).
 local record NodesResult
   nodes: {types.Node}
   stop: string

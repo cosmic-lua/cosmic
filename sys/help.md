@@ -13,7 +13,7 @@ Cosmic options:
   --check <kind> <file>         run one gate check on one file. kinds:
                                   types     type-check, strict
                                   fmt       formatting (diff on stderr)
-                                  lint      every lint rule (--docs guide.lint)
+                                  lint      every lint rule (--docs reference.lint)
                                   example   run Example_* and check output
                                 a kind IS its verb: the whole project is
                                 `--make check|fmt|lint|example`
@@ -23,7 +23,7 @@ Cosmic options:
   --extract <dir>               extract zip contents to directory
   --exe <path>                  with --embed/--extract: operate on <path>, not this exe
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
-  --docs [query]                show documentation for module, symbol, or guide
+  --docs [query]                show documentation for a module, a symbol, or a page
   --test <output> <cmd>...      run test, write <output>.{got,out,err}
                                 e.g. cosmic --test o/foo ./cosmic foo_test.tl
   --report <paths>...           report on .got files written by --test
@@ -59,12 +59,11 @@ Environment variables:
 
 Documentation:
   cosmic --docs [query]      look up docs from the command line
-  cosmic --docs guide        list available guides
-  cosmic --docs guide.quickstart  your first project, end to end
-  cosmic --docs guide.recipes  whole programs: which modules a CLI composes
-  cosmic --docs guide.testing  show a specific guide
-  cosmic --docs guide.gotchas  common pitfalls (integer vs number, any casts, arg)
-  cosmic --docs guide.lint   every lint rule, its failure and its fix
+  cosmic --docs tutorial     lessons: follow one to a working result
+  cosmic --docs howto        steps for one task (build, test, narrow a nil, ...)
+  cosmic --docs reference    the facts: lint rules, --make tables, platforms
+  cosmic --docs explanation  why things are the way they are
+  cosmic --docs <kind>.<name>  read one page; every page is listed below
   help(<query>)              look up docs in the REPL (interactive only)
 
 Low-level cosmo.* bindings are available but hidden by default.

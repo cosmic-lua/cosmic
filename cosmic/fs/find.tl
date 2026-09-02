@@ -129,7 +129,7 @@ end
 --- not drained it: the handles stay open until collection, which pins
 --- directory fds — and on Windows can block deleting the tree just
 --- walked. An early-break loop compiles without any signal that it is
---- leaking handles (`cosmic --docs guide.gotchas` has the entry). So
+--- leaking handles (`cosmic --docs howto.type-errors` has the entry). So
 --- say so — the attribute Lua 5.4 has for exactly this:
 ---
 ---     local iter <close> = check.must(fs.find_iter(dir))

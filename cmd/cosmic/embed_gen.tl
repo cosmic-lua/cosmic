@@ -15,7 +15,8 @@
 ---   make             the graph engine, from the pinned cosmos zip
 ---   cosmic/_version.lua  the stamp `--version` prints
 ---   sys/**           the static `--help` text
----   docs/guides/**   the guides `--docs` reads
+---   docs/<kind>/**   the prose pages `--docs` reads: tutorial, howto,
+---                    reference, explanation
 ---
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
 --- Naming it is what makes the fixpoint converge -- without it `build`
@@ -65,10 +66,16 @@ local PINNED: {{string, string}} = {
 --- megabytes of artifact nobody asked for. What a binary carries is a
 --- thing its unit SAYS, and this is cosmic saying it. Both are read
 --- from `/zip` at run time: `_cli.help` reads `sys/help.md`, and
---- `--docs` reads the guides under `docs/guides`.
+--- `--docs` reads the four kinds of page under `docs/`. Only those
+--- four ship: `docs/dev/**` is for contributors and `docs/decisions/`
+--- is the project's record, neither of which a builder with the
+--- artifact needs.
 local TREES: {string} = {
   "sys",
-  "docs/guides",
+  "docs/tutorial",
+  "docs/howto",
+  "docs/reference",
+  "docs/explanation",
 }
 
 --- Copy one file into the payload.

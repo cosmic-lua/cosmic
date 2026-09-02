@@ -190,7 +190,7 @@ local function check_return_assert(file: string, content: string): {Diagnostic}
               .. " this function is two-valued at runtime and a caller's"
               .. " last-argument position expands both. Write the assert"
               .. " as a statement and return the local (see `cosmic"
-              .. " --docs guide.lint`)", file, a.y),
+              .. " --docs reference.lint`)", file, a.y),
           }
         end
       end
@@ -236,7 +236,7 @@ local function check_assert_justification(file: string, content: string,
             .. " which, in a trailing `-- assert: <why the nil cannot"
             .. " occur>` (or on the line above); if the nil IS"
             .. " reachable, return it as `nil, err` instead (see"
-            .. " `cosmic --docs guide.lint`)", file, t.y),
+            .. " `cosmic --docs reference.lint`)", file, t.y),
         }
       end
     end

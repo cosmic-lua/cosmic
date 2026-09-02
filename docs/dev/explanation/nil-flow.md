@@ -11,7 +11,7 @@ That number is what G3 — an honest type layer, no escape hatches — has
 been missing. It is the cost of adopting a strict nil-flow mode, and it
 is also the size of the doctrine that exists only because the mode does
 not: 92 lines of AGENTS.md and a 43-line section of
-`docs/guides/checking.md` whose entire job is to warn a reader that the
+`docs/explanation/types.md` whose entire job is to warn a reader that the
 annotation is a contract the checker half-enforces.
 
 Measured against `e7ac1580` on 2026-08-25, over the 527 tracked `.tl`
@@ -19,7 +19,7 @@ files outside `**/testdata/**`. The site list this document is built
 from is committed beside it as `nil-flow-sites.tsv`; where the two
 disagree, the file is right.
 
-Probing one of these rules by hand: `cosmic --docs guide.checking` has
+Probing one of these rules by hand: `cosmic --docs reference.narrowing` has
 the three probe forms and says which of them actually swap the checker.
 `cosmic --check types` is not one of them — it never runs the file it
 checks, so a `package.loaded["tl"]` preload written inside that file is
@@ -155,7 +155,7 @@ number.
 Nine sink shapes, disjoint. Reproduce the table with:
 
 ```text
-cut -f3 docs/design/nil-flow-sites.tsv | sort | uniq -c | sort -rn
+cut -f3 docs/dev/explanation/nil-flow-sites.tsv | sort | uniq -c | sort -rn
 ```
 
 | class | sites | the sink |
@@ -441,13 +441,13 @@ A strict mode retires the prose that exists to warn about its absence.
   Error Handling Patterns block (145–236). The rest of the block —
   return shapes, `check.must`, `is` dispatch, the two-slot rule — is
   unaffected.
-- **`docs/guides/checking.md` 198–240**, the whole `### Where Narrowing
+- **`docs/explanation/types.md`**, the whole `### Where Narrowing
   Is Required` section: 43 lines whose entire content is a worked
   example of a program that "compiles at full strictness, which is the
   point", plus the advice to "guard where the union is produced …
   rather than trusting the annotation". Under a strict mode the section
   becomes two sentences: narrowing is required wherever nil cannot go.
-- **`docs/stdlib.md`** is unaffected. Its 58 lines describe the return
+- **`docs/explanation/errors.md`** is unaffected. Its 58 lines describe the return
   *shapes*, which a strict mode does not change.
 
 Nothing here is edited by this change. The lines are quoted so the

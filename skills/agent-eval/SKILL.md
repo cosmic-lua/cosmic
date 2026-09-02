@@ -11,7 +11,7 @@ description: >
 
 The repeatable pattern for measuring how learnable cosmic is from the
 binary alone, settled over three rounds in August 2026 (and a
-predecessor study in June 2026 — `docs/agent-usability.md`). The core
+predecessor study in June 2026 — `docs/dev/explanation/agent-usability-study.md`). The core
 idea: give a fresh LLM agent exactly one file — the `cosmic` binary —
 a realistic project brief, and nothing else, then read its journal.
 The journals are the deliverable; the projects are the evidence.
@@ -173,7 +173,7 @@ exist.
 ## History
 
 - June 2026: four-agent study against build `8c7e138` —
-  `docs/agent-usability.md`.
+  `docs/dev/explanation/agent-usability-study.md`.
 - August 2026: three rounds against `2026-08-05-54f3e88` plus staged
   fixes; every round 4/4 successful, first-build attempts converging
   to 1/1/1/1 in the fully isolated round. The fixes that came out of

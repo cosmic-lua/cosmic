@@ -1,7 +1,7 @@
 --- The module manifest: the closure a child resolves its requires
 --- through.
 ---
---- `docs/design/make/resolution.md` settles the rule — in a project the
+--- `docs/dev/explanation/make/resolution.md` settles the rule — in a project the
 --- tree answers, outside one the binary does — and this is the channel.
 --- The closure is already in the recipe line as `--deps <built…>`,
 --- computed by `_make.deps` for the graph (so a test re-runs when what

@@ -3,9 +3,12 @@ name: docs-style
 description: >
   The house standard for comments and docs: state what the code is for
   and the implementation details a reader needs, in language that
-  stands alone — no history, no commit/issue/decision references. Use
-  when writing or reviewing any comment, doc comment, or markdown doc,
-  and when auditing existing files to converge them on the standard.
+  stands alone — no history, no commit/issue/decision references. A
+  markdown page is one of four kinds (tutorial, how-to, reference,
+  explanation), written in short plain sentences, with code the gates
+  check. Use when writing or reviewing any comment, doc comment, or
+  markdown doc, and when auditing existing files to converge them on
+  the standard.
 ---
 
 # Concise, specific, concrete docs
@@ -113,6 +116,111 @@ deleted, not improved.
   states the rule in place; it may *additionally* link the record only
   when the full tradeoff genuinely matters to its reader.
 
+## Which page: the four kinds
+
+A markdown page under `docs/` is exactly one kind, and its directory
+says which. The four answer four different reader needs, and a page
+that serves two needs serves neither well.
+
+| kind | directory | the reader wants | the page does | the page never does |
+|---|---|---|---|---|
+| tutorial | `docs/tutorial/` | to learn by doing | walks one path to a working result; every step is concrete and runs | offers choices, explains design, covers edge cases |
+| how-to | `docs/howto/` | to get one task done | numbered or ordered steps for a reader who knows the basics; names the commands and files | teaches concepts, lists every option, justifies itself |
+| reference | `docs/reference/` | a fact | states the facts completely, in the structure of the thing described (one section per rule, verb, column) | instructs, advises, tells stories |
+| explanation | `docs/explanation/` | to understand why | discusses design, tradeoffs, and consequences in prose | gives steps to follow |
+
+Contributor pages mirror the four under `docs/dev/<kind>/` and do not
+ship. `docs/goals.md` and `docs/decisions/` stay where they are and
+are linked from explanation pages.
+
+The shipped kinds are what the binary serves: `docs/howto/test.md` is
+`cosmic --docs howto.test`, and `cosmic --docs howto` lists the kind.
+Refer to a page by that address in prose and in error messages.
+
+Two rules follow from the table:
+
+- **when a sentence wants to be on another kind of page, move it and
+  link.** a how-to that starts explaining links the explanation; a
+  reference that starts advising links the how-to. the link is one
+  line: `cosmic --docs explanation.build` says why.
+- **the module reference is generated.** `cosmic --docs <module>`
+  renders the doc comments, so no prose page restates a signature.
+  Prose reference is for what has no source to derive from: the lint
+  rules, `--make`'s tables, the platform matrix, the conventions.
+
+Tutorials get two more: the reader must not need to make a decision
+(name the file, name the command, show the output), and the page must
+be RUN, not read, to be reviewed — the runner below does that in CI,
+and the author does it first.
+
+## Sentences: the writing rules
+
+Prose follows the Simplified Technical English writing rules. They are
+guidance a reviewer applies, not a lint, and the house lowercase voice
+stays. Apply them sentence by sentence:
+
+1. **one instruction per sentence** in a procedure; one idea per
+   sentence elsewhere.
+2. **length**: about 20 words in a step, 25 in a description. a
+   sentence past that is two sentences.
+3. **active voice.** "the gate refuses the file", not "the file is
+   refused by the gate". name the actor: the checker, the formatter,
+   `--make`, the reader.
+4. **the imperative for steps**: "run `cosmic --make ci`", not "you
+   should run" or "one runs".
+5. **one topic per paragraph**, and the topic in its first sentence.
+   six sentences is a long paragraph.
+6. **one meaning per term, one term per meaning.** it is an
+   `artifact`, not sometimes a `binary` and sometimes an `executable`;
+   it is `narrow`, not `refine`; the project's words are the words on
+   `cosmic --help` and in the module names.
+7. **no noun stacks past three words.** "the test sandbox grant
+   derivation rule" is "the rule that derives a test's grants".
+8. **present tense, statements of fact.** "the formatter rewrites the
+   file" — never "will", "should", "might", "could" about what the
+   code does.
+9. **articles stay in.** "the checker reads the source", not "checker
+   reads source".
+10. **no em-dash chains.** a clause that hung off a dash is its own
+    sentence. a parenthesis holds a name or a value, not a thought.
+11. **warnings before the step they guard**, as their own sentence:
+    "work on a copy. the artifact you run is the one you would edit."
+
+The banned moves above still hold on top of these: no history, no
+issue or decision references, no self-justification.
+
+## Code in a page
+
+Every fence claims something, and the gates hold it to the claim:
+
+- **```` ```teal ```` and ```` ```lua ```` compile.** at full
+  strictness, warnings included, and as a formatter fixpoint
+  (`_build/snippets_test.tl`). a fence about a compile error, a
+  deliberate mis-format, or a skeleton with `...` in it is prose:
+  tag it ```` ```text ````.
+- **a fence that shows output is derived.** name the `Example_*`
+  function in the info string and let the tool fill it:
+
+  ````markdown
+  ```teal example=cosmic/json_example.tl#Example_decode
+  ```
+  ````
+
+  `bin/cosmic _docs/derive.tl` writes that function's body into the
+  fence, `-- Output:` block included; `_build/docs_test.tl` fails when
+  the committed fence differs from the source. never type an output
+  claim by hand. if no example exists for what the page shows, write
+  one in the module's `*_example.tl` first.
+- **a tutorial's files and commands run.** a file the reader creates is
+  a fence whose info string names it (```` ```teal file=greet/text.tl ````);
+  a command is a line in a ```` ```bash ```` fence, and each `# ` line
+  under it is an assertion — a substring the command's output must
+  contain. `_build/tutorials_test.tl` writes the files and runs the
+  commands in a scratch project, in page order, with `cosmic` resolving
+  to the binary under test. `# ...` is a skip.
+- **a `path:line` citation is checked** by the `doc-citation` lint;
+  quote it fenced, or name the symbol instead of the line.
+
 ## Audit procedure (converging a file)
 
 1. Read the whole file first; understand what the code does before
@@ -131,3 +239,7 @@ deleted, not improved.
 4. Re-read each edited comment with fresh eyes: would a reader with no
    repo history understand it completely? Is every remaining word
    earning its place?
+5. For a markdown page, ask first which kind it is; every section that
+   serves another kind moves to that page. Then apply the sentence
+   rules paragraph by paragraph, and replace every hand-typed output
+   with a derived fence.

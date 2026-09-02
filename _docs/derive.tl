@@ -18,8 +18,12 @@
 ---
 --- Rewriting a REGION, not a file, because the surrounding prose is
 --- prose: it says why the records exist and how to add one, which no
---- generator can know.
+--- generator can know. The second derived region is the example fence
+--- (`_docs/examples.tl`): a fence whose info string names an
+--- `Example_*` function carries that function's body, so a page never
+--- shows output nobody ran.
 
+local examples = require("_docs.examples")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 
@@ -216,6 +220,23 @@ if proc.is_main() then
     else
       print(changed and ("derive: rewrote " .. job[1])
         or ("derive: " .. job[1] .. " already matches its source"))
+    end
+  end
+  for _, path in ipairs(examples.documents()) do
+    local text = fs.read(path) or ""
+    local fresh, problems = examples.render(text)
+    for _, problem in ipairs(problems) do
+      io.stderr:write("derive: " .. path .. ": " .. problem .. "\n")
+      failed = true
+    end
+    if #problems == 0 and fresh ~= text then
+      local ok, werr = fs.write(path, fresh)
+      if not ok then
+        io.stderr:write("derive: " .. path .. ": " .. (werr or "cannot write") .. "\n")
+        failed = true
+      else
+        print("derive: rewrote " .. path)
+      end
     end
   end
   if failed then
