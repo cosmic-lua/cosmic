@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 342,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-WkUw_R93v-lok152",
   ["title"] = "definitions.lua: unix.localtime's doc example still shows the pre-#321 positional row",
 }
