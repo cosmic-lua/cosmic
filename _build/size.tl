@@ -158,7 +158,9 @@ end
 
 --- The one-line summary `compare` prints: totals from `cur`, with each
 --- delta against `prev` signed (`%+d`, so a zero delta reads `+0` and
---- the direction of a nonzero one is never ambiguous).
+--- the direction of a nonzero one is never ambiguous). `doctrine` is
+--- AGENTS.md's line count — the figure G9 names, so it rides the same
+--- line the release notes carry rather than living only in the JSON.
 --- @param prev Report The prior report
 --- @param cur Report The current report
 --- @return string The summary line
@@ -169,12 +171,16 @@ local function format_compare(prev: Report, cur: Report): string
   local cbin = cur.binary_bytes or 0
   local pmod = prev.public_modules or 0
   local cmod = cur.public_modules or 0
+  local pdoc = prev.agents_md_lines or 0
+  local cdoc = cur.agents_md_lines or 0
   return string.format(
-    "size: lines %d (%+d), files %d (%+d), binary %d (%+d), public modules %d (%+d)",
+    "size: lines %d (%+d), files %d (%+d), binary %d (%+d), public modules %d (%+d), "
+    .. "doctrine %d (%+d)",
     clines, clines - plines,
     cfiles, cfiles - pfiles,
     cbin, cbin - pbin,
-    cmod, cmod - pmod)
+    cmod, cmod - pmod,
+    cdoc, cdoc - pdoc)
 end
 
 --- Load a report JSON file written by `--out`.
