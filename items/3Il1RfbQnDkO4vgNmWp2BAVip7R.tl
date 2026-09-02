@@ -7,7 +7,9 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 354,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-2BAV-lok152",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "function coverage: ftrace the tool/lua tests, commit a per-file function floor, and gate o//tool/lua/test on it",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "394ff335e40aa7521841278d9789c12d962e3f18",
+  ["verdict_spec"] = "9794368fc083434bb1a98f3d021d985ae2de33dbbcee6ff1d62a3d7887eaeb4a",
 }
