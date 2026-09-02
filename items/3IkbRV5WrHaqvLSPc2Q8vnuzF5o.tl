@@ -7,6 +7,7 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 346,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-8vnu-lok152",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "definitions coverage check 9: whitespace before a depth-0 '|' still passes, and gentype drops everything after it from the type",
 }
