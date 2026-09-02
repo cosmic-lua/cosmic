@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 356,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-U6yD-lok152",
   ["title"] = "sqlite: extract the vendored ext/misc extensions into a named registry",
 }
