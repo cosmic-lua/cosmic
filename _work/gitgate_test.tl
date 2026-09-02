@@ -61,7 +61,6 @@ local function test_a_lost_race_drops_the_mutation_and_refuses()
   assert(flow.by_id(merged)[mine.id] == nil,
     "and the dropped mutation is gone whole")
 end
-test_a_lost_race_drops_the_mutation_and_refuses()
 
 -- The re-run is the compare-and-swap completing: the same mutation,
 -- decided and committed again against the merged state, publishes.
@@ -82,7 +81,6 @@ local function test_the_rerun_publishes_against_the_merged_state()
   assert(check.must(store.load(a, mine.id)).id == mine.id,
     "and the mutation reaches the remote")
 end
-test_the_rerun_publishes_against_the_merged_state()
 
 -- What a re-run's take would see: the doing bound, applied to the
 -- merged board — a board another session filled while this one was
@@ -99,7 +97,6 @@ local function test_the_merged_board_carries_the_doing_bound()
   assert(flow.doing_refusal(merged) ~= nil,
     "a take against the merged board is the verb's to refuse")
 end
-test_the_merged_board_carries_the_doing_bound()
 
 -- A decomposition clears the locks on the item that became a
 -- container: a claim or review standing on it locks nothing anyone
@@ -114,7 +111,6 @@ local function test_containered_clears_the_locks()
   assert(#out == 1 and out[1].claim == "" and out[1].reviewer == "",
     "the claim and the review clear together")
 end
-test_containered_clears_the_locks()
 
 -- The distance guard: named on either involvement list refuses,
 -- either half is enough, and an unnamed session is never involved.
@@ -129,7 +125,6 @@ local function test_distance_refusal_covers_builders_and_speccers()
   assert(gate.distance_refusal(stranger, "") == nil,
     "an unnamed session is never involved")
 end
-test_distance_refusal_covers_builders_and_speccers()
 
 -- The one-claim-per-session guard: a live claim on ANOTHER open item
 -- refuses; the item being claimed itself, and a session with no live
@@ -152,4 +147,3 @@ local function test_second_claim_refusal_scopes_to_other_open_claims()
   assert(gate.second_claim_refusal(s, all, unclaimed.id, "nobody-yet") == nil,
     "a session with no live claim anywhere is free to take")
 end
-test_second_claim_refusal_scopes_to_other_open_claims()

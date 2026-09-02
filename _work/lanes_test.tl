@@ -64,7 +64,6 @@ local function test_mint_is_idempotent_per_lane()
   assert(count == 1,
     "a second red observation mints nothing new: " .. tostring(count))
 end
-test_mint_is_idempotent_per_lane()
 
 -- A lane back to green closes its UNCLAIMED repair item, as
 -- not-planned — the monitor observed a fact, it never completed work.
@@ -80,7 +79,6 @@ local function test_green_closes_an_unclaimed_repair()
   assert(closed.resolution == "not-planned",
     "auto-closed as not-planned, never completed: " .. closed.resolution)
 end
-test_green_closes_an_unclaimed_repair()
 
 -- A CLAIMED repair is left alone even when its lane goes green: the
 -- monitor never undoes a builder's in-flight claim.
@@ -98,7 +96,6 @@ local function test_a_claimed_repair_is_left_alone_on_green()
   assert(item.is_open(still), "a claimed repair stays open on green")
   assert(still.claim == "session-a", "and the claim is untouched")
 end
-test_a_claimed_repair_is_left_alone_on_green()
 
 -- record writes and commits ONLY when the facts changed from what is
 -- already recorded; a re-observation that agrees with the last one
@@ -121,7 +118,6 @@ local function test_record_commits_only_on_change()
   assert(lanes.record(s, facts), "a real change commits again")
   assert(fixture.commits(s) == before + 2)
 end
-test_record_commits_only_on_change()
 
 -- record's commit subject is a grammar other code will eventually
 -- parse (a future consumer of `lanes_state.tl`'s history): pin the
@@ -138,7 +134,6 @@ local function test_record_commit_subject_is_exact()
   assert(subject == "sync lanes: release.yml=failure "
     .. "fuzz.yml=success docs.yml=success", "got: " .. subject)
 end
-test_record_commit_subject_is_exact()
 
 -- Every board mutation commits under the bot identity, not the host's
 -- ambient git config or a name GitHub renders "Unverified" — item
@@ -155,7 +150,6 @@ local function test_board_commits_carry_the_claude_identity()
   assert(fixture.commit_author_email(s) == "noreply@anthropic.com",
     "lane sync author: " .. fixture.commit_author_email(s))
 end
-test_board_commits_carry_the_claude_identity()
 
 -- `report` is what `cmd_sync` calls (via `at_sync`) after a real
 -- `observe` returns facts; a `record` failure must show up in its
@@ -175,7 +169,6 @@ local function test_report_surfaces_a_record_failure()
   assert(found, "a record failure is printed, not discarded: "
     .. table.concat(lines, " | "))
 end
-test_report_surfaces_a_record_failure()
 
 -- Symmetric case: `items/` replaced by a plain file makes `mint`'s
 -- `store.list` fail with ENOTDIR (opendir on a non-directory, also
@@ -194,7 +187,6 @@ local function test_report_surfaces_a_mint_failure()
   assert(found, "a mint failure is printed, not discarded: "
     .. table.concat(lines, " | "))
 end
-test_report_surfaces_a_mint_failure()
 
 -- observe needs a slug to address GitHub with; a checkout with no
 -- origin has none, so the whole observation comes back "unknown" —
@@ -206,7 +198,6 @@ local function test_observe_with_no_origin_is_unknown_not_red()
   assert(facts == nil, "no slug to address means no facts")
   assert(err:find("no origin remote", 1, true) ~= nil, "got: " .. err)
 end
-test_observe_with_no_origin_is_unknown_not_red()
 
 -- A minted repair is coherent with the two verbs that decide its
 -- fate: `next` (`_work.action.next_action`) offers it, and `take`
@@ -244,7 +235,6 @@ local function test_a_minted_repair_is_offered_and_admitted()
   assert(flow.doing_refusal(all, repair) == nil,
     "and the doing bound never holds a lane repair back")
 end
-test_a_minted_repair_is_offered_and_admitted()
 
 -- The freshness window: an observation noted moments ago skips the
 -- read entirely, with one line saying so. `at_sync` never reaches
@@ -259,7 +249,6 @@ local function test_at_sync_skips_within_the_freshness_window()
   assert(lines[1]:find("skipped", 1, true) ~= nil, "got: " .. lines[1])
   assert(lines[1]:find("freshness window", 1, true) ~= nil, "got: " .. lines[1])
 end
-test_at_sync_skips_within_the_freshness_window()
 
 -- The env override forces past the window: with it set, `at_sync`
 -- proceeds to `observe`, which fails loudly for a checkout with no
@@ -275,7 +264,6 @@ local function test_fresh_env_forces_past_the_freshness_window()
   assert(lines[1]:find("unknown", 1, true) ~= nil, "got: " .. lines[1])
   assert(lines[1]:find("no origin remote", 1, true) ~= nil, "got: " .. lines[1])
 end
-test_fresh_env_forces_past_the_freshness_window()
 
 -- A quota below the floor skips the read too, with its own notice —
 -- and, like the freshness skip, never reaches `observe` (no rate file
@@ -287,7 +275,6 @@ local function test_at_sync_skips_on_low_remaining()
   assert(#lines == 1, table.concat(lines, " | "))
   assert(lines[1]:find("rate limit low", 1, true) ~= nil, "got: " .. lines[1])
 end
-test_at_sync_skips_on_low_remaining()
 
 -- A quota at or above the floor changes nothing: `at_sync` still
 -- reaches `observe`, which fails loudly for a checkout with no
@@ -300,4 +287,3 @@ local function test_at_sync_proceeds_on_healthy_remaining()
   assert(#lines == 1, table.concat(lines, " | "))
   assert(lines[1]:find("no origin remote", 1, true) ~= nil, "got: " .. lines[1])
 end
-test_at_sync_proceeds_on_healthy_remaining()

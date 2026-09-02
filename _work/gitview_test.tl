@@ -90,7 +90,6 @@ local function test_status_renders_doing_against_the_bound()
     .. table.concat(lines, "\n"))
   assert(verdict == "doing 1/10", verdict)
 end
-test_status_renders_doing_against_the_bound()
 
 -- Untriaged roots render item by item under the triage count: with
 -- `tree` gone, this is the one list of them anyone gets.
@@ -105,7 +104,6 @@ local function test_status_lists_the_triage_queue()
     "each untriaged root is listed with its wrapped handle, not the "
     .. "unchunked head-8 prefix: " .. table.concat(lines, "\n"))
 end
-test_status_lists_the_triage_queue()
 
 local function test_status_names_graph_problems()
   local items = board_items()
@@ -116,7 +114,6 @@ local function test_status_names_graph_problems()
     "a broken chain is board health: " .. table.concat(lines, "\n"))
   assert(verdict:find("1 graph problem(s)", 1, true), verdict)
 end
-test_status_names_graph_problems()
 
 local function test_status_reports_the_bound_binding()
   local items = board_items()
@@ -128,7 +125,6 @@ local function test_status_reports_the_bound_binding()
   local _, verdict = view.status_report(items, full_specs())
   assert(verdict:find("bound: doing is at 11/10", 1, true), verdict)
 end
-test_status_reports_the_bound_binding()
 
 -- The lanes row renders one `lane=conclusion` pair per required lane,
 -- in the stable LANES order, beside the doing table — but only when
@@ -144,7 +140,6 @@ local function test_status_renders_the_lanes_row_when_state_exists()
     "the lanes row lists every required lane in stable order: "
     .. table.concat(lines, "\n"))
 end
-test_status_renders_the_lanes_row_when_state_exists()
 
 -- A lane with no recorded conclusion (an empty string, the shape a
 -- partial or not-yet-observed lane takes) is left out of the row
@@ -156,7 +151,6 @@ local function test_the_lanes_row_omits_an_unrecorded_lane()
     "the blank lane is omitted, not printed as lane=: "
     .. table.concat(lines, "\n"))
 end
-test_the_lanes_row_omits_an_unrecorded_lane()
 
 local function test_status_omits_the_lanes_row_when_unsynced()
   local lines = view.status_report(board_items(), full_specs())
@@ -165,7 +159,6 @@ local function test_status_omits_the_lanes_row_when_unsynced()
       "no lanes row prints when the board has never synced: " .. line)
   end
 end
-test_status_omits_the_lanes_row_when_unsynced()
 
 -- A flagged record `list` read past rather than aborting on gets ONE
 -- board-level summary line beside `lanes`/`todo`, not a per-item mark
@@ -187,7 +180,6 @@ local function test_status_prints_one_summary_line_for_flagged_items()
       "no flagged records, no summary line: " .. line)
   end
 end
-test_status_prints_one_summary_line_for_flagged_items()
 
 local function test_next_names_one_action_and_its_rule()
   local report = view.next_report(board_items(), full_specs())
@@ -204,7 +196,6 @@ local function test_next_names_one_action_and_its_rule()
       1, true),
     "the alternate names its kind, wrapped handle, and title: " .. report)
 end
-test_next_names_one_action_and_its_rule()
 
 -- A drop's subject carries its why; `next`'s offer surfaces it so the
 -- next session sees which side stopped before claiming. A
@@ -215,19 +206,16 @@ local function test_bounce_note_reads_a_drops_why()
   assert(note == " (last drop: wave agent died with no PR)",
     note)
 end
-test_bounce_note_reads_a_drops_why()
 
 local function test_bounce_note_is_silent_on_a_reviewer_release()
   assert(view.bounce_note("drop 3Ib4mK2b review: not this build's gap")
     == "", "a reviewer's release is not a bounce")
 end
-test_bounce_note_is_silent_on_a_reviewer_release()
 
 local function test_bounce_note_is_silent_on_a_take()
   assert(view.bounce_note("take 3Ib4mK2b by session-a") == "",
     "a take names no reason")
 end
-test_bounce_note_is_silent_on_a_take()
 
 -- Cross-repo work is visible exactly where it was invisible: `show ID`
 -- prints a `repo:` line, and the status report appends
@@ -264,4 +252,3 @@ local function test_repo_is_rendered_in_show_and_status()
     "an item with no repo prints no repo line: "
     .. table.concat(default_show, "\n"))
 end
-test_repo_is_rendered_in_show_and_status()

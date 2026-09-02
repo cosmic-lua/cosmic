@@ -44,7 +44,6 @@ local function test_root_round_trips_minimal()
       check.must(literal.parse(check.must(literal.format(t))))))
   assert(back.id == ID and back.title == "an item", "round-trips")
 end
-test_root_round_trips_minimal()
 
 local function test_worked_item_round_trips()
   local t = base()
@@ -61,7 +60,6 @@ local function test_worked_item_round_trips()
   assert(back.claim == "session-a" and back.pr == 456, "coordination fields")
   assert(#back.blocked_by == 2 and back.blocked_by[1] == PARENT, "blocked_by")
 end
-test_worked_item_round_trips()
 
 local function test_roots_hold_edges_not_locks()
   local root = base()
@@ -76,7 +74,6 @@ local function test_roots_hold_edges_not_locks()
     "a claimed root decodes flagged: "
     .. table.concat(it.decode_problems or {}, "; "))
 end
-test_roots_hold_edges_not_locks()
 
 local function test_priority_edges_name_other_items()
   local looping = base()
@@ -92,7 +89,6 @@ local function test_priority_edges_name_other_items()
     "a non-id edge decodes flagged: "
     .. table.concat(jit.decode_problems or {}, "; "))
 end
-test_priority_edges_name_other_items()
 
 local function test_done_items_hold_no_locks()
   local t = base()
@@ -108,7 +104,6 @@ local function test_done_items_hold_no_locks()
   assert(not item.is_open(done), "resolution IS done")
   assert(not item.is_flagged(done), "a clean done item is not flagged")
 end
-test_done_items_hold_no_locks()
 
 -- A verdict judges a diff when there is a PR, and a claimed item's
 -- recorded evidence when there is none — `gitverdict` decides which
@@ -136,7 +131,6 @@ local function test_a_verdict_may_stand_with_or_without_a_pr()
   assert(not item.is_flagged(ended),
     "and a completed PR-less item's own accept still stands with the claim gone")
 end
-test_a_verdict_may_stand_with_or_without_a_pr()
 
 local function test_repo_scopes_a_workable_items_pr()
   local t = base()
@@ -168,7 +162,6 @@ local function test_repo_scopes_a_workable_items_pr()
     "a repo on a root decodes flagged: "
     .. table.concat(rflagged.decode_problems or {}, "; "))
 end
-test_repo_scopes_a_workable_items_pr()
 
 -- `base` mirrors `repo`: a plain branch-name shape, round-trips,
 -- omitted at zero, and refused on a root the same way repo is.
@@ -202,7 +195,6 @@ local function test_base_names_the_prs_target_branch()
     "a base on a root decodes flagged: "
     .. table.concat(rflagged.decode_problems or {}, "; "))
 end
-test_base_names_the_prs_target_branch()
 
 -- A list field's invariants hold by validation, not by the writer's
 -- convention: `block` rebuilds its list through a `seen` set, but a
@@ -232,7 +224,6 @@ local function test_list_fields_flag_a_repeated_entry()
   assert(#ok.blocked_by == 2 and #ok.beats == 2 and not item.is_flagged(ok),
     "distinct entries in each list decode clean")
 end
-test_list_fields_flag_a_repeated_entry()
 
 local function test_id_discipline()
   local it = check.must(item.decode({id = "not-a-ksuid", title = "t"}))
@@ -243,7 +234,6 @@ local function test_id_discipline()
   assert(has_problem(bflagged, "non-id"), "a non-id blocker decodes flagged: "
     .. table.concat(bflagged.decode_problems or {}, "; "))
 end
-test_id_discipline()
 
 local function test_block_reason_rides_the_edge_and_round_trips()
   local t = base()
@@ -264,7 +254,6 @@ local function test_block_reason_rides_the_edge_and_round_trips()
   assert(healed.block_reason == nil and healed.blocked_by == nil,
     "an orphaned reason is not written")
 end
-test_block_reason_rides_the_edge_and_round_trips()
 
 local function test_an_item_cannot_wait_on_itself()
   local t = base()
@@ -275,7 +264,6 @@ local function test_an_item_cannot_wait_on_itself()
     "a self-block decodes flagged: "
     .. table.concat(it.decode_problems or {}, "; "))
 end
-test_an_item_cannot_wait_on_itself()
 
 -- `builders` is the durable half of authorship: a space-joined list
 -- like `beats` and `blocked_by`, omitted when empty, and refusing the
@@ -302,7 +290,6 @@ local function test_builders_round_trip()
     "a repeated builder decodes flagged: "
     .. table.concat(flagged.decode_problems or {}, "; "))
 end
-test_builders_round_trip()
 
 -- `speccers` is `builders`' counterpart for spec authorship: same
 -- space-joined encoding, same no-repeats rule.
@@ -326,7 +313,6 @@ local function test_speccers_round_trip()
     "a repeated speccer decodes flagged: "
     .. table.concat(flagged.decode_problems or {}, "; "))
 end
-test_speccers_round_trip()
 
 -- decode validates through cosmic.shape now: a wrong-typed field is a
 -- refusal with a dotted path, not a silent coercion to zero.
@@ -337,7 +323,6 @@ local function test_a_wrong_typed_field_is_refused()
   assert(bad == nil and err:find("pr", 1, true) and err:find("integer", 1, true),
     "a wrong-typed pr is refused with its path: " .. tostring(err))
 end
-test_a_wrong_typed_field_is_refused()
 
 -- Every identity shape a real session has presented — enumerated from
 -- the board's own log and item files — passes the shape check and
@@ -372,7 +357,6 @@ local function test_every_live_identity_shape_passes()
     assert(#list == 1 and list[1] == name, "recorded once: " .. name)
   end
 end
-test_every_live_identity_shape_passes()
 
 -- The incident's token: a mangled argv absorbing a literal
 -- `--session` as the identity. Refused by shape — dash-led — at the
@@ -394,7 +378,6 @@ local function test_a_flag_shaped_identity_is_refused()
   local it = check.must(item.decode(t))
   assert(#it.builders == 2, "a recorded flag-shaped builder still reads")
 end
-test_a_flag_shaped_identity_is_refused()
 
 -- Unknown keys stay tolerated: a Spec that does not name a key never
 -- looks at it, so a file carrying a retired field still decodes.
@@ -405,7 +388,6 @@ local function test_an_unknown_key_still_decodes()
   assert(it.id == ID and it.title == "an item",
     "an unknown key does not block decode")
 end
-test_an_unknown_key_still_decodes()
 
 -- The bricking incident itself: a multiline title (the one shape a
 -- pre-refusal writer could have committed, crafted here with a valid
@@ -422,7 +404,6 @@ local function test_a_multiline_title_decodes_flagged_not_refused()
   assert(it.title == "first line\nsecond line",
     "the raw title survives decode, so a repair can still see it")
 end
-test_a_multiline_title_decodes_flagged_not_refused()
 
 -- A clean item never carries `decode_problems` at all — flagged is a
 -- read-time fact about THIS decode, not a field every item grows.
@@ -431,4 +412,3 @@ local function test_a_clean_item_is_not_flagged()
   assert(not item.is_flagged(it) and it.decode_problems == nil,
     "a well-formed item decodes with no problems attached")
 end
-test_a_clean_item_is_not_flagged()

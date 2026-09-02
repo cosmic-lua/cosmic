@@ -30,7 +30,6 @@ local function test_the_five_grammars_parse()
   assert(events[5].kind == "review" and events[5].id == "3IVUGuv6",
     "review claim: " .. events[5].kind)
 end
-test_the_five_grammars_parse()
 
 -- A subject none of the five grammars own — a `new`, a tooling commit
 -- ("gitboard verdict: ..."), or a line with no leading timestamp at
@@ -45,14 +44,12 @@ local function test_unknown_subjects_are_skipped()
   assert(#events == 1, "only the recognized line survives: got " .. #events)
   assert(events[1].kind == "done")
 end
-test_unknown_subjects_are_skipped()
 
 local function test_take_pr_is_optional()
   local events = flowstats.events_of({"100 take abcd1234 by session-a"})
   assert(#events == 1 and events[1].pr == 0,
     "no pr: token means pr=0: got " .. events[1].pr)
 end
-test_take_pr_is_optional()
 
 local function test_a_reject_verdict_parses()
   local events = flowstats.events_of({"100 verdict abc12345 reject by rev-x"})
@@ -60,7 +57,6 @@ local function test_a_reject_verdict_parses()
     and events[1].verdict_kind == "reject",
     "reject verdict parses: got " .. events[1].verdict_kind)
 end
-test_a_reject_verdict_parses()
 
 local function test_a_review_drop_parses_with_the_flag_set()
   local events = flowstats.events_of(
@@ -68,7 +64,6 @@ local function test_a_review_drop_parses_with_the_flag_set()
   assert(#events == 1 and events[1].kind == "drop"
     and events[1].review_drop == true, "a review-drop is flagged")
 end
-test_a_review_drop_parses_with_the_flag_set()
 
 --- A synthetic event, defaulting every field a kind does not use —
 --- the same zero values `events_of` would have set.
@@ -120,7 +115,6 @@ local function test_a_rework_round_then_accept_counts_two_rounds()
   assert(it.lead_s == 40,
     "lead is the first take (100) to done (140): got " .. it.lead_s)
 end
-test_a_rework_round_then_accept_counts_two_rounds()
 
 -- take -> reject -> take (a reject clears the claim by the verb itself,
 -- no separate drop line) -> accept -> done: two rounds, and the reject
@@ -141,7 +135,6 @@ local function test_a_reject_then_fresh_take_and_accept_counts_two_rounds()
   assert(stats.rework_accepts == 1,
     "reject counts as rework, accept doesn't: got " .. stats.rework_accepts)
 end
-test_a_reject_then_fresh_take_and_accept_counts_two_rounds()
 
 -- take -> drop -> take -> ... -> done: one bounce, and the lead still
 -- runs from the FIRST take — time spent back in the queue after a
@@ -160,7 +153,6 @@ local function test_a_bounce_counts_and_lead_stays_from_first_take()
   assert(it.lead_s == 150,
     "lead from the first take (100), not the retake: got " .. it.lead_s)
 end
-test_a_bounce_counts_and_lead_stays_from_first_take()
 
 -- A review-drop releases the review claim, not the item — it is never
 -- a bounce.
@@ -176,7 +168,6 @@ local function test_a_review_drop_does_not_count_as_a_bounce()
   assert(stats.items[1].bounces == 0, "a review drop is not a bounce: got "
     .. stats.items[1].bounces)
 end
-test_a_review_drop_does_not_count_as_a_bounce()
 
 -- An item still in flight — no done at all — contributes nothing: not
 -- an entry in `items`, not a tick against the board-wide totals.
@@ -191,7 +182,6 @@ local function test_an_incomplete_item_contributes_nothing()
   assert(stats.rework_total == 0, "its verdict does not count either: got "
     .. stats.rework_total)
 end
-test_an_incomplete_item_contributes_nothing()
 
 -- `done ... not-planned` is not a completed item either.
 local function test_a_not_planned_done_is_not_completed()
@@ -202,7 +192,6 @@ local function test_a_not_planned_done_is_not_completed()
   local stats = flowstats.stats_of(events)
   assert(#stats.items == 0, "not-planned is not completed")
 end
-test_a_not_planned_done_is_not_completed()
 
 -- Summary medians over a three-item set, plus the rework pair summed
 -- across them.
@@ -225,4 +214,3 @@ local function test_summary_medians_over_three_items()
     .. stats.rework_accepts)
   assert(stats.bounces == 0, "no drops in this set")
 end
-test_summary_medians_over_three_items()

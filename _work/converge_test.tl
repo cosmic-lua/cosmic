@@ -300,7 +300,6 @@ local function test_no_walk_ever_names_an_action_the_gates_refuse()
     end
   end
 end
-test_no_walk_ever_names_an_action_the_gates_refuse()
 
 -- SAFETY, the solo case. One session for the whole walk is the
 -- narrowest board there is: it builds, judges what stands for review,
@@ -325,7 +324,6 @@ local function test_a_solo_session_never_names_an_answer_it_cannot_act_on()
     end
   end
 end
-test_a_solo_session_never_names_an_answer_it_cannot_act_on()
 
 --- Who acts next: whoever owns unfinished in-flight work, and a fresh
 --- wake only when nobody does. A claim has no expiry, so work a
@@ -396,7 +394,6 @@ local function test_a_finishable_board_drains_to_nothing()
     end
   end
 end
-test_a_finishable_board_drains_to_nothing()
 
 -- Rework is its builder's while the claim is live: the board cannot
 -- see a builder's build-test-push loop, so liveness is the lease's to
@@ -420,4 +417,3 @@ local function test_a_rework_is_its_builders_until_the_lease_expires()
   assert(takeover.kind == "finish" and takeover.item.id == reworking.id,
     "a stale rework claim is anyone's: " .. takeover.kind)
 end
-test_a_rework_is_its_builders_until_the_lease_expires()

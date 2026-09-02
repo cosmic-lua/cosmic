@@ -44,7 +44,6 @@ local function test_hold_refuses_what_is_not_an_open_root()
   assert(commits(s) == before,
     ("refusals commit nothing: %d -> %d"):format(before, commits(s)))
 end
-test_hold_refuses_what_is_not_an_open_root()
 
 local function test_hold_sets_the_marker_in_one_commit_and_once()
   local s = init_state_repo("hold-happy")
@@ -62,7 +61,6 @@ local function test_hold_sets_the_marker_in_one_commit_and_once()
   assert(cmp.cmd_hold(s, root, "again") ~= 0, "a second hold is a no-op refusal")
   assert(commits(s) == before + 1, "and writes no commit")
 end
-test_hold_sets_the_marker_in_one_commit_and_once()
 
 local function test_unhold_clears_the_marker_in_one_commit()
   local s = init_state_repo("unhold")
@@ -82,7 +80,6 @@ local function test_unhold_clears_the_marker_in_one_commit()
   assert(cmp.cmd_hold(s, root, "verified again") == 0,
     "and the root can be held again after a release")
 end
-test_unhold_clears_the_marker_in_one_commit()
 
 local function test_unhold_refuses_a_done_root()
   local s = init_state_repo("unhold-done")
@@ -103,7 +100,6 @@ local function test_unhold_refuses_a_done_root()
   assert(after.is_held == true, "the marker on a done item is left as found")
   assert(after.resolution == "not-planned", "and so is the resolution")
 end
-test_unhold_refuses_a_done_root()
 
 local function test_done_clears_the_marker_it_ends_over()
   local s = init_state_repo("done-held")
@@ -117,7 +113,6 @@ local function test_done_clears_the_marker_it_ends_over()
   assert(not ended.is_held, "and a done item never carries the marker")
   assert(cmp.cmd_unhold(s, root) ~= 0, "so there is nothing to unhold")
 end
-test_done_clears_the_marker_it_ends_over()
 
 local function test_problems_reports_a_held_parented_item()
   local s = init_state_repo("held-leaf")
@@ -138,7 +133,6 @@ local function test_problems_reports_a_held_parented_item()
     .. table.concat(problems, "; "))
   assert(#problems == 1, "and the only one: " .. table.concat(problems, "; "))
 end
-test_problems_reports_a_held_parented_item()
 
 local function test_problems_reports_a_held_done_item()
   local s = init_state_repo("held-done")
@@ -159,4 +153,3 @@ local function test_problems_reports_a_held_done_item()
   assert(#problems == 1, "and the only one: " .. table.concat(problems, "; "))
   assert(not store.stage(s, ended), "so the store refuses to stage it")
 end
-test_problems_reports_a_held_done_item()

@@ -29,7 +29,6 @@ local function test_explicit_name_wins()
   assert(source == "flag", "source names the flag: " .. source)
   clear()
 end
-test_explicit_name_wins()
 
 local function test_derives_when_omitted()
   clear()
@@ -41,7 +40,6 @@ local function test_derives_when_omitted()
   end
   clear()
 end
-test_derives_when_omitted()
 
 local function test_source_order_is_fixed()
   clear()
@@ -52,7 +50,6 @@ local function test_source_order_is_fixed()
   assert(source == "GITBOARD_SESSION", "source: " .. source)
   clear()
 end
-test_source_order_is_fixed()
 
 local function test_unnamed_stays_anonymous()
   clear()
@@ -64,7 +61,6 @@ local function test_unnamed_stays_anonymous()
   assert(who2 == "", "an empty flag is not a name either: '" .. who2 .. "'")
   clear()
 end
-test_unnamed_stays_anonymous()
 
 local function test_value_used_verbatim()
   clear()
@@ -75,7 +71,6 @@ local function test_value_used_verbatim()
   assert(who == "claude/wizardly-rubin-74byv9", "trimmed, not shortened: " .. who)
   clear()
 end
-test_value_used_verbatim()
 
 local function test_composite_source_joins_what_is_set()
   clear()
@@ -89,7 +84,6 @@ local function test_composite_source_joins_what_is_set()
   assert(joined == "4242-2-ci", "companions join with '-': " .. joined)
   clear()
 end
-test_composite_source_joins_what_is_set()
 
 local function test_a_companion_alone_does_not_apply()
   clear()
@@ -104,7 +98,6 @@ local function test_a_companion_alone_does_not_apply()
   assert(pair == "alice-some-box", "the lead brings its companion: " .. pair)
   clear()
 end
-test_a_companion_alone_does_not_apply()
 
 local function test_note_always_says_who_and_whence()
   assert(session.note("sess-abc", "CLAUDE_CODE_SESSION_ID")
@@ -117,4 +110,3 @@ local function test_note_always_says_who_and_whence()
   assert(unnamed:find("GITBOARD_SESSION", 1, true),
     "and carries the one instruction that fixes it: " .. unnamed)
 end
-test_note_always_says_who_and_whence()

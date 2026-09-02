@@ -32,25 +32,21 @@ local function test_a_sound_request_passes()
   assert(review.blocks_check(pull({}), ID) == nil,
     "open, offered, and joined to its item")
 end
-test_a_sound_request_passes()
 
 local function test_a_draft_is_not_ready_to_read()
   local msg = review.blocks_check(pull({draft = true}), ID)
   assert(msg ~= nil and msg:find("draft", 1, true), "got: " .. tostring(msg))
 end
-test_a_draft_is_not_ready_to_read()
 
 local function test_a_closed_request_carries_nothing()
   local msg = review.blocks_check(pull({state = "closed"}), ID)
   assert(msg ~= nil and msg:find("closed", 1, true), "got: " .. tostring(msg))
 end
-test_a_closed_request_carries_nothing()
 
 local function test_a_body_that_names_no_item_is_unjoined()
   local msg = review.blocks_check(pull({body = "a fix"}), ID)
   assert(msg ~= nil and msg:find("Board:", 1, true), "got: " .. tostring(msg))
 end
-test_a_body_that_names_no_item_is_unjoined()
 
 -- The short form is what a human writes and what the skill's PR
 -- convention shows, so it has to join the request too.
@@ -59,7 +55,6 @@ local function test_an_eight_character_prefix_joins_it()
   assert(review.blocks_check(short, ID) == nil,
     "the prefix names the item as well as the full id does")
 end
-test_an_eight_character_prefix_joins_it()
 
 -- An item that names a base is refused when the PR targets something
 -- else — the mismatch names both sides and the fix (retarget, or set
@@ -71,14 +66,12 @@ local function test_a_mismatched_base_blocks()
   assert(msg:find("release", 1, true), "the PR's actual base: " .. msg)
   assert(msg:find("main", 1, true), "the item's recorded base: " .. msg)
 end
-test_a_mismatched_base_blocks()
 
 -- A PR whose base matches the item's recorded base passes cleanly.
 local function test_a_matching_base_passes()
   assert(review.blocks_base(pull({base = "main"}), "main") == nil,
     "the PR's base agrees with the item's")
 end
-test_a_matching_base_passes()
 
 -- An item with no base field is UNGATED: today's behavior, and what
 -- lets board-machinery items whose PRs target `board` stand without
@@ -87,7 +80,6 @@ local function test_an_absent_base_is_ungated()
   assert(review.blocks_base(pull({base = "some-other-branch"}), "") == nil,
     "no recorded base means nothing is compared")
 end
-test_an_absent_base_is_ungated()
 
 local function test_a_concluded_failure_blocks()
   local msg = review.blocks_on_ci({
@@ -96,7 +88,6 @@ local function test_a_concluded_failure_blocks()
     })
   assert(msg ~= nil and msg:find("build", 1, true), "got: " .. tostring(msg))
 end
-test_a_concluded_failure_blocks()
 
 -- Silence is not success, but it is not failure either: a run still
 -- going is a reason to come back, never a reason to refuse.
@@ -109,7 +100,6 @@ local function test_running_and_absent_checks_do_not_block()
         {name = "ci", status = "completed", conclusion = "cancelled"},
       }) == nil, "a cancelled run concluded nothing about the code")
 end
-test_running_and_absent_checks_do_not_block()
 
 -- An accept asserts the work is fit to land, so the one request state
 -- it cannot survive is closed with nothing merged: no diff to land,
@@ -135,7 +125,6 @@ local function test_blocks_accept_refuses_a_closed_unmerged_pr()
     "got: " .. tostring(refusal))
   assert(refusal:find("#3", 1, true), "it names the PR: " .. refusal)
 end
-test_blocks_accept_refuses_a_closed_unmerged_pr()
 
 -- Landing ends an item over a merge that has already happened, so an
 -- unmerged request is refused and the refusal is a work order: merge
@@ -153,7 +142,6 @@ local function test_blocks_land_refuses_an_unmerged_request()
   assert(refusal:find("`gitboard land " .. ID:sub(1, 8) .. "`", 1, true),
     "and the verb to re-run, on this item: " .. refusal)
 end
-test_blocks_land_refuses_an_unmerged_request()
 
 -- A merged request is the whole precondition: `land` reads the merge
 -- and ends the item, whatever head carries it. A head that moved past
@@ -168,7 +156,6 @@ local function test_blocks_land_passes_a_merged_request()
   assert(review.blocks_land(merged, "", ID) == nil,
     "nor does one accepted before the verdict recorded a head")
 end
-test_blocks_land_passes_a_merged_request()
 
 -- An accept judges one head, and a merge of any other lands a diff no
 -- reviewer read. The comparison says so — before the merge, inside
@@ -191,7 +178,6 @@ local function test_head_moved_compares_the_accepted_head()
   assert(refusal:find("re-review", 1, true),
     "and what to do before merging it: " .. refusal)
 end
-test_head_moved_compares_the_accepted_head()
 
 -- A head that is not even the right shape is refused whether or not a
 -- PR stands to check it against — everything downstream treats the
@@ -201,13 +187,11 @@ local function test_head_refusal_rejects_a_head_too_short()
   local msg = review.head_refusal(nil, "abc123")
   assert(msg ~= nil and msg:find("git sha", 1, true), "got: " .. tostring(msg))
 end
-test_head_refusal_rejects_a_head_too_short()
 
 local function test_head_refusal_rejects_non_hex()
   local msg = review.head_refusal(nil, "xyz1234")
   assert(msg ~= nil and msg:find("git sha", 1, true), "got: " .. tostring(msg))
 end
-test_head_refusal_rejects_non_hex()
 
 -- Uppercase hex is not the shape stored elsewhere: git shas are
 -- reported and compared lowercase, so an uppercase caller is refused
@@ -216,7 +200,6 @@ local function test_head_refusal_rejects_uppercase()
   local msg = review.head_refusal(nil, "ABC1234")
   assert(msg ~= nil and msg:find("git sha", 1, true), "got: " .. tostring(msg))
 end
-test_head_refusal_rejects_uppercase()
 
 -- A shape-valid head still has to prefix-match the PR's own full
 -- head: the caller may hand over a short sha, but nothing shorter
@@ -227,7 +210,6 @@ local function test_head_refusal_rejects_a_mismatched_prefix()
   local msg = review.head_refusal(at, "beef123")
   assert(msg ~= nil and msg:find("#7", 1, true), "got: " .. tostring(msg))
 end
-test_head_refusal_rejects_a_mismatched_prefix()
 
 local function test_head_refusal_passes_a_matched_prefix()
   local at: review.Pull = {number = 7, state = "open", merged = false,
@@ -237,7 +219,6 @@ local function test_head_refusal_passes_a_matched_prefix()
   assert(review.head_refusal(at, "cafe1234567") == nil,
     "the PR's full head matches itself")
 end
-test_head_refusal_passes_a_matched_prefix()
 
 -- No PR read yet — a local-only board, or the shape-only pass before
 -- one — means only the shape is judged.
@@ -245,4 +226,3 @@ local function test_head_refusal_with_no_pr_judges_shape_only()
   assert(review.head_refusal(nil, "cafe123") == nil,
     "a shape-valid head with nothing to check it against")
 end
-test_head_refusal_with_no_pr_judges_shape_only()

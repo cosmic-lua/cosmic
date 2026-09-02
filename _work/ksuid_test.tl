@@ -16,7 +16,6 @@ local function test_encode_shape()
   assert(id:match("^[%w]+$"), "charset: " .. id)
   assert(ksuid.is_id(id), "well-formed")
 end
-test_encode_shape()
 
 local function test_time_round_trips()
   for _, seconds in ipairs({1400000000, 1700000042, 2000000000}) do
@@ -28,7 +27,6 @@ local function test_time_round_trips()
     assert(nback == seconds, "payload must not disturb the timestamp")
   end
 end
-test_time_round_trips()
 
 local function test_lexicographic_order_is_time_order()
   -- Worst case: the older id with the largest payload must still sort
@@ -37,7 +35,6 @@ local function test_lexicographic_order_is_time_order()
   local newer = check.must(ksuid.encode(1700000001, ZEROS))
   assert(older < newer, older .. " must sort before " .. newer)
 end
-test_lexicographic_order_is_time_order()
 
 local function test_domain_edges()
   local early, err = ksuid.encode(1399999999, ZEROS)
@@ -47,7 +44,6 @@ local function test_domain_edges()
   assert(not ksuid.is_id("abc"), "short id refused")
   assert(not ksuid.is_id(("!"):rep(27)), "bad charset refused")
 end
-test_domain_edges()
 
 local function test_new_is_fresh_and_current()
   local a = ksuid.new()
@@ -57,4 +53,3 @@ local function test_new_is_fresh_and_current()
   local seconds = check.must(ksuid.time_of(a))
   assert(seconds > 1700000000, "carries a current timestamp")
 end
-test_new_is_fresh_and_current()

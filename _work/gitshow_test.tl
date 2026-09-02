@@ -73,7 +73,6 @@ local function test_show_prints_fields_role_and_history()
   assert(matched(lines, "abc1234 move it"), "git log IS the item's history")
   assert(verdict == WORK:sub(1, 8) .. " is review", verdict)
 end
-test_show_prints_fields_role_and_history()
 
 -- `repo` and `base` render on their own field lines, base right after
 -- repo, and neither prints when the item carries none.
@@ -89,7 +88,6 @@ local function test_show_prints_repo_and_base()
   assert(not matched(plain, "^repo:"), "no repo, no line")
   assert(not matched(plain, "^base:"), "no base, no line")
 end
-test_show_prints_repo_and_base()
 
 -- The take gate's problem list renders on the read that precedes the
 -- pull, one `bar:` line each — `show` absorbed the old `check` verb,
@@ -105,7 +103,6 @@ local function test_show_prints_the_take_gates_problems()
   local clean = show.show_report(all[4], all, "", {}, {})
   assert(not matched(clean, "^bar:"), "no problems, no bar lines")
 end
-test_show_prints_the_take_gates_problems()
 
 local function test_show_prints_the_reviewer_lock()
   local all = a_board()
@@ -116,7 +113,6 @@ local function test_show_prints_the_reviewer_lock()
   assert(matched(lines, "^reviewer: reviewer%-b$"),
     "the review lock is a fact worth reading: " .. table.concat(lines, "\n"))
 end
-test_show_prints_the_reviewer_lock()
 
 local function test_show_names_an_items_own_graph_problem()
   local all = a_board()
@@ -129,7 +125,6 @@ local function test_show_names_an_items_own_graph_problem()
     .. table.concat(lines, "\n"))
   assert(verdict:find("is todo", 1, true), verdict)
 end
-test_show_names_an_items_own_graph_problem()
 
 -- `blocked by` means what `flow.is_blocked` means: an edge whose
 -- blocker has ended does not hold the item up, and printing it beside
@@ -165,7 +160,6 @@ local function test_show_separates_binding_blockers_from_cleared_ones()
   assert(matched(settled_lines, "^blockers cleared: " .. ended_blocker .. "$"),
     "and the edge is still shown: " .. table.concat(settled_lines, "\n"))
 end
-test_show_separates_binding_blockers_from_cleared_ones()
 
 -- A verdict judges a head AND the spec that head is measured against,
 -- and `show` is what a re-reviewer reads to decide whether there is
@@ -186,7 +180,6 @@ local function test_show_prints_a_flagged_items_decode_problems()
   local clean = show.show_report(all[4], all, "", {}, {})
   assert(not matched(clean, "^flagged:"), "no problems, no flagged lines")
 end
-test_show_prints_a_flagged_items_decode_problems()
 
 local function test_show_says_whether_the_spec_moved_since_the_verdict()
   local all = a_board()
@@ -211,4 +204,3 @@ local function test_show_says_whether_the_spec_moved_since_the_verdict()
   assert(matched(plain, "^verdict: accept %(head 5364cc21%)$"),
     table.concat(plain, "\n"))
 end
-test_show_says_whether_the_spec_moved_since_the_verdict()

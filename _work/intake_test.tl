@@ -55,7 +55,6 @@ local function test_triage_outranks_refinement()
     "a capture drains before anything is refined")
   assert(got.reason:find("await triage", 1, true), got.reason)
 end
-test_triage_outranks_refinement()
 
 local function test_refine_names_the_top_failing_todo()
   local spent = make({resolution = "completed"})
@@ -69,7 +68,6 @@ local function test_refine_names_the_top_failing_todo()
   assert(got.kind == "refine" and got.item.id == failing.id,
     "the highest-placed unblocked todo item missing the bar is refined")
 end
-test_refine_names_the_top_failing_todo()
 
 local function test_decompose_names_the_undriven_root()
   local spent = make({resolution = "completed"})
@@ -82,7 +80,6 @@ local function test_decompose_names_the_undriven_root()
   assert(got.kind == "intake" and got.item.id == idle.id,
     "the placed root with no live work is decomposed")
 end
-test_decompose_names_the_undriven_root()
 
 local function test_intake_with_nothing_says_so()
   local spent = make({resolution = "completed"})
@@ -96,4 +93,3 @@ local function test_intake_with_nothing_says_so()
   local none = ask(empty, {})
   assert(none == nil, "and a board with no open roots offers nothing")
 end
-test_intake_with_nothing_says_so()

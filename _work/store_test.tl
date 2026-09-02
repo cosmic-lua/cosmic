@@ -138,7 +138,6 @@ local function test_init_repo_creates_a_fresh_git_and_items_dir()
   assert(check.must(store.open(root)).root == root,
     "open accepts exactly what init_repo left")
 end
-test_init_repo_creates_a_fresh_git_and_items_dir()
 
 -- A directory that is already a git repo (no `.git` to create) still
 -- gets its items/ directory, and a second call over the same tree is
@@ -152,7 +151,6 @@ local function test_init_repo_is_idempotent_over_an_existing_git()
   assert(fs.is_dir(fs.join(root, "items")))
   assert(store.init_repo(root), "a second call over the same tree is a yes")
 end
-test_init_repo_is_idempotent_over_an_existing_git()
 
 local function test_save_load_spec_and_history()
   local root = init_state_repo("roundtrip")
@@ -173,7 +171,6 @@ local function test_save_load_spec_and_history()
   local missing, merr = store.load(s, fresh_id())
   assert(missing == nil and merr:find("no item", 1, true), "missing item")
 end
-test_save_load_spec_and_history()
 
 -- An item is two files, and a `spec` mutation touches only the second
 -- one. A trail narrowed to the record would leave every refinement out
@@ -190,7 +187,6 @@ local function test_history_covers_the_spec_sidecar()
   assert(events[1].subject == "spec " .. short,
     "the sidecar-only commit is in the trail: " .. events[1].subject)
 end
-test_history_covers_the_spec_sidecar()
 
 local function test_resolve_prefixes()
   local root = init_state_repo("resolve")
@@ -209,7 +205,6 @@ local function test_resolve_prefixes()
   local none, nerr = store.resolve(s, "zzzz")
   assert(none == nil and nerr:find("no item", 1, true), "a miss is named")
 end
-test_resolve_prefixes()
 
 -- Everything one mutation touches lands in ONE commit, because that
 -- is what makes publish's "drop the refused mutation" exact.
@@ -228,7 +223,6 @@ local function test_save_writes_every_touched_item_as_one_commit()
     "the unlocked parent is in that commit")
   assert(check.must(store.load(s, kid.id)).id == kid.id, "so is the child")
 end
-test_save_writes_every_touched_item_as_one_commit()
 
 -- A mutation that changes nothing must say so, not surface git's
 -- exit code with the explanation on a stream nobody read.
@@ -241,7 +235,6 @@ local function test_save_refuses_a_no_op()
   assert(not ok, "an unchanged item is not a commit")
   assert(err:find("nothing to record", 1, true), "got: " .. err)
 end
-test_save_refuses_a_no_op()
 
 -- The bricking incident: a multiline title must not abort `list` — the
 -- rest still reads, the bad one comes back flagged, not dropped, and
@@ -266,7 +259,6 @@ local function test_list_tolerates_a_bad_title_but_stage_still_refuses()
   assert(summary:find(bad.id:sub(1, 8), 1, true) and
     summary:find("title must be one line", 1, true), "summary: " .. summary)
 end
-test_list_tolerates_a_bad_title_but_stage_still_refuses()
 
 -- Repairability falls out: `set --title` loads through this same
 -- tolerant decode, so overwriting the bad title and saving clears it.
@@ -286,7 +278,6 @@ local function test_a_bad_title_is_repairable_through_the_tolerant_decode()
   assert(store.flagged_summary(check.must(store.list(s))) == "",
     "listing recovers: nothing left flagged")
 end
-test_a_bad_title_is_repairable_through_the_tolerant_decode()
 
 local function test_publish_fast_forward()
   local bare, clones = init_shared("ff", 2)
@@ -301,7 +292,6 @@ local function test_publish_fast_forward()
   assert(got.claim == "session-a",
     "the published item reaches the second clone")
 end
-test_publish_fast_forward()
 
 -- Two sessions race the last doing slot: both see room and take. The
 -- first push wins; the loser's publish drops its commit whole,
@@ -343,7 +333,6 @@ local function test_publish_drops_a_lost_race()
     "doing holds exactly its bound — the re-run verb's own gate now "
     .. "refuses this take")
 end
-test_publish_drops_a_lost_race()
 
 -- Two sessions edit the SAME item. The loser's commit is dropped
 -- before any rebase could conflict, so there is no mid-rebase state
@@ -380,7 +369,6 @@ local function test_publish_drops_a_lost_edit_of_the_same_item()
     "the loser's checkout holds the winner's state: " .. after.claim)
   assert(store.list(b), "the board stays readable after the refusal")
 end
-test_publish_drops_a_lost_edit_of_the_same_item()
 
 -- A checkout carrying an UNPUBLISHED local commit (the hand-edit
 -- workaround the skill allows when a verb is missing) that syncs
@@ -424,7 +412,6 @@ local function test_sync_refuses_a_diverged_local_commit()
     "the refusal leaves the checkout exactly as it was")
   assert(store.list(b), "the board stays readable after the refusal")
 end
-test_sync_refuses_a_diverged_local_commit()
 
 -- The one publish path that can still conflict: a checkout carrying an
 -- unpublished hand-edit commit BENEATH the verb's commit. Dropping the
@@ -466,7 +453,6 @@ local function test_publish_names_the_drop_when_the_resync_conflicts()
   assert(kept.claim == "session-b" and kept.pr == 9,
     "the unpublished hand-edit beneath it survives the unwind")
 end
-test_publish_names_the_drop_when_the_resync_conflicts()
 
 -- A rejection with the remote unmoved is the remote's policy — a
 -- pre-receive hook, a read-only token — not a race. The destructive
@@ -497,4 +483,3 @@ local function test_publish_keeps_the_mutation_on_a_policy_rejection()
   assert(check.must(store.load(a, it.id)).claim == "session-a",
     "and still reads back")
 end
-test_publish_keeps_the_mutation_on_a_policy_rejection()

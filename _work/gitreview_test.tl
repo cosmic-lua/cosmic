@@ -40,7 +40,6 @@ local function test_a_live_claim_excludes_a_second_reviewer()
   assert(verbs.cmd_take(s, leaf, "reviewer-b", 0, false, "") == 0,
     "the holder re-claiming is a yes, not a collision")
 end
-test_a_live_claim_excludes_a_second_reviewer()
 
 -- A live claim is taken over only on the record: --force needs --why,
 -- and with both the claim moves.
@@ -55,7 +54,6 @@ local function test_takeover_goes_through_force_why()
     "with --why the takeover lands")
   check.equal(check.must(store.load(s, leaf)).reviewer, "reviewer-c")
 end
-test_takeover_goes_through_force_why()
 
 -- The derivation keeps the builder OUT of the reviewer slot: their
 -- take of their own handed-over item is the build no-op, and the
@@ -69,7 +67,6 @@ local function test_the_builders_take_is_not_a_review_claim()
   check.equal(check.must(store.load(s, leaf)).reviewer, "",
     "but it stamps no reviewer")
 end
-test_the_builders_take_is_not_a_review_claim()
 
 -- A reviewer is not a builder: the review claim is a derived path
 -- inside `take`, separate from every claim path, and must never join
@@ -87,7 +84,6 @@ local function test_a_review_claim_never_joins_builders()
     "but the builders record names only the builder: "
     .. table.concat(it.builders, ","))
 end
-test_a_review_claim_never_joins_builders()
 
 -- A claim by nobody excludes nobody, and a standing verdict leaves no
 -- review to claim — a foreign take then is a build takeover, refused
@@ -104,7 +100,6 @@ local function test_unnamed_sessions_and_judged_items()
   check.equal(check.must(store.load(s, leaf)).reviewer, "",
     "and no reviewer was stamped")
 end
-test_unnamed_sessions_and_judged_items()
 
 -- The verdict consumes the claim — from the claimant or from any
 -- other session, because the claim is mutual exclusion, not authority.
@@ -120,7 +115,6 @@ local function test_a_verdict_consumes_the_claim()
   check.equal(it.reviewer, "", "the claim was consumed")
   check.equal(it.verdict, "request changes", "and the send-back stands")
 end
-test_a_verdict_consumes_the_claim()
 
 -- The reviewer's own drop releases the review alone: the diff still
 -- awaits its verdict, and the builder's claim is not the reviewer's
@@ -144,7 +138,6 @@ local function test_drop_releases_by_derivation()
   check.equal(bounced.claim, "", "and the claim")
   check.equal(bounced.pr, 0, "and the PR: the item is todo again")
 end
-test_drop_releases_by_derivation()
 
 -- The distance guard binds inside the derivation itself, with no
 -- --force escape: a fresh context cannot be forced into existing. A
@@ -167,7 +160,6 @@ local function test_a_named_builder_cannot_review_claim_it()
   check.equal(check.must(store.load(s, leaf)).reviewer, "",
     "no reviewer was stamped")
 end
-test_a_named_builder_cannot_review_claim_it()
 
 -- Authorship of the SPEC is the same hole authorship of the diff is:
 -- a session named in `speccers` is refused the review claim too.
@@ -186,7 +178,6 @@ local function test_a_named_speccer_cannot_review_claim_it()
   check.equal(check.must(store.load(s, leaf)).reviewer, "",
     "no reviewer was stamped")
 end
-test_a_named_speccer_cannot_review_claim_it()
 
 -- Decision, from skills/work/SKILL.md's session-identity section: "a
 -- review subagent names itself
@@ -215,7 +206,6 @@ local function test_a_review_claim_coexists_with_a_build_claim()
   check.equal(check.must(store.load(s, b)).reviewer, "session-a")
   check.equal(check.must(store.load(s, a)).claim, "session-a")
 end
-test_a_review_claim_coexists_with_a_build_claim()
 
 -- Evidence from PR #1538's rework loop: a bounced item keeps its
 -- stale "request changes" verdict field until the fresh verdict
@@ -259,7 +249,6 @@ local function test_a_bounced_item_still_routes_a_fresh_take_to_review()
   check.equal(reworked.verdict, "", "the stale verdict clears on the new head")
   check.equal(reworked.reviewer, "", "no reviewer was stamped")
 end
-test_a_bounced_item_still_routes_a_fresh_take_to_review()
 
 -- The review lease is the short one, and staleness is a property of
 -- the ages the caller reads — pinned here at the boundary values.
@@ -275,4 +264,3 @@ local function test_the_review_lease_is_short_and_exact()
   assert(health.REVIEW_LEASE_S < health.LEASE_S,
     "a review locks minutes of work; a build locks hours")
 end
-test_the_review_lease_is_short_and_exact()

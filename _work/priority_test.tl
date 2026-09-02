@@ -51,7 +51,6 @@ local function test_transitivity_closes_the_untested_pair()
   assert(aband == 2 and cband == 0,
     ("standing follows the closure: %d, %d"):format(aband, cband))
 end
-test_transitivity_closes_the_untested_pair()
 
 local function test_a_comparison_places_everything_beneath_it()
   local lesser = make({})
@@ -67,7 +66,6 @@ local function test_a_comparison_places_everything_beneath_it()
   local _, own = prio.key_of(at, leaf.id)
   assert(own == 0, "it dominates nothing itself: " .. tostring(own))
 end
-test_a_comparison_places_everything_beneath_it()
 
 local function test_an_item_no_edge_reaches_is_unplaced()
   local lonely = make({})
@@ -79,7 +77,6 @@ local function test_an_item_no_edge_reaches_is_unplaced()
   local band = prio.key_of(at, kid.id)
   assert(band == -1, "unplaced sorts last: " .. tostring(band))
 end
-test_an_item_no_edge_reaches_is_unplaced()
 
 local function test_an_edge_the_board_cannot_see_is_not_an_edge()
   local dangling = make({beats = fresh_id()})
@@ -87,7 +84,6 @@ local function test_an_edge_the_board_cannot_see_is_not_an_edge()
   assert(not prio.is_placed(at, dangling.id),
     "an id with no item behind it is a typo, not a comparison")
 end
-test_an_edge_the_board_cannot_see_is_not_an_edge()
 
 -- Two leaves that each inherit their band from a DIFFERENT parent, at
 -- DIFFERENT bands, compared directly against each other: the module's
@@ -131,7 +127,6 @@ local function test_comparing_two_inherited_leaves_leaves_their_bands_alone()
     ("the comparison still moves standing WITHIN the band: %d"):format(
       own_a))
 end
-test_comparing_two_inherited_leaves_leaves_their_bands_alone()
 
 local function test_order_is_band_then_standing_then_age()
   local c = make({})
@@ -144,7 +139,6 @@ local function test_order_is_band_then_standing_then_age()
     "the closure orders the compared items")
   assert(order[4] == untouched.id, "and the unplaced one sorts last")
 end
-test_order_is_band_then_standing_then_age()
 
 local function test_peers_in_one_band_fall_back_to_age()
   local lesser = make({})
@@ -156,7 +150,6 @@ local function test_peers_in_one_band_fall_back_to_age()
   assert(order[1] == older.id,
     "no comparison separates them, so the oldest still goes first")
 end
-test_peers_in_one_band_fall_back_to_age()
 
 local function test_a_cycle_is_reported_never_averaged()
   local a = make({})
@@ -170,7 +163,6 @@ local function test_a_cycle_is_reported_never_averaged()
   assert(prio.is_placed(at, a.id),
     "a board holding one still renders rather than refusing to")
 end
-test_a_cycle_is_reported_never_averaged()
 
 local function test_edge_refusals()
   local a = make({})
@@ -191,7 +183,6 @@ local function test_edge_refusals()
   assert(prio.edge_refusal(index, a.id, spare.id) == nil,
     "an edge that contradicts nothing is allowed")
 end
-test_edge_refusals()
 
 -- A blocker is worked to release what it blocks, so it is ordered
 -- where that work sits. Without this a blocker can be outranked
@@ -216,7 +207,6 @@ local function test_a_blocker_inherits_the_position_of_what_it_blocks()
   assert(ids(prio.sorted({gate, waiter}, at))[1] == gate.id,
     "so refinement reaches the blocker before the item it blocks")
 end
-test_a_blocker_inherits_the_position_of_what_it_blocks()
 
 -- The lift reaches through a chain, so the item at the bottom of a
 -- three-deep wait is ordered by the best thing waiting at the top.
@@ -234,7 +224,6 @@ local function test_the_lift_reaches_through_a_blocker_chain()
   local _, _, frees = prio.order_of(at, bottom.id)
   assert(frees == 2, ("two open items wait on it: %d"):format(frees))
 end
-test_the_lift_reaches_through_a_blocker_chain()
 
 -- Placement is "some comparison reaches this item or an ancestor" and
 -- `check` refuses to promote work without it. A blocker edge is not a
@@ -250,7 +239,6 @@ local function test_the_lift_never_places_an_unplaced_item()
   assert(not prio.is_placed(at, stray.id),
     "a blocker edge is not a comparison and places nothing")
 end
-test_the_lift_never_places_an_unplaced_item()
 
 -- How much an item unblocks is evidence about throughput, not a
 -- judgment about worth: it orders peers a band and a dominance count
@@ -281,7 +269,6 @@ local function test_unblocking_breaks_a_tie_but_never_crosses_a_band()
   assert(within[1] == leverage.id,
     "but inside the band it beats an older peer that unblocks nothing")
 end
-test_unblocking_breaks_a_tie_but_never_crosses_a_band()
 
 -- An ended waiter is not waiting: it neither lifts its blocker nor
 -- counts toward what that blocker would release.
@@ -297,7 +284,6 @@ local function test_an_ended_waiter_neither_lifts_nor_counts()
     ("nothing open waits, so nothing lifts it: %d"):format(lifted))
   assert(frees == 0, ("and nothing counts: %d"):format(frees))
 end
-test_an_ended_waiter_neither_lifts_nor_counts()
 
 -- A blocker cycle is reported by `_work.health`, never spun on here:
 -- the walk terminates and the board still renders.
@@ -312,7 +298,6 @@ local function test_a_blocker_cycle_terminates()
   assert(frees == 1, ("the cycle is walked once, not forever: %d"):format(
       frees))
 end
-test_a_blocker_cycle_terminates()
 
 -- An item nothing has been compared against is not work yet: it is
 -- what the triage queue holds and it may still be ended as not
@@ -333,4 +318,3 @@ local function test_an_unplaced_waiter_confers_no_leverage()
     prio.positions({lesser, top, gate, capture, placed}), gate.id)
   assert(counted == 1, ("the placed waiter does: %d"):format(counted))
 end
-test_an_unplaced_waiter_confers_no_leverage()

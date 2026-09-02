@@ -84,7 +84,6 @@ local function test_verdict_judges_a_pr_awaiting_one()
   assert(vrd.cmd_verdict(s, leaf, "accept", 7, "def5678") ~= 0,
     "a standing accept is landed, not re-judged")
 end
-test_verdict_judges_a_pr_awaiting_one()
 
 -- A claimed PR-less item is judged the same way a PR is: recorded
 -- (accept and request changes alike), verdict_head stays empty since
@@ -103,7 +102,6 @@ local function test_a_pr_less_item_records_both_verdict_kinds()
   assert(it.verdict_head == "", "no PR, so no head is recorded")
   assert(it.resolution == "", "and the item is not ended here — done finishes it")
 end
-test_a_pr_less_item_records_both_verdict_kinds()
 
 -- The middle verdict on a PR-less item is the same send-back: the
 -- claim and the judged spec revision stand, ready for the claimant to
@@ -134,7 +132,6 @@ local function test_a_pr_less_pair_guard_degrades_to_the_spec_alone()
   assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "reviewer-a") == 0,
     "the same (absent) head over a moved spec is judgeable")
 end
-test_a_pr_less_pair_guard_degrades_to_the_spec_alone()
 
 -- The distance guard binds a PR-less item exactly as it binds a PR:
 -- the session that claimed it may not accept it, and only `--force
@@ -152,7 +149,6 @@ local function test_a_pr_less_item_keeps_the_distance_guard()
       "solo repair, nobody else to review it") == 0,
     "--force --why records it")
 end
-test_a_pr_less_item_keeps_the_distance_guard()
 
 -- A verdict judges a pair — the head and the spec revision it is
 -- measured against. The same pair twice says nothing happened in
@@ -192,7 +188,6 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
   assert(vrd.cmd_verdict(s, leaf, "accept", 6, "cafe123") == 0,
     "the same head over a moved spec is judgeable")
 end
-test_a_verdict_refuses_a_pair_it_already_judged()
 
 -- A cure can land OUTSIDE the PR — head and spec both unmoved — so the
 -- refusal for an already-judged pair names the way forward instead of
@@ -210,7 +205,6 @@ local function test_already_judged_refusal_names_the_way_forward()
   assert(msg:find("--force --why <reason>", 1, true) ~= nil,
     "and names that guard's own repair escape: " .. msg)
 end
-test_already_judged_refusal_names_the_way_forward()
 
 -- The verb DOES keep an identity distance now: the session named on
 -- the claim (`it.builders`, joined by `take`) is refused a verdict on
@@ -238,7 +232,6 @@ local function test_the_builder_needs_force_to_verdict_its_own_item()
   assert(events[1].subject:find("(forced: solo repair", 1, true),
     "and that it was forced: " .. events[1].subject)
 end
-test_the_builder_needs_force_to_verdict_its_own_item()
 
 -- Every board commit is authored as one fixed identity, so the subject
 -- is the only place the log can record who judged.
@@ -251,7 +244,6 @@ local function test_verdict_subject_names_the_reviewer()
   assert(events[1].subject:find(" by review-1", 1, true),
     "the reviewer rides in the subject: " .. events[1].subject)
 end
-test_verdict_subject_names_the_reviewer()
 
 -- The PR read is guarded by `publish.has_origin`, the same guard
 -- `gate.handover_refusal` uses, so a local-only board never reaches
@@ -268,7 +260,6 @@ local function test_accept_without_an_origin_still_stands()
   assert(landed.verdict == "accept", "the accept stands")
   assert(landed.resolution == "", "and the item is not ended here")
 end
-test_accept_without_an_origin_still_stands()
 
 -- The middle verdict's canonical spelling has a space; the hyphenated
 -- and noun spellings must mean the same thing, and a genuinely unknown
@@ -286,7 +277,6 @@ local function test_kind_aliases_and_the_teaching_refusal()
     "recorded under the canonical spelling: " .. tostring(it.verdict))
   assert(it.claim == "session-a", "with the builder's claim kept")
 end
-test_kind_aliases_and_the_teaching_refusal()
 
 -- A reject stands nowhere: claim, PR and verdict clear together, the
 -- item is todo again, and what was learned lives in the spec and the
@@ -303,7 +293,6 @@ local function test_a_reject_returns_the_item_to_todo()
   assert(#back.builders == 1 and back.builders[1] == "session-a",
     "and the builders record still says who built the rejected round")
 end
-test_a_reject_returns_the_item_to_todo()
 
 -- The judgment consumes the review claim, whoever held it: the claim
 -- is mutual exclusion over the reading, and the reading is over.
@@ -318,7 +307,6 @@ local function test_a_verdict_consumes_the_review_claim()
   assert(check.must(store.load(s, leaf)).reviewer == "",
     "the verdict consumed the claim")
 end
-test_a_verdict_consumes_the_review_claim()
 
 -- The head is verified before anything commits: a malformed --head is
 -- refused whether it is too short to be a real sha or is not hex at
@@ -342,7 +330,6 @@ local function test_a_malformed_head_refuses_before_any_commit()
   local after_events = check.must(publish.history(s, leaf))
   assert(#after_events == #before_events, "neither refusal committed")
 end
-test_a_malformed_head_refuses_before_any_commit()
 
 -- `--session` here is audit, but a flag-shaped name is a mangled
 -- argv, not an identity: refused before anything is judged, so it
@@ -360,7 +347,6 @@ local function test_verdict_refuses_a_flag_shaped_session()
   assert(#check.must(publish.history(s, leaf)) == #before_events,
     "and committed nothing")
 end
-test_verdict_refuses_a_flag_shaped_session()
 
 -- A well-formed head over a local-only board (no origin to check it
 -- against) lands exactly as it always has: the shape check is a new
@@ -377,4 +363,3 @@ local function test_a_wellformed_head_still_lands_on_a_local_board()
   assert(it.verdict_head == "cafe1234",
     "the caller's own head is recorded verbatim with no PR to canonicalize it")
 end
-test_a_wellformed_head_still_lands_on_a_local_board()

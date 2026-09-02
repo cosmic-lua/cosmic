@@ -40,7 +40,6 @@ local function test_decomposition_is_one_commit()
   assert(parent.claim == "",
     "gaining a child clears the lock on the new container")
 end
-test_decomposition_is_one_commit()
 
 -- Re-parenting after a lost push race: `attach` has no WIP gate up
 -- front — triage is a decision already made — so after the race the
@@ -60,7 +59,6 @@ local function test_a_reparent_survives_a_rebase()
   local after = check.must(store.load(a, leaf))
   assert(after.parent == other, "the re-parent landed: " .. after.parent)
 end
-test_a_reparent_survives_a_rebase()
 
 -- Attaching under one's own descendant would make a cycle.
 local function test_attach_refuses_a_cycle()
@@ -70,7 +68,6 @@ local function test_attach_refuses_a_cycle()
   assert(graph.cmd_attach(s, leaf, kid) ~= 0, "a cycle must be refused")
   assert(check.must(store.load(s, leaf)).parent ~= kid, "and not written")
 end
-test_attach_refuses_a_cycle()
 
 --- Run graph.cmd_block and capture exactly what it prints via print() --
 --- the same swap-and-restore pattern verdict_and_capture in
@@ -151,7 +148,6 @@ local function test_block_records_landing_order_and_refuses_nonsense()
   assert(graph.cmd_block(s, second, first, true, "") ~= 0,
     "and dropping what is not there is refused")
 end
-test_block_records_landing_order_and_refuses_nonsense()
 
 -- `block` is a pure graph edit, and its verdict line carries the
 -- block-first procedure's two edges: a claim on the waiting item
@@ -184,7 +180,6 @@ local function test_block_keeps_the_claim_and_warns_on_an_unplaced_blocker()
   assert(#check.must(store.load(s, leaf)).blocked_by == 2,
     "both edges stand")
 end
-test_block_keeps_the_claim_and_warns_on_an_unplaced_blocker()
 
 -- `new --repo` scopes the item's PR to a foreign repo; the field is
 -- what makes cross-repo work (a cosmopolitan fix serving a cosmic
@@ -209,7 +204,6 @@ local function test_new_repo_lands_the_field()
   assert(it.repo == "whilp/cosmopolitan",
     "the field lands on the stored item: " .. it.repo)
 end
-test_new_repo_lands_the_field()
 
 -- A title carrying a newline lands in the item file and `show` then
 -- renders the second line as its own board row, indistinguishable
@@ -226,7 +220,6 @@ local function test_new_refuses_a_multiline_or_padded_title()
   local after = check.must(store.list(s))
   assert(#after == #before, "neither refusal filed an item")
 end
-test_new_refuses_a_multiline_or_padded_title()
 
 -- Filing and adoption are never refused: todo is unbounded by design
 -- — the queue intake writes into can always accept — and the doing
@@ -250,7 +243,6 @@ local function test_filing_is_admitted_at_the_doing_bound()
   assert(verbs.cmd_take(s, leaf, "one-more", 0, false, "") ~= 0,
     "and the take is what the bound refuses")
 end
-test_filing_is_admitted_at_the_doing_bound()
 
 -- `set` repairs the three destination facts a refinement can outgrow:
 -- title, repo, base. Each round-trips through a real store, and the
@@ -279,7 +271,6 @@ local function test_set_round_trips_title_repo_and_base()
     "an unset flag leaves its field alone")
   assert(goal ~= "", "root filed for the fixture")
 end
-test_set_round_trips_title_repo_and_base()
 
 -- No flags at all names nothing to repair.
 local function test_set_with_no_flags_is_refused()
@@ -288,7 +279,6 @@ local function test_set_with_no_flags_is_refused()
   assert(graph.cmd_set(s, leaf, nil, nil, nil) ~= 0,
     "set needs at least one field")
 end
-test_set_with_no_flags_is_refused()
 
 -- An explicit empty --repo/--base would silently CLEAR the field —
 -- an un-gating path (an empty base means "ungated") with no flag
@@ -307,7 +297,6 @@ local function test_set_refuses_an_empty_repo_or_base()
   assert(it.repo == "whilp/cosmopolitan" and it.base == "release",
     "neither refusal cleared the field")
 end
-test_set_refuses_an_empty_repo_or_base()
 
 -- `set --title` is the other entry point that writes a title; the
 -- same shape check refuses it there, and nothing gets overwritten.
@@ -323,7 +312,6 @@ local function test_set_refuses_a_multiline_or_padded_title()
   assert(after.title == before.title,
     "neither refusal changed the stored title")
 end
-test_set_refuses_a_multiline_or_padded_title()
 
 -- A finished item's destination facts are history, not a repair
 -- target.
@@ -336,7 +324,6 @@ local function test_set_refuses_a_done_item()
   local it = check.must(store.load(s, leaf))
   assert(it.title ~= "a new title", "and nothing was written")
 end
-test_set_refuses_a_done_item()
 
 -- `set` declares only title/repo/base — every flow field (claim, pr,
 -- verdict, resolution, parent, blocked_by, lane) has its own verb and
@@ -351,7 +338,6 @@ local function test_set_refuses_an_unknown_flag()
   local it = check.must(store.load(s, leaf))
   assert(it.claim == "", "nothing was written")
 end
-test_set_refuses_an_unknown_flag()
 
 -- The wall by name: EVERY flow field — not just --claim — has its own
 -- verb and gate, and `set` must refuse each as an unrecognized flag
@@ -391,7 +377,6 @@ local function test_set_refuses_every_flow_field_flag()
     "resolution untouched: " .. after.resolution)
   assert(after.lane == before.lane, "lane untouched: " .. after.lane)
 end
-test_set_refuses_every_flow_field_flag()
 
 -- The derived order is a closure over `beats` across EVERY item, open,
 -- held or done: holding the middle of a chain A > B > C leaves A and C
@@ -468,4 +453,3 @@ local function test_holding_a_root_keeps_the_order_total_and_reopens_on_evidence
   assert(again.kind == "intake" and again.item.id == b,
     "an unheld idle root is offered again")
 end
-test_holding_a_root_keeps_the_order_total_and_reopens_on_evidence()
