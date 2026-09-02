@@ -1,4 +1,6 @@
 return {
+  ["block_reason"] = {["3IiufEHBu959NE8vLQzD6dkoFOQ"] = "the WaitResult shape it documents lands with #340, still in rework"},
+  ["blocked_by"] = "3IiufEHBu959NE8vLQzD6dkoFOQ",
   ["builders"] = "wave3-lok152-W7db",
   ["claim"] = "wave3-lok152-W7db",
   ["id"] = "3IkZzdAmsEHZLfPB1NcW7dbd9vR",
