@@ -19,6 +19,7 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local deps = require("_make.deps")
+local engine = require("_make.engine")
 local envstamp = require("_make.envstamp")
 local groups = require("_make.groups")
 local imports = require("_make.imports")
@@ -57,15 +58,6 @@ local function assign(name: string, values: {string}): string
   end
   table.sort(sorted)
   return name .. " := " .. table.concat(sorted, " ")
-end
-
---- Whether a test drives `--make` itself, or a binary it produces, by
---- spawning cosmic -- behavior no import edge can name. Position
---- decides it: `_make/**` and `_cli/**` are this project's own tooling.
---- @param path string Source file path, relative to the root
---- @return boolean
-local function exercises_the_engine(path: string): boolean
-  return path:match("^_make/") ~= nil or path:match("^_cli/") ~= nil
 end
 
 --- The facts file: what the walk found, as make variables.
@@ -203,7 +195,7 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       -- `prepare_stage` (`_make/init.tl`) building every binary before
       -- the test rules run, so D17's replace-if-changed gives
       -- `o/bin/cosmic` a fresh mtime exactly when the engine changed.
-      if f.kind == "test" and exercises_the_engine(f.path) then
+      if f.kind == "test" and engine.exercises_the_engine(f.path) then
         built[#built + 1] = project.out_dir("bin/cosmic")
       end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
