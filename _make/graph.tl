@@ -24,6 +24,7 @@ local groups = require("_make.groups")
 local imports = require("_make.imports")
 local project = require("_make.project")
 local readstamp = require("_make.readstamp")
+local refstamp = require("_make.refstamp")
 local stamp = require("_make.stamp")
 local testrun = require("_make.testrun")
 local types = require("_make.types")
@@ -175,6 +176,16 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       if #envnames > 0 then
         built[#built + 1] = envstamp.path_of(stem)
       end
+      -- Declared refs (`--- ref: <name>`) join `deps_<stem>` the
+      -- same way, through the ref STAMP: a git ref is no file under the
+      -- root, so its commit is written to one (_make/refstamp.tl).
+      local refnames, ferr = imports.refs_of_file(proj.root, f.path)
+      if not refnames then
+        return nil, "make: " .. (ferr or "bad ref declaration")
+      end
+      if #refnames > 0 then
+        built[#built + 1] = refstamp.path_of(stem)
+      end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
     end
   end
@@ -252,6 +263,12 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   -- names the stamp file (project_mk above), so it must exist with an
   -- honest mtime before make reads a rule too.
   ok, err = readstamp.write_all(proj)
+  if not ok then
+    return nil, err
+  end
+  -- And for a test's declared refs, whose stamp carries the commit the
+  -- ref names right now -- resolved here, once per ref, per build.
+  ok, err = refstamp.write_all(proj)
   if not ok then
     return nil, err
   end

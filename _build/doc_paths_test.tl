@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 --- reads: docs
 --- reads: skills
+--- ref: origin/board
 -- Every backtick path in the prose names a file that exists.
 --
 -- Prose points at code by path: a goal sends its reader to the skill
@@ -16,7 +17,9 @@
 -- One family of spans names a file that exists, but not here: the
 -- board's machinery under `_work/` lives on the orphan `board` branch,
 -- so those spans are checked against that branch's tree as git last
--- fetched it, and skipped aloud when no fetched ref can answer.
+-- fetched it, and skipped aloud when no fetched ref can answer. The
+-- ref is declared as an input above (`--- ref:`), so a fetch that
+-- moves it re-runs this file instead of replaying its verdict.
 --
 -- The reasons come in three shapes and the three lists ARE the whole
 -- allowlist: a RULE over the span's text (a glob, a `<name>`
