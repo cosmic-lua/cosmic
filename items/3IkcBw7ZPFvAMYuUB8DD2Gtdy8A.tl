@@ -7,5 +7,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 347,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-D2Gt-lok152",
   ["title"] = "lunix.c: the per-binding shape comments drift from definitions.lua the same way help.txt did, and nothing gates them",
 }
