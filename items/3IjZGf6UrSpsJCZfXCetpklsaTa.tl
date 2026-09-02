@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 339,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-helptxt-sonnet5",
   ["title"] = "cosmopolitan: tool/net/help.txt documents gmtime/localtime/clearenv/sigpending's pre-#321 shapes",
 }
