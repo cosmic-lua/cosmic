@@ -1,0 +1,5 @@
+return {
+  ["id"] = "3IldED8U7LUiT85UWVzSG6iwVXw",
+  ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["title"] = "tool/lua's lua.main.o is compiled at a path mkdeps does not derive, so it has no header edges in depend",
+}
