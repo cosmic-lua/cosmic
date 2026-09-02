@@ -45,6 +45,16 @@ local function test_counts_a_union_slot_once()
     "a nil-union is ONE slot, not two")
 end
 
+local function test_nested_generic_closes_on_one_token()
+  -- Lua lexes `>>` as ONE token, so a nested generic's closing angles
+  -- arrive together. Counting that token as one closer leaves the
+  -- outer `<` open, and the three-slot list behind it is never read.
+  check.equal(slots_reported(
+      "local function f(): Box<Wrap<integer>> | nil, string, integer\n" ..
+      "  return nil\nend\n"), 3,
+    "a nested generic in slot 1 is one slot, and the list behind it is read")
+end
+
 local function test_two_slots_pass()
   check.equal(#diagnose(
       "local function f(): Rec | nil, string\n  return nil\nend\n"), 0,

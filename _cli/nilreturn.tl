@@ -32,6 +32,27 @@ local record Frame
   lies: boolean
 end
 
+--- What one walk of a file leaves behind: the sites it found, and
+--- whether its frame stack balanced.
+---
+--- Balance is the type grammar's own consistency check. Every frame the
+--- walk pushes is popped by exactly one `end`, so a type-position shape
+--- the grammar mis-reads shows up here before it shows up as a wrong
+--- count, and without anyone imagining the shape first: a type consumed
+--- SHORT of its closer leaves an opener that the next `end` pops in
+--- place of its own frame, and a body consumed AS a type pushes nothing
+--- for its `end` to pop. Over well-formed source both numbers are zero;
+--- a file where either is not is a grammar bug, whichever way the count
+--- moved.
+local record Walk
+  --- Lines holding a `return nil` under a lying signature, ascending.
+  lines: {integer}
+  --- Frames still open at end of file.
+  residual: integer
+  --- `end`s that arrived on an empty stack.
+  underflow: integer
+end
+
 --- Index just past a `local`/`global` declaration head, its type
 --- annotation consumed with it.
 ---
@@ -130,8 +151,9 @@ local function opens_body(tokens: {Token}, i: integer): boolean
   return nxt ~= nil and (nxt.kind == "identifier" or nxt.tk == "<")
 end
 
---- Lines holding a `return nil` whose innermost enclosing function
---- DECLARES a slot 1 that cannot be nil.
+--- One walk of a file: the lines holding a `return nil` whose innermost
+--- enclosing function DECLARES a slot 1 that cannot be nil, and whether
+--- the frame stack that found them balanced.
 ---
 --- The checker does not refuse these: a bare non-nil return type
 --- accepts `return nil` and then lets callers index the result, so the
@@ -162,14 +184,15 @@ end
 --- comment counts for nothing.
 --- @param content string The file's bytes
 --- @param file string Path, for the lexer's error reporting
---- @return {integer} The lines, ascending
-local function nil_return_lines(content: string, file: string): {integer}
+--- @return Walk The lines, ascending, and the stack's residual and underflow
+local function walk(content: string, file: string): Walk
   local tokens = tl.lex(content, file)
   if not tokens then
-    return {}
+    return {lines = {}, residual = 0, underflow = 0}
   end
   local stack: {Frame} = {}
   local lines: {integer} = {}
+  local underflow = 0
   local i = 1
   while i <= #tokens do
     local t = tokens[i]
@@ -196,6 +219,8 @@ local function nil_return_lines(content: string, file: string): {integer}
     elseif word and tk == "end" then
       if #stack > 0 then
         stack[#stack] = nil
+      else
+        underflow = underflow + 1
       end
       i = i + 1
     elseif word and tk == "local" then
@@ -232,14 +257,27 @@ local function nil_return_lines(content: string, file: string): {integer}
       i = i + 1
     end
   end
-  return lines
+  return {lines = lines, residual = #stack, underflow = underflow}
+end
+
+--- Lines holding a `return nil` whose innermost enclosing function
+--- DECLARES a slot 1 that cannot be nil: the walk's sites, without its
+--- balance.
+--- @param content string The file's bytes
+--- @param file string Path, for the lexer's error reporting
+--- @return {integer} The lines, ascending
+local function nil_return_lines(content: string, file: string): {integer}
+  return walk(content, file).lines
 end
 
 local record NilReturnModule
+  type Walk = Walk
+  walk: function(content: string, file: string): Walk
   nil_return_lines: function(content: string, file: string): {integer}
 end
 
 local M: NilReturnModule = {
+  walk = walk,
   nil_return_lines = nil_return_lines,
 }
 

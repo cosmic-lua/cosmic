@@ -16,6 +16,11 @@
 --- nothing, and an inner closure's nil is charged to the closure rather
 --- than to the function around it.
 ---
+--- Beside the count, `unbalanced` reports every file whose walk left a
+--- frame open or met an `end` with nothing to pop — the type grammar's
+--- own consistency check, which the same test gates at zero over the
+--- whole tree.
+---
 --- The count feeds `_build/nil_returns_test.tl`, which gates it against
 --- the committed floor in `_build/nil_returns_baseline.tl`. Rewrite that
 --- floor whenever the counts move:
@@ -44,22 +49,17 @@ local TREES < const >: {string} = {
   "_types", "cmd", "cosmic",
 }
 
---- Sites per source file, keyed by path relative to `root`.
----
---- Only files carrying at least one site appear: a file at zero is
---- absent, which is what lets the gate read "absent from the baseline"
---- as "had none". A tree missing under `root`, a file that cannot be
---- read, and a file the lexer cannot lex all contribute nothing — the
---- count is a measurement of what is there, and there is no failure it
---- could report that the gate reading it would not already see as a
---- moved number.
----
---- `.d.tl` declarations are skipped: they describe C binding interfaces
---- and declare no bodies to return from.
---- @param root string The project root to count under
---- @return {string: integer} Counts by root-relative path
-local function count(root: string): {string: integer}
-  local out: {string: integer} = {}
+--- Every readable source the count covers, visited in `fs.find` order:
+--- each tree in `TREES`, less `testdata/` fixtures (not the tree) and
+--- `.d.tl` declarations (C binding interfaces, which declare no bodies
+--- to return from). A tree missing under `root` and a file that cannot
+--- be read contribute nothing — the walk is a measurement of what is
+--- there.
+--- @param root string The project root
+--- @param visit function(rel: string, text: string) Called once per
+--- source with its root-relative path and bytes
+local function each_source(root: string,
+    visit: function(rel: string, text: string))
   for _, tree in ipairs(TREES) do
     local dir = fs.join(root, tree)
     if fs.is_dir(dir) then
@@ -70,15 +70,63 @@ local function count(root: string): {string: integer}
           if not ("/" .. rest):find("/testdata/", 1, true)
           and not rest:find("%.d%.tl$") then
             local text = fs.read(path)
-            local n = text and #nilreturn.nil_return_lines(text, path) or 0
-            if n > 0 then
-              out[tree .. "/" .. rest] = n
+            if text then
+              visit(tree .. "/" .. rest, text)
             end
           end
         end
       end
     end
   end
+end
+
+--- Sites per source file, keyed by path relative to `root`.
+---
+--- Only files carrying at least one site appear: a file at zero is
+--- absent, which is what lets the gate read "absent from the baseline"
+--- as "had none". A file the lexer cannot lex contributes nothing — the
+--- count is a measurement of what is there, and there is no failure it
+--- could report that the gate reading it would not already see as a
+--- moved number.
+--- @param root string The project root to count under
+--- @return {string: integer} Counts by root-relative path
+local function count(root: string): {string: integer}
+  local out: {string: integer} = {}
+  each_source(root, function(rel: string, text: string)
+      local n = #nilreturn.nil_return_lines(text, rel)
+      if n > 0 then
+        out[rel] = n
+      end
+    end)
+  return out
+end
+
+--- Files whose frame walk does not balance: a frame left open at end of
+--- file, or an `end` that arrived with nothing to pop.
+---
+--- This is the type grammar's consistency check, and it needs no
+--- knowledge of the shape it catches. The walk pushes a frame for every
+--- body it lands on and pops one per `end`, so a type-position shape it
+--- mis-reads — a nested generic whose closers arrive as one token, an
+--- alias whose body was consumed as a name — unbalances the stack
+--- somewhere in the tree before it moves a count anywhere, and a count
+--- over an unbalanced file is wrong in whichever direction the misread
+--- pointed. The fix for a file listed here is in the grammar, never in
+--- the file.
+--- @param root string The project root to walk under
+--- @return {string} One line per unbalanced file, sorted by path; empty
+--- when every file balances
+local function unbalanced(root: string): {string}
+  local out: {string} = {}
+  each_source(root, function(rel: string, text: string)
+      local w = nilreturn.walk(text, rel)
+      if w.residual > 0 or w.underflow > 0 then
+        out[#out + 1] = string.format(
+          "%s: %d frame(s) left open at end of file, %d end(s) with nothing"
+          .. " to pop", rel, w.residual, w.underflow)
+      end
+    end)
+  table.sort(out)
   return out
 end
 
@@ -154,6 +202,7 @@ local record NilReturnsModule
   --- The trees this count covers: every tree of committed Teal source.
   TREES: {string}
   count: function(root: string): {string: integer}
+  unbalanced: function(root: string): {string}
   lines_in: function(path: string): {integer}
   baseline: function(path?: string): {string: integer} | nil, string
   main: function(...: string): integer
@@ -163,6 +212,7 @@ local M: NilReturnsModule = {
   BASELINE = BASELINE,
   TREES = TREES,
   count = count,
+  unbalanced = unbalanced,
   lines_in = lines_in,
   baseline = baseline,
   main = main,
