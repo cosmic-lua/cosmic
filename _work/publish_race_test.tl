@@ -79,5 +79,3 @@ local function test_a_lost_done_race_reopens_the_parent()
   assert(flow.role(back, all) == "work",
     "the parent is workable again instead of stranding off the board")
 end
-
-print("all publish-race tests passed")
