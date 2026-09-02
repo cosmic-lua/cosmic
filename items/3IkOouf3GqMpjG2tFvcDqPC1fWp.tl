@@ -1,5 +1,6 @@
 return {
-  ["builders"] = "wave2-lok152-DqPC",
+  ["builders"] = "wave2-lok152-DqPC wave3-lok152-DqPC",
+  ["claim"] = "wave3-lok152-DqPC",
   ["id"] = "3IkOouf3GqMpjG2tFvcDqPC1fWp",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["repo"] = "cosmic-lua/cosmic",
