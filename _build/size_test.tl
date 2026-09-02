@@ -107,7 +107,8 @@ local function test_compare_output_against_handwritten_reports()
   local cur = check.must(size.load_report(cur_path))
   local line = size.format_compare(prev, cur)
   assert(line ==
-    "size: lines 1620 (+120), files 17 (+2), binary 1050000 (+50000), public modules 31 (+1)",
+    "size: lines 1620 (+120), files 17 (+2), binary 1050000 (+50000), "
+    .. "public modules 31 (+1), doctrine 410 (+10)",
     "got: " .. line)
 end
 
@@ -122,7 +123,8 @@ local function test_compare_all_zero_deltas_when_reports_match()
   local rep = check.must(size.load_report(path))
   local line = size.format_compare(rep, rep)
   assert(line ==
-    "size: lines 40 (+0), files 4 (+0), binary 222 (+0), public modules 9 (+0)",
+    "size: lines 40 (+0), files 4 (+0), binary 222 (+0), public modules 9 (+0), "
+    .. "doctrine 5 (+0)",
     "got: " .. line)
 end
 
