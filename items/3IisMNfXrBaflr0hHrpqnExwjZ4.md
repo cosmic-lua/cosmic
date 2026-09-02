@@ -55,42 +55,61 @@ per-item and manual; it does not generalize to the other 32+ affected
 items still on the board, nor prevent a future container from being
 seeded the same way.
 
+## Where the tool stands (board `037a394c`, 2026-09-02)
+
+- `_work/gitgate.tl:379-400` `undeclared_repos`: the spec-text check
+  deliberately exempts the item's own `repo` ("it is where the diff
+  lands, not a source read on the side"); `ready_problems` (409-445)
+  has no check on that field at all.
+- `_work/gh.tl:23` `slug(s, repo)` already resolves a repo argument
+  or the board's own `origin` remote to an `owner/name` slug, so the
+  board's own owner is one call away.
+- Measured on the board: 116 items carry `repo = cosmic-lua/cosmopolitan`,
+  7 `cosmic-lua/cosmic`, and 27 still `whilp/cosmopolitan`, of which 7
+  are open (`grep -l 'repo"\] = "whilp/' items/*.tl`, filtered by no
+  `resolution`): 3IOESI2v, 3IOIfiqQ, 3IQtgMjy (the census container),
+  3ISJHQ2M, 3ISJHfNY, 3IVL9YxP, 3IVLCTbq. A `new --parent` under the
+  container inherits its `repo`, which is how the five items in
+  Symptom got theirs.
+
 ## Change
 
-Extend `_work/gitgate.tl`'s `ready_problems` (the same check `3IL7mlxc`
-extended for spec-text URLs) to also refuse `ready` for an item whose
-own `repo` field the claiming/reviewing session cannot demonstrate
-access to — using whatever reachability signal the board already has
-available at claim/check time (this project's GitHub MCP tooling
-reports access denial by exact allowed-repo list, per the transcript
-above; the refinement should confirm whether that signal is available
-to `gitgate.tl` at check time or only surfaces through a session's tool
-calls, which would change how this half is actually implementable).
+Board-tooling change on the `board` branch of cosmic-lua/cosmic, as a
+PR against base `board`, plus one data repair:
 
-This is NOT the same code path as `3IL7mlxc`'s `reached_repos` (which
-scans spec TEXT for `github.com` URLs and deliberately skips the
-item's own `repo` field) — that skip is correct given the field
-usually IS the session's own target; this item adds a second,
-independent check for exactly the field the first one skips.
+1. `_work/gitgate.tl` `ready_problems`: an item's own `repo`, when
+   set, must share the board's origin owner (`gh.slug(s, nil)`'s
+   owner half) — a foreign owner is refused with a problem naming
+   the field, the value, and the repair (`gitboard set ID --repo
+   <owner>/<name>`), unless the spec's `## Access` section names that
+   exact slug (the deliberate cross-owner case). `take` and `check`
+   report it through the existing problem list; no new verb.
+2. `_work/gitverbs.tl` (`new`): a child inherits its parent's `repo`
+   only when that repo passes the same owner rule; otherwise the child
+   is created with no `repo` and the verdict line says why, so stale
+   data stops propagating.
+3. Tests in `_work/gitgate_test.tl` (foreign owner refused; same owner
+   accepted; foreign owner declared under `## Access` accepted) and
+   `_work/gitverbs_test.tl` (inheritance stops at a foreign repo).
+   Runner mode; file caps (`gitverbs.tl` was split at 500 once —
+   place overflow in a sibling module).
+4. Data repair, separate commit on the board, by the orchestrator
+   after the PR lands: `gitboard set ID --repo cosmic-lua/cosmopolitan`
+   on the 7 open items above; closed items keep their history.
 
 ## Non-goals
 
-- Do not mass-repair the 37 currently-affected `.tl` files as part of
-  this item — that is either a one-time data-cleanup script (if the
-  refinement judges a bulk fix worthwhile) or left to repair-on-claim,
-  a separate call from adding the gate.
-- Do not touch `3IL7mlxc`'s `reached_repos`/`declared_repos` spec-text
-  logic — it is correct and unrelated to this gap.
-- Do not attempt to verify arbitrary repository access in general
-  (e.g. push rights, branch protection) — only that the configured
-  session's read/write grant covers the item's own declared `repo`
-  field, mirroring `3IL7mlxc`'s existing scope discipline.
+- Not verifying reachability against a session's actual GitHub grant
+  (the board cannot see it); the owner rule is the proxy, the
+  `## Access` declaration the escape hatch.
+- No change to `undeclared_repos` (the spec-text check) or to
+  `spec.reached_repos`.
 
 ## Acceptance
 
-To be written at refinement, against `_work/gitgate.tl` and whatever
-fixture reproduces this session's exact denial (a synthetic item whose
-`repo` field names a repo outside a stubbed/fake grant) — with one of
-the five items named above, or the container itself, as a real-world
-fixture if the refinement can construct one without depending on this
-session's specific credentials.
+- On a fixture board whose origin is `cosmic-lua/cosmic`: `new` with
+  `--repo whilp/cosmopolitan` then `take` is refused naming the repair;
+  with `## Access` naming `whilp/cosmopolitan` it is accepted; `new
+  --parent P` under a `whilp/…` parent creates a child with no repo
+  and says so.
+- `bin/cosmic --make ci` on the board branch ends `ci: PASS`.
