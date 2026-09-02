@@ -7,5 +7,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1615,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-zgXc-lok152",
   ["title"] = "skills/work/decompose.md: D25's pointer to the paired-comparison tournament method still lands on a file that does not describe it",
 }
