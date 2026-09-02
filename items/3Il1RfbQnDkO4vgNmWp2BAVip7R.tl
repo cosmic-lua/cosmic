@@ -5,5 +5,5 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
-  ["title"] = "MODE=cov: instrument the binding sources, commit a per-file floor, and gate o/cov/tool/lua/test on it",
+  ["title"] = "function coverage: ftrace the tool/lua tests, commit a per-file function floor, and gate o//tool/lua/test on it",
 }
