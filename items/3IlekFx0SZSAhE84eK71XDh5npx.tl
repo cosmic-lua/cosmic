@@ -8,4 +8,7 @@ return {
   ["pr"] = 1641,
   ["speccers"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "spawned-binary tests: audit _tool/*_test.tl files for the same missing engine dependency (_make/_cli already covered by #1636)",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "16d0aff2832b395bf60c984296439b3d7465513e",
+  ["verdict_spec"] = "39b4111991b6a0f9d35d617ad5d7032670cc60afa13d8564585a0bea97782d2f",
 }
