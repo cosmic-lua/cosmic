@@ -7,6 +7,7 @@ return {
   ["id"] = "3Il47Nxgb0NQ3CYM3df1WOXdeNV",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1625,
+  ["reviewer"] = "review-1WOX-lok152",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "next's review reason and the verdict guidance still say 'a PR awaits' and '--pr N --head SHA' for a research handover (after #1624)",
 }
