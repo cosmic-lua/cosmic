@@ -5,6 +5,7 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 337,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-Jzdq_xLdM-lok152-r2",
   ["title"] = "lsqlite3: let a Lua UDF be marked SQLITE_DETERMINISTIC",
   ["verdict"] = "request changes",
   ["verdict_head"] = "2e73500bd48befc415ad9043d1a4b184a69e25a9",
