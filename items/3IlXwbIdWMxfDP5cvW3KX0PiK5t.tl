@@ -5,5 +5,6 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 358,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "test_unix_misc.lua dies of SIGSYS under --ftrace: the pledged child's trace write, so the function floor skips it",
 }
