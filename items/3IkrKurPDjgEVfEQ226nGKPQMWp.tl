@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave4-lok152-nGKP",
+  ["claim"] = "wave4-lok152-nGKP",
   ["id"] = "3IkrKurPDjgEVfEQ226nGKPQMWp",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
