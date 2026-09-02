@@ -412,3 +412,28 @@ local function test_a_research_handover_is_offered_as_the_review()
   assert(b.kind ~= "review", "its own builder is never offered the review: "
     .. b.kind)
 end
+
+-- The review reason names what awaits the verdict — a diff or a
+-- research handover — so the reviewer reaches for `--pr`/`--head` or
+-- for neither. The PR wording is the one it always was.
+local function test_the_review_reason_names_what_awaits_the_verdict()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local handed = make({parent = root.id, claim = "who", builders = "who",
+      result = ("ab"):rep(32)})
+  items[#items + 1] = handed
+  local a = act.next_action(items, ready_specs(items), "me")
+  assert(a.kind == "review" and a.item.id == handed.id, a.kind)
+  assert(a.reason:find("a research handover awaits a verdict", 1, true),
+    "a handover is named as one: " .. a.reason)
+  assert(not a.reason:find("PR", 1, true),
+    "and no PR is claimed for it: " .. a.reason)
+  local diffs: {Item} = {}
+  local other = placed_root(diffs)
+  local diff = make({parent = other.id, claim = "who", pr = 2})
+  diffs[#diffs + 1] = diff
+  local b = act.next_action(diffs, ready_specs(diffs), "me")
+  assert(b.kind == "review" and b.item.id == diff.id, b.kind)
+  assert(b.reason == "a PR awaits a verdict — verdicts before new work",
+    "a diff's reason is unchanged: " .. b.reason)
+end

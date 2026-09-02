@@ -204,3 +204,20 @@ local function test_show_says_whether_the_spec_moved_since_the_verdict()
   assert(matched(plain, "^verdict: accept %(head 5364cc21%)$"),
     table.concat(plain, "\n"))
 end
+
+-- A research handover's deliverable is the spec at a revision, so
+-- `show` prints that digest's seven hex where a diff's PR number goes,
+-- and no PR line — the two never both stand.
+local function test_show_prints_a_research_handovers_digest()
+  local all = a_board()
+  local handed = check.must(item.decode({id = next_id(), title = "a handover",
+        parent = UNDER, claim = "session-a", builders = "session-a",
+        result = ("abcdef0123456789"):rep(4)}))
+  all[#all + 1] = handed
+  local lines = show.show_report(handed, all, "## Change\ndo it\n", {}, {})
+  assert(matched(lines, "^state: review$"), table.concat(lines, "\n"))
+  assert(matched(lines, "^result: abcdef0$"),
+    "the digest prints where a PR would: " .. table.concat(lines, "\n"))
+  assert(not matched(lines, "^pr:"),
+    "and no PR line stands beside it: " .. table.concat(lines, "\n"))
+end

@@ -87,10 +87,11 @@ end
 --- gate to force — and never over a PR: an item's deliverable is a
 --- diff or board state, never both (`item.problems` holds the same
 --- rule on every write). The verdict moves exactly as `--pr` moves
---- it: the SAME spec handed over again is a no-op whatever stands on
---- it, a moved spec re-opens a send-back (the rework answered, a new
---- thing to judge), and an accept is never touched by a take — it is
---- landed, and `verdict` refuses to re-judge it.
+--- it: a handover clears a `request changes` (the rework answered, a
+--- new thing to judge) whether or not the spec moved — the same spec
+--- handed over again is a no-op only while no send-back stands — and
+--- an accept is never touched by a take: it is landed, and `verdict`
+--- refuses to re-judge it.
 --- @param s store.Store The store
 --- @param it item.Item The item handed over
 --- @param session string The handing-over session

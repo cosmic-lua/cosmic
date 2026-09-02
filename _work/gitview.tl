@@ -117,6 +117,9 @@ local function status_report(all: {item.Item}, specs: act.Specs,
     local marks = (" [%s]"):format(flow.substate(i))
     if i.claim ~= "" then marks = marks .. " @" .. i.claim end
     if i.pr ~= 0 then marks = marks .. (" pr:%d"):format(i.pr) end
+    if i.result ~= "" then
+      marks = marks .. (" result:%s"):format(i.result:sub(1, 7))
+    end
     if flow.is_blocked(i, index) then marks = marks .. " [blocked]" end
     if i.repo ~= "" then marks = marks .. " [" .. i.repo .. "]" end
     if health.is_stale(i, aged) then
@@ -228,7 +231,7 @@ local function render_action(action: act.Action): string
   local out: {string} = {
     ("%s%s — %s"):format(action.kind, target, action.reason),
   }
-  for _, line in ipairs(guide.lines(action.kind)) do
+  for _, line in ipairs(guide.lines(action.kind, action.item)) do
     out[#out + 1] = "  " .. line
   end
   for _, alt in ipairs(action.alternates or {}) do

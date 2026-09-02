@@ -252,3 +252,26 @@ local function test_repo_is_rendered_in_show_and_status()
     "an item with no repo prints no repo line: "
     .. table.concat(default_show, "\n"))
 end
+
+-- A research handover in flight is marked with its digest's seven hex
+-- where a diff's `pr:N` goes, so the board line says what awaits the
+-- verdict without a `show`.
+local function test_status_marks_a_research_handover_with_its_digest()
+  local all = board_items()
+  local handed = check.must(item.decode({id = fresh_id(), title = "a handover",
+        parent = CONTAINER, claim = "session-b", builders = "session-b",
+        result = ("abcdef0123456789"):rep(4)}))
+  all[#all + 1] = handed
+  local lines = view.status_report(all, full_specs())
+  local line = ""
+  for _, l in ipairs(lines) do
+    if l:find("a handover", 1, true) then
+      line = l
+    end
+  end
+  assert(line ~= "", "the handover is listed under doing: "
+    .. table.concat(lines, "\n"))
+  assert(line:find("[review] @session-b result:abcdef0", 1, true),
+    "marked with its substate, claim and digest: " .. line)
+  assert(not line:find("pr:", 1, true), "and no PR mark: " .. line)
+end

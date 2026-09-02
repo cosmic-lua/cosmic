@@ -110,3 +110,39 @@ local function test_next_prints_guidance_under_the_action()
       "guidance line indented two spaces: " .. lines[n + 1])
   end
 end
+
+--- A review of a research handover records its verdict with no PR
+--- and no head to cite, and the guidance says so: the item `next`
+--- names selects the reading, a diff's review still cites both, and
+--- with no item at all the diff reading stands. The handover reading
+--- keeps the same budget and width as every other kind.
+local function test_a_research_handover_review_cites_no_pr()
+  local handed = check.must(item.decode({id = fresh_id(), title = "a handover",
+        claim = "who", builders = "who", result = ("ab"):rep(32)}))
+  local lines = guidance.lines("review", handed)
+  assert(#lines > 0 and #lines <= MAX_LINES, "within the budget: " .. #lines)
+  for _, line in ipairs(lines) do
+    assert(#line <= guidance.WIDTH, "within the width: " .. line)
+  end
+  local text = table.concat(lines, " ")
+  assert(text:find(
+      "`verdict ID <accept|request-changes|reject> --session <you>`", 1, true),
+    "the handover verdict names no PR: " .. text)
+  assert(not text:find("--pr", 1, true) and not text:find("--head", 1, true),
+    "nothing cites a PR or a head: " .. text)
+  local diff = check.must(item.decode({id = fresh_id(), title = "a diff",
+        claim = "who", pr = 7}))
+  local diff_text = table.concat(guidance.lines("review", diff), " ")
+  assert(diff_text:find("--pr N --head SHA --session <you>", 1, true),
+    "a diff's review still cites the PR and head: " .. diff_text)
+  assert(table.concat(guidance.lines("review"), " ") == diff_text,
+    "and with no item, the diff reading stands")
+  local root = fresh_id()
+  local report = view.next_report({
+      check.must(item.decode({id = root, title = "an outcome"})),
+      check.must(item.decode({id = fresh_id(), title = "a slice", parent = root,
+            claim = "who", builders = "who", result = ("ab"):rep(32)})),
+    }, {}, "me")
+  assert(report:find("  " .. lines[#lines], 1, true),
+    "`next` prints the handover reading under the action: " .. report)
+end
