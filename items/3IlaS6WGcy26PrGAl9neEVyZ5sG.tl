@@ -5,6 +5,8 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 361,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "1d4829cc-f00e-5d15-be81-281e86c6c454",
   ["title"] = "function floor: bare .cold partitions inflate the nm denominator (8 uncoverable symbols in the 545)",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "77ead9d43c39c850824af84ae50c6d9264a86e35",
+  ["verdict_spec"] = "345ef521ff96bb9a084a8a9c674dd66577545bfca1b43fe8ad755e232bfeeedc",
 }
