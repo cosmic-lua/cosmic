@@ -174,6 +174,41 @@ local function test_callback_own_three_slots_still_flagged()
     "a callback declaring three return slots is still over-wide")
 end
 
+-- A macroexp declares a return list the way a function does, but it is
+-- an identifier to the lexer: a scan keyed on the `function` keyword
+-- never reads it, and a third slot behind it goes undiagnosed.
+
+local function test_macroexp_slots_past_the_error_are_flagged()
+  local diags = diagnose(
+    "local macroexp f(): Rec | nil, string, integer\n  return nil\nend\n")
+  check.equal(#diags, 1, "a macroexp's declared return list is a signature")
+  check.equal(diags[1].rule, "fallible-returns")
+  check.equal(diags[1].line, 1, "diagnosed at the macroexp's own line")
+end
+
+local function test_record_field_macroexp_is_checked()
+  -- The field's `function` type is two slots; only the macroexp
+  -- behind `=` declares a third, and the diagnostic sits on ITS line.
+  local diags = diagnose(
+    "local record M\n  f: function(): Rec | nil, string\n" ..
+    "    = macroexp(): Rec | nil, string, integer\n" ..
+    "    return nil\n  end\nend\nreturn M\n")
+  check.equal(#diags, 1, "a record field's macroexp declares its own list")
+  check.equal(diags[1].line, 3)
+end
+
+local function test_macroexp_two_slots_pass()
+  check.equal(#diagnose(
+      "local macroexp f(): Rec | nil, string\n  return nil\nend\n"), 0,
+    "a two-slot macroexp is the shape the doctrine asks for")
+end
+
+local function test_a_value_named_macroexp_is_not_a_signature()
+  check.equal(#diagnose(
+      "local macroexp = 1\nreturn macroexp\n"), 0,
+    "`local macroexp = 1` binds a value; nothing declares a return list")
+end
+
 local function test_message_names_the_fix()
   local diags = diagnose(
     "local function f(): any, boolean, string\n  return nil\nend\n")
