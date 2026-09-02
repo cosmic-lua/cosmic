@@ -16,7 +16,7 @@ local record Body is stream_mod.Reader
   --- Close the reader; boolean, string like every stdlib close.
   close: function(self: Body): boolean, string
   closed: function(self: Body): boolean
-  lines: function(self: Body): function(): string | nil, string
+  lines: function(self: Body): function(): string, string
 end
 
 --- Create a Body wrapping a raw stream reader.
@@ -134,7 +134,7 @@ local function make_body(raw_reader: cosmo.StreamReader): Body
   --- truncated data and is discarded — then plain nil forever.
   --- The algorithm lives in cosmic.stream.lines; this delegates.
   --- @return function iterator yielding lines without trailing newline
-  function body:lines(): function(): string | nil, string
+  function body:lines(): function(): string, string
     return stream_mod.lines(self)
   end
 

@@ -40,7 +40,7 @@ local function mock_reader(content: string, fail_with?: string): fetch.Body
     return is_closed
   end
 
-  function reader:lines(): function(): string | nil, string
+  function reader:lines(): function(): string, string
     local buffer = ""
     local done = false
 

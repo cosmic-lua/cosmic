@@ -53,7 +53,7 @@ local record stream
   --- What lines() returns: each call yields the next line without its
   --- trailing newline, then nil + the error once on a read failure,
   --- then plain nil forever (exported so consumers can name it).
-  type LineIter = function(): string | nil, string
+  type LineIter = function(): string, string
 
   --- Optional capability: a Reader that can scan for a delimiter
   --- natively (fetch.Reader buffers it in C). read_until(delim)

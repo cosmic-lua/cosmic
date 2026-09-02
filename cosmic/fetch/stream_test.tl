@@ -66,7 +66,7 @@ local function test_stream_lines_iterates()
   local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local lines: {string} = {}
   for line in result.reader:lines() do
-    table.insert(lines, check.must(line))
+    table.insert(lines, line)
   end
   assert(#lines == 3, "expected 3 lines, got " .. #lines)
   assert(lines[1] == "one" and lines[2] == "two" and lines[3] == "three",

@@ -156,7 +156,7 @@ local function test_files_pattern_is_always_glob()
   -- "foo?.lua" is a glob: ? is exactly one character.
   local seen: {string: boolean} = {}
   for p in check.must(fs.find_iter(dir, {glob = "foo?.lua"})) do
-    seen[fs.basename(check.must(p))] = true
+    seen[fs.basename(p)] = true
   end
   assert(seen["foo1.lua"], "glob ? matches one char")
   assert(not seen["foo.lua"], "glob ? must not match zero chars")

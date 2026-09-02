@@ -105,7 +105,7 @@ end
 --- not a fourth return value — a to-be-closed slot past the error
 --- would break the two-slot error contract every fallible call relies on.
 local record FileIter
-  metamethod __call: function(self: FileIter): string | nil, {string}
+  metamethod __call: function(self: FileIter): string, {string}
   metamethod __close: function(self: FileIter)
   --- Release every open directory handle without draining the walk.
   --- Idempotent; the iterator yields nothing afterwards.
