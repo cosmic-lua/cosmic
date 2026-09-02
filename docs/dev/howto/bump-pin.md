@@ -20,8 +20,8 @@ new release first. for a contributor who has built the tree.
    ```
 
    for tl, `fetch` re-applies `3p/tl/tl_patch/` to the unpacked source.
-   an entry whose `find` anchor no longer occurs exactly once fails
-   here. re-audit that entry against the new source before you go on.
+   an entry whose `find` anchor does not occur exactly once in the new
+   source fails here. re-audit that entry against the new source before you go on.
 
 3. rebuild, which regenerates `o/_types/types_gen/` from the new
    release:
@@ -154,7 +154,7 @@ exit statuses.
    | `pin-probe: DISCRIMINATES (baseline accepts, candidate refuses)` | 0 |
    | `pin-probe: VACUOUS (both accept)` | 1 |
    | `pin-probe: VACUOUS (both refuse; a differing message is not discrimination)` | 1 |
-   | the run could not be made: wrong argument count, an unreadable probe, a binary that would not run | 2 |
+   | no verdict, the run did not happen: wrong argument count, an unreadable probe, a binary that does not run | 2 |
 
    both transcripts print in full above the verdict. a differing error
    message is not proof: a probe both binaries refuse says nothing

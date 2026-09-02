@@ -188,23 +188,31 @@ carries your module. read the page your doc comments make:
 o/bin/cosmic --docs mymod
 ```
 
-## 11. commit and open the pull request
+## 11. commit, then clean up
 
 ```bash
 git add cosmic/mymod.tl cosmic/mymod_test.tl cosmic/mymod_example.tl
 git add _build/public_surface_baseline.tl .cosmic-coverage
 git commit -m "cosmic.mymod: widgets, with a test and an example"
-git push -u origin add-mymod
-gh pr create --fill
+git show --stat HEAD
 ```
 
-CI runs four lanes on the pull request. the `ci` lane runs the same
-`--make ci` you ran, with the network turned off.
-[reference/ci.md](../reference/ci.md) has all four.
+the commit carries five files: the module, its test, its example, and
+the two baselines the gate asked you to update. that is the shape of
+every change that adds public surface.
 
-this pull request is practice. close it when the four lanes report,
-and delete the branch. your next one carries a real change and follows
-the same path.
+this module is practice, so do not push it. return to `main` and
+delete the branch:
+
+```bash
+git switch main
+git branch -D add-mymod
+```
+
+a real change follows the same path and ends with `git push -u origin
+<branch>` and a pull request against `main`. CI then runs four lanes;
+the `ci` lane runs the same `--make ci` you ran, with the network
+turned off. [reference/ci.md](../reference/ci.md) has all four.
 
 ## when a step fails
 

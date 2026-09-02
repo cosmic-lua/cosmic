@@ -59,12 +59,15 @@ local function test_an_unknown_page_lists_the_kind()
 end
 
 -- The old flat `guide.<topic>` address is gone, not aliased: one page,
--- one address, and the kind is part of it.
+-- one address, and the kind is part of it. A bare `guide` still falls
+-- through to the fuzzy search like any other word, so the assertion is
+-- on the dotted form and on the old index no longer being served.
 local function test_guide_is_retired()
-  local ok, _out = docs("guide")
-  assert(not ok, "guide should no longer resolve")
-  local ok2, _out2 = docs("guide.quickstart")
-  assert(not ok2, "guide.quickstart should no longer resolve")
+  local ok, _out = docs("guide.quickstart")
+  assert(not ok, "guide.quickstart should no longer resolve")
+  local _ok2, out2 = docs("guide")
+  assert(not out2:find("Detailed Guides", 1, true),
+    "the old guide index should not be served: " .. out2)
 end
 
 local function test_the_module_list_points_at_the_kinds()
