@@ -4,5 +4,6 @@ return {
   ["id"] = "3IkR1A4eyhghYOIgxQBFhYfOcXT",
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "tool/net/demo: unix-subprocess.lua and unix-unix.lua pass sigaction's saved table back as a handler once #338 lands",
 }
