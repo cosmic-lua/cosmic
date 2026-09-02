@@ -270,11 +270,70 @@ local function env_of_file(root: string, path: string): {string} | nil, string
   return out
 end
 
+--- Git refs a test declares it READS, from `--- ref: <name> <name> ...`
+--- doc-comment lines -- multi-token, like `reads_scan` and `env_scan`.
+--- A ref is the one input a path cannot name: a test that reads a
+--- branch through `git ls-tree` has no file under the root whose bytes
+--- move when the branch does, so its commit is stamped into one
+--- (`_make/refstamp.tl`) and the stamp joins the closure where a
+--- declared path would. Its own header rather than a token of
+--- `reads:`, because to the build that reads it every `reads:` token
+--- is a path, and an unknown one refuses the project -- a cold build
+--- runs under the pinned release's parser, which must be able to
+--- ignore the line the way it ignores `env:`.
+--- @param src string The file's contents
+--- @return {string} Declared ref names, in file order, possibly repeated
+local function ref_scan(src: string): {string}
+  local out: {string} = {}
+  for line in (src .. "\n"):gmatch("([^\n]*)\n") do
+    local rest = line:match("^%-%-%- ref: (.+)$")
+    if rest then
+      for name in rest:gmatch("%S+") do
+        out[#out + 1] = name
+      end
+    end
+  end
+  return out
+end
+
+--- The declared refs of a source file: sorted, de-duplicated names. A
+--- name shaped like an option (a leading `-`, which `git rev-parse`
+--- would read as a flag rather than a ref) refuses loudly -- the
+--- posture `reads_of_file` takes toward a stale path and `env_of_file`
+--- toward a bad identifier, because a declaration the build cannot
+--- honor is a declaration gone stale.
+--- @param root string Absolute project root
+--- @param path string Source file path relative to root
+--- @return {string} | nil Sorted, de-duplicated ref names
+--- @return string The error when a declared ref name is invalid
+local function refs_of_file(root: string, path: string): {string} | nil, string
+  local content = fs.read(fs.join(root, path))
+  if not content then
+    return {}
+  end
+  local seen: {string: boolean} = {}
+  local out: {string} = {}
+  for _, name in ipairs(ref_scan(content)) do
+    if name:sub(1, 1) == "-" then
+      return nil, path .. " declares `ref: " .. name ..
+      "`, which is not a git ref name"
+    end
+    if not seen[name] then
+      seen[name] = true
+      out[#out + 1] = name
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 local record ImportsModule
   scan: function(src: string): {string}
   of_file: function(path: string): {string}
   reads_scan: function(src: string): {string}
   reads_of_file: function(root: string, path: string): {string} | nil, string
+  ref_scan: function(src: string): {string}
+  refs_of_file: function(root: string, path: string): {string} | nil, string
   env_scan: function(src: string): {string}
   env_of_file: function(root: string, path: string): {string} | nil, string
   forget: function()
@@ -285,6 +344,8 @@ local M: ImportsModule = {
   of_file = of_file,
   reads_scan = reads_scan,
   reads_of_file = reads_of_file,
+  ref_scan = ref_scan,
+  refs_of_file = refs_of_file,
   env_scan = env_scan,
   env_of_file = env_of_file,
   forget = forget,

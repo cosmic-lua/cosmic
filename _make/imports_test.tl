@@ -209,4 +209,40 @@ local function test_reads_of_file_refuses_one_missing_among_several()
     "the message must name it, got: " .. tostring(err))
 end
 
+-- `ref_scan` is multi-token like the other two headers, and its own
+-- header: a `--- ref:` line is NOT a `reads:` declaration, which is
+-- what lets a build under an older parser ignore it instead of
+-- refusing the project over a path that does not exist.
+local function test_ref_scan_splits_on_whitespace_and_is_not_a_read()
+  local src = "--- ref: origin/board scratch\nprint('x')\n"
+  local got = table.concat(imports.ref_scan(src), ",")
+  assert(got == "origin/board,scratch", "got: " .. got)
+  assert(#imports.reads_scan(src) == 0, "a ref line must not read as a path")
+end
+
+-- `refs_of_file` mirrors `env_of_file`: sorted, de-duplicated names,
+-- gathered across every `ref:` line.
+local function test_refs_of_file_sorts_and_dedupes()
+  local dir = reads_fixture("refs", "--- ref: b a\n--- ref: a\nprint('x')\n")
+  local got = check.must(imports.refs_of_file(dir, "x_test.tl"))
+  assert(table.concat(got, ",") == "a,b", "got: " .. table.concat(got, ","))
+end
+
+-- A name `git rev-parse` would read as an option refuses loudly and
+-- names the token.
+local function test_refs_of_file_refuses_an_option_shaped_name()
+  local dir = reads_fixture("optref", "--- ref: --output=x\nprint('x')\n")
+  local got, err = imports.refs_of_file(dir, "x_test.tl")
+  assert(got == nil, "an option-shaped ref name must refuse")
+  assert(err and err:find("`ref: --output=x`", 1, true),
+    "the message must name it, got: " .. tostring(err))
+end
+
+local function test_refs_of_file_with_no_declaration_is_empty()
+  local dir = reads_fixture("norefs", "--- reads: a.tl\nprint('x')\n")
+  check.must(fs.write(fs.join(dir, "a.tl"), "a\n"))
+  local got = check.must(imports.refs_of_file(dir, "x_test.tl"))
+  assert(#got == 0, "expected no refs, got " .. #got)
+end
+
 print("all imports tests passed")

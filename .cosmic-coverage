@@ -83,6 +83,7 @@ return {
   ["_make/policy.tl"] = {["covered"] = 44, ["total"] = 104},
   ["_make/project.tl"] = {["covered"] = 181, ["total"] = 193},
   ["_make/readstamp.tl"] = {["covered"] = 31, ["total"] = 33},
+  ["_make/refstamp.tl"] = {["covered"] = 56, ["total"] = 63},
   ["_make/root.tl"] = {["covered"] = 53, ["total"] = 58},
   ["_make/runverb.tl"] = {["covered"] = 72, ["total"] = 89},
   ["_make/select.tl"] = {["covered"] = 33, ["total"] = 35},

@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- reads: _make/deps.tl _cli/build/work.tl
+--- reads: _make/deps.tl _cli/build/work.tl _make/imports.tl _make/refstamp.tl
 -- Incremental-build tests for the graph verbs: staleness detection,
 -- dependency propagation, and per-test rerun scope. Split out of
 -- build_test.tl on the seam it already had -- these are the tests
@@ -263,6 +263,60 @@ local function test_a_rename_inside_a_declared_reads_tree_reruns_the_test()
     renamed.err:find("notes/a.md must exist", 1, true),
     "the failure must be a REAL re-run against the new listing, not a " ..
     "stale replay of the cached PASS: " .. renamed.out .. renamed.err)
+end
+
+--- Run one git command inside dir; any failure fails the test.
+local function git(dir: string, ...: string)
+  local argv: {string} = {"git", "-c", "user.name=t", "-c", "user.email=t@t"}
+  local args = {...}
+  for _, a in ipairs(args) do
+    argv[#argv + 1] = a
+  end
+  local r = check.must(child.run(argv, {cwd = dir, stdin = ""}))
+  assert(r.ok, "git " .. table.concat(args, " ") .. " failed: " .. r.stderr)
+end
+
+-- A declared ref (`--- ref: <name>`) is an input no path can
+-- name: a commit, not a file under the root. A test reading that ref
+-- at run time really re-runs when the commit moves -- here a rename
+-- committed on the ref between two runs -- and, like any other input,
+-- only then. Same probe as above: the `.in` record's mtime.
+local function test_a_test_reruns_when_its_declared_ref_moves()
+  local root = fixture("incremental-ref", {
+      ["cmd/app/main.tl"] = "print('x')\n",
+      ["r_test.tl"] = "--- ref: scratch\nassert(true)\n",
+      [".board/note.txt"] = "n\n",
+    })
+  git(root, "init", "-q")
+  git(root, "symbolic-ref", "HEAD", "refs/heads/scratch")
+  git(root, "add", ".board/note.txt")
+  git(root, "commit", "-q", "-m", "one")
+  local function in_mtime(): string
+    local mt = check.must(
+      fs.stat(fs.join(root, "o/r_test.tl.test.in"))):modify_time()
+    return tostring(mt.secs) .. "." .. tostring(mt.nsecs)
+  end
+  local first = make(root, "test")
+  assert(first.code == 0, "first run: " .. first.err)
+  local m1 = in_mtime()
+  local again = make(root, "test")
+  assert(again.code == 0, "second run: " .. again.err)
+  assert(in_mtime() == m1, "an unmoved ref must not really re-run the test")
+
+  git(root, "mv", ".board/note.txt", ".board/renamed.txt")
+  git(root, "commit", "-q", "-m", "rename")
+  local moved = make(root, "test")
+  assert(moved.code == 0, "third run: " .. moved.err)
+  assert(in_mtime() ~= m1,
+    "a rename committed on the declared ref must really re-run the test")
+  -- The stamp is the channel: the ref's commit, in the closure the
+  -- record keys on. Asserted against the facts, as above.
+  local facts = check.must(fs.read(fs.join(root, "o/project.mk")))
+  assert(facts:find("deps_r_test := o/.ref/r_test.ref", 1, true),
+    "the ref stamp must ride deps_r_test: " .. facts)
+  local stamp = check.must(fs.read(fs.join(root, "o/.ref/r_test.ref")))
+  assert(stamp:match("^scratch=%x+\n$"),
+    "the stamp carries the ref's commit, got: " .. stamp)
 end
 
 print("all build incremental tests passed")
