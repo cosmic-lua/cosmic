@@ -25,7 +25,7 @@ end
 print(dist({x = 0, y = 0}, {x = 3, y = 4}))
 ]]
 
-local tmpdir: string
+local tmpdir: string | nil
 
 --- Base directory for scratch files.
 --- @return string An existing writable directory

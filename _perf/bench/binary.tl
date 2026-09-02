@@ -27,10 +27,11 @@ local function find_bin(): string | nil
   return nil
 end
 
---- Remove a bench's scratch directory, if one was created.
---- @param tmpdir string The directory to remove
+--- Remove a bench's scratch directory, if one was created; a nil tmpdir
+--- (never set, or already cleared) is a no-op.
+--- @param tmpdir string | nil The directory to remove, or nil if none was set
 --- @return string | nil Always nil, so the caller can reset its tmpdir field
-local function cleanup(tmpdir: string): string | nil
+local function cleanup(tmpdir: string | nil): string | nil
   if tmpdir then
     local _ok, _err = fs.remove_all(tmpdir)
   end
@@ -39,7 +40,7 @@ end
 
 local record binary
   find_bin: function(): string | nil
-  cleanup: function(string): string | nil
+  cleanup: function(string | nil): string | nil
 end
 
 local M: binary = {

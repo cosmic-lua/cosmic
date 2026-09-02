@@ -11,7 +11,7 @@ local DIRS = 10
 local FILES_PER_DIR = 20
 local BLOB = string.rep("cosmic performance harness line\n", 2048)
 
-local tmpdir: string
+local tmpdir: string | nil
 
 --- Base directory for scratch files.
 --- @return string An existing writable directory
@@ -49,7 +49,18 @@ local function scenarios(): {pt.Scenario}, string
   if ierr then
     return nil, ierr
   end
-  local blob_path = fs.join(tmpdir, "blob.bin")
+  -- init_tree() sets tmpdir unconditionally before any failure path, so
+  -- a nil here means init_tree()'s own contract broke, not a runtime
+  -- failure this function's fallible return should carry -- assert:
+  -- narrows tmpdir for what follows, same as the file's other asserts
+  -- on values init_tree already guaranteed.
+  assert(tmpdir, "fs_bench: temp directory not set after init_tree")
+  -- A plain non-nil local, not the module-level tmpdir field: tmpdir is
+  -- reassigned in cleanup() (elsewhere in this file), so the checker
+  -- widens it back to string | nil for any closure defined below --
+  -- even one, like these scenario fn()s, that never reassigns it itself.
+  local dir = tmpdir
+  local blob_path = fs.join(dir, "blob.bin")
   -- Entries visited under tmpdir: each subdirectory plus its files. The
   -- blob and churn paths live at the top level and are counted separately.
   local tree_entries = DIRS + DIRS * FILES_PER_DIR
@@ -59,7 +70,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "fs_walk_tree",
       fn = function(_: any): any
         local count = 0
-        local _ok, _err = fs.visit(tmpdir, function(e: fs.Entry, _ctx: any)
+        local _ok, _err = fs.visit(dir, function(e: fs.Entry, _ctx: any)
             -- Only count the seeded tree so fs_barf_slurp's blob (created
             -- by a sibling scenario) does not change the expected total.
             if e.path:find("dir-", 1, true) then
@@ -88,7 +99,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "fs_files_tree",
       fn = function(_: any): any
         local count = 0
-        for _ in check.must(fs.find_iter(tmpdir, {glob = "*.txt"})) do
+        for _ in check.must(fs.find_iter(dir, {glob = "*.txt"})) do
           count = count + 1
         end
         return count
@@ -110,7 +121,7 @@ local function scenarios(): {pt.Scenario}, string
       -- the fs_walk_tree vs fs_files_tree gap was never gated on.
       name = "fs_find_tree",
       fn = function(_: any): any
-        local found = check.must(fs.find(tmpdir, {glob = "*.txt"}))
+        local found = check.must(fs.find(dir, {glob = "*.txt"}))
         return #found
       end,
       check = function(_: any, res: any): boolean, string
@@ -172,7 +183,7 @@ local function scenarios(): {pt.Scenario}, string
         local size_total: number = 0
         for d = 1, DIRS do
           for f = 1, FILES_PER_DIR do
-            local st, serr = fs.stat(fs.join(tmpdir, "dir-" .. d, "file-" .. f .. ".txt"))
+            local st, serr = fs.stat(fs.join(dir, "dir-" .. d, "file-" .. f .. ".txt"))
             assert(st, serr)
             local stt = st
             size_total = size_total + stt:size()

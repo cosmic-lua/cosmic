@@ -19,7 +19,7 @@ local pt = require("_perf.perf_types")
 local DIRS = 120
 local FILES_PER_DIR = 5
 
-local tmpdir: string
+local tmpdir: string | nil
 local srcdir: string
 local packed_exe: string
 local extract_dir: string

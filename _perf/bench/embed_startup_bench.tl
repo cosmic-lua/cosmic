@@ -21,7 +21,7 @@ local pt = require("_perf.perf_types")
 local MODULES = 10
 local SENTINEL = "EMBED_STARTUP"
 
-local tmpdir: string
+local tmpdir: string | nil
 local packed_exe: string
 local expected_sum: integer
 

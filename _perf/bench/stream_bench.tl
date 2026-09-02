@@ -35,8 +35,8 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 .. "Connection: close\r\n\r\n"
 .. BODY
 
-local server_pid: integer
-local listener: net.Socket
+local server_pid: integer | nil
+local listener: net.Socket | nil
 
 --- A single line-iteration outcome, checked after timing.
 local record LineStats
