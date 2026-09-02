@@ -176,7 +176,7 @@ local function test_fcntl()
   assert(fdflags ~= nil, "fcntl F_GETFD failed: " .. (err or ""))
 
   -- Set close-on-exec
-  local ok: number
+  local ok: number | nil
   ok, err = f:fcntl(cfd.F_SETFD, cfd.FD_CLOEXEC)
   assert(ok ~= nil, "fcntl F_SETFD failed: " .. (err or ""))
 
@@ -216,7 +216,7 @@ local function test_read_write_roundtrip()
   local ok, err = fs.write(filepath, content)
   assert(ok, "fs.write failed: " .. (err or ""))
 
-  local data: string
+  local data: string | nil
   data, err = fs.read(filepath)
   assert(data == content, "fs.read failed: " .. (err or "") .. " got '" .. tostring(data) .. "'")
 
@@ -301,7 +301,7 @@ local function test_closed_handle()
   local data, err = f:read(100)
   assert(data == nil and err == "handle closed", "read on closed handle should fail")
 
-  local n: number
+  local n: number | nil
   n, err = f:write("test")
   assert(n == nil and err == "handle closed", "write on closed handle should fail")
 
@@ -380,14 +380,14 @@ local function test_read_write_with_offset()
   assert(data == "567", "read with offset failed: " .. (err or "") .. " got '" .. tostring(data) .. "'")
 
   -- Write at offset (pwrite behavior)
-  local n: number
+  local n: number | nil
   n, err = f:write("ABC", 2)
   assert(n == 3, "write with offset failed: " .. (err or ""))
 
   -- Verify
   assert(f:seek(0, cfd.SEEK_SET))
-  data = assert(f:read(100))
-  assert(data == "01ABC56789", "write with offset result: got '" .. data .. "'")
+  local verify = check.must(f:read(100))
+  assert(verify == "01ABC56789", "write with offset result: got '" .. verify .. "'")
 
   assert(f:close())
   assert(os.remove(filepath))

@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 
 -- Hex encoding tests
@@ -200,8 +201,7 @@ end
 
 local function test_latin1_roundtrip()
   local original = "café résumé naïve"
-  local encoded, err = codec.encode_latin1(original)
-  assert(err == nil, "encode failed: " .. (err or ""))
+  local encoded = check.must(codec.encode_latin1(original))
   local decoded = codec.decode_latin1(encoded)
   assert(decoded == original, "roundtrip mismatch: got '" .. decoded .. "'")
 end

@@ -9,7 +9,7 @@ local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Create a unique subdirectory for this test run to avoid conflicts
-local test_subdir = fs.temp_dir(fs.join(tmpdir, "cosmic_script_test_XXXXXX"))
+local test_subdir = check.must(fs.temp_dir(fs.join(tmpdir, "cosmic_script_test_XXXXXX")))
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(test_subdir, name)

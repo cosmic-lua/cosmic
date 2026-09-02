@@ -64,7 +64,7 @@ end
 -- getsid test --
 
 local function test_getsid_returns_number()
-  local sid = proc.getsid(proc.getpid())
+  local sid = check.must(proc.getsid(proc.getpid()))
   assert(type(sid) == "number", "expected number, got " .. type(sid))
   assert(sid > 0, "expected positive sid, got " .. tostring(sid))
 end
@@ -206,7 +206,7 @@ local function test_getpriority_returns_number()
 end
 
 local function test_getpriority_range()
-  local prio = proc.getpriority(proc.PRIO_PROCESS, 0)
+  local prio = check.must(proc.getpriority(proc.PRIO_PROCESS, 0))
   assert(prio >= -20, "priority should be >= -20, got " .. tostring(prio))
   assert(prio <= 19, "priority should be <= 19, got " .. tostring(prio))
 end
@@ -219,7 +219,7 @@ local function test_nice()
 end
 
 local function test_setpriority()
-  local current = proc.getpriority(proc.PRIO_PROCESS, 0)
+  local current = check.must(proc.getpriority(proc.PRIO_PROCESS, 0))
   local ok, err = proc.setpriority(proc.PRIO_PROCESS, 0, current)
   assert(type(ok) == "boolean", "setpriority should return boolean")
   assert(ok == true, "setpriority to current value should succeed: " .. tostring(err))

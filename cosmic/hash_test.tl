@@ -160,7 +160,7 @@ local function test_verify_password_malformed_hash()
 end
 
 local function test_verify_password_returns_two_values_on_mismatch()
-  local encoded = hash.hash_password("correct")
+  local encoded = check.must(hash.hash_password("correct"))
   local ok, err = hash.verify_password(encoded, "wrong")
   assert(ok == false, "verify_password should return false for wrong password")
   assert(err == nil, "verify_password should NOT return error for clean mismatch (wrong password)")

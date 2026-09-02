@@ -87,7 +87,7 @@ local function test_sigaction_handler()
 
   -- Block SIGUSR1 first so we can control when it's delivered
   local blockmask = signal.sigset(signal.SIGUSR1)
-  local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
+  local oldmask = check.must(signal.sigprocmask(signal.SIG_BLOCK, blockmask))
 
   -- Install handler
   local on_sig = function(sig: number)
@@ -152,7 +152,7 @@ local function test_setitimer()
 
   -- Block SIGALRM so we control delivery
   local blockmask = signal.sigset(signal.SIGALRM)
-  local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
+  local oldmask = check.must(signal.sigprocmask(signal.SIG_BLOCK, blockmask))
 
   -- Install handler
   local on_sig = function(_: number)

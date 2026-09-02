@@ -359,13 +359,13 @@ end
 -- runner's grading: the runner grades the PARENT, and the parent exits
 -- 0 whatever the child said.
 local function test_reap_grades_the_childs_exit_code()
-  local good = proc.fork()
+  local good = check.must(proc.fork())
   if good == 0 then
     os.exit(0)
   end
   check.reap(good, "a child that succeeded")
 
-  local bad = proc.fork()
+  local bad = check.must(proc.fork())
   if bad == 0 then
     os.exit(3)
   end
@@ -381,7 +381,7 @@ local function test_reap_grades_the_childs_exit_code()
 
   -- A child that DIED said nothing about why, so the conventional
   -- 128+signal stands in for the code it never got to return.
-  local killed = proc.fork()
+  local killed = check.must(proc.fork())
   if killed == 0 then
     assert(signal.raise(signal.SIGKILL))
     os.exit(0)
@@ -406,9 +406,9 @@ local function test_reap_grades_the_childs_exit_code()
 
   -- A skip ends the FILE, so it is observed one level down: a child
   -- that reaps a SKIPPING grandchild must itself exit EXIT_SKIP.
-  local outer = proc.fork()
+  local outer = check.must(proc.fork())
   if outer == 0 then
-    local inner = proc.fork()
+    local inner = check.must(proc.fork())
     if inner == 0 then
       os.exit(check.EXIT_SKIP)
     end

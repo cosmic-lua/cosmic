@@ -71,12 +71,12 @@ local function test_decode_primitives()
 end
 
 local function test_encode_object()
-  local result = json.encode({a = 1})
+  local result = check.must(json.encode({a = 1}))
   assert(result == '{"a":1}', "expected '{\"a\":1}', got '" .. result .. "'")
 end
 
 local function test_encode_array()
-  local result = json.encode({1, 2, 3})
+  local result = check.must(json.encode({1, 2, 3}))
   assert(result == "[1,2,3]", "expected '[1,2,3]', got '" .. result .. "'")
 end
 
@@ -89,7 +89,7 @@ end
 
 local function test_roundtrip()
   local original = {name = "test", values = {1, 2, 3}, nested = {flag = true}}
-  local encoded = json.encode(original)
+  local encoded = check.must(json.encode(original))
   local decoded = json.decode(encoded)
   assert(decoded is {string: any}, "a decoded object is a table")
   assert(decoded.name == original.name, "name mismatch")
