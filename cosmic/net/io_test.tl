@@ -100,7 +100,7 @@ end
 local function lines_of(sock: net.Socket): {string}
   local out: {string} = {}
   for line in stream.lines(sock) do
-    out[#out + 1] = line
+    out[#out + 1] = check.must(line)
   end
   return out
 end

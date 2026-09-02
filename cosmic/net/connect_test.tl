@@ -81,7 +81,7 @@ local function test_unix_domain_socket_bind_connect()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local client = check.must(net.socket({family = net.AF_UNIX}))
     local connect_ok = client:connect_unix(path)
@@ -115,7 +115,7 @@ local function test_listen_unix_dial_unix()
   local server = check.must(net.listen_unix(path, {backlog = 8}))
 
   -- Fork to create a client using module-level dial_unix helper
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local client = check.must(net.dial_unix(path))
     local sent = client:send("hello from dial_unix")
@@ -228,7 +228,7 @@ local function test_dial_tcp()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client using dial
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local client = check.must(net.dial("127.0.0.1", server_port))
     local sent = client:send("hello from dial")

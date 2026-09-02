@@ -52,11 +52,11 @@ local function test_mask()
     return
   end
   assert(caps.mask({}) == 0, "empty mask should be 0")
-  local chown = caps.number_of("CAP_CHOWN")
+  local chown = check.must(caps.number_of("CAP_CHOWN"))
   local m = caps.mask({"CAP_CHOWN"})
   assert(m == (1 << chown), "mask should set the CAP_CHOWN bit")
   local both = caps.mask({"CAP_CHOWN", "CAP_KILL"})
-  local kill = caps.number_of("CAP_KILL")
+  local kill = check.must(caps.number_of("CAP_KILL"))
   assert(both == ((1 << chown) | (1 << kill)), "mask should OR the named bits")
   local bad, err = caps.mask({"CAP_BOGUS"})
   assert(bad == nil and type(err) == "string", "unknown name should error")

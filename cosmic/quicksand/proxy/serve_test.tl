@@ -169,7 +169,7 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
       .. "Host: 127.0.0.1:" .. port .. "\r\n\r\n"))
   local cfd = check.must(srv.accept(), "proxy accept failed")
 
-  local worker = proc.fork()
+  local worker = check.must(proc.fork())
   if worker == 0 then
     srv.handle(cfd)
     os.exit(0)
