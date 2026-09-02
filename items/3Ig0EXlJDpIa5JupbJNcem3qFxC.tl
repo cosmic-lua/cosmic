@@ -6,6 +6,7 @@ return {
   ["id"] = "3Ig0EXlJDpIa5JupbJNcem3qFxC",
   ["parent"] = "3IVLDSY6kqzXqSftpa2TU9RIvL2",
   ["pr"] = 1610,
+  ["reviewer"] = "review-cem3_qFxC-lok152",
   ["speccers"] = "964d508a-c0a9-5869-b24c-303d4052a523",
   ["title"] = "goals.md holding section, skills/work/decompose.md, and the held-outcome decision record",
 }
