@@ -7,7 +7,9 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 341,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-FhYf_OcXT-lok152",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "tool/net/demo: unix-subprocess.lua and unix-unix.lua pass sigaction's saved table back as a handler once #338 lands",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "218801d55abedf2d21c83a03e203822198b6ce32",
+  ["verdict_spec"] = "3fe53ed931308849976d66b3e95900daf4d07b80f94cc041ea6c244262896955",
 }
