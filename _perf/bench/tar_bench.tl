@@ -18,7 +18,7 @@ local DIRS = 20
 local FILES_PER_DIR = 5
 local MODE_644 = 420 -- 0644 in octal
 
-local tmpdir: string
+local tmpdir: string | nil
 
 --- Base directory for scratch files.
 --- @return string An existing writable directory

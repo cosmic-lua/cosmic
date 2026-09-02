@@ -39,12 +39,13 @@ local function send_all(conn: net.Socket, data: string): boolean
   return true
 end
 
---- Kill the forked server child and close its listening socket.
---- @param pid integer The forked server's pid
---- @param listener Socket The listening socket
+--- Kill the forked server child and close its listening socket; a nil pid
+--- or listener (never set, or already cleared) is a no-op for that half.
+--- @param pid integer | nil The forked server's pid, or nil if none was set
+--- @param listener Socket | nil The listening socket, or nil if none was set
 --- @return integer | nil Always nil, so the caller can reset its pid field
 --- @return net.Socket | nil Always nil, so the caller can reset its listener field
-local function cleanup(pid: integer, listener: net.Socket): integer | nil, net.Socket | nil
+local function cleanup(pid: integer | nil, listener: net.Socket | nil): integer | nil, net.Socket | nil
   if pid and pid > 0 then
     local _ok, _err = signal.kill(pid, signal.SIGKILL)
     local _ok, _err = proc.wait(pid)
@@ -58,7 +59,7 @@ end
 local record server
   read_request: function(net.Socket): boolean
   send_all: function(net.Socket, string): boolean
-  cleanup: function(integer, net.Socket): integer | nil, net.Socket | nil
+  cleanup: function(integer | nil, net.Socket | nil): integer | nil, net.Socket | nil
 end
 
 local M: server = {
