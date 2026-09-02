@@ -1,5 +1,6 @@
 return {
-  ["builders"] = "wave10--Eas3",
+  ["builders"] = "wave10--Eas3 orchestrator-Eas3-recovery",
+  ["claim"] = "orchestrator-Eas3-recovery",
   ["id"] = "3IjAuurwj3USV0a7jAPEas3TLvu",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["repo"] = "cosmic-lua/cosmic",
