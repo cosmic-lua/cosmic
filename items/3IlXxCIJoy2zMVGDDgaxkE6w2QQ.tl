@@ -5,5 +5,6 @@ return {
   ["parent"] = "3Il1Qt77tDOEaeo9uuv0isrqZds",
   ["pr"] = 363,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-xkE6-24502",
   ["title"] = "test_slurp_ranges.lua fails when TMPDIR is unset",
 }
