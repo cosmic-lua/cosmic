@@ -40,6 +40,27 @@ local BASELINE < const > = ".cosmic-coverage"
 --- Where a coverage run's data lands.
 local COVERAGE_DIR < const > = ".coverage"
 
+--- The `COSMIC_COVERAGE_ENV` value that marks THIS machine as the
+--- environment `.cosmic-coverage` is recorded in.
+local RECORDING_ENV_VALUE < const > = "1"
+
+--- Whether this run is happening in the environment the committed floor
+--- is measured in: CI's `ci` lane (`.github/workflows/pr.yml`) — a
+--- digest-pinned `buildpack-deps:noble` container, run `--privileged`,
+--- built and gated as the non-root `builder` user, network-fenced to
+--- loopback after `fetch`. Coverage is environment-sensitive
+--- (`cosmic/coverage/SENSITIVITY.md`): root vs. non-root, Landlock,
+--- Linux namespaces, a real tty, a free port, and even which compiler
+--- built the binary under test all move rows, sometimes by 2x. A
+--- rewrite from any OTHER machine bakes that machine's local ceiling
+--- into the shared floor instead of the recording environment's — the
+--- `ci` lane sets `COSMIC_COVERAGE_ENV=1` for itself; nowhere else
+--- should.
+--- @return boolean
+local function is_recording_env(): boolean
+  return os.getenv("COSMIC_COVERAGE_ENV") == RECORDING_ENV_VALUE
+end
+
 --- Whether a project has any file of the given kinds — the "material"
 --- test every stage of `ci` is gated by.
 --- @param proj Project The scanned project
@@ -137,9 +158,31 @@ local function wrote_summary(lowered_count: integer, raised_count: integer): str
 end
 
 --- `coverage --baseline` — rewrite the committed floor from a run.
+---
+--- Refuses outside the recording environment (see `is_recording_env`):
+--- run this on an ordinary developer machine and the committed floor
+--- moves by whatever that machine's sandbox, identity and compiler
+--- happen to measure, unrelated to the change at hand — 173 rows on one
+--- reported run, none of them touched by the branch. The row a real
+--- change earns is still yours to write: hand-edit its `covered`/`total`
+--- pair in `.cosmic-coverage` directly, the same file this would have
+--- rewritten wholesale.
 --- @param proj Project The scanned project
 --- @return integer Exit code
 local function write_baseline(proj: Project): integer
+  if not is_recording_env() then
+    io.stderr:write(
+      "coverage --baseline REFUSED: this machine is not the " ..
+      ".cosmic-coverage recording environment (CI's `ci` lane — see " ..
+      "AGENTS.md's coverage paragraph and cosmic/coverage/SENSITIVITY.md). " ..
+      "A rewrite here would bake THIS machine's sandbox/identity/compiler " ..
+      "ceiling into the shared floor instead of the recording " ..
+      "environment's. To move the one row your change actually affects, " ..
+      "hand-edit its covered/total pair in .cosmic-coverage. To rewrite " ..
+      "the whole floor, run this from the recording environment with " ..
+      "COSMIC_COVERAGE_ENV=1 set.\n")
+    return stage.verdict("coverage", false, "not the recording environment")
+  end
   local report: {string} = {fs.join(project.BUILD_DIR, COVERAGE_DIR)}
   for _, dir in ipairs(project.source_dirs(proj)) do
     report[#report + 1] = dir
@@ -303,8 +346,10 @@ end
 local record PolicyModule
   BASELINE: string
   COVERAGE_DIR: string
+  RECORDING_ENV_VALUE: string
   STAGES: {Stage}
   has: function(proj: Project, kinds: {Kind}): boolean
+  is_recording_env: function(): boolean
   run_coverage: function(v: Verb, proj: Project, paths: {string}, cosmic: string): integer
   narrate_moves: function(moves: {Move}): {string}, integer, integer
   wrote_summary: function(lowered_count: integer, raised_count: integer): string
@@ -316,8 +361,10 @@ end
 local M: PolicyModule = {
   BASELINE = BASELINE,
   COVERAGE_DIR = COVERAGE_DIR,
+  RECORDING_ENV_VALUE = RECORDING_ENV_VALUE,
   STAGES = STAGES,
   has = has,
+  is_recording_env = is_recording_env,
   run_coverage = run_coverage,
   narrate_moves = narrate_moves,
   wrote_summary = wrote_summary,

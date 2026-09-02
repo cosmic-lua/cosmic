@@ -84,6 +84,14 @@ jobs:
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
+    # This lane IS the .cosmic-coverage recording environment — the
+    # digest-pinned image, --privileged, and the non-root builder below
+    # are exactly what makes it one (see AGENTS.md's coverage paragraph
+    # and cosmic/coverage/SENSITIVITY.md). `_make.policy.write_baseline`
+    # refuses `--baseline` anywhere this is not set, so the marker lives
+    # here rather than in a developer's shell.
+    env:
+      COSMIC_COVERAGE_ENV: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 

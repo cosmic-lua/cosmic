@@ -30,6 +30,8 @@ local VARS < const >: {Var} = {
     desc = "the --version stamp, when no .version is committed"},
   {name = "COSMIC_COVERAGE", public = true,
     desc = "directory to dump line-coverage .cov files into"},
+  {name = "COSMIC_COVERAGE_ENV", public = true,
+    desc = "1 marks this machine as the .cosmic-coverage recording environment"},
   {name = "COSMIC_INSTRUMENTATION", public = true,
     desc = "1 emits timing spans to stderr"},
   {name = "COSMIC_LOG_LEVEL", public = true,
