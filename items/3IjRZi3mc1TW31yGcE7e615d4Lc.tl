@@ -1,4 +1,5 @@
 return {
+  ["beats"] = "3IkU6r3r8iGYEeVLEB62qwsmNBT",
   ["builders"] = "wave-lok152-e615",
   ["claim"] = "wave-lok152-e615",
   ["id"] = "3IjRZi3mc1TW31yGcE7e615d4Lc",
