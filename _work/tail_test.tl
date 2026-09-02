@@ -30,7 +30,6 @@ local function test_handle_underscores_and_wraps_the_last_eight_characters()
   local id = make_id("Q4TX9GMD")
   assert(tail.handle(id) == "«Q4TX_9GMD»", tail.handle(id))
 end
-test_handle_underscores_and_wraps_the_last_eight_characters()
 
 local function test_is_tail_shape_accepts_both_forms()
   assert(tail.is_tail_shape("s1WSJ6A3"), "divider-free")
@@ -38,7 +37,6 @@ local function test_is_tail_shape_accepts_both_forms()
   assert(tail.is_tail_shape("«s1WS-J6A3»"), "a wrapped, hyphenated handle")
   assert(tail.is_tail_shape("«s1WS_J6A3»"), "a pasted, wrapped handle")
 end
-test_is_tail_shape_accepts_both_forms()
 
 local function test_is_tail_shape_rejects_malformed_input()
   assert(not tail.is_tail_shape("s1WSJ6A"), "too short")
@@ -47,7 +45,6 @@ local function test_is_tail_shape_rejects_malformed_input()
   assert(not tail.is_tail_shape("s1WS.J6A3"), "period is not a valid divider")
   assert(not tail.is_tail_shape(""), "empty")
 end
-test_is_tail_shape_rejects_malformed_input()
 
 local function test_resolve_matches_exactly_hyphenated_or_not()
   local id = make_id("Q4TX9GMD")
@@ -55,7 +52,6 @@ local function test_resolve_matches_exactly_hyphenated_or_not()
   assert(check.must(tail.resolve(all, "Q4TX9GMD")) == id, "hyphen-free")
   assert(check.must(tail.resolve(all, "Q4TX-9GMD")) == id, "hyphenated")
 end
-test_resolve_matches_exactly_hyphenated_or_not()
 
 local function test_resolve_accepts_a_pasted_wrapped_handle()
   local id = make_id("d0x137YJ")
@@ -63,7 +59,6 @@ local function test_resolve_accepts_a_pasted_wrapped_handle()
   assert(check.must(tail.resolve(all, "«d0x1_37YJ»")) == id,
     "a copy-pasted rendered handle resolves like any other tail")
 end
-test_resolve_accepts_a_pasted_wrapped_handle()
 
 local function test_resolve_accepts_a_hyphenated_paste_for_backward_tolerance()
   local id = make_id("d0x137YJ")
@@ -71,7 +66,6 @@ local function test_resolve_accepts_a_hyphenated_paste_for_backward_tolerance()
   assert(check.must(tail.resolve(all, "«d0x1-37YJ»")) == id,
     "a handle copied before the divider changed still resolves")
 end
-test_resolve_accepts_a_hyphenated_paste_for_backward_tolerance()
 
 local function test_resolve_falls_back_to_case_folded_match()
   local id = make_id("Q4TXaBcD")
@@ -82,7 +76,6 @@ local function test_resolve_falls_back_to_case_folded_match()
   assert(check.must(tail.resolve(all, "q4tx-abcd")) == id,
     "lowercased and hyphenated")
 end
-test_resolve_falls_back_to_case_folded_match()
 
 local function test_resolve_prefers_an_exact_match_over_a_folded_one()
   local exact = make_id("Q4TXABCD")
@@ -91,7 +84,6 @@ local function test_resolve_prefers_an_exact_match_over_a_folded_one()
   assert(check.must(tail.resolve(all, "Q4TXABCD")) == exact,
     "the exact stage wins before the folded stage is ever tried")
 end
-test_resolve_prefers_an_exact_match_over_a_folded_one()
 
 local function test_resolve_refuses_an_exact_ambiguity()
   local one = make_id("Q4TXABCD")
@@ -101,7 +93,6 @@ local function test_resolve_refuses_an_exact_ambiguity()
   assert(id == nil, "two items share this tail")
   assert(err:find("ambiguous", 1, true) and err:find("Q4TXABCD", 1, true), err)
 end
-test_resolve_refuses_an_exact_ambiguity()
 
 local function test_resolve_refuses_a_folded_ambiguity()
   local one = make_id("Q4TXABCD")
@@ -113,7 +104,6 @@ local function test_resolve_refuses_a_folded_ambiguity()
   assert(id == nil, "the fold matches both")
   assert(err:find("ambiguous", 1, true), err)
 end
-test_resolve_refuses_a_folded_ambiguity()
 
 local function test_resolve_refuses_no_match()
   local all: {item.Item} = {make(make_id("Q4TX9GMD"), "a slice")}
@@ -121,4 +111,3 @@ local function test_resolve_refuses_no_match()
   assert(id == nil, "no item carries that tail")
   assert(err:find("no item matches tail", 1, true), err)
 end
-test_resolve_refuses_no_match()

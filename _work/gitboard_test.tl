@@ -53,7 +53,6 @@ local function test_attach_resolves_a_handle_form_parent()
   local it = check.must(store.load(s, leaf))
   assert(it.parent == root, "and the attach actually landed")
 end
-test_attach_resolves_a_handle_form_parent()
 
 -- `compare`'s OTHER slot: same handle form, same resolution.
 local function test_compare_resolves_a_handle_form_other()
@@ -66,7 +65,6 @@ local function test_compare_resolves_a_handle_form_other()
   assert(#winner.beats == 1 and winner.beats[1] == low,
     "and the comparison actually landed")
 end
-test_compare_resolves_a_handle_form_other()
 
 -- A handle naming nothing is refused cleanly in a secondary slot too
 -- — no crash, just the same "no item matches" store gives arg 1.
@@ -83,7 +81,6 @@ local function test_secondary_slot_refuses_a_handle_that_matches_nothing()
   assert(cmp.cmd_compare(s, high, low) == 0,
     "the store is still writable after the refusal")
 end
-test_secondary_slot_refuses_a_handle_that_matches_nothing()
 
 -- `gitboard help` names the two id forms a session actually meets:
 -- the handle every render leads with, and the branch prefix that is a
@@ -108,4 +105,3 @@ local function test_help_documents_the_id_forms()
   assert(printed:find("different string", 1, true),
     "help should call out that the branch differs from the handle\ngot: " .. printed)
 end
-test_help_documents_the_id_forms()

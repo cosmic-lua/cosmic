@@ -115,7 +115,6 @@ local function test_a_dirty_unrelated_file_does_not_block_a_mutation()
     "the dirty file is byte-identical after the mutation")
   assert(stash_list(b.root) == "", "the shared stash stack is untouched")
 end
-test_a_dirty_unrelated_file_does_not_block_a_mutation()
 
 -- The regression test for the `reset --hard` hazard: a lost push race
 -- with an unrelated `_work/**` file dirty must still drop the losing
@@ -158,7 +157,6 @@ local function test_a_lost_race_preserves_unrelated_dirt()
     "the dirty file is byte-identical after the lost race")
   assert(stash_list(b.root) == "", "the shared stash stack is untouched")
 end
-test_a_lost_race_preserves_unrelated_dirt()
 
 -- An incoming `_work/**` commit that overlaps a local uncommitted edit
 -- to the SAME path is the one case a fast-forward cannot silently
@@ -193,7 +191,6 @@ local function test_an_overlapping_dirty_file_refuses_by_name()
     "the overlapping edit is preserved, not merged")
   assert(stash_list(b.root) == "", "the shared stash stack is untouched")
 end
-test_an_overlapping_dirty_file_refuses_by_name()
 
 -- An unreadable remote — the fetch itself fails, not the merge — is a
 -- clean refusal too, never a crash, and it must not touch the checkout
@@ -206,6 +203,5 @@ local function test_an_unreachable_remote_refuses_cleanly()
   assert(not ok, "a sync against an unreadable remote must refuse")
   assert(err ~= store.LOST_RACE, "an unreadable remote is not a race: " .. err)
 end
-test_an_unreachable_remote_refuses_cleanly()
 
 print("all publish tests passed")

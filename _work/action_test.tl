@@ -90,7 +90,6 @@ local function test_the_ordering_runs_right_to_left()
   assert(e.kind == "pull" and e.item.id == fresh.id,
     "and only then a pull: " .. e.kind)
 end
-test_the_ordering_runs_right_to_left()
 
 local function test_a_live_foreign_review_claim_is_stepped_past()
   local items: {Item} = {}
@@ -112,7 +111,6 @@ local function test_a_live_foreign_review_claim_is_stepped_past()
   assert(unnamed.kind == "review" and unnamed.item.id == first.id,
     "an unnamed session is stepped past nothing")
 end
-test_a_live_foreign_review_claim_is_stepped_past()
 
 -- The distance guard applies here too, so `next` never offers what
 -- `take` refuses: a session steps past a diff it built and a decision
@@ -142,7 +140,6 @@ local function test_a_builder_or_speccer_review_is_stepped_past()
   assert(stepped.kind == "review" and stepped.item.id == reviewable.id,
     "and stepped past to the one genuine candidate: " .. stepped.item.id)
 end
-test_a_builder_or_speccer_review_is_stepped_past()
 
 local function test_anothers_live_build_is_held_a_stale_one_offered()
   local items: {Item} = {}
@@ -160,7 +157,6 @@ local function test_anothers_live_build_is_held_a_stale_one_offered()
   assert(b.reason:find("take it over", 1, true),
     "and the takeover is named, on the record: " .. b.reason)
 end
-test_anothers_live_build_is_held_a_stale_one_offered()
 
 local function test_rework_returns_to_its_builder_first()
   local items: {Item} = {}
@@ -177,7 +173,6 @@ local function test_rework_returns_to_its_builder_first()
   assert(other.kind ~= "finish",
     "a live rework claim holds like any other: " .. other.kind)
 end
-test_rework_returns_to_its_builder_first()
 
 local function test_pull_skips_what_is_blocked_and_what_misses_the_bar()
   local items: {Item} = {}
@@ -197,7 +192,6 @@ local function test_pull_skips_what_is_blocked_and_what_misses_the_bar()
     ("blocked and unrefined items are skipped: %s %s"):format(a.kind,
       a.item and a.item.id or ""))
 end
-test_pull_skips_what_is_blocked_and_what_misses_the_bar()
 
 local function test_the_doing_bound_suppresses_the_pull()
   local items: {Item} = {}
@@ -220,7 +214,6 @@ local function test_the_doing_bound_suppresses_the_pull()
     and a.reason:find("1 pullable", 1, true),
     "and it names the bound and what it withheld: " .. a.reason)
 end
-test_the_doing_bound_suppresses_the_pull()
 
 local function test_the_decision_carries_alternates_across_rungs()
   local items: {Item} = {}
@@ -239,7 +232,6 @@ local function test_the_decision_carries_alternates_across_rungs()
   assert(alts[1].kind == "pull",
     "rung order holds within the list: " .. alts[1].kind)
 end
-test_the_decision_carries_alternates_across_rungs()
 
 local function test_all_blocked_names_the_chain_root()
   local items: {Item} = {}
@@ -254,7 +246,6 @@ local function test_all_blocked_names_the_chain_root()
     ("every takeable item blocked names the chain bottom: %s %s"):format(
       a.kind, a.item and a.item.id:sub(1, 8) or ""))
 end
-test_all_blocked_names_the_chain_root()
 
 local function test_an_open_blocker_holds_the_merge_off_the_offer()
   local items: {Item} = {}
@@ -278,7 +269,6 @@ local function test_an_open_blocker_holds_the_merge_off_the_offer()
   assert(b.kind == "finish" and b.item.id == accepted.id,
     "ending the blocker returns it to the finish offer: " .. b.kind)
 end
-test_an_open_blocker_holds_the_merge_off_the_offer()
 
 local function test_a_blocked_building_item_is_still_offered()
   local items: {Item} = {}
@@ -293,7 +283,6 @@ local function test_a_blocked_building_item_is_still_offered()
   assert(a.kind == "finish" and a.item.id == building.id,
     "a blocker records landing order, not a build to finish: " .. a.kind)
 end
-test_a_blocked_building_item_is_still_offered()
 
 -- A lane repair is the pull that cannot wait: it outranks ordinary
 -- pulls, but a merge, a review or a builder's own rework still land
@@ -314,7 +303,6 @@ local function test_lane_repair_outranks_ordinary_pulls()
   assert(a.reason == "lane repair: release.yml",
     "the reason names the lane: " .. a.reason)
 end
-test_lane_repair_outranks_ordinary_pulls()
 
 local function test_a_pending_merge_still_outranks_the_repair()
   local items: {Item} = {}
@@ -329,7 +317,6 @@ local function test_a_pending_merge_still_outranks_the_repair()
   assert(a.kind == "finish" and a.item.id == accepted.id,
     "landing what is already accepted still comes first: " .. a.kind)
 end
-test_a_pending_merge_still_outranks_the_repair()
 
 -- The wall the spec pins for merge holds for review too: an open PR
 -- with no verdict yet outranks a red-lane repair, the same as an
@@ -349,7 +336,6 @@ local function test_a_pending_review_still_outranks_the_repair()
   assert(a.kind == "review" and a.item.id == reviewable.id,
     "a verdict awaiting a PR still comes before a lane repair: " .. a.kind)
 end
-test_a_pending_review_still_outranks_the_repair()
 
 -- The doing bound never holds a lane repair back: `flow.doing_refusal`
 -- admits it at the same bound it refuses an ordinary take at, and
@@ -373,7 +359,6 @@ local function test_lane_repair_is_admitted_at_the_doing_bound()
   assert(a.kind == "pull" and a.item.id == repair.id,
     "the repair is still offered at the bound: " .. a.kind)
 end
-test_lane_repair_is_admitted_at_the_doing_bound()
 
 -- A blocked repair waits on its blocker exactly like any other pull —
 -- the lane class changes ordering, never the block/take relationship.
@@ -390,7 +375,6 @@ local function test_a_blocked_repair_does_not_jump_its_blocker()
   assert(a.kind ~= "pull" or a.item.id ~= repair.id,
     "a blocked repair is not offered as the pull: " .. a.kind)
 end
-test_a_blocked_repair_does_not_jump_its_blocker()
 
 local function test_none_names_the_binding_fact()
   -- The root is deliberately unplaced with an open child, so no
@@ -406,4 +390,3 @@ local function test_none_names_the_binding_fact()
   assert(a.reason:find("@other", 1, true),
     "and the holder is named, not counted: " .. a.reason)
 end
-test_none_names_the_binding_fact()

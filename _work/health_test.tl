@@ -42,7 +42,6 @@ local function test_staleness_needs_a_claim_and_an_age_past_the_lease()
   assert(health.stale_hours(claimed, {[claimed.id] = 5 * 60 * 60}) == 5,
     "hours render whole")
 end
-test_staleness_needs_a_claim_and_an_age_past_the_lease()
 
 local function test_a_blocker_cycle_is_reported_by_name()
   local root = make({})
@@ -59,7 +58,6 @@ local function test_a_blocker_cycle_is_reported_by_name()
   assert(#health.blocker_cycle_problems(items) == 0,
     "a broken cycle reports nothing")
 end
-test_a_blocker_cycle_is_reported_by_name()
 
 local function test_chain_root_is_the_deepest_open_blocker()
   local root = make({})
@@ -77,7 +75,6 @@ local function test_chain_root_is_the_deepest_open_blocker()
   assert(health.chain_root(index, top).id == middle.id,
     "a closed blocker ends the walk")
 end
-test_chain_root_is_the_deepest_open_blocker()
 
 local function test_review_staleness_runs_on_its_own_shorter_lease()
   local root = make({})
@@ -90,4 +87,3 @@ local function test_review_staleness_runs_on_its_own_shorter_lease()
       {[reading.id] = health.REVIEW_LEASE_S + 1}),
     "past it the diff is anyone's again")
 end
-test_review_staleness_runs_on_its_own_shorter_lease()

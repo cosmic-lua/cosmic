@@ -47,7 +47,6 @@ local function test_a_lost_block_race_cannot_land_a_cycle()
   assert(#(check.must(store.load(b, x)).blocked_by or {}) == 1,
     "the winner's edge stands alone")
 end
-test_a_lost_block_race_cannot_land_a_cycle()
 
 -- Concurrent `done` of a container's last two children: each session
 -- read the other's child as still open. The loser re-runs against the
@@ -80,6 +79,5 @@ local function test_a_lost_done_race_reopens_the_parent()
   assert(flow.role(back, all) == "work",
     "the parent is workable again instead of stranding off the board")
 end
-test_a_lost_done_race_reopens_the_parent()
 
 print("all publish-race tests passed")

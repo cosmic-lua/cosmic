@@ -27,7 +27,6 @@ local function test_every_action_kind_has_guidance()
     end
   end
 end
-test_every_action_kind_has_guidance()
 
 local function test_guidance_stays_terse()
   for _, kind in ipairs(decision.KINDS) do
@@ -37,7 +36,6 @@ local function test_guidance_stays_terse()
         MAX_LINES))
   end
 end
-test_guidance_stays_terse()
 
 local function test_lines_fit_the_indented_width()
   for _, kind in ipairs(decision.KINDS) do
@@ -48,7 +46,6 @@ local function test_lines_fit_the_indented_width()
     end
   end
 end
-test_lines_fit_the_indented_width()
 
 --- An unknown kind renders nothing at all rather than a blank block:
 --- a caller appends what it is given, so "no guidance" has to be an
@@ -57,7 +54,6 @@ local function test_an_unknown_kind_has_no_guidance()
   assert(#guidance.lines("something-else") == 0, "unknown kinds are silent")
   assert(#guidance.lines("") == 0, "and so is the empty kind")
 end
-test_an_unknown_kind_has_no_guidance()
 
 --- Folding breaks at spaces and never mid-word, and a word past the
 --- width takes a line to itself rather than being cut.
@@ -71,7 +67,6 @@ local function test_wrap_folds_at_spaces()
     "an over-wide word keeps its own line: " .. table.concat(long, "|"))
   assert(#guidance.wrap("", 10) == 0, "nothing folds to nothing")
 end
-test_wrap_folds_at_spaces()
 
 local counter = 0
 
@@ -115,4 +110,3 @@ local function test_next_prints_guidance_under_the_action()
       "guidance line indented two spaces: " .. lines[n + 1])
   end
 end
-test_next_prints_guidance_under_the_action()

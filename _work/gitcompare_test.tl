@@ -33,7 +33,6 @@ local function test_compare_writes_the_edge_on_the_winner()
   assert(hband > lband,
     ("the winner outranks: %d vs %d"):format(hband, lband))
 end
-test_compare_writes_the_edge_on_the_winner()
 
 -- A direct contrary edge is REVERSED in one commit — the overturned
 -- judgment leaves the log in the same commit that records its
@@ -62,7 +61,6 @@ local function test_compare_reverses_direct_refuses_transitive()
   assert(cmp.cmd_compare(s, mid, low) ~= 0,
     "low > high > mid stands only transitively over mid > low: refused")
 end
-test_compare_reverses_direct_refuses_transitive()
 
 local function test_every_comparison_is_one_commit()
   local s = init_state_repo("compare-commits")
@@ -76,4 +74,3 @@ local function test_every_comparison_is_one_commit()
   assert(fixture.commits(s) == before + 1,
     "and a refused one commits nothing")
 end
-test_every_comparison_is_one_commit()

@@ -15,7 +15,6 @@ local function test_slug_short_circuits_on_a_set_repo()
   local slug = gh.slug({root = "/does/not/exist"}, "whilp/cosmopolitan")
   assert(slug == "whilp/cosmopolitan", "got: " .. tostring(slug))
 end
-test_slug_short_circuits_on_a_set_repo()
 
 -- With no repo field the slug comes from origin, so a checkout that
 -- has no origin can address nothing: that is a named error, not a
@@ -26,4 +25,3 @@ local function test_slug_without_an_origin_is_an_error()
   assert(slug == nil, "a checkout with no origin addresses nothing")
   assert(err:find("no origin remote", 1, true) ~= nil, "got: " .. err)
 end
-test_slug_without_an_origin_is_an_error()

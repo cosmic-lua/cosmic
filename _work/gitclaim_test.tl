@@ -44,7 +44,6 @@ local function test_take_appends_a_builder_and_a_drop_keeps_it()
   assert(#check.must(store.load(s, leaf)).builders == 2,
     "a re-take by an earlier holder adds no second entry")
 end
-test_take_appends_a_builder_and_a_drop_keeps_it()
 
 -- A live claim is a lease held by one session. Taking it over is
 -- legitimate and is never silent: without --force the overwrite is
@@ -68,7 +67,6 @@ local function test_a_live_claim_needs_force_to_take_over()
   assert(#taken.builders == 2, "and both holders are on the record: "
     .. table.concat(taken.builders, ","))
 end
-test_a_live_claim_needs_force_to_take_over()
 
 -- The claim is what joins a diff to its builder, so a handover is a
 -- write on a claim: `take --pr` from a session with no claim on a
@@ -86,7 +84,6 @@ local function test_a_handover_names_its_builder()
   assert(#it.builders == 1 and it.builders[1] == "session-a",
     "and the handover appends the builder, same as a plain pull")
 end
-test_a_handover_names_its_builder()
 
 -- A rework return — the builder's re-take of their own item after a
 -- `request changes` verdict sent the PR back — is a claim path too:
@@ -106,7 +103,6 @@ local function test_a_rework_return_keeps_the_builder_recorded()
   assert(#it.builders == 1 and it.builders[1] == "session-a",
     "the sole builder is recorded once, not repeated")
 end
-test_a_rework_return_keeps_the_builder_recorded()
 
 -- One claim per session: a session already holding a live claim on
 -- ANOTHER open item is refused a second one, and the refusal is never
@@ -125,7 +121,6 @@ local function test_a_second_live_claim_is_refused_and_never_forced()
     "--force --why does not open an escape here")
   assert(check.must(store.load(s, b)).claim == "", "and b is untouched")
 end
-test_a_second_live_claim_is_refused_and_never_forced()
 
 -- A re-take of the session's own already-claimed item names no OTHER
 -- item, so the one-claim guard never asks about it -- rework
@@ -140,4 +135,3 @@ local function test_a_re_take_of_the_sessions_own_item_still_succeeds()
     "recording a PR on the session's own claim is not a second claim")
   assert(check.must(store.load(s, a)).pr == 9)
 end
-test_a_re_take_of_the_sessions_own_item_still_succeeds()

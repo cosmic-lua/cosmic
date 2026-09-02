@@ -44,7 +44,6 @@ local function test_every_topic_renders()
   assert(doctrine.page("no-such-topic") == nil,
     "a name that is not a topic is nil, not a guess")
 end
-test_every_topic_renders()
 
 local function test_listing_names_every_topic()
   local listing = doctrine.listing()
@@ -53,7 +52,6 @@ local function test_listing_names_every_topic()
       ("the listing names %s"):format(name))
   end
 end
-test_listing_names_every_topic()
 
 local function test_help_serves_a_topic_through_the_dispatch()
   local code, out = gitboard_and_capture("help", "system")
@@ -61,7 +59,6 @@ local function test_help_serves_a_topic_through_the_dispatch()
   assert(out:find("finishing beats starting", 1, true) ~= nil,
     "the system page came through the real dispatch: " .. out:sub(1, 80))
 end
-test_help_serves_a_topic_through_the_dispatch()
 
 local function test_help_overview_lists_the_topics()
   local code, out = gitboard_and_capture("help")
@@ -69,7 +66,6 @@ local function test_help_overview_lists_the_topics()
   assert(out:find("topics ('gitboard help <topic>')", 1, true) ~= nil,
     "the overview carries the topic list")
 end
-test_help_overview_lists_the_topics()
 
 local function test_no_topic_shadows_a_verb()
   -- The overview's command rows are the verb vocabulary; a topic
@@ -102,4 +98,3 @@ local function test_no_topic_shadows_a_verb()
   assert(verb_out:find("usage:", 1, true) ~= nil,
     "help <verb> still renders the verb page: " .. verb_out:sub(1, 80))
 end
-test_no_topic_shadows_a_verb()

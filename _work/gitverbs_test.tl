@@ -43,7 +43,6 @@ local function test_take_asks_the_spec_bar_of_todo_work()
   assert(#taken.builders == 1 and taken.builders[1] == "session-a",
     "and the builder is on the record")
 end
-test_take_asks_the_spec_bar_of_todo_work()
 
 -- The incident, refused at the door: a mangled argv absorbing a
 -- literal `--session` as the identity can no longer enter the claim,
@@ -66,7 +65,6 @@ local function test_take_refuses_a_flag_shaped_session()
   assert(check.must(store.load(s, leaf)).reviewer == "",
     "and no reviewer is recorded")
 end
-test_take_refuses_a_flag_shaped_session()
 
 -- An unplaced item is refused at take: placement is ordinal, and an
 -- item nothing has been compared against cannot be queued honestly.
@@ -78,7 +76,6 @@ local function test_take_refuses_unplaced_work()
   assert(verbs.cmd_take(s, kid, "session-a", 0, false, "") ~= 0,
     "work under an unplaced root has no position")
 end
-test_take_refuses_unplaced_work()
 
 -- A blocked item is refused at take, and the refusal names the
 -- blocker so the session knows what to finish first.
@@ -94,7 +91,6 @@ local function test_take_refuses_a_blocked_item()
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
     "a closed blocker no longer binds")
 end
-test_take_refuses_a_blocked_item()
 
 -- The doing bound binds NEW takes only: at the limit a take of todo
 -- work is refused, while a re-take of in-flight work is not.
@@ -116,7 +112,6 @@ local function test_the_bound_refuses_new_takes_not_retakes()
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
     "re-taking your own in-flight work adds nothing and is admitted")
 end
-test_the_bound_refuses_new_takes_not_retakes()
 
 -- A claim is a lease: a live foreign claim refuses a take without
 -- force, and the builder's own re-take is free.
@@ -135,7 +130,6 @@ local function test_a_live_foreign_claim_holds()
   assert(taken.claim == "session-b", "the claim moved")
   assert(#taken.builders == 2, "and both holders are on the record")
 end
-test_a_live_foreign_claim_holds()
 
 -- `take --pr` is the handover: the PR rides the claim, and a standing
 -- send-back clears because the new push is a new head to judge. On a
@@ -151,7 +145,6 @@ local function test_take_pr_records_the_handover()
   assert(got.claim == "session-a", "the claim survives it")
   assert(flow.substate(got) == "review", "and the item awaits a verdict")
 end
-test_take_pr_records_the_handover()
 
 -- One PR couples one item's verdict: recording a number another OPEN
 -- item already carries is refused, naming the holder, and nothing is
@@ -169,7 +162,6 @@ local function test_take_pr_refuses_a_number_another_item_holds()
     "PR #7 is already A's -- one PR, one item")
   assert(check.must(store.load(s, b)).pr == 0, "and nothing is written")
 end
-test_take_pr_refuses_a_number_another_item_holds()
 
 -- The same item re-recording its own number stays the existing no-op:
 -- the collision check never fires against itself.
@@ -184,7 +176,6 @@ local function test_take_pr_rerecord_of_its_own_number_stays_a_noop()
     "re-recording its own number is a no-op")
   assert(commits(s) == before, "nothing new to commit")
 end
-test_take_pr_rerecord_of_its_own_number_stays_a_noop()
 
 -- A DONE item's PR is spent: it does not block another item from
 -- recording the same number.
@@ -203,7 +194,6 @@ local function test_take_pr_ignores_a_done_items_number()
     "A's PR is spent once A is done")
   assert(check.must(store.load(s, b)).pr == 7, "and B's records it")
 end
-test_take_pr_ignores_a_done_items_number()
 
 -- --force --why overrides the collision, same as every other refusal
 -- here, and the reason rides the commit subject.
@@ -224,7 +214,6 @@ local function test_take_pr_collision_forced_lands_with_the_suffix()
   assert(events[1].subject:find("forced: repairing a duplicate", 1, true),
     "the reason rides the commit: " .. events[1].subject)
 end
-test_take_pr_collision_forced_lands_with_the_suffix()
 
 -- A drop names its reason, clears every lock together, and is never
 -- refused for flow — leftward motion is the system correcting itself.
@@ -248,7 +237,6 @@ local function test_drop_clears_the_locks_and_names_the_reason()
   assert(verbs.cmd_drop(s, leaf, "session-a", "again", false) ~= 0,
     "dropping what is not in flight is a typo, not a mutation")
 end
-test_drop_clears_the_locks_and_names_the_reason()
 
 -- Verdicts before new work, mechanically: a todo pull is refused
 -- while an unclaimed diff the session could review awaits a verdict.
@@ -279,7 +267,6 @@ local function test_take_refuses_a_pull_past_an_unclaimed_verdict()
   assert(verbs.cmd_take(s, second, "session-c", 0, false, "") == 0,
     "a recorded reviewer clears the debt and the queue moves again")
 end
-test_take_refuses_a_pull_past_an_unclaimed_verdict()
 
 -- A drop returns the lease and touches nothing else: an edge wired
 -- mid-build (the block-first exit for an item that cannot proceed)
@@ -303,7 +290,6 @@ local function test_drop_leaves_blockers_standing()
   assert(flow.is_blocked(dropped, index),
     "the released item waits on its open question")
 end
-test_drop_leaves_blockers_standing()
 
 -- Another session's live claim refuses a drop without force: the
 -- builder may be mid loop on a machine the board cannot see.
@@ -320,7 +306,6 @@ local function test_a_foreign_drop_needs_force()
       "the builder's session died mid-slice", true) == 0,
     "a forced abandon with the gap named goes through")
 end
-test_a_foreign_drop_needs_force()
 
 -- `done` under an unjudged PR is refused: the diff still exists on
 -- GitHub, and ending the item makes it vanish from the board. Claimed
@@ -358,7 +343,6 @@ local function test_done_guards_an_unjudged_pr()
       "duplicate of the research slice above") == 0,
     "--force --why still ends an item nothing will ever review")
 end
-test_done_guards_an_unjudged_pr()
 
 -- `drop` clears the live claim but never touches `builders` — the
 -- append-only record of every session that ever held it — so the
@@ -384,7 +368,6 @@ local function test_done_guards_a_dropped_items_worked_history()
   local ended = check.must(store.load(s, leaf))
   assert(ended.claim == "", "and done clears the claim")
 end
-test_done_guards_a_dropped_items_worked_history()
 
 -- Closing the last child makes the container workable again by
 -- derivation — nothing is written to it, and the verdict line says
@@ -404,7 +387,6 @@ local function test_done_says_when_a_container_is_workable_again()
     "and nothing is left off the board: "
     .. table.concat(flow.graph_problems(all), "; "))
 end
-test_done_says_when_a_container_is_workable_again()
 
 -- --force is for repair, and a repair the log cannot explain is
 -- indistinguishable from ordinary flow.
@@ -421,7 +403,6 @@ local function test_force_states_its_reason_and_the_log_keeps_it()
   assert(events[1].subject:find("forced: repairing a claim", 1, true),
     "the reason rides the commit: " .. events[1].subject)
 end
-test_force_states_its_reason_and_the_log_keeps_it()
 
 -- A take after a lost push race is refused with LOST_RACE and lands
 -- on the re-run against the merged state, leaving the checkout clean.
@@ -440,7 +421,6 @@ local function test_a_take_survives_a_lost_race()
   assert((r.stdout:gsub("%s+$", "")) == "",
     "the mutation leaves no stray change: " .. r.stdout)
 end
-test_a_take_survives_a_lost_race()
 
 -- sync rebases and then asks about lane health; a local-only checkout
 -- has no origin, so lane health comes back unknown rather than red,
@@ -451,4 +431,3 @@ local function test_sync_asks_about_lanes_and_survives_not_knowing()
   local s = init_state_repo("sync-lanes")
   assert(verbs.cmd_sync(s) == 0, "an unknown lane state does not fail sync")
 end
-test_sync_asks_about_lanes_and_survives_not_knowing()

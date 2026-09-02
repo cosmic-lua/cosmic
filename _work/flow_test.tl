@@ -43,7 +43,6 @@ local function test_roles_emerge_from_the_graph()
   assert(flow.role(epic, items) == "container", "open children")
   assert(flow.role(leaf, items) == "work", "parented leaf")
 end
-test_roles_emerge_from_the_graph()
 
 local function test_state_derives_from_the_facts()
   local goal = make({})
@@ -61,7 +60,6 @@ local function test_state_derives_from_the_facts()
   assert(flow.substate(sent_back) == "rework", "a send-back is rework")
   assert(flow.substate(judged) == "accepted", "an accept awaits its merge")
 end
-test_state_derives_from_the_facts()
 
 local function test_in_state_holds_open_workable_leaves_only()
   local goal = make({})
@@ -78,7 +76,6 @@ local function test_in_state_holds_open_workable_leaves_only()
   assert(#doings == 1 and doings[1].id == doing.id,
     "only the claimed leaf is doing")
 end
-test_in_state_holds_open_workable_leaves_only()
 
 local function test_the_doing_bound_binds_new_takes_only()
   local root = make({})
@@ -94,7 +91,6 @@ local function test_the_doing_bound_binds_new_takes_only()
   assert(over ~= nil and over:find("finish something", 1, true),
     "at the bound a new take is refused: " .. tostring(over))
 end
-test_the_doing_bound_binds_new_takes_only()
 
 local function test_blocked_items_are_skipped()
   local goal = make({})
@@ -112,7 +108,6 @@ local function test_blocked_items_are_skipped()
   assert(not flow.is_blocked(was_blocked, later),
     "a done blocker does not block")
 end
-test_blocked_items_are_skipped()
 
 local function test_graph_problems()
   local goal = make({})
@@ -126,7 +121,6 @@ local function test_graph_problems()
   assert(text:find("does not exist", 1, true), "orphan parent: " .. text)
   assert(#problems == 1, "nothing else is a graph problem: " .. text)
 end
-test_graph_problems()
 
 local function test_waits_on_follows_a_blocker_chain()
   local goal = make({})
@@ -137,7 +131,6 @@ local function test_waits_on_follows_a_blocker_chain()
   assert(flow.waits_on(index, c.id, a.id), "c waits on a through b")
   assert(not flow.waits_on(index, a.id, c.id), "and a waits on nothing")
 end
-test_waits_on_follows_a_blocker_chain()
 
 local function test_waits_on_terminates_on_a_cycle_already_in_the_data()
   local goal = make({})
@@ -150,7 +143,6 @@ local function test_waits_on_terminates_on_a_cycle_already_in_the_data()
   assert(not flow.waits_on(index, a.id, elsewhere.id),
     "and a walk that finds nothing still returns rather than spinning")
 end
-test_waits_on_terminates_on_a_cycle_already_in_the_data()
 
 local function test_untriaged_holds_unplaced_childless_roots()
   local placed = make({})
@@ -163,7 +155,6 @@ local function test_untriaged_holds_unplaced_childless_roots()
   assert(#queue == 1 and queue[1].id == capture.id,
     "compared roots and adopted leaves are not triage")
 end
-test_untriaged_holds_unplaced_childless_roots()
 
 -- The unified order: ONE queue, stage first — accepted, review,
 -- rework, building, lane repair, todo — then the priority order
@@ -205,7 +196,6 @@ local function test_unified_ranks_stage_before_priority()
     and order[5] == repair.id and order[6] == hot.id,
     "stage-lexicographic: " .. table.concat(order, " "))
 end
-test_unified_ranks_stage_before_priority()
 
 -- Within one stage the priority order decides: a compared-up todo
 -- item comes before its uncompared sibling.
@@ -221,4 +211,3 @@ local function test_unified_breaks_stage_ties_by_priority()
   assert(#queue == 2 and queue[1].id == hot.id and queue[2].id == plain.id,
     "the comparison order holds within the stage")
 end
-test_unified_breaks_stage_ties_by_priority()

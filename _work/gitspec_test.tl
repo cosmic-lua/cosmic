@@ -46,7 +46,6 @@ local function test_the_spec_bar_is_the_items_own()
     "and it may be taken")
   assert(check.must(store.load(s, leaf)).claim == "session-a", "it moved")
 end
-test_the_spec_bar_is_the_items_own()
 
 -- A hollow spec still refuses, naming the sections it lacks.
 local function test_the_spec_bar_still_refuses_a_hollow_spec()
@@ -56,7 +55,6 @@ local function test_the_spec_bar_still_refuses_a_hollow_spec()
     "no spec, no take")
   assert(check.must(store.load(s, leaf)).claim == "", "it stayed put")
 end
-test_the_spec_bar_still_refuses_a_hollow_spec()
 
 -- Re-running a mutation that records the same values says so.
 local function test_a_no_op_mutation_is_named()
@@ -68,7 +66,6 @@ local function test_a_no_op_mutation_is_named()
   assert(gitspec.cmd_spec(s, leaf, path, path) ~= 0,
     "the same spec twice records nothing the second time")
 end
-test_a_no_op_mutation_is_named()
 
 -- One markdown file under tmpdir, for the spec tests below.
 local function spec_file(name: string, body: string): string
@@ -92,7 +89,6 @@ local function test_spec_refuses_a_write_with_no_base()
   assert(store.read_spec(s, leaf) == READY_SPEC, "so the first text stands")
   assert(commits(s) == before, "and nothing was committed")
 end
-test_spec_refuses_a_write_with_no_base()
 
 -- The base is the text the caller READ. One a later writer already
 -- replaced is the concurrent refinement this catches; re-reading the
@@ -117,7 +113,6 @@ local function test_spec_refuses_a_stale_base()
   assert(store.read_spec(s, leaf):find("Second edit.", 1, true) ~= nil,
     "carrying the text it meant to write")
 end
-test_spec_refuses_a_stale_base()
 
 -- A blocker id with no item behind it never blocks, so it reads as
 -- "sequenced" and pulls anyway. The spec bar is where that is caught.
@@ -135,7 +130,6 @@ local function test_spec_bar_names_a_blocker_that_is_not_an_item()
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") ~= 0,
     "and the take is refused")
 end
-test_spec_bar_names_a_blocker_that_is_not_an_item()
 
 -- The fixture the read-access bar exists for: a spec whose own
 -- commands clone a repository the item's `repo` field does not name
@@ -171,7 +165,6 @@ local function test_spec_bar_names_an_undeclared_repo()
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") ~= 0,
     "and the take is refused")
 end
-test_spec_bar_names_an_undeclared_repo()
 
 -- Declaring the same repo under `## Access` clears the bar — the gate
 -- checks that the requirement is STATED, not that it is satisfied.
@@ -189,7 +182,6 @@ local function test_declaring_the_repo_clears_the_bar()
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
     "and the take proceeds")
 end
-test_declaring_the_repo_clears_the_bar()
 
 -- An item's own `repo` is where its diff lands, not a source read on
 -- the side — mentioning it by URL needs no declaration.
@@ -203,7 +195,6 @@ local function test_the_items_own_repo_needs_no_declaring()
   assert(#problems == 0, "the item's own repo is not a gap: "
     .. table.concat(problems, "; "))
 end
-test_the_items_own_repo_needs_no_declaring()
 
 -- A real blocker refuses the take and names what to finish first;
 -- recording the order is `block`'s, and the take frees when it ends.
@@ -219,7 +210,6 @@ local function test_a_recorded_blocker_sequences_the_take()
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
     "and frees it when the blocker ends")
 end
-test_a_recorded_blocker_sequences_the_take()
 
 -- The reproduced incident: a foreign session silently replacing the
 -- definition of work another session already built and handed to
@@ -244,7 +234,6 @@ local function test_spec_refuses_a_foreign_live_claim()
   local it = check.must(store.load(s, leaf))
   assert(it.claim == "builder-a" and it.pr == 7, "the claim and PR stand")
 end
-test_spec_refuses_a_foreign_live_claim()
 
 -- What stays legal: the claim holder rewriting their OWN item's spec
 -- at any point — spec-only rework answering a bounce is a designed
@@ -262,7 +251,6 @@ local function test_spec_the_holders_own_rewrite_still_lands()
   assert(store.read_spec(s, leaf):find("Reworked answering a bounce.", 1, true)
     ~= nil)
 end
-test_spec_the_holders_own_rewrite_still_lands()
 
 -- A bare --force is refused: a forced mutation with no stated reason
 -- is indistinguishable in the log from an ordinary one.
@@ -281,7 +269,6 @@ local function test_spec_force_needs_why()
   assert(store.read_spec(s, leaf) == before_spec, "and nothing changed")
   assert(commits(s) == before_commits, "nothing was committed")
 end
-test_spec_force_needs_why()
 
 -- --force --why overrides a foreign live claim, and the reason rides
 -- the commit subject, same as take's and done's forced writes.
@@ -302,7 +289,6 @@ local function test_spec_force_and_why_overrides_a_foreign_claim()
   assert(events[1].subject:find("forced: builder-a's session died mid-build",
       1, true), "the reason rides the commit: " .. events[1].subject)
 end
-test_spec_force_and_why_overrides_a_foreign_claim()
 
 -- `spec` records who wrote it: a named session joins `it.speccers`,
 -- landing in the same commit as the sidecar since `stage` always
@@ -330,7 +316,6 @@ local function test_spec_records_the_speccer_in_the_same_commit()
   local again = check.must(store.load(s, leaf))
   assert(#again.speccers == 1, "the same session again does not duplicate")
 end
-test_spec_records_the_speccer_in_the_same_commit()
 
 -- The incident's shape at this entry: a mangled argv absorbing a flag
 -- as the session. Refused before anything is staged, so a dash-led
@@ -346,7 +331,6 @@ local function test_spec_refuses_a_flag_shaped_session()
   assert(#check.must(store.load(s, leaf)).speccers == 0,
     "and no speccer was recorded")
 end
-test_spec_refuses_a_flag_shaped_session()
 
 -- The reproduced incident: a drop's why lived only in the board
 -- log, so the next session that pulled the same item re-discovered
@@ -366,4 +350,3 @@ local function test_next_carries_the_last_drops_why()
   assert(report:find("the builder session hit its budget", 1, true) ~= nil,
     report)
 end
-test_next_carries_the_last_drops_why()
