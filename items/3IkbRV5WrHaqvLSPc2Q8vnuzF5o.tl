@@ -7,7 +7,9 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 346,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-8vnu-lok152",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
   ["title"] = "definitions coverage check 9: whitespace before a depth-0 '|' still passes, and gentype drops everything after it from the type",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d8239ab25969b1bfc4c637f95f804e7aa6b24e06",
+  ["verdict_spec"] = "dc326f7a4a33e417171822f66705dc09460bbe8e32009fb8911e6293e041c39e",
 }
