@@ -61,6 +61,24 @@ local function test_state_derives_from_the_facts()
   assert(flow.substate(judged) == "accepted", "an accept awaits its merge")
 end
 
+-- A research handover awaits a verdict exactly as a PR does: `result`
+-- ranks as "review" at the one declaration every reader derives from,
+-- and a verdict on it stands the same way.
+local function test_a_research_handover_awaits_a_verdict()
+  local goal = make({})
+  local handed = make({parent = goal.id, claim = "session-A",
+      builders = "session-A", result = ("ab"):rep(32)})
+  assert(flow.is_doing(handed), "the claim makes it doing")
+  assert(flow.substate(handed) == "review",
+    "a handover with no verdict awaits one")
+  assert(flow.stage_rank(handed) == flow.STAGE_REVIEW,
+    "and ranks with the PRs awaiting theirs")
+  local judged = make({parent = goal.id, claim = "session-A",
+      builders = "session-A", result = ("ab"):rep(32), verdict = "accept"})
+  assert(flow.substate(judged) == "accepted",
+    "a verdict on it stands as it does on a PR")
+end
+
 local function test_in_state_holds_open_workable_leaves_only()
   local goal = make({})
   local todo = make({parent = goal.id})

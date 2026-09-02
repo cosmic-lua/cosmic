@@ -390,3 +390,25 @@ local function test_none_names_the_binding_fact()
   assert(a.reason:find("@other", 1, true),
     "and the holder is named, not counted: " .. a.reason)
 end
+
+-- A research handover is offered as the review, ahead of a todo pull,
+-- by the same rung a PR's verdict is — `substate` is the one
+-- declaration, so the rung needed no edit to see it — and its own
+-- builder is stepped past it the same way.
+local function test_a_research_handover_is_offered_as_the_review()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local handed = make({parent = root.id, claim = "who", builders = "who",
+      result = ("ab"):rep(32)})
+  local fresh = make({parent = root.id})
+  items[#items + 1] = handed
+  items[#items + 1] = fresh
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind == "review" and a.item.id == handed.id,
+    "the handover awaits a verdict, and verdicts come before new work: "
+    .. a.kind)
+  local b = act.next_action(items, specs, "who")
+  assert(b.kind ~= "review", "its own builder is never offered the review: "
+    .. b.kind)
+end

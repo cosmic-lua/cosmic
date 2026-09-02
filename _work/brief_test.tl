@@ -135,3 +135,32 @@ local function test_refine_brief_carries_the_current_spec_as_base()
   assert(out:find("<GAP>", 1, true) ~= nil,
     "the gap paragraph stays the orchestrator's to fill")
 end
+
+-- A research handover earns the review brief too, as the research
+-- template: the spec verbatim, no PR to fetch, the probes to re-run
+-- and the captures to check, and a verdict command with no --pr/--head.
+local function test_review_brief_of_a_research_handover()
+  local s = init_state_repo("brief-research-review")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0)
+  local code, out = brief_and_capture(s, "review", leaf)
+  assert(code == 0, "the research handover unlocks the review brief")
+  assert(out:find("RESEARCH SLICE", 1, true) ~= nil, "the research template")
+  assert(out:find("Do exactly this.", 1, true) ~= nil,
+    "the spec sidecar rides verbatim")
+  assert(out:find("Re-run EVERY probe", 1, true) ~= nil
+    and out:find("captures landed", 1, true) ~= nil,
+    "the probes are re-run and the captures checked")
+  assert(out:find("<PR_", 1, true) == nil
+    and out:find("<HEAD_SHA>", 1, true) == nil,
+    "no PR placeholder is left to fill: " .. out)
+  assert(out:find(("verdict %s <accept|request-changes|reject> \\\n"
+        .. "  --session <REVIEW_SESSION>"):format(leaf), 1, true) ~= nil,
+    "the verdict command carries neither --pr nor --head")
+  assert(out:find(fs.absolute_path(s.root), 1, true) ~= nil,
+    "the board worktree's absolute path is filled in")
+  assert(out:find("<REVIEW_SESSION>", 1, true) ~= nil,
+    "the minted review session stays the orchestrator's to fill")
+end

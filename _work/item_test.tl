@@ -132,6 +132,35 @@ local function test_a_verdict_may_stand_with_or_without_a_pr()
     "and a completed PR-less item's own accept still stands with the claim gone")
 end
 
+-- The research handover field round-trips, and the two rules on it
+-- hold: a deliverable is a diff or board state, never both, and a
+-- handover records work, so an item nobody built cannot carry one.
+local function test_result_round_trips_and_holds_its_two_rules()
+  local t = base()
+  t.parent = PARENT
+  t.claim = "session-a"
+  t.builders = "session-a"
+  t.result = ("ab"):rep(32)
+  local it = check.must(item.decode(t))
+  assert(not item.is_flagged(it),
+    "a claimed, built research handover decodes clean: "
+    .. table.concat(it.decode_problems or {}, "; "))
+  local back = check.must(item.decode(
+      check.must(literal.parse(check.must(literal.format(item.encode(it)))))))
+  assert(back.result == t.result, "result round-trips")
+  assert(item.encode(check.must(item.decode(base()))).result == nil,
+    "and an empty one is omitted on write")
+  t.pr = 7
+  local both = check.must(item.decode(t))
+  assert(has_problem(both, "never both"),
+    "a PR and a research handover together are flagged")
+  t.pr = nil
+  t.builders = nil
+  local unbuilt = check.must(item.decode(t))
+  assert(has_problem(unbuilt, "nobody built"),
+    "a handover on an item with no builders is flagged")
+end
+
 local function test_repo_scopes_a_workable_items_pr()
   local t = base()
   t.parent = PARENT

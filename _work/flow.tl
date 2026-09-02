@@ -59,7 +59,10 @@ local function is_doing(i: Item): boolean
   return (i.claim or "") ~= "" or (i.pr or 0) ~= 0
 end
 
---- What a doing item's own facts say happens next.
+--- What a doing item's own facts say happens next. A handover with
+--- no verdict on it awaits one — a PR for a diff, `result` for a
+--- research slice — and this is the ONE place that says so: every
+--- queue, offer and refusal that ranks "review" reads it from here.
 --- @param i Item The item
 --- @return string "accepted" | "rework" | "review" | "building"
 local function substate(i: Item): string
@@ -69,7 +72,7 @@ local function substate(i: Item): string
   if (i.verdict or "") == "request changes" then
     return "rework"
   end
-  if (i.pr or 0) ~= 0 then
+  if (i.pr or 0) ~= 0 or (i.result or "") ~= "" then
     return "review"
   end
   return "building"

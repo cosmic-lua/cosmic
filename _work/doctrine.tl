@@ -260,9 +260,13 @@ answered. Rejection is cheap by design; wrong work merged is
 expensive. A research item takes the same verdicts, re-running its
 recorded checks in place of a diff — checks its spec carries because
 whoever claimed it (an orchestrator applying a `brief research ID`
-agent's recommendation, or a solo session) already wrote them there;
-there is no PR to fetch, so `verdict` judges the claim and the spec
-revision instead.
+agent's recommendation, or a solo session) already wrote them there.
+Its handover is `take ID --result` in place of `take ID --pr N`: it
+records the spec's revision, and from then on the item awaits a
+verdict exactly as a PR does — `next` offers the review, `brief
+review ID` emits the research review. There is no PR to fetch, so
+`verdict` (no --pr, no --head) judges that spec revision, and refuses
+one that moved since the handover — hand it over again.
 
 When a container's last child ends, verify the container's stated
 outcome actually holds — run its observable test, not the
@@ -304,13 +308,14 @@ worktree or push rights to `board`:
   runs a `gitboard` command itself, even when the item's own spec
   tells it to. Applying that recommendation (`spec`, then `new` /
   `attach` / `block` per drafted capture) is yours, same as landing a
-  PR is; only once it is applied does the claimed, PR-less item carry
-  anything to `verdict`.
+  PR is, and so is the handover: `take ID --result` once it is
+  applied — only then does the claimed, PR-less item await a
+  `verdict`.
 - Reconcile the wave. Finished with a PR: record it on the item
   (`take ID --pr N`). Finished with a research recommendation: apply
-  it (above), which leaves the item claimed and PR-less, ready for a
-  verdict same as any other claimed item — `review.md`'s
-  research-slice clause. Dead (no PR, no recommendation, no branch):
+  it (above), then `take ID --result` — the research handover, which
+  puts the claimed, PR-less item in line for a verdict the same way
+  the PR does (`help review`). Dead (no PR, no recommendation, no branch):
   release the claim (`drop ID --why`, a worker-side reason) so the
   item is pullable again. Still running: leave it. Then the PRs are
   yours to watch — the agents are gone.

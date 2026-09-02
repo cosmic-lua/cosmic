@@ -13,6 +13,7 @@ local publish = require("_work.publish")
 local store = require("_work.store")
 local fixture = require("_work.fixture")
 local gate = require("_work.gitgate")
+local spec = require("_work.spec")
 local verbs = require("_work.gitverbs")
 local graph = require("_work.gitgraph")
 local vrd = require("_work.gitverdict")
@@ -430,4 +431,60 @@ end
 local function test_sync_asks_about_lanes_and_survives_not_knowing()
   local s = init_state_repo("sync-lanes")
   assert(verbs.cmd_sync(s) == 0, "an unknown lane state does not fail sync")
+end
+
+-- `take --result` is the research handover, `take --pr`'s mirror for
+-- an item whose deliverable is the spec: the claim holder's own
+-- motion, so it needs the live claim and nothing else; it records the
+-- sidecar's revision and the item awaits a verdict from then on — the
+-- review claim derives for it as for a PR, and a drop clears it with
+-- the claim — and the two handovers exclude each other both ways.
+local function test_take_result_records_the_research_handover()
+  local s = init_state_repo("result")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) ~= 0,
+    "unclaimed: nothing to hand over")
+  assert(check.must(store.load(s, leaf)).claim == "", "and nothing is written")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-b", 0, false, "", true) ~= 0,
+    "another session's claim is not yours to hand over")
+  assert(verbs.cmd_take(s, leaf, "session-a", 5, false, "", true) ~= 0,
+    "--pr and --result together are refused")
+  local before = commits(s)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "the claim holder hands over")
+  assert(commits(s) == before + 1, "one mutation, one commit")
+  local handed = check.must(store.load(s, leaf))
+  assert(handed.result == spec.revision(store.read_spec(s, leaf)),
+    "the handover records the spec's revision")
+  assert(handed.claim == "session-a", "the claim survives it")
+  assert(flow.substate(handed) == "review", "and the item awaits a verdict")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "re-handing the same spec over is a no-op")
+  assert(commits(s) == before + 1, "nothing new to commit")
+  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") ~= 0,
+    "--pr on a research handover is refused")
+  assert(check.must(store.load(s, leaf)).pr == 0, "and records nothing")
+  assert(verbs.cmd_take(s, leaf, "session-b", 0, false, "") == 0,
+    "another session's take is the review claim, as for a PR")
+  assert(check.must(store.load(s, leaf)).reviewer == "session-b",
+    "and the review lock is theirs")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "session-b") == 0)
+  local judged = commits(s)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "the same spec over a standing accept is a no-op, as a repeated --pr is")
+  assert(commits(s) == judged, "nothing new to commit")
+  assert(check.must(store.load(s, leaf)).verdict == "accept",
+    "and the accept survives the re-run")
+  assert(verbs.cmd_drop(s, leaf, "session-a", "out of budget", false) == 0)
+  assert(check.must(store.load(s, leaf)).result == "",
+    "a drop clears the handover with the claim")
+  local _, other = root_with_leaf(s)
+  give_spec(s, other)
+  assert(verbs.cmd_take(s, other, "session-c", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, other, "session-c", 8, false, "") == 0)
+  assert(verbs.cmd_take(s, other, "session-c", 0, false, "", true) ~= 0,
+    "--result on an item carrying a PR is refused")
+  assert(check.must(store.load(s, other)).result == "", "and records nothing")
 end

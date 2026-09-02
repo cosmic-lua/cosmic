@@ -1,5 +1,6 @@
 --- The brief templates `brief` emits: the prompt handed verbatim to a
---- builder, reviewer, or refiner subagent. Templates live in the tool
+--- builder, reviewer (of a PR, or of a research handover), or refiner
+--- subagent. Templates live in the tool
 --- because a hand-written brief drifts — one once dropped the Board:
 --- line, another told a builder to re-verify `## Acceptance` bullets
 --- as a second gate — and because most placeholders are board facts
@@ -273,6 +274,89 @@ you ran and its result, and any concrete findings quoted with
 file:line. Keep it factual and concise.
 ]]
 
+local RESEARCH_REVIEW < const > = [[
+You are a fresh-context reviewer for `<REPO>`. You have never seen
+this work before — that is deliberate: the review must come from a
+distance from whoever did it. Everything you need is below.
+
+## What you're reviewing
+
+Board item id: `<ITEM_ID>` (handle <HANDLE>)
+Title: <TITLE>
+
+This is a RESEARCH SLICE: its deliverable is board state, not a
+diff — no PR to fetch, no CI to read. Under judgment is the spec
+below as it stands on the board: its recorded probes, its findings,
+and the captures it names (items filed with `new`/`attach`/`block`).
+
+## The spec under review (verbatim)
+
+---
+<SPEC>
+---
+
+## How to review — the posture is ADVERSARIAL
+
+Your job is to try to make this evidence fail, not to confirm it
+reads well.
+
+1. Re-run EVERY probe the spec records — each measured command,
+   against a fresh read-only clone of `<REPO>` bootstrapped per its
+   own AGENTS.md — and compare what it returns now with what the
+   spec pastes. A number that moved is a finding to quote; a command
+   that no longer produces the claimed shape is a gap.
+2. The findings are the Change — every claim carries its command
+   and pasted output; a claim with neither is inference, and a gap
+   to quote.
+3. The captures landed: for each item the spec says it filed
+   (`new`/`attach`/`block`), find it on the board (`show`, or `grep
+   -ril '<phrase>' items/` in the board checkout) and check that it
+   sits under the parent the spec names, carries the blocker edge it
+   names, and meets the bar (`help bar`).
+4. The walls held: every `## Non-goals` line honored — no product
+   tree touched, no PR opened by this slice.
+5. It serves the outcome: judge the recommendation against the
+   item's parent chain, not just the letter of `## Change`. A
+   recommendation that misses the point means the SPEC was wrong —
+   say so, never wave it through.
+6. It is the least thing: name any surplus concretely (a capture
+   nobody asked for) and treat it as a gap to quote.
+
+## Recording your verdict
+
+Three verdicts: `accept`, `request-changes`, `reject`. gitboard is
+already built in the board worktree; this review is claimed under
+session `<REVIEW_SESSION>` — you MUST use that exact string. Export
+SSL_USE_SYSTEM_CERTS=1 before any command that reaches GitHub.
+
+```
+cd <BOARD_DIR>
+export SSL_USE_SYSTEM_CERTS=1
+o/bin/gitboard verdict <ITEM_ID> <accept|request-changes|reject> \
+  --session <REVIEW_SESSION>
+```
+
+No `--pr` and no `--head`: the verdict judges the spec revision the
+handover recorded, and refuses one that moved since — if it does,
+stop and report that; never edit the spec yourself.
+
+Then, by verdict:
+- accept: do NOT call `gitboard done` — ending the item is the
+  orchestrator's job.
+- request-changes: there is no PR to comment on, so the concrete
+  gaps go in your final report, each quoted with the probe and what
+  it returned. The claimant reworks the spec in place.
+- reject: say what was fundamentally wrong with the recommendation.
+  If it failed because a decision is open, tell the orchestrator in
+  your report so the question is filed and the item blocked on it.
+
+## Final report
+
+The verdict you recorded (or why you could not), each probe you
+re-ran with what it returned, and any concrete findings quoted.
+Keep it factual and concise.
+]]
+
 local REFINE < const > = [[
 You are a refiner for the work board. You have no memory of any
 prior conversation — everything you need is below. You are the only
@@ -396,6 +480,7 @@ local record brieftext
   BUILDER: string
   RESEARCH: string
   REVIEW: string
+  RESEARCH_REVIEW: string
   REFINE: string
   DECOMPOSE: string
 end
@@ -404,6 +489,7 @@ local M: brieftext = {
   BUILDER = BUILDER,
   RESEARCH = RESEARCH,
   REVIEW = REVIEW,
+  RESEARCH_REVIEW = RESEARCH_REVIEW,
   REFINE = REFINE,
   DECOMPOSE = DECOMPOSE,
 }

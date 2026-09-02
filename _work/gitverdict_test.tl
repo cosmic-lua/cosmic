@@ -10,6 +10,7 @@ local flow = require("_work.flow")
 local gitspec = require("_work.gitspec")
 local fs = require("cosmic.fs")
 local publish = require("_work.publish")
+local spec = require("_work.spec")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
 local vrd = require("_work.gitverdict")
@@ -362,4 +363,102 @@ local function test_a_wellformed_head_still_lands_on_a_local_board()
   assert(it.verdict == "accept", "the accept stands")
   assert(it.verdict_head == "cafe1234",
     "the caller's own head is recorded verbatim with no PR to canonicalize it")
+end
+
+-- A research handover is judged as the spec revision it recorded: the
+-- verdict lands and stores that revision as `verdict_spec`; a spec
+-- that moved between handover and verdict is refused the way a moved
+-- PR head is, and a `--pr` offered against the handover is too.
+local function test_a_research_handover_refuses_a_spec_that_moved()
+  local s = init_state_repo("verdict-result-moved")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "the research handover")
+  local base = fs.join(fixture.tmpdir, "result-base.md")
+  assert(fs.write(base, store.read_spec(s, leaf)))
+  local moved = fs.join(fixture.tmpdir, "result-moved.md")
+  assert(fs.write(moved, store.read_spec(s, leaf) .. "\nOne more finding.\n"))
+  assert(gitspec.cmd_spec(s, leaf, moved, base, "session-a") == 0)
+  local code, printed = verdict_and_capture(s, leaf, "accept", 0, "",
+    "reviewer-a")
+  assert(code ~= 0, "a spec that moved past the handover is not what was handed over")
+  assert(printed:find("moved since its handover", 1, true) ~= nil,
+    "the printed refusal says so: " .. printed)
+  assert(printed:find("--result", 1, true) ~= nil,
+    "and names the way forward: " .. printed)
+  assert(check.must(store.load(s, leaf)).verdict == "", "and nothing was recorded")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "handing the moved spec over again")
+  local code2, printed2 = verdict_and_capture(s, leaf, "accept", 9, "cafe1234",
+    "reviewer-a")
+  assert(code2 ~= 0 and printed2:find("not a PR", 1, true) ~= nil,
+    "a PR offered against the handover is refused: " .. printed2)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "reviewer-a") == 0,
+    "the re-handed spec is judged")
+  local judged = check.must(store.load(s, leaf))
+  assert(judged.verdict == "accept" and judged.verdict_spec == judged.result,
+    "the accept records the handed-over revision as the judged spec")
+  assert(judged.verdict_head == "", "and no head, there being none")
+end
+
+-- A reject clears the research handover with the claim, the way it
+-- clears a PR: nothing stands, and the item is todo again.
+local function test_a_reject_clears_the_research_handover()
+  local s = init_state_repo("verdict-result-reject")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0)
+  assert(vrd.cmd_verdict(s, leaf, "reject", 0, "", "review-1") == 0)
+  local back = check.must(store.load(s, leaf))
+  assert(back.result == "" and back.claim == "" and back.verdict == "",
+    "nothing stands after a reject")
+  assert(not flow.is_doing(back), "the item is todo again")
+end
+
+-- A take never re-opens an accept, on either handover: a moved spec
+-- over a standing accept records the new revision and the accept
+-- stands, exactly as a new PR number over one does — `verdict` still
+-- refuses to re-judge it, and `done` lands it. A send-back is the one
+-- verdict a fresh handover clears, on both sides alike.
+local function test_a_handover_over_an_accept_keeps_the_accept()
+  local s = init_state_repo("verdict-result-accept-moved")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0)
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "reviewer-a") == 0)
+  local base = fs.join(fixture.tmpdir, "accept-base.md")
+  assert(fs.write(base, store.read_spec(s, leaf)))
+  local moved = fs.join(fixture.tmpdir, "accept-moved.md")
+  assert(fs.write(moved, store.read_spec(s, leaf) .. "\nA late footnote.\n"))
+  assert(gitspec.cmd_spec(s, leaf, moved, base, "session-a") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0,
+    "the moved spec is handed over")
+  local it = check.must(store.load(s, leaf))
+  assert(it.result == spec.revision(store.read_spec(s, leaf)),
+    "the new revision is recorded")
+  assert(it.verdict == "accept", "and the accept stands")
+  assert(vrd.cmd_verdict(s, leaf, "accept", 0, "", "reviewer-b") ~= 0,
+    "an accept is landed, never re-judged")
+  assert(verbs.cmd_done(s, leaf, "completed", false, "") == 0, "done lands it")
+  -- The PR side, for the mirror: a new number over an accept keeps it.
+  local _, other = root_with_leaf(s)
+  handed_over(s, other, 7)
+  assert(vrd.cmd_verdict(s, other, "accept", 7, "cafe1234", "reviewer-a") == 0)
+  assert(verbs.cmd_take(s, other, "session-a", 8, false, "") == 0)
+  assert(check.must(store.load(s, other)).verdict == "accept",
+    "the PR handover leaves an accept standing too")
+  -- And a send-back is what a fresh handover clears, on both sides.
+  local _, third = root_with_leaf(s)
+  give_spec(s, third)
+  assert(verbs.cmd_take(s, third, "session-b", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, third, "session-b", 0, false, "", true) == 0)
+  assert(vrd.cmd_verdict(s, third, "request changes", 0, "", "reviewer-a") == 0)
+  assert(verbs.cmd_take(s, third, "session-b", 0, false, "", true) == 0,
+    "the same spec re-handed over answers the send-back")
+  assert(check.must(store.load(s, third)).verdict == "",
+    "and the send-back clears, as `--pr N` again clears it")
 end

@@ -3,7 +3,9 @@
 --- answer already filled: the item's id, handle, title, spec sidecar
 --- verbatim, repo and base branch, the item branch, the PR under
 --- review, and this checkout's own absolute path. Templates are
---- `_work.brieftext`; the fill grammar is `<UPPER_SNAKE>`, and a
+--- `_work.brieftext`; `review` picks between two by the handover the
+--- item carries — a PR (`REVIEW`) or a research result
+--- (`RESEARCH_REVIEW`); the fill grammar is `<UPPER_SNAKE>`, and a
 --- placeholder the board cannot answer (a worktree path, a bounce
 --- paragraph, the reviewer's minted session) survives the fill — the
 --- closing verdict line names each survivor, so the caller's whole
@@ -79,10 +81,18 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
       ("%s has no spec sidecar — a %s brief carries the spec verbatim, "
         .. "so refine it first"):format(id:sub(1, 8), kind))
   end
-  if kind == "review" and (it.pr or 0) == 0 then
-    return gate.verdict_line("brief", false,
-      ("%s has no PR recorded — the handover (`take %s --pr N`) is what "
-        .. "a review judges"):format(id:sub(1, 8), id:sub(1, 8)))
+  -- A review judges a handover, and there are two: a PR for a diff,
+  -- a research result for a spec. Which template the brief is comes
+  -- from the item, never from the caller.
+  if kind == "review" then
+    if (it.result or "") ~= "" then
+      template = brieftext.RESEARCH_REVIEW
+    elseif (it.pr or 0) == 0 then
+      return gate.verdict_line("brief", false,
+        ("%s has no handover recorded — `take %s --pr N` (a diff) or "
+          .. "`take %s --result` (a research spec) is what a review "
+          .. "judges"):format(id:sub(1, 8), id:sub(1, 8), id:sub(1, 8)))
+    end
   end
   local values: {string: string} = {
     ITEM_ID = it.id,

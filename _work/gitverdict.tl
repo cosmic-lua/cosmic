@@ -15,10 +15,11 @@
 ---   request changes  the send-back stands on the item; the claimant
 ---                    reworks on the same PR and `take --pr` re-opens
 ---                    the verdict for the new head
----   reject           the approach was wrong: claim, PR and verdict
----                    clear together, the item is todo again, and the
----                    learning goes in its spec — wrong work merged
----                    is expensive, rejection is cheap by design
+---   reject           the approach was wrong: claim, handover (PR or
+---                    research result) and verdict clear together,
+---                    the item is todo again, and the learning goes
+---                    in its spec — wrong work merged is expensive,
+---                    rejection is cheap by design
 ---
 --- `--session` is the audit half: the name it gives rides in the
 --- commit subject — every board commit is authored as one fixed
@@ -134,6 +135,28 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
       ("%s has no PR and is not claimed — nothing to judge yet"):format(
         id:sub(1, 8)))
   end
+  -- A research handover (`take --result`) is judged as the spec it
+  -- handed over: the sidecar's revision recorded then. A spec that
+  -- moved since is the same fact as a PR head that moved past the one
+  -- under verdict — the reviewer read one thing and would record a
+  -- judgment on another — so it is refused the same way: hand it over
+  -- again. A PR offered against a handover is refused too: the item's
+  -- deliverable is board state, and there is no diff to pair it with.
+  local judged_spec = spec.revision(store.read_spec(s, id))
+  if (it.result or "") ~= "" then
+    if not pr_less then
+      return gate.verdict_line("verdict", false,
+        ("REFUSED: %s carries a research handover, not a PR — record the "
+          .. "verdict without --pr/--head"):format(id:sub(1, 8)))
+    end
+    if judged_spec ~= it.result then
+      return gate.verdict_line("verdict", false,
+        ("REFUSED: %s's spec moved since its handover (%s, now %s) — "
+          .. "re-read it and hand it over again (`take %s --result`), then "
+          .. "judge"):format(id:sub(1, 8), it.result:sub(1, 7),
+          judged_spec:sub(1, 7), id:sub(1, 8)))
+    end
+  end
   -- The head is verified before anything downstream treats it as
   -- true: the shape half always, because a non-hex value would just
   -- make the pair guard and `head_moved` silently never match; the PR
@@ -176,7 +199,6 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   -- board cannot say what spec an older verdict read. A PR-less item
   -- has no head to pair, so the guard degrades to the spec revision
   -- alone — an unchanged spec is still nothing new to judge.
-  local judged_spec = spec.revision(store.read_spec(s, id))
   local paired: boolean
   if pr_less then
     paired = (it.verdict_spec or "") ~= "" and judged_spec == it.verdict_spec
@@ -230,6 +252,7 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
     it.verdict_spec = ""
     it.claim = ""
     it.pr = 0
+    it.result = ""
     outcome = "reject — todo again"
   else
     it.verdict = kind

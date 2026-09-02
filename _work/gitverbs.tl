@@ -1,10 +1,12 @@
---- The state verbs: `take` (claim work, record its PR), `drop`
+--- The state verbs: `take` (claim work, record its handover), `drop`
 --- (return a lease, the item untouched), `done`, and the
 --- housekeeping `init` and `sync` — every `cmd_*` behind
 --- `_work/gitboard.tl`'s dispatch that is not a graph mutation. The
 --- verbs that shape the graph — `new`, `attach`, `block` and its
 --- `unblock` half — are `_work.gitgraph`; the spec sidecar's own
---- verb is `_work.gitspec`. All of them run over
+--- verb is `_work.gitspec`; the two takes `take` reaches by
+--- derivation — the review claim and the research handover — are
+--- `_work.gittake`. All of them run over
 --- `_work.store` (persistence) and `_work.flow` (policy). Verbs
 --- receive FULL ids — the dispatcher resolves prefixes — and every
 --- verb prints a `gitboard-<verb>:` verdict line and returns its exit
@@ -15,6 +17,7 @@
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
+local gittake = require("_work.gittake")
 local health = require("_work.health")
 local item = require("_work.item")
 local lanes = require("_work.lanes")
@@ -36,85 +39,36 @@ local function cmd_init(dir: string): integer
     ("state repository ready at %s"):format(dir))
 end
 
---- The review claim inside `take`: the lock pushed BEFORE the
---- reading starts, so two sessions never verify one diff. Reached by
---- derivation, not by a verb of its own — an item awaiting a verdict,
---- taken by a session that is not its builder, can only mean the
---- review. The claim is a lease (`health`'s review horizon — short,
---- because a review's dwell is minutes) and mutual exclusion only: a
---- verdict from any session stands and consumes it.
---- @param s store.Store The store
---- @param it item.Item The item whose review is claimed
---- @param session string The reviewing session
---- @param force boolean Take over a LIVE foreign review claim
---- @param why string Why --force was needed
---- @return integer Exit code
-local function take_review(s: store.Store, it: item.Item, session: string,
-    force: boolean, why: string): integer
-  -- The distance guard binds here with no --force escape: a fresh
-  -- context cannot be forced into existing, so a session that already
-  -- built or specced this item never claims its review, live or stale.
-  local distance = gate.distance_refusal(it, session)
-  if distance then
-    return gate.verdict_line("take", false, distance)
-  end
-  local id8 = it.id:sub(1, 8)
-  if (it.reviewer or "") == session then
-    return gate.verdict_line("take", true,
-      ("%s's review is already yours"):format(id8))
-  end
-  -- A standing foreign claim splits on the lease: a live one is a
-  -- reviewer mid read-verify-verdict, taken over only on the record;
-  -- a stale one is a session that stopped moving the board, and the
-  -- diff is anyone's again — the takeover is noted, never gated.
-  local taken = ""
-  if (it.reviewer or "") ~= "" then
-    if not health.is_review_stale(it, gate.age_of(s, it)) and not force then
-      return gate.verdict_line("take", false,
-        ("REFUSED: %s is under review by %s — take over a live review "
-          .. "with --force --why"):format(id8, it.reviewer))
-    end
-    taken = (" (taken over from %s)"):format(it.reviewer)
-  end
-  it.reviewer = session
-  local ok, err = gate.commit_and_publish(s, it, nil,
-    ("review %s claimed by %s%s"):format(id8, session,
-      gate.forced_suffix(force, why)))
-  if not ok then
-    return gate.verdict_line("take", false, err)
-  end
-  return gate.verdict_line("take", true,
-    ("%s's review is yours%s — verdict when done consumes the claim")
-    :format(id8, taken))
-end
-
---- take: claim an item, record its PR, or claim its review — which
---- one is derived from the item's own facts, never declared.
+--- take: claim an item, record its handover, or claim its review —
+--- which one is derived from the item's own facts, never declared.
 ---
 --- A take of TODO work (no claim, no PR) is the pull, and it is where
 --- the two quality gates bind: the spec bar (`gate.ready_problems`)
 --- and the doing bound (`flow.doing_refusal`). A take of an item
 --- AWAITING A VERDICT by a session that is not its builder is the
---- review claim (`take_review`). Everything else `take` does —
---- recording a PR on your own claim, re-claiming your own item,
---- taking over a stale claim — is motion on work already in flight
---- and asks neither gate.
+--- review claim (`gittake.take_review`). Everything else `take` does
+--- — recording a handover on your own claim, re-claiming your own
+--- item, taking over a stale claim — is motion on work already in
+--- flight and asks neither gate.
 ---
 --- Recording a PR is the handover to review: the number must be free
 --- (no other OPEN item already carries it — `gate.pr_collision_refusal`),
 --- the request is read (open, not draft, `Board:` line, on the item's
 --- own `base` when it names one, CI not failing — `gate.handover_refusal`),
 --- and a standing `request changes` verdict clears, because the new
---- push is a new head to judge.
+--- push is a new head to judge. `--result` is the same handover for
+--- a research slice, whose deliverable is the spec rather than a diff
+--- (`gittake.take_result`); an item carries one kind or the other.
 --- @param s store.Store The store
 --- @param id string The item to take
 --- @param session string The claiming session
 --- @param pr integer The PR to record, 0 for none
 --- @param force boolean Take over a LIVE foreign claim
 --- @param why string Why --force was needed
+--- @param result boolean Record the research handover instead of a PR
 --- @return integer Exit code
 local function cmd_take(s: store.Store, id: string, session: string,
-    pr: integer, force: boolean, why: string): integer
+    pr: integer, force: boolean, why: string, result?: boolean): integer
   local forced = gate.force_refusal(force, why)
   if forced then
     return gate.verdict_line("take", false, "REFUSED: " .. forced)
@@ -148,16 +102,23 @@ local function cmd_take(s: store.Store, id: string, session: string,
     return gate.verdict_line("take", false,
       ("%s is done (%s)"):format(id:sub(1, 8), it.resolution))
   end
-  -- An item awaiting a verdict, taken by a session that is not its
-  -- builder with no PR to record, is the review claim. A bounced item
-  -- keeps its stale "request changes" verdict until the fresh verdict
-  -- lands, so that state routes the same way for a session that is
-  -- not the recorded builder — the original builder's own takes still
-  -- fall through to the build path below (the rework).
+  -- The research handover is the claim holder's own motion: it asks
+  -- none of the gates below and never takes over.
+  if result then
+    return gittake.take_result(s, it, session, pr)
+  end
+  -- An item awaiting a verdict — a PR, or a research handover — taken
+  -- by a session that is not its builder with no PR to record, is the
+  -- review claim. A bounced item keeps its stale "request changes"
+  -- verdict until the fresh verdict lands, so that state routes the
+  -- same way for a session that is not the recorded builder — the
+  -- original builder's own takes still fall through to the build path
+  -- below (the rework).
   local verdict = it.verdict or ""
-  if (pr or 0) == 0 and (it.pr or 0) ~= 0 and (it.claim or "") ~= session
+  if (pr or 0) == 0 and ((it.pr or 0) ~= 0 or (it.result or "") ~= "")
+  and (it.claim or "") ~= session
   and (verdict == "" or verdict == "request changes") then
-    return take_review(s, it, session, force, why)
+    return gittake.take_review(s, it, session, force, why)
   end
   -- Re-taking your own claim with nothing new to record is a no-op,
   -- not a mutation: there is no change for the commit to carry.
@@ -234,6 +195,11 @@ local function cmd_take(s: store.Store, id: string, session: string,
       return gate.verdict_line("take", true,
         ("%s already records pr:%d"):format(id:sub(1, 8), pr))
     end
+    if (it.result or "") ~= "" then
+      return gate.verdict_line("take", false,
+        ("REFUSED: %s carries a research handover — a deliverable is a "
+          .. "diff or board state, never both"):format(id:sub(1, 8)))
+    end
     if not force then
       local collision = gate.pr_collision_refusal(all, id, pr)
       if collision then
@@ -281,8 +247,9 @@ end
 --- instead of bouncing cold to a session that would hit the same
 --- wall. Never refused for flow; the one guard is somebody else's
 --- LIVE claim (a takeover of the abandoning kind, said on the
---- record). Claim, PR, and any standing verdict clear together:
---- what remains is the item, its spec, its blockers, and the trail.
+--- record). Claim, handover (PR or research result), and any standing
+--- verdict clear together: what remains is the item, its spec, its
+--- blockers, and the trail.
 --- @param s store.Store The store
 --- @param id string The item to drop
 --- @param session string The dropping session
@@ -330,6 +297,7 @@ local function cmd_drop(s: store.Store, id: string, session: string,
   it.claim = ""
   it.reviewer = ""
   it.pr = 0
+  it.result = ""
   it.verdict = ""
   it.verdict_head = ""
   it.verdict_spec = ""
@@ -481,7 +449,7 @@ end
 local record gitverbs
   cmd_init: function(dir: string): integer
   cmd_take: function(s: store.Store, id: string, session: string,
-  pr: integer, force: boolean, why: string): integer
+  pr: integer, force: boolean, why: string, result?: boolean): integer
   cmd_drop: function(s: store.Store, id: string, session: string,
   why: string, force: boolean): integer
   cmd_done: function(s: store.Store, id: string, reason: string,
