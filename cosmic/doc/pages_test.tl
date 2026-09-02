@@ -76,3 +76,39 @@ local function test_the_module_list_points_at_the_kinds()
   assert(out:find("--docs tutorial", 1, true),
     "the module list should say where the prose pages are: " .. out)
 end
+
+-- The lookups behind the flag, in process: the runner this test runs
+-- under carries the same four directories the binary ships.
+local pages = require("cosmic.doc.pages")
+
+local function test_kinds_are_the_four_in_order()
+  check.equal(table.concat(pages.KINDS, " "), "tutorial howto reference explanation", "kinds")
+  assert(pages.is_kind("howto") and not pages.is_kind("guide"), "is_kind")
+  check.equal(pages.kind_title("howto"), "how-to guides", "title")
+  check.equal(pages.kind_title("other"), "other", "an unknown kind titles itself")
+end
+
+local function test_pages_pair_topic_with_heading()
+  local listed = pages.pages("tutorial")
+  assert(#listed >= 2, "at least the two tutorials")
+  local found = false
+  for _, entry in ipairs(listed) do
+    if entry[1] == "quickstart" then
+      found = true
+      assert(entry[2] ~= "quickstart", "the title comes from the H1, not the file name")
+    end
+  end
+  assert(found, "quickstart is listed")
+end
+
+local function test_page_listing_and_miss_in_process()
+  local listing = check.must(pages.page("reference", ""))
+  assert(listing:find("# reference", 1, true), listing)
+  assert(listing:find("\n  lint ", 1, true), "lint is listed: " .. listing)
+  local body = check.must(pages.page("reference", "lint"))
+  assert(body:find("cast-justify", 1, true), "the page is its markdown")
+  local missing, err = pages.page("reference", "nope")
+  assert(missing == nil and err:find("unknown reference 'nope'", 1, true), tostring(err))
+  assert(err:find("Available reference:", 1, true), err)
+  check.equal(#pages.pages("nokind"), 0, "an unknown kind has no pages")
+end
