@@ -270,6 +270,36 @@ local function test_an_open_blocker_holds_the_merge_off_the_offer()
     "ending the blocker returns it to the finish offer: " .. b.kind)
 end
 
+-- A blocked accepted HANDOVER has no PR, so there is no merge for the
+-- blocker to hold back — it is `done ID` that stays withheld — and
+-- the terminal reason must not claim a merge on its behalf.
+local function test_an_open_blocker_on_a_handover_never_claims_a_merge()
+  local items: {Item} = {}
+  local root = placed_root(items)
+  local peer = make({parent = root.id, claim = "other"})
+  local accepted = make({parent = root.id, claim = "who", builders = "who",
+      result = ("ab"):rep(32), verdict = "accept", blocked_by = peer.id})
+  items[#items + 1] = peer
+  items[#items + 1] = accepted
+  local specs = ready_specs(items)
+  local a = act.next_action(items, specs, "me")
+  assert(a.kind ~= "finish" or a.item.id ~= accepted.id,
+    "a binding blocker holds the finish back: " .. a.kind)
+  assert(a.kind == "none",
+    "nothing else is offered either: " .. a.kind)
+  assert(a.reason:find("accepted item", 1, true),
+    "the hold is named: " .. a.reason)
+  assert(not a.reason:find("merges are held", 1, true)
+    and not a.reason:find("merge", 1, true),
+    "and no merge is claimed for a handover: " .. a.reason)
+  assert(a.reason:find("`done ID`", 1, true),
+    "done is named instead: " .. a.reason)
+  peer.resolution = "completed"
+  local b = act.next_action(items, specs, "me")
+  assert(b.kind == "finish" and b.item.id == accepted.id,
+    "ending the blocker returns it to the finish offer: " .. b.kind)
+end
+
 local function test_a_blocked_building_item_is_still_offered()
   local items: {Item} = {}
   local root = placed_root(items)
