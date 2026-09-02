@@ -234,4 +234,35 @@ local function test_a_test_reruns_only_for_what_it_imports()
     "b_test imports nothing, so its closure names no module: " .. facts)
 end
 
+-- A rename inside a declared `reads:` tree must reschedule the test.
+-- `mv`/`git mv` both use rename(2), which preserves the moved file's
+-- own mtime -- so a warm tree can have nothing newer than the
+-- recorded `.got` even though the tree's LISTING changed, and make
+-- schedules on mtimes alone. `_make/readstamp.tl` exists to give the
+-- rename a fresh prerequisite: the test below reads a concrete path
+-- under its declared tree, so a stale replay and a real re-run are
+-- distinguishable by their exit code, not just a probe's mtime.
+local function test_a_rename_inside_a_declared_reads_tree_reruns_the_test()
+  local root = fixture("readsrename", {
+      ["cmd/app/main.tl"] = "print('x')\n",
+      ["notes/a.md"] = "subject\n",
+      ["x_test.tl"] = "--- reads: notes\n" ..
+      "assert(io.open('notes/a.md') ~= nil, 'notes/a.md must exist')\n",
+    })
+  local first = make(root, "test")
+  assert(first.code == 0, "first run: " .. first.out .. first.err)
+
+  -- Same filesystem, so fs.move is a plain rename(2) -- the same
+  -- syscall `mv`/`git mv` use, and the one that preserves the mtime.
+  assert(fs.move(fs.join(root, "notes/a.md"), fs.join(root, "notes/b.md")))
+  local renamed = make(root, "test")
+  assert(renamed.code == 1,
+    "a rename inside the declared tree must reschedule the test: " ..
+    renamed.out .. renamed.err)
+  assert(renamed.out:find("notes/a.md must exist", 1, true) or
+    renamed.err:find("notes/a.md must exist", 1, true),
+    "the failure must be a REAL re-run against the new listing, not a " ..
+    "stale replay of the cached PASS: " .. renamed.out .. renamed.err)
+end
+
 print("all build incremental tests passed")
