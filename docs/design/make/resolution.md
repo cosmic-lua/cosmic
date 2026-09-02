@@ -326,7 +326,7 @@ API, and an argument for either checking claims in `install_tree` or
 saying plainly that the manifest is the engine's to write.
 
 Stated plainly, because it is the sharp edge: in this repo that makes a
-test of `cosmic.fs` run against the tree's `cosmic/fs.lua` rather than
+test of `cosmic.fs` run against the tree's `o/cosmic/fs/init.lua` rather than
 the binary's — which is what you want, and is also how a broken
 `cosmic.fs` breaks the thing running the test. It is bounded by being
 per-child: the engine keeps running on its own payload, and only the
