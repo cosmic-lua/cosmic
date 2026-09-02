@@ -58,11 +58,14 @@ the file the binary embeds. `o/3p/tl/tl.tl` beside it is the Teal
 source carried for `_types/gentl.tl`; editing that one alone changes no
 behaviour.
 
-**The build order is itself a result.** A strict `o/bin/cosmic` cannot
-compile this tree, so the strict binary has to be built by a lax one:
-build once from the pin, keep that binary aside, restore it before each
-strict rebuild, and let it compile the tree while the patched `tl.lua`
-is linked into the artifact.
+**The build order is itself a result.** A strict `o/bin/cosmic` cannot compile this tree, so
+the strict binary has to be built by a lax one: `bin/cosmic --make build` from the pin, `cp
+o/bin/cosmic o/cosmic-lax`, apply the two hinges above to `o/3p/tl/tl.lua` (the narrow patch
+set already there shares no anchor with either), then `o/cosmic-lax --make build` — `build`
+does not converge, so the lax copy produces the strict `o/bin/cosmic` without re-exec'ing into
+it. Restore afterwards with `rm -rf o/3p/tl && bin/cosmic --make fetch && cp o/cosmic-lax
+o/bin/cosmic` — a hinged `tl.lua` still contains every patch `replace` string, so `fetch`
+alone reads it as already patched and will not restore it.
 
 **A bare spot-check resolves the binary's own embedded copy, not the
 live tree.** `cosmic --check types <file>` with no `--include-dir`
@@ -88,13 +91,16 @@ way to get an authoritative before/after count; `--include-dir .` on
 each spot-check call is a cheaper per-file workaround once you know to
 reach for it.
 
-**Proof of life.** `cosmic/teal_narrowing_test.tl` pins today's
-boundary: `test_nil_union_is_admitted_outside_an_index` asserts that the
-checker does *not* complain about five sinks in one program. Run the
-file directly under the prototype (`--make test` re-execs into the
-strict binary and dies at the build instead) and that test fails,
-naming all four admitting positions at once (the assertion prints them
-`; `-joined on one line; wrapped here):
+**Proof of life.** `cosmic/teal_nilflow_test.tl` pins today's boundary:
+`test_nil_union_is_admitted_outside_an_index` asserts that the checker does *not* complain
+about five sinks in one program. It is a runner-mode test (D29) whose own `test_*` functions
+call nothing, so running `cosmic cosmic/teal_nilflow_test.tl` directly only *defines* the test
+and exits 0 regardless of the checker — that proves nothing. What calls it is the compiled
+tail `--make build` writes to `o/cosmic/teal_nilflow_test.lua`; run that under `TEST_TMPDIR`
+(unset, it litters the cwd with `narrow_*.tl`, which the next `--make build` then picks up as
+project sources and fails): `TEST_TMPDIR=$(mktemp -d) o/bin/cosmic
+o/cosmic/teal_nilflow_test.lua`. Under the strict binary that fails, naming all four admitting
+positions at once (the assertion prints them `; `-joined on one line; wrapped here):
 
 ```text
 in local declaration: m: STRICTNIL: value may be nil;
@@ -130,12 +136,18 @@ tracked one — leaves every other test in it passing.
 git ls-files '*.tl' | grep -v '/testdata/' | xargs o/bin/cosmic --check types
 ```
 
-reports 358 errors and zero warnings. `_eval/testdata/**` and
-`_make/testdata/**` are excluded because those fixture projects have
-their own roots: checked from here their imports do not resolve, and
-their types are unknown rather than nil-carrying. Outside them, **every
-error the strict binary reports is a nil-flow site** — there is no
-other diagnostic to filter out, which is what makes the total
+reports 358 errors and zero warnings, once piped through `sort -u`: `xargs` re-checks a
+`cosmic/*` file both as its own argv entry and as a dependency of a later one, so the raw
+output prints every `cosmic/` diagnostic twice at the same file:line:message; `sort -u`
+collapses that back to the recorded count. Separately, run through this whole-tree `--check
+types` scan rather than through the isolated `teal.check_file` the proof-of-life test above
+uses, tl's diagnostic printer keeps only the first failing argument per line, so that
+fixture's own `argument 2` line never surfaces here — its six diagnostics arrive as five.
+Neither fact changes the count in `nil-flow-sites.tsv`, which is built from the scan's own
+output. `_eval/testdata/**` and `_make/testdata/**` are excluded because those fixture
+projects have their own roots: checked from here their imports do not resolve, and their types
+are unknown rather than nil-carrying. Outside them, **every error the strict binary reports is
+a nil-flow site** — there is no other diagnostic to filter out, which is what makes the total
 re-derivable from that one command.
 
 **A row is a diagnostic.** `nil-flow-sites.tsv` carries one row per
