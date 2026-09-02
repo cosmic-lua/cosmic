@@ -13,16 +13,22 @@
 -- or directory in the tree, or carry a one-line reason below for why
 -- it is not a reference at all.
 --
+-- One family of spans names a file that exists, but not here: the
+-- board's machinery under `_work/` lives on the orphan `board` branch,
+-- so those spans are checked against that branch's tree as git last
+-- fetched it, and skipped aloud when no fetched ref can answer.
+--
 -- The reasons come in three shapes and the three lists ARE the whole
 -- allowlist: a RULE over the span's text (a glob, a `<name>`
--- placeholder, a build output, the artifact's own tree, the board
--- branch); a HISTORY file whose paths name the tree of its day; a
--- literal SPAN — the reader's example project, a sibling repository, a
--- deletion recorded by name. A stale pointer is fixed in the prose,
--- never excused here, and an excuse nothing needs any more fails too,
--- so the lists shrink as readily as they grow.
+-- placeholder, a build output, the artifact's own tree); a HISTORY
+-- file whose paths name the tree of its day; a literal SPAN — the
+-- reader's example project, a sibling repository, a deletion recorded
+-- by name. A stale pointer is fixed in the prose, never excused here,
+-- and an excuse nothing needs any more fails too, so the lists shrink
+-- as readily as they grow.
 
 local check = require("cosmic.check")
+local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 
 local ROOTS < const >: {string} = {"docs", "skills"}
@@ -44,7 +50,6 @@ local RULES < const >: {Rule} = {
   {pattern = "<", why = "a <name> placeholder stands for the reader's own file"},
   {pattern = "^o/", why = "a build output exists only after a build"},
   {pattern = "^/", why = "an absolute path is the artifact's /zip/ tree, not the repo's"},
-  {pattern = "^_work/", why = "the board's machinery lives on the orphan board branch"},
 }
 
 --- Files excused whole, by path prefix: each is a record of the tree
@@ -77,6 +82,17 @@ local SPANS < const >: {string: string} = {
   ["build/config.mk"] = COSMOPOLITAN,
   ["doc/gendoc.tl"] = "a deletion, recorded by the name it had",
 }
+
+--- The prefix under which a span names the board branch's tree, and
+--- the ref that tree is read from — the remote-tracking ref a fetch
+--- of `board` leaves behind, never a local branch, so the check reads
+--- what the remote has and not a checkout's own edits.
+local BOARD_PREFIX < const > = "_work/"
+local BOARD_REF < const > = "origin/board"
+
+--- How long the board read waits for `git` to answer. A hung `git`
+--- (a lock held by another process) must not hang the whole gate.
+local GIT_MS < const > = 10000
 
 --- One backtick span, with where it was read.
 local record Span
@@ -135,6 +151,13 @@ local function is_path_shaped(text: string): boolean
   return ext ~= nil and EXTENSIONS[ext] == true
 end
 
+--- Whether a span names the board branch's tree rather than this one.
+--- @param span Span
+--- @return boolean
+local function is_board_path(span: Span): boolean
+  return span.text:sub(1, #BOARD_PREFIX) == BOARD_PREFIX
+end
+
 --- Every path-shaped span in the prose, in file order.
 --- @return {Span}
 local function path_spans(): {Span}
@@ -157,6 +180,36 @@ end
 --- @return boolean
 local function resolves(span: Span): boolean
   return fs.is_file(span.text) or fs.is_dir(span.text)
+end
+
+--- The board branch's files under the prefix, as the fetched ref has
+--- them: one bounded `git ls-tree` per run, read the first time it is
+--- asked for. Nil, and why, when git cannot answer — no `origin/board`
+--- fetched, no git, a timeout — so the caller can skip aloud instead
+--- of mistaking silence for an empty tree.
+--- @return {string: boolean} | nil The board paths under the prefix
+--- @return string Why git could not answer
+local function board_paths(): {string: boolean} | nil, string
+  local argv = {"git", "ls-tree", "-r", "--name-only", BOARD_REF, "--",
+    BOARD_PREFIX:sub(1, -2)}
+  local h, serr = child.start(argv, {stdin = ""})
+  if not (h is child.Handle) then
+    return nil, "git could not start: " .. tostring(serr)
+  end
+  local r = h:wait(GIT_MS)
+  if not (r is child.Result) then
+    local _ok, _err = h:stop() -- start's partner, so the child does not leak
+    return nil, "git did not answer within " .. GIT_MS .. "ms"
+  end
+  if not r.ok then
+    return nil, BOARD_REF .. " is not readable here (" ..
+    (r.stderr:gsub("%s+$", "")) .. ")"
+  end
+  local out: {string: boolean} = {}
+  for path in r.stdout:gmatch("[^\n]+") do
+    out[path] = true
+  end
+  return out
 end
 
 --- The excuses a span carries: one entry per list that claims it, so
@@ -183,11 +236,13 @@ end
 
 -- The gate: a path-shaped span either resolves or is excused. The
 -- failure names file:line and the missing path — the same report that
--- is the fix list when a target moves.
+-- is the fix list when a target moves. A board span is the next
+-- case's, not an excuse: it is checked against the branch it names.
 local function test_every_path_reference_names_a_file_in_the_tree()
   local missing: {string} = {}
   for _, span in ipairs(path_spans()) do
-    if not resolves(span) and #excuses_of(span) == 0 then
+    if not is_board_path(span) and not resolves(span) and
+    #excuses_of(span) == 0 then
       missing[#missing + 1] = span.file .. ":" .. span.line .. ": `" ..
       span.text .. "` names no file or directory in the tree"
     end
@@ -195,6 +250,38 @@ local function test_every_path_reference_names_a_file_in_the_tree()
   assert(#missing == 0, #missing .. " stale path reference(s) — fix the " ..
     "prose, or excuse the span in _build/doc_paths_test.tl with a " ..
     "reason:\n  " .. table.concat(missing, "\n  "))
+end
+
+-- The board gate: a `_work/` span names a file on `origin/board`. A
+-- rename there strands a pointer in this tree's prose, and no gate on
+-- either branch reads across, so this one does — against the ref as
+-- fetched, which is why a checkout without it skips with the reason
+-- printed rather than passing on an answer it never had.
+local function test_every_board_reference_names_a_file_on_the_board_branch()
+  local spans: {Span} = {}
+  for _, span in ipairs(path_spans()) do
+    if is_board_path(span) then
+      spans[#spans + 1] = span
+    end
+  end
+  assert(#spans > 0, "no `" .. BOARD_PREFIX .. "` span in any prose file — " ..
+    "the board gate in _build/doc_paths_test.tl has nothing left to check")
+  local paths, why = board_paths()
+  if not paths then
+    print("skipped: " .. BOARD_REF .. " board paths unchecked: " .. why ..
+      " — `git fetch origin board` to check them")
+    return
+  end
+  local missing: {string} = {}
+  for _, span in ipairs(spans) do
+    if not paths[span.text] then
+      missing[#missing + 1] = span.file .. ":" .. span.line .. ": `" ..
+      span.text .. "` names no file on " .. BOARD_REF
+    end
+  end
+  assert(#missing == 0, #missing .. " stale board reference(s) — fix the " ..
+    "prose to name what " .. BOARD_REF .. " has:\n  " ..
+    table.concat(missing, "\n  "))
 end
 
 -- The ratchet: every excuse still excuses something that would fail
@@ -205,7 +292,7 @@ end
 local function test_every_excuse_is_still_needed()
   local needed: {string: boolean} = {}
   for _, span in ipairs(path_spans()) do
-    if not resolves(span) then
+    if not is_board_path(span) and not resolves(span) then
       for _, key in ipairs(excuses_of(span)) do
         needed[key] = true
       end

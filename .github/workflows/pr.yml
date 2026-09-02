@@ -149,10 +149,14 @@ jobs:
 
       # Pins resolve here, where there is a network. Everything after
       # this step — compiles, checks, tests, summaries — runs denied.
+      # The board ref too: _build/doc_paths_test.tl checks the prose's
+      # `_work/` pointers against origin/board, which the checkout's
+      # depth-1 fetch of the PR ref alone does not bring.
       - name: fetch with network allowed
         shell: bash
         run: |
           set -eux
+          runuser -u builder -- git fetch -q --depth=1 origin +refs/heads/board:refs/remotes/origin/board
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/cosmic --make fetch
 
       # The namespace needs root to create, and so does bringing `lo` up
