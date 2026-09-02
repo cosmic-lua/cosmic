@@ -107,9 +107,9 @@ PR against base `board`, plus one data repair:
    accepted; foreign owner declared under `## Access` accepted;
    no-origin board skips) and `_work/gitgraph_test.tl` (`new --repo`
    and `set --repo` refuse a foreign owner, accept with `## Access`).
-   Fixture: give the fixture board `remote.origin.url =
-   https://github.com/cosmic-lua/cosmic` with `remote.origin.pushurl`
-   the local bare path, so `gh.slug` resolves while `publish` keeps
+   Fixture: give the fixture board an `origin` whose `url` is the
+   GitHub https form of the board's own slug (`cosmic-lua/cosmic`)
+   and whose `pushurl` is the local bare path, so `gh.slug` resolves while `publish` keeps
    pushing locally; add it to `_work/fixture.tl` as an opt-in helper
    so existing fixtures are unchanged. Runner mode; file caps
    (overflow goes in a sibling module).
@@ -129,7 +129,7 @@ PR against base `board`, plus one data repair:
 
 ## Acceptance
 
-- On a fixture board whose origin url is `cosmic-lua/cosmic`: `new
+- On a fixture board whose origin slug is `cosmic-lua/cosmic`: `new
   --repo whilp/cosmopolitan` is refused naming the repair; with a
   `--spec-file` whose `## Access` names `whilp/cosmopolitan` it is
   accepted, and `take` on it passes the ready bar; an item whose
