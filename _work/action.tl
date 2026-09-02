@@ -80,9 +80,13 @@ local record Phased
   --- Pullable items the saturated doing bound refused to offer: the
   --- bound must name itself, or the stall reads as an empty queue.
   suppressed: integer
-  --- Accepted, awaiting-merge items skipped because a blocker still
-  --- binds: a deliberate hold, not an empty queue either.
+  --- Accepted DIFFS skipped because a blocker still binds: a
+  --- deliberate hold on the merge, not an empty queue either.
   merge_held: integer
+  --- Accepted research HANDOVERS skipped for the same reason — no PR
+  --- to hold a merge back, so it is `done ID` that stays withheld
+  --- until the blocker resolves.
+  done_held: integer
 end
 
 --- How many candidates one ask hands out, the primary included.
@@ -155,6 +159,7 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   local held = 0
   local reviewing = 0
   local merge_held = 0
+  local done_held = 0
   local parked = 0
   local stuck: Item = nil
   local suppressed = 0
@@ -167,10 +172,15 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
     local stage = flow.stage_rank(i)
     if stage == flow.STAGE_ACCEPTED then
       if flow.is_blocked(i, index) then
-        -- A blocker records landing order, not a merge to finish:
-        -- hold it back and count it so the terminal answer can name
-        -- the hold.
-        merge_held = merge_held + 1
+        -- A blocker records landing order: hold the finish back and
+        -- count it so the terminal answer can name the hold. A
+        -- handover has no PR to hold a merge back — count it apart,
+        -- so the terminal answer never claims a merge for it.
+        if (i.result or "") ~= "" then
+          done_held = done_held + 1
+        else
+          merge_held = merge_held + 1
+        end
       elseif #acts < CANDIDATES then
         -- A handover has no PR to merge — `done` skips that read when
         -- `pr` is 0 — so its accepted reason names the verb that
@@ -284,10 +294,11 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
     end
     return {action = primary, held = held, reviewing = reviewing,
       parked = parked, stuck = stuck, suppressed = suppressed,
-      merge_held = merge_held}
+      merge_held = merge_held, done_held = done_held}
   end
   return {held = held, reviewing = reviewing, parked = parked,
-    stuck = stuck, suppressed = suppressed, merge_held = merge_held}
+    stuck = stuck, suppressed = suppressed, merge_held = merge_held,
+    done_held = done_held}
 end
 
 --- The one action to take now, right to left. Ages are optional the
@@ -339,13 +350,24 @@ local function next_action(items: {Item}, specs: Specs, session?: string,
   -- Accepted work a blocker is deliberately holding back outranks
   -- intake advice too: the honest answer names the hold, not an
   -- empty queue that would send a session past the recorded landing
-  -- order.
-  if ph.merge_held > 0 then
-    return {
-      kind = "none",
+  -- order. A handover has no merge to hold — `done ID` is what stays
+  -- withheld — so the wording is chosen by what is actually waiting,
+  -- never a merge claimed on a handover's behalf.
+  if ph.merge_held > 0 or ph.done_held > 0 then
+    local total = ph.merge_held + ph.done_held
+    local reason: string
+    if ph.done_held == 0 then
       reason = ("%d accepted item(s) wait on open blockers — resolve "
-        .. "the blockers; their merges are held"):format(ph.merge_held),
-    }
+        .. "the blockers; their merges are held"):format(total)
+    elseif ph.merge_held == 0 then
+      reason = ("%d accepted item(s) wait on open blockers — resolve "
+        .. "the blockers; `done ID` is withheld until they do"):format(total)
+    else
+      reason = ("%d accepted item(s) wait on open blockers — resolve the "
+        .. "blockers; %d merge(s) and %d `done ID`(s) are withheld"):format(
+        total, ph.merge_held, ph.done_held)
+    end
+    return {kind = "none", reason = reason}
   end
   local taking = intake.intake_action(items, specs, index, pos)
   if taking then
