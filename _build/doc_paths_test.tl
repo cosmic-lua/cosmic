@@ -15,8 +15,7 @@
 --
 -- The reasons come in three shapes and the three lists ARE the whole
 -- allowlist: a RULE over the span's text (a glob, a `<name>`
--- placeholder, a build output, the artifact's own tree, the board
--- branch); a HISTORY file whose paths name the tree of its day; a
+-- placeholder, a build output, the board branch); a HISTORY file whose paths name the tree of its day; a
 -- literal SPAN — the reader's example project, a sibling repository, a
 -- deletion recorded by name. A stale pointer is fixed in the prose,
 -- never excused here, and an excuse nothing needs any more fails too,
@@ -43,7 +42,6 @@ local RULES < const >: {Rule} = {
   {pattern = "%*", why = "a glob names a family of files, not one"},
   {pattern = "<", why = "a <name> placeholder stands for the reader's own file"},
   {pattern = "^o/", why = "a build output exists only after a build"},
-  {pattern = "^/", why = "an absolute path is the artifact's /zip/ tree, not the repo's"},
   {pattern = "^_work/", why = "the board's machinery lives on the orphan board branch"},
 }
 

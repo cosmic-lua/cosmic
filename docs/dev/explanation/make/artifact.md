@@ -50,7 +50,7 @@ module itself, which flattens to the zip root), `usr/` (TLS roots and
 zoneinfo), `.args` and `.cosmo`. it is a keep-list rather than a strip
 list on purpose: a base that grows a directory does not silently start
 shipping it in every artifact anyone builds.
-`_tool/floor_test.tl` verifies the list. everything else a
+`_make/artifact_test.tl` verifies the list. everything else a
 cosmic base carries goes: the embedded make, `tl.lua`, the type tree,
 cosmic's `.tl` sources, the docs index, `sys/` and `definitions.lua`.
 
