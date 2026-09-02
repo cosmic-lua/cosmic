@@ -403,6 +403,33 @@ local function test_a_research_handover_refuses_a_spec_that_moved()
   assert(judged.verdict_head == "", "and no head, there being none")
 end
 
+-- A handover's accept outcome names `done`, not a merge it has no PR
+-- to await: `done` skips the merge read entirely when `pr` is 0
+-- (`gitverbs.cmd_done`), so "awaiting merge" would send the session
+-- looking for one that will never exist. A diff's outcome is unchanged.
+local function test_a_handovers_accept_outcome_names_done_not_a_merge()
+  local s = init_state_repo("verdict-result-outcome")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "", true) == 0)
+  local code, printed = verdict_and_capture(s, leaf, "accept", 0, "",
+    "reviewer-a")
+  assert(code == 0, printed)
+  assert(printed:find("accepted — `done ID` ends it", 1, true) ~= nil,
+    "names done directly: " .. printed)
+  assert(printed:find("merge", 1, true) == nil,
+    "and claims no merge: " .. printed)
+  local diff_s = init_state_repo("verdict-diff-outcome")
+  local _, diff_leaf = root_with_leaf(diff_s)
+  handed_over(diff_s, diff_leaf, 7)
+  local diff_code, diff_printed = verdict_and_capture(diff_s, diff_leaf,
+    "accept", 7, "abc1234", "reviewer-a")
+  assert(diff_code == 0, diff_printed)
+  assert(diff_printed:find("awaiting merge — land it", 1, true) ~= nil,
+    "a diff's outcome is unchanged: " .. diff_printed)
+end
+
 -- A reject clears the research handover with the claim, the way it
 -- clears a PR: nothing stands, and the item is todo again.
 local function test_a_reject_clears_the_research_handover()

@@ -238,9 +238,11 @@ local function review_debt_refusal(items: {item.Item}, session: string,
       break
     end
   end
-  return ("%d diff(s) await a verdict you can give and outrank this "
+  local noun = "diff"
+  if (first.result or "") ~= "" then noun = "handover" end
+  return ("%d %s(s) await a verdict you can give and outrank this "
     .. "take — verdicts before new work: `take %s` claims the first; "
-    .. "a recorded reviewer clears it"):format(ahead, first.id:sub(1, 8))
+    .. "a recorded reviewer clears it"):format(ahead, noun, first.id:sub(1, 8))
 end
 
 --- The refusal a NEW claim earns when `session` already holds a live

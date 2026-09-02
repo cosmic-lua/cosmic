@@ -221,3 +221,20 @@ local function test_show_prints_a_research_handovers_digest()
   assert(not matched(lines, "^pr:"),
     "and no PR line stands beside it: " .. table.concat(lines, "\n"))
 end
+
+-- A handover's verdict carries no head — `verdict` leaves it "" for a
+-- PR-less item — so the verdict line cites the recorded digest where
+-- a diff's verdict line cites the head it judged.
+local function test_show_prints_a_handovers_verdict_by_result_not_head()
+  local all = a_board()
+  local judged = spec.revision(SIDECAR)
+  local accepted = check.must(item.decode({id = next_id(), title = "a handover",
+        parent = UNDER, claim = "session-a", builders = "session-a",
+        result = ("abcdef0123456789"):rep(4), verdict = "accept",
+        verdict_head = "", verdict_spec = judged}))
+  local lines = show.show_report(accepted, all, SIDECAR, {}, {})
+  assert(matched(lines,
+      "^verdict: accept %(result abcdef0, spec unchanged since%)$"),
+    "the digest prints where a diff's head would: "
+    .. table.concat(lines, "\n"))
+end

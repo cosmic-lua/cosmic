@@ -100,6 +100,16 @@ local NOTES < const >: {string: {string}} = {
 --- so the verdict cites no PR and no head. A kind absent here reads
 --- the same for a handover as for a diff.
 local HANDOVER_NOTES < const >: {string: {string}} = {
+  ["finish"] = {
+    "An accepted handover has no PR to merge: `done ID` ends it directly — "
+    .. "no merge to await, unlike a diff.",
+    "A rework carries a `request changes` verdict: address the quoted gaps "
+    .. "and hand the revision back with `take ID --result`, which re-opens "
+    .. "the verdict for the new revision.",
+    "A handover with no verdict yet is yours to finish: revise the findings, "
+    .. "then `take ID --result` hands the spec over — no PR, so the "
+    .. "revision itself is the evidence.",
+  },
   ["review"] = {
     "Claim it first — `take ID` on an item awaiting a verdict locks the spec "
     .. "before you read a line; a claim idle past the hour lease is anyone's "
