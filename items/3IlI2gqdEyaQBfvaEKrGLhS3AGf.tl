@@ -1,5 +1,6 @@
 return {
   ["builders"] = "wave6-lok152-GLhS",
+  ["claim"] = "wave6-lok152-GLhS",
   ["id"] = "3IlI2gqdEyaQBfvaEKrGLhS3AGf",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["speccers"] = "6a371436-ec61-55f6-9c33-690c48f35726",
