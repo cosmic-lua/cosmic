@@ -43,7 +43,8 @@ start every session with `sync`. every verb ends with a
 `gitboard-<verb>:` verdict line — read that, never a piped exit
 status. `gitboard help` lists the verbs and the doctrine topics;
 `gitboard help <verb>` and `gitboard help <topic>` serve everything
-else. this file deliberately restates none of it — the doctrine
+else. the decompose procedure — verification items, held roots — is
+`skills/work/decompose.md`. this file deliberately restates none of it — the doctrine
 ships with the tool, so a change to how the board is operated never
 needs an edit here.
 

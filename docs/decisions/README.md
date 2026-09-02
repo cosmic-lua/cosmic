@@ -76,3 +76,4 @@ build when the committed copy drifts.
 | D39 | no prose exemption from the file cap; reclaim before you split | active | [→](d39-no-prose-exemption-from-the-file-cap.md) |
 | D40 | sandbox.apply reports full/degraded/skipped per section, and refuses when nothing enforced | active | [→](d40-sandbox-enforcement-report.md) |
 | D41 | entry.stat is a lazy method, not an eager field | active | [→](d41-lazy-entry-stat.md) |
+| D42 | a verified outcome is held by a marker, not ended; a child filed under it clears the hold | active | [→](d42-held-outcome-is-a-marker-not-an-ending.md) |
