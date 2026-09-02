@@ -4,6 +4,8 @@ return {
   ["id"] = "3Il5nBDyHzzayAJ6n2Ny1taCEvw",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["pr"] = 1628,
-  ["reviewer"] = "review-y1ta_CEvw-d7ef6110",
   ["title"] = "a rename inside a declared reads: tree keeps the cached test verdict on a warm tree — mv preserves mtime, so make never schedules the recipe",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "e07e13fb925aa214d43ff4ee246df9be02d6226e",
+  ["verdict_spec"] = "5981e30c9e9d2614d69567d0c9f75a7c5ece96f8c9c1f7ba08db1fd60e1eeb77",
 }
