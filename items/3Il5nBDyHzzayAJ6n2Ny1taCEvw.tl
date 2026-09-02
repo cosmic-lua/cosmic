@@ -1,9 +1,9 @@
 return {
   ["builders"] = "3fe19194-5ccf-542b-840c-0337ae8f65ac wave9-d7ef6110-y1ta",
-  ["claim"] = "wave9-d7ef6110-y1ta",
   ["id"] = "3Il5nBDyHzzayAJ6n2Ny1taCEvw",
   ["parent"] = "3IOCIBGeYoISEhI0VJPwZmqduSZ",
   ["pr"] = 1628,
+  ["resolution"] = "completed",
   ["title"] = "a rename inside a declared reads: tree keeps the cached test verdict on a warm tree — mv preserves mtime, so make never schedules the recipe",
   ["verdict"] = "accept",
   ["verdict_head"] = "e07e13fb925aa214d43ff4ee246df9be02d6226e",
