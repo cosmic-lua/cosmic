@@ -5,5 +5,6 @@ return {
   ["parent"] = "3IQtgMjycyFrxa8xT2ZqwOHfdJl",
   ["pr"] = 340,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-D6dk_oFOQ-lok152",
   ["title"] = "unix.wait: success tuple (pid, wstatus, rusage) shares slots 2-3 with the (nil, error, errno) failure tuple",
 }
