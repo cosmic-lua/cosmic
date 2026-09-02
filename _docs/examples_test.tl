@@ -59,8 +59,10 @@ end
 local function test_a_record_inside_the_body_does_not_close_it()
   local path = fixture()
   local body = check.must(examples.body_of({path = path, name = "Example_nested"}))
-  assert(body:find("-- Output:\n-- 2$"), "the body runs to the function's own end: " .. body)
-  assert(body:find("^local record Point\n  x: integer\nend"),
+  check.equal(body:sub(-#"-- Output:\n-- 2"), "-- Output:\n-- 2",
+    "the body runs to the function's own end: " .. body)
+  check.equal(body:sub(1, #"local record Point\n  x: integer\nend"),
+    "local record Point\n  x: integer\nend",
     "the nested record keeps its relative indentation: " .. body)
 end
 
@@ -88,13 +90,13 @@ end
 local function test_render_fills_fences_and_keeps_prose()
   local path = fixture()
   local text = "before\n\n```teal example=" .. path .. "#Example_plain\nstale\n```\n\nafter\n" ..
-  "- ```teal example=" .. path .. "#Example_nested\n  ```\n"
+  "- item\n  ```teal example=" .. path .. "#Example_nested\n  ```\n"
   local out, problems = examples.render(text)
   check.equal(#problems, 0, "every reference resolves")
   assert(out:find("before\n\n```teal example=", 1, true), "prose before survives")
   assert(out:find("\nlocal x = 1\nprint(x)\n-- Output:\n-- 1\n```\n\nafter\n", 1, true),
     "the stale body is replaced: " .. out)
-  assert(out:find("\n- ```teal example=", 1, true), "an indented fence keeps its position")
+  assert(out:find("\n- item\n  ```teal example=", 1, true), "an indented fence keeps its position")
   assert(out:find("\n  local record Point\n    x: integer\n  end\n", 1, true),
     "an indented fence's body carries the indentation: " .. out)
   local again, _ = examples.render(out)
