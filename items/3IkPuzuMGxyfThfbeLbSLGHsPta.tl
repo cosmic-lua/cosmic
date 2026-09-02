@@ -5,5 +5,6 @@ return {
   ["parent"] = "3I1IoF4k4xEZz3fd6VMKpIfXaNr",
   ["pr"] = 1611,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-SLGH_sPta-lok152",
   ["title"] = "write_baseline: no end-to-end test covers its printed counts, so swapping the positional args at either seam prints inverted numbers unnoticed",
 }
