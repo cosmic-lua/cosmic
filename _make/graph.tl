@@ -23,6 +23,7 @@ local envstamp = require("_make.envstamp")
 local groups = require("_make.groups")
 local imports = require("_make.imports")
 local project = require("_make.project")
+local readstamp = require("_make.readstamp")
 local stamp = require("_make.stamp")
 local testrun = require("_make.testrun")
 local types = require("_make.types")
@@ -153,6 +154,16 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
       for _, r in ipairs(extra) do
         built[#built + 1] = r
       end
+      -- The reads STAMP (_make/readstamp.tl) joins the same closure: a
+      -- rename inside a declared tree preserves every file's own mtime
+      -- (`mv`/`git mv` both do), so the raw file list above can leave
+      -- nothing newer than a warm `.got` and make never schedules the
+      -- recipe. The stamp's bytes are the tree's LISTING, rewritten
+      -- only when the listing changes, so a rename, add, or delete
+      -- gives it a fresh mtime that make does schedule on.
+      if #extra > 0 then
+        built[#built + 1] = readstamp.path_of(stem)
+      end
       -- Declared env reads (`--- env: <NAME>`) join `deps_<stem>`, NOT
       -- `srcdeps_<stem>` — an env change must not recompile, only
       -- re-run. The stamp file itself carries the value; see
@@ -234,6 +245,13 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   -- names the stamp file (project_mk above), so it must exist with an
   -- honest mtime before make reads a rule too.
   ok, err = envstamp.write_all(proj)
+  if not ok then
+    return nil, err
+  end
+  -- Same reason, for a test's declared reads tree: deps_<stem> already
+  -- names the stamp file (project_mk above), so it must exist with an
+  -- honest mtime before make reads a rule too.
+  ok, err = readstamp.write_all(proj)
   if not ok then
     return nil, err
   end
