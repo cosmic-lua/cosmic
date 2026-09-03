@@ -4,9 +4,10 @@
 --- {{css ...}} interpolation through.
 
 -- Example_escape demonstrates the allowlist rule: every byte that is
--- not an ASCII letter or digit becomes a `\XX ` hex escape, so none of
--- the characters that open a string, a url(), or an expression() can
--- survive into the output unescaped.
+-- not an ASCII letter or digit becomes a `\XX ` hex escape. This is
+-- for a VALUE position or a quoted string body — it is not safe
+-- inside url(...) or a selector, where CSS decodes the escape back to
+-- the raw byte before a parser ever sees it (see cosmic/css.tl).
 local function Example_escape()
   local css = require("cosmic.css")
   print(css.escape([[url("x")]]))
