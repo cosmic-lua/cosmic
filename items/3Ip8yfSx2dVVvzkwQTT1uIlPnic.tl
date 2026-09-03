@@ -7,5 +7,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 376,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-1uIl_Pnic-1",
   ["title"] = "test_definitions_help: compare a shape block's slot-1 class name with definitions.lua, not just fallibility",
 }
