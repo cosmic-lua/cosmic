@@ -49,6 +49,20 @@ local function test_should_seed_true_until_the_real_output_exists()
   assert(not seed.should_seed(proj), "the real output already exists")
 end
 
+-- A leftover SEED_DIR outliving an invocation killed before `sources`'s
+-- own cleanup call is not proof cleanup ever ran -- even with the real
+-- output already present, `should_seed` must still say yes so the next
+-- invocation re-seeds rather than trusting a possibly-partial leftover.
+local function test_should_seed_true_with_leftover_seed_dir()
+  local proj = fixture("leftover", {
+      ["_types/types_gen.tl"] = "-- stub\n",
+    })
+  assert(fs.make_dirs(fs.join(proj.root, "o/_types/types_gen")))
+  assert(not seed.should_seed(proj), "the real output already exists")
+  assert(fs.make_dirs(fs.join(proj.root, seed.SEED_DIR)))
+  assert(seed.should_seed(proj), "leftover SEED_DIR means cleanup never ran")
+end
+
 -- `run` populates SEED_DIR from the generator itself; `cleanup` removes
 -- it -- created, populated, and gone.
 local function test_run_populates_and_cleanup_removes_the_seed_dir()

@@ -381,25 +381,26 @@ local function sources(proj: Project, cosmic: string): boolean, string
       return false, seederr
     end
   end
+  -- UNCONDITIONAL: skipping `cleanup` on a failure below leaves
+  -- `SEED_DIR` for `should_seed` to trust next time (_make.seed).
+  local ok, err = true, ""
   for _, f in ipairs(proj.files) do
-    if f.kind == "gen" then
+    if ok and f.kind == "gen" then
       local dest = project.out_dir(stem_of(f.path))
-      local ok, err = run_generator(proj, f.path, dest, cosmic)
-      if not ok then
-        return false, err
-      end
+      ok, err = run_generator(proj, f.path, dest, cosmic)
     end
   end
-  local sok, serr = stamp_types(proj)
-  if not sok then
-    return false, serr
+  if ok then
+    ok, err = stamp_types(proj)
   end
-  -- Its one job done: `o/_types/types_gen` stays the only declaration
-  -- set the graph, the stamp digest above, and embed_gen.tl ever read.
   local cok, cerr = seed.cleanup()
+  if not ok then
+    return false, err
+  end
   if not cok then
     return false, cerr
   end
+  -- Its one job done: `o/_types/types_gen` is the only declaration set left.
   return true
 end
 
