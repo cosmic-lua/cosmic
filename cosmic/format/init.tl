@@ -134,8 +134,8 @@ local function format(input: string, filename: string): FormatResult
       if e.msg then
         errors[#errors + 1] = {
           file = e.filename or filename,
-          line = e.y as integer or 0, -- cast: tl declares number
-          column = e.x as integer or 0, -- cast: tl declares number
+          line = e.y or 0,
+          column = e.x or 0,
           message = e.msg,
           severity = "error",
         }
@@ -155,8 +155,8 @@ local function format(input: string, filename: string): FormatResult
       if e.msg then
         errors[#errors + 1] = {
           file = e.filename or filename,
-          line = e.y as integer or 0, -- cast: tl declares number
-          column = e.x as integer or 0, -- cast: tl declares number
+          line = e.y or 0,
+          column = e.x or 0,
           message = e.msg,
           severity = "error",
         }

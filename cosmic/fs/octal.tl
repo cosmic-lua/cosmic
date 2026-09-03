@@ -20,7 +20,7 @@ end
 --- @return integer the base-8 value, or 0 when digits is not all [0-7]
 local function octal(digits: string): integer
   if not digits:match("^[0-7]+$") then return 0 end
-  return tonumber(digits, 8) as integer -- cast: octal digits parse integral
+  return tonumber(digits, 8)
 end
 
 local M: OctalModule = {

@@ -195,7 +195,7 @@ local function escape_at(s: string, i: integer): string | nil, integer
     if not hex then
       return nil, i
     end
-    return string.char(tonumber(hex, 16) as integer), i + 4 -- cast: two hex digits are integral
+    return string.char(tonumber(hex, 16)), i + 4
   end
   if c == "z" then
     -- `\z` skips the whitespace that follows it, newlines included.
@@ -223,11 +223,11 @@ local function escape_at(s: string, i: integer): string | nil, integer
     if cp == nil or cp ~= math.floor(cp) or cp < 0 or cp > MAX_CODEPOINT then
       return nil, i
     end
-    return utf8.char(cp as integer), after as integer -- cast: bounded above
+    return utf8.char(cp), after
   end
   local digits = s:match("^%d%d?%d?", i + 1)
   if digits then
-    local n = tonumber(digits, 10) as integer -- cast: decimal digits are integral
+    local n = tonumber(digits, 10)
     if n > 255 then
       return nil, i
     end
