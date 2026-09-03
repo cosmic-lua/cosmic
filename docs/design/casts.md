@@ -368,14 +368,18 @@ is done. Teal checks a record literal but has nothing to say about a
 table built up over several statements.
 
 ```text
--- cosmic/sqlite/row_iter.tl:64
-  local iter = setmetatable({} as Rows, { -- cast: table seeded as record
+-- cosmic/quicksand/box/merge.tl:138
+  return acc as types.BoxOptions -- cast: dynamic walk rebuilt as the record it walked
 ```
 
-**What closes it here.** Most of these can be written as record
-literals, which the checker verifies field by field: the module tables
-and the response constructor have every value in scope already. The
-iterator wants its field set declared up front, closures assigned after.
+**What closes it here.** Most of these are written as record literals,
+which the checker verifies field by field: the module tables and the
+response constructor have every value in scope already; the row
+iterator declares its field set up front, with the metatable's closures
+assigned after. `merge`'s accumulator is the one holdout — it walks an
+unknown key set at runtime (an unrecognized key merges as a scalar, by
+design), so its shape is never known at a single assignment the way the
+others' is. That is a floor, not a gap this pass left open.
 
 ### pcall return shape
 

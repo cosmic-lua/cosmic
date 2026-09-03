@@ -284,7 +284,7 @@ local function sigsuspend(mask?: Sigset): boolean, string
   return false, errstr(err, "sigsuspend")
 end
 
-local M = {} as SignalModule -- cast: record built incrementally
+local M: SignalModule = {}
 
 M.sigset = unix.sigset
 M.sigaction = sigaction

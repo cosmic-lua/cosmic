@@ -54,16 +54,7 @@ local type Params = bind_mod.Params
 --- iteration may stop early, call `:close()` (idempotent), or declare the
 --- iterator to-be-closed — `local rows <close> = db:query(...)` — so the
 --- statement is released on scope exit; garbage collection is the backstop.
-local record Rows
-  metamethod __call: function(self: Rows): {string: any}
-  metamethod __close: function(self: Rows)
-  --- Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Rows): string | nil
-  --- Release the underlying prepared statement early (idempotent; a
-  --- second call returns true). Reports a finalize failure instead of
-  --- swallowing it.
-  close: function(self: Rows): boolean, string
-end
+local type Rows = row_iter.Rows
 
 --- Statement handle with automatic cleanup.
 local record Statement
@@ -211,7 +202,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     -- error surfacing) instead of a second copy; on_close ends iteration
     -- without finalizing, since this Statement may still be reused.
     local iter = row_iter.make(raw_stmt, raw_db, keep_statement_open, sqlite3.ROW, sqlite3.DONE)
-    return iter as Rows -- cast: row_iter record to public Rows
+    return iter
   end
 
   function stmt:exec(): boolean, string
@@ -292,7 +283,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not iter then
       return nil, bind_err
     end
-    return iter as Rows -- cast: row_iter record to public Rows
+    return iter
   end
 
   function db:exec(sql: string, params?: Params): boolean, string
