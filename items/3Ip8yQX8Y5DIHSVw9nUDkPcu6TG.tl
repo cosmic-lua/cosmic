@@ -1,4 +1,5 @@
 return {
+  ["beats"] = "3IYMNJ628t8lkLDklTtEAi9RFmX",
   ["id"] = "3Ip8yQX8Y5DIHSVw9nUDkPcu6TG",
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["repo"] = "cosmic-lua/cosmic",
