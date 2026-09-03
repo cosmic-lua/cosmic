@@ -71,3 +71,45 @@ justified as-is under D23; the only question here is its cost on this
 one hot path, not its legitimacy. Not touching
 `.github/workflows/release.yml` or the gate's retry/dismissal design
 (D34/D35) — same as `pmIX_ommp`'s own non-goals.
+
+## Cross-session result (recorded 2026-09-03, fresh container)
+
+Ran `## Change` step 1 exactly, in a session/container distinct from
+`pmIX_ommp`'s: built `9fcfff3f` (`bin_sha 71f1030609723add8...`) and
+`cf416d85` (`bin_sha 9bcfcd29dde5d382...`) in separate worktrees,
+confirmed distinct `bin_sha`, then ran 6 order-randomized interleaved
+`o/bin/cosmic --make run _perf/run.tl --only re_match_log_line`
+comparisons (3 before-first, 3 after-first):
+
+    pair  order        before(us/op)  after(us/op)  delta      direction
+    1     before-first  3.24           2.95          -8.95%     after faster
+    2     before-first  3.02           3.08          +1.99%     after slower
+    3     before-first  3.04           3.02          -0.66%     after faster
+    4     after-first   3.22           3.16          -1.86%     after faster
+    5     after-first   3.14           3.23          +2.87%     after slower
+    6     after-first   2.99           3.19          +6.69%     after slower
+
+Mean delta ~= +0.01% (net zero). 3/6 pairs read "after faster", 3/6
+read "after slower" — direction does not hold, unlike `pmIX_ommp`'s
+5/6-6/6 same-direction result.
+
+`_perf/gate.tl selfcheck --only re_match_log_line` on each binary
+alone (that session's own noise floor):
+
+    9fcfff3f (before): 3.13 -> 2.98 us (-5.0%), reported noise band +-12.0%
+    cf416d85 (after):  3.04 -> 3.06 us (+0.9%), reported noise band +-10.0%
+
+Every interleaved before/after delta above (-8.95% to +6.69%) sits
+inside each binary's own self-check noise band, and the sign is not
+stable pair to pair.
+
+## Decision
+
+This is `## Change` step 3's outcome: the cross-session run does NOT
+reproduce `pmIX_ommp`'s regression — it holds inside noise and flips
+sign. Per this item's own decision tree: close with no code change;
+`pmIX_ommp` (`3IopfBATkXMfl9qRpLDpmIXommp`) and
+`3IonN6KwrW1QezqdCBs0pa6japm`'s original CI flag is noise, and should
+be marked dismissed on those items — the within-session result did
+not survive a second, independent session, exactly the case
+`measurement.md`'s cross-session-reproduction rule exists to catch.
