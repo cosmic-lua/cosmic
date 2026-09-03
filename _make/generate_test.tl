@@ -12,11 +12,13 @@
 -- base yields an artifact that boots as the Lua interpreter.
 
 local artifact = require("_make.artifact")
+local build = require("_cli.build")
 local cenv = require("cosmic.env")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local mk = require("_make")
 local project = require("_make.project")
+local seed = require("_make.seed")
 local child = require("cosmic.child")
 local types = require("_make.types")
 
@@ -85,6 +87,18 @@ local function make(dir: string, ...: string): integer, string
   local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
+end
+
+--- `cosmic --make build`, in process, against a scratch project root.
+local function build_in(root: string): integer
+  local cwd = check.must(fs.cwd())
+  assert(cenv.set("COSMIC_MAKE_ROOT", root))
+  assert(cenv.set("COSMIC_MAKE", make_bin))
+  local code = mk.run({"build"})
+  assert(cenv.unset("COSMIC_MAKE_ROOT"))
+  assert(cenv.unset("COSMIC_MAKE"))
+  assert(fs.set_cwd(cwd))
+  return code
 end
 
 --- Whether `o/3p/**` holds everything the generator reads — the
@@ -283,13 +297,7 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
 ]],
       ["cmd/lean/main.tl"] = "print('lean')\n",
     })
-  local cwd = check.must(fs.cwd())
-  assert(cenv.set("COSMIC_MAKE_ROOT", root))
-  assert(cenv.set("COSMIC_MAKE", make_bin))
-  local code = mk.run({"build"})
-  assert(cenv.unset("COSMIC_MAKE_ROOT"))
-  assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.set_cwd(cwd))
+  local code = build_in(root)
   assert(code == 0, "in-process build should succeed")
   local note = fs.join(root, "o/cmd/tool/embed_gen/embed/note.txt")
   assert(fs.is_file(note), "build ran the unit's generator")
@@ -300,12 +308,7 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
   -- Again, with everything already built: the mini-graph's freshness
   -- check is what keeps a no-op verb from paying one subprocess compile
   -- per closure member, so it needs a run where nothing has moved.
-  assert(cenv.set("COSMIC_MAKE_ROOT", root))
-  assert(cenv.set("COSMIC_MAKE", make_bin))
-  local again = mk.run({"build"})
-  assert(cenv.unset("COSMIC_MAKE_ROOT"))
-  assert(cenv.unset("COSMIC_MAKE"))
-  assert(fs.set_cwd(cwd))
+  local again = build_in(root)
   assert(again == 0, "a second in-process build should succeed")
   assert(fs.is_file(fs.join(root, "o/bin/tool")), "and still produced the binary")
   assert(fs.is_file(fs.join(root, "o/bin/lean")),
@@ -450,6 +453,47 @@ local function test_a_lua_module_in_a_generators_closure()
   assert(mf:find("mod helper ", 1, true), "the manifest names it: " .. mf)
   assert(fs.is_file(fs.join(root, "o/helper.lua")),
     "and the mini-graph copied it, rather than naming a file it skipped")
+end
+
+-- The seed dir wins over `/zip/.types` on ANY generator's closure, not
+-- only `_types/types_gen.tl`'s own; patching the `require`-cached
+-- `build.dispatch` here reaches the same call `generate` makes.
+local function test_closure_compile_includes_the_seed_dir_when_present()
+  local root = fixture("seedinclude", {
+      ["helper.tl"] = "return {}\n",
+      ["thing_gen.lua"] = 'require("helper")\n',
+    })
+  assert(fs.make_dirs(fs.join(root, seed.SEED_DIR)))
+  local captured: {{string}} = {}
+  local original = build.dispatch
+  build.dispatch = function(verb: string, args: {string}): integer
+    if verb == "compile" then captured[#captured + 1] = args end
+    return original(verb, args)
+  end
+  local code = build_in(root)
+  build.dispatch = original
+  assert(code == 0, "a build with the seed dir present should still pass")
+  local found = false
+  for _, args in ipairs(captured) do
+    for i, a in ipairs(args) do
+      if a == "--include-dir" and args[i + 1] == seed.SEED_DIR then
+        found = true
+      end
+    end
+  end
+  assert(found, "a closure compile should have been handed the seed dir")
+end
+
+-- A project with no `_types/types_gen.tl`, `hello` included, never seeds.
+local function test_the_hello_fixture_creates_no_seed_dir()
+  local root = fs.join(tmpdir, "generate-hello")
+  assert(fs.remove_all(root))
+  assert(fs.make_dirs(fs.dirname(root)))
+  assert(fs.copy_tree(fs.join("_make/testdata", "hello"), root))
+  local code = build_in(root)
+  assert(code == 0, "the hello fixture should still build")
+  assert(not fs.is_present(fs.join(root, seed.SEED_DIR)),
+    "a project with no _types/types_gen.tl must never create the seed dir")
 end
 
 print("all generate tests passed")

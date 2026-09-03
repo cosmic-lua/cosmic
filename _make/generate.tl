@@ -15,6 +15,7 @@ local modules = require("_cli.build.modules")
 local deps = require("_make.deps")
 local fetch = require("_make.fetch")
 local project = require("_make.project")
+local seed = require("_make.seed")
 local types = require("_make.types")
 
 local type File = types.File
@@ -133,10 +134,10 @@ end
 --- A graph before the graph, and small: `_types/types_gen.tl`'s closure
 --- is 20 files of this repo's 375. It also does not deadlock on itself
 --- -- strict-compiling a generator that produces the `cosmo.*`
---- declarations succeeds with `o/_types/types_gen/` absent, because the
---- include path falls back to the bundled `/zip/.types`. That fallback
---- is the one place a build reads the running binary's bytes on
---- purpose.
+--- declarations succeeds with `o/_types/types_gen/` absent, because
+--- `_make.seed` has already run it once into `o/_types/types_seed`,
+--- which this compile checks first; the bundled `/zip/.types` is the
+--- fallback only for a project with no `_types/types_gen.tl` of its own.
 --- @param proj Project The scanned project
 --- @param gen string The generator's path, relative to the root
 --- @param out string The generator's own output base for the manifest
@@ -179,6 +180,8 @@ local function closure_argv(proj: Project, gen: string, out: string,
       local _ok, _err = cenv.set("LUA_PATH", saved)
     end
   end
+  -- Ahead of "." below, so it wins over the fallback (see _make.seed).
+  local seeded = fs.is_present(seed.SEED_DIR)
   for _, path in ipairs(built) do
     local src, verb = source_of(proj, path)
     if src ~= nil and not fresh(proj, src, path) then
@@ -188,9 +191,9 @@ local function closure_argv(proj: Project, gen: string, out: string,
       -- through `--compile-strict --output` instead would be a SECOND
       -- spelling of the same step, and that one writes to stdout unless
       -- both flags are given -- a difference nothing would have caught.
-      local args: {string} = verb == "compile"
-      and {cosmic, src, path, "--include-dir", "."}
-      or {src, path}
+      local args: {string} = verb ~= "compile" and {src, path}
+      or seeded and {cosmic, src, path, "--include-dir", seed.SEED_DIR, "--include-dir", "."}
+      or {cosmic, src, path, "--include-dir", "."}
       if build.dispatch(verb, args) ~= 0 then
         restore()
         -- LOUD, not a fall-through. Returning no manifest here would
@@ -371,6 +374,13 @@ local function sources(proj: Project, cosmic: string): boolean, string
   if not rok then
     return false, rerr
   end
+  -- Before any closure compiles below -- see _make.seed.
+  if seed.should_seed(proj) then
+    local seedok, seederr = seed.run(proj, cosmic)
+    if not seedok then
+      return false, seederr
+    end
+  end
   for _, f in ipairs(proj.files) do
     if f.kind == "gen" then
       local dest = project.out_dir(stem_of(f.path))
@@ -383,6 +393,12 @@ local function sources(proj: Project, cosmic: string): boolean, string
   local sok, serr = stamp_types(proj)
   if not sok then
     return false, serr
+  end
+  -- Its one job done: `o/_types/types_gen` stays the only declaration
+  -- set the graph, the stamp digest above, and embed_gen.tl ever read.
+  local cok, cerr = seed.cleanup()
+  if not cok then
+    return false, cerr
   end
   return true
 end

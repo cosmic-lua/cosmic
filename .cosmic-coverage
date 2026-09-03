@@ -88,6 +88,7 @@ return {
   ["_make/refstamp.tl"] = {["covered"] = 56, ["total"] = 63},
   ["_make/root.tl"] = {["covered"] = 53, ["total"] = 58},
   ["_make/runverb.tl"] = {["covered"] = 72, ["total"] = 89},
+  ["_make/seed.tl"] = {["covered"] = 40, ["total"] = 49},
   ["_make/select.tl"] = {["covered"] = 33, ["total"] = 35},
   ["_make/stage.tl"] = {["covered"] = 88, ["total"] = 96},
   ["_make/stamp.tl"] = {["covered"] = 107, ["total"] = 118},
