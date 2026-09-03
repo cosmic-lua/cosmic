@@ -78,3 +78,69 @@ Concretely:
   that item's own sqlite-side implementation is already drafted
   (uncommitted, in its own worktree) and just needs this pin bump to
   verify against; it stays blocked on this item, not folded into it.
+
+## Status
+
+The 16-file worktree the previous attempt left at
+`/tmp/claude-0/-home-user/15925051-9a03-506a-af49-a6b214eeb796/scratchpad/worktrees/A3HK_gamw`
+is gone (`ls` → `No such file or directory`; `.git/worktrees` holds only
+`board`; no branch, stash or dangling object matches). The surviving
+record is the list below; redo from it. Blocked on `generate-seed-types`
+(a cold build otherwise checks generator closures against the trust
+root's bundled types — see `3IoULYAu`'s Recommendation).
+
+Pin gap, measured: `3p/cosmos/cosmos_pin.tl` = `2026.08.31-6dfa6728a`;
+`git log --oneline 6dfa6728a..origin/master | wc -l` → 76 (PRs
+#298-#373); newest release `2026.09.03-833e4353f`. Target that release.
+
+## Call-site map (refreshed)
+
+Every line verified with `git grep -n 'unix\.(…)' origin/main -- 'cosmic/**' '_cli/**'`
+at `96afd807`; tests/examples beside each file follow the same edit.
+Old → new shape, cosmopolitan PR, cosmic sites:
+
+- `unix.wait`: `pid, wstatus, rusage` → `WaitResult{pid,wstatus,rusage}`
+  (`nil, err, errno` on failure) #340 — proc/init.tl:252,
+  child/init.tl:161, child/io.tl:132,134, quicksand/box/run.tl:343,
+  quicksand/init.tl:136, quicksand/proc.tl:284,291,
+  quicksand/proxy.tl:75,84,95,169,174, quicksand/proxy/serve.tl:383
+- `unix.pipe`: `reader, writer` → `Pipe{reader,writer}` #328 — fd.tl:247,
+  child/init.tl:243, quicksand/box/run.tl:309, quicksand/init.tl:115,
+  quicksand/proc.tl:178, quicksand/proxy.tl:117
+- `unix.getrlimit`: `soft, hard` → `Rlimit{soft,hard}` #324 —
+  proc/rusage.tl:41; `unix.raise`/`sigprocmask` raise on a bad argument
+  instead of `nil, err` #324 — signal.tl:181, 267
+- `unix.setitimer`: four ints → `Itimerval` #331 — signal.tl:201;
+  `unix.sigaction`: `handler, flags, mask` → `SignalAction` #338 —
+  signal.tl:252, child/io.tl:30,32 (restores the previous disposition:
+  read `.handler`), quicksand/proc.tl:276
+- `unix.getpgrp`: bare integer #336 — proc/init.tl:46 (drop the
+  `assert:`-justified assert; the type no longer admits nil)
+- `unix.gmtime`/`localtime`: 11 values → `BrokenDownTime` #321 —
+  time.tl:128, 158; `sigpending`/`clearenv` tightened #321 and `capget`
+  → `Caps` #309 — no cosmic site (`git grep 'unix\.(sigpending|clearenv|capget)'` → none)
+- `unix.mkstemp`: `fd, path` → `fd, {path=…}` #329 — fs/ops.tl:381,
+  fs/file.tl:94, embed/init.tl:375, _cli/main_handlers.tl:93
+- `unix.nanosleep`: five ints → `SleepRemainder|nil, err, errno,
+  SleepRemainder?` #315 — time.tl:83 (quicksand/proxy.tl:81 discards)
+- `unix.Dir:read` failure now `nil, err, errno` #326 — fs/dir.tl:27,
+  doc/query.tl:61, embed/init.tl:111, _cli/build/steps.tl:97
+- `unix.getsockopt` SO_LINGER returns two values #332 — net/socket.tl:406
+  (wrapper's declared return); `openpty`/`isatty`/`tiocgwinsz`
+  annotation-only #311/#307/#335 — tty.tl:82, 113, 121 (recheck narrowing)
+- `re.Regex:find` → `re.Match{start,stop,captures}` #318 — re.tl:280,
+  326; `:match`/`:search`/`re.search` → `re.SearchMatch|nil, string?`
+  #319 — re.tl:188 (the assert at re.tl:199 goes with it)
+- `getopt.parse` raises on argument-shape errors #317 — flags/getopt.tl:91
+- `lsqlite3.open` failure `nil, errmsg, code` (slots swapped) #316 —
+  sqlite/init.tl:415, 417; `prepare` slot 2 is a message #322 —
+  sqlite/init.tl:272, sqlite/stmt_cache.tl:63, 116; `config`/
+  `wal_checkpoint` #320/#334 — no cosmic site
+- New surface, no site to adapt: `create_function` deterministic flag
+  #337 (`3If5tfhK`), `extensions()`/`register_extension` #364,
+  `column_type`/`value_type` #372 (`3Int8VXj`); session API removed #373
+  (`git grep -n 'changeset\|session' origin/main -- 'cosmic/sqlite/**'` → none)
+
+Then bump `3p/cosmos/cosmos_pin.tl` to `2026.09.03-833e4353f` (sha from
+the release's `SHA256SUMS`) and prove with `rm -rf o && bin/cosmic --make ci`
+ending `ci: PASS`.

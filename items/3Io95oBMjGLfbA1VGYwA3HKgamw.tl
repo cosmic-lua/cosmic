@@ -6,5 +6,6 @@ return {
   ["id"] = "3Io95oBMjGLfbA1VGYwA3HKgamw",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["repo"] = "cosmic-lua/cosmic",
+  ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "cosmic needs an adaptation pass for cosmopolitan's PRs #308-#362 binding-contract rewrite before any further 3p/cosmos pin bump",
 }
