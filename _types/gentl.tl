@@ -29,7 +29,7 @@ local TO_STRING: {string: boolean} = {
 }
 local NAMED: {string: boolean} = {
   Token = true, Error = true, Result = true,
-  EnvOptions = true, CheckOptions = true, Comment = true,
+  EnvOptions = true, CheckOptions = true, Comment = true, Env = true,
 }
 
 local function erase(t: string): string
@@ -191,6 +191,7 @@ local RECORD_FIELDS: {string: {string}} = {
     "run_internal_compiler_checks",
   },
   EnvOptions = {"defaults", "predefined_modules", "parsed_prelude", "parsed_stdlib"},
+  Env = {"report_types", "loaded"},
 }
 
 local PRELUDE < const > = [[-- GENERATED into o/_types/types_gen/ by _types/types_gen.tl from the pinned tl
@@ -247,6 +248,15 @@ local record tl
     -- these so new_env skips tl's parse of its embedded d.tl sources
     parsed_prelude: any
     parsed_stdlib: any
+  end
+
+  -- curated subset: the two fields cosmic reads/writes off a live env
+  -- (tl.Env upstream carries globals/modules/module_filenames/
+  -- loaded_order/reporter/keep_going/defaults too; not curated here
+  -- because no site in this class reads them)
+  record Env
+    report_types: boolean
+    loaded: {string: Result}
   end
 
   path: string

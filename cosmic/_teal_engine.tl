@@ -236,7 +236,12 @@ local function process_source(input: string, name: string, include_dirs: {string
   end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
-  local ok, result_or_err = pcall(tl.process_string, input, false, env, name)
+  local ok, result_or_err = pcall(tl.process_string, input, false,
+    env as tl.Env, -- cast: env's declared type stays any until build_env and
+    -- process_source are retyped to return Env directly; this cast only
+    -- satisfies tl.process_string's now-curated 4th parameter and is
+    -- removed once that retyping lands
+    name)
 
   tl.path = saved_tl_path
 
