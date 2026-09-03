@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 375,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-e2c2_GEaY-obs1",
   ["title"] = "docs: sweep help.txt, redbean demo and AGENTS.md for shapes the bundling PRs changed",
 }
