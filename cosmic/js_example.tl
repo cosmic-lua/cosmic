@@ -11,7 +11,7 @@ local function Example_escape_literal()
   local escaped = js.escape_literal([[say "hi"]])
   print('var msg = "' .. escaped .. '";')
   -- Output:
-  -- var msg = "say \"hi\"";
+  -- var msg = "say \u0022hi\u0022";
 end
 
 -- Example_safe demonstrates the SafeJs wrapper cosmic.template's
