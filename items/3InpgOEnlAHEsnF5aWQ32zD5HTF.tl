@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 371,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-h38H-b3-orch9",
   ["title"] = "sqlite extension registry batch 3: extract sqlar, stmtrand, uint",
 }
