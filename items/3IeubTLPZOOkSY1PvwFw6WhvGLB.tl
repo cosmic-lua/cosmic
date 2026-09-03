@@ -6,6 +6,8 @@ return {
   ["id"] = "3IeubTLPZOOkSY1PvwFw6WhvGLB",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 1648,
-  ["reviewer"] = "review-w6Wh_vGLB-orch9",
   ["title"] = "cosmic.template html mode: URL, JavaScript and CSS contexts behind their own safe types",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "a472a34413e3a445ce63618e9784402bc3df04c3",
+  ["verdict_spec"] = "f4d2508e94f91b998cb84b8d5ce4c9c60d4e6da9ca80f8e6e639cb89c7d2d843",
 }
