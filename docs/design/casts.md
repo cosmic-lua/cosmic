@@ -438,7 +438,7 @@ walks, and the response callback declaring the map it accepts.
 
 Five classes carry the verdict **Why it is a floor**: type-defeating
 test probe, userdata boundary, runtime capability probe, metatable
-access, and generic T. Together they hold 71 of the tree's casts today,
+access, and generic T. Together they hold 51 of the tree's casts today,
 by `docs/design/cast-sites.tsv`. They do not all stay that size — four
 of the five compress hard, because the shape repeats and one helper can
 carry it. Summing each class's smallest reachable count — six wrap
@@ -459,7 +459,7 @@ keep zero as a literal target and accept that it is reached by deleting
 those, or does it become zero outside a named floor — the justified
 casts no mechanism closes, held per class and ratcheted by
 `_build/casts_baseline.tl` — with a further condition on the test half,
-since 26 of the 71 are test probes and a probe behind one named helper
+since 14 of the 51 are test probes and a probe behind one named helper
 is a different thing from a probe written by hand at each site? That is
 the goal owner's call, made by amending `docs/goals.md`, not here.
 
