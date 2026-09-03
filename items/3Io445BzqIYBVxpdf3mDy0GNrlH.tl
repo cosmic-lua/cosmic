@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "wave-Dy0G-build",
+  ["claim"] = "wave-Dy0G-build",
   ["id"] = "3Io445BzqIYBVxpdf3mDy0GNrlH",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["repo"] = "cosmic-lua/cosmopolitan",
