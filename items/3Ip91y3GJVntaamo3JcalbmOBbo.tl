@@ -6,9 +6,8 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1654,
   ["repo"] = "cosmic-lua/cosmic",
-  ["reviewer"] = "review-albm_OBbo-2",
   ["title"] = "js: escape backtick, $, { and the double quote as \\uXXXX so SafeJs cannot open a template literal",
-  ["verdict"] = "request changes",
-  ["verdict_head"] = "613521542e49e756627efa33432db616bd634951",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "45abc0cec96209547b1e7eb1d227ac2231db47cc",
   ["verdict_spec"] = "b9c7fbda3ccead4f76e9687bf25573c3373fc6286e58cdfc8b774b42c9a7dcba",
 }
