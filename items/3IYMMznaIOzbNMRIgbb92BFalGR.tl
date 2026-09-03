@@ -6,7 +6,9 @@ return {
   ["id"] = "3IYMMznaIOzbNMRIgbb92BFalGR",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1647,
-  ["reviewer"] = "review-92BF_alGR-orch9",
   ["speccers"] = "40adde77-85e6-58e6-8a4e-4b659bb320d8",
   ["title"] = "casts: the 10 runtime capability probes behind one presence helper — five probed shapes is the floor",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "d2078d6d37ae55950431d558a291fefbe38353b4",
+  ["verdict_spec"] = "04f44d775aaff0f1f0f92adf04e69ab628dfe25563770ca21990d362baddca00",
 }
