@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-zdBC_oTPx",
+  ["claim"] = "build-zdBC_oTPx",
   ["id"] = "3Ip8vxLQQrSRx8vl7LpzdBCoTPx",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
