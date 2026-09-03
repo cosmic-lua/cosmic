@@ -1,5 +1,6 @@
 return {
-  ["builders"] = "08f30f3c-fae4-587e-9fb7-c57cf6e9751f",
+  ["builders"] = "08f30f3c-fae4-587e-9fb7-c57cf6e9751f build-MVs4_UosO-a1b2",
+  ["claim"] = "build-MVs4_UosO-a1b2",
   ["id"] = "3Ip92R4rzqYALy7Tn4pMVs4UosO",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
