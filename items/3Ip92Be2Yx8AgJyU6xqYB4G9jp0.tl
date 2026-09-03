@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1653,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-YB4G_9jp0-1",
   ["title"] = "template: {{url}} refuses javascript: and protocol-relative URLs, attribute-escapes at the splice",
 }
