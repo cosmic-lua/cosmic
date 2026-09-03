@@ -35,6 +35,7 @@ local fs = require("cosmic.fs")
 local index_m = require("_tool.doc.index")
 local literal = require("cosmic.literal")
 local project = require("_make.project")
+local shape = require("cosmic.shape")
 local types = require("_make.types")
 local types_gen = require("_types.types_gen")
 
@@ -159,6 +160,19 @@ local VERSION_STORED < const > = "cosmic/_version.lua"
 --- environment variable stays as a documented OVERRIDE for a build
 --- nobody tagged.
 local VERSION_PIN < const > = ".version"
+
+--- The `.version` file's shape: the cosmic version it declares, when it
+--- names one at all.
+local record DeclaredVersion
+  cosmic: string
+end
+local DECLARED_VERSION_SPEC < const > = shape.record({cosmic = shape.optional(shape.string)})
+
+--- The cosmos pin's shape: only the field this generator reads.
+local record CosmosPin
+  version: string
+end
+local COSMOS_PIN_SPEC < const > = shape.record({version = shape.string})
 
 --- The binary this generator belongs to.
 --- @param proj Project The scanned project
@@ -290,10 +304,9 @@ local function declared_version(): string
       io.stderr:write("embed_gen: " .. VERSION_PIN .. ": " ..
         (derr or "cannot read") .. "; falling back to the environment\n")
     else
-      -- cast: the literal reader returns a plain table
-      local named = (declared as {string: any}).cosmic
-      if named is string then
-        return named
+      local named: DeclaredVersion | nil = shape.into(declared, DECLARED_VERSION_SPEC)
+      if named and named.cosmic then
+        return named.cosmic
       end
     end
   end
@@ -330,8 +343,10 @@ local function write_version(dest: string): boolean, string
   if not pin then
     return false, COSMOS_PIN .. ": " .. (perr or "cannot read")
   end
-  -- cast: the literal reader returns a plain table
-  local cosmos = (pin as {string: any}).version
+  local cosmos_pin, serr: CosmosPin | nil, string = shape.into(pin, COSMOS_PIN_SPEC)
+  if not cosmos_pin then
+    return false, COSMOS_PIN .. ": " .. serr
+  end
   -- `return`, because this one is `require`d. cosmo.EncodeLua is called
   -- directly, not through the codec wrapper: a C binding, so the stamp
   -- bytes are identical whichever generation runs this generator.
@@ -340,7 +355,7 @@ local function write_version(dest: string): boolean, string
   -- two-string-field table, so the fallback is never taken.
   local stamp = "return " .. (cosmo.EncodeLua({
         cosmic = declared_version(),
-        cosmos = cosmos is string and cosmos or "unknown",
+        cosmos = cosmos_pin.version,
       }) or "{}") .. "\n"
   local out = fs.join(dest, VERSION_STORED)
   local mok, merr = fs.make_dirs(fs.dirname(out))

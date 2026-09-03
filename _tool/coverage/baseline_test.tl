@@ -5,8 +5,11 @@ local check = require("cosmic.check")
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local rep = require("_tool.coverage.report")
+local shape = require("cosmic.shape")
 
 local type FileReport = rep.FileReport
+
+local ENTRY_SPEC < const > = shape.record({covered = shape.integer, total = shape.integer})
 
 local function reports(rows: {{string, integer, integer}}): {FileReport}
   local out: {FileReport} = {}
@@ -483,7 +486,7 @@ local function test_migration_preserves_every_row()
       local path, covered, total = line:match("^(%S+) (%d+) (%d+)$")
       if path then
         old_count = old_count + 1
-        local got = new_rows[path] as {string: any} -- cast: literal row, known Entry shape
+        local got: baseline.Entry | nil = shape.into(new_rows[path], ENTRY_SPEC)
         assert(got and got.covered == tonumber(covered) and got.total == tonumber(total),
           "row moved or missing during migration: " .. path)
       end

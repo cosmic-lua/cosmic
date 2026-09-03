@@ -9,6 +9,17 @@
 -- nested tables and ["key"] entries.
 local function Example_parse()
   local literal = require("cosmic.literal")
+  local shape = require("cosmic.shape")
+  local record Config
+    name: string
+    port: integer
+    debug: boolean
+  end
+  local CONFIG < const > = shape.record({
+      name = shape.string,
+      port = shape.integer,
+      debug = shape.boolean,
+    })
   local raw = literal.parse([[
 return {
   name = "app",
@@ -17,7 +28,11 @@ return {
   limits = {["*"] = {rate = 10}},
 }
 ]], {file = "config.tl"})
-  local cfg = raw as {string: any} -- cast: the reader returns a plain table
+  local cfg, err: Config | nil, string = shape.into(raw, CONFIG)
+  if cfg == nil then
+    print(err)
+    return
+  end
   print(cfg.name, cfg.port, cfg.debug)
   -- Output:
   -- app	8080	false
