@@ -7,6 +7,7 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 370,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-h38H_4UJ0-orch9",
   ["speccers"] = "c3166793-5886-5fa0-8f44-66f7df2ae6f2",
   ["title"] = "sqlite extension registry: extract the remaining fifteen ext/misc units in three batches",
 }
