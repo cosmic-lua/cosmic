@@ -12,6 +12,11 @@
 ---   {{range <pipeline>}} … {{end}}         rebinds dot to the element
 ---   {{with <pipeline>}} … {{end}}          rescopes dot
 ---   {{<pipeline> | <import.path>}}         pipeline stages, left to right
+---   {{<ctx> <pipeline>}}                   mode html only: an explicit
+---                                           escaping context — "html"
+---                                           (the default), "attr",
+---                                           "url", "js", or "css" —
+---                                           ahead of the field path
 ---
 --- There is no `{{template}}` action — composition is a pipeline stage
 --- naming another compiled template's `render`.
@@ -33,6 +38,18 @@ end
 
 local STOP_ELSE < const >: {string: boolean} = {["else"] = true, ["end"] = true}
 local STOP_END < const >: {string: boolean} = {["end"] = true}
+
+--- The words a mode-html interpolation may open with, naming which
+--- Safe* type the checker requires at that slot ("html" is the
+--- default when none is written; see `codegen.tl`'s CTX_TARGET, the
+--- other half of this table).
+local CTX_WORDS < const >: {string: boolean} = {
+  html = true,
+  attr = true,
+  url = true,
+  js = true,
+  css = true,
+}
 
 --- Split a pipeline stage's import path into the module to `require`
 --- and the function called on it. `cosmic.html.safe` splits into
@@ -58,6 +75,10 @@ end
 local function parse_tokens(toks: {types.Token}, name: string):
   types.Template | nil, string
   local pos = 1
+  -- Declared here, ahead of parse_action below, so parse_action's
+  -- closure captures this SAME upvalue: section 2 sets its final
+  -- value before section 3 parses the body that reads it.
+  local mode = "text"
 
   local function peek(): types.Token
     return toks[pos]
@@ -141,7 +162,7 @@ local function parse_tokens(toks: {types.Token}, name: string):
       elseif t.kind == "text" then
         advance()
         nodes[#nodes + 1] = {kind = "text", text = t.value,
-          pipeline = EMPTY_PIPELINE, body = {}, else_body = {}, line = t.line}
+          pipeline = EMPTY_PIPELINE, body = {}, else_body = {}, ctx = "", line = t.line}
       elseif t.kind == "open" then
         local nxt = toks[pos + 1]
         if nxt and nxt.kind == "word" and stop_words[nxt.value] then
@@ -204,8 +225,13 @@ local function parse_tokens(toks: {types.Token}, name: string):
         return nil, eerr2
       end
       return {kind = kw, pipeline = pipe, body = res1.nodes, else_body = else_body,
-        text = "", line = head.line}, ""
-    elseif head.kind == "field" then
+        text = "", ctx = "", line = head.line}, ""
+    elseif head.kind == "field"
+    or (head.kind == "word" and mode == "html" and CTX_WORDS[head.value]) then
+      local ctx = "html"
+      if head.kind == "word" then
+        ctx = advance().value -- consume the context word ("html"/"attr"/"url"/"js"/"css")
+      end
       local pipe, perr = parse_pipeline()
       if not pipe then
         return nil, perr
@@ -215,7 +241,7 @@ local function parse_tokens(toks: {types.Token}, name: string):
         return nil, cerr
       end
       return {kind = "interp", pipeline = pipe, body = {}, else_body = {},
-        text = "", line = head.line}, ""
+        text = "", ctx = ctx, line = head.line}, ""
     end
     return nil, err_at(head, "unexpected '" .. head.value .. "' in action")
   end
@@ -256,8 +282,9 @@ local function parse_tokens(toks: {types.Token}, name: string):
     return nil, tclose
   end
 
-  -- 2. An optional {{mode html|text}} directly follows.
-  local mode = "text"
+  -- 2. An optional {{mode html|text}} directly follows. `mode` itself
+  -- is declared above parse_action, not here, so its closure sees the
+  -- value this section settles on.
   skip_blank_text()
   if peek() and peek().kind == "open" then
     local nxt = toks[pos + 1]

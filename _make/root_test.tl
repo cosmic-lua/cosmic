@@ -184,7 +184,7 @@ end
 -- that one asks about ancestors, this one asks about the cwd.
 local function test_a_bare_directory_is_not_a_project()
   local dir = tree("bare-dir", {["notes.tl"] = "return {}\n"})
-  local saved = fs.cwd() as string -- cast: cwd exists in a test
+  local saved = require("cosmic.check").must(fs.cwd())
   assert(fs.set_cwd(dir))
   local found, err = root.discover("build")
   assert(fs.set_cwd(saved))
@@ -231,7 +231,7 @@ end
 -- binary": a real file at (or under) the cwd wins as-is.
 local function test_resolve_self_resolves_a_real_path()
   local dir = tree("self-real", {["cosmic"] = "print('x')\n"})
-  local saved = fs.cwd() as string -- cast: cwd exists in a test
+  local saved = require("cosmic.check").must(fs.cwd())
   assert(fs.set_cwd(dir))
   local self = root.resolve_self("cosmic")
   assert(fs.set_cwd(saved))
@@ -245,7 +245,7 @@ end
 -- not to contain the binary.
 local function test_resolve_self_falls_back_to_path_search()
   local dir = tree("self-path", {})
-  local saved = fs.cwd() as string -- cast: cwd exists in a test
+  local saved = require("cosmic.check").must(fs.cwd())
   assert(fs.set_cwd(dir))
   local self = root.resolve_self("ls")
   assert(fs.set_cwd(saved))

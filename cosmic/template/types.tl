@@ -48,16 +48,24 @@ end
 --- empty `{Node}`) rather than leaving it nil, so a reader dispatching
 --- on `kind` never has to narrow:
 ---   "text"   text
----   "interp" pipeline
+---   "interp" pipeline, ctx
 ---   "if"     pipeline, body, else_body (empty when there is no {{else}})
 ---   "range"  pipeline, body
 ---   "with"   pipeline, body
+---
+--- `ctx` (an "interp" node only; `""` on every other kind) names the
+--- interpolation's escaping context in `{{mode html}}`: "html" (the
+--- default, when the action carries no context word), "attr", "url",
+--- "js", or "css" — one of the words `{{<ctx> <pipeline>}}` may open
+--- with. It is meaningless in `{{mode text}}`, which the parser never
+--- lets it appear in.
 local record Node
   kind: string
   text: string
   pipeline: Pipeline
   body: {Node}
   else_body: {Node}
+  ctx: string
   line: integer
 end
 

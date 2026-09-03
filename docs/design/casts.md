@@ -157,23 +157,6 @@ not.
 there is the source: concrete per-slot return types emit concrete Teal
 types and the call-site cast disappears, arriving here as a pin bump.
 
-### proved-value narrowing
-
-A `T | nil` re-typed to `T` because the code above established that the
-nil cannot occur — by an early-exit guard, by an `or` fallback that
-cannot itself be nil, or by a fact about the environment a test runs
-in. These casts do not make the code compile; they state the intent.
-
-```text
--- _make/root.tl:67
-      local hits = (fs.glob(cmd, pattern) or {}) as {string} -- cast: or keeps the nil union
-```
-
-**What closes it here.** The mechanisms ship already. `check.must`
-turns a fallible call into a plain value in tests, which is what the
-`fs.cwd()` sites want; the carried patch already narrows `x or
-fallback` and below an early-exit guard, so several are dead weight.
-
 ### enum relation
 
 An enum value used where a plain `string` is wanted, or one enum's word

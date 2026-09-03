@@ -5,10 +5,14 @@
 --- Every guarantee this feature makes is a guarantee about the OUTPUT:
 --- there is no runtime here, so what this emits is what
 --- `cosmic --check types` checks. In `mode html`, every interpolation
---- is typed `html.SafeHtml` — a raw `string` reaching that slot is a
+--- is typed by its context — `html.SafeHtml` by default, or whichever
+--- of `html.SafeAttr`/`url.SafeUrl`/`js.SafeJs`/`css.SafeCss` the
+--- template named at that slot (`CTX_TARGET` below) — so a raw
+--- `string`, or the WRONG context's safe type, reaching that slot is a
 --- compile error at the template line that produced it, never silent
---- output. This module does not know that rule; it only emits the
---- annotation that makes the Teal checker enforce it.
+--- output. This module does not know what makes an escaper correct;
+--- it only emits the annotation that makes the Teal checker enforce
+--- the match.
 
 local types = require("cosmic.template.types")
 
@@ -91,6 +95,25 @@ local record Ctx
   next_dot: function(): string
 end
 
+--- Where an interpolation's `Safe*` type comes from: the module to
+--- `require` and the type name within it.
+local record CtxTarget
+  module_path: string
+  type_name: string
+end
+
+--- One entry per word `CTX_WORDS` (`cosmic.template.parse`) accepts —
+--- the other half of that table. "attr" is the one context that
+--- shares `html`'s module: `SafeAttr` lives in `cosmic.html` beside
+--- `SafeHtml`, so the two never cost a second `require`.
+local CTX_TARGET < const >: {string: CtxTarget} = {
+  html = {module_path = "cosmic.html", type_name = "SafeHtml"},
+  attr = {module_path = "cosmic.html", type_name = "SafeAttr"},
+  url = {module_path = "cosmic.url", type_name = "SafeUrl"},
+  js = {module_path = "cosmic.js", type_name = "SafeJs"},
+  css = {module_path = "cosmic.css", type_name = "SafeCss"},
+}
+
 --- Appends the Teal statements for one node's subtree to `out`, in
 --- order. `dot_var` names the Teal local currently bound to the
 --- template's "dot" value; `range` and `with` open a new one, from
@@ -113,8 +136,10 @@ local function emit_node(out: {string}, ctx: Ctx, node: types.Node,
     local expr = pipeline_expr(ctx.imports, node.pipeline, dot_var)
     local v = ctx.next_var()
     if ctx.mode == "html" then
-      out[#out + 1] = indent .. "local " .. v .. ": " .. ctx.html_alias ..
-      ".SafeHtml = " .. expr
+      local target = CTX_TARGET[node.ctx]
+      local alias = alias_for(ctx.imports, target.module_path)
+      out[#out + 1] = indent .. "local " .. v .. ": " .. alias .. "." ..
+      target.type_name .. " = " .. expr
       out[#out + 1] = indent .. "parts[#parts + 1] = " .. v .. ".raw"
     else
       out[#out + 1] = indent .. "local " .. v .. ": string = " .. expr

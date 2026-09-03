@@ -178,8 +178,7 @@ local function reads_of_file(root: string, path: string): {string} | nil, string
   for _, declared in ipairs(reads_scan(content)) do
     local abs = fs.join(root, declared)
     if fs.is_dir(abs) then
-      -- cast: `or` keeps the nil in the union
-      local under = (fs.find(abs) or {}) as {string}
+      local under = fs.find(abs) or {}
       for _, f in ipairs(under) do
         -- collect returns root-joined paths; keep them root-relative
         -- like every other project.mk entry
