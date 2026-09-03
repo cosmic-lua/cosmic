@@ -8,7 +8,9 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1656,
   ["repo"] = "cosmic-lua/cosmic",
-  ["reviewer"] = "review-pawY_zI7x-obs1",
   ["speccers"] = "build-pawY_zI7x-obs1",
   ["title"] = "make: seed o/_types from the fetched cosmos pin before any generator closure compiles",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "f6f9afe1595568c9d9711fffaeb150dea9856db4",
+  ["verdict_spec"] = "754f862a6f13861532a85239cc44c875fea3503d1af82c57b739787ecf8c11f1",
 }
