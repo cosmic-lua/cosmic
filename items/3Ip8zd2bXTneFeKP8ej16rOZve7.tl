@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1662,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-16rO_Zve7-1",
   ["title"] = "nilreturn: the `type` tell reads the previous token like opens_body, so a field named type opens nothing",
 }
