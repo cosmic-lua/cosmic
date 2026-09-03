@@ -203,7 +203,10 @@ this bites hardest when a value crosses a module boundary: importing
 code that writes its own `record Rows ... end` to describe a value it
 got from a `require`d module gets a second, distinct `Rows` —
 assigning the module's value to a variable of the local one is a type
-error, not a coincidence of naming. the fix is to never re-declare: a
+error, not a coincidence of naming — `in local declaration: b: RowsA
+is not a RowsB` for a direct assignment of two same-shaped records,
+or, routed through `check.must` as in the pattern below, `argument 1:
+got Rows | nil, expected T | nil`. the fix is to never re-declare: a
 module that returns a record value declares the record ONCE and
 exports it as a member of its own module record (`type Rows = Rows`),
 and every importer aliases that member instead of writing a
