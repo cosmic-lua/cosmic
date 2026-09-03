@@ -64,7 +64,7 @@ local function is_root(dir: string): boolean
   local cmd = fs.join(dir, "cmd")
   if fs.is_dir(cmd) then
     for _, pattern in ipairs({"*/main.tl", "*/main.lua"}) do
-      local hits = (fs.glob(cmd, pattern) or {}) as {string} -- cast: or keeps the nil union
+      local hits = fs.glob(cmd, pattern) or {}
       if #hits > 0 then
         return true
       end

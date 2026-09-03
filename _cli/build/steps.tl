@@ -276,7 +276,7 @@ local function do_exec(args: {string}): integer
   -- actually is. Nothing escapes through the fallback: realpath only
   -- fails for a path that does not resolve, and `isfile` below rejects
   -- those (a dangling link included).
-  local abs = (fs.resolve(named) or named) as string -- cast: scalar fallback
+  local abs = fs.resolve(named) or named
   -- Prefix match on a separator boundary, so a sibling `o-other/` next
   -- to `o/` cannot pass for being inside it.
   if abs ~= root and abs:sub(1, #root + 1) ~= root .. "/" then

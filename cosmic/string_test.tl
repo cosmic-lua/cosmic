@@ -230,8 +230,7 @@ end
 -- runtime — string.match's result, which _tool/testrun.tl parses. The
 -- refusal has to come back as a value, not as a throw.
 local function test_to_integer_runtime_nil_refuses_rather_than_throws()
-  -- cast: tl types string.match as string; it is nil at runtime
-  local n, err = str.to_integer(("abc"):match("^(%d+)") as string)
+  local n, err = str.to_integer(("abc"):match("^(%d+)"))
   assert(n == nil, "expected a refusal")
   assert(err == "not an integer: nil", "got: " .. tostring(err))
 end
