@@ -238,6 +238,14 @@ local function test_count_reads_the_innermost_declared_return()
   -- whatever ended the item before it -- a name, a generic's `>`, an
   -- `end`, a bare `function` type.
   local field_access = table.concat({
+      -- `type` is a fifth declaring word with the same field-access
+      -- ambiguity, but its own field access is exercised separately
+      -- (`type_access.tl`, `type_record_assign.tl`, below). This is
+      -- the control the gate on it must not break: a real alias at
+      -- module scope, where the token before is `local`.
+      "local type Alias = integer",
+      "local ax: Alias = 1",
+      "print(ax)",
       "local t = {record = 1, enum = 2, interface = 3, macroexp = 4}",
       "local x = t.macroexp",
       "print(x)",
@@ -266,6 +274,49 @@ local function test_count_reads_the_innermost_declared_return()
       "end",
       "print(Outer)",
     }, "\n") .. "\n"
+  -- `type` is an IDENTIFIER too, and the alias tell (`skip_type_alias`)
+  -- reads only what FOLLOWS: `NAME =` then a type. A field access
+  -- `t.type` at the end of a line, followed by an unrelated statement
+  -- `name = ...`, is the same three tokens, so a tell that reads only
+  -- what follows hands the statement's right-hand side to the type
+  -- parser -- a function's body is eaten with no `fn` frame opening for
+  -- it, and the honest `return nil` inside is charged to nobody.
+  local type_then_assign = table.concat({
+      "local function outer(): string | nil",
+      "  local t = {type = 1}",
+      "  local k = t.type",
+      "  handler = function(): string",
+      "    return nil",
+      "  end",
+      "  return k and \"x\" or nil",
+      "end",
+      "print(outer())",
+    }, "\n") .. "\n"
+  -- The same field access, followed by a statement that assigns a
+  -- value named `record`. Reading only what follows hands `record or
+  -- {}` to the type parser too, and `record`'s body-opening spelling
+  -- would open a `fields` frame no `end` ever pops.
+  local type_then_record_assign = table.concat({
+      "local t = {type = 1}",
+      "local k = t.type",
+      "record = record or {}",
+      "print(k)",
+    }, "\n") .. "\n"
+  -- `opens_alias` accepts once the previous token is `local`, but a
+  -- malformed alias behind it -- no `=` at all -- must still fall
+  -- through cleanly rather than open anything: `skip_type_alias` keeps
+  -- its own guard on the `=` for exactly this shape.
+  local type_missing_eq = table.concat({
+      "local type Weird",
+      "print(Weird)",
+    }, "\n") .. "\n"
+  -- `type` as the very FIRST token of a file has no previous token at
+  -- all, which is the one input `opens_alias` cannot reach past `local`
+  -- or an item's end to check -- it must read as "no", not crash.
+  local type_as_first_token = table.concat({
+      "type Bare = integer",
+      "print(Bare)",
+    }, "\n") .. "\n"
   local quoted = table.concat({
       "local function fine(): string",
       "  local s = \"local function f(): string return nil end\"",
@@ -292,6 +343,11 @@ local function test_count_reads_the_innermost_declared_return()
   assert(fs.write(fs.join(root, "cosmic", "macro.tl"), macro_bodies))
   assert(fs.write(fs.join(root, "cosmic", "mlie.tl"), macro_lying))
   assert(fs.write(fs.join(root, "cosmic", "access.tl"), field_access))
+  assert(fs.write(fs.join(root, "cosmic", "type_access.tl"), type_then_assign))
+  assert(fs.write(fs.join(root, "cosmic", "type_record_assign.tl"),
+      type_then_record_assign))
+  assert(fs.write(fs.join(root, "cosmic", "type_missing_eq.tl"), type_missing_eq))
+  assert(fs.write(fs.join(root, "cosmic", "type_first.tl"), type_as_first_token))
   assert(fs.write(fs.join(root, "cosmic", "quoted.tl"), quoted))
   assert(fs.write(fs.join(root, "cosmic", "testdata", "fixture.tl"), lies))
   assert(fs.write(fs.join(root, "untracked", "loose.tl"), lies))
@@ -338,6 +394,22 @@ local function test_count_reads_the_innermost_declared_return()
   assert(got["cosmic/access.tl"] == nil,
     "a field access spelled with a declaring word declares nothing: "
     .. tostring(got["cosmic/access.tl"]))
+  assert(got["cosmic/type_access.tl"] == 1,
+    "`type` is a fifth declaring word: `t.type` followed by an unrelated"
+    .. " assignment declares nothing, and the honest return inside the"
+    .. " handler it swallows must still be charged to it: "
+    .. tostring(got["cosmic/type_access.tl"]))
+  assert(got["cosmic/type_record_assign.tl"] == nil,
+    "the same field access followed by a `record`-named assignment must"
+    .. " not open a body either: "
+    .. tostring(got["cosmic/type_record_assign.tl"]))
+  assert(got["cosmic/type_missing_eq.tl"] == nil,
+    "a `local type` with no `=` opens nothing, well-formed or not: "
+    .. tostring(got["cosmic/type_missing_eq.tl"]))
+  assert(got["cosmic/type_first.tl"] == nil,
+    "`type` as the file's very first token has no previous token to"
+    .. " accept, and must read as no rather than fail: "
+    .. tostring(got["cosmic/type_first.tl"]))
   assert(got["cosmic/quoted.tl"] == nil,
     "a return quoted inside a string is not a return")
   assert(got["cosmic/testdata/fixture.tl"] == nil, "testdata is skipped")

@@ -209,6 +209,18 @@ local function test_a_value_named_macroexp_is_not_a_signature()
     "`local macroexp = 1` binds a value; nothing declares a return list")
 end
 
+local function test_field_access_named_macroexp_is_not_a_signature()
+  -- `t.macroexp` at the end of a line, followed by a statement that
+  -- starts with a name, is the same two tokens as `local macroexp
+  -- NAME(...)`. The token before must decide, or this reads as a
+  -- signature -- harmless today only because `params_open` is
+  -- same-line and finds nothing to open on the next line, but the
+  -- alignment with `_cli.nilreturn`'s own previous-token tell must
+  -- hold regardless of that accident.
+  check.equal(#diagnose("local x = t.macroexp\nfoo(1)\n"), 0,
+    "a field access is not a declaration, before or after the alignment")
+end
+
 local function test_message_names_the_fix()
   local diags = diagnose(
     "local function f(): any, boolean, string\n  return nil\nend\n")

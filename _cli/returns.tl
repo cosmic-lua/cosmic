@@ -278,8 +278,11 @@ end
 --- it. Two spellings declare one: `local macroexp NAME(...)`, where a
 --- name follows, and a record field's `= macroexp(...)`. A value that
 --- happens to be called `macroexp` is neither: `local macroexp = 1`
---- puts `=` after it, and a call of it, `= macroexp(1)`, has no `:`
---- after its argument list for a return list to follow.
+--- puts `=` after it, a call of it, `= macroexp(1)`, has no `:` after
+--- its argument list for a return list to follow, and a field access
+--- `t.macroexp` followed by a line that starts with a name has the
+--- same two tokens as `local macroexp NAME(...)` — the token BEFORE is
+--- what tells them apart, exactly where tl accepts the declaration.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the candidate
 --- @return boolean True when a signature follows
@@ -292,10 +295,10 @@ local function opens_macroexp(tokens: {Token}, i: integer): boolean
   if nxt == nil then
     return false
   end
-  if nxt.kind == "identifier" then
-    return true
-  end
   local prev = tokens[i - 1]
+  if nxt.kind == "identifier" then
+    return prev ~= nil and (prev.tk == "local" or prev.tk == "global")
+  end
   return (nxt.tk == "(" or nxt.tk == "<")
   and prev ~= nil and prev.tk == "="
 end

@@ -64,6 +64,10 @@ end
 --- at `macroexp` when it sits directly after the `local` with a name
 --- after it, the one spelling that declares one (`local macroexp = 1`
 --- binds a value called `macroexp`; `local a, macroexp` names two).
+--- Stopping here is what puts `type` directly after `local`/`global`
+--- when the walk lands on it — the other position `opens_alias` accepts
+--- is item start inside a record body — so a field access spelled
+--- `t.type` can never reach this stop.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the `local` or `global`
 --- @return integer Index of the first token past the head
@@ -99,26 +103,23 @@ local function skip_declaration_head(tokens: {Token}, i: integer): integer
 end
 
 --- Index just past a `type NAME = <type>` alias, and whether that
---- alias opens a BODY.
+--- alias opens a BODY. Called only once `opens_alias` has confirmed the
+--- `type` at `i` declares one, so the name at `i + 1` is already known
+--- to be an identifier.
 ---
 --- `record`, `interface` and `enum` are identifier atoms to the type
 --- grammar, so handing one to `parse_type` consumes it — the walk never
 --- lands on it, no frame opens, and the body's `end` pops the enclosing
 --- function instead. So the alias reports the body itself: it is the
 --- one path that knows a `record` here is a KEYWORD rather than a name,
---- and it lands exactly on that token. Reading it backwards instead —
---- any `record` whose previous token is `=` — cannot tell the alias
---- from an ordinary binding of a value that happens to be called
---- `record` (`record = record` in an export table), and the frame that
---- pushes is one no `end` ever pops.
+--- and it lands exactly on that token.
 --- @param tokens {tl.Token} The file's tokens
 --- @param i integer Index of the `type`
 --- @return integer Index of the alias body's opener, or of the first token past the alias
 --- @return boolean True when that index is a body opener
 local function skip_type_alias(tokens: {Token}, i: integer): integer, boolean
-  local name = tokens[i + 1]
   local eq = tokens[i + 2]
-  if name == nil or name.kind ~= "identifier" or eq == nil or eq.tk ~= "=" then
+  if eq == nil or eq.tk ~= "=" then
     return i + 1, false
   end
   local rhs = tokens[i + 3]
@@ -187,6 +188,35 @@ local function opens_body(tokens: {Token}, i: integer,
   -- opens — `skip_type_alias` reports that one from the alias itself.
   local nxt = tokens[i + 1]
   if nxt == nil or not (nxt.kind == "identifier" or nxt.tk == "<") then
+    return false
+  end
+  local prev = tokens[i - 1]
+  if prev == nil then
+    return false
+  end
+  if #stack > 0 and stack[#stack].kind == "fields" then
+    return ends_item(prev)
+  end
+  return prev.tk == "local" or prev.tk == "global"
+end
+
+--- Whether `type` at `i` opens an alias declaration rather than naming a
+--- value. `type` is an identifier to the lexer, so a name after it is
+--- necessary but not enough: `t.type` followed by a line that starts
+--- with a name (`k = ...`) has the same three tokens as `type NAME =
+--- ...`, and tl reads the former as a field access ending a statement.
+--- The token BEFORE decides, exactly where tl accepts a declaration:
+--- after `local`/`global` (`local type R = ...`), or at item start
+--- inside a `record`/`interface` body (a nested `type Inner = ...`),
+--- which is wherever the previous item ended.
+--- @param tokens {tl.Token} The file's tokens
+--- @param i integer Index of the candidate
+--- @param stack {Frame} The frames open at `i`
+--- @return boolean True when an alias follows
+local function opens_alias(tokens: {Token}, i: integer,
+    stack: {Frame}): boolean
+  local nxt = tokens[i + 1]
+  if nxt == nil or nxt.kind ~= "identifier" then
     return false
   end
   local prev = tokens[i - 1]
@@ -315,7 +345,8 @@ local function walk(content: string, file: string): Walk
     elseif t.kind == "identifier" and tk == "global"
     and tokens[i + 1] ~= nil and tokens[i + 1].kind == "identifier" then
       i = skip_declaration_head(tokens, i)
-    elseif t.kind == "identifier" and tk == "type" then
+    elseif t.kind == "identifier" and tk == "type"
+    and opens_alias(tokens, i, stack) then
       local after, body = skip_type_alias(tokens, i)
       if body then
         stack[#stack + 1] = {kind = "fields", lies = false}
