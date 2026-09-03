@@ -6,7 +6,9 @@ return {
   ["id"] = "3IYMQz3o1PNwTlNbMUbke6byr5h",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1664,
-  ["reviewer"] = "review-ke6b_yr5h-v1",
   ["speccers"] = "e277faa5-ee02-55c9-8d7e-4d688b76f501 617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "G3 wording: the measured cast floor is 23, so decide whether zero as-casts stays literal",
+  ["verdict"] = "request changes",
+  ["verdict_head"] = "e6850d2c36964604f9a98410fe13f87ce8104f8b",
+  ["verdict_spec"] = "355c7a1b2f4d959a3a1f1b91a105efc129f3465515ed32adcc7d7b2516cec539",
 }
