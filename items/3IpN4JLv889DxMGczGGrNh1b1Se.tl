@@ -1,4 +1,5 @@
 return {
+  ["base"] = "board",
   ["id"] = "3IpN4JLv889DxMGczGGrNh1b1Se",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["repo"] = "cosmic-lua/cosmic",
