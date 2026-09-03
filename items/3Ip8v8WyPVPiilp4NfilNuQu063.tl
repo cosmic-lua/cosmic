@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 377,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-lNuQ_u063-v1",
   ["title"] = "definitions.lua: fallible bindings' @overload arms declare `true`, hiding the nil, err, errno tuple",
 }
