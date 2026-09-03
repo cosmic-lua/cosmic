@@ -6,6 +6,7 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1654,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-albm_OBbo-2",
   ["title"] = "js: escape backtick, $, { and the double quote as \\uXXXX so SafeJs cannot open a template literal",
   ["verdict"] = "request changes",
   ["verdict_head"] = "613521542e49e756627efa33432db616bd634951",
