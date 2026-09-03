@@ -432,21 +432,6 @@ type is knowable in every case: a narrow record for the two stdlib
 functions the coverage hook swaps, the walker taking the record it
 walks, and the response callback declaring the map it accepts.
 
-### sqlite row column read
-
-A `Row` is `{string: any}`, so reading a column whose type the query
-already fixes costs a cast at every read.
-
-```text
--- cosmic/sqlite/lifecycle_test.tl:12
-  return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as integer
-```
-
-**What closes it here.** Typed column accessors on `Row` — a `text`,
-`number`, `integer` and `blob` reader taking the column name and
-returning the declared type or failing. The row's dynamic shape is
-real, so the accessor is what makes the check fail honestly.
-
 ## The floor
 
 Five classes carry the verdict **Why it is a floor**: type-defeating

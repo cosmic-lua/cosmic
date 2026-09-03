@@ -169,8 +169,6 @@ cosmic/sqlite/close_test.tl	172	metatable access
 cosmic/sqlite/close_test.tl	174	metatable access
 cosmic/sqlite/extras.tl	63	pcall return shape
 cosmic/sqlite/extras.tl	106	pcall return shape
-cosmic/sqlite/extras_test.tl	48	sqlite row column read
-cosmic/sqlite/lifecycle_test.tl	12	sqlite row column read
 cosmic/stream.tl	237	runtime capability probe
 cosmic/sys.tl	46	enum relation
 cosmic/sys_test.tl	14	enum relation
