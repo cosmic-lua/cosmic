@@ -29,7 +29,7 @@ local function test_erasure_rules()
     ["GenTarget"] = "string",
     ["boolean | GenCompat"] = "boolean | string",
     ["tl.Node"] = "any",
-    ["Env"] = "any",
+    ["Env"] = "Env",
     ["{Token}"] = "{Token}",
     ["{Comment}"] = "{Comment}",
     ["{Error}"] = "{Error}",

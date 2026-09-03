@@ -48,7 +48,12 @@ local function test_new_env_checks_like_the_parse_path()
         gen_compat = "off",
       }))
   local code = "local s: string = string.rep(\"x\", \"not a number\")\n"
-  local result = tl.process_string(code, false, env, "probe.tl")
+  local result = tl.process_string(code, false,
+    env as tl.Env, -- cast: env comes from teal_ast.new_env, still declared any
+    -- pending 3IortEJ5fOuRnJ7OpJMfuXzMkSX; this cast only satisfies
+    -- tl.process_string's now-curated 3rd parameter here and is removed
+    -- by that follow-up, not by this item
+    "probe.tl")
   assert(#result.type_errors == 1,
     "expected exactly one type error, got " .. #result.type_errors)
   local first = result.type_errors[1]
