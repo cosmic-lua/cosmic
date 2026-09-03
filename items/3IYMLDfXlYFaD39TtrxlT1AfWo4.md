@@ -51,23 +51,45 @@ not uniform, which changes what "closes it" means:
   available in the currently pinned tl already; **no `3p/tl/tl_pin.tl`
   bump is needed** for this slice.
 
-**Correction from a build attempt (2026-09-03):** a builder tried
+**Correction from build attempt #1 (2026-09-03):** a builder tried
 curating `Env` AND switching the three `_teal_ast.tl`/
 `_teal_engine.tl` cast sites to consume it in one PR, and hit a
-reproducible cold-build failure — `_types/types_gen.tl` (the
-generator that writes the fresh curated type) is itself a `.tl` file
-that must compile before it runs, and compiling it recurses through
-`cosmic._teal_engine.build_env` → `require("cosmic._teal_ast")`,
-which on a cold tree resolves the EDITED `_teal_ast.tl` source's
-`tl.Env` reference against the CURRENT `bin/cosmic.pin`'s embedded
-type declarations (no `Env` yet) before the fresh curation can ever
-be generated. Full repro in `3IortEJ5fOuRnJ7OpJMfuXzMkSX`. This is
-the cold-build rule (CLAUDE.md) in exactly the shape it warns about:
-curating `Env` alone has no cold-build hazard (nothing in the tree
-type-checks against it yet), but consuming it in the same PR does.
-This item is now scoped to the curation half only; consuming it is
-split out to `3IortEJ5fOuRnJ7OpJMfuXzMkSX`, gated on a
-`bin/cosmic.pin` bump to a release built with this item's change.
+reproducible cold-build failure in `_types/types_gen.tl`'s own
+self-compilation. Full repro in `3IortEJ5fOuRnJ7OpJMfuXzMkSX`. The
+item was narrowed to curate `Env` alone, deferring the three
+`report_types`/`loaded` cast removals to that follow-up.
+
+**Correction from build attempt #2 (2026-09-03):** curating `Env`
+ALONE, with zero consumer edits, ALSO fails to build — cold or warm.
+`cosmic/_teal_engine.tl:239` (inside `process_source`, a call the
+prior attempt did not touch) is:
+```lua
+local ok, result_or_err = pcall(tl.process_string, input, false, env, name)
+```
+`env`'s static type there is `any` (from `build_env(...): any,
+string` / `env_cache: {string: any}` — both untouched by this item).
+Once `Env` is curated, `_types/gentl.tl`'s already-curated `FUNCTIONS`
+entry for `tl.process_string` resolves its 4th parameter from `any` to
+the concrete `Env` record, and tl's `pcall` argument-checking rejects
+an `any`-typed argument there — reproduced twice, deterministically,
+including with a clean `rm -rf o && bin/cosmic --make fetch &&
+bin/cosmic --make build`:
+```
+.../cosmic/_teal_engine.tl:239:73: error: argument 4: got <any type>, expected Env
+```
+Confirmed causal: reverting only the `_types/gentl.tl`/
+`_types/gentl_test.tl` diff (`git stash`) restores a clean cold build;
+reapplying it (`git stash pop`) reproduces the failure identically.
+
+So curating `Env` has exactly one real consumer today, unavoidably:
+this `pcall` call site, which is otherwise structurally forced to
+type-check against `Env` the moment it exists, regardless of whether
+`build_env`/`process_source`'s own DECLARED signatures change. This
+item's `## Change` now includes the one minimal fix that call site
+needs — an explicit cast, not a signature change — which is narrower
+than and does not overlap with `3IortEJ5fOuRnJ7OpJMfuXzMkSX`'s scope
+(that item still owns `build_env`'s and `process_source`'s declared
+return types and the two `{string: any}` casts at lines ~231-232).
 
 ## Change
 
@@ -91,6 +113,12 @@ record body in the `PRELUDE` string, plus a `RECORD_FIELDS` entry that
   ```
   (`Result` is already `NAMED`, so `loaded`'s value type resolves with
   no further change)
+- `_types/gentl_test.tl`: its `erase()` unit test for `tl.new_env`'s
+  return exercises the exact function this change retypes — update
+  its expected erased-type string from `"any"` to `"Env"` (the test's
+  own job is to pin what `erase()` does; this is not a scope
+  violation, it is keeping that pin accurate for the type it now
+  asserts).
 
 Adding `Env` to `NAMED` is sufficient by itself for `erase()` to stop
 mapping it to `any`: `tl.new_env`'s already-curated `FUNCTIONS` entry
@@ -98,16 +126,36 @@ picks up the new type automatically, so its generated declaration
 becomes `function(? EnvOptions): (Env, string)` with no other generator
 code change.
 
+**The one required consumer-side fix** (see "Correction from build
+attempt #2" above — this is not optional, the build does not pass
+without it, cold or warm): in `cosmic/_teal_engine.tl`'s
+`process_source`, at the `pcall(tl.process_string, input, false, env,
+name)` call (currently line 239), change the argument to `env as Env`
+with a trailing `-- cast: env's declared type stays any until
+3IortEJ5fOuRnJ7OpJMfuXzMkSX retypes build_env/process_source; this
+cast only satisfies tl.process_string's now-curated 4th parameter and
+is removed by that follow-up, not by this item`. Do NOT change
+`env`'s declared type, `build_env`'s declared return, `process_source`'s
+declared return, `env_cache`'s declared type, or touch the two
+`{string: any}` casts at lines ~231-232 — all of those stay
+`3IortEJ5fOuRnJ7OpJMfuXzMkSX`'s job unchanged.
+
+This adds one new cast site to `cosmic/_teal_engine.tl` (a file
+already in `_build/casts_baseline.tl`'s ratchet). Measure its current
+row before this change (`grep -n 'cosmic/_teal_engine.tl' -A1
+_build/casts_baseline.tl` or equivalent) and update it to reflect the
+one added cast; do the same for `docs/design/cast-sites.tsv` (add one
+row for this new site, do not touch the three existing rows the
+follow-up item owns) via `bin/cosmic --make run _build/casts.tl
+--baseline` and `bin/cosmic --make run _build/cast_sites.tl
+--reconcile`, then commit both. `_build/casts_test.tl`/
+`_build/cast_sites_test.tl` fail until they match.
+
 Verify with `bin/cosmic --make ci` passing, AND a genuinely cold
 build succeeding — `rm -rf o && bin/cosmic --make fetch && bin/cosmic
---make build` — since this is exactly the scenario the prior build
-attempt found broken for the wider change; confirming this narrower
-one builds cold is this item's own proof that the split was cut in
-the right place.
-
-No cast site in the tree references `tl.Env` yet after this change
-(that is the follow-up item's job), so `_build/casts_baseline.tl` and
-`docs/design/cast-sites.tsv` do not move here.
+--make build` — since this is exactly the scenario both prior build
+attempts found broken; confirming a cold build is this item's own
+proof the fix is complete.
 
 No `3p/tl/tl_pin.tl` bump: everything cited above is read from the tl
 this tree already has pinned (`3p/tl/tl_pin.tl`'s `version =
@@ -116,14 +164,14 @@ fetch` → `fetch: PASS (2 pins)`) and quoted from `o/3p/tl/tl.tl`.
 
 ## Non-goals
 
-- The consumer-side change — switching `cosmic/_teal_ast.tl`'s
-  `teal_ast.new_env` and `cosmic/_teal_engine.tl`'s `build_env`/
-  `process_source` to use the curated `tl.Env` instead of `any`,
-  dropping their three `as {any: any}` casts, and the
-  `_build/casts_baseline.tl`/`docs/design/cast-sites.tsv` updates that
-  go with it — is `3IortEJ5fOuRnJ7OpJMfuXzMkSX`, not this item. It
-  cannot land until `bin/cosmic.pin` carries a release built with
-  THIS item's curation (see that item's `## Prerequisite`).
+- The consumer-side change `3IortEJ5fOuRnJ7OpJMfuXzMkSX` owns —
+  `build_env`'s and `process_source`'s DECLARED return types
+  (`any, string` → `tl.Env | nil, string`), `env_cache`'s declared
+  type, and the two `{string: any}` casts at lines ~231-232 reading
+  `report_types`/`loaded` — is unchanged by this item. This item adds
+  exactly one narrow, temporary `env as Env` cast at the `pcall` call
+  site (see Change), forced into existence by curating `Env` at all,
+  not a step toward that follow-up's broader retyping.
 - The other 15 of the 18 `tl compiler surface` sites stay open:
   `_tool/discover.tl`, `_tool/coverage/lines.tl`, `_types/tlast.tl:106`,
   `_types/tlast_test.tl:60`, `cosmic/_teal_ast_test.tl`, and
@@ -132,10 +180,7 @@ fetch` → `fetch: PASS (2 pins)`) and quoted from `o/3p/tl/tl.tl`.
   uncurated-but-available record the way `Env` was — closing these
   needs a `teal-language/tl` change that publishes real node fields,
   and **no session working this board has push/PR access to that
-  repository**; do not attempt an upstream tl PR from here. If a
-  cosmic-lua-owned fork of tl is ever pinned in place of upstream, or
-  upstream tl accepts and ships such a change on its own, this floor
-  reopens as a new item then — not by guessing at it now.
+  repository**; do not attempt an upstream tl PR from here.
 - `_types/tlast.tl:106` and `:331`: this file `load()`s a *second*,
   private copy of `tl.lua` rather than using `require("tl")`, so
   `_types/gentl.tl`'s curated `tl.d.tl` type never applies to it no
