@@ -29,6 +29,31 @@ local function test_escape_literal_escapes_template_literal_syntax()
   )
 end
 
+local function test_escape_literal_escapes_target_after_literal_backslash()
+  -- cosmo.EscapeLiteral doubles a literal backslash to `\\`; a naive
+  -- "optional single backslash" pattern misreads the second byte of
+  -- that pair as belonging to the next target character and leaves
+  -- the target raw. One literal backslash ahead of each of the five
+  -- targets must still fully escape the target.
+  for _, ch in ipairs({"`", "$", "{", "}", [["]]}) do
+    local result = js.escape_literal("\\" .. ch)
+    assert(not result:find(ch, 1, true), "expected no raw " .. ch .. ", got: " .. result)
+  end
+end
+
+local function test_escape_literal_escapes_backtick_after_literal_backslash()
+  -- the PR's own motivating case (`${alert(1)}`), with one leading
+  -- literal backslash — the reviewer's reproduced bypass.
+  local result = js.escape_literal([[\`${alert(1)}`]])
+  for _, ch in ipairs({"`", "$", "{", "}"}) do
+    assert(not result:find(ch, 1, true), "expected no raw " .. ch .. ", got: " .. result)
+  end
+  assert(
+    result == "\\\\\\u0060\\u0024\\u007balert(1)\\u007d\\u0060",
+    "expected the leading backslash preserved and all syntax escaped, got: " .. result
+  )
+end
+
 local function test_escape_literal_escapes_attribute_breakout_quotes()
   local result = js.escape_literal([[");alert(1);//]])
   assert(not result:find('"', 1, true), "expected no raw quote byte, got: " .. result)
