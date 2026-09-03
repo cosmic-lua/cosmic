@@ -81,7 +81,7 @@ local function test_generated_html_module_type_checks_with_every_context()
   local src = table.concat({
       "{{type Page from " .. FIXTURE .. "}}",
       "{{mode html}}",
-      '<a href="{{url .title | cosmic.url.safe_path}}"',
+      '<a href="{{url .title | cosmic.url.safe_href}}"',
       ' data-x="{{attr .body | cosmic.html.safe_attr}}">',
       "<script>var t = \"{{js .title | cosmic.js.safe}}\";</script>",
       "<style>a { color: {{css .body | cosmic.css.safe}}; }</style>",
