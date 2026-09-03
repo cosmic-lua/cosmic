@@ -190,6 +190,80 @@ return M
 works when the record must stay standalone for internal reasons — see
 how `cosmic.fs` re-exports `Stat`.)
 
+## records-are-nominal
+
+Teal record identity is nominal, not structural: two `record`
+declarations with identical fields are unrelated types, even when both
+are visible and even when every field matches exactly. Nothing narrows
+one to the other and no cast reconciles them for free — casting a value
+of one to the other still needs an explicit, individually-justified
+`as`.
+
+this bites hardest when a value crosses a module boundary: importing
+code that writes its own `record Rows ... end` to describe a value it
+got from a `require`d module gets a second, distinct `Rows` —
+assigning the module's value to a variable of the local one is a type
+error, not a coincidence of naming — `in local declaration: b: RowsA
+is not a RowsB` for a direct assignment of two same-shaped records,
+or, routed through `check.must` as in the pattern below, `argument 1:
+got Rows | nil, expected T | nil`. the fix is to never re-declare: a
+module that returns a record value declares the record ONCE and
+exports it as a member of its own module record (`type Rows = Rows`),
+and every importer aliases that member instead of writing a
+declaration of its own:
+
+```teal
+local record Blob
+  data: string
+end
+local record M
+  type Blob = Blob -- exported alias: importers write mod.Blob
+  wrap: function(data: string): Blob
+end
+local function wrap(data: string): Blob
+  return {data = data}
+end
+local mod: M = {
+  wrap = wrap,
+}
+return mod
+```
+
+```teal
+local check = require("cosmic.check")
+local sqlite = require("cosmic.sqlite")
+
+local type Rows = sqlite.Rows -- alias, never `local record Rows ... end`
+
+local db = check.must(sqlite.open(":memory:"))
+local rows: Rows = check.must(db:query("SELECT * FROM t"))
+for row in rows do
+  print(row.id)
+end
+```
+
+`cosmic/sqlite/bind.tl` works the first pattern for `Blob`, `Params`,
+and `OnClose`; `cosmic/sqlite/row_iter.tl` exports `Rows` the same way,
+and both `cosmic/sqlite/init.tl` and the importer above alias it
+(`sqlite.Rows`) rather than declaring their own.
+
+when a value is built with `setmetatable`, annotate the local with the
+record type instead of casting the call's result — the annotation
+types the seed, so no cast is needed at all:
+
+```teal
+local record Rows
+  metamethod __call: function(self: Rows): {string: any}
+end
+local mt: metatable < Rows > = {
+  __call = function(_self: Rows): {string: any}
+    return {}
+  end,
+}
+local iter: Rows = setmetatable({}, mt) -- typed by the annotation
+return iter
+```
+
 ## colon-call
 
 the checker's `invalid key 'add' in record 'db'` error carries the fix
