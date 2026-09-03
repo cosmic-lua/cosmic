@@ -1,7 +1,7 @@
 # D20 — the naming charter, and the renames that applied it
 
 - **date:** 2026-08
-- **status:** amended 2026-08 (the kept-POSIX set; rule 11)
+- **status:** amended 2026-09 (iterator terminating payload; earlier: the kept-POSIX set, rule 11)
 - **context:** the API review found five or six *competing
   internally-consistent* naming conventions on the public surface, not
   random names: POSIX spellings beside English ones (`makedirs` /
@@ -157,3 +157,29 @@
   the fix, beside find_iter's "remove the thing the slot carried". `fs.visit` also stopped
   echoing the caller's own context back, which is what the record it
   now returns would otherwise have had to carry generically.
+- **amended 2026-09 (iterator payload, #1643 review):** an iterator's
+  `__call` returns only the loop value (`string`, no nil in slot 1);
+  whatever the exhausted iterator has to say — `FileIter`'s
+  subtree-error list, `LineIter`'s read failure — is read through a
+  named accessor on the iterator after the loop, never by calling the
+  iterator once more. What stopped being true: the
+  `local _, errs = iter()` idiom this record's rule-11 application
+  above recorded as the terminating-payload read — retyping `__call`
+  to plain `string`, to close seven `for … in` nil-flow rows, makes
+  that idiom's real `nil` invisible to the checker, which is the
+  defect PR #1643's review caught. What replaced it: a separate
+  accessor, called once after `for … in iter do` exits, instead of
+  calling `iter()` again; `stream.LineIter` — today a bare function
+  type — becomes a callable record to carry it, and every future
+  iterator follows the same shape. Board item
+  `3ImmKYCJNNxTS9eAISxrHCW59sk` settled the direction:
+
+  > d. give the terminating payload its own accessor, decoupled from
+  > the loop-call, instead of overloading one `__call` signature for
+  > two different purposes. […] `for … in iter do` keeps calling
+  > `iter()` exactly as it does today and that call's first return is
+  > retyped to plain, non-nilable `string` […] The terminating payload
+  > — `FileIter`'s trailing subtree-error list, `LineIter`/`Body.lines`'s
+  > read-failure message — moves to a NEW, separate accessor with its
+  > own honestly-nilable signature, called once after the loop ends
+  > instead of by calling `iter()` again.
