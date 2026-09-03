@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 374,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-fh4n_DtCK-1",
   ["title"] = "definitions: put the error in slot 2 for mkstemp, Dir:read and wal_checkpoint, the tiocgwinsz way",
 }
