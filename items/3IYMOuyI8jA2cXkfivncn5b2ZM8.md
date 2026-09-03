@@ -1,27 +1,52 @@
-## Goal
+## Evidence
 
-G3 — an honest type layer, no escape hatches. From the census in
-`docs/design/casts.md`: the **numeric narrowing** class, 9 sites.
-Files: `cosmic/format/init.tl` 4; `cosmic/_literal_lex.tl` 3;
-`cosmic/fs/octal.tl` 1; `cosmic/url.tl` 1. The shape is a value the
-code has established is an integer but tl declares `number`: digits
-just parsed by `tonumber` with an explicit base (`tonumber(digits, 8)`
-in the octal parser, `tonumber(hex, 16)` in the URL unescaper and the
-literal lexer), a codepoint computation bounded above and below, a
-value a `math.type` check has already sorted, and the tl error record's
-line and column fields. The census verdict is **what closes it
-upstream**: `math.type(x) == "integer"` is a guard the checker could
-narrow on, exactly as the carried patch already narrows a nil union on
-`== nil`; and `tonumber(s, base)` over a string of digits in that base
-is integral by Lua's own contract, so tl could declare the two-argument
-form as returning `integer | nil`. Both are checker rules rather than
-anything this tree can declare at the call site, so they land in
-`3p/tl/tl_patch/` or upstream in tl and stage behind a release and a
-`bin/cosmic.pin` bump under the cold-build rule. The four
-`cosmic/format/init.tl` sites are line-and-column reads off tl's own
-error record and close with whichever of the two rules lands first, or
-with the tl-surface work if that arrives sooner. Deleting the casts
-lowers the affected `_build/casts_baseline.tl` rows. The class
-description and exemplar citation are the `### numeric narrowing`
-section of `docs/design/casts.md`; the per-site list is
-`docs/design/cast-sites.tsv`.
+Measured 2026-09-03 against `origin/main` (`96afd807`); every check
+below ran under `o/bootstrap/cosmic`, which IS `bin/cosmic.pin`
+(`2026-08-31-a5b36f4`, sha verified by `bin/cosmic`).
+
+The nine rows (`awk -F'\t' '$3=="numeric narrowing"'` over the tsv):
+`cosmic/format/init.tl` 141, 142, 162, 163 (`e.y as integer or 0 -- cast: tl declares number`),
+`cosmic/_literal_lex.tl` 198, 226, 230, `cosmic/fs/octal.tl:23`,
+`cosmic/url.tl:54` (`tonumber(hex, 16) as integer`).
+
+The premise "tl declares number" is false on the pin:
+
+    o/bootstrap/cosmic -e '…read /zip/.types/tl.d.tl…'   → record Error … y: integer  x: integer
+    …read /zip/tl.lua…  → tonumber: function(any): number / tonumber: function(any, integer): integer
+
+and the checker assigns `number` to `integer` without a guard:
+
+    local n: number = 3; local j: integer = n            → Type check passed
+    local i: integer = tonumber("ff", 16)                 → Type check passed
+    (position capture) local k: integer = after           → Type check passed
+
+The four files with every ` as integer` stripped type-check against
+the tree unchanged
+(`git show origin/main:<f> | sed 's/ as integer//' > x.tl; o/bootstrap/cosmic --check types --include-dir /home/user/cosmic x.tl`
+→ `Type check passed` ×4). `docs/design/cast-legality.md:76` agrees:
+`| numeric narrowing | 9 | 9 | 0 |` — all nine are casts whose operand
+already relates to the target.
+
+So nothing waits on a checker rule or a `bin/cosmic.pin` bump: the
+sites close on the release the cold build already uses. No `blocks:`.
+
+## Change
+
+- Delete the cast and its `-- cast:` reason at the nine sites; keep
+  the surrounding guard comments (`_literal_lex.tl:214-222`'s BOUNDED
+  note stays — the bound is the code, not the cast).
+- `_build/casts_baseline.tl`: `cosmic/format/init.tl` 5 → 1,
+  `cosmic/_literal_lex.tl` 3 → gone, `cosmic/fs/octal.tl` 1 → gone,
+  `cosmic/url.tl` 1 → gone (`bin/cosmic --make run _build/casts.tl --baseline`).
+- `docs/design/cast-sites.tsv`: `bin/cosmic --make run _build/cast_sites.tl --reconcile`;
+  the class empties, so delete `### numeric narrowing` (`casts.md:261-277`)
+  and every prose mention (`git grep -n "numeric narrowing" origin/main -- docs _build`;
+  `cast-legality.md` is a dated census and keeps its row).
+- `bin/cosmic --make ci` ends `ci: PASS`; `_build/coldbuild_test.tl`
+  is the proof the pinned checker accepts the result.
+
+## Non-goals
+
+Whether `number → integer` SHOULD assign unchecked is a tl soundness
+question — `tl-numeric-narrowing-patch`; nothing here changes the
+checker.
