@@ -161,18 +161,33 @@ types and the call-site cast disappears, arriving here as a pin bump.
 
 An enum value used where a plain `string` is wanted, or one enum's word
 set used where a wider enum is declared even though every word of the
-narrow set is a word of the wide one. Teal relates neither pair, so a
-relation the reader verifies by eye costs a cast.
+narrow set is a word of the wide one. Only the second shape is a real
+gap in tl: `subtype_relations["enum"]["string"] = compare_true`
+already makes every enum a subtype of `string` in the pinned 0.24.8 —
+confirmed by hand, no patch needed — so a cast that merely widens an
+enum into `string` was never blocked by a missing rule in the first
+place.
 
 ```text
--- cosmic/hash.tl:104
-    string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening
+-- _fuzz/compress_fuzz_test.tl:76
+            {format = format as compress.DecompressFormat})
+            -- cast: CompressFormat's word set nests inside DecompressFormat's
 ```
 
-**What closes it upstream.** The subtyping rule is tl's: an enum whose
-words are a subset of another's is a subtype of it, and every enum is a
-subtype of `string`. Both are narrowing rules of the kind the carried
-patch holds (`3p/tl/tl_patch/`), so both close as a patch plus a bump.
+**What closes it upstream.** The subset half: an enum whose words are a
+subset of another's is a subtype of it, which tl's checker did not
+compare (two differently-named enum nominals fell straight through to
+`are_same_nominals`'s failure). That is the one narrowing rule the
+carried patch adds (`3p/tl/tl_patch/enum.tl`,
+`enum-subset-is-subtype`), and it targets exactly 3 of the 11 census
+sites — all `CompressFormat` into `DecompressFormat`: the fenced site
+above, plus `cosmic/compress_test.tl`'s
+`test_roundtrip_explicit_formats` and
+`test_roundtrip_empty_per_format`. The other 8 sites in this class cast a
+plain `string` into a narrower enum — the reverse direction — and need
+guard-based literal narrowing instead; "every enum is a subtype of
+`string`" closes none of the 11, since none of them need a `string`
+target.
 
 ### runtime capability probe
 

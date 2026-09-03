@@ -89,6 +89,50 @@ local function test_forin_later_var_is_not_shadowed()
     "a generic-for's later variable must not be shadowed, got: " .. code)
 end
 
+-- The enum-subset-is-subtype carried patch: a narrower enum widens
+-- into a superset enum, but only when its whole word set is contained
+-- in the wider one -- not just because both are enums, and not in the
+-- other direction. These three cases pin the shape the CompressFormat
+-- / DecompressFormat production sites need without touching them
+-- (see docs/design/casts.md).
+local function type_error_count(src: string, chunkname: string): integer
+  local result = tl.process_string(src, false, nil, chunkname)
+  return #result.type_errors
+end
+
+local function test_subset_enum_widens_into_superset_enum()
+  local n = type_error_count([[
+local enum CompressFormat "zlib" "gzip" "raw" end
+local enum DecompressFormat "zlib" "gzip" "raw" "auto" end
+local function decompress(f: DecompressFormat) print(f) end
+local function widen(f: CompressFormat) decompress(f) end
+]], "enum_subset_widens.tl")
+  assert(n == 0, "a subset enum should widen into its superset, got " ..
+    tostring(n) .. " type error(s)")
+end
+
+local function test_superset_enum_does_not_narrow_into_subset_enum()
+  local n = type_error_count([[
+local enum CompressFormat "zlib" "gzip" "raw" end
+local enum DecompressFormat "zlib" "gzip" "raw" "auto" end
+local function compress(f: CompressFormat) print(f) end
+local function narrow(f: DecompressFormat) compress(f) end
+]], "enum_superset_does_not_narrow.tl")
+  assert(n == 1, "a superset enum must still need a cast into its subset, got " ..
+    tostring(n) .. " type error(s)")
+end
+
+local function test_disjoint_enums_stay_rejected()
+  local n = type_error_count([[
+local enum Left "a" "b" end
+local enum Right "c" "d" end
+local function want_right(f: Right) print(f) end
+local function give_left(f: Left) want_right(f) end
+]], "enum_disjoint.tl")
+  assert(n == 1, "two disjoint enums of the same size must stay rejected, got " ..
+    tostring(n) .. " type error(s)")
+end
+
 local function test_shadowed_loops_still_compute_the_same_result()
   -- The shadow must be semantically inert on 5.4: same answer as the
   -- unshadowed form this compiler used to emit.
