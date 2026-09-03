@@ -1,5 +1,7 @@
 return {
   ["beats"] = "3IYMNJ628t8lkLDklTtEAi9RFmX",
+  ["builders"] = "build-XH1L_z1kl-obs1",
+  ["claim"] = "build-XH1L_z1kl-obs1",
   ["id"] = "3IpAICmcacFIJIIHdgeXH1Lz1kl",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
