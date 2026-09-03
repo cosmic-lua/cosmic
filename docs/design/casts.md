@@ -438,7 +438,7 @@ walks, and the response callback declaring the map it accepts.
 
 Five classes carry the verdict **Why it is a floor**: type-defeating
 test probe, userdata boundary, runtime capability probe, metatable
-access, and generic T. Together they hold 71 of the tree's casts today,
+access, and generic T. Together they hold 51 of the tree's casts today,
 by `docs/design/cast-sites.tsv`. They do not all stay that size — four
 of the five compress hard, because the shape repeats and one helper can
 carry it. Summing each class's smallest reachable count — six wrap
@@ -446,22 +446,31 @@ points, two probe helpers, five probed shapes, two metatable helpers
 and eight generic bodies — puts the floor at **23**.
 
 That number is what the win condition has to answer to. G3's measure in
-`docs/goals.md` is zero `as` casts, and these 23 are not casts standing
-in for work nobody has done: they are the places where a type system
-that cannot see userdata, cannot see a metatable, cannot see another
-binary's surface, and cannot see inside its own generics has to be
-told. Reaching literal zero means deleting what they serve — the tests
-that prove the runtime guards refuse bad input, the typed wrappers over
-`cosmo.*` handles, the generic copy and merge.
+`docs/goals.md` is zero outside what `docs/design/cast-legality.md`'s
+checker rule permits, not zero `as` casts outright — and these 23 are
+not casts standing in for work nobody has done: they are the places
+where a type system that cannot see userdata, cannot see a metatable,
+cannot see another binary's surface, and cannot see inside its own
+generics has to be told. Reaching literal zero would mean deleting what
+they serve instead — the tests that prove the runtime guards refuse bad
+input, the typed wrappers over `cosmo.*` handles, the generic copy and
+merge — which is why G3 does not hold that as the target.
 
-So the question, which this document puts and does not answer: does G3
-keep zero as a literal target and accept that it is reached by deleting
-those, or does it become zero outside a named floor — the justified
-casts no mechanism closes, held per class and ratcheted by
-`_build/casts_baseline.tl` — with a further condition on the test half,
-since 26 of the 71 are test probes and a probe behind one named helper
-is a different thing from a probe written by hand at each site? That is
-the goal owner's call, made by amending `docs/goals.md`, not here.
+The question this document used to put and not answer is settled: G3
+neither keeps zero casts as a literal target nor holds the floor as a
+hand-maintained, per-class allowance. `_build/casts_baseline.tl`'s
+per-file ratchet stays as the count-down mechanism in the meantime, but
+the win condition itself is the cast-legality rule
+(`3p/tl/tl_patch/cast.tl`) un-gated: `x as T` type-checks only from
+`any`, a `.d.tl` userdata record, or the enclosing generic's type
+variable, and every other cast is a refusal the checker makes directly
+— no per-site justification comment to maintain. The rule already
+enforces the test half of that bargain on its own: of the
+type-defeating test probe class's 14 sites (14 of the floor's 51),
+only the two behind `check.refuses` and `check.is_exposed` are legal
+under it, because only they cast an `any`-typed parameter; every
+hand-written probe elsewhere is a refusal until it is rewritten through
+one of those two helpers.
 
 ## What this is not
 

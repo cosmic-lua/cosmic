@@ -108,17 +108,23 @@ is derived from it.
 
 every type is checked, none asserted: drive Teal's narrowing and
 soundness gaps closed upstream-first (fork-if-blocked, the Cosmopolitan
-precedent) until the stdlib needs no `as` casts and no workaround
-doctrine. mechanisms that police the gap in the meantime — today, the
-per-site `-- cast: <reason>` justification enforced by `--make lint`
-— are scaffolding, not goals: each retires when the gap it polices
-closes.
+precedent) until the stdlib needs no `as` cast the checker itself would
+refuse, and no workaround doctrine. mechanisms that police the gap in
+the meantime — today, the per-site `-- cast: <reason>` justification
+enforced by `--make lint` — are scaffolding, not goals: each retires
+when the gap it polices closes.
 
-- **measured by:** total `as` casts in the tree (`cosmic/` and the
-  root-level internals), per release; the size of the narrowing
-  doctrine in AGENTS.md.
-- **win condition:** zero casts; the scaffolding deleted; the doctrine
-  reduced to a footnote.
+- **measured by:** `as` casts `3p/tl/tl_patch/cast.tl`'s legality rule
+  refuses when run over the tree (`COSMIC_CAST_LEGALITY=1`, `cosmic/`
+  and the root-level internals), per release; the size of the
+  narrowing doctrine in AGENTS.md.
+- **win condition:** zero outside what the checker permits, not zero
+  casts — the rule un-gated (no `COSMIC_CAST_LEGALITY` flag, it is
+  just what `--check types` does), so `x as T` type-checks only from
+  `any`, a `.d.tl` userdata record, or the enclosing generic's type
+  variable; refusals are the floor. The per-site justification comment
+  and the hand-maintained baseline retire in favor of a check the
+  compiler itself makes; the doctrine reduced to a footnote.
 
 ### G6 — the defining paths, ratcheted
 
