@@ -54,7 +54,10 @@ Board item `3ImmKYCJ` (handle «rHCW_59sk») settled the direction to
 take instead — see `## Change` below, which supersedes the blanket
 retype this section describes.
 
-## Change (revised per board item 3ImmKYCJ's decision, 2026-09-03)
+## Change
+
+Revised per board item `3ImmKYCJ`'s decision (2026-09-03), superseding
+the blanket-retype approach described in the rejected-PR note above.
 
 Split the two purposes these iterators currently overload onto one
 `__call` signature, instead of retyping that one signature to cover
