@@ -5,6 +5,7 @@ return {
   ["claim"] = "build-ke6b_yr5h-c3d4",
   ["id"] = "3IYMQz3o1PNwTlNbMUbke6byr5h",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
+  ["pr"] = 1664,
   ["speccers"] = "e277faa5-ee02-55c9-8d7e-4d688b76f501 617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "G3 wording: the measured cast floor is 23, so decide whether zero as-casts stays literal",
 }
