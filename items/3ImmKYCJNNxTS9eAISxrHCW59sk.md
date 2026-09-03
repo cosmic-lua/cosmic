@@ -36,65 +36,81 @@ with NO warning under `o/bin/cosmic --make check` even though
 `line`/`second`/`third` are genuinely `nil` there under the retyped
 signature — the opposite of G3's "an honest type layer" goal. Two
 mutation tests on a fresh clone of the PR's head (`ab49522e`)
-established this is a real gap, not a reviewer misreading:
-
-1. Reverting `FileIter.__call` back to `string | nil, {string}` while
-   leaving the paired `check.must` removals in place (as the PR left
-   them) still passed `--make check` cleanly — the shipped checker
-   only narrows a `T | nil` at an INDEX position
-   (`docs/design/nil-flow.md`), never at an argument, so `--make ci`
-   would not catch either half of the retype/unwrap pairing
-   regressing independently.
-2. Reverting only `cosmic/sse_test.tl`'s mock `lines()` signature
-   back to `string | nil` while leaving `Body.lines` retyped failed
-   the build with a declared-signature mismatch — confirming that
-   file's edit was a required consequence of the retype, not scope
-   creep, and that the type change genuinely propagates through the
-   whole call graph.
+established this is a real gap, not a reviewer misreading (details
+in this item's history).
 
 Secondary, smaller finding folded in here rather than filed
 separately: `cosmic/fs/find.tl:271-274` (inside `find()`, untouched
 by the rejected PR) still documents `FileIter.__call` as honestly
-`string | nil, {string}` — the PR's `## Change` said to sweep doc
-lines that spell the old type, and missed this one; whatever this
-decision lands on, that comment needs to say the same thing the
-declaration does.
+`string | nil, {string}` — whatever this decision lands on, that
+comment needs to say the same thing the declaration does.
 
 ## Change
 
-A decision, recorded on this item: whether this class of
-"multi-purpose iterator" (payload on ordinary calls, DIFFERENT
-payload semantics on its terminating call, read directly outside the
-for-in protocol by design) is:
+A decision, recorded on this item and applied to bj12_PZHY's spec.
+Three original candidates were on the table:
 
-a. retyped anyway, accepting that a direct terminating call needs its
-   own narrowing/cast at each of the three call sites named above
-   (the checker cannot see it, so each site's honesty depends on the
-   caller doing it right, forever — arguably no improvement on the
-   `string | nil` status quo for those specific calls, even though it
-   fixes the seven `for … in` census rows);
-b. left as `string | nil` at the type level (status quo — the
-   `check.must(<var>)` wraps in `for … in` bodies stay, and the seven
-   census rows are accepted as this iterator shape's structural cost,
-   not closed);
-c. given a narrow-only `for … in` mechanism — e.g. a distinct type
-   for "the loop-position return" versus "the direct-call return," or
-   teaching the checker to narrow a for-in loop variable independent
-   of the iterator's own declared signature (in the spirit of the
-   existing narrowing patches under `3p/tl/tl_patch/`) — closing the
-   census rows AND keeping the terminating-call sites honest, at the
-   cost of a checker change (which is D-something's cold-build-rule
-   territory: land the checker change, bump the pin, then the type
-   change, per AGENTS.md's "the cold-build rule").
+a. retype anyway, accepting a permanent per-site blind spot at the
+   three direct-call sites;
+b. leave as `string | nil` status quo, the seven census rows stay
+   open;
+c. a checker-level narrow-only-in-`for…in` mechanism — closes both,
+   at the cost of a compiler change gated by the cold-build rule.
 
-The decision belongs to the project owner; the orchestrator carries
-the a/b/c question (and the reviewer's evidence above) to them.
+## Decision (confirmed by the project owner, 2026-09-03)
+
+**d. give the terminating payload its own accessor, decoupled from
+the loop-call, instead of overloading one `__call` signature for two
+different purposes.** Not one of the three originally-posed options
+— found by asking "is there another way to check the iterator after
+the loop" and verified against the actual object shapes before
+accepting it:
+
+- `for … in iter do` keeps calling `iter()` exactly as it does today
+  and that call's first return is retyped to plain, non-nilable
+  `string` (the fix `bj12_PZHY` originally wanted for the seven
+  census rows).
+- The terminating payload — `FileIter`'s trailing subtree-error list,
+  `LineIter`/`Body.lines`'s read-failure message — moves to a NEW,
+  separate accessor with its own honestly-nilable signature, called
+  once after the loop ends instead of by calling `iter()` again.
+
+**Cost differs by iterator — verified against source, not assumed
+uniform:**
+
+- `FileIter` (`cosmic/fs/find.tl:107-113`) is already a record with a
+  `__call` metamethod AND an existing `close` method — it is already
+  an object, not a bare closure. Adding `errors(self: FileIter):
+  {string}` (or similar) alongside the existing `close` is a small,
+  additive change. The one documented direct-call site
+  (`cosmic/fs/find.tl:123-125`) moves from `local _, errs = iter()`
+  to `local errs = iter:errors()`.
+- `stream.LineIter` is currently declared as a BARE FUNCTION type —
+  `type LineIter = function(): string | nil, string`
+  (`cosmic/stream.tl:56`) — not a table. `Body.lines()`
+  (`cosmic/fetch/body.tl:137`) returns exactly this same value
+  (`return stream_mod.lines(self)`), so the two share one fix.
+  Achieving the same accessor-based split here requires promoting
+  `LineIter` from a bare function to a callable record (a `__call`
+  metamethod plus a new method for the terminal error) — a real,
+  if smaller-than-option-(c), shape change that touches every
+  existing consumer currently typed as `stream.LineIter =
+  function(): ...` (at minimum `cosmic/net/io_test.tl:174-176` and
+  `cosmic/fetch/stream_test.tl:118-126`, the two direct-call sites
+  named in Evidence above, plus any other holder of a `LineIter`-
+  typed local).
+
+No compiler/checker change, no cold-build-rule gating, no pin bump —
+this is a library-level shape change achievable in ordinary PRs.
 
 ## Non-goals
 
-- No code; the build is «bj12_PZHY» once this item's decision names
-  the direction (or «bj12_PZHY»'s spec is rewritten to match option
-  (b) — no cast retype — if that is chosen).
+- No code in this item; the build is «bj12_PZHY», whose spec is
+  rewritten to match this decision as a follow-up edit.
 - Not re-litigating the `for … in` body fix's correctness itself —
-  the reviewer confirmed that half of the PR worked; only the
-  terminating-call honesty gap is in question here.
+  the reviewer confirmed that half of the original PR worked; only
+  the terminating-call honesty gap was ever in question.
+- Not mandating a specific accessor name/method shape for `FileIter`
+  or the promoted `LineIter` record — that is `bj12_PZHY`'s own
+  build-time refinement, consistent with this repo's existing naming
+  conventions (charter, D20).
