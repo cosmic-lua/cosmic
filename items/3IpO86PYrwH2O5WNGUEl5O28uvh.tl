@@ -5,9 +5,8 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1661,
   ["repo"] = "cosmic-lua/cosmic",
-  ["reviewer"] = "review-l5O2_8uvh-2",
   ["title"] = "make: the seed dir is removed on every exit of sources(), not only after stamp_types",
-  ["verdict"] = "request changes",
-  ["verdict_head"] = "22732d9b4656d50c146afc32a96abce76d142397",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "44ec1a5e69ca12965e080ee8935f39b9367a4db8",
   ["verdict_spec"] = "b7e34fdd00704e9f5371aef7e139b9faba66ac5a3b6209f922bc2be6d2d0a606",
 }
