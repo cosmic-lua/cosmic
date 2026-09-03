@@ -108,11 +108,11 @@ is derived from it.
 
 every type is checked, none asserted: drive Teal's narrowing and
 soundness gaps closed upstream-first (fork-if-blocked, the Cosmopolitan
-precedent) until the stdlib needs no `as` casts and no workaround
-doctrine. mechanisms that police the gap in the meantime — today, the
-per-site `-- cast: <reason>` justification enforced by `--make lint`
-— are scaffolding, not goals: each retires when the gap it polices
-closes.
+precedent) until the stdlib needs no `as` cast the checker itself would
+refuse, and no workaround doctrine. mechanisms that police the gap in
+the meantime — today, the per-site `-- cast: <reason>` justification
+enforced by `--make lint` — are scaffolding, not goals: each retires
+when the gap it polices closes.
 
 - **measured by:** `as` casts `3p/tl/tl_patch/cast.tl`'s legality rule
   refuses when run over the tree (`COSMIC_CAST_LEGALITY=1`, `cosmic/`
