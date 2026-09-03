@@ -25,10 +25,12 @@
  scans the surrounding markup to guess it. A raw `string`, or a
  `Safe*` value from the WRONG context, cannot reach an HTML
  template's output without an explicit escaper (`cosmic.html.safe`,
- `cosmic.url.safe_path`, `cosmic.js.safe`, `cosmic.css.safe`, …) or
- an explicit claim of already-safe content (each module's
- `trusted`) — nothing is escaped implicitly, and a missing or
- mismatched escaper is a compile error naming the template line.
+ `cosmic.url.safe_href` for a whole URL from data — `safe_path` and
+ its siblings are for one component of a URL the template text
+ already fixes — `cosmic.js.safe`, `cosmic.css.safe`, …) or an
+ explicit claim of already-safe content (each module's `trusted`) —
+ nothing is escaped implicitly, and a missing or mismatched escaper
+ is a compile error naming the template line.
 
  Example usage:
    local template = require("cosmic.template")

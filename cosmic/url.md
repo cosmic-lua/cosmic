@@ -37,12 +37,13 @@ end
 ### SafeUrl
 
  Escaped URL content, wrapped so a raw `string` cannot reach a
- `{{url ...}}` interpolation by accident. The escaping rule that
- applies depends on WHICH component the value fills — a query
- parameter, a path, a host — so SafeUrl has one safe_* constructor
- per component rather than a single safe(), mirroring the escape_*
- family above; trusted() is the shared hatch for a URL already known
- to be safe, such as a fixed literal.
+ `{{url ...}}` interpolation by accident. safe_param/safe_path/
+ safe_segment/safe_host/safe_fragment each escape ONE COMPONENT of a
+ URL whose scheme and authority the template text already fixes
+ (`href="/users/{{url .id | cosmic.url.safe_segment}}"`); a whole
+ URL from data — where the scheme itself is untrusted input — goes
+ through safe_href instead. trusted() is the shared hatch for a URL
+ (or component) already known to be safe, such as a fixed literal.
 
 ```teal
 local record SafeUrl
@@ -72,6 +73,7 @@ local record UrlModule
   safe_segment: function(str: string): SafeUrl
   safe_host: function(str: string): SafeUrl
   safe_fragment: function(str: string): SafeUrl
+  safe_href: function(str: string): SafeUrl
   trusted: function(str: string): SafeUrl
 end
 ```
@@ -338,7 +340,9 @@ function format_host(hp: HostPort): string
 function safe_param(str: string): SafeUrl
 ```
 
- Escape str with escape_param and wrap it as SafeUrl.
+ Escape str with escape_param and wrap it as SafeUrl. For ONE
+ component of a URL whose scheme and authority are already fixed by
+ the template text; a whole URL from data needs safe_href.
 
 **Parameters:**
 
@@ -354,7 +358,9 @@ function safe_param(str: string): SafeUrl
 function safe_path(str: string): SafeUrl
 ```
 
- Escape str with escape_path and wrap it as SafeUrl.
+ Escape str with escape_path and wrap it as SafeUrl. For ONE
+ component of a URL whose scheme and authority are already fixed by
+ the template text; a whole URL from data needs safe_href.
 
 **Parameters:**
 
@@ -370,7 +376,9 @@ function safe_path(str: string): SafeUrl
 function safe_segment(str: string): SafeUrl
 ```
 
- Escape str with escape_segment and wrap it as SafeUrl.
+ Escape str with escape_segment and wrap it as SafeUrl. For ONE
+ component of a URL whose scheme and authority are already fixed by
+ the template text; a whole URL from data needs safe_href.
 
 **Parameters:**
 
@@ -386,7 +394,9 @@ function safe_segment(str: string): SafeUrl
 function safe_host(str: string): SafeUrl
 ```
 
- Escape str with escape_host and wrap it as SafeUrl.
+ Escape str with escape_host and wrap it as SafeUrl. For ONE
+ component of a URL whose scheme and authority are already fixed by
+ the template text; a whole URL from data needs safe_href.
 
 **Parameters:**
 
@@ -402,7 +412,9 @@ function safe_host(str: string): SafeUrl
 function safe_fragment(str: string): SafeUrl
 ```
 
- Escape str with escape_fragment and wrap it as SafeUrl.
+ Escape str with escape_fragment and wrap it as SafeUrl. For ONE
+ component of a URL whose scheme and authority are already fixed by
+ the template text; a whole URL from data needs safe_href.
 
 **Parameters:**
 
@@ -411,6 +423,31 @@ function safe_fragment(str: string): SafeUrl
 **Returns:**
 
 - SafeUrl - The escaped, wrapped string
+
+### safe_href
+
+```teal
+function safe_href(str: string): SafeUrl
+```
+
+ Validate and escape a WHOLE url landing in an href/src/action
+ attribute, unlike safe_param/safe_path/safe_segment/safe_host/
+ safe_fragment above, which each escape one component of a URL whose
+ scheme the template text already fixes. Only http, https, mailto,
+ and scheme-less/host-less references (relative paths, absolute
+ paths, fragments) are accepted; anything else — `javascript:`,
+ `data:`, `vbscript:`, and a protocol-relative `//host/path`, which
+ parses to a nil scheme but a real host — returns WHATWG's
+ always-failing `about:invalid`. trusted() is still the hatch for a
+ deliberate `//cdn` reference or a custom scheme.
+
+**Parameters:**
+
+- `str` (string) - The whole URL to validate and escape
+
+**Returns:**
+
+- SafeUrl - The escaped, wrapped string ("about:invalid" if rejected)
 
 ### trusted
 
