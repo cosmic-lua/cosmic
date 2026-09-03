@@ -14,6 +14,7 @@ High-level utilities and tools built on top of cosmo.
 | [codec](cosmic/codec.md) |  Encoding and decoding utilities: bytes in, bytes out. |
 | [compress](cosmic/compress.md) |  Compression and decompression utilities. |
 | [init](cosmic/coverage/init.md) |  Line coverage collection for cosmic programs. |
+| [css](cosmic/css.md) |  CSS value escaping. No `cosmo.*` binding does this — unlike HTML, |
 | [deep](cosmic/deep.md) |  Deep table operations. |
 | [init](cosmic/doc/init.md) |  Query the documentation index embedded in the binary. |
 | [init](cosmic/embed/init.md) |  Embed files and directories into a cosmic executable. |
@@ -31,6 +32,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](cosmic/init.md) |  cosmic: a batteries-included Lua/Teal distribution built on |
 | [instrument](cosmic/instrument.md) |  Timing and resource-usage spans, one `key=value` line each. |
 | [ip](cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
+| [js](cosmic/js.md) |  JavaScript string-literal escaping. |
 | [json](cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [literal](cosmic/literal.md) |  Teal source read and written as data: one `return { … }` of literals. |
 | [log](cosmic/log.md) |  Leveled logging. |

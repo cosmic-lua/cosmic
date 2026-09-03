@@ -34,6 +34,22 @@ local record HostPort
 end
 ```
 
+### SafeUrl
+
+ Escaped URL content, wrapped so a raw `string` cannot reach a
+ `{{url ...}}` interpolation by accident. The escaping rule that
+ applies depends on WHICH component the value fills — a query
+ parameter, a path, a host — so SafeUrl has one safe_* constructor
+ per component rather than a single safe(), mirroring the escape_*
+ family above; trusted() is the shared hatch for a URL already known
+ to be safe, such as a fixed literal.
+
+```teal
+local record SafeUrl
+  raw: string
+end
+```
+
 ### UrlModule
 
 ```teal
@@ -51,6 +67,12 @@ local record UrlModule
   escape_segment: function(str: string): string
   escape_fragment: function(str: string): string
   format_host: function(hp: HostPort): string
+  safe_param: function(str: string): SafeUrl
+  safe_path: function(str: string): SafeUrl
+  safe_segment: function(str: string): SafeUrl
+  safe_host: function(str: string): SafeUrl
+  safe_fragment: function(str: string): SafeUrl
+  trusted: function(str: string): SafeUrl
 end
 ```
 
@@ -309,3 +331,99 @@ function format_host(hp: HostPort): string
 **Returns:**
 
 - string - The host:port string
+
+### safe_param
+
+```teal
+function safe_param(str: string): SafeUrl
+```
+
+ Escape str with escape_param and wrap it as SafeUrl.
+
+**Parameters:**
+
+- `str` (string) - The string to encode
+
+**Returns:**
+
+- SafeUrl - The escaped, wrapped string
+
+### safe_path
+
+```teal
+function safe_path(str: string): SafeUrl
+```
+
+ Escape str with escape_path and wrap it as SafeUrl.
+
+**Parameters:**
+
+- `str` (string) - The path to escape
+
+**Returns:**
+
+- SafeUrl - The escaped, wrapped string
+
+### safe_segment
+
+```teal
+function safe_segment(str: string): SafeUrl
+```
+
+ Escape str with escape_segment and wrap it as SafeUrl.
+
+**Parameters:**
+
+- `str` (string) - The path segment to escape
+
+**Returns:**
+
+- SafeUrl - The escaped, wrapped string
+
+### safe_host
+
+```teal
+function safe_host(str: string): SafeUrl
+```
+
+ Escape str with escape_host and wrap it as SafeUrl.
+
+**Parameters:**
+
+- `str` (string) - The hostname to escape
+
+**Returns:**
+
+- SafeUrl - The escaped, wrapped string
+
+### safe_fragment
+
+```teal
+function safe_fragment(str: string): SafeUrl
+```
+
+ Escape str with escape_fragment and wrap it as SafeUrl.
+
+**Parameters:**
+
+- `str` (string) - The fragment to escape
+
+**Returns:**
+
+- SafeUrl - The escaped, wrapped string
+
+### trusted
+
+```teal
+function trusted(str: string): SafeUrl
+```
+
+ Wrap str as SafeUrl WITHOUT escaping it.
+
+**Parameters:**
+
+- `str` (string) - A URL (or URL component) already known to be safe
+
+**Returns:**
+
+- SafeUrl - The wrapped string, unescaped
