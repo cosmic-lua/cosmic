@@ -48,8 +48,26 @@ not uniform, which changes what "closes it" means:
   but `_types/gentl.tl` never curates `Env` — it is absent from both
   `NAMED` and `RECORD_FIELDS` — so `tl.new_env`'s generated return type
   erases to `any` and every read through it costs a cast. This is
-  available in the currently pinned tl already; **no pin bump is
-  needed** for this slice.
+  available in the currently pinned tl already; **no `3p/tl/tl_pin.tl`
+  bump is needed** for this slice.
+
+**Correction from a build attempt (2026-09-03):** a builder tried
+curating `Env` AND switching the three `_teal_ast.tl`/
+`_teal_engine.tl` cast sites to consume it in one PR, and hit a
+reproducible cold-build failure — `_types/types_gen.tl` (the
+generator that writes the fresh curated type) is itself a `.tl` file
+that must compile before it runs, and compiling it recurses through
+`cosmic._teal_engine.build_env` → `require("cosmic._teal_ast")`,
+which on a cold tree resolves the EDITED `_teal_ast.tl` source's
+`tl.Env` reference against the CURRENT `bin/cosmic.pin`'s embedded
+type declarations (no `Env` yet) before the fresh curation can ever
+be generated. Full repro in `3IortEJ5fOuRnJ7OpJMfuXzMkSX`. This is
+the cold-build rule (CLAUDE.md) in exactly the shape it warns about:
+curating `Env` alone has no cold-build hazard (nothing in the tree
+type-checks against it yet), but consuming it in the same PR does.
+This item is now scoped to the curation half only; consuming it is
+split out to `3IortEJ5fOuRnJ7OpJMfuXzMkSX`, gated on a
+`bin/cosmic.pin` bump to a release built with this item's change.
 
 ## Change
 
@@ -60,10 +78,10 @@ record body in the `PRELUDE` string, plus a `RECORD_FIELDS` entry that
 
 - add `Env = true` to `NAMED`
 - add `RECORD_FIELDS["Env"] = {"report_types", "loaded"}` — only the
-  two fields this class's `_teal_engine.tl` sites read; `Env` stays a
-  curated subset like every other record here (the other six upstream
-  `Env` fields are not read by any cast site in this class and are not
-  curated — see Non-goals)
+  two fields the follow-up item's `_teal_engine.tl` sites read;
+  `Env` stays a curated subset like every other record here (the
+  other six upstream `Env` fields are not read by any cast site in
+  this class and are not curated — see Non-goals)
 - add to the `PRELUDE` string:
   ```
   record Env
@@ -80,45 +98,32 @@ picks up the new type automatically, so its generated declaration
 becomes `function(? EnvOptions): (Env, string)` with no other generator
 code change.
 
-Then, at the two places that manufacture the erased `any` today:
+Verify with `bin/cosmic --make ci` passing, AND a genuinely cold
+build succeeding — `rm -rf o && bin/cosmic --make fetch && bin/cosmic
+--make build` — since this is exactly the scenario the prior build
+attempt found broken for the wider change; confirming this narrower
+one builds cold is this item's own proof that the split was cut in
+the right place.
 
-- `cosmic/_teal_ast.tl`: change `teal_ast.new_env`'s declared return
-  from `any, string` to `tl.Env | nil, string` (both the `record
-  teal_ast` field and the function signature), and its two `@return
-  any` doc comments to `@return tl.Env | nil`.
-- `cosmic/_teal_engine.tl`:
-  - `build_env`'s declared return changes from `any, string` to
-    `tl.Env | nil, string`; drop its `env as {any: any}` cast (line
-    ~175) and write `env.report_types = true` directly.
-  - `process_source`'s `env_cache` changes from `{string: any}` to
-    `{string: tl.Env}`, and its local `env` from `any` to `tl.Env |
-    nil`; drop the two `as {any: any}` casts (lines ~231-232) and write
-    `env.loaded[name] = nil` directly.
+No cast site in the tree references `tl.Env` yet after this change
+(that is the follow-up item's job), so `_build/casts_baseline.tl` and
+`docs/design/cast-sites.tsv` do not move here.
 
-Land these together with:
-
-- `_build/casts_baseline.tl`'s `cosmic/_teal_engine.tl` row moves from
-  `4` to `1` — run `bin/cosmic --make run _build/casts.tl --baseline`
-  and commit the result; `_build/casts_test.tl` fails until this
-  matches.
-- `docs/design/cast-sites.tsv` drops its three now-gone rows
-  (`cosmic/_teal_engine.tl` 175, 231, 232) — run `bin/cosmic --make run
-  _build/cast_sites.tl --reconcile` and commit the result;
-  `_build/cast_sites_test.tl` fails until it matches.
-- `bin/cosmic --make ci` passes (types, fmt, lint, coverage,
-  example). No new test is needed beyond these: `_types/gentl_test.tl`
-  and `3p/tl/tl_test.tl`'s conformance checks already exercise every
-  curated record and function against the pinned source on every
-  build, which is what pins `RECORD_FIELDS["Env"]` to the real v0.24.8
-  shape rather than to a guess.
-
-No pin bump: everything cited above is read from the tl this tree
-already has pinned (`3p/tl/tl_pin.tl`'s `version = "0.24.8"`), fetched
-fresh for this refinement (`bin/cosmic --make fetch` → `fetch: PASS (2
-pins)`) and quoted from `o/3p/tl/tl.tl`.
+No `3p/tl/tl_pin.tl` bump: everything cited above is read from the tl
+this tree already has pinned (`3p/tl/tl_pin.tl`'s `version =
+"0.24.8"`), fetched fresh for this refinement (`bin/cosmic --make
+fetch` → `fetch: PASS (2 pins)`) and quoted from `o/3p/tl/tl.tl`.
 
 ## Non-goals
 
+- The consumer-side change — switching `cosmic/_teal_ast.tl`'s
+  `teal_ast.new_env` and `cosmic/_teal_engine.tl`'s `build_env`/
+  `process_source` to use the curated `tl.Env` instead of `any`,
+  dropping their three `as {any: any}` casts, and the
+  `_build/casts_baseline.tl`/`docs/design/cast-sites.tsv` updates that
+  go with it — is `3IortEJ5fOuRnJ7OpJMfuXzMkSX`, not this item. It
+  cannot land until `bin/cosmic.pin` carries a release built with
+  THIS item's curation (see that item's `## Prerequisite`).
 - The other 15 of the 18 `tl compiler surface` sites stay open:
   `_tool/discover.tl`, `_tool/coverage/lines.tl`, `_types/tlast.tl:106`,
   `_types/tlast_test.tl:60`, `cosmic/_teal_ast_test.tl`, and
