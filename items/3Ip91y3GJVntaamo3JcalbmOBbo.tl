@@ -1,5 +1,7 @@
 return {
   ["beats"] = "3IYMNJ628t8lkLDklTtEAi9RFmX",
+  ["builders"] = "build-albm_OBbo",
+  ["claim"] = "build-albm_OBbo",
   ["id"] = "3Ip91y3GJVntaamo3JcalbmOBbo",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
