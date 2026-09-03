@@ -37,15 +37,23 @@ end
 function escape_literal(str: string): string
 ```
 
- Escape str for use as the CONTENT of a JavaScript string literal —
- the caller still supplies the surrounding quotes. Canonicalizes the
- input's UTF-8, emits `\uXXXX` sequences for every non-ASCII code
- point (the output is therefore plain ASCII), and also encodes the
- HTML-sensitive characters (`<`, `>`, `&`, …), so a literal built
- with this needs no separate `cosmic.html.escape` even when it ends
- up inside a `<script>` block. An input sequence this cannot decode
- as UTF-8 is treated as ISO-8859-1; an int with no UTF-16
- representation becomes the `\xFFFD` replacement character.
+ Escape str for use as the CONTENT of a `'`- or `"`-quoted
+ JavaScript string literal inside a `<script>` block — the caller
+ writes the surrounding quotes. Canonicalizes the input's UTF-8,
+ emits `\uXXXX` sequences for every non-ASCII code point (the
+ output is therefore plain ASCII), and also encodes the
+ HTML-sensitive characters (`<`, `>`, `&`, …) plus backtick, `$`,
+ `{`, `}` and `"` as `\uXXXX` — including when one of them is
+ immediately preceded by a literal backslash in the input — so a
+ literal built with this needs no separate `cosmic.html.escape`
+ even inside a `<script>` block, and cannot be used to open a
+ template literal or its `${...}` interpolation if it ever ends up
+ between backticks instead. Not for template literals, not for
+ `on*=` attributes (the HTML tokenizer does not honor JavaScript's
+ backslash escapes), and not for a bare, unquoted expression slot.
+ An input sequence this cannot decode as UTF-8 is treated as
+ ISO-8859-1; an int with no UTF-16 representation becomes the
+ `\xFFFD` replacement character.
 
 **Parameters:**
 
