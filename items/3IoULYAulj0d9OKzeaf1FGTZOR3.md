@@ -186,3 +186,33 @@ The `A3HK_gamw` worktree is GONE — `ls /tmp/claude-0/-home-user/15925051-9a03-
 → `No such file or directory`; `ls /home/user/cosmic/.git/worktrees` →
 `board` only; no branch, stash or dangling object matches. The adaptation
 must be redone from the PR list in `A3HK_gamw`'s refreshed spec.
+
+## Decision
+
+Adopted: option (e), the seed pass — `_make/generate.tl` generates the
+cosmo declarations from the FETCHED `3p/cosmos` pin before any
+generator closure compiles, and hands that seed to every closure
+compile ahead of the running binary's bundled `/zip/.types`. The
+project owner confirmed this in conversation after reading the
+Recommendation above, on the grounds that (a) needs casts that fight
+G3 permanently, (b) leaves `types_gen`'s own closure exposed, (c)
+alone moves the failure one generator later, and (d) cannot be built
+because an adapted tree fails its own check against the old pin.
+
+Consequences recorded as items:
+- the seed pass itself is `pawY_zI7x` (this item's `done` unblocks it);
+- the cold-build rule in CLAUDE.md changes meaning — generation 1
+  still uses the pinned CHECKER, but its cosmo types now come from the
+  tree's own pin — and that is a decision record plus a CLAUDE.md
+  paragraph, filed as its own item beside the seed;
+- `A3HK_gamw` (the adaptation + `3p/cosmos` bump) waits on the seed
+  shipping in a release and a `bin/cosmic.pin` bump, which its
+  blockers already say;
+- `tlast_gen` dropping `cosmic.child` stays filed as optional hygiene,
+  not a gate.
+
+Accepted cost: one engine PR and one release cycle before the
+adaptation can merge, and a new staging constraint of the same shape
+as the checker's — a change to the annotation FORMAT upstream must
+land in `_types/gentype.tl` and ship in a release before the cosmos
+pin that relies on it.
