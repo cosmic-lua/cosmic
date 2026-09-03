@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-30IB_ZDYh-obs1",
+  ["claim"] = "build-30IB_ZDYh-obs1",
   ["id"] = "3Ip91g1as6FdrULUyBS30IBZDYh",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
