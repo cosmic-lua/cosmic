@@ -1,31 +1,35 @@
 ## Evidence
 
-`gitboard next` at 18:2xZ on 2026-09-03 offered «1j6D_hfCe» ("perf:
-re_match_log_line cf416d85 vs 9fcfff3f needs day-separated (not
-same-hour) re-measurement — 4 same-day sessions split 2-2 on
-direction") as the head pull. Its spec's own method requires a
-measurement on a different day from the four it cites (all
-2026-09-03), so any session pulling it today either bounces or
-violates the spec; the orchestrator skipped it by hand and moved to
-the second choice. Items exist whose readiness is a calendar fact
-(day-separated perf runs, "after the next release", a pin that ships
-daily at 06:00), and the only tool today is prose the puller must
-read, or a block on an item that does not exist.
+`gitboard next` on 2026-09-03 offered «1j6D_hfCe» as the head pull. Its
+Change requires a measurement on a calendar day different from the
+four its Evidence records (all 2026-09-03), so any session that day
+either bounces or violates the spec; the orchestrator skipped it by
+hand. The readiness fact was real and checkable (`date -u +%F` against
+the recorded session dates) but lived only in the reader's inference:
+`help bar` asks for measured tree-facts and behavioural claims with
+their commands, and `help build` step 2 has the puller re-run the
+spec's measured commands before building, but neither names the case
+where the fact deciding whether to START is outside the tree — a
+calendar day, a release having shipped, a lane green, a pin bumped.
 
 ## Change
 
-`_work/store.tl` (item fields): an optional `not_before` field, an
-RFC3339 date. `gitboard set ID --not-before DATE` writes it (and
-`--not-before ""` clears it); `show ID` prints it. `next`, `take` (a
-pull) and the pullable count in `show` treat an item with `not_before`
-in the future as not pullable, rendering `[held until DATE]` in the
-list; the bar itself is unchanged. Refine-time guidance in `help
-bar`: one sentence — a Change whose earliest valid start is a date
-records it as `not_before`, never as prose.
+`_work/doctrine.tl`, the bar topic, after "Measured, not inferred":
+one paragraph — a Change whose earliest valid start depends on a fact
+outside the tree states that fact as a command and the output that
+means ready, in prose at the top of `## Change` ("Ready when: ...");
+the puller runs it before anything else and, when it says not ready,
+drops the claim bare (the item is fine as written, re-offered as-is)
+rather than bouncing through a question. No field, no date, no verb:
+the criterion is whatever the command evaluates, and it ages with the
+spec.
 
-`_work/store_test.tl`, `action_test.tl`: a held item is not offered
-until the date passes; `show` prints the marker.
+`help build` step 2 gains the mirror sentence: "a `Ready when` command
+runs first; not ready is a bare drop, not a bounce".
+
+`_work/doctrine_test.tl`: pin both sentences.
 
 ## Non-goals
 
-No automatic derivation from spec prose; the refiner sets the date.
+No item field, no `next`/`take` change: the tool never evaluates the
+criterion, the puller does.
