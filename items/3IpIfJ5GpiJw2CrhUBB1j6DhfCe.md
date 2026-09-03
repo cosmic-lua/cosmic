@@ -41,6 +41,17 @@ currently supportable from the evidence in hand.
 
 ## Change
 
+Ready when: today is not a day any recorded session ran on. Every
+session in Evidence, and every one appended below, records its date;
+the puller runs
+
+    date -u +%F
+
+first and proceeds only if that date appears nowhere in this spec's
+session records (all four above: 2026-09-03). A match means this
+session cannot add a day-separated measurement — drop the claim bare
+(the item is fine as written) and let the next day's session take it.
+
 Run the cross-session comparison `9fcfff3f` vs `cf416d85` on
 `re_match_log_line` (interleaved, order-randomized, at least 6 pairs
 per session, `_perf/gate.tl selfcheck <A.json> <B.json> --only
