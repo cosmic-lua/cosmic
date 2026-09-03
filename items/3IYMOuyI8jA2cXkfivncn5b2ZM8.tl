@@ -6,7 +6,9 @@ return {
   ["id"] = "3IYMOuyI8jA2cXkfivncn5b2ZM8",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1665,
-  ["reviewer"] = "review-cn5b_2ZM8-v1",
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "tl: math.type and tonumber(s, base) should narrow to integer — 9 numeric-narrowing casts wait on it",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "a853f57376302338576cb3147ce8312b77f287a1",
+  ["verdict_spec"] = "d03e6199633294416635bc1e72ca5d35fb281c41fdec35445103ee17c0773d9a",
 }
