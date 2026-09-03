@@ -5,6 +5,7 @@ return {
   ["claim"] = "orchestrate9-lT1A_fWo4-v4",
   ["id"] = "3IYMLDfXlYFaD39TtrxlT1AfWo4",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
+  ["pr"] = 1650,
   ["speccers"] = "48a92156-b7f4-5273-b993-ba9f946ffb80",
   ["title"] = "tl: publish AST node types — the 18 tl-compiler-surface casts are hand-typed map views over an erased surface",
 }
