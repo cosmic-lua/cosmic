@@ -26,10 +26,14 @@ local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local lint = require("_cli.lint")
 local proc = require("cosmic.proc")
+local shape = require("cosmic.shape")
 
 --- The committed floor: where this module writes it and the test reads
 --- it, relative to the project root.
 local BASELINE < const > = "_build/casts_baseline.tl"
+
+--- The floor's shape: a flat map of root-relative path to cast count.
+local COUNTS_SPEC < const > = shape.map(shape.integer)
 
 --- The trees the count covers: every tree of committed Teal source.
 --- `3p/` is not one — its contents are vendored, not written here.
@@ -85,11 +89,7 @@ local function baseline(path?: string): {string: integer} | nil, string
   if not data then
     return nil, err
   end
-  local out: {string: integer} = {}
-  for file, n in pairs(data) do
-    out[file] = n as integer -- cast: the baseline holds counts
-  end
-  return out
+  return shape.into(data, COUNTS_SPEC)
 end
 
 --- Rewrite the baseline from a fresh count of the tree.

@@ -326,23 +326,6 @@ narrow record is the module's real contract written on the wrong side
 of the seam. Declaring it in the module's own source and returning it
 typed makes the plain `require` resolve to that type.
 
-### decoded data shaping
-
-A value that came out of `literal.parse`, a decoded config or a parsed
-baseline, then read field by field or narrowed into a declared record.
-The outermost table is typed by the decoder; everything under it is
-`any`, so each field read costs its own cast.
-
-```text
--- _tool/coverage/baseline.tl:138
-  return {covered = covered as integer, total = total as integer} -- cast: math.type checked above
-```
-
-**What closes it here.** `cosmic.shape` already validates a value
-against a declared spec and returns it typed, which is the
-decode-into-a-record step these sites hand-roll. Routing the baseline
-and pin readers through it replaces the field-wise casts with one call.
-
 ### record union after guard
 
 A union re-typed after a guard the checker does not carry to the use:

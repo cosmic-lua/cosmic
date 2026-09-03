@@ -1,5 +1,4 @@
 path	line	class
-_build/casts.tl	90	decoded data shaping
 _fuzz/compress_fuzz_test.tl	76	enum relation
 _make/generate.tl	100	record union after guard
 _make/init.tl	143	dynamic name lookup
@@ -11,9 +10,6 @@ _make/init.tl	291	dynamic name lookup
 _make/init.tl	300	dynamic name lookup
 _make/stage.tl	183	record union after guard
 _perf/bench/micro_bench.tl	192	record union after guard
-_tool/coverage/baseline.tl	132	decoded data shaping
-_tool/coverage/baseline.tl	138	decoded data shaping
-_tool/coverage/baseline_test.tl	486	decoded data shaping
 _tool/coverage/lines.tl	86	tl compiler surface
 _tool/coverage/lines.tl	98	tl compiler surface
 _tool/coverage/lines.tl	133	tl compiler surface
@@ -31,8 +27,6 @@ _types/tlast.tl	339	tl compiler surface
 _types/tlast.tl	349	metatable access
 _types/tlast_test.tl	50	module surface record
 _types/tlast_test.tl	60	tl compiler surface
-cmd/cosmic/embed_gen.tl	294	decoded data shaping
-cmd/cosmic/embed_gen.tl	334	decoded data shaping
 cmd/cosmic/main.tl	456	container variance
 cosmic/_literal_format.tl	113	container variance
 cosmic/_literal_format.tl	131	container variance
@@ -107,7 +101,6 @@ cosmic/hash.tl	141	enum relation
 cosmic/hash.tl	203	enum relation
 cosmic/hash_test.tl	233	type-defeating test probe
 cosmic/hash_test.tl	268	type-defeating test probe
-cosmic/literal_example.tl	20	decoded data shaping
 cosmic/log_test.tl	103	type-defeating test probe
 cosmic/log_test.tl	114	type-defeating test probe
 cosmic/log_test.tl	163	type-defeating test probe

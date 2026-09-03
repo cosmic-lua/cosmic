@@ -30,6 +30,7 @@
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
 local rep = require("_tool.coverage.report")
+local shape = require("cosmic.shape")
 
 local type FileReport = rep.FileReport
 
@@ -38,6 +39,11 @@ local record Entry
   covered: integer
   total: integer
 end
+
+--- Same shape as Entry, for `shape.into` below.
+local ENTRY_SPEC < const > = shape.record({
+    covered = shape.integer, total = shape.integer,
+  })
 
 --- Total-percentage decline tolerated before the check fails, in
 --- percentage points; absorbs run-to-run flap in timing-dependent
@@ -126,16 +132,11 @@ end
 --- @return Entry | nil The row, when it has the right shape
 --- @return string? Error message when it does not
 local function to_entry(path: string, v: any): Entry | nil, string
-  if type(v) ~= "table" then
-    return nil, "coverage baseline: " .. path .. ": row must be a table"
+  local entry, err: Entry | nil, string = shape.into(v, ENTRY_SPEC)
+  if not entry then
+    return nil, "coverage baseline: " .. path .. ": " .. err
   end
-  local t = v as {string: any} -- cast: runtime-checked table above
-  local covered, total = t.covered, t.total
-  if math.type(covered) ~= "integer" or math.type(total) ~= "integer" then
-    return nil, "coverage baseline: " .. path ..
-    ": row must be {covered = <int>, total = <int>}"
-  end
-  return {covered = covered as integer, total = total as integer} -- cast: math.type checked above
+  return entry
 end
 
 --- Parse baseline text into per-file entries.
