@@ -36,9 +36,6 @@ cmd/cosmic/embed_gen.tl	334	decoded data shaping
 cmd/cosmic/main.tl	456	container variance
 cosmic/_literal_format.tl	113	container variance
 cosmic/_literal_format.tl	131	container variance
-cosmic/_literal_lex.tl	198	numeric narrowing
-cosmic/_literal_lex.tl	226	numeric narrowing
-cosmic/_literal_lex.tl	230	numeric narrowing
 cosmic/_probe.tl	15	runtime capability probe
 cosmic/_teal_ast_test.tl	33	tl compiler surface
 cosmic/_teal_ast_test.tl	34	tl compiler surface
@@ -82,17 +79,12 @@ cosmic/fetch/init.tl	241	binding contract shape
 cosmic/fetch/init.tl	367	binding contract shape
 cosmic/fetch/init.tl	371	binding contract shape
 cosmic/fetch/init.tl	388	map view of a declared value
-cosmic/format/init.tl	137	numeric narrowing
-cosmic/format/init.tl	138	numeric narrowing
-cosmic/format/init.tl	158	numeric narrowing
-cosmic/format/init.tl	159	numeric narrowing
 cosmic/fs/dir_test.tl	170	userdata boundary
 cosmic/fs/find.tl	163	userdata boundary
 cosmic/fs/find.tl	187	userdata boundary
 cosmic/fs/find.tl	317	userdata boundary
 cosmic/fs/find_close_test.tl	85	metatable access
 cosmic/fs/find_close_test.tl	87	metatable access
-cosmic/fs/octal.tl	23	numeric narrowing
 cosmic/fs/ops.tl	411	userdata boundary
 cosmic/fs/ops.tl	425	userdata boundary
 cosmic/fs/tree.tl	23	userdata boundary
@@ -180,5 +172,4 @@ cosmic/time.tl	138	binding contract shape
 cosmic/time.tl	162	binding contract shape
 cosmic/time.tl	167	binding contract shape
 cosmic/time.tl	168	binding contract shape
-cosmic/url.tl	54	numeric narrowing
 cosmic/zip.tl	222	userdata boundary

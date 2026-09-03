@@ -258,23 +258,6 @@ rule: `{Promise}` where `{string}` is wanted, and `{string: Rule}`
 where `{string: any}` is wanted, are sound everywhere this tree uses
 them. The bare-`table` sites are the exception and want a union.
 
-### numeric narrowing
-
-A value the code has established is an integer, declared `number`:
-digits just parsed by `tonumber` with an explicit base, a computation
-bounded above and below, a value a `math.type` check has already
-sorted, or a tl API field reporting a line or column.
-
-```text
--- cosmic/fs/octal.tl:23
-  return tonumber(digits, 8) as integer -- cast: octal digits parse integral
-```
-
-**What closes it upstream.** `math.type(x) == "integer"` is a guard the
-checker could narrow on, exactly as it narrows a nil union, and
-`tonumber(s, base)` over a digit string is integral by Lua's contract.
-Both are checker rules, so both land in the patch or upstream in tl.
-
 ### dynamic name lookup
 
 A table indexed by a name computed at runtime, where the declared type

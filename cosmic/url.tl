@@ -51,7 +51,7 @@ local function unescape(str: string): string | nil, string
     return nil, "invalid percent-encoding"
   end
   return (str:gsub("%%(%x%x)", function(hex: string): string
-        return string.char(tonumber(hex, 16) as integer) -- cast: %x%x is a hex pair
+        return string.char(tonumber(hex, 16))
       end))
 end
 
