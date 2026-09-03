@@ -170,8 +170,7 @@ local function stop()
     if ccov then
       ccov.stop()
     else
-      local clear_hook = debug.sethook as function() -- cast: function shape
-      clear_hook()
+      debug.sethook(nil, "") -- a nil hook clears the hook
     end
   end
 end

@@ -133,27 +133,18 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
       unix.close(wfd)
       io.stderr:write("proxy.start: " .. tostring(nerr) .. "\n")
       unix.exit(1) -- exits: forked child; setup failure is on the pipe
+      return nil, tostring(nerr) -- unreachable: narrows srv past unix.exit, which the checker can't see is terminal
     end
-    -- A guard narrows a nil union only when its block RETURNS; this one
-    -- ends in unix.exit, which the checker cannot see is terminal, so
-    -- srv stays `Server | nil` below. Reach the methods through a map
-    -- view at the proven non-nil use site.
-    local server = srv as {string: any} -- cast: record union after guard
-    -- cast: function shape from map view
-    local listen_fn = server.listen as function(): (integer | nil, string)
-    local port_fn = server.port as function(): integer -- cast: function shape
-    -- cast: function shape
-    local serve_fn = server.serve_forever as function(): (boolean, string)
-    local fd, lerr = listen_fn()
+    local fd, lerr = srv.listen()
     if not fd then
       unix.write(wfd, string.pack("<i4", -1))
       unix.close(wfd)
       io.stderr:write("proxy.start: listen: " .. tostring(lerr) .. "\n")
       unix.exit(1) -- exits: forked child; the listen error is on the pipe
     end
-    unix.write(wfd, string.pack("<i4", port_fn()))
+    unix.write(wfd, string.pack("<i4", srv.port()))
     unix.close(wfd)
-    local sok, serr = serve_fn()
+    local sok, serr = srv.serve_forever()
     if not sok then
       io.stderr:write("proxy.serve: " .. tostring(serr) .. "\n")
       unix.exit(1) -- exits: forked child; the serve error went to stderr
