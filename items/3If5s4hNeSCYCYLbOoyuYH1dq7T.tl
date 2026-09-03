@@ -7,6 +7,7 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 372,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-uYH1-1788418187",
   ["speccers"] = "7019a67a-89f8-5ed7-bd1c-6d260093b01b",
   ["title"] = "lsqlite3: BLOB and TEXT are indistinguishable at the Lua value boundary",
 }
