@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1661,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-l5O2_8uvh-1",
   ["title"] = "make: the seed dir is removed on every exit of sources(), not only after stamp_types",
 }
