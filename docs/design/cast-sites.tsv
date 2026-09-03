@@ -23,12 +23,12 @@ _tool/discover.tl	90	tl compiler surface
 _types/gentype.tl	19	module surface record
 _types/gentype.tl	24	module surface record
 _types/gentype.tl	30	module surface record
-_types/tlast.tl	106	tl compiler surface
-_types/tlast.tl	159	metatable access
-_types/tlast.tl	320	module surface record
-_types/tlast.tl	321	module surface record
-_types/tlast.tl	331	tl compiler surface
-_types/tlast.tl	341	metatable access
+_types/tlast.tl	105	tl compiler surface
+_types/tlast.tl	158	metatable access
+_types/tlast.tl	328	module surface record
+_types/tlast.tl	329	module surface record
+_types/tlast.tl	339	tl compiler surface
+_types/tlast.tl	349	metatable access
 _types/tlast_test.tl	50	module surface record
 _types/tlast_test.tl	60	tl compiler surface
 cmd/cosmic/embed_gen.tl	294	decoded data shaping

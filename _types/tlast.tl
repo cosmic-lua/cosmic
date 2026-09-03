@@ -17,7 +17,6 @@
 --- the chunk name is constant. Rebuilding the same pinned bytes yields
 --- the same cache, byte for byte.
 
-local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 
 local TL_LUA < const > = "o/3p/tl/tl.lua"
@@ -255,6 +254,17 @@ w:write(string.dump(chunk, true))
 w:close()
 ]==]
 
+--- Quote one path for a shell command line. Always wraps in single
+--- quotes with embedded single quotes escaped -- not the general
+--- "skip quoting when safe" heuristic `cosmic.string.shell_quote` uses,
+--- since the four callers here are paths `dump_via_base` created
+--- itself under `dest`, never user-supplied.
+--- @param s string The path to quote
+--- @return string The quoted argument
+local function quote_path(s: string): string
+  return "'" .. (s:gsub("'", "'\\''")) .. "'"
+end
+
 --- Dump the serialized AST chunk using the base runtime.
 ---
 --- Scratch goes under `dest`, the directory the generator was handed and
@@ -284,12 +294,10 @@ local function dump_via_base(src: string, dest: string): string | nil, string
   if not pok then
     return nil, "tl_ast: " .. prog .. ": " .. (perr or "cannot write")
   end
-  local r, rerr = child.run({DUMPER, prog, srcfile, out},
-    {stdout = "inherit", stderr = "inherit"})
-  if r == nil then
-    return nil, "tl_ast: " .. tostring(rerr or "start failed")
-  end
-  if not r.ok then
+  local cmd = quote_path(DUMPER) .. " " .. quote_path(prog) .. " " ..
+  quote_path(srcfile) .. " " .. quote_path(out)
+  local ok = os.execute(cmd)
+  if not ok then
     return nil, "tl_ast: " .. DUMPER .. " refused the serialized chunk"
   end
   local code, drerr = fs.read(out)
