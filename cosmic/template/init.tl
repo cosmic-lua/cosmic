@@ -15,11 +15,18 @@
 --- `render(d: T): string`, so composing one inside another is a
 --- pipeline stage naming that function — one rule instead of two, and
 --- typed. `{{mode html}}` returns `cosmic.html.SafeHtml` instead, and
---- types every interpolation through it, so a raw `string` cannot
---- reach an HTML template's output without an explicit escaper
---- (`cosmic.html.safe`) or an explicit claim of already-safe markup
---- (`cosmic.html.trusted`) — nothing is escaped implicitly, and a
---- missing escaper is a compile error naming the template line.
+--- types every interpolation through a context's `Safe*` type: plain
+--- `{{.x}}` needs `cosmic.html.SafeHtml`; `{{attr .x}}`, `{{url .x}}`,
+--- `{{js .x}}`, and `{{css .x}}` need `cosmic.html.SafeAttr`,
+--- `cosmic.url.SafeUrl`, `cosmic.js.SafeJs`, and `cosmic.css.SafeCss`
+--- respectively — the context word names the obligation; nothing
+--- scans the surrounding markup to guess it. A raw `string`, or a
+--- `Safe*` value from the WRONG context, cannot reach an HTML
+--- template's output without an explicit escaper (`cosmic.html.safe`,
+--- `cosmic.url.safe_path`, `cosmic.js.safe`, `cosmic.css.safe`, …) or
+--- an explicit claim of already-safe content (each module's
+--- `trusted`) — nothing is escaped implicitly, and a missing or
+--- mismatched escaper is a compile error naming the template line.
 ---
 --- Example usage:
 ---   local template = require("cosmic.template")

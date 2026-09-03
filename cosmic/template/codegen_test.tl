@@ -94,3 +94,36 @@ local function test_two_stages_from_the_same_module_share_one_import()
   local _, count = out:gsub('require%("cosmic%.html"%)', "")
   assert(count == 1, "expected one require for cosmic.html, got " .. count)
 end
+
+local function test_url_context_types_through_safe_url()
+  local out = gen(
+    "{{type Page from myapp.page}}\n{{mode html}}" ..
+    "{{url .body | cosmic.url.safe_path}}", "t")
+  assert(out:match('local url = require%("cosmic%.url"%)'), out)
+  assert(out:match("local v1: url%.SafeUrl = url%.safe_path%(d%.body%)"), out)
+  assert(out:match("parts%[#parts %+ 1%] = v1%.raw"), out)
+end
+
+local function test_js_context_types_through_safe_js()
+  local out = gen(
+    "{{type Page from myapp.page}}\n{{mode html}}{{js .body | cosmic.js.safe}}", "t")
+  assert(out:match('local js = require%("cosmic%.js"%)'), out)
+  assert(out:match("local v1: js%.SafeJs = js%.safe%(d%.body%)"), out)
+end
+
+local function test_css_context_types_through_safe_css()
+  local out = gen(
+    "{{type Page from myapp.page}}\n{{mode html}}{{css .body | cosmic.css.safe}}", "t")
+  assert(out:match('local css = require%("cosmic%.css"%)'), out)
+  assert(out:match("local v1: css%.SafeCss = css%.safe%(d%.body%)"), out)
+end
+
+local function test_attr_context_types_through_safe_attr_and_shares_html_import()
+  local out = gen(
+    "{{type Page from myapp.page}}\n{{mode html}}" ..
+    "{{attr .body | cosmic.html.safe_attr}}", "t")
+  assert(out:match("local v1: html%.SafeAttr = html%.safe_attr%(d%.body%)"), out)
+  local _, count = out:gsub('require%("cosmic%.html"%)', "")
+  assert(count == 1,
+    "attr context should share html mode's cosmic.html import, got " .. count)
+end

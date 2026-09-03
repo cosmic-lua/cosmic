@@ -61,3 +61,31 @@ local function test_trusted_wraps_without_escaping()
   local out = html.trusted("<b>")
   assert(out.raw == "<b>", "trusted must not escape, got: " .. out.raw)
 end
+
+local function test_escape_attr_encodes_non_alphanumerics()
+  local result = html.escape_attr([["' <>&]])
+  assert(result == "&#34;&#39;&#32;&#60;&#62;&#38;", "got: " .. result)
+end
+
+local function test_escape_attr_preserves_alphanumerics()
+  local result = html.escape_attr("Hello123")
+  assert(result == "Hello123", "expected alphanumerics untouched, got: " .. result)
+end
+
+local function test_escape_attr_encodes_space_and_equals_for_unquoted_safety()
+  -- A bare space or `=` can break out of an UNQUOTED attribute the way
+  -- `"` breaks out of a quoted one; escape() leaves both alone, so
+  -- escape_attr must not.
+  local result = html.escape_attr("a b=c")
+  assert(not result:match("[ =]"), "expected space and = to be encoded, got: " .. result)
+end
+
+local function test_safe_attr_escapes_and_wraps()
+  local out = html.safe_attr([["]])
+  assert(out.raw == "&#34;", "expected escaped attribute value, got: " .. out.raw)
+end
+
+local function test_trusted_attr_wraps_without_escaping()
+  local out = html.trusted_attr([["]])
+  assert(out.raw == [["]], "trusted_attr must not escape, got: " .. out.raw)
+end
