@@ -216,8 +216,8 @@ local function fail(err: any, kind: string): Response | nil, Error
   return nil, setmetatable(e, error_mt)
 end
 
-local function make_response(fields: {string: any}): Response
-  return setmetatable(fields as Response, response_mt) as Response -- cast: table seeded as record
+local function make_response(fields: Response): Response
+  return setmetatable(fields, response_mt)
 end
 
 local function do_fetch(url: string, opts?: Options): Response | nil, Error
@@ -385,7 +385,7 @@ local made = fetch_extras.make(
   Fetch,
   stream,
   function(t: any): any
-    return make_response(t as {string: any}) -- cast: from any
+    return make_response(t as Response) -- cast: from any
   end,
   function(message: string): (any, any)
     -- download's local-file failures are fetch's own two-way case:

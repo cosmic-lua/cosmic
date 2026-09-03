@@ -77,17 +77,15 @@ cosmic/fetch/extras.tl	199	generic T
 cosmic/fetch/extras.tl	202	generic T
 cosmic/fetch/extras.tl	239	generic T
 cosmic/fetch/init.tl	214	enum relation
-cosmic/fetch/init.tl	220	incremental record construction
 cosmic/fetch/init.tl	239	binding contract shape
 cosmic/fetch/init.tl	241	binding contract shape
 cosmic/fetch/init.tl	367	binding contract shape
 cosmic/fetch/init.tl	371	binding contract shape
 cosmic/fetch/init.tl	388	map view of a declared value
-cosmic/format/init.tl	118	incremental record construction
-cosmic/format/init.tl	141	numeric narrowing
-cosmic/format/init.tl	142	numeric narrowing
-cosmic/format/init.tl	162	numeric narrowing
-cosmic/format/init.tl	163	numeric narrowing
+cosmic/format/init.tl	137	numeric narrowing
+cosmic/format/init.tl	138	numeric narrowing
+cosmic/format/init.tl	158	numeric narrowing
+cosmic/format/init.tl	159	numeric narrowing
 cosmic/fs/dir_test.tl	170	userdata boundary
 cosmic/fs/find.tl	163	userdata boundary
 cosmic/fs/find.tl	187	userdata boundary
@@ -160,7 +158,6 @@ cosmic/shape.tl	279	generic T
 cosmic/shm.tl	146	pcall return shape
 cosmic/shm.tl	171	pcall return shape
 cosmic/signal.tl	250	binding contract shape
-cosmic/signal.tl	287	incremental record construction
 cosmic/sqlite/bind.tl	40	metatable access
 cosmic/sqlite/bind.tl	49	metatable access
 cosmic/sqlite/bind.tl	56	binding contract shape
@@ -173,10 +170,7 @@ cosmic/sqlite/close_test.tl	174	metatable access
 cosmic/sqlite/extras.tl	63	pcall return shape
 cosmic/sqlite/extras.tl	106	pcall return shape
 cosmic/sqlite/extras_test.tl	48	sqlite row column read
-cosmic/sqlite/init.tl	214	incremental record construction
-cosmic/sqlite/init.tl	295	incremental record construction
 cosmic/sqlite/lifecycle_test.tl	12	sqlite row column read
-cosmic/sqlite/row_iter.tl	64	incremental record construction
 cosmic/stream.tl	237	runtime capability probe
 cosmic/sys.tl	46	enum relation
 cosmic/sys_test.tl	14	enum relation

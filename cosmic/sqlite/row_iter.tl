@@ -61,7 +61,7 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
     return true
   end
 
-  local iter = setmetatable({} as Rows, { -- cast: table seeded as record
+  local iter: Rows = setmetatable({}, {
       __call = function(_: Rows): {string: any}
         if done then
           return nil
@@ -133,4 +133,17 @@ local function query(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on
   return make(raw_stmt, raw_db, on_close, row_code, done_code)
 end
 
-return {make = make, query = query}
+local record RowIterModule
+  --- Shared with cosmic.sqlite, which re-exports this as its own public
+  --- Rows type, so the two sides name one nominal type.
+  type Rows = Rows
+
+  make: function(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database,
+  on_close: OnClose, row_code: number, done_code: number): Rows
+  query: function(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database,
+  on_close: OnClose, ok_code: number, row_code: number, done_code: number,
+  params?: bind_mod.Params): Rows | nil, string
+end
+
+local M: RowIterModule = {make = make, query = query}
+return M
