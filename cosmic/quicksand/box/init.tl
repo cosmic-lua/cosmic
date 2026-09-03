@@ -25,6 +25,7 @@
 --- fork / exec orchestration lives in cosmic.quicksand.box.run and is
 --- required on demand from `run()` so construction stays cheap.
 local box_merge = require("cosmic.quicksand.box.merge")
+local probe = require("cosmic._probe")
 local sandbox = require("cosmic.sandbox")
 local types = require("cosmic.quicksand.types")
 
@@ -87,7 +88,7 @@ local function validate(opts: BoxOptions): boolean, string
     -- proc.pledge is not a valid field: the promise string lives in
     -- opts.sys (cosmic.sandbox's Sys schema). Reject it explicitly with
     -- a migration message instead of silently ignoring it.
-    if (proc as {string: any}).pledge ~= nil then -- cast: probe for removed field
+    if probe.is_present(proc, "pledge") then
       return false, "proc.pledge was removed: use sys = { promises = ... }"
       .. " (cosmic.sandbox's Sys schema)"
     end
