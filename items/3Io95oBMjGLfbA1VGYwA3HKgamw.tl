@@ -1,5 +1,6 @@
 return {
-  ["builders"] = "15925051-9a03-506a-af49-a6b214eeb796",
+  ["builders"] = "15925051-9a03-506a-af49-a6b214eeb796 builder-A3HK_gamw-orch9",
+  ["claim"] = "builder-A3HK_gamw-orch9",
   ["id"] = "3Io95oBMjGLfbA1VGYwA3HKgamw",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["repo"] = "cosmic-lua/cosmic",
