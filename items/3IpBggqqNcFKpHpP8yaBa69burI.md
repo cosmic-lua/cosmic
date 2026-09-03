@@ -32,3 +32,34 @@ Not a re-litigation of why the binding was removed (if it was) — this item
 is about the demo scripts and `help.txt` now being inconsistent with
 whatever the current `cosmo.*` surface actually provides, discovered via a
 live 500 on the built binary.
+
+## Rework (round 2)
+
+Round 1's `request-changes` was against the PR DESCRIPTION only, not the
+diff (same head `360524c8`, zero commits since): round 1 found the
+description's unqualified "now returns 200" claim didn't hold for a plain
+`curl` (default User-Agent) — every route still 500s, because
+`.init.lua`'s `OnHttpRequest` unconditionally hits a separate, already-filed
+`finger` module bug (`finger` is nil, no `luaopen_finger` registered
+anywhere in `tool/net/*.c`) before reaching this PR's fixed call sites; only
+`curl -A ''` (suppressed User-Agent) reaches the fixed paths and returns
+200. Round 1 explicitly said the CODE was correct and complete.
+
+The builder edited only the PR description (no new commits) to state the
+verification precisely: `curl -A ''` gets 200 on `redbean.lua`,
+`fetch.lua`, `unix-finger.lua` (405 on `redbean-form.lua` via GET, which is
+that handler's own POST-only method gate — 200 on POST), while a normal
+request (any User-Agent) still 500s today via the separate `finger` bug,
+disclosed as out of scope with its practical blast radius spelled out.
+
+Round 2 independently re-verified from a fresh clone at the same head:
+CI green (`build` check, success); single commit, no diff drift; `curl`
+with default UA 500s on all four routes with exactly
+`attempt to index a nil value (global 'finger')` at `.init.lua:77`; `curl
+-A ''` returns 200/200/200 and 405-then-200(POST) respectively; `finger`
+is confirmed unregistered anywhere in `tool/net/*.c`/`*.h`; and
+`VisualizeControlCodes` is confirmed absent from `redbean.c`'s `kLuaFuncs`
+table (the actual registration backing the bare global these demo scripts
+called), corroborating `test_cosmo.lua:89`'s removal-list guard for the
+`cosmo.*` surface. The corrected description now matches every one of
+these observations exactly. Accepted.
