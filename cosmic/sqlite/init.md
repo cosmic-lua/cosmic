@@ -32,30 +32,6 @@
 
 ## Types
 
-### Rows
-
- Callable row iterator with an out-of-band error channel. Use it in a
- `for row in ... do` loop, then call `:err()` afterward to detect a step
- error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure) a for-loop
- cannot observe inline. `:err()` is nil only on a clean SQLITE_DONE.
- Draining the loop releases the underlying prepared statement. When
- iteration may stop early, call `:close()` (idempotent), or declare the
- iterator to-be-closed — `local rows <close> = db:query(...)` — so the
- statement is released on scope exit; garbage collection is the backstop.
-
-```teal
-local record Rows
-  __call: function(self: Rows): {string: any}
-  __close: function(self: Rows)
-  --  Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Rows): string | nil
-  --  Release the underlying prepared statement early (idempotent; a
-  --  second call returns true). Reports a finalize failure instead of
-  --  swallowing it.
-  close: function(self: Rows): boolean, string
-end
-```
-
 ### Statement
 
  Statement handle with automatic cleanup.
@@ -176,6 +152,19 @@ end
  cosmic.sqlite.bind).
 
 alias of `cosmic.sqlite.bind.Params` — field and method table: `cosmic --docs cosmic.sqlite.bind.Params`
+
+### Rows
+
+ Callable row iterator with an out-of-band error channel. Use it in a
+ `for row in ... do` loop, then call `:err()` afterward to detect a step
+ error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure) a for-loop
+ cannot observe inline. `:err()` is nil only on a clean SQLITE_DONE.
+ Draining the loop releases the underlying prepared statement. When
+ iteration may stop early, call `:close()` (idempotent), or declare the
+ iterator to-be-closed — `local rows <close> = db:query(...)` — so the
+ statement is released on scope exit; garbage collection is the backstop.
+
+alias of `cosmic.sqlite.row_iter.Rows` — field and method table: `cosmic --docs cosmic.sqlite.row_iter.Rows`
 
 ### Options
 
