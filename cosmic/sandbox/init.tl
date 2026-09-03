@@ -36,6 +36,7 @@
 local landlock = require("cosmic.sandbox.landlock")
 local pledge = require("cosmic.sandbox.pledge")
 local plan = require("cosmic.sandbox.plan")
+local probe = require("cosmic._probe")
 local section = require("cosmic.sandbox.section")
 
 --- Filesystem policy; the record (ro/rw/exec allowlists plus
@@ -197,7 +198,7 @@ local function check_policy(opts: Options): string
     if type(fs) ~= "table" then
       return "sandbox: fs must be a table"
     end
-    if (fs as {string: any}).deny ~= nil then -- cast: record to map probe
+    if probe.is_present(fs, "deny") then
       return "sandbox: fs.deny does not exist: the fs policy is an"
       .. " allowlist, every path not in ro/rw/exec is already denied"
     end
@@ -217,7 +218,7 @@ local function check_policy(opts: Options): string
     if type(sys) ~= "table" then
       return "sandbox: sys must be a table"
     end
-    if (sys as {string: any}).exec ~= nil then -- cast: record to map probe
+    if probe.is_present(sys, "exec") then
       return "sandbox: sys.exec does not exist: the key is"
       .. " sys.exec_promises (#989 renamed it) — silently dropping the"
       .. " old spelling would run exec'd children with no promises"

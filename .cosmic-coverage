@@ -162,6 +162,7 @@ return {
   ["cosmic/_fields.tl"] = {["covered"] = 5, ["total"] = 7},
   ["cosmic/_literal_format.tl"] = {["covered"] = 8, ["total"] = 14},
   ["cosmic/_literal_lex.tl"] = {["covered"] = 85, ["total"] = 89},
+  ["cosmic/_probe.tl"] = {["covered"] = 5, ["total"] = 5},
   ["cosmic/_script_cache.tl"] = {["covered"] = 72, ["total"] = 79},
   ["cosmic/_seal_coverage.tl"] = {["covered"] = 11, ["total"] = 13},
   ["cosmic/_teal_ast.tl"] = {["covered"] = 30, ["total"] = 37},

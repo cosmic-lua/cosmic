@@ -47,6 +47,7 @@ cosmic/_literal_format.tl	131	container variance
 cosmic/_literal_lex.tl	198	numeric narrowing
 cosmic/_literal_lex.tl	226	numeric narrowing
 cosmic/_literal_lex.tl	230	numeric narrowing
+cosmic/_probe.tl	15	runtime capability probe
 cosmic/_teal_ast_test.tl	33	tl compiler surface
 cosmic/_teal_ast_test.tl	34	tl compiler surface
 cosmic/_teal_ast_test.tl	36	tl compiler surface
@@ -122,7 +123,6 @@ cosmic/net/connect.tl	96	function shape
 cosmic/net/socket.tl	334	function shape
 cosmic/net/socket.tl	397	function shape
 cosmic/net/socket.tl	437	function shape
-cosmic/quicksand/box/init.tl	90	runtime capability probe
 cosmic/quicksand/box/init_test.tl	143	map view of a declared value
 cosmic/quicksand/box/init_test.tl	145	map view of a declared value
 cosmic/quicksand/box/init_test.tl	146	map view of a declared value
@@ -149,9 +149,7 @@ cosmic/rand_test.tl	168	container variance
 cosmic/re.tl	200	proved-value narrowing
 cosmic/re.tl	287	binding contract shape
 cosmic/re.tl	333	binding contract shape
-cosmic/sandbox/init.tl	200	runtime capability probe
-cosmic/sandbox/init.tl	205	runtime capability probe
-cosmic/sandbox/init.tl	220	runtime capability probe
+cosmic/sandbox/init.tl	206	runtime capability probe
 cosmic/sandbox/init_test.tl	132	container variance
 cosmic/sandbox/init_test.tl	192	map view of a declared value
 cosmic/sandbox/init_test.tl	193	map view of a declared value
