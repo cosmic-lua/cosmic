@@ -57,7 +57,6 @@ cosmic/check.tl	139	type-defeating test probe
 cosmic/check.tl	298	record union after guard
 cosmic/check_assertions_test.tl	101	type-defeating test probe
 cosmic/check_assertions_test.tl	321	type-defeating test probe
-cosmic/check_assertions_test.tl	341	function shape
 cosmic/compress_test.tl	24	enum relation
 cosmic/compress_test.tl	36	enum relation
 cosmic/compress_test.tl	139	enum relation
@@ -65,7 +64,6 @@ cosmic/coverage/init.tl	44	module surface record
 cosmic/coverage/init.tl	45	module surface record
 cosmic/coverage/init.tl	92	map view of a declared value
 cosmic/coverage/init.tl	93	map view of a declared value
-cosmic/coverage/init.tl	173	function shape
 cosmic/deep.tl	52	generic T
 cosmic/deep.tl	121	generic T
 cosmic/embed/init.tl	104	userdata boundary
@@ -126,14 +124,10 @@ cosmic/quicksand/box/merge_test.tl	151	type-defeating test probe
 cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
 cosmic/quicksand/box/run.tl	254	record union after guard
 cosmic/quicksand/caps.tl	63	binding constant by name
-cosmic/quicksand/init.tl	73	function shape
+cosmic/quicksand/init.tl	73	runtime capability probe
 cosmic/quicksand/proc.tl	271	binding constant by name
 cosmic/quicksand/proc.tl	274	binding constant by name
 cosmic/quicksand/proxy.tl	115	container variance
-cosmic/quicksand/proxy.tl	141	record union after guard
-cosmic/quicksand/proxy.tl	143	function shape
-cosmic/quicksand/proxy.tl	144	function shape
-cosmic/quicksand/proxy.tl	146	function shape
 cosmic/quicksand/proxy/rules_test.tl	55	container variance
 cosmic/quicksand/proxy/rules_test.tl	125	type-defeating test probe
 cosmic/rand_test.tl	95	type-defeating test probe

@@ -205,7 +205,7 @@ function.
 **Why it is a floor.** The question is unanswerable at check time by
 construction: a type says what a value is in the tree being checked,
 and the probe exists because the value may come from a different tree.
-Each probed shape needs one cast to name what it found — five today.
+Each probed shape needs one cast to name what it found — six today.
 
 ### metatable access
 
@@ -227,19 +227,24 @@ level down. Two helpers — identity compare and metamethod fetch.
 ### function shape
 
 An overloaded binding declared as a union of signatures, with one arm
-selected by casting the function before calling it. The unix socket
-calls are the pure case: `bind` and `connect` take either a sockaddr or
-a filesystem path, and one declaration covers both.
+selected by casting the function before calling it. The class is down
+to four sites, all in the unix socket/connect family: `bind` and
+`connect` take either a sockaddr or a filesystem path, and the
+generated type keeps only one of the two success shapes.
 
 ```text
 -- cosmic/net/socket.tl:334
     local ok, err = (unix.bind as function(number, string): (boolean, string))(fd, path)
 ```
 
-**What closes it upstream.** `tool/net/definitions.lua` declares one
-function per C entry point, so an overload is one annotation covering
-two contracts. Splitting the overloaded entries into separately
-annotated names removes the cast at every call site.
+**What closes it upstream.** `tool/net/definitions.lua` annotates both
+success shapes, but the generator that turns those annotations into
+`cosmo.d.tl` keeps only one overload arm per binding and drops the
+other, so the dropped shape never reaches the generated type and a
+caller reaching for it has to cast. That generator gap is
+`gentype-overloads`, tracked as its own item — splitting the
+overloaded entries so every annotated arm survives generation removes
+the cast at each remaining call site.
 
 ### container variance
 

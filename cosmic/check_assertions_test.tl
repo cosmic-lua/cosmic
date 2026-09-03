@@ -338,7 +338,7 @@ end
 local function with_enforce(on: boolean, f: function())
   local prev = env.get("COSMIC_ENFORCE")
   if on then assert(env.set("COSMIC_ENFORCE", "1", true)) else assert(env.unset("COSMIC_ENFORCE")) end
-  local ok, e = pcall(f as function(): any) -- cast: function shape
+  local ok, e = pcall(function(): any f() return nil end)
   if prev then assert(env.set("COSMIC_ENFORCE", prev, true)) else assert(env.unset("COSMIC_ENFORCE")) end
   if not ok then error(e, 0) end
 end
