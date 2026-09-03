@@ -88,44 +88,61 @@ the chosen representation, its scope (UDF arguments only, or every
 fallback is settled in the same change. The decision belongs to the
 project owner.
 
-## Recommendation (research pass, not a final decision)
+## Decision (confirmed by the project owner, 2026-09-03)
 
 Representation: **(b)**, a new accessor exposing the real SQL
-runtime type (`sqlite3_value_type` for UDF args and changeset
-values, `sqlite3_column_type` for column reads), named distinctly
-from the existing decltype-reporting `type()`/`get_named_types()`
-(e.g. `value_type`/`column_type`) to avoid confusing the two. Every
-existing push stays exactly as-is — still a plain Lua string for
-both TEXT and BLOB — matching this file's own established idiom
-(type is selected by which call you make, never inferred from a
-tagged value) and costing nothing against existing callers, since
-none currently consume `db_push_value`'s output through
-`cosmic.sqlite`.
+runtime type, matching this file's own established idiom of a
+dedicated method per SQL type rather than a runtime-type-tagged
+return value:
 
-Scope: **not narrowed to UDF arguments** — extend the same accessor
-to `db_push_value`'s two callers (UDF args, changeset iterator) and
-to `vm_push_column`'s callers (ordinary column reads), since (b) is
-additive everywhere and candidate (c)'s narrow-blast-radius rationale
-doesn't apply when there is no blast radius to narrow. This directly
-answers the item's own Question: yes, extend to column reads too.
+- `value_type(n)` on the UDF/session-extension side
+  (`sqlite3_value_type`), named distinctly from the existing
+  decltype-reporting `type()`/`get_named_types()` to avoid confusing
+  the two (decltype is the declared schema type; this is the actual
+  runtime type of the value, which SQLite's dynamic typing can
+  disagree with);
+- `column_type(n)` on the row-read side (`sqlite3_column_type`).
 
-Integer fallback: **not part of this decision** — it is dead code
-under the current build configuration (see Evidence); 3If5s4hN
-should drop it or reclassify it as a documentation/defensive-code
-note rather than a fix bundled with the blob decision.
+Both are called **separately from, not merged into**, the existing
+value-getting call — an earlier draft of this decision considered a
+combined `value, type = get_typed(n)` accessor for cosmic's internal
+convenience (it always wants both), but the project owner chose the
+two-separate-methods shape specifically to match this file's
+established convention, over the efficiency argument for a combined
+getter. Every existing push stays exactly as-is — still a plain Lua
+string for both TEXT and BLOB — so this costs nothing against
+existing callers, since none currently consume `db_push_value`'s
+output through `cosmic.sqlite`.
 
-The one case for (a)/(c) instead: if the project wants blob values
-made indistinguishable-by-construction (compile-time safety) rather
-than checked-by-convention, a wrapper type is the only representation
-that achieves that — a value judgment the project owner may weigh
-differently than this research pass did.
+Scope: **not narrowed to UDF arguments** — the same accessor pattern
+applies to `db_push_value`'s two callers (UDF args, changeset
+iterator) and to `vm_push_column`'s callers (ordinary column reads),
+since (b) is additive everywhere and candidate (c)'s narrow-blast-
+radius rationale doesn't apply when there is no blast radius to
+narrow. This directly answers the item's own Question: yes, extend
+to column reads too.
 
-A fresh-context research pass ran the analysis above (2026-09-03);
-see board history for the full evidence trail. The recommendation is
-not applied to 3If5s4hN yet — that spec edit and the underlying
-decision both wait on the project owner's confirmation, per this
-item's own `## Change`.
+Integer fallback: **not part of this decision, and not its own
+follow-up item either** — it is dead code under the current build
+configuration (see Evidence: `lua_Integer` is already 64-bit,
+matching `sqlite_int64` exactly, so `PUSH_INT64`'s string fallback
+cannot execute). 3If5s4hN's spec is corrected to drop this claim
+rather than carry a fix for a defect that cannot occur.
+
+Layering (cosmopolitan repo vs. cosmic repo): the new `value_type`/
+`column_type` accessors and their `definitions.lua` annotations are
+a cosmopolitan-repo change (frozen C-boundary contract, additive, no
+existing behavior changes). `cosmic.sqlite`'s ergonomic distinct
+`Blob` type on read — built by checking the new accessor and
+wrapping BLOB values before returning them to a `cosmic.sqlite`
+caller — is a separate, follow-up cosmic-repo change (3If5s4hN),
+landed against the cosmopolitan pin that carries the new accessors.
+`cosmic/sqlite/bind.tl` dispatching on that `Blob` type to call
+`bind_blob` automatically (giving round-trip fidelity without the
+caller having to remember to do it manually) is part of that same
+cosmic-repo follow-up, not a separate item.
 
 ## Non-goals
 
-- No code; the build is 3If5s4hN once its spec names the choice.
+- No code; the build is 3If5s4hN once its spec names the choice —
+  which it now does.
