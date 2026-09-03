@@ -21,6 +21,15 @@ local function test_escape_breaks_out_of_url_and_expression_syntax()
   -- be escaped so neither can be injected through an interpolated value.
   local result = css.escape("url(javascript:alert(1))")
   assert(not result:match("[()]"), "expected ( and ) to be escaped, got: " .. result)
+
+  -- Pin the exact shape too: this escape is for a VALUE position, NOT
+  -- for the inside of url(...). CSS Syntax decodes a hex escape inside
+  -- a url token and inside an identifier, so this exact output,
+  -- dropped unquoted into url(...), decodes right back to the plain
+  -- string "javascript:alert(1)" the escape started from.
+  local plain = css.escape("javascript:alert(1)")
+  assert(plain == "javascript\\3a alert\\28 1\\29 ",
+    "expected the pinned escape shape, got: " .. plain)
 end
 
 local function test_escape_passes_utf8_continuation_bytes_through()
