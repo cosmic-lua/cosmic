@@ -7,7 +7,9 @@ return {
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
   ["pr"] = 372,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-uYH1-1788418187",
   ["speccers"] = "7019a67a-89f8-5ed7-bd1c-6d260093b01b",
   ["title"] = "lsqlite3: BLOB and TEXT are indistinguishable at the Lua value boundary",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "2aeada645ce8dac36633c5e8c68da3c7cf324485",
+  ["verdict_spec"] = "9f92f1e73e2ba16832b54762da4ae8ff4f32a5019e68a063324d4fd888fae928",
 }
