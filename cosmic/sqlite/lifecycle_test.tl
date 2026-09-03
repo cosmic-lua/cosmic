@@ -8,8 +8,8 @@ local check = require("cosmic.check")
 --- Scalar lookups go through query_one, which names the column it
 --- reads rather than trusting position.
 local function count_rows(db: sqlite.Database): integer
-  -- cast: a row column is `any`
-  return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as integer
+  local row = check.must(db:query_one("SELECT COUNT(*) AS n FROM t"))
+  return check.must(sqlite.column_integer(row, "n"))
 end
 
 local function open_db(): sqlite.Database

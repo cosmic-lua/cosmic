@@ -44,8 +44,8 @@ end
 -- savepoint tests
 
 local function count(db: sqlite.Database): number
-  -- cast: a row column is `any`
-  return check.must(db:query_one("SELECT COUNT(*) AS n FROM t")).n as number
+  local row = check.must(db:query_one("SELECT COUNT(*) AS n FROM t"))
+  return check.must(sqlite.column_number(row, "n"))
 end
 
 local function test_savepoint_commit()

@@ -68,8 +68,6 @@ return {
   ["cosmic/sqlite/bind.tl"] = 5,
   ["cosmic/sqlite/close_test.tl"] = 4,
   ["cosmic/sqlite/extras.tl"] = 2,
-  ["cosmic/sqlite/extras_test.tl"] = 1,
-  ["cosmic/sqlite/lifecycle_test.tl"] = 1,
   ["cosmic/stream.tl"] = 1,
   ["cosmic/sys.tl"] = 1,
   ["cosmic/sys_test.tl"] = 2,
