@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 378,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-Ba69_burI-v1",
   ["title"] = "demo: VisualizeControlCodes global is gone but redbean/fetch/unix-finger demos and help.txt still reference it",
 }
