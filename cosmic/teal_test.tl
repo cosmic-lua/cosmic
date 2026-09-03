@@ -153,24 +153,32 @@ print(early() + positive() + arr() + via_assert() + via_assert_expression()
     .. (result.ok and "" or teal.format_issues(result.errors)))
 end
 
--- Record FIELDS still do not narrow — a guard on `o.sub` leaves `o.sub`
--- un-narrowed at the use; the error names the type but not the cause,
+-- The carried tl patch's record-field narrowing canary lives in
+-- teal_nilflow_test.tl (test_narrowing_field_canary) — split out by
+-- the 500-line file limit; this file's own canary above stays the
+-- bare-variable one. The named residual here: only a bare-variable
+-- base is tracked, so a guard TWO fields deep (`o.mid.inner`, where
+-- `o.mid` is itself a field access rather than a plain variable)
+-- still does not narrow. The error names the type but not the cause,
 -- so the shape carries a hint at the fix (copy the field to a local).
-local function test_hint_index_through_nil_union()
+local function test_hint_index_through_nested_nil_union()
   local msg, hint = first_hinted_error("h_idx_union.tl", [[
 local record Inner
-  x: integer
+  y: integer
+end
+local record Middle
+  inner: Inner | nil
 end
 local record Outer
-  sub: Inner | nil
+  mid: Middle
 end
 local function use(o: Outer): integer
-  if o.sub then
-    return o.sub.x
+  if o.mid.inner then
+    return o.mid.inner.y
   end
   return 0
 end
-print(use({}))
+print(use({mid = {}}))
 ]])
   assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
     "wrong error: " .. msg)
