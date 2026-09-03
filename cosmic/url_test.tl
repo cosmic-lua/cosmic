@@ -311,3 +311,37 @@ local function test_format_query_string_values()
   assert(url.format_query({b = "2", a = "1"}) == "a=1&b=2")
   assert(url.format_query({k = {"1", "2"}, s = "x"}) == "k=1&k=2&s=x")
 end
+
+-- SafeUrl: each safe_* constructor wraps the matching escape_*, and
+-- trusted() wraps without escaping.
+
+local function test_safe_param_escapes_and_wraps()
+  local out = url.safe_param("a b")
+  assert(out.raw == "a%20b", "expected escaped param, got: " .. out.raw)
+end
+
+local function test_safe_path_escapes_and_wraps()
+  local out = url.safe_path("/a b/c")
+  assert(out.raw == "/a%20b/c", "expected escaped path, got: " .. out.raw)
+end
+
+local function test_safe_segment_escapes_and_wraps()
+  local out = url.safe_segment("a/b")
+  assert(out.raw == "a%2Fb", "expected escaped segment, got: " .. out.raw)
+end
+
+local function test_safe_host_escapes_and_wraps()
+  local out = url.safe_host("ex ample.com")
+  assert(out.raw == url.escape_host("ex ample.com"), "expected escaped host, got: " ..
+    out.raw)
+end
+
+local function test_safe_fragment_escapes_and_wraps()
+  local out = url.safe_fragment("a b")
+  assert(out.raw == "a%20b", "expected escaped fragment, got: " .. out.raw)
+end
+
+local function test_trusted_wraps_without_escaping()
+  local out = url.trusted("javascript:alert(1)")
+  assert(out.raw == "javascript:alert(1)", "trusted must not escape, got: " .. out.raw)
+end

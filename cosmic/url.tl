@@ -336,9 +336,63 @@ local function format_host(hp: HostPort): string
   return host
 end
 
+--- Escaped URL content, wrapped so a raw `string` cannot reach a
+--- `{{url ...}}` interpolation by accident. The escaping rule that
+--- applies depends on WHICH component the value fills — a query
+--- parameter, a path, a host — so SafeUrl has one safe_* constructor
+--- per component rather than a single safe(), mirroring the escape_*
+--- family above; trusted() is the shared hatch for a URL already known
+--- to be safe, such as a fixed literal.
+local record SafeUrl
+  raw: string
+end
+
+--- Escape str with escape_param and wrap it as SafeUrl.
+--- @param str string The string to encode
+--- @return SafeUrl The escaped, wrapped string
+local function safe_param(str: string): SafeUrl
+  return {raw = escape_param(str)}
+end
+
+--- Escape str with escape_path and wrap it as SafeUrl.
+--- @param str string The path to escape
+--- @return SafeUrl The escaped, wrapped string
+local function safe_path(str: string): SafeUrl
+  return {raw = escape_path(str)}
+end
+
+--- Escape str with escape_segment and wrap it as SafeUrl.
+--- @param str string The path segment to escape
+--- @return SafeUrl The escaped, wrapped string
+local function safe_segment(str: string): SafeUrl
+  return {raw = escape_segment(str)}
+end
+
+--- Escape str with escape_host and wrap it as SafeUrl.
+--- @param str string The hostname to escape
+--- @return SafeUrl The escaped, wrapped string
+local function safe_host(str: string): SafeUrl
+  return {raw = escape_host(str)}
+end
+
+--- Escape str with escape_fragment and wrap it as SafeUrl.
+--- @param str string The fragment to escape
+--- @return SafeUrl The escaped, wrapped string
+local function safe_fragment(str: string): SafeUrl
+  return {raw = escape_fragment(str)}
+end
+
+--- Wrap str as SafeUrl WITHOUT escaping it.
+--- @param str string A URL (or URL component) already known to be safe
+--- @return SafeUrl The wrapped string, unescaped
+local function trusted(str: string): SafeUrl
+  return {raw = str}
+end
+
 local record UrlModule
   type Url = Url
   type HostPort = HostPort
+  type SafeUrl = SafeUrl
 
   escape_param: function(str: string): string
   unescape_param: function(str: string): string | nil, string
@@ -353,6 +407,12 @@ local record UrlModule
   escape_segment: function(str: string): string
   escape_fragment: function(str: string): string
   format_host: function(hp: HostPort): string
+  safe_param: function(str: string): SafeUrl
+  safe_path: function(str: string): SafeUrl
+  safe_segment: function(str: string): SafeUrl
+  safe_host: function(str: string): SafeUrl
+  safe_fragment: function(str: string): SafeUrl
+  trusted: function(str: string): SafeUrl
 end
 
 local M: UrlModule = {
@@ -369,6 +429,12 @@ local M: UrlModule = {
   escape_segment = escape_segment,
   escape_fragment = escape_fragment,
   format_host = format_host,
+  safe_param = safe_param,
+  safe_path = safe_path,
+  safe_segment = safe_segment,
+  safe_host = safe_host,
+  safe_fragment = safe_fragment,
+  trusted = trusted,
 }
 
 return M

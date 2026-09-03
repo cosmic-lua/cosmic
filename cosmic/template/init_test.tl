@@ -73,6 +73,55 @@ local function test_html_mode_raw_string_interpolation_fails_to_type_check()
     "expected the error to name SafeHtml, got: " .. msg)
 end
 
+--- Gate 1 for the non-default contexts: a template that escapes with
+--- each context's own module type-checks against the fixture.
+local function test_generated_html_module_type_checks_with_every_context()
+  local tmpdir = os.getenv("TEST_TMPDIR")
+  assert(tmpdir, "TEST_TMPDIR must be set")
+  local src = table.concat({
+      "{{type Page from " .. FIXTURE .. "}}",
+      "{{mode html}}",
+      '<a href="{{url .title | cosmic.url.safe_path}}"',
+      ' data-x="{{attr .body | cosmic.html.safe_attr}}">',
+      "<script>var t = \"{{js .title | cosmic.js.safe}}\";</script>",
+      "<style>a { color: {{css .body | cosmic.css.safe}}; }</style>",
+      "</a>",
+    }, "\n")
+  local out, err = template.compile(src, "contexts")
+  assert(out, "expected generated source, got error: " .. tostring(err))
+
+  local path = fs.join(tmpdir, "contexts_render.tl")
+  assert(fs.write(path, out))
+  local result = teal.check_file(path, {include_dirs = {"."}})
+  assert(result.ok, "generated module does not type-check:\n" ..
+    teal.format_issues(result.errors))
+end
+
+--- Gate 2 for the non-default contexts, and the mutation-testable
+--- guard this item adds: an interpolation bound to one context's Safe*
+--- type MUST NOT be satisfiable by another context's escaper — a
+--- `{{js ...}}` slot fed `cosmic.html.safe` fails to type-check, naming
+--- SafeJs (what was needed) at the template's own line.
+local function test_html_mode_wrong_context_escaper_fails_to_type_check()
+  local tmpdir = os.getenv("TEST_TMPDIR")
+  assert(tmpdir, "TEST_TMPDIR must be set")
+  local src = table.concat({
+      "{{type Page from " .. FIXTURE .. "}}",
+      "{{mode html}}",
+      "<script>var t = \"{{js .title | cosmic.html.safe}}\";</script>",
+    }, "\n")
+  local out, err = template.compile(src, "mismatched")
+  assert(out, "expected generated source, got error: " .. tostring(err))
+
+  local path = fs.join(tmpdir, "mismatched_render.tl")
+  assert(fs.write(path, out))
+  local result = teal.check_file(path, {include_dirs = {"."}})
+  assert(not result.ok,
+    "an html.safe value in a {{js}} slot must fail to type-check")
+  local msg = (result.errors[1] and result.errors[1].message) or ""
+  assert(msg:match("SafeJs"), "expected the error to name SafeJs, got: " .. msg)
+end
+
 local function test_text_mode_needs_no_escaper()
   local tmpdir = os.getenv("TEST_TMPDIR")
   assert(tmpdir, "TEST_TMPDIR must be set")
