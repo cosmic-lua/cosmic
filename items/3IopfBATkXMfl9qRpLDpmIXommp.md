@@ -68,14 +68,7 @@ c13f4a56 make: declare o/bin/cosmic as a reads: dependency of fixtures_test.tl (
 all 12 proved-value narrowing sites", #1646) is the only commit in
 the window that touches `cosmic/re.tl`: it replaces a `-- cast:`
 comment and cast with a runtime `assert(... is ...)` narrowing
-`re.match`'s capture return on the scenario's hot path — a plausible
-mechanism (an added `assert` on every call), but this is a
-prediction, not a finding — the builder's own local test (reverting
-`cf416d85` and remeasuring, ~4.4-4.8µs/op either way, within the
-scenario's own ±2-3% local spread) already argues against it, but
-was not run with the interleaving/aggregate rigor
-`3IjAuurwj3USV0a7jAPEas3TLvu` used, nor against binaries matching the
-exact CI SHAs (`base 7cf051829899`, `current 240621c27e3c`).
+`re.match`'s capture return on the scenario's hot path.
 
 ## Access
 
@@ -89,36 +82,6 @@ item (reproduced or not; if reproduced, whether `cf416d85` is the
 cause) plus a follow-up item for whatever answer that verdict points
 to.
 
-1. Build `c60dcf19` (baseline) and `63cc3a603fadd713e4edb8d131620904ecd467ba`
-   (current — the release window's tip actually compared; do not
-   substitute a later `origin/main`) in separate worktrees per
-   `skills/optimize/measurement.md`'s noise discipline (pinned CPU
-   governor / quiet machine, not a shared CI runner) and confirm each
-   build's `_perf` binary-hash label matches the CI log
-   (`base 7cf051829899`, `current 240621c27e3c`) before trusting any
-   measurement against them.
-2. Run `o/bin/cosmic --make run _perf/gate.tl selfcheck A.json B.json --only re_match_log_line`
-   on EACH binary alone first, to establish the real local noise floor,
-   the way `3IjAuurwj3USV0a7jAPEas3TLvu` did.
-3. Run at least 3 interleaved (base/cur/base/cur/…, per
-   `measurement.md`) cross-binary comparisons via
-   `o/bin/cosmic --make run _perf/run.tl --only re_match_log_line`,
-   aggregate the readings, and compare the aggregate median delta and
-   any sign flips against both binaries' own self-check noise bands.
-4. If `re_match_log_line` does not reproduce a real regression outside
-   CI (i.e. the aggregate holds well inside self-noise, signs flip
-   under interleaving): record that verdict on this item with the
-   commands and numbers that showed it, and stop — no follow-up item
-   needed, `0pa6_japm` unblocks as "noise, dismissed with evidence."
-5. If it reproduces: `git bisect` the 9-commit window above using the
-   same local `re_match_log_line`-only measurement as the bisect
-   script's pass/fail, confirm (or rule out) `cf416d85` specifically,
-   and record the bisected commit and its mechanism (read the diff) on
-   this item.
-6. Either way, file a follow-up item for whatever the verdict demands:
-   a fix under `skills/optimize/SKILL.md` if a specific commit
-   regressed `re_match_log_line`, or nothing further if it was noise.
-
 ## Non-goals
 
 Not re-litigating D34/D35 (the gate's retry/dismissal design) — this
@@ -129,3 +92,94 @@ is wrong. Not investigating `http_fetch_get_with_headers`, which
 stayed inside its own retry-noise class (`flagged only in the retry
 — not reproduced, counted as noise`) and needed no restoration path —
 it is not part of the FAIL verdict this item exists to explain.
+
+## Verdict
+
+**Environment.** Worktrees built from the exact commits: baseline
+`c60dcf19` (bin_sha `7cf051829899`) and current tip
+`63cc3a603fadd713e4edb8d131620904ecd467ba` (bin_sha `240621c27e3c`) —
+both hashes match the CI log's `binaries: base 7cf051829899  current
+240621c27e3c` exactly, byte for byte. Container has no cpufreq
+governor to pin; per `measurement.md` this means host
+placement/mitigation state is unobservable here.
+
+**Self-check noise floor** (`_perf/gate.tl selfcheck --only
+re_match_log_line`, 4 trials each side): baseline binary swung -3.8%,
++0.1%, -1.9%, -0.8% (tight, ≤4%); current-tip binary swung +14.8%,
+-10.5%, +4.6%, -2.8% (much wider, up to ±15%) — this container is
+noisier than CI's own quoted spreads for this scenario.
+
+**Full-window interleaved comparison** (baseline vs current tip,
+`_perf/run.tl --only re_match_log_line`, 6 order-randomized pairs, 3
+base-first + 3 cur-first):
+
+```
+pair  order       base(µs)  cur(µs)   cur-base
+1     base,cur    4.15      4.50      +8.4%
+2     base,cur    4.30      4.40      +2.3%
+3     base,cur    4.16      4.35      +4.6%
+4     cur,base    4.16      4.52      +8.7%
+5     cur,base    4.13      4.30      +4.1%
+6     cur,base    4.25      4.41      +3.8%
+```
+Current read higher in 6/6 pairs, in both orderings — no sign flip.
+Aggregating these 6 plus 4 selfcheck-pair samples per side (14
+samples each): base median 4.23µs, current median 4.47µs → **+5.7%
+median / +6.6% mean**.
+
+**Bisection, isolated to `cf416d85`.** Built its immediate parent
+`9fcfff3f` and `cf416d85` itself. 6 interleaved pairs (3+3,
+order-randomized):
+
+```
+pair  order        before(µs)  at-cf416d85(µs)  delta
+1     before,at    4.37        4.35             -0.5%
+2     before,at    4.25        4.54             +6.8%
+3     before,at    4.24        4.38             +3.3%
+4     at,before    4.34        4.12             +5.3%
+5     at,before    4.28        4.27             +0.2%
+6     at,before    4.59        4.14             +10.9%
+```
+`cf416d85`'s build read higher in 5/6 pairs (1 near-tie). Aggregate:
+before median 4.245µs, at-cf416d85 median 4.365µs → **+2.8% median /
++4.3% mean** — same direction, same order of magnitude as the
+full-window delta, consistent with `cf416d85` accounting for most of
+it.
+
+Diff-inspection of the other 8 commits in the window (`4e2f3fc4`,
+`c13f4a56`, `e414a290`, `0608b0bd`, `f2d7627d`, `9fcfff3f`,
+`3473dca7`, `63cc3a60`) confirms none touch `cosmic/re.tl` or any code
+`re_match_log_line` executes — ruling all of them out analytically,
+not just statistically.
+
+**Mechanism, confirmed by compiled output.** `git show cf416d85 --
+cosmic/re.tl`:
+```diff
+-    -- cast: captures, past the no-match/failure guard
+-    return {text = m, caps = caps as {string}}
++    assert(caps is {string}, "a match always carries the capture table") -- assert: captures, past the no-match/failure guard
++    return {text = m, caps = caps}
+```
+Diffing compiled `o/cosmic/re.lua` before/after: before, the line
+compiles to `return { text = m, caps = caps }` with zero runtime cost
+(a Teal cast is compile-time only); after, it compiles to
+`assert(type(caps) == "table", "...")` executed on every
+`re.match()` call — one extra `type()` and one `assert()` call on a
+~4.2µs op.
+
+**Conclusion.** `re_match_log_line` DOES reproduce a real,
+non-flipping, mechanism-confirmed slowdown within this session,
+isolated to `cf416d85`, of roughly +3-7% depending on the comparison
+— stronger evidence than the noise dismissed on 2026-09-01
+(`3IjAuurwj3USV0a7jAPEas3TLvu`, which showed sign flips). This is
+**not** the "noise, dismissed" outcome the Change anticipated as one
+branch. Per `skills/optimize/measurement.md`'s own rule — a
+tight-loop/fixed-overhead scenario's regression needs reproduction
+across SEPARATE SESSIONS, ideally days apart, before it is written
+into a board item as a confirmed finding — this single session's
+internally-consistent evidence is not yet sufficient to certify the
+regression outright either. Follow-up filed:
+`3IosEPKw1cMYZ7fSidzc5wUp1n9` (cross-session confirmation, then fix
+or accept). `3IonN6KwrW1QezqdCBs0pa6japm` should NOT be closed as
+"noise, dismissed" on this evidence — see that item's own history for
+how it resolves once the follow-up lands.
