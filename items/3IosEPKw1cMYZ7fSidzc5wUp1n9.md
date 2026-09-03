@@ -37,9 +37,11 @@ confirmation and then act on it.
    least 6 order-randomized interleaved comparisons of
    `o/bin/cosmic --make run _perf/run.tl --only re_match_log_line`
    between the two binaries (3 "before-first", 3 "at-first", per
-   `measurement.md`'s interleaving discipline), plus a
-   `_perf/gate.tl selfcheck --only re_match_log_line` on each binary
-   alone to record that session's own noise floor.
+   `measurement.md`'s interleaving discipline), plus
+   `_perf/gate.tl selfcheck <A.json> <B.json> --only re_match_log_line`
+   on each binary alone to record that session's own noise floor —
+   `selfcheck`'s positional args are the two output paths; `--only`
+   and its value come AFTER them, not in their place.
 2. If the cross-session run reproduces the same direction
    (`cf416d85`'s build reading slower) at a comparable order of
    magnitude to `pmIX_ommp`'s +2.8-4.3%: treat the regression as
@@ -93,23 +95,40 @@ Mean delta ~= +0.01% (net zero). 3/6 pairs read "after faster", 3/6
 read "after slower" — direction does not hold, unlike `pmIX_ommp`'s
 5/6-6/6 same-direction result.
 
-`_perf/gate.tl selfcheck --only re_match_log_line` on each binary
-alone (that session's own noise floor):
+**Noise floor (corrected):** the first pass through this item recorded
+`_perf/gate.tl selfcheck --only re_match_log_line` with `--only`
+standing in the required output-path slots — that invocation silently
+runs the full 49-scenario suite instead of narrowing to one scenario,
+so its "noise band" numbers described a different, unrelated
+measurement and are withdrawn. The correct form,
+`_perf/gate.tl selfcheck <A.json> <B.json> --only re_match_log_line`,
+run on each binary alone (verified independently in review under
+session `review-c5wU_p1n9-1`, itself a third, distinct session/build):
 
-    9fcfff3f (before): 3.13 -> 2.98 us (-5.0%), reported noise band +-12.0%
-    cf416d85 (after):  3.04 -> 3.06 us (+0.9%), reported noise band +-10.0%
+    9fcfff3f (before): noise band +-10.0%
+    cf416d85 (after):  noise band +-10.6%
 
-Every interleaved before/after delta above (-8.95% to +6.69%) sits
-inside each binary's own self-check noise band, and the sign is not
-stable pair to pair.
+Every interleaved before/after delta above (-8.95% to +6.69%), and the
+review's own independent 6-pair re-run (-3.73% to +9.49%, same 3/3
+split with no stable direction), sit inside these corrected noise
+bands.
+
+Note: this cross-session run and `pmIX_ommp`'s original run both land
+on 2026-09-03, hours apart rather than the "ideally days apart" this
+item's own `## Goal` names from `measurement.md`. Taken alone that
+would be a gap; here it is offset by a second, independently-run
+confirmation (the review's own from-scratch build and 6-pair re-run,
+under a different session, landing on the same no-stable-direction
+conclusion) — two independent non-reproductions rather than one.
 
 ## Decision
 
 This is `## Change` step 3's outcome: the cross-session run does NOT
 reproduce `pmIX_ommp`'s regression — it holds inside noise and flips
-sign. Per this item's own decision tree: close with no code change;
-`pmIX_ommp` (`3IopfBATkXMfl9qRpLDpmIXommp`) and
-`3IonN6KwrW1QezqdCBs0pa6japm`'s original CI flag is noise, and should
-be marked dismissed on those items — the within-session result did
-not survive a second, independent session, exactly the case
-`measurement.md`'s cross-session-reproduction rule exists to catch.
+sign, independently confirmed twice. Per this item's own decision
+tree: close with no code change; `pmIX_ommp`
+(`3IopfBATkXMfl9qRpLDpmIXommp`) and `3IonN6KwrW1QezqdCBs0pa6japm`'s
+original CI flag is noise, and should be marked dismissed on those
+items — the within-session result did not survive either
+independent re-run, exactly the case `measurement.md`'s
+cross-session-reproduction rule exists to catch.
