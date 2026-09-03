@@ -379,7 +379,9 @@ iterator declares its field set up front, with the metatable's closures
 assigned after. `merge`'s accumulator is the one holdout — it walks an
 unknown key set at runtime (an unrecognized key merges as a scalar, by
 design), so its shape is never known at a single assignment the way the
-others' is. That is a floor, not a gap this pass left open.
+others' is. That is a floor, not a gap this pass left open. When the
+cast bridges two same-shaped declarations, the fix is the alias, not
+the literal.
 
 ### pcall return shape
 
