@@ -1,21 +1,22 @@
 #!/usr/bin/env cosmic
 -- Tests for the generated half of a unit's output: the payload
 -- generator `build` runs, the runtime it names, and the default argv
--- that makes a bare base bootable.
+-- that makes a bare base bootable, plus the source generators (the
+-- `sources` phase) that run before the graph does.
 --
--- These three are one story. A binary's output directory holds
--- `embed/` (what the artifact carries) beside `base` (what it carries
--- it on), and the generator owns both. Without `base` the only runtime
--- available is the cosmic running the build, and stripping that leaves
--- its bytes behind — so cosmic-built-by-cosmic grows every generation
--- instead of converging. Without the derived `.args`, a bare `lua`
--- base yields an artifact that boots as the Lua interpreter.
+-- A binary's output directory holds `embed/` (what the artifact
+-- carries) beside `base` (what it carries it on); without `base` the
+-- only runtime available is the cosmic running the build, and stripping
+-- that leaves its bytes behind — so cosmic-built-by-cosmic grows every
+-- generation instead of converging. Without the derived `.args`, a bare
+-- `lua` base yields an artifact that boots as the Lua interpreter.
 
 local artifact = require("_make.artifact")
 local build = require("_cli.build")
 local cenv = require("cosmic.env")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
+local generate = require("_make.generate")
 local mk = require("_make")
 local project = require("_make.project")
 local seed = require("_make.seed")
@@ -126,9 +127,8 @@ local function seed_pins(repo: string): boolean
 end
 
 -- A generator whose output a binary embeds is IN that binary's build
--- closure, so `build` runs it -- rather than leaving it to a verb
--- someone can forget, which is the stale-output failure the whole
--- model exists to prevent.
+-- closure, so `build` runs it rather than leaving it to a verb someone
+-- can forget.
 local function test_build_runs_the_units_generator()
   local root = fixture("runs", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
@@ -158,9 +158,8 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
     "and what it wrote stages at the artifact root")
 end
 
--- A unit that produced `o/<unit>/embed_gen/base` names the runtime
--- its artifact is built on. Everything else falls back to the cosmic
--- running the build, which is right for a project that pins nothing.
+-- A unit that produced `o/<unit>/embed_gen/base` names the runtime its
+-- artifact is built on; everything else falls back to the running cosmic.
 local function test_base_is_the_units_own_when_it_declares_one()
   local root = fixture("base", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
@@ -182,8 +181,7 @@ local function test_base_is_the_units_own_when_it_declares_one()
 end
 
 -- `.args` is derived, not declared: the entry is always /zip/main.lua
--- in this layout, so what the APE's default argv names is a fact about
--- the layout. A project that puts its own in the payload outranks it.
+-- in this layout, so a project that puts its own in the payload wins.
 local function test_default_argv_is_derived()
   local root = fixture("args", {["main.tl"] = "print('x')\n"})
   local proj = scan(root)
@@ -211,12 +209,9 @@ local function test_default_argv_is_derived()
   assert(seen == 1, "and there is exactly one, never both")
 end
 
--- The ROOT generator is every binary's, the way root `embed/` is: its
--- output is staged into all of them. Hung off each binary's own build
--- instead, it would run only while the ROOT binary was being built, so
--- a project with only `cmd/` binaries would never run it at all -- and
--- one with both would stage whatever the last run left, depending on
--- which name sorted first.
+-- The ROOT generator is every binary's, the way root `embed/` is: hung
+-- off each binary's own build instead, a project with only `cmd/`
+-- binaries would never run it at all.
 local function test_the_root_generator_runs_for_cmd_binaries()
   local root = fixture("rootgen", {
       ["embed_gen.tl"] = [[
@@ -266,15 +261,12 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
     "and its output directory must not exist")
 end
 
--- The same thing through the module API, which is the other calling
--- convention and the only one this process can see: a build spawned as
--- a subprocess exercises the generator hook without the coverage lane
--- ever watching it run.
+-- The same thing through the module API, the other calling convention
+-- and the only one this process's coverage lane can see run.
 local function test_in_process_build_runs_the_generator()
-  -- The generator imports a project MODULE, so the in-process path
-  -- runs the mini-graph too: compile the closure, write the manifest,
-  -- hand it over. A generator that imports only `cosmic.*` has an
-  -- empty closure and skips all of it — a fixture shaped that way
+  -- The generator imports a project MODULE, so this also runs the
+  -- mini-graph (compile the closure, write the manifest, hand it
+  -- over) -- a `cosmic.*`-only generator has an empty closure and
   -- would leave this test green while the mini-graph never ran.
   local root = fixture("inproc", {
       ["note.tl"] = "local record N\n  text: function(): string\nend\n"
@@ -336,11 +328,9 @@ end
 
 -- The real payload generator, against the real tree. The synthetic
 -- fixtures above exercise the MECHANISM; this asserts the contract
--- cosmic's own binary depends on. A dropped payload has a
--- characteristic shape -- lose `tl.lua` and the type tree, or every
--- compiled `_cli/**` and `_make/**` module, and the binary still
--- builds and still boots, failing only when something first requires
--- the missing piece.
+-- cosmic's own binary depends on -- lose `tl.lua`, the type tree, or a
+-- compiled `_cli/**`/`_make/**` module and the binary still builds and
+-- boots, failing only when something first requires the missing piece.
 local function test_the_real_payload_generator()
   local repo = fs.absolute_path(".")
   local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
@@ -376,25 +366,12 @@ local function test_the_real_payload_generator()
 end
 
 -- A generator's helpers come from the TREE, even when the BINARY ships
--- a module by that name.
---
--- The collision is the whole test. A generator that resolves its own
--- imports out of the running binary serves a helper the artifact also
--- embeds from a generation behind -- while a fixture module with a
--- name cosmic does not ship can only ever come from the tree, under
--- either resolution. Naming the fixture `helper` is exactly that
--- second shape: the test passes against a binary with the bug, so it
--- proves nothing about the thing it is named for.
---
--- `_make/imports` collides with a module the artifact carries. Verified
--- both ways by hand: a binary resolving zip-first answers ZIP here,
--- this one answers TREE.
---
--- `.lua` on both sides, and that is not incidental. The artifact ships
--- `.tl/**` beside its compiled modules, so a `.tl` generator importing
--- a colliding name resolves the TYPE from the binary too and fails to
--- compile before it can run. That is the same shadowing one layer up,
--- and it is why the runtime question needs a file with no types.
+-- a module by that name. `_make/imports` collides with a module the
+-- artifact carries on purpose: a fixture module cosmic does not ship
+-- (`helper`) could pass against either resolution and prove nothing;
+-- `.lua` on both sides so a `.tl` generator importing the colliding
+-- name cannot resolve the TYPE from the binary and fail to compile
+-- before it runs, which is the same shadowing one layer up.
 local function test_a_generator_reads_its_helpers_from_the_tree()
   local root = fixture("shadow", {
       ["_make/imports.lua"] = 'return {mark = function() return "TREE" end}\n',
@@ -419,18 +396,12 @@ local function test_a_generator_reads_its_helpers_from_the_tree()
 end
 
 -- A `.lua` module in a generator's closure survives a COLD build.
---
 -- `.lua` sources are first-class and the graph COPIES them; assuming
--- every closure member compiles from a `.tl` would skip this one --
--- and still name it in the manifest. On a cold tree the generator's
--- `require` would then hit the closure layer, find nothing at that
--- path, and fail loudly. A valid project broken on its first build and
--- only its first.
---
--- The generator is `.lua` too, and that is a constraint rather than a
--- preference: a strict compile of a `.tl` importing an untyped `.lua`
--- fails with "no type information for required module", which is the
--- graph's own pre-existing rule and not what this is about.
+-- every closure member compiles from a `.tl` would skip this one and
+-- still name it in the manifest, so a cold `require` hits the closure
+-- layer, finds nothing, and fails loudly on the first build only. The
+-- generator is `.lua` too: a `.tl` one importing an untyped `.lua`
+-- fails to strict-compile, which is a different, pre-existing rule.
 local function test_a_lua_module_in_a_generators_closure()
   local root = fixture("luaclosure", {
       ["helper.lua"] = 'return {mark = function() return "COPIED" end}\n',
@@ -456,8 +427,7 @@ local function test_a_lua_module_in_a_generators_closure()
 end
 
 -- The seed dir wins over `/zip/.types` on ANY generator's closure, not
--- only `_types/types_gen.tl`'s own; patching the `require`-cached
--- `build.dispatch` here reaches the same call `generate` makes.
+-- only `_types/types_gen.tl`'s own.
 local function test_closure_compile_includes_the_seed_dir_when_present()
   local root = fixture("seedinclude", {
       ["helper.tl"] = "return {}\n",
@@ -482,6 +452,37 @@ local function test_closure_compile_includes_the_seed_dir_when_present()
     end
   end
   assert(found, "a closure compile should have been handed the seed dir")
+end
+
+-- A generator failing after the seed ran must not leave `SEED_DIR` for
+-- the next invocation to trust, and must not swallow why it failed.
+-- `_types/types_gen.tl` is the fixture's only generator, so it is both
+-- what `should_seed` seeds (destination `SEED_DIR`) and what the real
+-- run later builds (destination `TYPES_GEN_DIR`) -- branching on which
+-- lets one stub succeed as the seed and fail as the generator proper.
+local function test_a_failing_generator_after_seed_still_cleans_up()
+  local root = fixture("seedcleanup", {
+      ["_types/types_gen.tl"] = [[
+local fs = require("cosmic.fs")
+local out = arg[1]
+if out:find("types_seed", 1, true) then
+  assert(fs.make_dirs(out))
+  assert(fs.write(fs.join(out, "stub.txt"), "seeded\n"))
+else
+  os.exit(1)
+end
+]],
+    })
+  local proj = scan(root)
+  local cwd = check.must(fs.cwd())
+  assert(fs.set_cwd(proj.root))
+  local ok, err = generate.sources(proj, cosmic)
+  assert(fs.set_cwd(cwd))
+  assert(not ok, "a failing generator must fail sources()")
+  assert(err ~= nil and err:find("_types/types_gen.tl", 1, true),
+    "the failure message survives: " .. tostring(err))
+  assert(not fs.is_present(fs.join(root, seed.SEED_DIR)),
+    "SEED_DIR must not survive a generator failure after the seed ran")
 end
 
 -- A project with no `_types/types_gen.tl`, `hello` included, never seeds.

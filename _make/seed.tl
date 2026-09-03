@@ -46,7 +46,13 @@ local SEED_DIR < const > = "o/_types/types_seed"
 --- generator to run and never seeds. The second half reads disk on
 --- purpose: once the real generator has produced `o/_types/types_gen`,
 --- that IS the seed for every later closure compile this invocation
---- makes, so seeding again would only pay the cost for nothing.
+--- makes, so seeding again would only pay the cost for nothing --
+--- UNLESS `SEED_DIR` is also still sitting there. A generator's own
+--- output existing is proof that generator ran; it is not proof
+--- `cleanup` ever ran, so a `SEED_DIR` that outlived it (an invocation
+--- killed before reaching `sources`'s own cleanup call, see
+--- `_make.generate`) is a leftover, not a validated seed -- re-run
+--- rather than trust it.
 --- @param proj Project The scanned project
 --- @return boolean
 local function should_seed(proj: Project): boolean
@@ -60,7 +66,10 @@ local function should_seed(proj: Project): boolean
   if not has_gen then
     return false
   end
-  return not fs.is_present(fs.join(proj.root, "o/_types/types_gen"))
+  if not fs.is_present(fs.join(proj.root, "o/_types/types_gen")) then
+    return true
+  end
+  return fs.is_present(fs.join(proj.root, SEED_DIR))
 end
 
 --- Run the seed pass.
