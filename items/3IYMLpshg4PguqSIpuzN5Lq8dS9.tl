@@ -6,6 +6,7 @@ return {
   ["id"] = "3IYMLpshg4PguqSIpuzN5Lq8dS9",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1649,
+  ["reviewer"] = "review-N5Lq_8dS9-orch9",
   ["speccers"] = "48a92156-b7f4-5273-b993-ba9f946ffb80",
   ["title"] = "tl: enum subtyping — a subset enum is a subtype, every enum is a string, and 11 cast sites wait on it",
 }
