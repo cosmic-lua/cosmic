@@ -28,7 +28,7 @@ local function discover_modules(): {string}
     error("cannot list " .. BENCH_DIR .. ": " .. tostring(err))
   end
   local names: {string} = {}
-  for _, p in ipairs(paths as {string}) do -- cast: narrowed by the nil guard above
+  for _, p in ipairs(paths) do
     local stem = fs.split_extension(fs.basename(p))
     table.insert(names, "_perf.bench." .. stem)
   end

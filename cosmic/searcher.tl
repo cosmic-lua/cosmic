@@ -95,7 +95,7 @@ local function search_with(teal: TealSearch, module_name: string): any, any
   -- compile() preserves shebangs for CLI output, but load() on a
   -- string does not skip them (only luaL_loadfile does); blank the
   -- shebang line, keeping line numbers intact.
-  local lua_code = code as string -- cast: nil ruled out by the guard above
+  local lua_code = code
   if lua_code:sub(1, 2) == "#!" then
     lua_code = "--" .. lua_code:sub(3)
   end
@@ -321,7 +321,7 @@ local function compile_tree(path: string, name: string): any, any
     error("error loading module '" .. name .. "' from '" .. path
       .. "':\n" .. tostring(cerr), 0)
   end
-  local lua_code = code as string -- cast: nil ruled out by the guard above
+  local lua_code = code
   if lua_code:sub(1, 2) == "#!" then
     lua_code = "--" .. lua_code:sub(3)
   end

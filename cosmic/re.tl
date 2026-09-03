@@ -196,8 +196,8 @@ local function match(text: string, pattern: string, opts?: CompileOptions): Matc
     end
     -- the guard above took the failure path, where the union's string
     -- arm lives; a match always carries the capture table
-    -- cast: captures, past the no-match/failure guard
-    return {text = m, caps = caps as {string}}
+    assert(caps is {string}, "a match always carries the capture table") -- assert: captures, past the no-match/failure guard
+    return {text = m, caps = caps}
   end
   return nil, cerr
 end
