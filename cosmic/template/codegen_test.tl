@@ -101,7 +101,20 @@ local function test_url_context_types_through_safe_url()
     "{{url .body | cosmic.url.safe_path}}", "t")
   assert(out:match('local url = require%("cosmic%.url"%)'), out)
   assert(out:match("local v1: url%.SafeUrl = url%.safe_path%(d%.body%)"), out)
+  -- Unlike every other context, url double-escapes: the splice re-runs
+  -- v1.raw through html.escape rather than emitting it bare, because
+  -- SafeUrl.raw came out URL-safe, not attribute-safe.
+  assert(out:match("parts%[#parts %+ 1%] = html%.escape%(v1%.raw%)"), out)
+end
+
+local function test_html_context_still_emits_bare_raw()
+  -- The double-escape above is url-specific: the default html context
+  -- must still splice .raw unwrapped.
+  local out = gen(
+    "{{type Page from myapp.page}}\n{{mode html}}{{.body | cosmic.html.safe}}",
+    "t")
   assert(out:match("parts%[#parts %+ 1%] = v1%.raw"), out)
+  assert(not out:match("html%.escape%(v1%.raw%)"), out)
 end
 
 local function test_js_context_types_through_safe_js()

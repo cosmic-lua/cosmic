@@ -12,7 +12,12 @@
 --- compile error at the template line that produced it, never silent
 --- output. This module does not know what makes an escaper correct;
 --- it only emits the annotation that makes the Teal checker enforce
---- the match.
+--- the match. The `url` context is the one context that escapes
+--- TWICE: the constructor applies URL rules (which component of a URL
+--- the value fills), and the splice below applies attribute rules on
+--- top (`html.escape`) — a `SafeUrl.raw` came out URL-safe, not
+--- attribute-safe, so `'`/`"`/`<`/`>`/`&` inside it still need
+--- entity-escaping before it can land inside a quoted attribute.
 
 local types = require("cosmic.template.types")
 
@@ -140,7 +145,12 @@ local function emit_node(out: {string}, ctx: Ctx, node: types.Node,
       local alias = alias_for(ctx.imports, target.module_path)
       out[#out + 1] = indent .. "local " .. v .. ": " .. alias .. "." ..
       target.type_name .. " = " .. expr
-      out[#out + 1] = indent .. "parts[#parts + 1] = " .. v .. ".raw"
+      if node.ctx == "url" then
+        out[#out + 1] = indent .. "parts[#parts + 1] = " .. ctx.html_alias ..
+        ".escape(" .. v .. ".raw)"
+      else
+        out[#out + 1] = indent .. "parts[#parts + 1] = " .. v .. ".raw"
+      end
     else
       out[#out + 1] = indent .. "local " .. v .. ": string = " .. expr
       out[#out + 1] = indent .. "parts[#parts + 1] = " .. v

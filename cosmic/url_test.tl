@@ -345,3 +345,67 @@ local function test_trusted_wraps_without_escaping()
   local out = url.trusted("javascript:alert(1)")
   assert(out.raw == "javascript:alert(1)", "trusted must not escape, got: " .. out.raw)
 end
+
+-- safe_href: the whole-URL constructor for href/src/action. Only http,
+-- https, mailto, and scheme-less/host-less references are accepted;
+-- everything else — javascript:, data:, vbscript:, and a
+-- protocol-relative //host — degrades to WHATWG's "about:invalid".
+
+local function test_safe_href_rejects_javascript_scheme()
+  local out = url.safe_href("javascript:alert(1)")
+  assert(out.raw == "about:invalid", "expected about:invalid, got: " .. out.raw)
+end
+
+local function test_safe_href_rejects_javascript_scheme_mixed_case()
+  local out = url.safe_href("JavaScript:alert(1)")
+  assert(out.raw == "about:invalid", "expected about:invalid, got: " .. out.raw)
+end
+
+local function test_safe_href_rejects_data_scheme()
+  local out = url.safe_href("data:text/html,x")
+  assert(out.raw == "about:invalid", "expected about:invalid, got: " .. out.raw)
+end
+
+local function test_safe_href_rejects_protocol_relative_url()
+  local out = url.safe_href("//evil.com/x")
+  assert(out.raw == "about:invalid", "expected about:invalid, got: " .. out.raw)
+end
+
+local function test_safe_href_rejects_control_byte_scheme_smuggling()
+  -- A literal tab: parse() alone reads this as scheme-less, which
+  -- would otherwise let it slip past the scheme check — browsers strip
+  -- the tab before scheme detection, so this must be rejected up front.
+  local out = url.safe_href("java\tscript:x")
+  assert(out.raw == "about:invalid", "expected about:invalid, got: " .. out.raw)
+end
+
+local function test_safe_href_accepts_and_escapes_http_url()
+  local out = url.safe_href("http://ok.example/a b?q=1&r=2")
+  assert(out.raw == "http://ok.example/a%20b?q=1&r=2",
+    "expected escaped http URL, got: " .. out.raw)
+end
+
+local function test_safe_href_passes_through_absolute_path()
+  local out = url.safe_href("/x/y?z=1")
+  assert(out.raw == "/x/y?z=1", "expected unchanged, got: " .. out.raw)
+end
+
+local function test_safe_href_passes_through_mailto()
+  local out = url.safe_href("mailto:a@b.example")
+  assert(out.raw == "mailto:a@b.example", "expected unchanged, got: " .. out.raw)
+end
+
+local function test_safe_href_passes_through_relative_path()
+  local out = url.safe_href("relative/path")
+  assert(out.raw == "relative/path", "expected unchanged, got: " .. out.raw)
+end
+
+local function test_safe_href_accepts_scheme_less_host_less_with_quote()
+  -- No scheme, no host: accepted by the URL rules. The apostrophe
+  -- surviving here is expected — safe_href only enforces URL rules;
+  -- neutralising it for an attribute is the codegen splice's job
+  -- (html.escape), pinned by cosmic/template/codegen_test.tl.
+  local out = url.safe_href("' onmouseover='alert(1)")
+  assert(out.raw == "'%20onmouseover='alert(1)",
+    "expected URL-escaped but quote-bearing, got: " .. out.raw)
+end
