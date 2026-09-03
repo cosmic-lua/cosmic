@@ -5,6 +5,7 @@ return {
   ["claim"] = "wave-uYH1-build",
   ["id"] = "3If5s4hNeSCYCYLbOoyuYH1dq7T",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
+  ["pr"] = 372,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["speccers"] = "7019a67a-89f8-5ed7-bd1c-6d260093b01b",
   ["title"] = "lsqlite3: BLOB and TEXT are indistinguishable at the Lua value boundary",
