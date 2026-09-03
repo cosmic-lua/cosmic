@@ -3,5 +3,6 @@ return {
   ["claim"] = "orchestrate9-sYEp_31Y1",
   ["id"] = "3IlL8oOGolatj0YHGHWsYEp31Y1",
   ["parent"] = "3HyRdY4sPAYZ6xkwrXCh5BnsH7B",
+  ["speccers"] = "orchestrate9-sYEp_31Y1",
   ["title"] = "decision: how a SQLite BLOB is told from TEXT at the Lua boundary (representation and scope) for lsqlite3",
 }
