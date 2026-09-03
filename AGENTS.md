@@ -174,9 +174,12 @@ exists and reaches for the pin only on a cold start.
 compiles the WHOLE tree — not just `cosmic/**` — with the pinned
 release's checker and patch set, so a source that needs the tree's own
 checker (a new narrowing rule, a new patch entry) passes the converged
-`--make ci` and fails only a cold build. Such a change stages behind a
-release and pin bump: land the checker first, bump `bin/cosmic.pin` to
-a release carrying it, then land the code that needs it.
+`--make ci` and fails only a cold build. The `cosmo.*` declarations it
+checks against are seeded from the tree's own `3p/cosmos` pin, not the
+pinned binary's bundled types ([D43](docs/decisions/d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md)).
+Such a change stages behind a release and pin bump: land the checker
+first, bump `bin/cosmic.pin` to a release carrying it, then land the
+code that needs it.
 `_build/coldbuild_test.tl` enforces this — generation 1's exact type
 check, pinned checker with tree module resolution — so the failure
 lands on the PR instead of in CI's `build` lane.
