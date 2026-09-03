@@ -115,3 +115,74 @@ e. Something else the refiner sees that this evidence-gathering pass
   how the cold-build deadlock is resolved.
 - Not re-verifying the PR-range recount above; treat it as
   established (it superset-contains the original list).
+
+## Recommendation
+
+Option (c) as written — cutting `_types/tlast_gen.tl`'s `cosmic.child`
+dependency — is necessary for the failure the builder saw but NOT
+sufficient, and (b) and (d) do not work at all. Measured:
+
+```
+$ cd /home/user/cosmic && git rev-parse --short origin/main        # 96afd807 (== HEAD)
+$ python3 - <<'PY'   # transitive require() walk from each generator, cosmo.* excluded
+import re,os
+def path_of(m):
+  p=m.replace(".","/")
+  return next((c for c in (p+".tl",p+"/init.tl") if os.path.exists(c)),None)
+def walk(f,seen):
+  if f in seen: return seen
+  seen.add(f)
+  for m in re.findall(r'require\("([^"]+)"\)',open(f).read()):
+    if not m.startswith("cosmo") and path_of(m): walk(path_of(m),seen)
+  return seen
+for g in ("_types/tlast_gen.tl","_types/types_gen.tl"): print(g,sorted(walk(g,set())))
+PY
+== _types/tlast_gen.tl: 24 files; changed-binding members: ['cosmic/child/init.tl',
+   'cosmic/child/io.tl', 'cosmic/fd.tl', 'cosmic/fs/dir.tl', 'cosmic/fs/file.tl',
+   'cosmic/fs/ops.tl', 'cosmic/proc/init.tl', 'cosmic/proc/rusage.tl', 'cosmic/time.tl']
+== _types/types_gen.tl: 26 files; changed-binding members: ['cosmic/fd.tl',
+   'cosmic/fs/dir.tl', 'cosmic/fs/file.tl', 'cosmic/fs/ops.tl', 'cosmic/proc/init.tl',
+   'cosmic/proc/rusage.tl']
+```
+
+The mechanism, file by file: `_make/project.tl:368` sorts `proj.files`
+by path, so `_types/tlast_gen.tl` precedes `_types/types_gen.tl`;
+`_make/generate.tl:374-381` runs every `kind == "gen"` file in that
+order; `run_generator` (generate.tl:218) clears the generator's own
+output dir and then `closure_argv` (generate.tl:145-217) strict-compiles
+the generator's whole import closure with `--include-dir .`; with
+`o/_types/types_gen/` absent, `cosmic/_teal_engine.tl:76-86` falls
+through to `/zip/.types` of the RUNNING binary (generate.tl:136-138
+documents this as deliberate), i.e. `bin/cosmic.pin`'s
+`2026-08-31-a5b36f4`, which carries the OLD shapes. `tlast_gen.tl:14 →
+_types/tlast.tl:20 → cosmic.child → cosmic/child/init.tl:161
+(unix.wait, #340) / :243 (unix.pipe, #328)` is the first adapted site
+hit — but `types_gen`'s OWN closure reaches `cosmic/fs/ops.tl:381`
+(mkstemp, #329), `fs/dir.tl:27` (Dir:read, #326), `fd.tl:247` (pipe),
+`proc/init.tl:252` (wait) and `proc/rusage.tl:41` (getrlimit, #324), so
+after (c) the same error moves one generator later. `run_generator`
+clears `o/_types/types_gen` BEFORE compiling `types_gen`'s closure, so
+even a warm tree cannot help that pass.
+
+- (a) dual-shape runtime code in nine public modules: works, permanent
+  debt, and every future shape change repeats it. Reject.
+- (b) reorder generators: `types_gen`'s own closure is exposed; no order
+  helps.
+- (c) alone: see above — moves the failure, does not remove it.
+- (d) intermediate release: an adapted tree against the OLD pin fails
+  its own main-graph check, so no such release can be built.
+
+Adopt (e): `_make/generate.tl` seeds declarations from the fetched pin
+before any closure compile — spec `generate-seed-types` (blocks this
+item). It is engine code the PINNED binary runs at generation 1, so it
+lands first, `bin/cosmic.pin` is bumped to a release carrying it, and
+only then can `A3HK_gamw`'s adaptation + `3p/cosmos` bump cold-build
+(`_build/coldbuild_test.tl` enforces exactly this order). Tradeoff: one
+engine PR plus one daily-release wait before the adaptation can merge,
+against the lasting property that a pin bump never again depends on the
+trust root's bundled types. (c) becomes optional hygiene, not a gate.
+
+The `A3HK_gamw` worktree is GONE — `ls /tmp/claude-0/-home-user/15925051-9a03-506a-af49-a6b214eeb796/scratchpad/worktrees/A3HK_gamw`
+→ `No such file or directory`; `ls /home/user/cosmic/.git/worktrees` →
+`board` only; no branch, stash or dangling object matches. The adaptation
+must be redone from the PR list in `A3HK_gamw`'s refreshed spec.
