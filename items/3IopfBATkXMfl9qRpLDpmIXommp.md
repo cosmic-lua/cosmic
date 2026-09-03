@@ -77,6 +77,11 @@ was not run with the interleaving/aggregate rigor
 `3IjAuurwj3USV0a7jAPEas3TLvu` used, nor against binaries matching the
 exact CI SHAs (`base 7cf051829899`, `current 240621c27e3c`).
 
+## Access
+
+Read access to `cosmic-lua/cosmic` (the release run's Actions logs
+cited above, and the tree itself to build and bisect it locally).
+
 ## Change
 
 Research slice, no PR: the deliverable is a recorded verdict on this
