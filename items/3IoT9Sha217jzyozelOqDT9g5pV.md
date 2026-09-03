@@ -87,3 +87,38 @@ c. Something else the refiner sees that this evidence-gathering
   accepted).
 - Not itself the batch-1 landing PR's spec — that is filed separately
   once this question resolves the sequencing.
+
+## Recommendation
+
+Option (b). Measured on `origin/master` (`833e4353`): no registered
+unit returns `SQLITE_OK_LOAD_PERMANENTLY` today —
+
+```
+$ git grep -n SQLITE_OK_LOAD_PERMANENTLY origin/master -- 'third_party/sqlite3/*.c' 'tool/net/lsqlite3.c' | grep -v 'sqlite3.c:\|shell.c:'
+(no output — the only init using it is appendvfs, still inlined in shell.c)
+$ git show origin/master:tool/net/lsqlite3.c | grep -n 'rc != SQLITE_OK'
+1090:                if (rc != SQLITE_OK) {
+1110:    if (rc != SQLITE_OK) {
+```
+
+so a registry round-trip test cannot exist before batch 1 lands, and
+`test_sqlite_register_extension.lua:172-173` will assert-fail the
+moment `appendvfs` is wired in unless the check is widened first.
+
+Sequence: (1) respec `6U2G_QaxW` to widen both checks at
+`lsqlite3.c:1090,1110` to `rc != SQLITE_OK && rc !=
+SQLITE_OK_LOAD_PERMANENTLY`, with the existing register test unchanged
+as the no-regression proof (all 11 registered units still succeed);
+(2) file the batch-1 landing item (`appendvfs base64 base85 completion
+dbdata`, using `3InoAi3b`'s accepted extraction rule) blocked on
+`6U2G_QaxW`, and put the `appendvfs` round-trip assertion — `assert(
+db:register_extension("appendvfs"))` — in THAT item's diff, where the
+unit it tests exists.
+
+Tradeoff: the widened check is unexercised for the `256` path until
+batch 1 lands (a day or two), against (a)'s alternative of a C-boundary
+contract fix riding inside an extraction PR, which AGENTS.md forbids
+("a deliberate contract change … landed as its own change, never inside
+an optimization") and which would also leave `6U2G_QaxW` open with no
+diff of its own. A throwaway registry entry to unlock the test now is
+outside `6U2G_QaxW`'s stated scope and would be deleted by batch 1.
