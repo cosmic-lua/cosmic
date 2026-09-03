@@ -6,6 +6,7 @@ return {
   ["id"] = "3IYMNaOWUBlrJK8jMIE6sv6jVN5",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1663,
+  ["reviewer"] = "review-6sv6_jVN5-v1",
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "cosmopolitan: the 10 function-shape casts are overloaded bindings — split the annotations in definitions.lua",
 }
