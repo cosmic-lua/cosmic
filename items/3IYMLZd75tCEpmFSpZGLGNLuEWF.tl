@@ -6,7 +6,9 @@ return {
   ["id"] = "3IYMLZd75tCEpmFSpZGLGNLuEWF",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1646,
-  ["reviewer"] = "review-LGNL_uEWF-orch9",
   ["speccers"] = "40adde77-85e6-58e6-8a4e-4b659bb320d8",
   ["title"] = "casts: the 12 proved-value narrowing sites — check.must in tests, and delete what the patch already narrows",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "919938ba80f4175cefa71110ecd4fc01da4c57a9",
+  ["verdict_spec"] = "90f9ed2526248d4943e3e34897089d2c8e1358873dc70970eaadca823f4f9186",
 }
