@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-CRn8_vfb0-1",
+  ["claim"] = "build-CRn8_vfb0-1",
   ["id"] = "3Ip8x8jkMeqTsgMKaRcCRn8vfb0",
   ["parent"] = "3HyRcrR35sYRwZl3guddvOBhFoK",
   ["repo"] = "cosmic-lua/cosmopolitan",
