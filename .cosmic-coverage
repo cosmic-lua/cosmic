@@ -283,7 +283,7 @@ return {
   ["cosmic/template/types.tl"] = {["covered"] = 2, ["total"] = 2},
   ["cosmic/test.tl"] = {["covered"] = 57, ["total"] = 61},
   ["cosmic/time.tl"] = {["covered"] = 131, ["total"] = 143},
-  ["cosmic/tty.tl"] = {["covered"] = 119, ["total"] = 126},
+  ["cosmic/tty.tl"] = {["covered"] = 124, ["total"] = 134},
   ["cosmic/url.tl"] = {["covered"] = 126, ["total"] = 141},
   ["cosmic/user.tl"] = {["covered"] = 48, ["total"] = 61},
   ["cosmic/uuid.tl"] = {["covered"] = 9, ["total"] = 9},

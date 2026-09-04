@@ -249,13 +249,14 @@ local record WaitResult
 end
 
 local function wait(pid?: integer, wait_flags?: integer): WaitResult | nil, string
-  local wpid, status, rusage = unix.wait(pid, wait_flags)
-  if wpid == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the second slot, where the status word would have been.
-    return nil, errstr(status, "wait")
+  -- The binding now returns one unix.WaitResult table on success; on
+  -- failure the error string is in its own dedicated slot 2, never
+  -- sharing a result field.
+  local result, err = unix.wait(pid, wait_flags)
+  if not result then
+    return nil, errstr(err, "wait")
   end
-  return {pid = wpid, status = status, rusage = rusage}
+  return {pid = result.pid, status = result.wstatus, rusage = result.rusage}
 end
 
 --- True if the child exited normally.

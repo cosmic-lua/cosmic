@@ -185,19 +185,18 @@ local function match(text: string, pattern: string, opts?: CompileOptions): Matc
   local entry = cache_entry(pattern, opts)
   local regex, cerr = entry.rx, entry.err
   if regex is Regex then
-    local m, caps = regex:match(text)
-    if not m then
-      if caps then
-        -- Engine failure: the binding reports nil, err.
-        return nil, tostring(caps)
+    -- The binding now bundles the match and its captures into one
+    -- re.SearchMatch table; a no-match is a bare nil, an engine
+    -- failure is nil plus its own dedicated error slot.
+    local result, err = regex:match(text)
+    if not result then
+      if err then
+        return nil, err
       end
       -- No match is not an error.
       return nil
     end
-    -- the guard above took the failure path, where the union's string
-    -- arm lives; a match always carries the capture table
-    assert(caps is {string}, "a match always carries the capture table") -- assert: captures, past the no-match/failure guard
-    return {text = m, caps = caps}
+    return {text = result.match, caps = result.captures}
   end
   return nil, cerr
 end
@@ -277,16 +276,18 @@ local function scan_matches(regex: Regex, text: string,
       -- subject, so `^` must not match at the resume offset.
       sflags = NOT_BOL
     end
-    local s, e, caps = regex:find(text, sflags, pos)
-    if s == nil then
-      if e is string then
-        return false, e
+    -- The binding now bundles the offsets and captures into one
+    -- re.Match table; a no-match is a bare nil, an engine failure is
+    -- nil plus its own dedicated error slot.
+    local m, err = regex:find(text, sflags, pos)
+    if not m then
+      if err then
+        return false, err
       end
       break
     end
-    local ei = e as integer -- cast: tuple element (integer whenever start is non-nil)
-    emit(s, ei, caps)
-    pos = ei + 1
+    emit(m.start, m.stop, m.captures)
+    pos = m.stop + 1
   end
   return true
 end
@@ -323,15 +324,14 @@ local function find(text: string, pattern: string, opts?: CompileOptions): Span 
   -- Explicit flags and init: also keeps the lexer-based find-needle
   -- lint (which cannot know the receiver is a Regex, not a string)
   -- from reading this as a two-argument string find.
-  local s, e, caps = regex:find(text, 0, 1)
-  if s == nil then
-    if e is string then
-      return nil, e
+  local m, err = regex:find(text, 0, 1)
+  if not m then
+    if err then
+      return nil, err
     end
     return nil
   end
-  local ei = e as integer -- cast: tuple element (integer whenever start is non-nil)
-  return {s = s, e = ei, m = text:sub(s, ei), caps = caps}
+  return {s = m.start, e = m.stop, m = text:sub(m.start, m.stop), caps = m.captures}
 end
 
 --- Every non-overlapping match of pattern in text, leftmost first, as

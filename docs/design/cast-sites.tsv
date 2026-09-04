@@ -104,15 +104,13 @@ cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
 cosmic/quicksand/box/run.tl	254	record union after guard
 cosmic/quicksand/caps.tl	63	binding constant by name
 cosmic/quicksand/init.tl	73	runtime capability probe
-cosmic/quicksand/proc.tl	271	binding constant by name
-cosmic/quicksand/proc.tl	274	binding constant by name
+cosmic/quicksand/proc.tl	270	binding constant by name
+cosmic/quicksand/proc.tl	273	binding constant by name
 cosmic/quicksand/proxy.tl	115	container variance
 cosmic/quicksand/proxy/rules_test.tl	55	container variance
 cosmic/quicksand/proxy/rules_test.tl	125	type-defeating test probe
 cosmic/rand_test.tl	95	type-defeating test probe
 cosmic/rand_test.tl	168	container variance
-cosmic/re.tl	287	binding contract shape
-cosmic/re.tl	333	binding contract shape
 cosmic/sandbox/init.tl	206	runtime capability probe
 cosmic/sandbox/init_test.tl	132	container variance
 cosmic/sandbox/plan.tl	190	runtime capability probe
@@ -121,7 +119,7 @@ cosmic/searcher_test.tl	58	dynamic name lookup
 cosmic/shape.tl	279	generic T
 cosmic/shm.tl	146	pcall return shape
 cosmic/shm.tl	171	pcall return shape
-cosmic/signal.tl	250	binding contract shape
+cosmic/signal.tl	255	binding contract shape
 cosmic/sqlite/bind.tl	40	metatable access
 cosmic/sqlite/bind.tl	49	metatable access
 cosmic/sqlite/bind.tl	56	binding contract shape
@@ -137,11 +135,4 @@ cosmic/stream.tl	237	runtime capability probe
 cosmic/sys.tl	46	enum relation
 cosmic/sys_test.tl	14	enum relation
 cosmic/sys_test.tl	29	enum relation
-cosmic/time.tl	89	binding contract shape
-cosmic/time.tl	132	binding contract shape
-cosmic/time.tl	137	binding contract shape
-cosmic/time.tl	138	binding contract shape
-cosmic/time.tl	162	binding contract shape
-cosmic/time.tl	167	binding contract shape
-cosmic/time.tl	168	binding contract shape
 cosmic/zip.tl	222	userdata boundary

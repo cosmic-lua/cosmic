@@ -70,8 +70,9 @@ local function scenarios(): {pt.Scenario}, string
       -- per-call compile cost.
       name = "re_search_compiled",
       fn = function(_: any): any
-        local _m, caps = compiled:match(LOG_LINE)
-        return caps
+        local m = compiled:match(LOG_LINE)
+        if m == nil then return nil end
+        return m.captures
       end,
       check = function(_: any, res: any): boolean, string
         if not (res is {string}) then
