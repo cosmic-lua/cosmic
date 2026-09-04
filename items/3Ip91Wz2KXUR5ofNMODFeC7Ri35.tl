@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1668,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-FeC7_Ri35-1",
   ["title"] = "teal: say at the two `env as tl.Env` casts why they survive generation 1, until the pin bump retires them",
 }
