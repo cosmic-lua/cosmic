@@ -70,6 +70,7 @@ local record Item
   --- stays readable in the committed file and in the log after the
   --- fact. Outside this module nothing reads it: no verb renders it
   --- and none refuses on it.
+  --- `decode` expects this field on the wire as a space-joined string, not this array.
   builders: {string}
   --- Every session that has replaced this item's spec sidecar, oldest
   --- first. Stored and validated exactly like `builders` — same
