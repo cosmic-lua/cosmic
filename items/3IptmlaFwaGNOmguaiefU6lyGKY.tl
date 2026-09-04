@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-fU6l_yGKY-1",
+  ["claim"] = "build-fU6l_yGKY-1",
   ["id"] = "3IptmlaFwaGNOmguaiefU6lyGKY",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmopolitan",
