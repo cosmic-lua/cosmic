@@ -74,6 +74,15 @@ local function pull(s: store.Store, number: integer, repo: string | nil):
   if base is {string: any} then
     base_ref = tostring(base["ref"] or "")
   end
+  -- `auto_merge` is `null` on the wire when disabled, which the
+  -- default JSON decode drops rather than holding as a value — so an
+  -- object surviving at this key is exactly "armed", nothing else to
+  -- read out of it.
+  local auto_merge = false
+  local am = v["auto_merge"]
+  if am is {string: any} then
+    auto_merge = true
+  end
   return {
     number = number,
     draft = v["draft"] == true,
@@ -83,6 +92,8 @@ local function pull(s: store.Store, number: integer, repo: string | nil):
     base = base_ref,
     state = tostring(v["state"] or ""),
     merge_sha = tostring(v["merge_commit_sha"] or ""),
+    auto_merge = auto_merge,
+    mergeable_state = tostring(v["mergeable_state"] or ""),
   }
 end
 

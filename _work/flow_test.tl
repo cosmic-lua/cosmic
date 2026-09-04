@@ -61,6 +61,21 @@ local function test_state_derives_from_the_facts()
   assert(flow.substate(judged) == "accepted", "an accept awaits its merge")
 end
 
+-- `queued` is a caller-supplied fact, never one the item's own record
+-- carries: an accept reads as the ordinary "accepted" wait until the
+-- caller has actually read the PR and found it already queued.
+local function test_substate_queued_is_a_caller_supplied_fact()
+  local goal = make({})
+  local judged = make({parent = goal.id, claim = "session-A", pr = 7,
+      verdict = "accept"})
+  assert(flow.substate(judged) == "accepted",
+    "with nothing supplied, an accept just awaits its merge")
+  assert(flow.substate(judged, true) == "queued",
+    "a caller-supplied queued fact overrides the ordinary wait")
+  assert(flow.substate(judged, false) == "accepted",
+    "and an explicit false is the ordinary wait")
+end
+
 -- A research handover awaits a verdict exactly as a PR does: `result`
 -- ranks as "review" at the one declaration every reader derives from,
 -- and a verdict on it stands the same way.

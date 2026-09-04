@@ -22,6 +22,14 @@ local record Pull
   merged: boolean
   --- The merge commit, "" until the request is merged.
   merge_sha: string
+  --- Auto-merge armed: GitHub will complete the merge itself once
+  --- requirements clear, entering the repo's merge queue first when
+  --- it runs one. Not a refusal — it means the merge is already in
+  --- motion, not blocked on anything a session could act on.
+  auto_merge: boolean
+  --- GitHub's own merge-readiness summary ("clean", "blocked",
+  --- "unstable", "queued", ...); "" when GitHub reported none.
+  mergeable_state: string
 end
 
 --- One CI check on a head commit, reduced to what a gate reads.
@@ -131,6 +139,18 @@ local function blocks_accept(p: Pull): string
   return nil
 end
 
+--- Whether an accepted pull request is already queued to merge on its
+--- own: auto-merge armed, or GitHub's own `mergeable_state` already
+--- reads "queued" because the repo's merge queue has taken it. Read
+--- by `next` (`_work.action`) so an accepted item mid-merge is never
+--- offered as the head to finish — there is nothing left for a
+--- session to do to it.
+--- @param p Pull The fetched pull request
+--- @return boolean True when the request needs no session action to land
+local function is_queued(p: Pull): boolean
+  return p.auto_merge or p.mergeable_state == "queued"
+end
+
 --- Whether a pull request's head is not the head an accept judged.
 ---
 --- An accept is a judgment of one head. A request that has moved
@@ -217,6 +237,7 @@ local record review
   blocks_check: function(p: Pull, id: string): string
   blocks_base: function(p: Pull, base: string): string
   blocks_accept: function(p: Pull): string
+  is_queued: function(p: Pull): boolean
   head_moved: function(p: Pull, verdict_head: string): boolean
   blocks_land: function(p: Pull, verdict_head: string, id: string): string
   blocks_on_ci: function(runs: {CheckRun}): string
@@ -227,6 +248,7 @@ local M: review = {
   blocks_check = blocks_check,
   blocks_base = blocks_base,
   blocks_accept = blocks_accept,
+  is_queued = is_queued,
   head_moved = head_moved,
   blocks_land = blocks_land,
   blocks_on_ci = blocks_on_ci,

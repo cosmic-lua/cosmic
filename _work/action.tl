@@ -72,6 +72,8 @@ local record Phased
   held: integer
   --- Items under another session's live review claim.
   reviewing: integer
+  --- Accepted items already queued to merge, never a head to finish.
+  queued: integer
   --- Blocked, bar-passing todo items stepped over, and the
   --- highest-placed of them: a queue nothing can enter must surface
   --- its chain, not vanish into a generic stall.
@@ -108,6 +110,10 @@ end
 --- reads back as, and `phased_action` treats it the way it always
 --- has: offered, never held back.
 local type CiStates = {string: string}
+
+--- Whether an accepted item's PR reports already queued to merge
+--- (`_work.review.is_queued`) — the same shape `ci` is; absent offers.
+local type QueueStates = {string: boolean}
 
 --- How many candidates one ask hands out, the primary included.
 --- Sized to the concurrent-session count observed in practice: past
@@ -164,11 +170,13 @@ end
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @param seed string Per-session tie-break seed, "" for age order
 --- @param ci CiStates CI state by item id, absent when unknown
+--- @param merge_queue QueueStates Accepted items already queued to merge
 --- @return Phased The decision and what it stepped over
 local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
     session: string, pos: {string: prio.Position}, ages: health.Ages,
-    seed: string, ci?: CiStates): Phased
+    seed: string, ci?: CiStates, merge_queue?: QueueStates): Phased
   local cim = ci or {}
+  local qm = merge_queue or {}
   local queue = flow.unified(items, pos, seed)
   local doing_n = 0
   for _, i in ipairs(queue) do
@@ -180,6 +188,7 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   local acts: {Action} = {}
   local held = 0
   local reviewing = 0
+  local queued = 0
   local merge_held = 0
   local done_held = 0
   local parked = 0
@@ -196,7 +205,11 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   for _, i in ipairs(queue) do
     local stage = flow.stage_rank(i)
     if stage == flow.STAGE_ACCEPTED then
-      if flow.is_blocked(i, index) then
+      if flow.substate(i, qm[i.id]) == "queued" then
+        -- Already merging on its own: never a blocker hold, or the
+        -- terminal answer would misname it "resolve the blockers".
+        queued = queued + 1
+      elseif flow.is_blocked(i, index) then
         -- A blocker records landing order: hold the finish back and
         -- count it so the terminal answer can name the hold. A
         -- handover has no PR to hold a merge back — count it apart,
@@ -331,14 +344,15 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
       primary.alternates = alts
     end
     return {action = primary, held = held, reviewing = reviewing,
-      parked = parked, stuck = stuck, suppressed = suppressed,
-      merge_held = merge_held, done_held = done_held,
-      ci_running = ci_running, ci_red = ci_red,
+      queued = queued, parked = parked, stuck = stuck,
+      suppressed = suppressed, merge_held = merge_held,
+      done_held = done_held, ci_running = ci_running, ci_red = ci_red,
       ci_names = table.concat(ci_blocked, ", ")}
   end
-  return {held = held, reviewing = reviewing, parked = parked,
-    stuck = stuck, suppressed = suppressed, merge_held = merge_held,
-    done_held = done_held, ci_running = ci_running, ci_red = ci_red,
+  return {held = held, reviewing = reviewing, queued = queued,
+    parked = parked, stuck = stuck, suppressed = suppressed,
+    merge_held = merge_held, done_held = done_held,
+    ci_running = ci_running, ci_red = ci_red,
     ci_names = table.concat(ci_blocked, ", ")}
 end
 
@@ -352,16 +366,18 @@ end
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @param seed string Per-session tie-break seed, "" for age order
 --- @param ci CiStates CI state by item id, absent when unknown
+--- @param merge_queue QueueStates Accepted items already queued to merge
 --- @return Action The decision
 local function next_action(items: {Item}, specs: Specs, session?: string,
-    ages?: health.Ages, seed?: string, ci?: CiStates): Action
+    ages?: health.Ages, seed?: string, ci?: CiStates, merge_queue?: QueueStates): Action
   local who = session or ""
   local aged = ages or {}
   local salt = seed or ""
   local cim = ci or {}
+  local qm = merge_queue or {}
   local index = flow.by_id(items)
   local pos = prio.positions(items)
-  local ph = phased_action(items, specs, index, who, pos, aged, salt, cim)
+  local ph = phased_action(items, specs, index, who, pos, aged, salt, cim, qm)
   local phased = ph.action
   if phased then
     return phased
@@ -416,6 +432,15 @@ local function next_action(items: {Item}, specs: Specs, session?: string,
   if taking then
     return taking
   end
+  -- Nothing from anyone lands a queued accept, but naming it beats a
+  -- generic "nothing here" once intake has nothing left either.
+  if ph.queued > 0 then
+    return {
+      kind = "none",
+      reason = ("%d accepted item(s) are queued to merge — GitHub lands "
+        .. "them without a session's help"):format(ph.queued),
+    }
+  end
   if ph.reviewing > 0 then
     return {
       kind = "none",
@@ -456,13 +481,14 @@ local record action
   type Phased = Phased
   type Specs = Specs
   type CiStates = CiStates
+  type QueueStates = QueueStates
   passes_bar: function(i: Item, specs: Specs,
   pos: {string: prio.Position}): boolean
   phased_action: function(items: {Item}, specs: Specs, index: flow.Index,
   session: string, pos: {string: prio.Position}, ages: health.Ages,
-  seed: string, ci?: CiStates): Phased
+  seed: string, ci?: CiStates, merge_queue?: QueueStates): Phased
   next_action: function(items: {Item}, specs: Specs, session?: string,
-  ages?: health.Ages, seed?: string, ci?: CiStates): Action
+  ages?: health.Ages, seed?: string, ci?: CiStates, merge_queue?: QueueStates): Action
 end
 
 local M: action = {
