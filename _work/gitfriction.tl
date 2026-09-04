@@ -43,17 +43,41 @@ local function claim_agent(subject: string, orch8: string): string, string
   return kind, handle
 end
 
+--- Every `## <kind> <handle>` heading a spec names, as `"<kind>
+--- <handle>"` keys — how a past filing's own roll call is read back,
+--- to tell an already-reported claim from one still outstanding.
+--- @param spec_text string A friction log's body
+--- @return {string: boolean} The set of headings it names
+local function named_headings(spec_text: string): {string: boolean}
+  local out: {string: boolean} = {}
+  for kind, handle in ("\n" .. spec_text):gmatch("\n##%s+(%a+)%s+(%S+)") do
+    out[kind .. " " .. handle] = true
+  end
+  return out
+end
+
 --- The refusal a `friction:`-titled filing earns when its spec does
---- not name every agent this orchestrator's own session claimed work
---- under since the pass began — nil when it may proceed.
+--- not name every agent this orchestrator's own session ever claimed
+--- work under and has not already accounted for — nil when it may
+--- proceed.
 ---
---- "Since the pass began" is the board log, newest first, back to the
---- previous `friction:` item's own `new` commit (the pass boundary —
---- an orchestrator works one board pass at a time, so in the ordinary
---- case that is this same session's own last filing) or the whole log
---- on a first pass. Every `take`/`review` commit in that window whose
---- label ends in this session's `orch8` is a claim to account for;
---- this never opens a transcript, only the log against the board.
+--- There is no session field on a `new` commit, so a past `friction:`
+--- filing cannot be attributed to an orchestrator by reading the log
+--- alone — the previous design's fix would have been to find "the
+--- previous friction item THIS orchestrator filed" and could not: it
+--- fell back to the most recent filing by ANYONE, which a concurrent
+--- orchestrator's own, unrelated filing (naming its own claims, or
+--- correctly naming none) silently satisfied on this one's behalf.
+---
+--- Instead: a claim is "accounted for" once it has been named as a
+--- heading in SOME already-filed `friction:` item, whoever filed it —
+--- sound because a filing only ever names its own filer's claims (the
+--- same `kind handle` pairs `claim_agent` derives from that filer's
+--- own `orch8`), so a heading naming this orchestrator's claim could
+--- only have come from this orchestrator's own earlier filing. Every
+--- `take`/`review` commit in the WHOLE log whose label ends in this
+--- session's `orch8` is a claim to weigh against that; this never
+--- opens a transcript, only the log and past specs, both on the board.
 --- @param s store.Store The store
 --- @param session_id string This session's own identity
 --- @param spec_text string The friction log body, as given to `new`
@@ -68,12 +92,17 @@ local function friction_refusal(s: store.Store, session_id: string,
   if events == nil then
     return "REFUSED: could not read the board log: " .. herr
   end
-  -- Collected oldest first, so the refusal reads as the pass unfolded.
+  -- The board log is newest first; walk it oldest to newest so the
+  -- claims list reads as the pass unfolded and past filings are
+  -- gathered in the order they were filed.
   local seen: {string: boolean} = {}
   local agents: {{string, string}} = {}
-  for _, ev in ipairs(events) do
-    if ev.subject:match("^new %S+ friction:") then
-      break
+  local past_filing_ids: {string} = {}
+  for i = #events, 1, -1 do
+    local ev = events[i]
+    local filed = ev.subject:match("^new (%S+) friction:")
+    if filed then
+      past_filing_ids[#past_filing_ids + 1] = filed
     end
     local kind, handle = claim_agent(ev.subject, orch8)
     if kind ~= "" then
@@ -87,12 +116,32 @@ local function friction_refusal(s: store.Store, session_id: string,
   if #agents == 0 then
     return nil
   end
+  local accounted_for: {string: boolean} = {}
+  for _, short_id in ipairs(past_filing_ids) do
+    local full_id = store.resolve(s, short_id)
+    if full_id then
+      for key in pairs(named_headings(store.read_spec(s, full_id))) do
+        accounted_for[key] = true
+      end
+    end
+  end
+  -- Outstanding: this orchestrator's own claims no past filing has
+  -- already named. Only these are weighed against THIS filing.
+  local outstanding: {string} = {}
+  for i = 1, #agents do
+    local key = agents[i][1] .. " " .. agents[i][2]
+    if not accounted_for[key] then
+      outstanding[#outstanding + 1] = key
+    end
+  end
+  if #outstanding == 0 then
+    return nil
+  end
+  local this_filing = named_headings(spec_text)
   local missing: {string} = {}
-  for i = #agents, 1, -1 do
-    local kind, handle = agents[i][1], agents[i][2]
-    local heading = "\n##%s+" .. kind .. "%s+" .. handle
-    if not ("\n" .. spec_text):find(heading, 1, false) then
-      missing[#missing + 1] = kind .. " " .. handle
+  for _, key in ipairs(outstanding) do
+    if not this_filing[key] then
+      missing[#missing + 1] = key
     end
   end
   if #missing == 0 then
@@ -102,7 +151,7 @@ local function friction_refusal(s: store.Store, session_id: string,
     .. "each with a `## <kind> <handle>` heading (run `cosmic "
     .. "_tool/friction.tl <transcript>...` on the ones you still have and "
     .. "paste its block in), or file anyway with --force --why '<why the "
-    .. "transcripts are gone>'"):format(#agents - #missing, #agents,
+    .. "transcripts are gone>'"):format(#outstanding - #missing, #outstanding,
     table.concat(missing, ", "))
 end
 

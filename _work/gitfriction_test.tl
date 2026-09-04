@@ -94,3 +94,61 @@ local function test_friction_filing_force_bypasses_the_roll_call()
     "the forced filing landed as its own item")
   unpin_session()
 end
+
+--- Claim one leaf under `goal` and mint it to `orch8`.
+--- @param s store.Store The store
+--- @param goal string The parent to attach the leaf under
+--- @param title string The leaf's title
+--- @param orch8 string The claiming session's own `<orch8>`
+--- @return string The claimed leaf's bare tail
+local function mint_claim(s: store.Store, goal: string, title: string,
+    orch8: string): string
+  local leaf = file_item(s, title, goal)
+  give_spec(s, leaf)
+  local handle = tail.bare(leaf)
+  assert(verbs.cmd_take(s, leaf, ("build-%s-%s"):format(handle, orch8), 0,
+      false, "") == 0, "minting claim " .. handle)
+  return handle
+end
+
+-- Two orchestrators filing on overlapping days must not satisfy one
+-- another's roll call: A claims one agent and correctly names it; A
+-- claims a second; a DIFFERENT orchestrator B, having minted nothing
+-- of its own, correctly files an empty log in between; A's own next
+-- filing must still name A's second, still-unaccounted-for claim — B's
+-- unrelated, more recent filing does not stand in for it.
+local function test_friction_filing_is_not_satisfied_by_another_orchestrator()
+  local s = init_state_repo("friction-concurrent")
+  local goal = file_item(s, "an outcome", "")
+  local peer = file_item(s, "a lesser outcome", "")
+  assert(cmp.cmd_compare(s, goal, peer) == 0, "compare should be accepted")
+
+  pin_session("orchAAAA")
+  local first = mint_claim(s, goal, "slice one", "orchAAAA")
+  assert(graph.cmd_new(s, "friction: pass one", "",
+      ("## build %s\nnothing to report\n"):format(first), "") == 0,
+    "naming the one claim minted so far passes")
+  local second = mint_claim(s, goal, "slice two", "orchAAAA")
+  unpin_session()
+
+  pin_session("orchBBBB")
+  local before_b = check.must(store.list(s))
+  assert(graph.cmd_new(s, "friction: nothing minted", "", "nothing here",
+      "") == 0, "a session that minted no claims may correctly name none")
+  assert(#check.must(store.list(s)) == #before_b + 1,
+    "the other orchestrator's correct empty filing landed")
+  unpin_session()
+
+  pin_session("orchAAAA")
+  local before_a = check.must(store.list(s))
+  assert(graph.cmd_new(s, "friction: pass two", "", "nothing here", "") ~= 0,
+    "B's unrelated filing must not hide A's own unnamed second claim")
+  assert(#check.must(store.list(s)) == #before_a,
+    "the refused filing wrote no item")
+  assert(graph.cmd_new(s, "friction: pass two", "",
+      ("## build %s\nnothing to report\n"):format(second), "") == 0,
+    "naming the outstanding second claim passes")
+  assert(#check.must(store.list(s)) == #before_a + 1,
+    "the passing filing landed as its own item")
+  unpin_session()
+end
