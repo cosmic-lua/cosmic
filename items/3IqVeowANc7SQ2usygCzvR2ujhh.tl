@@ -9,7 +9,6 @@ return {
   ["pr"] = 1703,
   ["repo"] = "cosmic-lua/cosmic",
   ["title"] = "gitboard new: a friction log names every agent this orchestrator claimed for, or the filing is refused",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "b8e9f1ffa94493bfec1704d0ff709fb32178c88a",
   ["verdict_spec"] = "d36f91efba1871a4a20d43527bb7d65b6f6b3c653d526d1758f133a79027c2d4",
 }
