@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1709,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-VbI3_FiHP-d6f1cc41",
   ["title"] = "gitboard take: say that an orchestrator always passes --session, and let the one-claim refusal say it too",
 }
