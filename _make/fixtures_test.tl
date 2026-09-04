@@ -248,4 +248,18 @@ local function test_benchmark_runs_against_the_stage()
     "a benchmark gets the built closure of what it imports, got:\n" .. mk)
 end
 
+-- A downstream project with an `_cli/**` test but no `cmd/cosmic`: the
+-- unguarded site gave every such test `o/bin/cosmic` as a plain make
+-- prerequisite, and nothing in this project produces it -- make refused
+-- with "No rule to make target 'o/_cli/foo_test.tl.test.got', needed by
+-- 'o/test-summary.txt'.  Stop." `_make/graph.tl`'s guard
+-- (`project.has_binary`) is what lets `--make test` reach here.
+fixture("tooling", {app = "hello from tooling"})
+
+local function test_engine_shaped_test_runs_without_a_cosmic_binary()
+  local root = staged("tooling")
+  local code, out = make(root, "test")
+  assert(code == 0, out)
+end
+
 print("all fixture tests passed")

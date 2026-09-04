@@ -188,14 +188,13 @@ local function project_mk(proj: Project, cosmic: string): string | nil, string
         built[#built + 1] = refstamp.path_of(stem)
       end
       -- The engine's own binary joins `deps_<stem>` BY POSITION, never
-      -- `--- reads:`: that declaration requires its path to already
-      -- exist when these facts are generated, which on a cold checkout
-      -- runs before the first build has produced anything under `o/`.
-      -- A plain make prerequisite has no such requirement -- only
-      -- `prepare_stage` (`_make/init.tl`) building every binary before
-      -- the test rules run, so D17's replace-if-changed gives
-      -- `o/bin/cosmic` a fresh mtime exactly when the engine changed.
-      if f.kind == "test" and engine.exercises_the_engine(f.path) then
+      -- `--- reads:`: that declaration needs its path to exist when
+      -- these facts are generated, on a cold checkout before the first
+      -- build has produced anything under `o/`. A plain prerequisite
+      -- has no such requirement -- `prepare_stage` builds every binary
+      -- first, and `has_binary` guards against a project with none.
+      if f.kind == "test" and engine.exercises_the_engine(f.path)
+      and project.has_binary(proj, "cosmic") then
         built[#built + 1] = project.out_dir("bin/cosmic")
       end
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem, built)
