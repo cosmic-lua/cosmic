@@ -53,3 +53,15 @@ Not re-running the measurement a fourth time itself — that is either
 this item's own eventual `## Change` (if (a) is chosen) or moot (if
 (b) is chosen). Not deciding D23/D30's assert-justification policy —
 same wall `c5wU_p1n9` already carries.
+
+## Decision
+
+Goal owner's call: (b) — short-circuit further measurement rounds.
+Three independent sessions already agree on direction; do not spend a
+fourth day-separated session confirming magnitude. Proceed straight to
+evaluating the low-risk fix `c5wU_p1n9`'s own `## Change` step 2
+already named: prove the invariant statically at the one narrowing
+site in `cosmic/re.tl`'s `match()` so no runtime check is needed at
+all, rather than accepting the cost or re-measuring further. `c5wU_p1n9`
+carries the actual fix; this item's only job was holding the fork
+open until answered.
