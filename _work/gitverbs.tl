@@ -216,17 +216,17 @@ local function cmd_take(s: store.Store, id: string, session: string,
   end
   local handed = ""
   if (pr or 0) ~= 0 then
-    if pr == (it.pr or 0) and (it.verdict or "") ~= "request changes"
-    and (it.claim or "") == session then
-      return gate.verdict_line("take", true,
-        ("%s already records pr:%d"):format(id:sub(1, 8), pr))
-    end
+    -- Skip the collision/handover checks (a network round trip) on
+    -- an already-recorded number — `store.save`'s clean diff, below,
+    -- is what calls this a no-op.
+    local already_recorded = pr == (it.pr or 0) and (it.claim or "") == session
+    and (it.verdict or "") ~= "request changes"
     if (it.result or "") ~= "" then
       return gate.verdict_line("take", false,
         ("REFUSED: %s carries a research handover — a deliverable is a "
           .. "diff or board state, never both"):format(id:sub(1, 8)))
     end
-    if not force then
+    if not already_recorded and not force then
       local collision = gate.pr_collision_refusal(all, id, pr)
       if collision then
         return gate.verdict_line("take", false, "REFUSED: " .. collision)
@@ -255,6 +255,9 @@ local function cmd_take(s: store.Store, id: string, session: string,
       gate.forced_suffix(force, why)))
   if not ok then
     return gate.verdict_line("take", false, err)
+  end
+  if store.is_noop(err) then
+    return gate.verdict_line("take", true, err)
   end
   return gate.verdict_line("take", true,
     ("%s is yours%s%s"):format(id:sub(1, 8), taken, handed))

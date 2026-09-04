@@ -69,6 +69,19 @@ local function test_attach_refuses_a_cycle()
   assert(check.must(store.load(s, leaf)).parent ~= kid, "and not written")
 end
 
+-- Attaching a pair already attached asks for the state the board already
+-- has — a no-op that succeeds, printing store's own line, not a misleading
+-- "now under" as though a fresh edge had landed.
+local function test_attach_of_an_already_attached_pair_is_a_noop_success()
+  local s = init_state_repo("attach-noop")
+  local goal, leaf = root_with_leaf(s)
+  local before, seen, old_print = commits(s), "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local code = graph.cmd_attach(s, leaf, goal)
+  _G.print = old_print
+  assert(code == 0 and commits(s) == before and seen:find("nothing to record", 1, true) ~= nil, seen)
+end
+
 --- Run graph.cmd_block and capture exactly what it prints via print() --
 --- the same swap-and-restore pattern verdict_and_capture in
 --- gitverdict_test.tl uses -- so a test can pin the exact line printed,

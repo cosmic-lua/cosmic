@@ -143,6 +143,9 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
   if not ok then
     return gate.verdict_line("attach", false, err)
   end
+  if store.is_noop(err) then
+    return gate.verdict_line("attach", true, err)
+  end
   local workable = ""
   if not flow.has_open_children(all, id) then
     workable = " — workable, in todo"

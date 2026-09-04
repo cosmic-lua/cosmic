@@ -163,18 +163,18 @@ local function test_take_pr_refuses_a_number_another_item_holds()
   assert(check.must(store.load(s, b)).pr == 0, "and nothing is written")
 end
 
--- The same item re-recording its own number stays the existing no-op:
--- the collision check never fires against itself.
+-- Re-recording the item's own number is a no-op, printing store's own line rather than a bespoke one — the collision check never fires against itself.
 local function test_take_pr_rerecord_of_its_own_number_stays_a_noop()
   local s = init_state_repo("pr-self-noop")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0)
-  local before = commits(s)
-  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0,
-    "re-recording its own number is a no-op")
-  assert(commits(s) == before, "nothing new to commit")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0
+    and verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0)
+  local before, seen, old_print = commits(s), "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local again = verbs.cmd_take(s, leaf, "session-a", 7, false, "")
+  _G.print = old_print
+  assert(again == 0 and commits(s) == before and seen:find("nothing to record", 1, true) ~= nil, seen)
 end
 
 -- A DONE item's PR is spent: it does not block another item from
