@@ -142,7 +142,9 @@ local function run(proj: Project, path: string, cosmic: string,
     return stage.verdict("run", false, perr)
   end
   local self = file_of(proj, path)
-  assert(self, "resolve() proved it")
+  if not self then
+    return refuse("no such source: " .. path)
+  end
   local built = deps.built_paths(deps.closure(proj, self, deps.index(proj)))
   local target_lua = deps.built_path(self.path, project.BUILD_DIR)
   -- prepare_stage builds nothing when the project declares no binary,

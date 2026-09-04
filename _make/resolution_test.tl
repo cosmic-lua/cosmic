@@ -14,6 +14,11 @@ local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local mk = require("_make")
 local child = require("cosmic.child")
+local project = require("_make.project")
+local runverb = require("_make.runverb")
+local types = require("_make.types")
+
+local type Project = types.Project
 
 local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmp = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -134,6 +139,30 @@ local function test_run_refuses_a_binary_name()
   assert(code ~= 0, "a binary name must be refused: " .. out)
   assert(out:find("takes a path, not a binary name", 1, true) or
     out:find("no such source", 1, true), "got: " .. out)
+end
+
+-- The reachable path the assert-turned-refusal guards: `resolve()`
+-- proves the target exists, but `prepare` runs between that check and
+-- `file_of`'s second lookup, and a `prepare` that re-scans the project
+-- can make the target vanish in between. That must refuse, not throw.
+local function test_run_refuses_a_target_that_vanishes_during_prepare()
+  local root = fixture("vanish")
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), 'io.write("x")\n'))
+  local proj = check.must(project.scan(root))
+  local vanish = function(p: Project, _c: string): boolean, string
+    assert(fs.remove(fs.join(p.root, "cmd/app/main.tl")))
+    p.files = check.must(project.scan(p.root)).files
+    return true, ""
+  end
+  local stderr_path = fs.join(root, "stderr.txt")
+  local real_stderr = io.stderr
+  io.stderr = assert(io.open(stderr_path, "w"))
+  local code = runverb.run(proj, "cmd/app/main.tl", cosmic, vanish)
+  io.stderr:close()
+  io.stderr = real_stderr
+  local out = fs.read(stderr_path) or ""
+  assert(code ~= 0, "a target that vanished mid-prepare must be refused: " .. out)
+  assert(out:find("no such source", 1, true), "got: " .. out)
 end
 
 -- The resolution is per-invocation, in argv, and a GRANDCHILD does not
