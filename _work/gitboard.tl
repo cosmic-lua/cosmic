@@ -109,11 +109,21 @@ local CSPEC: flags.CommandSpec = {
     {name = "init", summary = "create items/ (and a git repo if needed)",
       spec = {flags = {dir_flag()}}},
     {name = "new", summary = "open an item titled TITLE; role comes from the graph",
-      spec = {usage = "TITLE [options]", flags = {dir_flag(),
+      spec = {usage = "TITLE [options]",
+        summary = "open an item titled TITLE; role comes from the graph.\n\n"
+        .. "A `friction:` title is refused unless its spec (--spec-file) "
+        .. "names every agent this\nsession claimed work under since the "
+        .. "pass began, one `## <kind> <handle>` heading\neach; "
+        .. "--force --why files it anyway (a pass whose transcripts are "
+        .. "gone).",
+        flags = {dir_flag(),
           {long = "parent", arg = "ID", help = "the item this decomposes"},
           {long = "spec-file", arg = "FILE", help = "spec markdown sidecar"},
           {long = "repo", arg = "OWNER/NAME",
-            help = "the repo its PR lands in; default is the board's origin"}}}},
+            help = "the repo its PR lands in; default is the board's origin"},
+          {long = "force", help = "file a `friction:` item over an "
+            .. "incomplete roll call"},
+          {long = "why", arg = "REASON", help = "why --force was needed"}}}},
     {name = "attach", summary = "put ID under PARENT (adopt, re-parent)",
       spec = {usage = "ID PARENT [options]", flags = {dir_flag()}}},
     {name = "compare", summary = "record that ID outranks OTHER "
@@ -350,7 +360,8 @@ local function main(...: string): integer
       end
       spec = body
     end
-    return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "")
+    return graph.cmd_new(s, title, parent, spec, d.parsed.values["repo"] or "",
+      d.parsed.switches["force"], d.parsed.values["why"] or "")
   end
   local input = d.parsed.args[1] or ""
   local id, rerr = resolve_id(s, input)
