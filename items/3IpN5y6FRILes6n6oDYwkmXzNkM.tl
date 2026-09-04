@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["pr"] = 1670,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-wkmX_zNkM-1",
   ["title"] = "coverage: print the would-be floor row for a file absent from .cosmic-coverage so a new file never needs --baseline",
 }
