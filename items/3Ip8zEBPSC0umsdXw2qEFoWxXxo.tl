@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-EFoW_xXxo",
+  ["claim"] = "build-EFoW_xXxo",
   ["id"] = "3Ip8zEBPSC0umsdXw2qEFoWxXxo",
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["repo"] = "cosmic-lua/cosmic",
