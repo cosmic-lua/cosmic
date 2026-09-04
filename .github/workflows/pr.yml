@@ -157,7 +157,7 @@ jobs:
           # actions/checkout adds includeIf.gitdir entries to this repo's
           # LOCAL .git/config, pointing at a credentials config file under
           # a runner temp dir that only root (who wrote it) can read. Any
-          # git subprocess builder spawns later — board_paths()'s own
+          # git subprocess builder spawns later — work_paths()'s own
           # `git ls-tree`, inside the fenced gate below — parses
           # .git/config and fails on that unreadable include ("fatal: bad
           # config line N"), even though the command itself has nothing to
@@ -174,14 +174,17 @@ jobs:
 
       # Pins resolve here, where there is a network. Everything after
       # this step — compiles, checks, tests, summaries — runs denied.
-      # The board ref too: _build/doc_paths_test.tl checks the prose's
-      # `_work/` pointers against origin/board, which the checkout's
-      # depth-1 fetch of the PR ref alone does not bring.
+      # The work ref too: _build/doc_paths_test.tl checks the prose's
+      # `_work/` pointers against cosmic-lua/work's main branch, which
+      # the checkout's depth-1 fetch of the PR ref alone does not bring.
+      # cosmic-lua/work is public, so this is an unauthenticated fetch
+      # of its own URL rather than a same-repo ref -- the board moved to
+      # its own repository and is no longer a branch of this one.
       - name: fetch with network allowed
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- git fetch -q --depth=1 origin +refs/heads/board:refs/remotes/origin/board
+          runuser -u builder -- git fetch -q --depth=1 https://github.com/cosmic-lua/work +refs/heads/main:refs/remotes/work/main
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/cosmic --make fetch
 
       # The namespace needs root to create, and so does bringing `lo` up
