@@ -3,5 +3,6 @@ return {
   ["blocked_by"] = "3IqjzQtr436z6057LJQZCBol1NV",
   ["id"] = "3IHHKCyzBe8eghz6qIxwQG2K3yC",
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
+  ["resolution"] = "not-planned",
   ["title"] = "release artifacts after the gate change: perf.json is a record not an input, and one measure run feeds nothing",
 }
