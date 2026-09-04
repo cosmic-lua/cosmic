@@ -1,5 +1,6 @@
 return {
-  ["builders"] = "a6f583ba-56de-5345-8cca-85841007a8d7",
+  ["builders"] = "a6f583ba-56de-5345-8cca-85841007a8d7 build-EMdb_HFX2-1",
+  ["claim"] = "build-EMdb_HFX2-1",
   ["id"] = "3IqJ0yKpGJrCIJjmllrEMdbHFX2",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmopolitan",
