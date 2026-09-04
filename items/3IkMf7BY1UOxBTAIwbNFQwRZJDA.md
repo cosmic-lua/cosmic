@@ -151,3 +151,18 @@ each half green.
   run exactly this).
 - The perf compare gate (`_perf/gate.tl compare`) against the previous
   pin shows no unexplained regression.
+
+## Progress (2026-09-04)
+
+All ~23 files adapted; **warm build/ci is fully green** — `bin/cosmic
+--make build` then `o/bin/cosmic --make ci` ends `ci: PASS (5 stages)`,
+3285/3285 tests, coverage ratchet holds. Pushed as
+`cosmic-pin-bump-3IkMf7BY` (no PR yet — Acceptance's cold-build
+requirement is unmet). Blocked on `3IqwVIFnyKvKoaIuCncmtGvFTL6`, a
+newly discovered cold-build gap this branch's own testing surfaced
+(interpreted searcher resolves `cosmo.*` against stale bundled
+declarations for `_cli/main_handlers.tl`/`cosmic/tty.tl`, outside what
+D43's seed pass covers). Once that resolves, the next puller's job is:
+rebase `cosmic-pin-bump-3IkMf7BY` onto whatever lands, confirm a COLD
+build passes, run the perf compare gate (still outstanding — not yet
+run), then open the PR.
