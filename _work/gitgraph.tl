@@ -21,11 +21,13 @@
 --- `compare`, because an item can be placed without being adopted and
 --- adopted without being compared.
 local flow = require("_work.flow")
+local friction = require("_work.gitfriction")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local owner = require("_work.gitowner")
 local prio = require("_work.priority")
+local session = require("_work.session")
 local store = require("_work.store")
 
 --- File a new item into the graph, todo if it has a parent and triage
@@ -38,9 +40,28 @@ local store = require("_work.store")
 --- @param spec string | nil Sidecar prose to write, or nil to write none
 --- @param repo string The item's repo field; nil becomes "". Refused
 --- under a foreign owner unless `spec` names it under `## Access`
+--- @param force boolean | nil File a `friction:` item over an incomplete
+--- roll call — a pass whose transcripts are gone
+--- @param why string | nil Why --force was needed
 --- @return integer 0 on success, 1 otherwise
 local function cmd_new(s: store.Store, title: string, parent: string,
-    spec: string | nil, repo: string): integer
+    spec: string | nil, repo: string, force?: boolean, why?: string): integer
+  local frc = force or false
+  local rsn = why or ""
+  local forced = gate.force_refusal(frc, rsn)
+  if forced then
+    return gate.verdict_line("new", false, "REFUSED: " .. forced)
+  end
+  -- A friction log names every agent this session claimed work under
+  -- since the pass began, or the filing is refused: the only thing
+  -- that used to distinguish a full roll call from an empty one was
+  -- prose, and nothing refused the thinner log.
+  if not frc and title:sub(1, 9) == "friction:" then
+    local refusal = friction.friction_refusal(s, session.resolve(nil), spec or "")
+    if refusal then
+      return gate.verdict_line("new", false, refusal)
+    end
+  end
   local all, aerr = store.list(s)
   if all == nil then
     return gate.verdict_line("new", false, aerr)
@@ -79,7 +100,8 @@ local function cmd_new(s: store.Store, title: string, parent: string,
     also = gate.containered(parent_item)
   end
   local ok, err = gate.commit_and_publish(s, it, spec,
-    ("new %s %s"):format(it.id:sub(1, 8), title), also)
+    ("new %s %s%s"):format(it.id:sub(1, 8), title, gate.forced_suffix(frc, rsn)),
+    also)
   if not ok then
     return gate.verdict_line("new", false, err)
   end
@@ -364,7 +386,7 @@ end
 
 local record gitgraph
   cmd_new: function(s: store.Store, title: string, parent: string,
-  spec: string | nil, repo: string): integer
+  spec: string | nil, repo: string, force?: boolean, why?: string): integer
   cmd_attach: function(s: store.Store, id: string, parent: string): integer
   cmd_block: function(s: store.Store, id: string, blocker: string,
   remove: boolean, reason: string): integer
