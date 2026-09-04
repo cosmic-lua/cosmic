@@ -63,9 +63,13 @@ local function test_should_seed_true_with_leftover_seed_dir()
   assert(seed.should_seed(proj), "leftover SEED_DIR means cleanup never ran")
 end
 
--- `run` populates SEED_DIR from the generator itself; `cleanup` removes
--- it -- created, populated, and gone.
-local function test_run_populates_and_cleanup_removes_the_seed_dir()
+-- `run` populates SEED_DIR from the generator itself, then promotes it
+-- straight into TYPES_GEN_DIR -- the one path every project's compile
+-- include list already hardcodes, so an interpreted searcher's on-demand
+-- compile (never just the one generator-script compile `closure_argv`
+-- flags explicitly) sees the seed too. SEED_DIR is gone once `run`
+-- returns; `cleanup` is then a no-op on the path it would have cleared.
+local function test_run_populates_and_promotes_to_types_gen_dir()
   local proj = fixture("run", {
       ["_types/types_gen.tl"] = 'local fs = require("cosmic.fs")\n'
       .. 'assert(fs.make_dirs(arg[1]))\n'
@@ -75,12 +79,13 @@ local function test_run_populates_and_cleanup_removes_the_seed_dir()
   assert(fs.set_cwd(proj.root))
   local ok, err = seed.run(proj, cosmic)
   assert(ok, err)
-  local stub = fs.join(seed.SEED_DIR, "stub.txt")
-  assert(fs.is_file(stub), "seed dir is populated")
+  assert(not fs.is_present(seed.SEED_DIR), "SEED_DIR is promoted away, not left behind")
+  local stub = fs.join(seed.TYPES_GEN_DIR, "stub.txt")
+  assert(fs.is_file(stub), "the promoted dir carries the generator's own output")
   assert(check.must(fs.read(stub)) == "seeded\n", "with the generator's own output")
   local cok, cerr = seed.cleanup()
   assert(cok, cerr)
-  assert(not fs.is_present(seed.SEED_DIR), "cleanup removes it")
+  assert(not fs.is_present(seed.SEED_DIR), "cleanup is a no-op once run already promoted it")
   assert(fs.set_cwd(cwd))
 end
 
