@@ -440,4 +440,44 @@ local function test_the_peers_lane_measures_this_runs_own_binary()
     "the `peers` job downloads, or the two lanes are not the one binary")
 end
 
+-- Every gate lane that runs `--make ci` as the non-root builder must do
+-- two things first, or the gate it runs cannot pass: strip the
+-- `includeIf.gitdir` credential entries actions/checkout leaves in
+-- `.git/config` (unreadable once root steps aside, and any git
+-- subprocess spawned later trips on them), and fetch `origin/board`
+-- (`_build/doc_paths_test.tl`'s board check FAILS rather than skips
+-- when it is unreadable under `CI`, doc_paths_test.tl:268-282). Both
+-- landed in pr.yml's `ci` job together; release.yml's `build` job ran
+-- `--make ci` the same way for two releases without either, invisibly,
+-- because no gate here checked for them -- only a scheduled release
+-- run surfaced it. Derived over every job in every workflow, never
+-- listed, so a third `--make ci` lane inherits the rule instead of
+-- silently missing it.
+local function test_every_gate_lane_strips_includeif_and_fetches_the_board_ref()
+  local INCLUDEIF < const > = 'git config --local --remove-section "includeIf.gitdir:'
+  local BOARD_FETCH < const > = "+refs/heads/board:refs/remotes/origin/board"
+  local checked = 0
+  for _, path in ipairs(workflows()) do
+    for name in pairs(jobs_in(path)) do
+      local body = job_body(path, name)
+      if body:find("--make ci", 1, true) then
+        checked = checked + 1
+        assert(body:find(INCLUDEIF, 1, true),
+          path .. ": job '" .. name .. "' runs `--make ci` but never " ..
+          "strips the includeIf.gitdir credential entries first -- a " ..
+          "git subprocess under the gate (board_paths()'s own `git " ..
+          "ls-tree`) fails on the unreadable include once root steps " ..
+          "aside to the builder")
+        assert(body:find(BOARD_FETCH, 1, true),
+          path .. ": job '" .. name .. "' runs `--make ci` but never " ..
+          "fetches origin/board first -- _build/doc_paths_test.tl's " ..
+          "board check fails outright, rather than skipping, when " ..
+          "origin/board is unreadable under CI")
+      end
+    end
+  end
+  assert(checked >= 2,
+    "expected several lanes running `--make ci`, saw " .. checked)
+end
+
 print("all workflow ratchet tests passed")
