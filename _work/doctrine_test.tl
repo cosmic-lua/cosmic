@@ -67,6 +67,26 @@ local function test_help_overview_lists_the_topics()
     "the overview carries the topic list")
 end
 
+local function test_bar_states_the_ready_when_convention()
+  local page = doctrine.page("bar")
+  assert(page ~= nil, "the bar topic renders")
+  assert(page:find("Ready when:", 1, true) ~= nil,
+    "the bar topic names the Ready when convention")
+  assert(page:find(
+      "the claim drops bare — the item is fine as written,\nre-offered as-is — rather than bouncing through a question",
+      1, true) ~= nil,
+    "not ready drops the claim bare instead of bouncing through a question")
+end
+
+local function test_build_mirrors_the_ready_when_convention()
+  local page = doctrine.page("build")
+  assert(page ~= nil, "the build topic renders")
+  assert(page:find(
+      "a `Ready when` command\n   runs first, and not ready is a bare drop, not a bounce",
+      1, true) ~= nil,
+    "step 2 runs the Ready when command first and treats not-ready as a drop")
+end
+
 local function test_no_topic_shadows_a_verb()
   -- The overview's command rows are the verb vocabulary; a topic
   -- sharing a name would be served by the intercept INSTEAD of that

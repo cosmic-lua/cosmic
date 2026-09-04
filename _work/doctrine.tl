@@ -152,6 +152,16 @@ widen it, or name what the narrow one could miss. The same rule
 covers removals: a Change that relocates or deletes a mechanism
 names the sweep it ran for sites still asserting the old one.
 
+Ready when: a Change whose earliest valid start depends on a fact
+outside the tree — a calendar day, a release having shipped, a lane
+gone green, a pin bumped — states that fact as a command and the
+output that means ready, in prose at the top of `## Change` ("Ready
+when: ..."). The puller runs it before anything else; when it says
+not ready, the claim drops bare — the item is fine as written,
+re-offered as-is — rather than bouncing through a question. No
+field, no date, no verb: the criterion is whatever the command
+evaluates, and it ages with the spec.
+
 Sizing: one PR one session holds in its head (~400 changed lines is
 the smell threshold, not a rule). An "and" between two independent
 changes in `Change` means cut it in two. Prefer file-disjoint
@@ -174,15 +184,16 @@ a skill — gates transfer to every future session; prose does not.
    spec, and the item's verdict/pr fields carry any standing review
    state.
 2. Re-run the spec's measured commands before building — the queue
-   ages faster than the tree stands still. Numbers moved but the
-   shape holds: refresh them in place (`spec ID FILE --base BASE`)
-   and proceed. A fresh fact that breaks the shape or reopens a
-   decision: file the question as its own item, block this one on
-   it, then release the claim (`help block` has the order). A bounce
-   is a good outcome — the bar failing loudly instead of a silent
-   wrong guess — and answering the question may well be your own
-   next action; do that from the spec and the tree, not from what
-   you remember wanting.
+   ages faster than the tree stands still; a `Ready when` command
+   runs first, and not ready is a bare drop, not a bounce. Numbers
+   moved but the shape holds: refresh them in place (`spec ID FILE
+   --base BASE`) and proceed. A fresh fact that breaks the shape or
+   reopens a decision: file the question as its own item, block this
+   one on it, then release the claim (`help block` has the order). A
+   bounce is a good outcome — the bar failing loudly instead of a
+   silent wrong guess — and answering the question may well be your
+   own next action; do that from the spec and the tree, not from
+   what you remember wanting.
 3. One item = one fresh branch off the latest default branch, named
    for the id's first 8 characters = one PR. Never stack a second
    item on a branch, and never reuse a branch whose PR is open.
