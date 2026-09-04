@@ -308,7 +308,10 @@ worktree or push rights to `board`:
   orchestrator sessions working the same item from minting the
   identical label and each reading `take`'s exact-string lock as its
   own re-claim instead of a foreign one. A lost race is the lock
-  working: take the next item.
+  working: take the next item. Never take bare for an agent's item —
+  omitted, `--session` binds the claim to YOUR OWN one-claim identity,
+  and the next bare take (yours, for the next item) is what then
+  refuses.
 - Disjoint or not at all. `next` names one item and cannot see what
   else you are taking; file-disjointness across the wave is your
   check, judged on the MERGE — a shared file with thin headroom

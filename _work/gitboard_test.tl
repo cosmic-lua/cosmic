@@ -105,3 +105,22 @@ local function test_help_documents_the_id_forms()
   assert(printed:find("different string", 1, true),
     "help should call out that the branch differs from the handle\ngot: " .. printed)
 end
+
+-- `gitboard help take`'s `--session` option text: an orchestrator
+-- claiming for an agent always passes the name it minted, and an
+-- omitted `--session` binds the claim to the CALLER's own one-claim
+-- identity — this is the CLI surface `help take` actually renders,
+-- distinct from the `@param session` doc comment on `cmd_take`.
+local function test_help_take_documents_session_ownership()
+  local code, printed = gitboard_and_capture("help", "take")
+  assert(code == 0, "help take should exit 0, got " .. code)
+  assert(printed:find(
+      "an orchestrator claiming for an agent always passes the name "
+      .. "it minted for that agent", 1, true),
+    "help take should say an orchestrator always passes a minted "
+    .. "--session\ngot: " .. printed)
+  assert(printed:find(
+      "the claim binds to THIS session's one-claim identity", 1, true),
+    "help take should say an omitted --session binds to the caller's "
+    .. "own one-claim identity\ngot: " .. printed)
+end
