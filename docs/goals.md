@@ -131,11 +131,14 @@ when the gap it polices closes.
 perf is a stated goal only where it defines the product experience:
 binary startup, `--check types` latency on a reference project, the
 embed build cycle, and agent cycles-per-task on the eval suite (G1).
-improvement is driven internally — a per-release ratchet on each path,
-enforced by the existing `perf-compare` gate and the eval history —
-and everything off the defining paths stays plain non-regression.
+improvement is driven internally — a daily compare on each path,
+reported by the perf lane (`perf.yml`: today's main against the latest
+release, never a release gate — [D44](decisions/d44-release-publishes-regardless-of-the-perf-compare.md))
+and the eval history — and everything off the defining paths stays
+plain non-regression.
 
-- **measured by:** the perf suite's ratchets per release; the peer
+- **measured by:** the perf suite's daily compare against the latest
+  release, its readings kept as the lane's run artifacts; the peer
   table — the same metrics for CPython, Node, Go, and comparable
   checkers — published with each release.
 - **win condition:** every defining-path ratchet holds (no regression,
@@ -169,8 +172,8 @@ diff).
 - **measured by:** a per-PR ratchet on the public module surface
   (committed baseline of public names); a per-release size report
   (source lines and file count per tree, binary size, AGENTS.md
-  doctrine size) published and compared release over release alongside
-  the perf history (G6's release-asset pattern).
+  doctrine size) published as a release asset and compared release
+  over release.
 - **win condition:** the surface ratchet holds; the size report ships
   with every release with growth named in the diffs that caused it;
   doctrine size trends down (shared with G3); pruning work is opened

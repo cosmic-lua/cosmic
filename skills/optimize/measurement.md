@@ -24,7 +24,7 @@ that first.
   of this chapter teaches. host placement is not: the microcode
   register is virtualized inside a container, so mitigation state is
   unobservable from in here, and every run of one sitting shares
-  whatever host the container landed on. so **a release-gating
+  whatever host the container landed on. so **a lane-flagged
   regression on a single tight-loop or fixed-overhead scenario needs
   reproduction across SEPARATE SESSIONS, ideally days apart, before it
   blocks a pin or is written into a board item as a finding.** the

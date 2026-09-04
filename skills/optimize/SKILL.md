@@ -56,8 +56,8 @@ identity traps, and both return a number either way:
   exception is `$BIN --modules <manifest> o/_perf/run.lua …` where the
   manifest roots a directory holding NOTHING but `_perf` and
   `o/_perf`: the tree answers `_perf.*` and the binary still answers
-  every `cosmic.*`. That is what the release gate measures its baseline
-  with, and `_perf/baserun.tl` is what builds it — use that rather than
+  every `cosmic.*`. That is what the daily perf lane measures its
+  baseline with, and `_perf/baserun.tl` is what builds it — use that rather than
   hand-rolling the manifest, and never widen the root, because a root
   that also answers `cosmic.*` puts the tree's library on both sides of
   a compare and makes a real regression cancel out.
@@ -198,8 +198,8 @@ work ONE scenario (or one closely related group) at a time.
      cannot reach is decided by the isolated re-measure procedure in
      `measurement.md` ("when a flag survives triage"), not by revert.
      second: a surviving regression on a single tight-loop or
-     fixed-overhead scenario that is about to gate a release or be
-     written into a board item as a finding is decided by the
+     fixed-overhead scenario that is about to turn the perf lane red
+     or be written into a board item as a finding is decided by the
      cross-session rule in `measurement.md` ("the term interleaving
      inside one session cannot remove"), not by this session's verdict
      alone — it is real for this session's host placement, and only

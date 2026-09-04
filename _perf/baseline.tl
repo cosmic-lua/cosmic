@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Fetch a previous release's named asset, as the ratchet's raw
---- material. The perf gate fetches the previous release's BINARY
---- (`--asset cosmic-lua`) and re-measures it beside the candidate,
+--- material. The perf lane fetches the latest release's BINARY
+--- (`--asset cosmic-lua`) and re-measures it beside the tree's build,
 --- because stored numbers do not survive a runner change; the size
 --- gate fetches stored `size.json`, because size is deterministic.
 ---
@@ -21,7 +21,7 @@
 ---                                       nothing written, exit 0
 ---   perf-baseline: FAIL (<reason>)     network or parse failure, exit 1
 ---
---- Report-only policy (skip vs. fail a release on this) lives in the
+--- Report-only policy (skip vs. fail the lane on this) lives in the
 --- workflow that calls this script, not here.
 
 local flags = require("cosmic.flags")

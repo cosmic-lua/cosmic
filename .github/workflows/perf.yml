@@ -1,0 +1,156 @@
+name: perf
+
+# The perf compare, off the release and on a clock of its own. It
+# measures today's main against the latest published release with the
+# instrument the release used to gate on (`_perf/gate.tl`; D31, D34-D36
+# govern the compare unchanged) and reports the verdict. Nothing
+# downstream reads it, so a red run holds nothing -- see D44 -- but the
+# compare step carries no guard and no `continue-on-error` for the
+# opposite reason fuzz.yml states: a lane that cannot fail is not a
+# lane, and a reproduced regression is this lane's only signal.
+#
+# It fires at 03:00 UTC, three hours BEFORE release.yml's 0 6 cron, so
+# the baseline is yesterday's release and the subject is the tree
+# today's release will be cut from. An after-release slot would measure
+# a binary against its own commit and read as a near-A/A every day.
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+  # So the lane's own plumbing is proven on the PR that adds it, and on
+  # every later change to it.
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/perf.yml'
+
+permissions:
+  contents: read
+
+# PR runs supersede each other like every other PR lane; scheduled runs
+# never cancel each other -- a 03:00 run in flight must not be killed by
+# tomorrow's 03:00 run starting under the same group.
+concurrency:
+  group: perf-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Same pinned container and non-root builder as every Linux lane (see
+  # pr.yml and docs.yml); `_build/workflows_test.tl` ratchets the
+  # `image:` and `options:` lines identical across every workflow.
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: plan
+        id: plan
+        shell: bash
+        run: |
+          set -eux
+          echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      # Two generations, exactly as release.yml builds what it ships:
+      # the pinned cosmic builds one from this tree, and THAT one builds
+      # the binary measured here, so the subject is produced by its own
+      # rules and is the binary today's release will publish.
+      - name: build the subject
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            bin/cosmic --make fetch
+            bin/cosmic --make build
+            o/bin/cosmic --make build'
+
+      # Twice against the same binary, on one runner in one job: the
+      # second reading is the A/A self-check the compare below reads as
+      # a noise control. Scenario check() failures fail this step --
+      # they mean the binary is WRONG, not slow, and that is a real
+      # finding whether or not anything is published today.
+      - name: measure
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            o/bin/cosmic --make run _perf/run.tl --out o/perf/perf.json
+            o/bin/cosmic --make run _perf/run.tl --out o/perf/selfcheck.json'
+
+      # The baseline is the latest release's BINARY, downloaded and
+      # measured here, in the same job and on the same runner as the
+      # subject's own measurement above. It is never a stored number:
+      # the same binary's numbers drift -39%..+162% per scenario between
+      # runners, so a cross-run baseline can stay red forever with no
+      # code change. Both sides enumerate the TREE's benches
+      # (`_perf/baserun.tl` runs the previous binary against the tree's
+      # `_perf`), so the baseline number means "the latest release's
+      # cosmic, measured by this tree's instrument" -- one instrument,
+      # two subjects, which is the experiment a compare claims to run.
+      # A `perf-compare: FAIL` verdict fails this step and this job, and
+      # nothing else: no release waits on it, no asset is withheld. A
+      # `perf-baseline: FAIL` (network or API failure) fails the step
+      # too; the next cron fire retries. `perf-compare: SKIP (no
+      # baseline)` still succeeds.
+      - name: compare against the latest release
+        timeout-minutes: 15
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -ux
+          rc=0
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" GH_TOKEN="$GH_TOKEN" \
+            bash -eo pipefail -c '
+            o/bin/cosmic --make run _perf/baseline.tl --repo ${{ github.repository }} \
+              --asset cosmic-lua --out o/perf/prev/cosmic-lua | tee o/perf/baseline.txt
+            if grep -q "^perf-baseline: SKIP" o/perf/baseline.txt; then
+              echo "perf-compare: SKIP (no baseline: no published release carries cosmic-lua)" > o/perf/compare.txt
+            else
+              chmod +x o/perf/prev/cosmic-lua
+              o/bin/cosmic --make run _perf/baserun.tl --bin o/perf/prev/cosmic-lua \
+                --out o/perf/prev/perf.json
+              o/bin/cosmic --make run _perf/gate.tl compare \
+                o/perf/prev/perf.json o/perf/perf.json o/perf/selfcheck.json \
+                --baseline-bin o/perf/prev/cosmic-lua \
+                | tee o/perf/compare.txt
+            fi' || rc=$?
+          {
+            tail -n1 o/perf/baseline.txt
+            [ -f o/perf/compare.txt ] && tail -n1 o/perf/compare.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -ne 0 ]; then
+            [ -f o/perf/compare.txt ] && cat o/perf/compare.txt >&2
+            tail -n1 o/perf/baseline.txt >&2
+            echo "perf: main regressed against the latest release. Nothing is blocked and nothing was withheld: this lane reports." >&2
+            echo "  re-run this workflow to re-measure: a real regression reproduces, noise does not." >&2
+            echo "  if it reproduces, work it under skills/optimize/SKILL.md; never weaken a scenario or its check()." >&2
+            exit "$rc"
+          fi
+
+      # `if: always()` is on the upload, not on the compare: the readings
+      # are the record, and a red day's numbers are the ones worth
+      # keeping. This is where the perf history lives now that releases
+      # no longer carry perf.json.
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: always()
+        with:
+          name: perf-${{ steps.plan.outputs.day }}
+          path: |
+            o/perf/perf.json
+            o/perf/selfcheck.json
+            o/perf/compare.txt
+            o/perf/baseline.txt
+            o/perf/prev/perf.json

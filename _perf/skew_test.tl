@@ -1,21 +1,21 @@
 --- reads: _perf o/bootstrap/cosmic
---- Guard for the release compare step's cosmic-skew class.
+--- Guard for the perf lane's compare step's cosmic-skew class.
 ---
---- release.yml's compare step measures the previous release binary
---- against the TREE's `_perf` (`_perf/baserun.tl`), so every non-test
+--- perf.yml's compare step measures the latest release binary against
+--- the TREE's `_perf` (`_perf/baserun.tl`), so every non-test
 --- `_perf/**` file is loaded by an OLD binary: the instrument is the
---- tree's, the `cosmic.*` and `cosmo.*` under it are the previous
---- release's. A `_perf/**` use of a cosmic API newer than that release
---- therefore crashes the release lane days after the use merges, with
---- no PR left to attribute it to. The baseline side runs the tree's
+--- tree's, the `cosmic.*` and `cosmo.*` under it are that release's.
+--- A `_perf/**` use of a cosmic API newer than that release therefore
+--- crashes the perf lane days after the use merges, with no PR left
+--- to attribute it to. The baseline side runs the tree's
 --- `_perf` entirely, not only its path-given entry, so every module in
 --- it is exposed, not just the harness.
 ---
 --- This test moves that failure to the PR that introduces it: every
 --- non-test `_perf/**` file must type-check under the pinned bootstrap
---- (`o/bootstrap/cosmic`), which is at least as old as the previous
+--- (`o/bootstrap/cosmic`), which is at least as old as the latest
 --- release — the pin only ever trails published releases, so
---- bootstrap-clean implies previous-release-clean.
+--- bootstrap-clean implies latest-release-clean.
 ---
 --- The check runs against a constructed include directory holding
 --- NOTHING but a `_perf` symlink, and asserts that emptiness before
