@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "259ba306-c053-56fc-b9ad-784a9d4ed050",
+  ["claim"] = "259ba306-c053-56fc-b9ad-784a9d4ed050",
   ["id"] = "3IqivZIzqqCUdFQvIbPAcp1MOgO",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["repo"] = "cosmic-lua/cosmic",
