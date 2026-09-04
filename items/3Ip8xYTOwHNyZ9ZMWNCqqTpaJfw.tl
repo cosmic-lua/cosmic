@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["pr"] = 380,
   ["repo"] = "cosmic-lua/cosmopolitan",
+  ["reviewer"] = "review-qqTp_aJfw-1",
   ["title"] = "gcov: lock the .gcda read-merge-write so parallel test processes stop dropping each other's counts",
 }
