@@ -115,6 +115,13 @@ local function seed_pins(dest: string): boolean
     -- a subset only moves the failure to the next missing line.
     {"cosmos", "lua", "o/3p/cosmos/lua"},
     {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
+    -- The trust root itself: `_build/coldbuild_test.tl` declares `reads:
+    -- o/bootstrap/cosmic`, and a declared read that does not exist makes
+    -- the model refuse the build before the graph ever runs. Its `.pin`
+    -- rides beside it because `bin/cosmic` reads that file to decide
+    -- whether the cached bootstrap still matches the pin.
+    {"bootstrap", "cosmic", "o/bootstrap/cosmic"},
+    {"bootstrap", "cosmic.pin", "o/bootstrap/cosmic.pin"},
   }
   for _, w in ipairs(want) do
     -- `o/3p` is where `--make fetch` unpacks a pin, and the ONLY
