@@ -121,21 +121,8 @@ end
 -- deterministically: a live host is always either ABI >= 4 (this CI
 -- lane) or lacks landlock outright, never usefully "ABI 3", so this is
 -- the only way to prove the gate without an old kernel.
-local function with_mock_landlock(mocks: {string: function}, body: function(): boolean)
-  local saved: {string: function} = {}
-  for name, fn in pairs(mocks) do
-    saved[name] = (landlock as {string: function})[name]; -- cast: record to map probe
-    (landlock as {string: function})[name] = fn -- cast: record to map probe
-  end
-  local ok, err = pcall(body)
-  for name, fn in pairs(saved) do
-    (landlock as {string: function})[name] = fn -- cast: record to map probe
-  end
-  if not ok then error(err, 0) end
-end
-
 local function test_net_fails_closed_below_abi_4()
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       abi = function(): integer | nil, string return 3 end,
     }, function(): boolean
@@ -170,7 +157,7 @@ end
 -- so this needs no real kernel support and runs in-process safely (no
 -- risk of actually restricting this test process).
 local function test_restrict_own_abi_gate_below_abi_4()
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       abi = function(): integer | nil, string return 3 end,
     }, function(): boolean

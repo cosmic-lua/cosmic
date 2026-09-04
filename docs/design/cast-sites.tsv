@@ -42,10 +42,11 @@ cosmic/_teal_engine.tl	175	tl compiler surface
 cosmic/_teal_engine.tl	231	tl compiler surface
 cosmic/_teal_engine.tl	232	tl compiler surface
 cosmic/_teal_engine.tl	240	tl compiler surface
-cosmic/_teal_engine.tl	256	pcall return shape
+cosmic/_teal_engine.tl	261	pcall return shape
 cosmic/check.tl	121	type-defeating test probe
 cosmic/check.tl	139	type-defeating test probe
-cosmic/check.tl	298	record union after guard
+cosmic/check.tl	151	map view of a declared value
+cosmic/check.tl	326	record union after guard
 cosmic/check_assertions_test.tl	101	type-defeating test probe
 cosmic/check_assertions_test.tl	321	type-defeating test probe
 cosmic/compress_test.tl	24	enum relation
@@ -98,10 +99,7 @@ cosmic/net/connect.tl	96	function shape
 cosmic/net/socket.tl	334	function shape
 cosmic/net/socket.tl	397	function shape
 cosmic/net/socket.tl	437	function shape
-cosmic/quicksand/box/init_test.tl	143	map view of a declared value
 cosmic/quicksand/box/init_test.tl	145	map view of a declared value
-cosmic/quicksand/box/init_test.tl	146	map view of a declared value
-cosmic/quicksand/box/init_test.tl	148	map view of a declared value
 cosmic/quicksand/box/merge.tl	135	map view of a declared value
 cosmic/quicksand/box/merge.tl	138	incremental record construction
 cosmic/quicksand/box/merge_test.tl	101	type-defeating test probe
@@ -121,15 +119,6 @@ cosmic/re.tl	287	binding contract shape
 cosmic/re.tl	333	binding contract shape
 cosmic/sandbox/init.tl	206	runtime capability probe
 cosmic/sandbox/init_test.tl	132	container variance
-cosmic/sandbox/init_test.tl	192	map view of a declared value
-cosmic/sandbox/init_test.tl	193	map view of a declared value
-cosmic/sandbox/init_test.tl	197	map view of a declared value
-cosmic/sandbox/landlock_net_test.tl	127	map view of a declared value
-cosmic/sandbox/landlock_net_test.tl	128	map view of a declared value
-cosmic/sandbox/landlock_net_test.tl	132	map view of a declared value
-cosmic/sandbox/landlock_scope_test.tl	87	map view of a declared value
-cosmic/sandbox/landlock_scope_test.tl	88	map view of a declared value
-cosmic/sandbox/landlock_scope_test.tl	92	map view of a declared value
 cosmic/sandbox/plan.tl	190	runtime capability probe
 cosmic/sandbox/plan.tl	241	runtime capability probe
 cosmic/searcher_test.tl	58	dynamic name lookup
