@@ -7,7 +7,9 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1700,
   ["repo"] = "cosmic-lua/cosmic",
-  ["reviewer"] = "review-Elus_cLzz-07d7b9b9",
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "gitboard brief: every emitted brief ends with the friction ask, so an orchestrator cannot omit it",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "19e95257e4a9b0de2b21c705c38f98fd86cd5934",
+  ["verdict_spec"] = "52d257d641072f44bfec0993a5b24bb77179f04fa6770ff86bb27fbcaaaa6124",
 }
