@@ -172,10 +172,11 @@ local function test_base_is_the_units_own_when_it_declares_one()
   -- The plain base is always the first pair `bases_of` returns (see
   -- its own doc comment), so that is the single source for "the" base
   -- a unit builds on -- there is no separate `base_of` to drift from it.
-  assert(artifact.bases_of(proj, binary_of(proj, "tool"), cosmic)[1][2] ==
-    "o/cmd/tool/embed_gen/base",
+  local tool_bases = check.must(artifact.bases_of(proj, binary_of(proj, "tool"), cosmic))
+  assert(tool_bases[1][2] == "o/cmd/tool/embed_gen/base",
     "a declared base wins, so the artifact does not depend on its builder")
-  assert(artifact.bases_of(proj, binary_of(proj, "lean"), cosmic)[1][2] == cosmic,
+  local lean_bases = check.must(artifact.bases_of(proj, binary_of(proj, "lean"), cosmic))
+  assert(lean_bases[1][2] == cosmic,
     "and a unit that declares none is built on the running cosmic")
 end
 

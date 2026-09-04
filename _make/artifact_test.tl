@@ -470,3 +470,31 @@ local function test_generated_payload_stages_like_committed()
   assert(not stored["committed.txt.lint.got"],
     "the build's own bookkeeping is not payload")
 end
+
+-- `bases_of`'s three resolutions for a unit with no base, against fake `cosmic` files.
+local function test_bases_of_prefers_the_pristine_ape_sibling()
+  local proj = scan(fixture("base-ape", {["cmd/base-ape/main.tl"] = "print('x')\n"}))
+  local running = fs.join(proj.root, "cosmic")
+  assert(fs.write(running, "\127ELF-pretend-assimilated-bytes"))
+  assert(fs.write(running .. ".ape", "MZ-pretend-pristine-bytes") and fs.write(running .. ".pin", "deadbeef\n"))
+  local bases = check.must(artifact.bases_of(proj, binary_of(proj, "base-ape"), running))
+  assert(bases[1][2] == running .. ".ape", "the pristine sibling wins: " .. bases[1][2])
+end
+
+local function test_bases_of_accepts_a_still_portable_executable()
+  local proj = scan(fixture("base-mz", {["cmd/base-mz/main.tl"] = "print('x')\n"}))
+  local running = fs.join(proj.root, "cosmic")
+  assert(fs.write(running, "MZ-pretend-fat-binary-bytes"))
+  local bases = check.must(artifact.bases_of(proj, binary_of(proj, "base-mz"), running))
+  assert(bases[1][2] == running, "an un-assimilated MZ executable is its own base")
+end
+
+local function test_bases_of_refuses_an_assimilated_bootstrap()
+  local proj = scan(fixture("base-refuse", {["cmd/base-refuse/main.tl"] = "print('x')\n"}))
+  local running = fs.join(proj.root, "cosmic")
+  assert(fs.write(running, "\127ELF-no-sibling-no-portable-header"))
+  local bases, err = artifact.bases_of(proj, binary_of(proj, "base-refuse"), running)
+  assert(not bases, "an assimilated image with no sibling must refuse")
+  assert(err:find("assimilated bootstrap", 1, true), "names the image: " .. tostring(err))
+  assert(err:find("embed_gen", 1, true), "and the way out: " .. tostring(err))
+end
