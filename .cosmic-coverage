@@ -3,6 +3,7 @@ return {
   ["_work/api.tl"] = {["covered"] = 84, ["total"] = 112},
   ["_work/brief.tl"] = {["covered"] = 73, ["total"] = 84},
   ["_work/brieftext.tl"] = {["covered"] = 6, ["total"] = 10},
+  ["_work/brieftext_friction.tl"] = {["covered"] = 3, ["total"] = 4},
   ["_work/brieftext_review.tl"] = {["covered"] = 4, ["total"] = 6},
   ["_work/decision.tl"] = {["covered"] = 7, ["total"] = 7},
   ["_work/doctrine.tl"] = {["covered"] = 41, ["total"] = 41},
