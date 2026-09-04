@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-Fthm_rSFG-7f9141e2",
+  ["claim"] = "build-Fthm_rSFG-7f9141e2",
   ["id"] = "3Iqq70GaHh5YrWpUwArFthmrSFG",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["repo"] = "cosmic-lua/cosmic",
