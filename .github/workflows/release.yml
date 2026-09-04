@@ -52,6 +52,24 @@ jobs:
           useradd -m -s /bin/bash builder
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
+          # actions/checkout adds includeIf.gitdir entries to this repo's
+          # LOCAL .git/config, pointing at a credentials config file under
+          # a runner temp dir that only root (who wrote it) can read. Any
+          # git subprocess builder spawns later — board_paths()'s own
+          # `git ls-tree`, inside the gate below — parses .git/config and
+          # fails on that unreadable include ("fatal: bad config line N"),
+          # even though the command itself has nothing to do with
+          # credentials. Strip those entries now, while root can still
+          # resolve them: the same includeIf keys actions/checkout's own
+          # "Post job cleanup" step unsets at job end, just removed EARLY
+          # so nothing later depends on that file at all. Same block as
+          # pr.yml's, for the same gate.
+          git config --local --name-only --get-regexp '^includeIf\.gitdir:' |
+            while IFS= read -r key; do
+              gitdir=${key#includeif.gitdir:}
+              gitdir=${gitdir%.path}
+              git config --local --remove-section "includeIf.gitdir:${gitdir}"
+            done
 
       # The tag is computed HERE, once, and stamped into the binary as
       # COSMIC_VERSION before it is passed to the release job. Computing
@@ -75,12 +93,19 @@ jobs:
       # produced by the code it contains, not by whatever the pin happens
       # to be — and a pin older than a build-system change would
       # otherwise ship an artifact built by rules the tree no longer has.
+      #
+      # The board ref is fetched first, as pr.yml's fetch step does:
+      # _build/doc_paths_test.tl checks the prose's `_work/` pointers
+      # against origin/board, which the checkout's depth-1 fetch of the
+      # release commit alone does not bring, and under CI that check
+      # fails rather than skips.
       - name: build the release binaries
         shell: bash
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             COSMIC_VERSION="${{ steps.tag.outputs.tag }}" bash -ec '
+            git fetch -q --depth=1 origin +refs/heads/board:refs/remotes/origin/board
             bin/cosmic --make fetch
             bin/cosmic --make build
             o/bin/cosmic --make build'
