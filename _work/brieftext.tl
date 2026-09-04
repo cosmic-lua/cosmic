@@ -60,7 +60,13 @@ and nothing less:
    gate locally and confirm it is green (`bin/cosmic --make ci` for
    cosmic; `make -j$(nproc) o//tool/lua/test` for cosmopolitan). This
    run is for you, to catch a red head before it burns a review
-   round; it is never pasted into the PR.
+   round; it is never pasted into the PR. If you start the gate in
+   the background, block on it SYNCHRONOUSLY in the same turn — poll
+   with `kill -0 <PID>` in a loop (`while kill -0 <PID> 2>/dev/null;
+   do sleep 5; done`), or just run it in the foreground unbackgrounded.
+   Never end the turn assuming something will notify you when it
+   finishes: a subagent has no persistent monitoring between turns,
+   and `sleep N; <command>` is exactly the pattern the harness blocks.
 4. If the spec carries an `## Acceptance` section: it is the
    refiner's own worked proof, not a second gate you owe beyond the
    Change and a green gate. Never treat it as a checklist to
@@ -123,7 +129,14 @@ fetch`, and `export SSL_USE_SYSTEM_CERTS=1` if any TLS call fails
 with a cert-trust error; for cosmopolitan: `make -j$(nproc)
 o//tool/lua/test` to build what the spec's probes run against). You
 will not commit or push here — the clone exists so the spec's
-measured commands have something to run against.
+measured commands have something to run against. If you start a
+build or a probe in the background, block on it SYNCHRONOUSLY in the
+same turn — poll with `kill -0 <PID>` in a loop (`while kill -0 <PID>
+2>/dev/null; do sleep 5; done`), or just run it in the foreground
+unbackgrounded. Never end the turn assuming something will notify you
+when it finishes: a subagent has no persistent monitoring between
+turns, and `sleep N; <command>` is exactly the pattern the harness
+blocks.
 
 ## The item
 

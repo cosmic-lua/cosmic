@@ -18,6 +18,7 @@ local function flat(s: string): string
 end
 
 local BUILDER < const > = flat(brieftext.BUILDER)
+local RESEARCH < const > = flat(brieftext.RESEARCH)
 
 local function test_step_one_measures_headroom_before_the_first_edit()
   assert(BUILDER:find(
@@ -54,4 +55,25 @@ local function test_step_seven_reports_a_base_conflict_rather_than_rebasing()
       .. "builder's rebase.", 1, true) ~= nil,
     "step 7 must tell a builder to stop and report a base conflict, "
     .. "never rebase it themselves")
+end
+
+local function test_step_three_warns_against_sleep_n_on_a_backgrounded_gate()
+  assert(BUILDER:find(
+      "Never end the turn assuming something will notify you when it "
+      .. "finishes: a subagent has no persistent monitoring between "
+      .. "turns, and `sleep N; <command>` is exactly the pattern the "
+      .. "harness blocks.", 1, true) ~= nil,
+    "step 3 must warn a builder to block synchronously on a "
+    .. "backgrounded gate rather than assume a notification")
+end
+
+local function test_research_warns_against_sleep_n_on_a_backgrounded_build()
+  assert(RESEARCH:find(
+      "Never end the turn assuming something will notify you when it "
+      .. "finishes: a subagent has no persistent monitoring between "
+      .. "turns, and `sleep N; <command>` is exactly the pattern the "
+      .. "harness blocks.", 1, true) ~= nil,
+    "the bootstrap step must warn a research agent to block "
+    .. "synchronously on a backgrounded build rather than assume a "
+    .. "notification")
 end
