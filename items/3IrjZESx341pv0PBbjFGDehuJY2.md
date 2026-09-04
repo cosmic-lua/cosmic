@@ -508,3 +508,26 @@
   a few minutes of re-reading — not filed, a one-line doc-comment fix
   too small to justify a board item on its own; noted for whoever next
   touches that code.
+
+## Triage decisions
+
+Goal owner's calls on this log's deferred candidates (worked through
+interactively, one at a time):
+
+- **File-length-cap headroom** (both the F6zo_pi1N/zvR2_ujhh entries
+  above and the standing candidate they raised the priority of):
+  declined, neither option offered. The goal owner's call: a worker
+  should check and adapt to the file's actual size when it STARTS
+  editing, not have headroom pre-flagged by a refiner or a spec
+  convention — the file's size can (and will) change between spec
+  time and build time, so information gathered ahead of the edit is
+  liable to be stale by the time it matters. This is exactly what
+  `rNh1_b1Se`'s already-completed fix ("measure headroom before
+  editing, check per file between edits") already does — both
+  occurrences in this log happened AFTER that fix landed (`rNh1_b1Se`
+  accepted/merged 2026-09-03, this pass ran 2026-09-04), so the extra
+  tool calls they report (F6zo_pi1N discovering both target files were
+  already AT, not near, the cap; zvR2_ujhh discovering a new file had
+  grown past it) are the normal, expected cost of that measurement
+  being done carefully — not a gap a new mechanism should close.
+  Nothing filed; this candidate is closed, not deferred.
