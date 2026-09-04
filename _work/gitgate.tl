@@ -265,8 +265,8 @@ local function second_claim_refusal(s: store.Store, all: {item.Item},
   for _, other in ipairs(all) do
     if other.id ~= id and item.is_open(other) and other.claim == session
     and not health.is_stale(other, age_of(s, other)) then
-      return ("REFUSED: %s already holds %s — one claim per worker; drop "
-        .. "it or finish it first"):format(session, other.id:sub(1, 8))
+      return ("REFUSED: %s already holds %s — one claim per worker; drop it "
+        .. "or finish it first — an orchestrator claims under `--session <minted name>`, one per agent"):format(session, other.id:sub(1, 8))
     end
   end
   return nil

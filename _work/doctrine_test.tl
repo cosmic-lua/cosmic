@@ -87,6 +87,17 @@ local function test_build_mirrors_the_ready_when_convention()
     "step 2 runs the Ready when command first and treats not-ready as a drop")
 end
 
+local function test_orchestrate_says_a_bare_take_binds_your_own_identity()
+  local page = doctrine.page("orchestrate")
+  assert(page ~= nil, "the orchestrate topic renders")
+  assert(page:find("Never take bare for an agent's item", 1, true) ~= nil,
+    "orchestrate warns against a bare take for an agent's item")
+  assert(page:find(
+      "`--session` binds the claim to YOUR OWN one-claim identity",
+      1, true) ~= nil,
+    "and says a bare take binds the orchestrator's own identity")
+end
+
 local function test_no_topic_shadows_a_verb()
   -- The overview's command rows are the verb vocabulary; a topic
   -- sharing a name would be served by the intercept INSTEAD of that

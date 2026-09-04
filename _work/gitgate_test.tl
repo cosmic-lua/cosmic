@@ -174,6 +174,24 @@ local function test_second_claim_refusal_scopes_to_other_open_claims()
     "a session with no live claim anywhere is free to take")
 end
 
+-- The refusal names the repair, not just the collision: an orchestrator
+-- that took bare for an agent needs to know it claimed under its OWN
+-- one-claim identity, and how to claim correctly next time.
+local function test_second_claim_refusal_names_the_orchestrator_repair()
+  local s = init_state_repo("gate-second-claim-repair")
+  local mine = make_item({claim = "me"})
+  local unclaimed = make_item()
+  assert(store.save(s, mine, "fixture: mine"))
+  assert(store.save(s, unclaimed, "fixture: unclaimed"))
+  local all = check.must(store.list(s))
+  local refusal = gate.second_claim_refusal(s, all, unclaimed.id, "me")
+  assert(refusal ~= nil, "a live claim on another item refuses")
+  assert(refusal:find(
+      "an orchestrator claims under `--session <minted name>`, one per agent",
+      1, true) ~= nil,
+    "names the repair: " .. tostring(refusal))
+end
+
 local ACCESS_SPEC < const > = fixture.READY_SPEC
 .. "## Access\n- whilp/cosmopolitan (the fork the diff deliberately targets)\n"
 

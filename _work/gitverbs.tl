@@ -56,7 +56,7 @@ end
 --- (`gittake.take_result`); an item carries one kind or the other.
 --- @param s store.Store The store
 --- @param id string The item to take
---- @param session string The claiming session
+--- @param session string the claiming session; an orchestrator claiming for an agent always passes the name it minted for that agent — omitted, the claim binds to THIS session's one-claim identity
 --- @param pr integer The PR to record, 0 for none
 --- @param force boolean Take over a LIVE foreign claim
 --- @param why string Why --force was needed
