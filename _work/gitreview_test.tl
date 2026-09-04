@@ -7,6 +7,7 @@
 
 local check = require("cosmic.check")
 local fixture = require("_work.fixture")
+local gh = require("_work.gh")
 local health = require("_work.health")
 local store = require("_work.store")
 local verbs = require("_work.gitverbs")
@@ -15,6 +16,39 @@ local vrd = require("_work.gitverdict")
 local init_state_repo = fixture.init_state_repo
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
+
+--- Stand `gh.head_checks` in for a fixed state for the duration of
+--- `f`, restoring the real function even when `f` fails an assertion
+--- — a fixture PR in each of the four states, since `_work.gh_test`'s
+--- own scope note is that `pull`/`checks` are exercised only against
+--- a real repository, never faked at the transport. The head sha and
+--- run list riding the returned record are fixed fixture values too —
+--- the callers under test read them instead of re-fetching, so a stub
+--- with nothing there would starve them. A nil `state` stands in for
+--- no GitHub reach, so the stub itself returns nil then, not a record.
+--- @param state string | nil The state `head_checks` reports
+--- @param f function(): boolean The test body; returns true when done
+local function with_ci_state(state: string | nil, f: function(): boolean)
+  local real = gh.head_checks
+  gh.head_checks = function(_s: store.Store, _pr: integer, _repo: string | nil):
+    gh.HeadChecks | nil, string
+    if state == nil then
+      return nil, "no github reach"
+    end
+    if state == "running" then
+      return {state = state,
+        head_sha = "cafef00dfeedfacebeef1234567890abcdef1234",
+        runs = {{name = "ci", status = "completed", conclusion = "success"},
+          {name = "smoke", status = "in_progress", conclusion = ""}}}, ""
+    end
+    return {state = state, head_sha = "", runs = {}}, ""
+  end
+  local ok, err = pcall(f)
+  gh.head_checks = real
+  if not ok then
+    error(err, 0)
+  end
+end
 
 --- A fresh leaf taken by `builder` and handed over carrying PR 7.
 local function handed_over(s: store.Store, leaf: string, builder: string)
@@ -263,4 +297,66 @@ local function test_the_review_lease_is_short_and_exact()
     "no claim, nothing to be stale")
   assert(health.REVIEW_LEASE_S < health.LEASE_S,
     "a review locks minutes of work; a build locks hours")
+end
+
+-- A review claimed while CI checks are still `in_progress` burns a
+-- reviewer session before anything has settled. Green, red and a
+-- repo with no checks at all still claim —
+-- a decided fact (or none) is a reviewer's to read; only a run still
+-- going is refused, and only without `--force`.
+local function test_ci_running_refuses_the_review_claim()
+  for _, case in ipairs({
+      {state = "green", ok = true},
+      {state = "none", ok = true},
+      {state = "red", ok = true},
+      {state = "running", ok = false},
+    }) do
+    local s = init_state_repo("review-ci-" .. case.state)
+    local _, leaf = root_with_leaf(s)
+    handed_over(s, leaf, "builder-a")
+    with_ci_state(case.state, function(): boolean
+        local code = verbs.cmd_take(s, leaf, "reviewer-" .. case.state, 0,
+          false, "")
+        if case.ok then
+          assert(code == 0, ("state %s should claim the review: %d"):format(
+              case.state, code))
+          check.equal(check.must(store.load(s, leaf)).reviewer,
+            "reviewer-" .. case.state)
+        else
+          assert(code ~= 0, ("state %s should refuse the review claim"):format(
+              case.state))
+          check.equal(check.must(store.load(s, leaf)).reviewer, "",
+            "nothing was stamped")
+        end
+        return true
+      end)
+  end
+end
+
+-- --force is the escape for a reviewer who has a reason to claim
+-- anyway; the record says so.
+local function test_ci_running_force_claims_the_review_anyway()
+  local s = init_state_repo("review-ci-force")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, "builder-a")
+  with_ci_state("running", function(): boolean
+      assert(verbs.cmd_take(s, leaf, "reviewer-b", 0, false, "") ~= 0,
+        "refused while CI runs")
+      assert(verbs.cmd_take(s, leaf, "reviewer-b", 0, true,
+          "know it's fine") == 0, "--force claims anyway")
+      return true
+    end)
+  check.equal(check.must(store.load(s, leaf)).reviewer, "reviewer-b")
+end
+
+-- A store with no GitHub reach — no origin here — reads `head_checks`
+-- as nil, never as "running", so the review claim is unaffected: the
+-- rest of this file's fixtures (`init_state_repo`, no origin) prove
+-- this on every ordinary run; this test just says so directly.
+local function test_no_github_reach_does_not_refuse_the_claim()
+  local s = init_state_repo("review-ci-offline")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, "builder-a")
+  assert(verbs.cmd_take(s, leaf, "reviewer-b", 0, false, "") == 0,
+    "no origin to read CI from is not a refusal")
 end

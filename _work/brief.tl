@@ -22,6 +22,8 @@ local brieftext = require("_work.brieftext")
 local fs = require("cosmic.fs")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
+local item = require("_work.item")
+local review = require("_work.review")
 local session = require("_work.session")
 local store = require("_work.store")
 local tail = require("_work.tail")
@@ -105,6 +107,49 @@ local function unfilled(text: string): {string}
   return out
 end
 
+--- The refusal `brief review` earns from a PR's CI state, and the
+--- head sha to fill `<HEAD_SHA>` with when there is one worth
+--- trusting — green only, so a reviewer is handed a head worth
+--- reading rather than one the brief's own rules already say to stop
+--- on. A read failure (no origin, no token, a network error) answers
+--- neither: a brief for a store with no GitHub reach emits exactly as
+--- it always has, `<HEAD_SHA>` left for the caller to fill.
+---
+--- One `head_checks` call does the whole read: the sha and run list
+--- this needs both for `<HEAD_SHA>` and for the running/red refusal
+--- text ride the returned record, so nothing here re-fetches the PR
+--- or its checks a second time.
+--- @param s store.Store The store
+--- @param it item.Item The item under review
+--- @param id8 string The item's handle, for the refusal text
+--- @return string The refusal, "" when the brief may emit
+--- @return string The PR's head sha, "" when unknown or not green
+local function ci_refusal(s: store.Store, it: item.Item, id8: string):
+  string, string
+  local hc, _herr = gh.head_checks(s, it.pr, it.repo)
+  if hc == nil
+  or (hc.state ~= "green" and hc.state ~= "running" and hc.state ~= "red") then
+    return "", ""
+  end
+  if hc.state == "green" then
+    return "", hc.head_sha
+  end
+  local sha7 = "?"
+  if hc.head_sha ~= "" then
+    sha7 = hc.head_sha:sub(1, 7)
+  end
+  if hc.state == "running" then
+    local done = 0
+    for _, r in ipairs(hc.runs) do
+      if r.status == "completed" then done = done + 1 end
+    end
+    return ("REFUSED: %s's head %s has CI running (%d of %d checks done) — "
+      .. "review when it settles"):format(id8, sha7, done, #hc.runs), ""
+  end
+  return "REFUSED: " .. (review.blocks_on_ci(hc.runs)
+    or "CI has already concluded failure on this head"), ""
+end
+
 --- brief: print one role's prompt for an item, filled from the board.
 --- The body prints first and the verdict line closes it (the `show`
 --- shape), naming the placeholders left for the caller.
@@ -131,6 +176,7 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
   -- A review judges a handover, and there are two: a PR for a diff,
   -- a research result for a spec. Which template the brief is comes
   -- from the item, never from the caller.
+  local head_sha = ""
   if kind == "review" then
     if (it.result or "") ~= "" then
       template = brieftext.RESEARCH_REVIEW
@@ -139,6 +185,12 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
         ("%s has no handover recorded — `take %s --pr N` (a diff) or "
           .. "`take %s --result` (a research spec) is what a review "
           .. "judges"):format(id:sub(1, 8), id:sub(1, 8), id:sub(1, 8)))
+    else
+      local refusal, sha = ci_refusal(s, it, id:sub(1, 8))
+      if refusal ~= "" then
+        return gate.verdict_line("brief", false, refusal)
+      end
+      head_sha = sha
     end
   end
   local label = mint_label(kind, tail.bare(it.id))
@@ -173,6 +225,9 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
   end
   if (it.pr or 0) ~= 0 then
     values["PR_NUMBER"] = ("%d"):format(it.pr)
+  end
+  if head_sha ~= "" then
+    values["HEAD_SHA"] = head_sha
   end
   local body = fill(template, values)
   print(body)
