@@ -25,7 +25,20 @@ state fresh; do not trust anything here except the spec below, which
 is authoritative. The builder's PR description makes claims — read
 them, but verify independently. Its `## Acceptance` bullets, if any,
 were the refiner's worked proof at spec time, not a checklist this
-review re-executes.
+review re-executes. This environment has no `gh` CLI; use the GitHub
+MCP tools instead (`ToolSearch` for `mcp__github__*` if they are not
+already loaded). For CI status, use
+`mcp__github__pull_request_read`'s `get_check_runs`, not
+`get_status` — this repo's CI runs as GitHub Actions check-runs, and
+`get_status` reads the legacy commit-status API, which this repo
+never populates. `board`'s orphan-branch history mixes concurrent
+items' commits between any two shas, so a range diff (`git diff
+<base>..HEAD`) over-reports this PR's scope — use `git show --stat
+<single-commit-sha>` (or the PR's own file list via the GitHub API)
+to see its actual scope. When standing up a fresh worktree to
+mutation-test, run `git worktree add <path> <sha>` FIRST and `cd`
+into it only after — never `cd` into a scratch path before creating
+it there.
 
 ## The spec this PR is supposed to satisfy (verbatim)
 
