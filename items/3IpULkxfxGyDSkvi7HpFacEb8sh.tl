@@ -8,7 +8,6 @@ return {
   ["pr"] = 1695,
   ["repo"] = "cosmic-lua/cosmic",
   ["title"] = "gitboard: a review is not offered, claimed or briefed while CI on the PR head is still running",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "a011b47b20dea4f3cbe3c14addfbbef71129c2af",
   ["verdict_spec"] = "178e3ce481d51a8e12ceefe50190387cd50c6a80aceeab0a409531eb89a12842",
 }
