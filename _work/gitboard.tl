@@ -177,12 +177,14 @@ local CSPEC: flags.CommandSpec = {
       spec = {usage = "KIND ID [options]",
         summary = "print one role's subagent prompt for ID — KIND is "
         .. "builder, research,\nreview, refine, or decompose — with "
-        .. "the item's spec verbatim and every\nboard-known placeholder filled. "
-        .. "The closing verdict line names what is\nleft to fill (a "
-        .. "worktree path, a bounce paragraph, the review\nsession); "
-        .. "fill those, then paste the body as the agent's prompt — "
-        .. "never\nparaphrase or summarize it, and never hand-write a "
-        .. "brief instead: a\nhand-written brief drifts.",
+        .. "the item's spec verbatim and every\nboard-known placeholder "
+        .. "filled, including the session label this kind's own\nclaim "
+        .. "belongs under (also named on the closing verdict line). The "
+        .. "verdict\nline names what is still left to fill (a worktree "
+        .. "path, a bounce paragraph);\nfill those, then paste the body "
+        .. "as the agent's prompt — never\nparaphrase or summarize it, "
+        .. "and never hand-write a brief instead: a\nhand-written brief "
+        .. "drifts.",
         flags = {dir_flag()}}},
     {name = "take", summary = "claim ID: the pull (spec bar and doing "
       .. "bound apply), its review when it awaits a verdict, or record "

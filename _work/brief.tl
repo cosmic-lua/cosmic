@@ -7,15 +7,22 @@
 --- item carries — a PR (`REVIEW`) or a research result
 --- (`RESEARCH_REVIEW`); the fill grammar is `<UPPER_SNAKE>`, and a
 --- placeholder the board cannot answer (a worktree path, a bounce
---- paragraph, the reviewer's minted session) survives the fill — the
---- closing verdict line names each survivor, so the caller's whole
---- job is those and pasting the body verbatim.
+--- paragraph) survives the fill — the closing verdict line names each
+--- survivor, so the caller's whole job is those and pasting the body
+--- verbatim.
+---
+--- Every brief also mints and fills the session label this kind's own
+--- claim belongs under (`mint_label`) and repeats it on the closing
+--- verdict line, so the orchestrator claims — `take ID --session
+--- <label>` — under the exact string the brief just printed, before
+--- ever spawning the agent the body is handed to.
 ---
 --- A read, not a mutation: nothing here writes the board.
 local brieftext = require("_work.brieftext")
 local fs = require("cosmic.fs")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
+local session = require("_work.session")
 local store = require("_work.store")
 local tail = require("_work.tail")
 
@@ -29,6 +36,46 @@ local KINDS < const >: {string: string} = {
 
 --- The kind names, alphabetical, for refusals and help.
 local KIND_LIST < const > = "builder, decompose, refine, research, review"
+
+--- The label word each brief kind's minted claim carries: `builder`'s
+--- own claim reads `build` (the word already in the commit log),
+--- every other kind is its own name.
+local LABEL_KIND < const >: {string: string} = {
+  builder = "build",
+  research = "research",
+  review = "review",
+  refine = "refine",
+  decompose = "decompose",
+}
+
+--- The session label an orchestrator claims ID's `kind` work under:
+--- `<kind>-<handle>-<orch8>`, where `<orch8>` is the first 8
+--- characters of the session identity `_work.session` already derives
+--- for THIS process (`gitboard show`'s "session: ... (from
+--- CLAUDE_CODE_SESSION_ID)" line).
+---
+--- Deterministic and reusable ahead of the brief itself: an
+--- orchestrator can compute (and `take ID --session` under) this exact
+--- string before ever calling `brief`, because it is a pure function
+--- of the kind, the item's handle, and the calling process's own
+--- session — nothing the item's stored state contributes, and every
+--- `gitboard` call inside one orchestrator run resolves the same
+--- session identity. Embedding that identity is what a bare
+--- `<kind>-<handle>-<n>` convention never had: two different physical
+--- orchestrator sessions reviewing (or building) the same item mint
+--- two different strings instead of the identical one `take`'s
+--- exact-string mutual exclusion cannot tell apart from a re-claim.
+--- @param kind string The brief kind
+--- @param handle string The item's bare tail (`tail.bare`)
+--- @return string The minted label
+local function mint_label(kind: string, handle: string): string
+  local identity = session.resolve(nil)
+  local orch8 = identity:sub(1, 8)
+  if orch8 == "" then
+    orch8 = "unnamed"
+  end
+  return ("%s-%s-%s"):format(LABEL_KIND[kind] or kind, handle, orch8)
+end
 
 --- Replace every `<UPPER_SNAKE>` placeholder that `values` answers;
 --- one the map does not answer survives verbatim.
@@ -94,6 +141,7 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
           .. "judges"):format(id:sub(1, 8), id:sub(1, 8), id:sub(1, 8)))
     end
   end
+  local label = mint_label(kind, tail.bare(it.id))
   local values: {string: string} = {
     ITEM_ID = it.id,
     HANDLE = tail.handle(it.id),
@@ -102,6 +150,7 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
     SPEC = spec,
     CURRENT_SPEC = spec ~= "" and spec or "(the item has no spec sidecar)",
     BOARD_DIR = fs.absolute_path(s.root),
+    REVIEW_SESSION = label,
   }
   -- The slug can fail (no origin remote in a scratch checkout); the
   -- brief still emits, with <REPO> surviving for the caller — named
@@ -134,18 +183,21 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
       table.concat(left, ", "))
   end
   return gate.verdict_line("brief",
-    true, ("%s brief for %s — %s"):format(kind, tail.handle(it.id), tail_note))
+    true, ("%s brief for %s, claim it as %s — %s"):format(
+      kind, tail.handle(it.id), label, tail_note))
 end
 
 local record brief
   fill: function(text: string, values: {string: string}): string
   unfilled: function(text: string): {string}
+  mint_label: function(kind: string, handle: string): string
   cmd_brief: function(s: store.Store, kind: string, id: string): integer
 end
 
 local M: brief = {
   fill = fill,
   unfilled = unfilled,
+  mint_label = mint_label,
   cmd_brief = cmd_brief,
 }
 
