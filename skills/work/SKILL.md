@@ -25,13 +25,13 @@ older version of this skill: read the tool's pages.
 
 ## bootstrap
 
-ALL work state lives on the orphan `board` branch of
-cosmic-lua/cosmic, reached as a worktree of the checkout you already
-have; the branch carries its own machinery and builds its own tool:
+ALL work state lives in the repository cosmic-lua/work, cloned
+alongside the checkout you already have; the repository carries its
+own machinery and builds its own tool:
 
 ```bash
-git fetch origin board && git worktree add o/board board   # once per checkout
-cd o/board && bin/cosmic --make build # once, on a cold worktree
+git clone https://github.com/cosmic-lua/work o/board   # once per checkout
+cd o/board && bin/cosmic --make build # once, on a cold clone
 ```
 
 that build produces `o/bin/gitboard`. where a proxy re-terminates

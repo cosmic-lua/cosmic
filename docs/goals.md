@@ -270,7 +270,7 @@ ergonomics (G2), gate adoption (G4).
 
 ### G8 — the flow system
 
-the system of work (`skills/work`, the board on the `board` branch):
+the system of work (`skills/work`, the board in cosmic-lua/work):
 sophisticated models decompose these goals into ready work, less
 sophisticated models implement it, and a sophisticated model's review
 is the final gate. its job is to make the outcomes above move and to
@@ -281,7 +281,7 @@ say what the movement costs.
   than one review round or a bounce — and the cost ratchet: tokens ×
   model tier per merged slice, tracked and trending down. the
   measurement is currently UNBUILT for the file-based board: every
-  mutation is a commit on the `board` branch, so `git log` holds the
+  mutation is a commit in cosmic-lua/work, so `git log` holds the
   flow record, but nothing reads it yet — the label-era `stats` tool
   measured GitHub timelines, which no longer carry the board.
 - **win condition:** the board runs the repo's work with flow health
