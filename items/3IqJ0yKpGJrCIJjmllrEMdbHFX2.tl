@@ -5,6 +5,8 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 381,
   ["repo"] = "cosmic-lua/cosmopolitan",
-  ["reviewer"] = "review-EMdb_HFX2-1",
   ["title"] = "demo: maxmind module missing — tool/net/demo/maxmind.lua calls a nonexistent maxmind.* global, help.txt's MAXMIND MODULE example is stale too",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "e5eac215d3576a161811700aec0f8b1e1cdfd6f7",
+  ["verdict_spec"] = "77959612332fb30c2d0e4dd8c910b44fee062b2a74a60e6176a2ee26e3bc45c2",
 }
