@@ -196,10 +196,17 @@ end
 
 -- `new --repo` scopes the item's PR to a foreign repo; the field is
 -- what makes cross-repo work (a cosmopolitan fix serving a cosmic
--- goal) visible instead of a URL buried in prose.
+-- goal) visible instead of a URL buried in prose. Bare (no --parent),
+-- --repo is refused with the two ways out: file it under an outcome,
+-- or add the repo after through `attach` then `set --repo`.
 local function test_new_repo_lands_the_field()
   local s = init_state_repo("cross-repo")
   local goal = file_item(s, "an outcome", "")
+  local seen, old_print = "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local refused = graph.cmd_new(s, "a slice", "", nil, "whilp/cosmopolitan")
+  _G.print = old_print
+  assert(refused ~= 0 and seen:find("--parent ID", 1, true) and seen:find("set ID --repo", 1, true), seen)
   local before: {string: boolean} = {}
   for _, i in ipairs(check.must(store.list(s))) do
     before[i.id] = true
