@@ -76,61 +76,30 @@ regenerated `.cosmic-coverage` together in one commit, for an unrelated
 pin-staleness gap (`cosmic.shape` module-not-found). This is the same
 shape of fix, needed again for this gap.
 
+### Reviewed 2026-09-04 (review-065b_HxDK-07d7b9b9, request-changes)
+
+Every probe above was independently re-run and matched exactly (pin
+values, guard presence/absence, live reproduction counts, ancestry,
+README/board.yml text, precedent commit). The one gap: this item's
+`## Change` read as prose instructions for a future implementer, but
+research's own bar (`gitboard help bar`) requires findings to become
+items, never a widened diff or unattached implementer prose — and no
+such follow-up item existed. Fixed below: the fix is now filed as its
+own item.
+
 ## Change
 
-Confirmed: `bin/cosmic --make coverage --baseline` in the `board`
-worktree, without `COSMIC_COVERAGE_ENV=1` set, does NOT refuse — it
-silently rewrites the whole `.cosmic-coverage` floor, exactly as
-Evidence describes. Do not implement a duplicate guard anywhere in the
-`board` branch's own tree — there is nowhere to put one: the branch owns
-no `_make/`, no `cmd/cosmic`, no coverage-policy source of its own, and
-`README.md` already documents that the guard lives on `main` and reaches
-the board branch only via `bin/cosmic.pin`.
-
-Instead:
-
-1. Bump the `board` branch's `bin/cosmic.pin` (`url` and `sha256`, both
-   lines) to a `cosmic-lua` release built from a `main` commit at or
-   after the one that added `is_recording_env`/`COSMIC_COVERAGE_ENV` to
-   `_make/policy.tl` — main's own current pin (`2026-09-04-f9f31a2`,
-   confirmed via `git merge-base --is-ancestor` to descend from that
-   guard commit) is a known-good target; verify against whatever main's
-   pin is by the time this is pulled, since it moves daily.
-2. Regenerate `.cosmic-coverage` in the same commit, in whatever
-   environment board.yml's `ci` job's `COSMIC_COVERAGE_ENV=1` is meant
-   to authorize (board.yml is a plain `ubuntu-latest` runner with no
-   pinned container — check whether a bare `COSMIC_COVERAGE_ENV=1
-   bin/cosmic --make coverage --baseline` run there is close enough per
-   this branch's own environment-sensitivity tolerance, or whether the
-   regen instead has to happen as a step inside that workflow; this
-   mechanical detail was not resolved by this research pass and is the
-   implementer's call). Follow commit `c9867d10`'s shape: one commit,
-   pin bump plus baseline regen together.
-3. After landing, confirm the fix in the same shape as this research
-   pass: in a fresh `board`-branch worktree (`bin/cosmic --make fetch`
-   is a no-op here — 0 pins — then `bin/cosmic --make coverage
-   --baseline` without `COSMIC_COVERAGE_ENV` set) now prints
-   `coverage --baseline REFUSED: ...` and leaves `.cosmic-coverage`
-   untouched (`git diff` empty).
+The fix this research identified is filed as item «sxzp_M1yR»
+(`3IrfJ5s62kkTyyzSWGqsxzpM1yR`, "board pin predates the coverage
+--baseline COSMIC_COVERAGE_ENV guard: bump bin/cosmic.pin to main's
+release"), attached under the same parent
+(`3HyRdT1JQS7pCPgF3sZi2Deo66q`, "G8 — the flow system") as this item,
+carrying the pin-bump-and-regen steps this research pass drafted. This
+item's own deliverable — confirming the gap exists and identifying its
+exact fix — is complete; the fix itself is «sxzp_M1yR»'s to build.
 
 ## Non-goals
 
 Not a general coverage-tooling audit — scoped to confirming and closing
 this one gap between documented behavior and the board worktree's actual
-behavior, via the pin bump the gap actually calls for (not a redundant
-guard implementation).
-
-## Acceptance
-
-- [ ] `board`'s `bin/cosmic.pin` names a release whose embedded
-      `_make/policy.tl` contains the `COSMIC_COVERAGE_ENV` guard
-      (spot-check: `unzip -p <bootstrap-binary> .tl/_make/policy.tl |
-      grep COSMIC_COVERAGE_ENV` finds it).
-- [ ] `.cosmic-coverage` on `board` is regenerated under that pin, in
-      one commit together with the pin bump (mirroring `c9867d10`).
-- [ ] In a fresh `board`-branch worktree, `bin/cosmic --make coverage
-      --baseline` run with no `COSMIC_COVERAGE_ENV` set REFUSES (exit
-      non-zero, `coverage --baseline REFUSED: ...` on stderr/stdout) and
-      leaves `.cosmic-coverage` byte-identical (`git diff` empty).
-- [ ] `board.yml`'s `ci` job (which sets `COSMIC_COVERAGE_ENV=1`) still
-      passes after the pin bump.
+behavior. Not building the fix here — that is «sxzp_M1yR»'s scope.
