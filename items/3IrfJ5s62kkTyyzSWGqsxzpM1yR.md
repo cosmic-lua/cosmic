@@ -53,6 +53,13 @@ After landing, confirm the fix: in a fresh `board`-branch worktree,
 UNSET now prints `coverage --baseline REFUSED: ...`, exits non-zero,
 and leaves `.cosmic-coverage` byte-identical (`git diff` empty).
 
+## Access
+
+Read access to `cosmic-lua/cosmic` (the release asset the new pin
+names, and `main`'s `bin/cosmic.pin` it is copied from). Nothing is
+written to any repository other than this one; the PR lands on this
+repository's `board` branch.
+
 ## Non-goals
 
 Not a general coverage-tooling audit — scoped to this one pin bump and
