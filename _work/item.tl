@@ -61,7 +61,9 @@ local record Item
   --- The session that claimed it; "" when unclaimed.
   claim: string
   --- Every session that has held the claim, oldest first. Stored as
-  --- one "name name" string — the literal domain has no lists.
+  --- one "name name" string — the literal domain has no lists, and
+  --- `decode` expects exactly that space-joined shape on the wire,
+  --- not this in-memory array.
   ---
   --- The claim is a LEASE and moves: a drop clears it and the next
   --- take writes a new one, so the claim alone cannot answer "who has
