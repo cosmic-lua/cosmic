@@ -63,117 +63,169 @@ FEATURE to a runtime BINDING CONTRACT. `_build/coldbuild_test.tl` does
 not catch this: it exercises generation-1's type check against the
 target build states, not this specific generation-time execution path.)
 
-## The decision needed
+**Updated 2026-09-04, decision pass — the exact new shapes, measured
+against `cosmic-lua/cosmopolitan` `tool/net/definitions.lua`:**
 
-One of, chosen by whoever has standing to make this call (not this
-capture's job):
+```
+$ grep -n "^---@class unix.MkstempPath" -A2 tool/net/definitions.lua
+5260:---@class unix.MkstempPath
+5261:---@field path string the created file's path
 
-(a) Stage this specific pin bump (and every future one whose window
-    touches one of these 8 files' bindings) behind a `cosmic-lua`
-    release + `bin/cosmic.pin` bump carrying the new cosmos shape
-    FIRST, so generation's own compile sees types already matching
-    what the new destructuring needs — mirroring the existing
-    checker-feature staging rule exactly, but for a runtime binding
-    contract instead of a checker feature. This is a two-step
-    sequence (pin the release engine first, THEN the pin bump that
-    needed staging), not a single PR.
+$ grep -n "^---@class unix.Pipe" -A3 tool/net/definitions.lua
+4968:---@class unix.Pipe
+4969:---@field reader integer the read end's file descriptor
+4970:---@field writer integer the write end's file descriptor
 
-(b) Decouple `_types/tlast_gen.tl`'s and `_make/bytecode.tl`'s
-    subprocess-spawning from `cosmic.child`/`cosmic.fs`/`cosmic.proc`
-    (e.g. a minimal, contract-independent internal spawn helper those
-    two generators use instead), and restructure
-    `_cli/main_handlers.tl`'s cold-invocation path so it does not force
-    `mkstemp`'s wrapper to compile before generation — removing the
-    generation-phase dependency on these specific bindings entirely,
-    so a pin bump touching them is no different from any other
-    one-PR pin-bump fix ever again.
+$ grep -n "^---@class unix.SleepRemainder" -A3 tool/net/definitions.lua
+6042:---@class unix.SleepRemainder
+6043:---@field seconds integer Whole seconds left to sleep.
+6044:---@field nanos integer Nanoseconds left to sleep, past `seconds`.
+
+$ grep -n "^---@class unix.BrokenDownTime" -A11 tool/net/definitions.lua
+7296:---@class unix.BrokenDownTime
+7297:---@field year integer four-digit year
+7298:---@field mon integer 1 ≤ mon ≤ 12
+7299:---@field mday integer 1 ≤ mday ≤ 31
+7300:---@field hour integer 0 ≤ hour ≤ 23
+7301:---@field min integer 0 ≤ min ≤ 59
+7302:---@field sec integer 0 ≤ sec ≤ 60
+7303:---@field gmtoffsec integer ±93600 seconds
+7304:---@field wday integer 0 ≤ wday ≤ 6
+7305:---@field yday integer 0 ≤ yday ≤ 365
+7306:---@field dst integer 1 if daylight savings, 0 if not, -1 if unknown
+7307:---@field zone string time zone abbreviation, e.g. "UTC"
+```
+
+`unix.mkstemp`'s 2nd return is `unix.MkstempPath|string` (table on
+success, error string on failure — same slot, new success type).
+`unix.pipe`'s single return is `unix.Pipe|nil`, not two positional
+fds. `unix.gmtime`/`unix.localtime` each return one
+`unix.BrokenDownTime|nil`, not an 11-value positional tuple.
+`unix.nanosleep`'s EINTR remainder is one `unix.SleepRemainder`, not
+two positional integers.
+
+The tree's own current (pre-bump) code already shows the OLD
+positional style at every one of these sites — confirming the 8 files
+are still unmigrated and would hit exactly the dual-failure above the
+moment the pin crosses a release carrying these shapes:
+
+- `cosmic/fd.tl:246-253` — `local reader_fd, writer_fd = unix.pipe(flags)`
+- `cosmic/time.tl:83` — `local rem_s, rem_ns, eno, eintr_s, eintr_ns = unix.nanosleep(seconds, ns)`
+- `cosmic/time.tl:127-128` — `local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone = unix.gmtime(unixts)`
+- `cosmic/time.tl:157-158` — the same shape for `unix.localtime`
+- `_cli/main_handlers.tl:93,98` — `local tmp_fd, tmp_path = unix.mkstemp(...)` then `fs.write(tmp_path, content)`
+
+## Decision
+
+**(b)** — decouple the generation-phase spawn from `cosmic.fs`/
+`cosmic.child`/`cosmic.proc`, and separate `_cli/main_handlers.tl`'s
+`mkstemp`-using code from whatever forces it to compile early.
+
+(a) does not close the deadlock, by its own text: it reopens for
+"every future one whose window touches one of these 8 files'
+bindings." It is also not a well-formed two-step sequence as stated —
+producing a `cosmic-lua` release that already carries the NEW
+destructuring means building it through this same pipeline, which is
+exactly what is blocked; it would need an out-of-band, hand-built
+release outside this project's own build process, which is neither
+documented nor repeatable. (b) is bounded (the two generators'
+subprocess-spawning need is small: write a file, run a subprocess,
+read its output, clean up a temp dir) and permanent: once the
+generation phase no longer transitively reaches `cosmic.fd`,
+`cosmic.time`, or the other affected wrappers, a future pin bump
+touching their bindings is an ordinary one-PR fix again, with no
+staging tax. This also matches the project's own stated bias against
+recurring workarounds (G9, docs/goals.md) over a repeated manual
+process.
+
+## Change
+
+### `_types/tlast.tl` — stop requiring `cosmic.fs`
+
+Current usage (measured, `grep -n "fs\." _types/tlast.tl`): `fs.temp_dir`,
+`fs.join`, `fs.write`, `fs.read`, `fs.remove_all` — five calls, all on
+plain paths/strings, none touching a fd, pipe, or time value.
+
+Add `_types/gen_io.tl` (or fold into `_types/tlast.tl` directly if it
+stays clear of the 500-line cap — check first): a minimal, this-repo-
+internal module implementing exactly these five operations directly
+against `cosmo.unix`/`cosmo.path` (`mkdtemp`, path joining via
+`table.concat`/string formatting, `unix.open`+`unix.write`+`unix.close`
+for `fs.write`, `unix.open`+`unix.read`+`unix.close` for `fs.read`, a
+recursive `unix.unlink`/`unix.rmdir` walk or `unix.rmrf`-equivalent for
+`remove_all`). No error-message polish needed — this module's callers
+are generators, not user-facing wrappers; propagate `nil, string` and
+stop there. `_types/tlast.tl` and `_make/bytecode.tl` both use it,
+neither requires `cosmic.fs`/`cosmic.fd` again.
+
+### `_make/bytecode.tl` — stop requiring `cosmic.fs`/`cosmic.child`
+
+Current usage (measured, `grep -n "fs\.\|child\." _make/bytecode.tl`):
+`fs.make_dirs`, `fs.join`, `fs.copy`, `fs.set_mode`+`fs.octal`,
+`fs.write`, `child.run`, `fs.remove_all`. The `fs.*` calls fold into
+the same `_types/gen_io.tl` helper above (add `make_dirs`, `copy`,
+`set_mode`/octal-mode support — `unix.mkdir` per path segment,
+`unix.open`+`unix.sendfile`-or-read/write loop, `unix.chmod`). `child.run`
+becomes a direct `unix.fork`+`unix.execve`(or `unix.commandv`+`unix.execve`)
++`unix.wait4` sequence scoped to exactly the one shape `bytecode.tl`
+needs (argv list in, exit code + stdout out) — not a general child-
+process wrapper; that generality is what `cosmic.child` is for and
+`bytecode.tl` does not need it. This is the piece most worth a second
+pair of eyes at review, since process spawning has more failure modes
+than file I/O.
+
+### `_cli/main_handlers.tl` — the `mkstemp` site
+
+**First step for whoever builds this**: confirm, with a command and
+pasted output, whether `_cli/main_handlers.tl`'s early-compile claim
+(Evidence, "loads on every cold `bin/cosmic` invocation for the same
+reason") is actually load-bearing for the SAME dual-failure dynamic as
+`cosmic.fd`/`cosmic.time` — i.e. does leaving `main_handlers.tl` on
+NEW destructuring alone (pin unbumped, `cosmic.fd`/`cosmic.time`
+decoupled per above) fail generation the same way the 8-file evidence
+showed, or does `main_handlers.tl` only ever fail the LATER
+compile-batch pass (in which case it is not part of the generation-
+phase deadlock at all, and its fix is the ordinary one-line
+destructuring update — `local tmp_fd, tmp_res = unix.mkstemp(...)`,
+`fs.write(tmp_res.path, content)`, guard on `tmp_res` — deferred to the
+follow-up item like the rest of the 8, with no decoupling needed for
+it specifically). Write whichever this measurement finds into this
+item's Evidence before closing it; only build the decoupling below if
+the answer is yes.
+
+If yes: move the `write-if-changed` handler (the only function in
+`_cli/main_handlers.tl` touching `mkstemp`) into its own file,
+required only from the one CLI branch that dispatches to it — but
+note in the PR whether this alone is sufficient, since Teal type-
+checks a required file's full body at compile time regardless of
+whether the `require` call site itself is lazy; if splitting the file
+does not change WHEN it gets pulled into the same compile unit as
+`cosmic.fd`/`cosmic.time`, the real fix is ensuring that new file is
+outside whatever dependency edge currently pulls `main_handlers.tl`
+into the generation-phase compile, which the confirming measurement
+above should reveal.
+
+### Gate
+
+`bin/cosmic --make ci` on the tree as-is (pin unbumped) must still
+pass after this change — it does not touch the 8 files' own
+destructuring, so `--make ci` today is not evidence either way for
+the deadlock; the real gate is a rehearsal: bump `3p/cosmos/cosmos_pin.tl`
+to any release carrying the four binding-shape changes above in a
+throwaway branch, apply ONLY this item's decoupling (not the 8 files'
+fixes), and confirm generation now succeeds where it previously failed
+— then discard that branch; the actual pin bump is
+`3IkMf7BY1UOxBTAIwbNFQwRZJDA`'s job, not this item's.
 
 ## Non-goals
 
-- Does not itself fix any of the 8 listed files or land the pin bump
-  — that is deferred work once this decision lands.
+- Does not itself fix any of the 8 listed files' destructuring or
+  land the pin bump — that is deferred work on
+  `3IkMf7BY1UOxBTAIwbNFQwRZJDA` (or a fresh item, since the pin has
+  likely moved again by the time this lands) once this decision's
+  code merges.
 - Does not relitigate `3IkMf7BY1UOxBTAIwbNFQwRZJDA` (the pin-bump
-  item), which is now itself blocked on this item in full — not
-  narrowed, not partially landable — pending this decision.
-
-## Resolution
-
-**2026-09-04.** The decision this item asked for was made and recorded
-while it waited: [D43](docs/decisions/d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md)
-(cosmic PR #1657), implemented by `_make/seed.tl` (PR #1656,
-`f156e879`, cleanup fix #1661 `8758f80c`), the outcome of the twin
-capture `3IoULYAulj0d9OKzeaf1FGTZOR3` (same wall, hit by
-`A3HK_gamw`'s builder a day after this one). It is neither (a) nor (b)
-above: generation 1 now seeds `o/_types/types_gen` from the FETCHED
-`3p/cosmos` pin before any generator's closure compiles, so the
-closure is checked against the new declarations and an adapted
-wrapper compiles in both of the build's compile passes. The
-generation-phase dependency on `cosmic.child`/`cosmic.fs`/
-`cosmic.proc` stays; it stopped mattering.
-
-What still holds, and is the ONE remaining wall: the seed pass is
-engine code, and generation 1 runs the TRUST ROOT's engine, not the
-tree's. `bin/cosmic.pin` (`2026-08-31-a5b36f4`) predates #1656, and no
-cosmic release since carries it (newest published: `2026-09-02-c60dcf1`;
-`release.yml` is red — «6JrA_3Dgs»). Measured in a fresh detached
-worktree of `79aa8c16` (= `origin/main` today):
-
-```
-$ unzip -l o/bootstrap/cosmic | grep -E '_make/(seed|generate)\.lua'   # the pinned engine
-     5769  1980-01-01 00:00   _make/generate.lua
-$ unzip -l o/bin/cosmic | grep -E '_make/(seed|generate)\.lua'         # the tree's own build
-     4145  1980-01-01 00:00   _make/generate.lua
-     1737  1980-01-01 00:00   _make/seed.lua
-```
-
-Three cold builds (`rm -rf o && <engine> --make fetch && <engine>
---make build`), all with `3p/cosmos/cosmos_pin.tl` bumped to
-`2026.09.04-65bc139fc` (sha256 `9f3cb4bada57…8886`, the newest release,
-computed from the downloaded `cosmos.zip`):
-
-- **A — pin bump only, pinned engine.** Generation passes (the
-  closures still match the OLD bundled types), the graph then fails:
-  `cosmic -c: compile-batch: 6 of 148 failed` — `fd.tl`, `re.tl`,
-  `re_test.tl`, `signal.tl`, `time.tl`, `tty.tl`. This is the item's
-  "old destructuring" leg, reproduced.
-- **B — `cosmic/fd.tl`'s `pipe()` adapted to the `unix.Pipe` record,
-  pinned engine.** Fails BEFORE the graph, in the closure compile:
-  ```
-  generate _types/tlast_gen.tl
-  cosmic/fd.tl:251:34: error: cannot index key 'reader' in variable 'p' of type integer (inferred at cosmic/fd.tl:248:3)
-  make: _types/tlast_gen.tl: cannot build o/cosmic/fd.lua
-  build: FAIL (generate failed)
-  ```
-  This is the item's "new destructuring" leg, reproduced: under the
-  current trust root the deadlock is exactly as described.
-- **C — the same adapted tree, generation 1 driven by the tree's own
-  binary (an engine carrying #1656; `cp o/bin/cosmic /home/user/engine-seed`
-  from build A's baseline run).** `fd.tl` compiles in the closure
-  pass; the closure compile now fails at the NEXT unadapted member,
-  against the NEW declarations:
-  ```
-  generate _types/tlast_gen.tl
-  cosmic/fs/dir.tl:28:20: error: in return value: got integer | string, expected integer
-  ```
-  Adapting `fs/dir.tl` moves it to `fs/file.tl:103` (`MkstempPath |
-  string`), and so on — the ordinary "adapt the wrapper" failure, the
-  one a single PR fixes, not a two-sided wall.
-
-So, for a puller: a binding-contract cosmos pin bump is a ONE-PR
-change again as soon as `bin/cosmic.pin` names a release that contains
-`8758f80c` — that bump is «Xvox_XNCM» (`3Ip8zrCbHnPiV5bRM49XvoxXNCM`),
-amended today to carry this second consumer set, blocked on the
-`release.yml` lane repair. Until it lands, NO pin bump touching a
-generator-closure binding can cold-build, whatever the wrappers say
-(the two legs above). The three pin bumps that were blocked here —
-`3IkMf7BY1UOxBTAIwbNFQwRZJDA` (spec un-narrowed today, the measured
-affected set is in it), `3ImjB20Oly8ZWwt0lMAutpfHTkH`,
-`3In3fTdCYXfhCWXSULqgx09qUkP` — are re-blocked on that chain.
-
-One more measured fact for whoever does the bump: the affected set
-must be measured under an engine that carries #1656. The pinned
-engine's own `gentype` renders the new annotations differently (build
-A's graph pass accepted `child/init.tl`'s `unix.wait` and
-`fs/file.tl`'s `unix.mkstemp` sites; the tree's `gentype` rejects
-both — 6 and 10 errors), so a pass under the old trust root is not
-evidence the tree is adapted.
+  item), which stays blocked on this item until it merges.
+- No change to `cosmic.fs`/`cosmic.child`/`cosmic.proc`'s own public
+  contracts — `_types/gen_io.tl` (or equivalent) is new, internal, and
+  parallel to them, not a replacement.
