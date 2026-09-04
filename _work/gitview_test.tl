@@ -200,6 +200,34 @@ local function test_next_names_one_action_and_its_rule()
     "the alternate names its kind, wrapped handle, and title: " .. report)
 end
 
+-- An alternate whose Change section names the same file as another
+-- open item's carries `_work.overlap`'s annotation inline, so an
+-- orchestrator weighing the alternates sees the collision without a
+-- `show` per candidate.
+local SECOND < const > = fresh_id()
+
+local function test_next_alternate_carries_an_overlap_annotation()
+  local items = board_items()
+  items[#items + 1] = check.must(item.decode({id = SECOND,
+        title = "another fresh leaf", parent = GOAL}))
+  local specs = full_specs()
+  specs[FRESH] = table.concat({
+      "## Change", "Edit `_work/brief.tl` for the field.",
+    }, "\n")
+  specs[SECOND] = table.concat({
+      "## Change", "Also touch `_work/brief.tl`.",
+    }, "\n")
+  local report = view.next_report(items, specs)
+  assert(report:find("or: pull " .. tail.handle(FRESH)
+      .. " a fresh leaf — overlaps: " .. tail.handle(SECOND)
+      .. " on _work/brief.tl", 1, true),
+    "the collision with the other alternate prints inline: " .. report)
+  assert(report:find("or: pull " .. tail.handle(SECOND)
+      .. " another fresh leaf — overlaps: " .. tail.handle(FRESH)
+      .. " on _work/brief.tl", 1, true),
+    "and it is symmetric, the same as `show`'s: " .. report)
+end
+
 -- A drop's subject carries its why; `next`'s offer surfaces it so the
 -- next session sees which side stopped before claiming. A
 -- reviewer-release drop is not a bounce, and neither is a take.

@@ -17,6 +17,7 @@ local health = require("_work.health")
 local item = require("_work.item")
 local act = require("_work.action")
 local lanes = require("_work.lanes")
+local overlap = require("_work.overlap")
 local prio = require("_work.priority")
 local publish = require("_work.publish")
 local sess = require("_work.session")
@@ -246,10 +247,15 @@ end
 --- Renders a decided action: what to do, to what, and under which
 --- rule, followed by what the kind MEANS (`_work.guidance`) and any
 --- alternates — so a session acts on the answer without going to read
---- prose elsewhere.
+--- prose elsewhere. An alternate that names an item whose Change
+--- section names the same file as another open item's carries that
+--- collision inline, the same fact `show ID` would print on a
+--- separate line — an orchestrator weighing the alternates sees it
+--- without a `show` per candidate.
 --- @param action act.Action The decision
+--- @param specs act.Specs Sidecar body by id, open items only
 --- @return string The action, its target, the rule behind it, and its guidance
-local function render_action(action: act.Action): string
+local function render_action(action: act.Action, specs: act.Specs): string
   local target = ""
   if action.item then
     target = " " .. id_line(action.item)
@@ -262,7 +268,12 @@ local function render_action(action: act.Action): string
   end
   for _, alt in ipairs(action.alternates or {}) do
     if alt.item then
-      out[#out + 1] = ("  or: %s %s"):format(alt.kind, id_line(alt.item))
+      local line = ("  or: %s %s"):format(alt.kind, id_line(alt.item))
+      local ov = overlap.inline(alt.item.id, specs)
+      if ov ~= "" then
+        line = line .. " — " .. ov
+      end
+      out[#out + 1] = line
     end
   end
   return table.concat(out, "\n")
@@ -282,7 +293,7 @@ local function next_report(all: {item.Item}, specs: act.Specs,
   -- The session seeds the tie-break, so concurrent sessions asking
   -- the same board fan out across items no judgment separates
   -- instead of converging on one.
-  return render_action(act.next_action(all, specs, session, ages, session))
+  return render_action(act.next_action(all, specs, session, ages, session), specs)
 end
 
 --- The reason named by an item's most recent board commit, when that
@@ -323,7 +334,7 @@ local function next_report_live(s: store.Store, all: {item.Item},
       action.reason = action.reason .. bounce_note(events[1].subject)
     end
   end
-  return render_action(action)
+  return render_action(action, specs)
 end
 
 local function cmd_next(s: store.Store, session?: string): integer

@@ -13,6 +13,7 @@ local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local item = require("_work.item")
 local ksuid = require("_work.ksuid")
+local overlap = require("_work.overlap")
 local prio = require("_work.priority")
 local publish = require("_work.publish")
 local spec = require("_work.spec")
@@ -41,10 +42,12 @@ end
 --- @param body string Its spec sidecar, "" when it has none
 --- @param events {publish.Event} Its git history, newest first
 --- @param problems {string} The take gate's problem list, possibly empty
+--- @param overlaps {string} `_work.overlap`'s pre-rendered lines, possibly empty
 --- @return {string} The lines to print
 --- @return string The verdict detail
 local function show_report(it: item.Item, all: {item.Item}, body: string,
-    events: {publish.Event}, problems: {string}): {string}, string
+    events: {publish.Event}, problems: {string},
+    overlaps?: {string}): {string}, string
   local out: {string} = {("%s %s [%s]"):format(tail.handle(it.id), it.title,
       it.id)}
   out[#out + 1] = ("role: %s"):format(flow.role(it, all))
@@ -162,6 +165,12 @@ local function show_report(it: item.Item, all: {item.Item}, body: string,
   for _, p in ipairs(it.decode_problems or {}) do
     out[#out + 1] = "flagged: " .. p
   end
+  -- Another open item naming the same file under its own `## Change`
+  -- is a collision an orchestrator would otherwise find only by
+  -- reading every candidate's spec by hand — see `_work.overlap`.
+  for _, line in ipairs(overlaps or {}) do
+    out[#out + 1] = line
+  end
   if body ~= "" then
     out[#out + 1] = "--- spec ---"
     out[#out + 1] = (body:gsub("\n$", ""))
@@ -191,10 +200,20 @@ local function cmd_show(s: store.Store, id: string): integer
     return verdict_line("show", false, herr)
   end
   local problems: {string} = {}
+  local overlaps: {string} = {}
   if item.is_open(it) then
     problems = gate.ready_problems(s, it, all)
+    -- Every OTHER open item's spec, read once, so `_work.overlap` can
+    -- compare Change-section paths against this one's.
+    local bodies: {string: string} = {[it.id] = body}
+    for _, other in ipairs(all) do
+      if other.id ~= it.id and item.is_open(other) then
+        bodies[other.id] = store.read_spec(s, other.id)
+      end
+    end
+    overlaps = overlap.lines(it.id, bodies)
   end
-  local lines, verdict = show_report(it, all, body, events, problems)
+  local lines, verdict = show_report(it, all, body, events, problems, overlaps)
   for _, line in ipairs(lines) do
     print(line)
   end
@@ -203,7 +222,8 @@ end
 
 local record gitshow
   show_report: function(it: item.Item, all: {item.Item}, body: string,
-  events: {publish.Event}, problems: {string}): {string}, string
+  events: {publish.Event}, problems: {string},
+  overlaps?: {string}): {string}, string
   cmd_show: function(s: store.Store, id: string): integer
 end
 
