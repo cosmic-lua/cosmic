@@ -1,5 +1,7 @@
 return {
   ["base"] = "board",
+  ["builders"] = "build-CTe6_lxfv-7f9141e2",
+  ["claim"] = "build-CTe6_lxfv-7f9141e2",
   ["id"] = "3IpUL8qbkicSO4xlF82CTe6lxfv",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["repo"] = "cosmic-lua/cosmic",
