@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["pr"] = 1677,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-t6Ez_X2rm-1",
   ["title"] = "policy_test: restore cwd, stderr and the env marker on every exit of the write_baseline cases",
 }
