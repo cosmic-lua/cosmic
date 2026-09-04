@@ -1,4 +1,5 @@
 return {
+  ["base"] = "board",
   ["beats"] = "3IqRTlnvcUjp6BXayBmRxN2253n",
   ["id"] = "3IqZuIOsNDJ9qlymucYHKdDOAYN",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
