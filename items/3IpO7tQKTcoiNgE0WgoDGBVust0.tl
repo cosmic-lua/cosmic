@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-DGBV_ust0",
+  ["claim"] = "build-DGBV_ust0",
   ["id"] = "3IpO7tQKTcoiNgE0WgoDGBVust0",
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["repo"] = "cosmic-lua/cosmic",
