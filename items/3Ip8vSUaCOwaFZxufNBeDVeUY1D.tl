@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1673,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-eDVe_UY1D-1",
   ["title"] = "check: one member-swap helper for the 13 test doubles that map-view landlock and quicksand",
 }
