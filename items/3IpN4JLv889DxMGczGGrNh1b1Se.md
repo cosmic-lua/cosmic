@@ -34,8 +34,14 @@ callers in `_work/brief.tl` import it. Then, in the builder brief:
   push."
 - the STOP rule gains one sentence: "Leave your diff committed on the
   item branch (unpushed), never reverted: the respec starts from it."
+- step 7 gains one sentence: "If the push or the PR shows a conflict
+  with the base branch, stop and report it with the conflicting files;
+  merging the base into the item branch is the orchestrator's, never a
+  builder's rebase." (One builder in a 2026-09-04 routine pass attempted
+  its own `git rebase origin/master`, hit an add/add conflict, abandoned
+  it and pushed unrebased; the orchestrator redid the merge from scratch.)
 
-`_work/brieftext_test.tl` (or `brief_test.tl`) pins each sentence with a
+`_work/brieftext_test.tl` (or `brief_test.tl`) pins each of the four sentences with a
 `find` assertion, the way the existing `Board:` line is pinned.
 
 ## Non-goals
