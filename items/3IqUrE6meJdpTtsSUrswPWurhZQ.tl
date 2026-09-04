@@ -7,7 +7,6 @@ return {
   ["pr"] = 1699,
   ["repo"] = "cosmic-lua/cosmic",
   ["title"] = "gitboard: a mutation that changes nothing because the board already says so exits 0, not 1",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "69d543223baa081fe3e1320b61330ca099108b21",
   ["verdict_spec"] = "6b80e3ca022671623c771d14b68d71a54b43d8586e7f74c37cb8f30310f10976",
 }
