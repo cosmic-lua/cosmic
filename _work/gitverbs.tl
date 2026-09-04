@@ -118,6 +118,32 @@ local function cmd_take(s: store.Store, id: string, session: string,
   if (pr or 0) == 0 and ((it.pr or 0) ~= 0 or (it.result or "") ~= "")
   and (it.claim or "") ~= session
   and (verdict == "" or verdict == "request changes") then
+    -- CI still running is the one state worth waiting out: a red head
+    -- is already a decided fact a reviewer can act on (a quick request
+    -- changes), but a running one is not yet known either way, so
+    -- claiming the review now only burns a reader on a verdict it
+    -- cannot give. `head_checks` reads nil on no GitHub reach (no
+    -- origin, no token, a network error) — exactly the cases this
+    -- refuses nothing for, same as before this gate existed.
+    if (it.pr or 0) ~= 0 and not force then
+      local state, _serr = gh.head_checks(s, it.pr, it.repo)
+      if state == "running" then
+        local p, _perr = gh.pull(s, it.pr, it.repo)
+        local sha7 = "?"
+        local runs: {review.CheckRun} = {}
+        if p ~= nil then
+          sha7 = p.head_sha:sub(1, 7)
+          runs = gh.checks(s, p.head_sha, it.repo) or {}
+        end
+        local done = 0
+        for _, run in ipairs(runs) do
+          if run.status == "completed" then done = done + 1 end
+        end
+        return gate.verdict_line("take", false, ("REFUSED: %s's head %s "
+            .. "has CI running (%d of %d checks done) — review when it "
+            .. "settles"):format(id:sub(1, 8), sha7, done, #runs))
+      end
+    end
     return gittake.take_review(s, it, session, force, why)
   end
   -- Re-taking your own claim with nothing new to record is a no-op,

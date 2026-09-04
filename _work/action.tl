@@ -87,7 +87,22 @@ local record Phased
   --- to hold a merge back, so it is `done ID` that stays withheld
   --- until the blocker resolves.
   done_held: integer
+  --- Reviewable diffs stepped over because CI on the head has not
+  --- settled — offering one would hand a reader a verdict it cannot
+  --- yet give.
+  ci_running: integer
+  --- Reviewable diffs stepped over because CI on the head already
+  --- failed — the fix is the builder's move, not a review.
+  ci_red: integer
 end
+
+--- CI check-run state by item id ("green" | "red" | "running" |
+--- "none"), read once per render (`_work.gh`'s `head_checks`) the same
+--- way `ages` is. An id absent from the map is exactly what a store
+--- with no GitHub reach — no origin, no token, a read that failed —
+--- reads back as, and `phased_action` treats it the way it always
+--- has: offered, never held back.
+local type CiStates = {string: string}
 
 --- How many candidates one ask hands out, the primary included.
 --- Sized to the concurrent-session count observed in practice: past
@@ -107,6 +122,25 @@ local function held_names(doing: {Item}, session: string,
   for _, i in ipairs(doing) do
     if not is_mine(i, session, ages) then
       out[#out + 1] = ("%s @%s"):format(i.id:sub(1, 8), i.claim)
+    end
+  end
+  return table.concat(out, ", ")
+end
+
+--- The doing items CI is holding a review back on, one label per item
+--- — a red build's fix is the builder's move, not a review's, so the
+--- two read differently even though neither is offered.
+--- @param doing {Item} The doing queue
+--- @param ci CiStates CI state by item id
+--- @return string The blocked items, empty when none are
+local function ci_names(doing: {Item}, ci: CiStates): string
+  local out: {string} = {}
+  for _, i in ipairs(doing) do
+    local state = ci[i.id]
+    if state == "running" then
+      out[#out + 1] = ("%s ci running"):format(i.id:sub(1, 8))
+    elseif state == "red" then
+      out[#out + 1] = ("%s ci red — builder's"):format(i.id:sub(1, 8))
     end
   end
   return table.concat(out, ", ")
@@ -143,10 +177,12 @@ end
 --- @param pos {string: prio.Position} Position by item id
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @param seed string Per-session tie-break seed, "" for age order
+--- @param ci CiStates CI state by item id, absent when unknown
 --- @return Phased The decision and what it stepped over
 local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
     session: string, pos: {string: prio.Position}, ages: health.Ages,
-    seed: string): Phased
+    seed: string, ci?: CiStates): Phased
+  local cim = ci or {}
   local queue = flow.unified(items, pos, seed)
   local doing_n = 0
   for _, i in ipairs(queue) do
@@ -163,6 +199,8 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
   local parked = 0
   local stuck: Item = nil
   local suppressed = 0
+  local ci_running = 0
+  local ci_red = 0
   -- Ordinary pulls are capped by the room the doing bound leaves and
   -- by the candidate slots the finishing stages left behind, computed
   -- at the first ordinary todo item — the queue's stage order
@@ -202,6 +240,15 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
         -- session built or specced this item — the same distance
         -- `take` refuses, so `next` never offers it either: offered
         -- to nobody here, and not another session's hold.
+      elseif cim[i.id] == "running" then
+        -- Not yet known either way: offering it hands a reader a
+        -- verdict CI has not settled, exactly what `take`'s own CI
+        -- gate refuses at claim time.
+        ci_running = ci_running + 1
+      elseif cim[i.id] == "red" then
+        -- Already decided, but the move is the builder's: a fix and a
+        -- new push, not a reviewer's time.
+        ci_red = ci_red + 1
       elseif (i.reviewer or "") ~= "" and session ~= ""
       and i.reviewer ~= session
       and not health.is_review_stale(i, ages) then
@@ -294,11 +341,12 @@ local function phased_action(items: {Item}, specs: Specs, index: flow.Index,
     end
     return {action = primary, held = held, reviewing = reviewing,
       parked = parked, stuck = stuck, suppressed = suppressed,
-      merge_held = merge_held, done_held = done_held}
+      merge_held = merge_held, done_held = done_held,
+      ci_running = ci_running, ci_red = ci_red}
   end
   return {held = held, reviewing = reviewing, parked = parked,
     stuck = stuck, suppressed = suppressed, merge_held = merge_held,
-    done_held = done_held}
+    done_held = done_held, ci_running = ci_running, ci_red = ci_red}
 end
 
 --- The one action to take now, right to left. Ages are optional the
@@ -310,15 +358,17 @@ end
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @param seed string Per-session tie-break seed, "" for age order
+--- @param ci CiStates CI state by item id, absent when unknown
 --- @return Action The decision
 local function next_action(items: {Item}, specs: Specs, session?: string,
-    ages?: health.Ages, seed?: string): Action
+    ages?: health.Ages, seed?: string, ci?: CiStates): Action
   local who = session or ""
   local aged = ages or {}
   local salt = seed or ""
+  local cim = ci or {}
   local index = flow.by_id(items)
   local pos = prio.positions(items)
-  local ph = phased_action(items, specs, index, who, pos, aged, salt)
+  local ph = phased_action(items, specs, index, who, pos, aged, salt, cim)
   local phased = ph.action
   if phased then
     return phased
@@ -381,6 +431,18 @@ local function next_action(items: {Item}, specs: Specs, session?: string,
         .. "elsewhere"):format(ph.reviewing),
     }
   end
+  -- CI running or already red outranks nothing new: the diff is real
+  -- work in flight, just not a review anyone can act on yet — running
+  -- because there is nothing to judge, red because the next move is
+  -- the builder's, not a reviewer's.
+  if ph.ci_running > 0 or ph.ci_red > 0 then
+    return {
+      kind = "none",
+      reason = ("%d item(s) await CI before a review is worth claiming: %s")
+      :format(ph.ci_running + ph.ci_red,
+        ci_names(flow.in_state(items, "doing", pos), cim)),
+    }
+  end
   if ph.held > 0 then
     local doing = flow.in_state(items, "doing", pos)
     return {
@@ -401,13 +463,14 @@ local record action
   type Action = Action
   type Phased = Phased
   type Specs = Specs
+  type CiStates = CiStates
   passes_bar: function(i: Item, specs: Specs,
   pos: {string: prio.Position}): boolean
   phased_action: function(items: {Item}, specs: Specs, index: flow.Index,
   session: string, pos: {string: prio.Position}, ages: health.Ages,
-  seed: string): Phased
+  seed: string, ci?: CiStates): Phased
   next_action: function(items: {Item}, specs: Specs, session?: string,
-  ages?: health.Ages, seed?: string): Action
+  ages?: health.Ages, seed?: string, ci?: CiStates): Action
 end
 
 local M: action = {

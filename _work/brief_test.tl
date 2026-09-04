@@ -9,6 +9,8 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local brief = require("_work.brief")
 local fixture = require("_work.fixture")
+local gh = require("_work.gh")
+local review = require("_work.review")
 local store = require("_work.store")
 local tail = require("_work.tail")
 local verbs = require("_work.gitverbs")
@@ -16,6 +18,47 @@ local verbs = require("_work.gitverbs")
 local init_state_repo = fixture.init_state_repo
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
+
+--- Stand `gh.head_checks`, `gh.pull` and `gh.checks` in for a fixed
+--- PR fixture for the duration of `f`, restoring all three even when
+--- `f` fails an assertion — a fixture PR in each of the four states,
+--- the way `_work.gitreview_test`'s own `with_ci_state` covers `take`.
+--- @param state string The state `head_checks` reports
+--- @param sha string The fixture PR's head sha
+--- @param f function(): boolean The test body; returns true when done
+local function with_ci_fixture(state: string, sha: string,
+    f: function(): boolean)
+  local real_head_checks = gh.head_checks
+  local real_pull = gh.pull
+  local real_checks = gh.checks
+  gh.head_checks = function(_s: store.Store, _pr: integer, _repo: string | nil):
+    string | nil, string
+    return state, ""
+  end
+  gh.pull = function(_s: store.Store, number: integer, _repo: string | nil):
+    review.Pull | nil, string
+    return {number = number, draft = false, merged = false, body = "",
+      head_sha = sha, base = "", state = "open", merge_sha = ""}, ""
+  end
+  gh.checks = function(_s: store.Store, _sha: string, _repo: string | nil):
+    {review.CheckRun} | nil, string
+    if state == "red" then
+      return {{name = "ci", status = "completed", conclusion = "failure"}}, ""
+    end
+    if state == "running" then
+      return {{name = "ci", status = "completed", conclusion = "success"},
+        {name = "smoke", status = "in_progress", conclusion = ""}}, ""
+    end
+    return {}, ""
+  end
+  local ok, err = pcall(f)
+  gh.head_checks = real_head_checks
+  gh.pull = real_pull
+  gh.checks = real_checks
+  if not ok then
+    error(err, 0)
+  end
+end
 
 --- Pin the session identity `_work.session` derives for the duration
 --- of a test, so a minted label's `<orch8>` is a known, fixed value
@@ -133,6 +176,71 @@ local function test_review_brief_needs_the_handover()
   assert(out:find("claim it as " .. label, 1, true) ~= nil,
     "the verdict line repeats it, so an orchestrator claims under the "
     .. "identical string before ever spawning the agent")
+end
+
+-- Green and a repo with no checks at all both earn the brief — a
+-- fixture PR in each of the four states, the way `take`'s own gate is
+-- covered — but only green is trusted enough to fill `<HEAD_SHA>`:
+-- "none" leaves it for the caller, exactly as an offline read would.
+local function test_green_fills_head_sha_none_leaves_it()
+  for _, case in ipairs({
+      {state = "green", filled = true},
+      {state = "none", filled = false},
+    }) do
+    local s = init_state_repo("brief-ci-" .. case.state)
+    local _, leaf = root_with_leaf(s)
+    give_spec(s, leaf)
+    assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+    assert(verbs.cmd_take(s, leaf, "session-a", 9, false, "") == 0)
+    with_ci_fixture(case.state, "cafef00dfeedfacebeef1234567890abcdef1234",
+      function(): boolean
+        local code, out = brief_and_capture(s, "review", leaf)
+        assert(code == 0, ("state %s should emit the brief"):format(
+            case.state))
+        if case.filled then
+          assert(out:find("cafef00dfee", 1, true) ~= nil,
+            "the head sha is filled: " .. out)
+          assert(out:find("<HEAD_SHA>", 1, true) == nil,
+            "the placeholder is gone")
+        else
+          assert(out:find("<HEAD_SHA>", 1, true) ~= nil,
+            "the placeholder survives for the caller: " .. out)
+        end
+        return true
+      end)
+  end
+end
+
+-- Running and red both refuse to emit the brief at all — the costly
+-- spawn this item exists to prevent — with a verdict line naming why.
+local function test_running_and_red_refuse_to_emit_the_brief()
+  local s = init_state_repo("brief-ci-running")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 9, false, "") == 0)
+  with_ci_fixture("running", "cafef00dfeedfacebeef1234567890abcdef1234",
+    function(): boolean
+      local code, out = brief_and_capture(s, "review", leaf)
+      assert(code ~= 0, "running refuses the brief")
+      assert(out:find("has CI running", 1, true) ~= nil,
+        "the refusal names why: " .. out)
+      assert(out:find("fresh-context code reviewer", 1, true) == nil,
+        "the costly body is never printed on a refusal: " .. out)
+      return true
+    end)
+
+  local red_s = init_state_repo("brief-ci-red")
+  local _, red_leaf = root_with_leaf(red_s)
+  give_spec(red_s, red_leaf)
+  assert(verbs.cmd_take(red_s, red_leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(red_s, red_leaf, "session-a", 9, false, "") == 0)
+  with_ci_fixture("red", "cafef00dfeedfacebeef1234567890abcdef1234",
+    function(): boolean
+      local code = brief.cmd_brief(red_s, "review", red_leaf)
+      assert(code ~= 0, "red refuses the brief too")
+      return true
+    end)
 end
 
 local function test_brief_refusals_and_the_spec_less_decompose()

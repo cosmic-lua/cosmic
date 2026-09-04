@@ -129,18 +129,61 @@ local function checks(s: store.Store, sha: string, repo: string | nil):
   return out
 end
 
+--- One pull request's head reduced to a single summary a caller can
+--- act on without re-deriving it from the raw run list: "green" (every
+--- completed run passed), "red" (`review.blocks_on_ci` already calls
+--- that a failure), "running" (nothing has failed yet, but something
+--- is still going), or "none" (the repo runs no checks on this head
+--- at all — not the same as passing, and worth a word of its own
+--- rather than an empty list a caller must interpret itself).
+---
+--- Composes `pull` and `checks`, so it fails exactly when either does
+--- — no origin, no token, a network or API error — and a caller reads
+--- that the same way it always could: nil is "unknown", never "red".
+--- @param s store.Store The store
+--- @param number integer The PR number
+--- @param repo string | nil The item's repo field, when it carries one
+--- @return string | nil "green" | "red" | "running" | "none"
+--- @return string Error message
+local function head_checks(s: store.Store, number: integer, repo: string | nil):
+  string | nil, string
+  local p, perr = pull(s, number, repo)
+  if p == nil then
+    return nil, perr
+  end
+  local runs, cerr = checks(s, p.head_sha, repo)
+  if runs == nil then
+    return nil, cerr
+  end
+  if review.blocks_on_ci(runs) ~= nil then
+    return "red", ""
+  end
+  if #runs == 0 then
+    return "none", ""
+  end
+  for _, r in ipairs(runs) do
+    if r.status ~= "completed" then
+      return "running", ""
+    end
+  end
+  return "green", ""
+end
+
 local record gh
   slug: function(s: store.Store, repo: string | nil): string | nil, string
   pull: function(s: store.Store, number: integer, repo: string | nil):
   review.Pull | nil, string
   checks: function(s: store.Store, sha: string, repo: string | nil):
   {review.CheckRun} | nil, string
+  head_checks: function(s: store.Store, number: integer, repo: string | nil):
+  string | nil, string
 end
 
 local M: gh = {
   slug = slug,
   pull = pull,
   checks = checks,
+  head_checks = head_checks,
 }
 
 return M
