@@ -1,3 +1,9 @@
+## Access
+
+read access to `cosmic-lua/cosmic` — the release page and the
+release asset (`cosmic-lua` prerelease binary, `SHA256SUMS`) cited
+below in Repro.
+
 ## Finding
 
 An anonymous function literal passed directly as an argument does not
