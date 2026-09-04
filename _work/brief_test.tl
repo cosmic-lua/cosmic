@@ -8,6 +8,7 @@ local check = require("cosmic.check")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local brief = require("_work.brief")
+local brieftext_friction = require("_work.brieftext_friction")
 local fixture = require("_work.fixture")
 local gh = require("_work.gh")
 local review = require("_work.review")
@@ -369,4 +370,43 @@ local function test_orch8_differs_by_session_identity_alone()
   assert(out_two:find(prefix .. "22222222", 1, true) ~= nil, out_two)
   assert(out_one:find(prefix .. "22222222", 1, true) == nil,
     "the first session's brief never carries the second session's orch8")
+end
+
+--- `s` with every run of whitespace collapsed to one space, so a
+--- sentence pinned here reads the same whether the text wraps it
+--- across one line or several — the same helper `_work.brieftext_test`
+--- uses to pin BUILDER's own wrapped sentences.
+--- @param s string The text to flatten
+--- @return string The flattened text
+local function flat(s: string): string
+  return (s:gsub("%s+", " "))
+end
+
+-- The friction ask rides after EVERY kind's own "Final report"
+-- section, unconditionally — one `find` per kind, so no orchestrator
+-- can spawn a brief that omits it the way the friction log this item
+-- is evidence for once did by hand.
+local function test_every_kind_carries_the_friction_ask()
+  local opener = flat(brieftext_friction.ASK):match("^([^.]+%.)")
+  local s = init_state_repo("brief-friction")
+  local root, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  for _, kind in ipairs({"builder", "research", "refine"}) do
+    local code, out = brief_and_capture(s, kind, leaf)
+    assert(code == 0, kind .. " brief: " .. out)
+    assert(flat(out):find(opener, 1, true) ~= nil,
+      kind .. " brief must carry the friction ask: " .. out)
+  end
+  local dcode, dout = brief_and_capture(s, "decompose", root)
+  assert(dcode == 0, "decompose brief: " .. dout)
+  assert(flat(dout):find(opener, 1, true) ~= nil,
+    "decompose brief must carry the friction ask: " .. dout)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 9, false, "") == 0)
+  pin_session("f005ba11cafed00d")
+  local rcode, rout = brief_and_capture(s, "review", leaf)
+  unpin_session()
+  assert(rcode == 0, "review brief: " .. rout)
+  assert(flat(rout):find(opener, 1, true) ~= nil,
+    "review brief must carry the friction ask: " .. rout)
 end

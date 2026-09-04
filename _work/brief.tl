@@ -17,8 +17,14 @@
 --- <label>` — under the exact string the brief just printed, before
 --- ever spawning the agent the body is handed to.
 ---
+--- Every body also carries `_work.brieftext_friction`'s `ASK` after
+--- its own "Final report" section, unconditionally — the friction ask
+--- rides with the brief instead of an orchestrator appending it by
+--- hand.
+---
 --- A read, not a mutation: nothing here writes the board.
 local brieftext = require("_work.brieftext")
+local brieftext_friction = require("_work.brieftext_friction")
 local brieftext_review = require("_work.brieftext_review")
 local fs = require("cosmic.fs")
 local gate = require("_work.gitgate")
@@ -230,7 +236,7 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
   if head_sha ~= "" then
     values["HEAD_SHA"] = head_sha
   end
-  local body = fill(template, values)
+  local body = fill(template, values) .. "\n\n" .. brieftext_friction.ASK
   print(body)
   local left = unfilled(body)
   local tail_note = "nothing left to fill — paste the body verbatim"
