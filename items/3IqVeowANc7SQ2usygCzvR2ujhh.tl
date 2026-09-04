@@ -6,6 +6,7 @@ return {
   ["claim"] = "build-zvR2_ujhh-07d7b9b9",
   ["id"] = "3IqVeowANc7SQ2usygCzvR2ujhh",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
+  ["pr"] = 1703,
   ["repo"] = "cosmic-lua/cosmic",
   ["title"] = "gitboard new: a friction log names every agent this orchestrator claimed for, or the filing is refused",
 }
