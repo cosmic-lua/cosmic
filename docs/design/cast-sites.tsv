@@ -38,11 +38,7 @@ cosmic/_teal_ast_test.tl	52	tl compiler surface
 cosmic/_teal_discard.tl	183	tl compiler surface
 cosmic/_teal_discard.tl	205	tl compiler surface
 cosmic/_teal_discard.tl	258	tl compiler surface
-cosmic/_teal_engine.tl	175	tl compiler surface
-cosmic/_teal_engine.tl	231	tl compiler surface
-cosmic/_teal_engine.tl	232	tl compiler surface
-cosmic/_teal_engine.tl	240	tl compiler surface
-cosmic/_teal_engine.tl	261	pcall return shape
+cosmic/_teal_engine.tl	256	pcall return shape
 cosmic/check.tl	121	type-defeating test probe
 cosmic/check.tl	139	type-defeating test probe
 cosmic/check.tl	151	map view of a declared value

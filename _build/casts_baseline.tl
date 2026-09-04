@@ -14,7 +14,7 @@ return {
   ["cosmic/_probe.tl"] = 1,
   ["cosmic/_teal_ast_test.tl"] = 4,
   ["cosmic/_teal_discard.tl"] = 3,
-  ["cosmic/_teal_engine.tl"] = 5,
+  ["cosmic/_teal_engine.tl"] = 1,
   ["cosmic/check.tl"] = 4,
   ["cosmic/check_assertions_test.tl"] = 2,
   ["cosmic/compress_test.tl"] = 3,
