@@ -164,7 +164,7 @@ local function swap_members(module: any, members: {string: any}, body: function(
   for name, original in pairs(saved) do
     surface[name] = original
   end
-  if not ok then error(caught, 0) end -- throws: rethrows body's error after restoring members (D23)
+  if not ok then error(caught, 0) end -- throws: check may throw; rethrows body's error after restoring members
 end
 
 --- Assert that a (value, err) pair represents failure.
