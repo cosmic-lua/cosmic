@@ -99,3 +99,21 @@ them slightly from what its own spec measured.
 Same walls as `3IYMLDfXlYFaD39TtrxlT1AfWo4`: no other `Env` field, no
 attempt at the other 15 `tl compiler surface` sites, no upstream tl
 PR, no `3p/tl/tl_pin.tl` touch.
+
+## Rework note (round 3, head 5debb742 unchanged)
+
+The second review round confirmed the code correct but recorded
+`request-changes` solely because the PR title/description were stale
+relative to the final diff (undercounted closed casts as "3" when
+the diff closes 4, and the "5 → 2" baseline note was right after the
+first commit but wrong after the second, which finishes at 5 → 1).
+The orchestrator corrected the PR title and body directly on GitHub
+— no new commit, nothing code-level changed, and CI on this head
+(`5debb7427c6108b67133b4abe2d9d823e27fc07f`) was already verified
+green in the prior round. This round re-verified the PR body's
+numbers now match the diff exactly ("4 casts closed", "5 → 1",
+reproduced byte-for-byte via `--baseline`/`--reconcile`) and re-ran
+the full adversarial review (cold build, `--make ci`, mutation test
+on the `tl_types`/fresh-`require` guard, scope/non-goals check) fresh
+against the unchanged code, independently confirming the prior
+round's code findings.
