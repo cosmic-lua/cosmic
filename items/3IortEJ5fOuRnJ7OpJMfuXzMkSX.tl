@@ -6,6 +6,7 @@ return {
   ["id"] = "3IortEJ5fOuRnJ7OpJMfuXzMkSX",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["pr"] = 1694,
+  ["reviewer"] = "review-fuXz_MkSX-7f9141e2",
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "tl: consume the curated tl.Env in _teal_ast.tl/_teal_engine.tl, closing 3 tl-compiler-surface casts (needs a bin/cosmic.pin bump first)",
 }
