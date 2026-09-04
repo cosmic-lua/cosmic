@@ -1,5 +1,7 @@
 return {
   ["base"] = "board",
+  ["builders"] = "build-F6zo_pi1N-07d7b9b9",
+  ["claim"] = "build-F6zo_pi1N-07d7b9b9",
   ["id"] = "3IqUswgAUwurZjmHQGUF6zopi1N",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["repo"] = "cosmic-lua/cosmic",
