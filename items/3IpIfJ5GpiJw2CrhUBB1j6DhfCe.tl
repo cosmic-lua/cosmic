@@ -3,10 +3,9 @@ return {
   ["claim"] = "research-1j6D_hfCe-1",
   ["id"] = "3IpIfJ5GpiJw2CrhUBB1j6DhfCe",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
-  ["result"] = "c2d923c551998c8ed2f9388535d77b573ca99a95060ab927c147e8c8e6228516",
+  ["result"] = "0eece9689369746b4a28f98d0ae55ed0e82dc70b132b7be7fb543009b464488f",
   ["reviewer"] = "review-1j6D_hfCe-1",
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945 research-1j6D_hfCe-1 a6f583ba-56de-5345-8cca-85841007a8d7",
   ["title"] = "perf: re_match_log_line cf416d85 vs 9fcfff3f needs day-separated (not same-hour) re-measurement — 4 same-day sessions split 2-2 on direction",
-  ["verdict"] = "request changes",
   ["verdict_spec"] = "c2d923c551998c8ed2f9388535d77b573ca99a95060ab927c147e8c8e6228516",
 }
