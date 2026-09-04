@@ -1,19 +1,14 @@
---- The state verbs: `take` (claim work, record its handover), `drop`
---- (return a lease, the item untouched), `done`, and the
---- housekeeping `init` and `sync` — every `cmd_*` behind
---- `_work/gitboard.tl`'s dispatch that is not a graph mutation. The
---- verbs that shape the graph — `new`, `attach`, `block` and its
---- `unblock` half — are `_work.gitgraph`; the spec sidecar's own
---- verb is `_work.gitspec`; the two takes `take` reaches by
---- derivation — the review claim and the research handover — are
---- `_work.gittake`. All of them run over
---- `_work.store` (persistence) and `_work.flow` (policy). Verbs
---- receive FULL ids — the dispatcher resolves prefixes — and every
---- verb prints a `gitboard-<verb>:` verdict line and returns its exit
---- code. Mutations commit locally and publish through
---- `publish.publish`, whose rejected-push path drops the mutation
---- whole, re-syncs, and refuses — re-running the verb re-applies
---- every gate against the merged board.
+--- The state verbs: `take` (claim work, record its handover), `drop` (return a lease, the
+--- item untouched), `done`, and the housekeeping `init` and `sync` — every `cmd_*` behind
+--- `_work/gitboard.tl`'s dispatch that is not a graph mutation. The verbs that shape the
+--- graph — `new`, `attach`, `block` and its `unblock` half — are `_work.gitgraph`; the
+--- spec sidecar's own verb is `_work.gitspec`; the two takes `take` reaches by derivation
+--- — the review claim and the research handover — are `_work.gittake`. All of them run
+--- over `_work.store` (persistence) and `_work.flow` (policy). Verbs receive FULL ids —
+--- the dispatcher resolves prefixes — and every verb prints a `gitboard-<verb>:` verdict
+--- line and returns its exit code. Mutations commit locally and publish through
+--- `publish.publish`, whose rejected-push path drops the mutation whole, re-syncs, and
+--- refuses — re-running the verb re-applies every gate against the merged board.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
@@ -259,8 +254,13 @@ local function cmd_take(s: store.Store, id: string, session: string,
   if store.is_noop(err) then
     return gate.verdict_line("take", true, err)
   end
+  local base = it.base
+  if base == "" then
+    base = it.repo:find("cosmopolitan", 1, true) and "master" or "main"
+  end
+  local branch = handed == "" and (" — branch %s off %s"):format(id:sub(1, 8), base) or ""
   return gate.verdict_line("take", true,
-    ("%s is yours%s%s"):format(id:sub(1, 8), taken, handed))
+    ("%s is yours%s%s%s"):format(id:sub(1, 8), taken, handed, branch))
 end
 
 --- drop: return the lease — the claim (or the review claim alone)

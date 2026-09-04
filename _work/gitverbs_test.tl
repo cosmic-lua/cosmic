@@ -1,10 +1,9 @@
 #!/usr/bin/env cosmic
--- The state verbs against scratch state repositories: `take`, `drop`
--- and `done`, their refusals, and the properties that hold across one
--- mutation — one commit per change, a spec bar and a doing bound that
--- bind the take of NEW work only, and a drop that clears every lock
--- together. What the sidecar itself has to say for an item to be
--- taken is `_work/gitspec_test.tl`.
+-- The state verbs against scratch state repositories: `take`, `drop` and `done`, their
+-- refusals, and the properties that hold across one mutation — one commit per change, a
+-- spec bar and a doing bound that bind the take of NEW work only, and a drop that clears
+-- every lock together. What the sidecar itself has to say for an item to be taken is
+-- `_work/gitspec_test.tl`.
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
@@ -25,9 +24,9 @@ local commits = fixture.commits
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
 
--- The take of todo work is the pull, and it is where the spec bar
--- binds: an item whose sidecar misses a section is refused, refined,
--- then taken.
+-- The take of todo work is the pull, and it is where the spec bar binds: an item whose
+-- sidecar misses a section is refused, refined, then taken. Its success line also names
+-- the branch to check out, off the repo's own default base.
 local function test_take_asks_the_spec_bar_of_todo_work()
   local s = init_state_repo("bar")
   local _, leaf = root_with_leaf(s)
@@ -35,20 +34,30 @@ local function test_take_asks_the_spec_bar_of_todo_work()
     "an unrefined spec is refused at take")
   assert(check.must(store.load(s, leaf)).claim == "", "and nothing is written")
   give_spec(s, leaf)
-  local before = commits(s)
+  local before, seen, old_print = commits(s), "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
   assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0,
     "a spec passing the bar is taken")
+  _G.print = old_print
   assert(commits(s) == before + 1, "one mutation, one commit")
+  assert(seen == ("gitboard-take: %s is yours — branch %s off main"):format(leaf:sub(1, 8), leaf:sub(1, 8)), seen)
   local taken = check.must(store.load(s, leaf))
   assert(taken.claim == "session-a", "the claim is the lock")
   assert(#taken.builders == 1 and taken.builders[1] == "session-a",
     "and the builder is on the record")
+  local _, cosmop = root_with_leaf(s)
+  give_spec(s, cosmop)
+  assert(graph.cmd_set(s, cosmop, nil, "cosmic-lua/cosmopolitan", nil) == 0)
+  seen, old_print = "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  assert(verbs.cmd_take(s, cosmop, "session-b", 0, false, "") == 0)
+  _G.print = old_print
+  assert(seen == ("gitboard-take: %s is yours — branch %s off master"):format(cosmop:sub(1, 8), cosmop:sub(1, 8)), seen)
 end
 
--- The incident, refused at the door: a mangled argv absorbing a
--- literal `--session` as the identity can no longer enter the claim,
--- the builders list, or — via the review-claim derivation — the
--- reviewer field.
+-- The incident, refused at the door: a mangled argv absorbing a literal `--session` as the
+-- identity can no longer enter the claim, the builders list, or — via the review-claim
+-- derivation — the reviewer field.
 local function test_take_refuses_a_flag_shaped_session()
   local s = init_state_repo("flagsession")
   local _, leaf = root_with_leaf(s)
@@ -146,9 +155,8 @@ local function test_take_pr_records_the_handover()
   assert(flow.substate(got) == "review", "and the item awaits a verdict")
 end
 
--- One PR couples one item's verdict: recording a number another OPEN
--- item already carries is refused, naming the holder, and nothing is
--- written to the item that tried.
+-- One PR couples one item's verdict: recording a number another OPEN item already carries
+-- is refused, naming the holder, and nothing is written to the item that tried.
 local function test_take_pr_refuses_a_number_another_item_holds()
   local s = init_state_repo("pr-collision")
   local _, a = root_with_leaf(s)
@@ -177,8 +185,7 @@ local function test_take_pr_rerecord_of_its_own_number_stays_a_noop()
   assert(again == 0 and commits(s) == before and seen:find("nothing to record", 1, true) ~= nil, seen)
 end
 
--- A DONE item's PR is spent: it does not block another item from
--- recording the same number.
+-- A DONE item's PR is spent: it does not block another item from recording the same number.
 local function test_take_pr_ignores_a_done_items_number()
   local s = init_state_repo("pr-done-spent")
   local _, a = root_with_leaf(s)
@@ -237,12 +244,10 @@ local function test_drop_clears_the_locks_and_names_the_reason()
     "dropping what is not in flight is a typo, not a mutation")
 end
 
--- Verdicts before new work, mechanically: a todo pull is refused
--- while an unclaimed diff the session could review awaits a verdict.
--- The review claim itself is a finishing motion the gate never
--- refuses, a recorded reviewer clears the debt, and the item's own
--- builder — who could not give the verdict — is never held back by
--- it.
+-- Verdicts before new work, mechanically: a todo pull is refused while an unclaimed diff
+-- the session could review awaits a verdict. The review claim itself is a finishing motion
+-- the gate never refuses, a recorded reviewer clears the debt, and the item's own builder
+-- — who could not give the verdict — is never held back by it.
 local function test_take_refuses_a_pull_past_an_unclaimed_verdict()
   local s = init_state_repo("review-debt")
   local goal, built = root_with_leaf(s)
@@ -267,10 +272,9 @@ local function test_take_refuses_a_pull_past_an_unclaimed_verdict()
     "a recorded reviewer clears the debt and the queue moves again")
 end
 
--- A drop returns the lease and touches nothing else: an edge wired
--- mid-build (the block-first exit for an item that cannot proceed)
--- survives the drop, so the released item waits on its question
--- instead of re-entering the pull queue.
+-- A drop returns the lease and touches nothing else: an edge wired mid-build (the block-
+-- first exit for an item that cannot proceed) survives the drop, so the released item
+-- waits on its question instead of re-entering the pull queue.
 local function test_drop_leaves_blockers_standing()
   local s = init_state_repo("drop-blocked")
   local goal, leaf = root_with_leaf(s)
@@ -306,13 +310,12 @@ local function test_a_foreign_drop_needs_force()
     "a forced abandon with the gap named goes through")
 end
 
--- `done` under an unjudged PR is refused: the diff still exists on
--- GitHub, and ending the item makes it vanish from the board. Claimed
--- no-PR work is evidence mid-review the same way — an item nobody
--- ever claimed carries no such claim of success, and ends freely, but
--- a claimant's research slice needs its accept the same as a diff
--- does; `--force --why` remains the repair for ending one nothing
--- will ever review (an obsolete slice, a duplicate).
+-- `done` under an unjudged PR is refused: the diff still exists on GitHub, and ending the
+-- item makes it vanish from the board. Claimed no-PR work is evidence mid-review the same
+-- way — an item nobody ever claimed carries no such claim of success, and ends freely, but
+-- a claimant's research slice needs its accept the same as a diff does; `--force --why`
+-- remains the repair for ending one nothing will ever review (an obsolete slice, a
+-- duplicate).
 local function test_done_guards_an_unjudged_pr()
   local s = init_state_repo("done-guard")
   local goal, leaf = root_with_leaf(s)
@@ -343,12 +346,11 @@ local function test_done_guards_an_unjudged_pr()
     "--force --why still ends an item nothing will ever review")
 end
 
--- `drop` clears the live claim but never touches `builders` — the
--- append-only record of every session that ever held it — so the
--- PR-less done gate above must key on that history, not the live
--- claim. Keying on the live claim let take -> drop -> done slip a
--- worked research item past review with no verdict and no --force:
--- the exact bypass this test pins shut.
+-- `drop` clears the live claim but never touches `builders` — the append-only record of
+-- every session that ever held it — so the PR-less done gate above must key on that
+-- history, not the live claim. Keying on the live claim let take -> drop -> done slip a
+-- worked research item past review with no verdict and no --force: the exact bypass this
+-- test pins shut.
 local function test_done_guards_a_dropped_items_worked_history()
   local s = init_state_repo("drop-then-done")
   local _, leaf = root_with_leaf(s)
@@ -368,9 +370,8 @@ local function test_done_guards_a_dropped_items_worked_history()
   assert(ended.claim == "", "and done clears the claim")
 end
 
--- Closing the last child makes the container workable again by
--- derivation — nothing is written to it, and the verdict line says
--- what to do with it.
+-- Closing the last child makes the container workable again by derivation — nothing is
+-- written to it, and the verdict line says what to do with it.
 local function test_done_says_when_a_container_is_workable_again()
   local s = init_state_repo("return")
   local _, leaf = root_with_leaf(s)
@@ -433,22 +434,20 @@ local function test_a_take_survives_a_lost_race()
     "the mutation leaves no stray change: " .. r.stdout)
 end
 
--- sync rebases and then asks about lane health; a local-only checkout
--- has no origin, so lane health comes back unknown rather than red,
--- and sync itself still succeeds — the same shape a token-less or
--- offline session sees. `_work.lanes_test` drives `observe`/`record`/
--- `mint` directly; this pins that `cmd_sync` reaches them at all.
+-- sync rebases and then asks about lane health; a local-only checkout has no origin, so
+-- lane health comes back unknown rather than red, and sync itself still succeeds — the
+-- same shape a token-less or offline session sees. `_work.lanes_test` drives
+-- `observe`/`record`/`mint` directly; this pins that `cmd_sync` reaches them at all.
 local function test_sync_asks_about_lanes_and_survives_not_knowing()
   local s = init_state_repo("sync-lanes")
   assert(verbs.cmd_sync(s) == 0, "an unknown lane state does not fail sync")
 end
 
--- `take --result` is the research handover, `take --pr`'s mirror for
--- an item whose deliverable is the spec: the claim holder's own
--- motion, so it needs the live claim and nothing else; it records the
--- sidecar's revision and the item awaits a verdict from then on — the
--- review claim derives for it as for a PR, and a drop clears it with
--- the claim — and the two handovers exclude each other both ways.
+-- `take --result` is the research handover, `take --pr`'s mirror for an item whose
+-- deliverable is the spec: the claim holder's own motion, so it needs the live claim and
+-- nothing else; it records the sidecar's revision and the item awaits a verdict from then
+-- on — the review claim derives for it as for a PR, and a drop clears it with the claim —
+-- and the two handovers exclude each other both ways.
 local function test_take_result_records_the_research_handover()
   local s = init_state_repo("result")
   local _, leaf = root_with_leaf(s)
