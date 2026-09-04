@@ -106,35 +106,23 @@ taken as the measurement.
 ## what the transcript shows
 
 the Agent tool result names the transcript (`.output`, a JSONL file).
-never read it whole; mine it for the indicators and quote those. with
-`jq` on the path:
+never read it whole; the tree carries a reader for it, and its output
+is the block an entry's second part quotes:
 
 ```sh
-T=<transcript>
-# tool calls by name, and the total
-jq -r '.. | objects | select(.type=="tool_use") | .name' "$T" | sort | uniq -c
-# results that came back as errors, with the call's first line
-jq -r '.. | objects | select(.type=="tool_result" and .is_error==true)
-       | (.content|tostring)[:160]' "$T"
-# wallclock: first and last timestamp
-jq -r 'select(.timestamp) | .timestamp' "$T" | sed -n '1p;$p'
-# tokens: input, output, cache read, cache create
-jq -s '[.[] | .. | objects | select(has("input_tokens") and has("output_tokens"))]
-       | {inp: (map(.input_tokens)|add), out: (map(.output_tokens)|add),
-          cache_read: (map(.cache_read_input_tokens//0)|add),
-          cache_create: (map(.cache_creation_input_tokens//0)|add)}' "$T"
-# commands run more than once (keyed on their first line)
-jq -r '.. | objects | select(.type=="tool_use" and .name=="Bash")
-       | .input.command | split("\n")[0]' "$T" \
-  | sort | uniq -c | sort -rn | awk '$1>1' | head
-# index of the first edit (a builder's exploration budget)
-jq -r '.. | objects | select(.type=="tool_use") | .name' "$T" | grep -n -m1 'Edit\|Write'
+cosmic _tool/friction.tl <transcript>...
 ```
 
-the numbers go into the entry's second part verbatim. a long gap
-between two calls is the model thinking or a tool running; which one
-is read off the call that preceded it (a `--make ci` gap is the gate,
-a `sed -n` gap is not).
+one block per transcript: events and tool calls, wallclock, the four
+token counts, calls by tool, the index of the first edit, every result
+that came back as an error with the call it answered, and every
+command run more than once (keyed on its first line). the numbers go
+into the entry verbatim. a long stretch between two calls is the model
+thinking or a tool running; which one is read off the call that
+preceded it (a `--make ci` stretch is the gate, a `sed -n` stretch is
+not). `_tool/friction.tl` is a module too — `summarize` returns the
+indicators as a record for a pass that wants to compare agents rather
+than read them one at a time.
 
 ## the orchestrator's own friction
 

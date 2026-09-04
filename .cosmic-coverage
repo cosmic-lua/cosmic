@@ -144,6 +144,7 @@ return {
   ["_tool/doc/scan.tl"] = {["covered"] = 67, ["total"] = 67},
   ["_tool/example.tl"] = {["covered"] = 134, ["total"] = 167},
   ["_tool/floor.tl"] = {["covered"] = 11, ["total"] = 11},
+  ["_tool/friction.tl"] = {["covered"] = 179, ["total"] = 183},
   ["_tool/lint.tl"] = {["covered"] = 16, ["total"] = 17},
   ["_tool/records.tl"] = {["covered"] = 88, ["total"] = 92},
   ["_tool/seam.tl"] = {["covered"] = 29, ["total"] = 31},

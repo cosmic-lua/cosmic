@@ -67,7 +67,7 @@ and what actually happened differed in a way that cost time, tokens,
 or quality, with the numbers that size the cost, what made the
 difference, and the countermeasure. the procedure, the shape of an
 entry, the note that asks each agent to report its own, and the
-transcript recipes are `skills/work/friction.md`. the log ends the
+transcript reader are `skills/work/friction.md`. the log ends the
 pass as an unparented board item to triage, and every countermeasure
 that already passes the bar is filed as its own item before the pass
 ends.
