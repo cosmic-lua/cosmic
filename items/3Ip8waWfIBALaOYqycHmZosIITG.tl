@@ -8,6 +8,8 @@ return {
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["pr"] = 1669,
   ["repo"] = "cosmic-lua/cosmic",
-  ["reviewer"] = "review-mZos_IITG-1",
   ["title"] = "doc paths: declare the roots the prose points at, and fail (not skip) the board check under CI",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "0ade23fdf34799c40b2245ef5d34e555b5d6fe02",
+  ["verdict_spec"] = "c7c5cfbcf35f57a47c57b20efdac1b92942777b8f43393ef96a8e0ae79e8d884",
 }
