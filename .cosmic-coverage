@@ -134,6 +134,7 @@ return {
   ["_tool/benchmark.tl"] = {["covered"] = 145, ["total"] = 172},
   ["_tool/coverage/baseline.tl"] = {["covered"] = 151, ["total"] = 165},
   ["_tool/coverage/lines.tl"] = {["covered"] = 65, ["total"] = 71},
+  ["_tool/coverage/newrows.tl"] = {covered = 20, total = 20},
   ["_tool/coverage/report.tl"] = {["covered"] = 203, ["total"] = 224},
   ["_tool/discover.tl"] = {["covered"] = 68, ["total"] = 73},
   ["_tool/doc/comments.tl"] = {["covered"] = 53, ["total"] = 53},

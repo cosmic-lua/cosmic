@@ -24,11 +24,11 @@
 --- both rows instead of a conflict; `parse` resolves a repeated path to
 --- its lower percentage via the `on_duplicate` resolver `floor.parse`
 --- forwards.
----
 --- A library module: `require`d for its API (`gate`, `text_for`,
 --- `moved`, ...) by the `coverage` verb. There is no standalone CLI here.
 local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
+local newrows = require("_tool.coverage.newrows")
 local rep = require("_tool.coverage.report")
 local shape = require("cosmic.shape")
 
@@ -281,11 +281,11 @@ local function check(baseline_path: string, paths: {string}): integer
     -- lines saying WHICH rows moved are hundreds back and fall out of
     -- any truncated view. Three CI cycles here ended with a verdict and
     -- no visible cause, each costing a full run to re-ask.
-    --
     -- Same principle the gate verdict already follows: the record that
     -- has to survive truncation goes last and fits on one line.
     io.stderr:write("coverage ratchet: declined: " ..
       table.concat(names, " ") .. "\n")
+    newrows.print_missing(reports, parsed.rows)
     return 1
   end
   io.write("coverage ratchet ok\n")
