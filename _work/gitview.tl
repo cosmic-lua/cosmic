@@ -11,6 +11,7 @@
 --- stdout.
 local flow = require("_work.flow")
 local gate = require("_work.gitgate")
+local gh = require("_work.gh")
 local guide = require("_work.guidance")
 local health = require("_work.health")
 local item = require("_work.item")
@@ -44,6 +45,31 @@ local function claim_ages(s: store.Store, all: {item.Item}): health.Ages
     end
   end
   return ages
+end
+
+--- CI check-run state for each open review-stage item that carries a
+--- PR, read from GitHub once per render — one `gh.head_checks` call
+--- per candidate, the same live-read shape `claim_ages` uses for
+--- staleness, never one call per item on the board. `head_checks`
+--- reads nil with no GitHub reach (no origin, no token, a network
+--- error), and that id is simply left out of the map — exactly what
+--- `action.tl`'s `phased_action` already treats as "unknown", offered
+--- the same as it always was.
+--- @param s store.Store The store
+--- @param all {item.Item} Every item
+--- @return act.CiStates CI state by item id
+local function ci_states(s: store.Store, all: {item.Item}): act.CiStates
+  local out: act.CiStates = {}
+  for _, i in ipairs(all) do
+    if item.is_open(i) and flow.stage_rank(i) == flow.STAGE_REVIEW
+    and (i.pr or 0) ~= 0 then
+      local hc = gh.head_checks(s, i.pr, i.repo)
+      if hc ~= nil then
+        out[i.id] = hc.state
+      end
+    end
+  end
+  return out
 end
 
 --- Every spec sidecar, by item id, for the bar checks the reports
@@ -285,10 +311,12 @@ end
 --- @param specs act.Specs Sidecar body by id
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
+--- @param ci act.CiStates CI state by item id, absent when unknown
 --- @return string The action, its target, the rule behind it, and its guidance
 local function next_report_live(s: store.Store, all: {item.Item},
-    specs: act.Specs, session?: string, ages?: health.Ages): string
-  local action = act.next_action(all, specs, session, ages, session)
+    specs: act.Specs, session?: string, ages?: health.Ages,
+    ci?: act.CiStates): string
+  local action = act.next_action(all, specs, session, ages, session, ci)
   if action.kind == "pull" and action.item then
     local events = publish.history(s, action.item.id)
     if events and events[1] then
@@ -304,7 +332,8 @@ local function cmd_next(s: store.Store, session?: string): integer
     return verdict_line("next", false, aerr)
   end
   return verdict_line("next", true,
-    next_report_live(s, all, read_specs(s, all), session, claim_ages(s, all)))
+    next_report_live(s, all, read_specs(s, all), session, claim_ages(s, all),
+      ci_states(s, all)))
 end
 
 local record gitview
@@ -314,7 +343,8 @@ local record gitview
   next_report: function(all: {item.Item}, specs: act.Specs,
   session?: string, ages?: health.Ages): string
   next_report_live: function(s: store.Store, all: {item.Item},
-  specs: act.Specs, session?: string, ages?: health.Ages): string
+  specs: act.Specs, session?: string, ages?: health.Ages,
+  ci?: act.CiStates): string
   bounce_note: function(subject: string): string
   read_specs: function(s: store.Store, all: {item.Item}): act.Specs
   cmd_status: function(s: store.Store): integer
