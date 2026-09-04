@@ -328,6 +328,54 @@ local function test_is_recording_env_reads_the_marker()
   restore_coverage_env(saved)
 end
 
+--- Run `fn` with cwd at `root`, `COSMIC_COVERAGE_ENV` set to `marker` (nil
+--- unsets it), and `io.stderr`/`io.output` redirected to files under
+--- `root` -- restoring cwd, the marker and both streams unconditionally,
+--- in the reverse order, even when `fn` throws. A throw is re-raised
+--- after restoring, so no exception from `fn` can leave the process in
+--- the fixture directory, with the marker flipped, or writing to a
+--- closed file -- the failure a later test in this file would otherwise
+--- inherit for the wrong reason.
+--- @param root string The fixture root to chdir into
+--- @param marker string | nil The value to set COSMIC_COVERAGE_ENV to; nil unsets it
+--- @param fn function(): integer The protected body; its return is the exit code
+--- @return integer The exit code `fn` returned
+--- @return string The captured stdout
+--- @return string The captured stderr
+local function with_baseline_env(root: string, marker: string | nil,
+    fn: function(): integer): integer, string, string
+  local cwd = check.must(fs.cwd())
+  local saved_marker = save_coverage_env()
+  if marker then
+    assert(env.set("COSMIC_COVERAGE_ENV", marker, true))
+  else
+    assert(env.unset("COSMIC_COVERAGE_ENV"))
+  end
+  check.must(fs.set_cwd(root))
+  local stdout_path = fs.join(root, "stdout.txt")
+  local stderr_path = fs.join(root, "stderr.txt")
+  local real_stdout = io.output()
+  local real_stderr = io.stderr
+  io.stderr = assert(io.open(stderr_path, "w"))
+  io.output(assert(io.open(stdout_path, "w")))
+
+  local ok, code_or_err = pcall(fn)
+
+  io.output():close()
+  io.output(real_stdout)
+  io.stderr:close()
+  io.stderr = real_stderr
+  check.must(fs.set_cwd(cwd))
+  restore_coverage_env(saved_marker)
+
+  if not ok then
+    error(code_or_err, 0)
+  end
+  local stdout_text = check.must(fs.read(stdout_path))
+  local stderr_text = check.must(fs.read(stderr_path))
+  return code_or_err, stdout_text, stderr_text
+end
+
 -- The guard this item adds: outside the recording environment,
 -- `write_baseline` refuses rather than rewriting the floor with
 -- whatever THIS machine measured -- the bug report's 173 unrelated
@@ -338,19 +386,9 @@ end
 local function test_write_baseline_refuses_outside_recording_env()
   local root, proj = write_baseline_fixture("policy-write-baseline-refused")
   local before = check.must(fs.read(fs.join(root, policy.BASELINE)))
-  local cwd = check.must(fs.cwd())
-  check.must(fs.set_cwd(root))
-  local captured = fs.join(root, "stderr.txt")
-  local real_stderr = io.stderr
-  io.stderr = assert(io.open(captured, "w"))
-  local saved = save_coverage_env()
-  assert(env.unset("COSMIC_COVERAGE_ENV"))
-  local code = policy.write_baseline(proj)
-  restore_coverage_env(saved)
-  io.stderr:close()
-  io.stderr = real_stderr
-  check.must(fs.set_cwd(cwd))
-  local printed = check.must(fs.read(captured))
+  local code, _stdout, printed = with_baseline_env(root, nil, function(): integer
+      return policy.write_baseline(proj)
+    end)
 
   assert(code ~= 0, "a refusal must be a nonzero exit code")
   assert(not printed:find("COSMIC_COVERAGE_ENV", 1, true),
@@ -371,26 +409,15 @@ end
 -- the run: floor on disk, `.cov` on disk, `write_baseline` itself, with
 -- one row raised and two lowered, counts chosen unequal so a swap at
 -- either seam reads "1 row(s) lowered, 2 raised" and fails here. Runs
--- as the recording environment (`save_coverage_env` /
--- `restore_coverage_env`) -- outside it `write_baseline` now refuses
--- before ever reaching this code, covered by
--- `test_write_baseline_refuses_outside_recording_env` above.
+-- as the recording environment (`with_baseline_env`'s marker) -- outside
+-- it `write_baseline` now refuses before ever reaching this code,
+-- covered by `test_write_baseline_refuses_outside_recording_env` above.
 local function test_write_baseline_prints_each_move_and_unequal_counts()
   local root, proj = write_baseline_fixture("policy-write-baseline")
-  local captured = fs.join(root, "stdout.txt")
-  local cwd = check.must(fs.cwd())
-  check.must(fs.set_cwd(root))
-  local out, oerr = io.open(captured, "w")
-  assert(out, oerr)
-  io.output(out)
-  local saved = save_coverage_env()
-  assert(env.set("COSMIC_COVERAGE_ENV", policy.RECORDING_ENV_VALUE, true))
-  local code = policy.write_baseline(proj)
-  restore_coverage_env(saved)
-  io.output(io.stdout)
-  out:close()
-  check.must(fs.set_cwd(cwd))
-  local printed = check.must(fs.read(captured))
+  local code, printed, _stderr = with_baseline_env(root, policy.RECORDING_ENV_VALUE,
+    function(): integer
+      return policy.write_baseline(proj)
+    end)
   assert(code == 0, "the rewrite must succeed, got " .. code .. ":\n" .. printed)
 
   local raises: {string} = {}
