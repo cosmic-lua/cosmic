@@ -64,10 +64,12 @@ poll.
 with `--routine` the pass runs with nobody reading and nobody to
 ask, and it observes itself while it runs:
 
-- **terse.** the report is the ledger and nothing else: one line per
-  board action, one per anything posted for a human, the friction
-  log's handle. no narration between actions, no summary of the
-  doctrine, no restating what the verdict lines already said.
+- **terse.** no human is reading the chat. there are no progress
+  updates between actions, no narration, no summary of the doctrine,
+  no restating what the verdict lines already said; the only prose
+  the pass writes is one terse summary at its end: what moved, one
+  line per board action, and the friction log's handle. everything
+  else a reader might want is already on the board.
 - **no questions.** never ask; the tool that asks the user is not
   used at all. a decision that belongs to the goal owner — a
   comparison that would put new work above existing work, a wall a
