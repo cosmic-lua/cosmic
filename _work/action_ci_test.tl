@@ -131,3 +131,31 @@ local function test_no_ci_map_offers_the_review_as_before()
   assert(a.kind == "review" and a.item.id == reviewable.id,
     "no CI map is not a refusal: " .. a.kind)
 end
+
+-- The printed count must match the printed names: a CI-running item
+-- this session built is distance-refused (excluded from the tally,
+-- the same distance `take` itself refuses on), while a second
+-- CI-running item nobody here built stays in the tally. The count
+-- says how many were tallied, so it must name only that one — not the
+-- distance-refused item too, which would make "1 item(s)" sit next to
+-- two names. Unplaced root with two open children, the same shape
+-- `test_a_running_head_is_not_offered` uses, so no intake rung fires
+-- instead.
+local function test_ci_names_matches_the_tallied_count()
+  local root = make({})
+  local mine = make({parent = root.id, claim = "who", pr = 2,
+      builders = "me"})
+  local theirs = make({parent = root.id, claim = "who", pr = 3})
+  local items: {Item} = {root, mine, theirs}
+  local specs = ready_specs(items)
+  local ci: act.CiStates = {[mine.id] = "running", [theirs.id] = "running"}
+  local a = act.next_action(items, specs, "me", nil, "", ci)
+  assert(a.kind == "none", "nothing else fires: " .. a.kind)
+  assert(a.reason:find("1 item(s) await CI", 1, true) ~= nil,
+    "the count reflects only what was tallied: " .. a.reason)
+  assert(a.reason:find(theirs.id:sub(1, 8), 1, true) ~= nil,
+    "the tallied item is named: " .. a.reason)
+  assert(a.reason:find(mine.id:sub(1, 8), 1, true) == nil,
+    "the distance-refused item is never named alongside a count that "
+    .. "excludes it: " .. a.reason)
+end
