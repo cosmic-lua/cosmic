@@ -69,7 +69,7 @@ return {
   ["_make/converge.tl"] = {["covered"] = 34, ["total"] = 62},
   ["_make/deps.tl"] = {["covered"] = 73, ["total"] = 73},
   ["_make/docs.tl"] = {["covered"] = 13, ["total"] = 31},
-  ["_make/engine.tl"] = {["covered"] = 12, ["total"] = 12},
+  ["_make/engine.tl"] = {["covered"] = 11, ["total"] = 11},
   ["_make/envstamp.tl"] = {["covered"] = 48, ["total"] = 52},
   ["_make/extract.tl"] = {["covered"] = 51, ["total"] = 72},
   ["_make/fetch.tl"] = {["covered"] = 118, ["total"] = 148},
