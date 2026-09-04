@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1702,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-F6zo_pi1N-07d7b9b9",
   ["title"] = "gitboard take: the pull's success line names the item branch, so worktrees are made right the first time",
 }
