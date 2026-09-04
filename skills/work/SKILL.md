@@ -30,7 +30,7 @@ cosmic-lua/cosmic, reached as a worktree of the checkout you already
 have; the branch carries its own machinery and builds its own tool:
 
 ```bash
-git worktree add o/board board        # once per checkout
+git fetch origin board && git worktree add o/board board   # once per checkout
 cd o/board && bin/cosmic --make build # once, on a cold worktree
 ```
 
