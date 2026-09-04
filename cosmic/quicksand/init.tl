@@ -112,10 +112,10 @@ end
 local function probe_unshare(flags: integer): boolean
   local host_uid = unix.geteuid()
   local host_gid = unix.getegid()
-  local r, w = unix.pipe(unix.O_CLOEXEC)
-  if not r then return false end
-  local rfd = r
-  local wfd = w
+  local p = unix.pipe(unix.O_CLOEXEC)
+  if not p then return false end
+  local rfd = p.reader
+  local wfd = p.writer
   local pid = unix.fork()
   if pid == nil then
     unix.close(rfd)

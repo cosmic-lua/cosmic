@@ -190,8 +190,12 @@ end
 local function test_raise_error_names_errno()
   local ok, err = signal.raise(999999)
   assert(ok == false, "raise of invalid signal should fail")
-  assert(type(err) == "string" and err:match("EINVAL"),
-    "raise error should name EINVAL, got: " .. tostring(err))
+  -- An invalid signal number is now a bad-argument error the binding
+  -- raises directly rather than a runtime EINVAL from the kernel (no
+  -- syscall is even attempted), so the message names the bad
+  -- argument instead of an errno.
+  assert(type(err) == "string" and err:match("invalid signal number"),
+    "raise error should name the bad signal number, got: " .. tostring(err))
 end
 
 local function test_setitimer_error_names_errno()
@@ -209,8 +213,12 @@ local function test_sigprocmask_error_names_errno()
   local mask = signal.sigset(signal.SIGUSR1)
   local old, err = signal.sigprocmask(999999, mask)
   assert(old == nil, "sigprocmask with bad how should return nil")
-  assert(type(err) == "string" and err:match("EINVAL"),
-    "sigprocmask error should name EINVAL, got: " .. tostring(err))
+  -- An invalid `how` is now a bad-argument error the binding raises
+  -- directly rather than a runtime EINVAL from the kernel (no
+  -- syscall is even attempted), so the message names the bad
+  -- argument instead of an errno.
+  assert(type(err) == "string" and err:match("invalid how"),
+    "sigprocmask error should name the bad how value, got: " .. tostring(err))
 end
 
 local function test_sigsuspend_succeeds_on_delivery()

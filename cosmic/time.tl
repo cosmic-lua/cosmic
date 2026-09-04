@@ -80,19 +80,20 @@ local function sleep_remaining_ms(seconds: integer, nanos?: integer): integer | 
   -- The binding reports its own remainder: zero when the sleep
   -- completed, and on EINTR the kernel's own remainder after the
   -- errno.
-  local rem_s, rem_ns, eno, eintr_s, eintr_ns = unix.nanosleep(seconds, ns)
+  -- The binding now bundles the remainder into a unix.SleepRemainder
+  -- table on both the success and EINTR paths, and the EINTR
+  -- remainder is a separate 4th return, never sharing a slot with the
+  -- error string.
+  local rem, err, eno, eintr_rem = unix.nanosleep(seconds, ns)
   -- Round up so an interrupted sleep never reports 0 remaining.
-  if rem_s ~= nil then
-    -- Slot 2 is slot-accurate since the pin bump: the error string only
-    -- when slot 1 is nil, the remainder's nanoseconds past this guard.
-    -- cast: tuple union arm after success guard
-    return math.ceil(rem_s * 1000 + (rem_ns as integer) / 1000000)
+  if rem ~= nil then
+    return math.ceil(rem.seconds * 1000 + rem.nanos / 1000000)
   end
-  if errno.is_code(eno, "EINTR") then
-    return math.ceil((eintr_s or 0) * 1000 + (eintr_ns or 0) / 1000000),
-    errno.format(rem_ns, "sleep")
+  if errno.is_code(eno, "EINTR") and eintr_rem then
+    return math.ceil(eintr_rem.seconds * 1000 + eintr_rem.nanos / 1000000),
+    errno.format(err, "sleep")
   end
-  return nil, errno.format(rem_ns, "sleep")
+  return nil, errno.format(err, "sleep")
 end
 
 --- Sleep for the specified number of milliseconds.
@@ -124,26 +125,24 @@ end
 --- @return DateTime | nil Broken-down time in UTC, or nil on failure
 --- @return string Error message on failure
 local function gmtime(unixts: integer): DateTime | nil, string
-  local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
-  unix.gmtime(unixts)
-  if year == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the slot mon occupies on success.
-    return nil, errno.format(mon as string, "gmtime") -- cast: tuple element
+  -- The binding now returns one unix.BrokenDownTime table on success;
+  -- on failure the error string has its own dedicated slot 2.
+  local bdt, err = unix.gmtime(unixts)
+  if not bdt then
+    return nil, errno.format(err, "gmtime")
   end
   return {
-    year = year,
-    -- cast: tuple element (integer whenever year is non-nil)
-    month = mon as integer,
-    day = mday as integer, -- cast: tuple element
-    hour = hour,
-    min = min,
-    sec = sec,
-    gmtoff = gmtoff,
-    wday = wday,
-    yday = yday,
-    isdst = isdst > 0,
-    zone = zone,
+    year = bdt.year,
+    month = bdt.mon,
+    day = bdt.mday,
+    hour = bdt.hour,
+    min = bdt.min,
+    sec = bdt.sec,
+    gmtoff = bdt.gmtoffsec,
+    wday = bdt.wday,
+    yday = bdt.yday,
+    isdst = bdt.dst > 0,
+    zone = bdt.zone,
   }
 end
 
@@ -154,26 +153,24 @@ end
 --- @return DateTime | nil Broken-down time in local timezone, or nil on failure
 --- @return string Error message on failure
 local function localtime(unixts: integer): DateTime | nil, string
-  local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
-  unix.localtime(unixts)
-  if year == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the slot mon occupies on success.
-    return nil, errno.format(mon as string, "localtime") -- cast: tuple element
+  -- The binding now returns one unix.BrokenDownTime table on success;
+  -- on failure the error string has its own dedicated slot 2.
+  local bdt, err = unix.localtime(unixts)
+  if not bdt then
+    return nil, errno.format(err, "localtime")
   end
   return {
-    year = year,
-    -- cast: tuple element (integer whenever year is non-nil)
-    month = mon as integer,
-    day = mday as integer, -- cast: tuple element
-    hour = hour,
-    min = min,
-    sec = sec,
-    gmtoff = gmtoff,
-    wday = wday,
-    yday = yday,
-    isdst = isdst > 0,
-    zone = zone,
+    year = bdt.year,
+    month = bdt.mon,
+    day = bdt.mday,
+    hour = bdt.hour,
+    min = bdt.min,
+    sec = bdt.sec,
+    gmtoff = bdt.gmtoffsec,
+    wday = bdt.wday,
+    yday = bdt.yday,
+    isdst = bdt.dst > 0,
+    zone = bdt.zone,
   }
 end
 

@@ -33,8 +33,8 @@ end
 
 local function test_regex_search_match()
   local regex = check.must(re.compile("world"), "compile failed")
-  local result = regex:match("hello world")
-  assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
+  local result = check.must(regex:match("hello world"))
+  assert(result.match == "world", "expected 'world', got '" .. tostring(result.match) .. "'")
 end
 
 local function test_regex_search_no_match()
@@ -45,33 +45,33 @@ end
 
 local function test_regex_search_beginning()
   local regex = check.must(re.compile("^hello"), "compile failed")
-  local result = regex:match("hello world")
-  assert(result == "hello", "expected 'hello', got '" .. tostring(result) .. "'")
+  local result = check.must(regex:match("hello world"))
+  assert(result.match == "hello", "expected 'hello', got '" .. tostring(result.match) .. "'")
 end
 
 local function test_regex_search_end()
   local regex = check.must(re.compile("world$"), "compile failed")
-  local result = regex:match("hello world")
-  assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
+  local result = check.must(regex:match("hello world"))
+  assert(result.match == "world", "expected 'world', got '" .. tostring(result.match) .. "'")
 end
 
 local function test_regex_search_character_class()
   local regex = check.must(re.compile("[0-9]+"), "compile failed")
-  local result = regex:match("abc123def")
-  assert(result == "123", "expected '123', got '" .. tostring(result) .. "'")
+  local result = check.must(regex:match("abc123def"))
+  assert(result.match == "123", "expected '123', got '" .. tostring(result.match) .. "'")
 end
 
 local function test_regex_search_alternation()
   local regex = check.must(re.compile("cat|dog"), "compile failed")
-  local result = regex:match("I have a dog")
-  assert(result == "dog", "expected 'dog', got '" .. tostring(result) .. "'")
+  local result = check.must(regex:match("I have a dog"))
+  assert(result.match == "dog", "expected 'dog', got '" .. tostring(result.match) .. "'")
 end
 
 local function test_regex_search_captures()
   local regex = check.must(re.compile("([a-z]+)([0-9]+)"), "compile failed")
-  local result, raw_caps = regex:match("abc123")
-  assert(result == "abc123", "expected 'abc123', got '" .. tostring(result) .. "'")
-  local caps = check.must(raw_caps, "expected captures table on match")
+  local result = check.must(regex:match("abc123"))
+  assert(result.match == "abc123", "expected 'abc123', got '" .. tostring(result.match) .. "'")
+  local caps = result.captures
   assert(#caps == 2, "expected 2 captures, got " .. tostring(#caps))
   assert(caps[1] == "abc", "expected first capture 'abc', got '" .. tostring(caps[1]) .. "'")
   assert(caps[2] == "123", "expected second capture '123', got '" .. tostring(caps[2]) .. "'")
@@ -181,8 +181,8 @@ end
 
 local function test_compile_ignore_case_option()
   local regex = check.must(re.compile("WORLD", {ignore_case = true}))
-  local result = regex:match("hello world")
-  assert(result == "world", "expected 'world' with ignore_case")
+  local result = check.must(regex:match("hello world"))
+  assert(result.match == "world", "expected 'world' with ignore_case")
 end
 
 -- search_flags: a SearchOptions in, the integer flag word Regex's
@@ -204,7 +204,8 @@ end
 
 local function test_not_bol_suppresses_caret_at_subject_start()
   local regex = check.must(re.compile("^foo"))
-  assert(regex:match("foobar") == "foo", "^ matches at a whole subject's start")
+  local whole = check.must(regex:match("foobar"))
+  assert(whole.match == "foo", "^ matches at a whole subject's start")
   local suppressed = regex:match("foobar", re.search_flags({not_bol = true}))
   assert(suppressed == nil,
     "not_bol must stop ^ matching at the start, got " .. tostring(suppressed))
@@ -212,7 +213,8 @@ end
 
 local function test_not_eol_suppresses_dollar_at_subject_end()
   local regex = check.must(re.compile("bar$"))
-  assert(regex:match("foobar") == "bar", "$ matches at a whole subject's end")
+  local whole = check.must(regex:match("foobar"))
+  assert(whole.match == "bar", "$ matches at a whole subject's end")
   local suppressed = regex:match("foobar", re.search_flags({not_eol = true}))
   assert(suppressed == nil,
     "not_eol must stop $ matching at the end, got " .. tostring(suppressed))
@@ -251,11 +253,11 @@ end
 local function test_reuse_compiled_regex()
   local regex = check.must(re.compile("[a-z]+"), "compile failed")
 
-  local r1 = regex:match("123abc456")
-  assert(r1 == "abc", "first search failed")
+  local r1 = check.must(regex:match("123abc456"))
+  assert(r1.match == "abc", "first search failed")
 
-  local r2 = regex:match("xyz789")
-  assert(r2 == "xyz", "second search failed")
+  local r2 = check.must(regex:match("xyz789"))
+  assert(r2.match == "xyz", "second search failed")
 
   local r3 = regex:match("12345")
   assert(r3 == nil, "expected nil for no match")

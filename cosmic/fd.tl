@@ -244,13 +244,13 @@ end
 
 --- Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
 local function pipe(flags?: integer): Pipe | nil, string
-  local reader_fd, writer_fd = unix.pipe(flags)
-  if not reader_fd then
+  local p, err = unix.pipe(flags)
+  if not p then
     -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the second slot, where the writer fd would have been.
-    return nil, errstr(writer_fd, "pipe")
+    -- arrives in the second slot, where the unix.Pipe would have been.
+    return nil, errstr(err, "pipe")
   end
-  return make_pipe(make_handle(reader_fd), make_handle(writer_fd))
+  return make_pipe(make_handle(p.reader), make_handle(p.writer))
 end
 
 --- Wrap an already-open raw file descriptor in a Handle.

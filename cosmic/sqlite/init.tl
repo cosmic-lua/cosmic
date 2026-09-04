@@ -402,10 +402,12 @@ local function open(filename: string, opts?: Options): Database | nil, string
   local raw_db: lsqlite3.Database | nil
   local errcode: number | nil
   local errmsg: string | nil
+  -- The binding's failure slot order swapped: errormsg now lands in
+  -- slot 2 and errorcode in slot 3 (previously the reverse).
   if opts and opts.read_only then
-    raw_db, errcode, errmsg = sqlite3.open(filename, sqlite3.OPEN_READONLY)
+    raw_db, errmsg, errcode = sqlite3.open(filename, sqlite3.OPEN_READONLY)
   else
-    raw_db, errcode, errmsg = sqlite3.open(filename)
+    raw_db, errmsg, errcode = sqlite3.open(filename)
   end
   -- `is` narrows the guarded variable, here in the positive branch;
   -- safe at this cosmo.* boundary because the cosmic searcher is the

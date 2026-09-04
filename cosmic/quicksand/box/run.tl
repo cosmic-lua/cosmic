@@ -306,15 +306,15 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
   -- CLOEXEC error pipe: a successful execve closes the workload's
   -- write end automatically, so a non-empty pipe always means setup
   -- failed before the workload ran.
-  local er, ew = unix.pipe(unix.O_CLOEXEC)
-  if not er then
+  local errpipe, ew = unix.pipe(unix.O_CLOEXEC)
+  if not errpipe then
     if parent_fd then
       unix.close(parent_fd)
     end
     return nil, "quicksand: pipe: " .. tostring(ew)
   end
-  local erfd = er
-  local ewfd = ew
+  local erfd = errpipe.reader
+  local ewfd = errpipe.writer
 
   local pid, ferr = unix.fork()
   if not pid then
@@ -340,14 +340,14 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
   -- than treating the errno string as a wait status.
   local status: integer
   while true do
-    local wpid, wstatus, weno = unix.wait(pid)
-    if wpid then
-      status = wstatus
+    local result, werr, weno = unix.wait(pid)
+    if result then
+      status = result.wstatus
       break
     end
     if not errno.is_code(weno, "EINTR") then
       unix.close(erfd)
-      return nil, "quicksand: wait: " .. tostring(wstatus)
+      return nil, "quicksand: wait: " .. tostring(werr)
     end
   end
 

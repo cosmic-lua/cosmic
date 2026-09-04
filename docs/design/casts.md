@@ -148,8 +148,8 @@ cover every accepted form. The caller has guarded; the declaration has
 not.
 
 ```text
--- cosmic/time.tl:132
-    return nil, errno.format(mon as string, "gmtime") -- cast: tuple element
+-- cosmic/fetch/init.tl:241
+      status = status as integer, -- cast: dual-shape binding return
 ```
 
 **What closes it upstream.** These declarations are generated from

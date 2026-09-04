@@ -85,7 +85,16 @@ local function open_pty(): TtyModule.Pty | nil, string
     -- slot carries the error string rather than a descriptor
     return nil, errstr(sfd, "openpty")
   end
-  return {manager = mfd, subordinate = sfd, name = name}
+  -- mfd succeeded, so sfd/name are the subordinate fd/path in
+  -- practice; the checker does not correlate the three return slots,
+  -- so narrow each explicitly rather than casting.
+  if sfd is string then
+    return nil, errstr(sfd, "openpty")
+  end
+  if name is string then
+    return {manager = mfd, subordinate = sfd, name = name}
+  end
+  return nil, errstr(sfd, "openpty")
 end
 
 --- Makes fd the controlling terminal of this process.
@@ -122,6 +131,11 @@ local function window_size(fd: integer): TtyModule.WindowSize | nil, string
   if rows == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot, where the columns would have been.
+    return nil, errstr(cols, "tiocgwinsz")
+  end
+  if cols is string then
+    -- rows succeeded, so cols is the column count in practice; the
+    -- checker does not correlate the two return slots.
     return nil, errstr(cols, "tiocgwinsz")
   end
   return {rows = rows, cols = cols}
