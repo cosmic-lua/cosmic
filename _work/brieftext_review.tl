@@ -59,7 +59,13 @@ fine.
 Mutation-test at least one guard the change adds or relies on: break
 what it guards, confirm the diff's own test catches it, restore it
 exactly. Do this from your own fresh checkout — never reuse another
-agent's worktree.
+agent's worktree. If you start a build or the gate in the background,
+block on it SYNCHRONOUSLY in the same turn — poll with `kill -0
+<PID>` in a loop (`while kill -0 <PID> 2>/dev/null; do sleep 5;
+done`), or just run it in the foreground unbackgrounded. Never end
+the turn assuming something will notify you when it finishes: a
+subagent has no persistent monitoring between turns, and `sleep N;
+<command>` is exactly the pattern the harness blocks.
 
 ## Recording your verdict
 
@@ -125,7 +131,14 @@ reads well.
    against a fresh read-only clone of `<REPO>` bootstrapped per its
    own AGENTS.md — and compare what it returns now with what the
    spec pastes. A number that moved is a finding to quote; a command
-   that no longer produces the claimed shape is a gap.
+   that no longer produces the claimed shape is a gap. If you start a
+   build or a probe in the background, block on it SYNCHRONOUSLY in
+   the same turn — poll with `kill -0 <PID>` in a loop (`while kill
+   -0 <PID> 2>/dev/null; do sleep 5; done`), or just run it in the
+   foreground unbackgrounded. Never end the turn assuming something
+   will notify you when it finishes: a subagent has no persistent
+   monitoring between turns, and `sleep N; <command>` is exactly the
+   pattern the harness blocks.
 2. The findings are the Change — every claim carries its command
    and pasted output; a claim with neither is inference, and a gap
    to quote.
