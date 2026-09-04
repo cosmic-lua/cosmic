@@ -237,10 +237,15 @@ local function process_source(input: string, name: string, include_dirs: {string
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
   local ok, result_or_err = pcall(tl.process_string, input, false,
-    env as tl.Env, -- cast: env's declared type stays any until build_env and
-    -- process_source are retyped to return Env directly; this cast only
-    -- satisfies tl.process_string's now-curated 4th parameter and is
-    -- removed once that retyping lands
+    env as tl.Env, -- cast: satisfies process_string's curated 4th parameter
+    -- until build_env returns tl.Env directly. The pinned bootstrap's
+    -- embedded tl.d.tl has no Env, so this line fails `--check types`
+    -- under the bootstrap alone -- it survives a cold build because this
+    -- file is never compiled from the tree before _types/types_gen.tl has
+    -- produced o/_types/types_gen/tl.d.tl: searcher.tl's compiling guard
+    -- loads this engine from /zip instead of the tree. _teal_ast.tl does
+    -- NOT enjoy that guard: build_env above requires it FROM THE TREE, so
+    -- no tl.Env cast may land there before the pin bump retires this one
     name)
 
   tl.path = saved_tl_path
