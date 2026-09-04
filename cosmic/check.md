@@ -20,6 +20,7 @@ local record CheckModule
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
   refuses: function(f: any, ...: any): string
   is_exposed: function(module: any, name: string): boolean
+  swap_members: function(module: any, members: {string: any}, body: function())
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -120,6 +121,23 @@ function is_exposed(module: any, name: string): boolean
 **Returns:**
 
 - boolean - True when `module[name]` is non-nil
+
+### swap_members
+
+```teal
+function swap_members(module: any, members: {string: any}, body: function())
+```
+
+ Swap named members of a module (or record) for the duration of a call,
+ restoring every one afterward — whether body returns or throws. Built
+ for a test that monkeypatches a function a module exposes only through
+ its declared record type: swap it out, run body, put the original back.
+
+**Parameters:**
+
+- `module` (any) - The module (or record) whose members to swap
+- `members` ({string:) - any} Replacement values keyed by member name
+- `body` (function()) - The code to run with the members replaced
 
 ### failed
 
