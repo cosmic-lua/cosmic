@@ -1,6 +1,8 @@
 return {
   ["base"] = "board",
   ["beats"] = "3IYMNJ628t8lkLDklTtEAi9RFmX",
+  ["builders"] = "build-Elus_cLzz-07d7b9b9",
+  ["claim"] = "build-Elus_cLzz-07d7b9b9",
   ["id"] = "3IqUqaJAw185wF9feSqEluscLzz",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["repo"] = "cosmic-lua/cosmic",
