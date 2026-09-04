@@ -380,8 +380,8 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
     end
     local function reap()
       while true do
-        local pid = unix.wait(-1, unix.WNOHANG)
-        if not pid or pid == 0 then return end
+        local result = unix.wait(-1, unix.WNOHANG)
+        if not result or result.pid == 0 then return end
       end
     end
     while true do

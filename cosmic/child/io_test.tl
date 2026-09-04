@@ -26,7 +26,8 @@ local function test_first_start_keeps_installed_sigpipe_handler()
   unix.sigaction(unix.SIGPIPE, handler)
   local r = check.must(child.run({lua_bin, "-e", "os.exit(0)"}))
   assert(r.ok, "spawn should succeed")
-  assert(unix.sigaction(unix.SIGPIPE) == handler,
+  local prev = unix.sigaction(unix.SIGPIPE)
+  assert(prev and prev.handler == handler,
     "first start() clobbered the installed SIGPIPE handler")
   -- Hand the rest of the file the disposition the lazy install would have
   -- chosen from the default: ignored, so the EPIPE tests below stay safe.

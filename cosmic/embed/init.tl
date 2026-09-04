@@ -372,19 +372,18 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
   -- Writing directly to the output path would corrupt any running process
   -- that has the file mmapped (the APE loader uses MAP_PRIVATE file-backed
   -- mappings for code pages; overwriting the file invalidates those pages).
-  local tmp_fd, tmp_path = unix.mkstemp(output .. ".XXXXXX")
-  if not tmp_fd then
+  local tmp_fd, tmp_res = unix.mkstemp(output .. ".XXXXXX")
+  if not tmp_fd or tmp_res is string then
     return nil, "error: cannot create temp file near '" .. output .. "'"
   end
+  local tmp_path = tmp_res.path
   unix.close(tmp_fd)
-
   local copy_ok, copy_err = fs.copy(exe_path, tmp_path)
   if not copy_ok then
     local _ok, _err = fs.remove(tmp_path)
     return nil, "error: cannot copy '" .. exe_path .. "' to '" .. tmp_path .. "': " .. (copy_err or "unknown error")
   end
   unix.chmod(tmp_path, tonumber("755", 8))
-
   -- Open the copy in append mode to modify its zip in-place
   -- (cosmic.zip's own Archive)
   local appender_maybe, appender_err = czip.open(tmp_path, {mode = "append"})

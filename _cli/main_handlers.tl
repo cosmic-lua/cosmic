@@ -90,10 +90,16 @@ local function write_output(content: string, output: string, write_if_changed: b
     return 0
   end
   local unix = require("cosmo.unix")
-  local tmp_fd, tmp_path = unix.mkstemp(output .. ".XXXXXX")
+  local tmp_fd, tmp_res = unix.mkstemp(output .. ".XXXXXX")
   if not tmp_fd then
     return 1, "write-if-changed: mkstemp failed for: " .. output
   end
+  if tmp_res is string then
+    -- tmp_fd succeeded, so tmp_res is the created MkstempPath in
+    -- practice; the checker does not correlate the two return slots.
+    return 1, "write-if-changed: mkstemp failed for: " .. output
+  end
+  local tmp_path = tmp_res.path
   unix.close(tmp_fd)
   local ok, err = fs.write(tmp_path, content)
   if not ok then

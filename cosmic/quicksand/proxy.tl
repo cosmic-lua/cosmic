@@ -73,7 +73,7 @@ local function handle_stop(self: ProxyHandle, timeout_ms?: integer): boolean
   local deadline = now_ms() + timeout_ms
   while true do
     local gone = unix.wait(pid, unix.WNOHANG)
-    if gone == pid then
+    if gone and gone.pid == pid then
       self.pid = 0
       return true
     end
@@ -93,7 +93,7 @@ end
 local function handle_alive(self: ProxyHandle): boolean
   if self.pid == 0 then return false end
   local gone = unix.wait(self.pid, unix.WNOHANG)
-  if gone == self.pid then
+  if gone and gone.pid == self.pid then
     self.pid = 0
     return false
   end
@@ -114,10 +114,10 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
   -- cast: widen rule map for validator
   local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
   if not vok then return nil, verr end
-  local r, w = unix.pipe()
-  if not r then return nil, errno.format(w, "pipe") end
-  local rfd = r
-  local wfd = w
+  local p, perr = unix.pipe()
+  if not p then return nil, errno.format(perr, "pipe") end
+  local rfd = p.reader
+  local wfd = p.writer
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)

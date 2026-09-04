@@ -173,12 +173,11 @@ end
 --- @return Barrier? barrier object on success
 --- @return string? error message on failure
 local function barrier(): Barrier | nil, string
-  -- On failure pipe returns nil, err (string), errno; the error string
-  -- lands in the second slot where the write fd would have been.
-  local r, w = unix.pipe()
-  if not r then return nil, errno.format(w, "pipe") end
-  local rfd: integer = r
-  local wfd: integer = w
+  -- On failure pipe returns nil, err (string), errno.
+  local p, perr = unix.pipe()
+  if not p then return nil, errno.format(perr, "pipe") end
+  local rfd: integer = p.reader
+  local wfd: integer = p.writer
   local b: Barrier = {}
   b.signal = function(_: Barrier)
     if wfd then
@@ -285,33 +284,33 @@ local function become_init(main_pid: integer, opts: InitOptions): integer
   end
 
   while true do
-    -- On success: pid, wait status, rusage. On failure: nil, err
-    -- (string), errno — so `weno` is the numeric errno exactly when
-    -- pid is nil.
-    local pid, ws, weno = unix.wait()
-    if not pid then
+    -- On success: one WaitResult (pid, wstatus, rusage). On failure:
+    -- nil, err (string), errno — so `weno` is the numeric errno
+    -- exactly when result is nil.
+    local result, _werr, weno = unix.wait()
+    if not result then
       -- EINTR = a forwarded signal arrived mid-wait; loop and reap.
       if not errno.is_code(weno, "EINTR") then
         return 1
       end
-    elseif pid == main_pid then
+    elseif result.pid == main_pid then
       for _, s in ipairs(sidecars) do
         kill_and_reap(s)
       end
-      if unix.WIFEXITED(ws) then
-        return unix.WEXITSTATUS(ws)
+      if unix.WIFEXITED(result.wstatus) then
+        return unix.WEXITSTATUS(result.wstatus)
       end
-      if unix.WIFSIGNALED(ws) then
-        return 128 + (unix.WTERMSIG(ws))
+      if unix.WIFSIGNALED(result.wstatus) then
+        return 128 + (unix.WTERMSIG(result.wstatus))
       end
       return 1
     else
       -- A sidecar exited before main: kill main and report failure.
       -- Unknown children (spurious reaps) keep the loop waiting.
       for _, s in ipairs(sidecars) do
-        if s == pid then
+        if s == result.pid then
           if opts.on_sidecar_exit then
-            pcall(opts.on_sidecar_exit, pid, ws)
+            pcall(opts.on_sidecar_exit, result.pid, result.wstatus)
           end
           kill_and_reap(main_pid)
           return 1

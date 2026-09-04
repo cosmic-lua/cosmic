@@ -27,8 +27,10 @@ local function neutralize_sigpipe()
     return
   end
   sigpipe_checked = true
+  -- The binding now wraps the previous handler in a unix.SignalAction
+  -- table instead of returning it bare.
   local prev = unix.sigaction(unix.SIGPIPE)
-  if prev == unix.SIG_DFL then
+  if prev and prev.handler == unix.SIG_DFL then
     unix.sigaction(unix.SIGPIPE, unix.SIG_IGN)
   end
 end
@@ -128,12 +130,21 @@ end
 --- Reap pid with a blocking wait, retrying when a signal interrupts it
 --- (the signal-safety wave). Returns (pid, status); on a hard wait
 --- failure pid is nil and the error string sits in the status slot.
-local function wait_retry(pid: integer): integer | nil, integer
-  local wpid, status, weno = unix.wait(pid)
-  while wpid == nil and errno.is_code(weno, "EINTR") do
-    wpid, status, weno = unix.wait(pid)
+--- The binding now returns one unix.WaitResult table on success and a
+--- dedicated error string on failure (previously the failure string
+--- shared the status slot with a lie about its type; callers already
+--- guard with `type(status) ~= "number"`, so this widens the
+--- declared type to match what was already true at runtime, rather
+--- than casting).
+local function wait_retry(pid: integer): integer | nil, integer | string
+  local result, status, weno = unix.wait(pid)
+  while result == nil and errno.is_code(weno, "EINTR") do
+    result, status, weno = unix.wait(pid)
   end
-  return wpid, status
+  if result == nil then
+    return nil, status
+  end
+  return result.pid, result.wstatus
 end
 
 -- Put a pipe write end into non-blocking mode so a stdin write in the pump
@@ -286,7 +297,7 @@ local record ChildIoModule
   pump: function(state: PumpState, deadline_ms: number): boolean
   now_ms: function(): integer
   read_retry: function(fd: integer, bufsiz: integer): string | nil, string | nil
-  wait_retry: function(pid: integer): integer | nil, integer
+  wait_retry: function(pid: integer): integer | nil, integer | string
   resolve_stdio: function(stdin?: string | cfd.Handle,
   stdout?: cfd.Handle | StdioMode,
   stderr?: cfd.Handle | StdioMode): Stdio | nil, string

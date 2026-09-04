@@ -47,7 +47,6 @@ return {
   ["cosmic/quicksand/proxy.tl"] = 1,
   ["cosmic/quicksand/proxy/rules_test.tl"] = 2,
   ["cosmic/rand_test.tl"] = 2,
-  ["cosmic/re.tl"] = 2,
   ["cosmic/sandbox/init.tl"] = 1,
   ["cosmic/sandbox/init_test.tl"] = 1,
   ["cosmic/sandbox/plan.tl"] = 2,
@@ -61,6 +60,5 @@ return {
   ["cosmic/stream.tl"] = 1,
   ["cosmic/sys.tl"] = 1,
   ["cosmic/sys_test.tl"] = 2,
-  ["cosmic/time.tl"] = 7,
   ["cosmic/zip.tl"] = 1,
 }

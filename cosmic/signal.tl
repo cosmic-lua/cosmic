@@ -178,9 +178,13 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function raise(sig: integer): boolean, string
-  local rc, err = unix.raise(sig)
-  if rc == nil then
-    return false, errstr(err, "raise")
+  -- The binding no longer reports an invalid sig as a fallible nil,
+  -- err: an invalid signal number is now a bad-argument error it
+  -- raises directly, so the pcall converts that back to this
+  -- wrapper's established fallible contract.
+  local ok, err = pcall(unix.raise, sig)
+  if not ok then
+    return false, "raise: " .. tostring(err)
   end
   return true
 end
@@ -198,22 +202,23 @@ end
 local function setitimer(opts: SetitimerOptions): SetitimerOptions | nil, string
   local value_ms = opts.value_ms or 0
   local interval_ms = opts.interval_ms or 0
-  local old_isec, old_ins, old_vsec, old_vns = unix.setitimer(
+  -- The binding now bundles the previous timer into one
+  -- unix.Itimerval table; on failure the error string has its own
+  -- dedicated slot 2.
+  local prev, err = unix.setitimer(
     opts.which,
     math.floor(interval_ms / 1000),
     math.floor(interval_ms % 1000) * 1000000,
     math.floor(value_ms / 1000),
     math.floor(value_ms % 1000) * 1000000
   )
-  if old_isec == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the second slot.
-    return nil, errstr(old_ins, "setitimer")
+  if not prev then
+    return nil, errstr(err, "setitimer")
   end
   return {
     which = opts.which,
-    value_ms = old_vsec * 1000 + math.ceil(old_vns / 1000000),
-    interval_ms = old_isec * 1000 + math.ceil(old_ins / 1000000),
+    value_ms = prev.valuesec * 1000 + math.ceil(prev.valuens / 1000000),
+    interval_ms = prev.intervalsec * 1000 + math.ceil(prev.intervalns / 1000000),
   }
 end
 
@@ -248,14 +253,14 @@ local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Si
   -- hand-copy of what `cosmo/unix.d.tl` already declares and one liable
   -- to drift out of sync with it.
   local raw_handler = handler as (function | integer) -- cast: handler union
-  local prev, prev_flags, prev_mask =
-  unix.sigaction(sig, raw_handler, flags, mask)
-  if prev == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the second slot.
-    return nil, errstr(prev_flags, "sigaction")
+  -- The binding now bundles the previous handler, flags, and mask
+  -- into one unix.SignalAction table; on failure the error string
+  -- has its own dedicated slot 2.
+  local action, err = unix.sigaction(sig, raw_handler, flags, mask)
+  if not action then
+    return nil, errstr(err, "sigaction")
   end
-  return {handler = prev, flags = prev_flags, mask = prev_mask}
+  return {handler = action.handler, flags = action.flags, mask = action.mask}
 end
 
 --- Modify the process signal mask.
@@ -264,9 +269,13 @@ end
 --- @return Sigset | nil The previous signal mask, or nil on failure
 --- @return string? Error message on failure
 local function sigprocmask(how: integer, set: Sigset): Sigset | nil, string
-  local old, err = unix.sigprocmask(how, set)
-  if old == nil then
-    return nil, errstr(err, "sigprocmask")
+  -- The binding no longer reports an invalid `how` as a fallible nil,
+  -- err: it is now a bad-argument error it raises directly (like
+  -- raise() above), so the pcall converts that back to this
+  -- wrapper's established fallible contract.
+  local ok, old = pcall(unix.sigprocmask, how, set)
+  if not ok then
+    return nil, "sigprocmask: " .. tostring(old)
   end
   return old
 end

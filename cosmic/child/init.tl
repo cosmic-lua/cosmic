@@ -148,8 +148,8 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
       return nil, "timeout"
     end
     local _, status = childio.wait_retry(self.pid)
-    if type(status) ~= "number" then
-      return nil, "wait failed: " .. tostring(status)
+    if status is string then
+      return nil, "wait failed: " .. status
     end
     return finish(self, status)
   end
@@ -158,16 +158,18 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     if self._result then
       return {finished = true, result = self._result}
     end
-    local wpid, status = unix.wait(self.pid, unix.WNOHANG)
-    if wpid == nil then
-      return nil, "wait failed: " .. tostring(status)
+    -- The binding now returns one unix.WaitResult table on success;
+    -- on failure the error string has its own dedicated slot 2.
+    local result, err = unix.wait(self.pid, unix.WNOHANG)
+    if not result then
+      return nil, "wait failed: " .. tostring(err)
     end
-    if wpid == 0 then
+    if result.pid == 0 then
       return {finished = false} -- still running
     end
     -- Reaped: the child is gone, so draining hits EOF promptly.
     childio.pump(self._st, nil)
-    return {finished = true, result = finish(self, status)}
+    return {finished = true, result = finish(self, result.wstatus)}
   end
 
   function handle:read(size?: integer): string | nil, string
@@ -240,13 +242,13 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
   -- child from seeing stdin EOF). The child's own dup2 onto 0/1/2 clears
   -- CLOEXEC on the ends it keeps.
   local function new_pipe(): integer, integer
-    local r, w = unix.pipe(unix.O_CLOEXEC)
-    if r == nil or w == nil then
+    local p = unix.pipe(unix.O_CLOEXEC)
+    if p == nil then
       return nil, nil
     end
-    table.insert(opened, r)
-    table.insert(opened, w)
-    return r, w
+    table.insert(opened, p.reader)
+    table.insert(opened, p.writer)
+    return p.reader, p.writer
   end
 
   local stdin_r: integer

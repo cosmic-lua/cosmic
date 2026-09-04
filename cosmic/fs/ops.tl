@@ -379,10 +379,10 @@ local function temp_file(template?: string): TempFile | nil, string
   template = template or ((os.getenv("TMPDIR") or "/tmp") .. "/cosmic_XXXXXX")
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
-  if not fd then
+  if not fd or path is string then
     return nil, errstr(path, "temp_file: " .. template)
   end
-  return {handle = cfd.wrap(fd), path = path}
+  return {handle = cfd.wrap(fd), path = path.path}
 end
 
 --- Create an anonymous temporary file, returned as an open fd.Handle.
