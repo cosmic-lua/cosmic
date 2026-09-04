@@ -1,7 +1,7 @@
 # Collecting friction
 
-`/work N --friction` runs the same orchestrator pass as `/work N` and
-keeps a friction log alongside it: every inefficiency, confusion, or
+`/work N --routine` runs the same orchestrator pass as `/work N`
+unattended, and keeps a friction log alongside it: every inefficiency, confusion, or
 wrong turn that made the pass or any agent in it slower, more
 expensive in tokens, or worse in what it produced. the log is the
 pass's second deliverable. it ends up on the board as one item to
@@ -60,7 +60,7 @@ one file per pass, `friction-<date>-<label>.md` in the session's
 scratch directory, opened before the first board verb runs:
 
 ```text
-# friction: <date> <label> (/work N --friction)
+# friction: <date> <label> (/work N --routine)
 
 ## orchestrator
 - <observation, four parts>

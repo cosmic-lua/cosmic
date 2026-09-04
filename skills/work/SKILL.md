@@ -9,9 +9,9 @@ description: >
   item, pulling one to implement, reviewing a PR against its spec, or
   landing an accepted one. Invoked with a number (`/work 5`, typically
   under `/loop`), run one orchestrator pass: reconcile the last wave,
-  then fan out up to that many disjoint items; with `--friction` after
-  the number, also keep the friction log friction.md describes and
-  file it on the board.
+  then fan out up to that many disjoint items; with `--routine` after
+  the number, run unattended: terse output, no questions, and the
+  friction log friction.md describes recorded on the board.
 ---
 
 # The system of work for cosmic
@@ -59,15 +59,29 @@ mode a pass that moved nothing is a no-op tick; agents in flight
 notify on completion, so the wakeup is a long fallback, never a
 poll.
 
-## /work N --friction — the same pass, observed
+## /work N --routine — the same pass, unattended
 
-with `--friction` the pass also keeps a friction log: for the
-orchestrator and for every agent it runs, each place where the goal
-and what actually happened differed in a way that cost time, tokens,
-or quality, with the numbers that size the cost, what made the
-difference, and the countermeasure. the procedure, the shape of an
-entry, the note that asks each agent to report its own, and the
-transcript reader are `skills/work/friction.md`. the log ends the
-pass as an unparented board item to triage, and every countermeasure
-that already passes the bar is filed as its own item before the pass
-ends.
+with `--routine` the pass runs with nobody reading and nobody to
+ask, and it observes itself while it runs:
+
+- **terse.** the report is the ledger and nothing else: one line per
+  board action, one per anything posted for a human, the friction
+  log's handle. no narration between actions, no summary of the
+  doctrine, no restating what the verdict lines already said.
+- **no questions.** never ask; the tool that asks the user is not
+  used at all. a decision that belongs to the goal owner — a
+  comparison that would put new work above existing work, a wall a
+  spec cannot answer, a reject that reopens a decision — is not a
+  question here: file it as an item with the evidence, block what
+  waits on it, take the next thing, and let the ledger name it. the
+  bar and the doctrine already say what to do at every other fork;
+  `next` names the head, and `none` ends the pass.
+- **the friction log.** for the orchestrator and for every agent it
+  runs, each place where the goal and what actually happened
+  differed in a way that cost time, tokens, or quality, with the
+  numbers that size the cost, what made the difference, and the
+  countermeasure. the procedure, the shape of an entry, the note that
+  asks each agent to report its own, and the transcript reader are
+  `skills/work/friction.md`. the log ends the pass as an unparented
+  board item to triage, and every countermeasure that already passes
+  the bar is filed as its own item before the pass ends.
