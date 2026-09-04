@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-xcBt_YwKh",
+  ["claim"] = "build-xcBt_YwKh",
   ["id"] = "3Ip916tFVCAbHEynZ4qxcBtYwKh",
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["repo"] = "cosmic-lua/cosmic",
