@@ -1,8 +1,12 @@
 #!/usr/bin/env cosmic
---- reads: docs
---- reads: skills
+--- reads: .github 3p _build _cli _docs _eval _make _perf _tool _types cmd cosmic docs embed skills sys
 --- ref: origin/board
 -- Every backtick path in the prose names a file that exists.
+--
+-- A path-shaped span can resolve anywhere in the tree, so this
+-- test's real input is every root above, not the prose alone: a
+-- rename under any of them can turn a span stale even though the
+-- sentence carrying it never changed.
 --
 -- Prose points at code by path: a goal sends its reader to the skill
 -- that holds the method, a decision record to the module that carries
@@ -271,6 +275,10 @@ local function test_every_board_reference_names_a_file_on_the_board_branch()
     "the board gate in _build/doc_paths_test.tl has nothing left to check")
   local paths, why = board_paths()
   if not paths then
+    if os.getenv("CI") then
+      error(BOARD_REF .. " board paths unchecked in CI: " .. why ..
+        " — pr.yml's fetch step should have brought " .. BOARD_REF .. " down")
+    end
     print("skipped: " .. BOARD_REF .. " board paths unchecked: " .. why ..
       " — `git fetch origin board` to check them")
     return
