@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1701,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-fmFu_8dce-07d7b9b9",
   ["title"] = "gitboard next: an accepted item whose PR sits in a merge queue is \"queued\", not the head to finish",
 }
