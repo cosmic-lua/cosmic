@@ -78,3 +78,4 @@ build when the committed copy drifts.
 | D41 | entry.stat is a lazy method, not an eager field | active | [→](d41-lazy-entry-stat.md) |
 | D42 | a verified outcome is held by a marker, not ended; a child filed under it clears the hold | active | [→](d42-held-outcome-is-a-marker-not-an-ending.md) |
 | D43 | generation 1 seeds `cosmo.*` declarations from the tree's own cosmos pin, not the pinned binary | active | [→](d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md) |
+| D44 | the release publishes regardless of the perf compare; perf is a daily non-blocking lane | active | [→](d44-release-publishes-regardless-of-the-perf-compare.md) |

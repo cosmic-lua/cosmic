@@ -6,8 +6,8 @@
 --- A compare is only a compare when the INSTRUMENT is held fixed and
 --- the SUBJECT is not. `_perf/**` is the instrument; `cosmic/**` is the
 --- subject. Run an older binary bare and it answers `_perf.*` from its
---- own embedded copy, so the two sides of a release compare are
---- measured by two different instruments — the previous release's
+--- own embedded copy, so the two sides of a compare against a release
+--- are measured by two different instruments — that release's
 --- scenarios against the tree's.
 ---
 --- This module builds the one shape that fixes that without also
@@ -21,8 +21,8 @@
 --- tree's library on both sides of the compare and make a real
 --- regression cancel out.
 ---
---- Both callers that measure a baseline go through here — the release
---- workflow's compare step and `_perf/gate.tl`'s regression retry — so
+--- Both callers that measure a baseline go through here — the perf
+--- lane's compare step and `_perf/gate.tl`'s regression retry — so
 --- the retry, which is what decides the gate, cannot resolve `_perf`
 --- differently from the pass it is retrying.
 

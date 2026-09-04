@@ -56,6 +56,7 @@ bin/
   pr.yml               CI on push/PR (--make ci)
   docs.yml             publish docs on push to main
   release.yml          daily release build
+  perf.yml             daily perf compare, main against the latest release
   fuzz.yml             daily deep fuzz (--make test _fuzz)
 ```
 
@@ -400,4 +401,5 @@ inbound queue; pull requests carry fixes and review as before.
 - **release.yml**: daily release, built twice — the pinned cosmic builds one from the tree, and
   THAT one builds what ships, so a release is produced by its own code, not the pin. cron runs
   default to a prerelease; a real one needs `workflow_dispatch` with `prerelease: false`
+- **perf.yml**: daily perf compare, `0 3 * * *` (three hours BEFORE release.yml's `0 6`, so the baseline is yesterday's release and the subject is the tree today's release is cut from). Builds the tree in two generations, measures it twice, re-measures the latest release's binary through `_perf/baserun.tl`, and runs `_perf/gate.tl compare`; a `perf-compare: FAIL` turns the lane red and blocks nothing — the release never gates on perf ([D44](docs/decisions/d44-release-publishes-regardless-of-the-perf-compare.md)). Readings are the run's artifacts
 - **fuzz.yml**: daily deep fuzz, `0 9 * * *` (three hours after release.yml's `0 6`, so the two never contend). `_fuzz` at FUZZ_ITERS=50000 (2000 on its own `pull_request` trigger), seeded `date -u +%Y%m%d` unless a `workflow_dispatch` input overrides it for replay; a red run fails loudly but never blocks or delays a release

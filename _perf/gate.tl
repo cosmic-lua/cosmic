@@ -423,7 +423,7 @@ local function main(...: string): integer
   end
   local measure_baseline: Measure = nil
   if baseline_bin then
-    -- baserun's shape, which release.yml's compare step also uses: the
+    -- baserun's shape, which perf.yml's compare step also uses: the
     -- TREE's _perf measured on the baseline binary's own cosmic. One
     -- definition rather than two argvs, because the retry is what
     -- decides the gate — a retry that resolved _perf differently from
