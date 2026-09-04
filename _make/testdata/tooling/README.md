@@ -1,0 +1,5 @@
+-- A downstream project with an `_cli/**` test but no `cmd/cosmic`.
+-- Exercises: `--make test` must not add `o/bin/cosmic` as a prerequisite
+-- for an engine-shaped test when the project builds no binary named
+-- `cosmic` -- nothing here would produce that file, so a plain
+-- prerequisite for it is a target make can never satisfy.
