@@ -5,6 +5,7 @@ return {
   ["claim"] = "6a6c39f4-13ef-5170-bf86-7c8195f1f8ff",
   ["id"] = "3IkMf7BY1UOxBTAIwbNFQwRZJDA",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
+  ["pr"] = 1705,
   ["repo"] = "cosmic-lua/cosmic",
   ["speccers"] = "wave21-1-pinbump 259ba306-c053-56fc-b9ad-784a9d4ed050 6a6c39f4-13ef-5170-bf86-7c8195f1f8ff",
   ["title"] = "cosmos pin bump: 2026.08.31-6dfa6728a to the newest release (>= 2026.09.04-65bc139fc), the whole exact-contract adaptation in one PR",
