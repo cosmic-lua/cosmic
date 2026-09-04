@@ -126,6 +126,19 @@ local function test_blocks_accept_refuses_a_closed_unmerged_pr()
   assert(refusal:find("#3", 1, true), "it names the PR: " .. refusal)
 end
 
+-- Either condition alone is enough — auto-merge armed, or GitHub's own
+-- merge-queue state — and an ordinary open request is neither.
+local function test_is_queued_reads_either_condition()
+  local armed: review.Pull = {number = 4, auto_merge = true}
+  assert(review.is_queued(armed), "auto-merge armed is already queued")
+
+  local in_queue: review.Pull = {number = 5, mergeable_state = "queued"}
+  assert(review.is_queued(in_queue), "GitHub's own merge queue also counts")
+
+  local ordinary: review.Pull = {number = 6, mergeable_state = "clean"}
+  assert(not review.is_queued(ordinary), "a plain clean PR is not queued")
+end
+
 -- Landing ends an item over a merge that has already happened, so an
 -- unmerged request is refused and the refusal is a work order: merge
 -- it, then run the same verb again. Nothing here attempts a merge, so

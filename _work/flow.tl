@@ -14,7 +14,8 @@
 ---           the bar (`_work.spec.ready_gaps`, asked at take)
 ---   doing   open with a claim or a PR; within it the same facts say
 ---           what happens next (`substate`): building, review,
----           rework, accepted
+---           rework, accepted — or queued, when a caller has read the
+---           PR and found it already merging on its own
 ---
 --- ONE WIP bound, `DOING_LIMIT`, covers the whole in-flight span:
 --- taking NEW work is refused at the limit, finishing motions never
@@ -63,10 +64,22 @@ end
 --- no verdict on it awaits one — a PR for a diff, `result` for a
 --- research slice — and this is the ONE place that says so: every
 --- queue, offer and refusal that ranks "review" reads it from here.
+---
+--- `queued` is the one refinement a caller supplies rather than the
+--- item deriving on its own: whether an accepted item's PR already
+--- reports it is queued to merge on its own
+--- (`_work.review.is_queued`, read live when `next` reads the PR).
+--- Absent, it is exactly what a store with no GitHub reach reads back
+--- as — an ordinary accept, awaiting merge as it always has.
 --- @param i Item The item
---- @return string "accepted" | "rework" | "review" | "building"
-local function substate(i: Item): string
+--- @param queued boolean | nil Whether an accepted item's PR is
+--- already queued to merge on its own
+--- @return string "accepted" | "queued" | "rework" | "review" | "building"
+local function substate(i: Item, queued?: boolean): string
   if (i.verdict or "") == "accept" then
+    if queued then
+      return "queued"
+    end
     return "accepted"
   end
   if (i.verdict or "") == "request changes" then
@@ -423,7 +436,7 @@ local record flow
   STAGE_REPAIR: integer
   STAGE_TODO: integer
   is_doing: function(i: Item): boolean
-  substate: function(i: Item): string
+  substate: function(i: Item, queued?: boolean): string
   stage_rank: function(i: Item): integer
   unified: function(items: {Item}, pos: {string: prio.Position},
   seed?: string): {Item}
