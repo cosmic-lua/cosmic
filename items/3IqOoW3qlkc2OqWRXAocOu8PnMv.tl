@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-cOu8_PnMv",
+  ["claim"] = "build-cOu8_PnMv",
   ["id"] = "3IqOoW3qlkc2OqWRXAocOu8PnMv",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
