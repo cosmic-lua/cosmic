@@ -216,9 +216,15 @@ the builder: a subagent whose context window never held the build.
 Its brief carries the item id, the PR number, and the process — not
 the builder's reasoning, and not a summary of intent, which would
 hand back the commitment a fresh window exists to be without. Emit
-the brief with `brief review ID` rather than hand-writing one. The
-reviewer claims the review first (`take ID` on an item awaiting a
-verdict, under a self-named review-<ID>-<unique> session), reads the
+the brief with `brief review ID` rather than hand-writing one — it
+mints and fills the exact session label this review claims under,
+`review-<handle>-<orch8>` (`<orch8>` the first 8 characters of the
+calling session's own identity, `show`'s "session: ..." line), and
+repeats it on the brief's own verdict line so an orchestrator claims —
+`take ID --session <label>` — under that identical string BEFORE ever
+spawning the agent the body goes to. A solo session reviewing without
+an orchestrator instead self-names (`take ID` under its own
+review-<ID>-<unique>). Either way the reviewer's session reads the
 spec off the board and the diff off the PR, and records the verdict
 itself.
 
@@ -281,7 +287,16 @@ worktree or push rights to `board`:
 
 - Claim first, then spawn. Claim each item yourself, one at a time,
   reading each verdict line, with a distinct minted session name per
-  agent. A lost race is the lock working: take the next item.
+  agent: `<kind>-<handle>-<orch8>` (`build`, `research`, `review`,
+  `refine` or `decompose`; `<orch8>` the first 8 characters of YOUR
+  OWN session identity, `show`'s "session: ..." line) — the same shape
+  `brief KIND ID` mints and prints on its own verdict line, so reading
+  that line before you spawn gives you the exact string to claim
+  under. Embedding your own identity is what keeps two concurrent
+  orchestrator sessions working the same item from minting the
+  identical label and each reading `take`'s exact-string lock as its
+  own re-claim instead of a foreign one. A lost race is the lock
+  working: take the next item.
 - Disjoint or not at all. `next` names one item and cannot see what
   else you are taking; file-disjointness across the wave is your
   check, judged on the MERGE — a shared file with thin headroom
@@ -320,8 +335,10 @@ worktree or push rights to `board`:
   item is pullable again. Still running: leave it. Then the PRs are
   yours to watch — the agents are gone.
 - Reviews fan out like builds: one fresh subagent per PR awaiting
-  a verdict, each under its own minted review session, all in the
-  background. What the review needs is distance from the BUILDER —
+  a verdict, each under its own minted `review-<handle>-<orch8>`
+  label — `brief review ID` fills it into the body it hands the
+  agent, so claim under the string its own verdict line names, all in
+  the background. What the review needs is distance from the BUILDER —
   a window that never held the build — and a verdict that is one
   agent's alone; N reviewers on N different PRs keep both. What
   never fans out is refinement, because two parallel refiners

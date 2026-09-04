@@ -31,6 +31,13 @@ local function test_handle_underscores_and_wraps_the_last_eight_characters()
   assert(tail.handle(id) == "«Q4TX_9GMD»", tail.handle(id))
 end
 
+local function test_bare_is_the_handle_body_without_the_guillemets()
+  local id = make_id("Q4TX9GMD")
+  assert(tail.bare(id) == "Q4TX_9GMD", tail.bare(id))
+  assert(tail.handle(id) == "«" .. tail.bare(id) .. "»",
+    "handle wraps exactly what bare returns")
+end
+
 local function test_is_tail_shape_accepts_both_forms()
   assert(tail.is_tail_shape("s1WSJ6A3"), "divider-free")
   assert(tail.is_tail_shape("s1WS-J6A3"), "hyphenated after the 4th")
