@@ -82,8 +82,17 @@ ask, and it observes itself while it runs:
   runs, each place where the goal and what actually happened
   differed in a way that cost time, tokens, or quality, with the
   numbers that size the cost, what made the difference, and the
-  countermeasure. the procedure, the shape of an entry, the note that
-  asks each agent to report its own, and the transcript reader are
-  `skills/work/friction.md`. the log ends the pass as an unparented
-  board item to triage, and every countermeasure that already passes
-  the bar is filed as its own item before the pass ends.
+  countermeasure. the shape of an entry and the reasoning are
+  `skills/work/friction.md`; the steps are these, and a pass that
+  skipped one has not run:
+  1. open the log before the first board verb;
+  2. every spawned agent's prompt ends with the friction ask
+     (`friction.md`, "what the agent reports") — until `gitboard
+     brief` carries it, append it by hand, every time;
+  3. when an agent reports, run `cosmic _tool/friction.tl
+     <transcript>` on its `.output` file and write its section from
+     the numbers plus its own `## Friction` account — one section per
+     agent, none skipped, an agent with nothing to report still gets
+     its numbers;
+  4. file bar-passing countermeasures as items, then the whole log as
+     one unparented item to triage, and end the pass.
