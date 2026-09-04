@@ -79,7 +79,12 @@ ensure_bootstrap() {
         exit 1
     fi
     chmod +x "${boot_tmp}"
-    "${boot_tmp}" --assimilate
+    # A release may already be a native ELF; an APE is assimilated
+    # through its own shell stub, since the program behind it does not
+    # know the flag.
+    if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+        sh "${boot_tmp}" --assimilate
+    fi
     if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
         echo "assimilation failed: still an APE" >&2
         rm -f "${boot_tmp}"
