@@ -20,6 +20,7 @@ local lanes = require("_work.lanes")
 local overlap = require("_work.overlap")
 local prio = require("_work.priority")
 local publish = require("_work.publish")
+local review = require("_work.review")
 local sess = require("_work.session")
 local store = require("_work.store")
 local tail = require("_work.tail")
@@ -67,6 +68,30 @@ local function ci_states(s: store.Store, all: {item.Item}): act.CiStates
       local hc = gh.head_checks(s, i.pr, i.repo)
       if hc ~= nil then
         out[i.id] = hc.state
+      end
+    end
+  end
+  return out
+end
+
+--- Whether each accepted item's PR already reports queued to merge on
+--- its own (auto-merge armed, or GitHub's own merge queue took it),
+--- read from GitHub once per render — one `gh.pull` call per
+--- candidate, the same live-read shape `ci_states` uses. A read that
+--- fails (no GitHub reach, a network error) simply leaves that id out
+--- of the map, exactly what `action.tl`'s `phased_action` already
+--- treats as "not queued", offered the same as it always was.
+--- @param s store.Store The store
+--- @param all {item.Item} Every item
+--- @return act.QueueStates Whether queued to merge, by item id
+local function queue_states(s: store.Store, all: {item.Item}): act.QueueStates
+  local out: act.QueueStates = {}
+  for _, i in ipairs(all) do
+    if item.is_open(i) and flow.stage_rank(i) == flow.STAGE_ACCEPTED
+    and (i.pr or 0) ~= 0 then
+      local p = gh.pull(s, i.pr, i.repo)
+      if p ~= nil then
+        out[i.id] = review.is_queued(p)
       end
     end
   end
@@ -323,11 +348,13 @@ end
 --- @param session string This session's name, "" when unnamed
 --- @param ages health.Ages Seconds since last board commit, by id
 --- @param ci act.CiStates CI state by item id, absent when unknown
+--- @param merge_queue act.QueueStates Accepted items already queued to merge
 --- @return string The action, its target, the rule behind it, and its guidance
 local function next_report_live(s: store.Store, all: {item.Item},
     specs: act.Specs, session?: string, ages?: health.Ages,
-    ci?: act.CiStates): string
-  local action = act.next_action(all, specs, session, ages, session, ci)
+    ci?: act.CiStates, merge_queue?: act.QueueStates): string
+  local action = act.next_action(all, specs, session, ages, session, ci,
+    merge_queue)
   if action.kind == "pull" and action.item then
     local events = publish.history(s, action.item.id)
     if events and events[1] then
@@ -344,7 +371,7 @@ local function cmd_next(s: store.Store, session?: string): integer
   end
   return verdict_line("next", true,
     next_report_live(s, all, read_specs(s, all), session, claim_ages(s, all),
-      ci_states(s, all)))
+      ci_states(s, all), queue_states(s, all)))
 end
 
 local record gitview
@@ -355,7 +382,7 @@ local record gitview
   session?: string, ages?: health.Ages): string
   next_report_live: function(s: store.Store, all: {item.Item},
   specs: act.Specs, session?: string, ages?: health.Ages,
-  ci?: act.CiStates): string
+  ci?: act.CiStates, merge_queue?: act.QueueStates): string
   bounce_note: function(subject: string): string
   read_specs: function(s: store.Store, all: {item.Item}): act.Specs
   cmd_status: function(s: store.Store): integer

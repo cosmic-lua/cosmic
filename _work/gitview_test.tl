@@ -12,10 +12,12 @@ local item = require("_work.item")
 local ksuid = require("_work.ksuid")
 local fixture = require("_work.fixture")
 local gh = require("_work.gh")
+local review = require("_work.review")
 local show = require("_work.gitshow")
 local store = require("_work.store")
 local tail = require("_work.tail")
 local verbs = require("_work.gitverbs")
+local vrd = require("_work.gitverdict")
 local view = require("_work.gitview")
 
 local counter = 0
@@ -326,6 +328,24 @@ local function with_ci_state(state: string, f: function(): boolean)
   end
 end
 
+--- Stand `gh.pull` in for a fixed fetch result for the duration of
+--- `f`, restoring the real function even when `f` fails an assertion
+--- — the same swap-and-restore shape `with_ci_state` uses.
+--- @param p review.Pull | nil The pull request `gh.pull` reports fetched
+--- @param f function(): boolean The test body; returns true when done
+local function with_pull(p: review.Pull | nil, f: function(): boolean)
+  local real = gh.pull
+  gh.pull = function(_s: store.Store, _number: integer, _repo: string | nil):
+    review.Pull | nil, string
+    return p, ""
+  end
+  local ok, err = pcall(f)
+  gh.pull = real
+  if not ok then
+    error(err, 0)
+  end
+end
+
 --- Run `view.cmd_next` and capture exactly what it prints via
 --- `print()` -- the same swap-and-restore pattern `gitboard_test.tl`'s
 --- `gitboard_and_capture` uses to pin a CLI's exact console output.
@@ -378,6 +398,23 @@ local function unplaced_root_with_leaf(s: store.Store): string
   return fixture.file_item(s, "a workable slice", root)
 end
 
+--- An unplaced root's leaf, handed over and accepted — the live-path
+--- equivalent of `action_queue_test.tl`'s `make({..., verdict =
+--- "accept"})` fixtures, reached through the real verbs so `store.list`
+--- reads back a genuinely accepted item rather than a hand-built one.
+--- @param s store.Store The store
+--- @param builder string The claiming session's name
+--- @param pr integer The PR number to record
+--- @return string The accepted leaf's id
+local function accepted_leaf(s: store.Store, builder: string,
+    pr: integer): string
+  local leaf = unplaced_root_with_leaf(s)
+  handed_over(s, leaf, builder, pr)
+  assert(vrd.cmd_verdict(s, leaf, "accept", pr, "abc1234", "reviewer-a") == 0,
+    "the accept should be recorded")
+  return leaf
+end
+
 -- The wiring this item adds: `next` (through `gitview.cmd_next`, the
 -- actual entry `gitboard next` reaches) reads live CI state for a
 -- reviewable item carrying a PR and steps it out of the offer exactly
@@ -410,6 +447,49 @@ local function test_live_next_skips_a_reviewable_item_with_ci_red()
       assert(code == 0, printed)
       assert(printed:find("ci red — builder's", 1, true) ~= nil,
         "a red head reads as the builder's move on a live next: " .. printed)
+      return true
+    end)
+end
+
+-- The wiring this item adds: `next`'s live path now also reads whether
+-- an accepted item's PR already reports queued to merge (`fmFu_8dce`'s
+-- decision logic, `_work/action_queue_test.tl`) and folds that into
+-- the same real `cmd_next` invocation `ci_states` above proves reads
+-- live CI — not only that `next_action` honors a `QueueStates` map
+-- when handed one directly.
+local function test_live_next_marks_an_accepted_item_queued_on_auto_merge()
+  local s = fixture.init_state_repo("next-queued-auto-merge")
+  local leaf = accepted_leaf(s, "builder-a", 11)
+  local p: review.Pull = {number = 11, auto_merge = true,
+    mergeable_state = "clean"}
+  with_pull(p, function(): boolean
+      local code, printed = cmd_next_and_capture(s, "")
+      assert(code == 0, printed)
+      assert(printed:find("queued", 1, true) ~= nil,
+        "an auto-merge-armed accept reads as queued on a live next: "
+        .. printed)
+      assert(printed:find(leaf:sub(1, 8), 1, true) == nil,
+        "and it is not itself offered as the head to finish: " .. printed)
+      return true
+    end)
+end
+
+-- Same accepted item, but its PR reports neither auto-merge nor a
+-- queued `mergeable_state`: the live path still offers it as the head
+-- to finish, exactly as `action_queue_test.tl`'s pure-layer case does.
+local function test_live_next_still_offers_finish_when_not_queued()
+  local s = fixture.init_state_repo("next-not-queued")
+  local leaf = accepted_leaf(s, "builder-a", 12)
+  local p: review.Pull = {number = 12, mergeable_state = "clean"}
+  with_pull(p, function(): boolean
+      local code, printed = cmd_next_and_capture(s, "")
+      assert(code == 0, printed)
+      assert(printed:find("finish", 1, true) ~= nil
+        and printed:find(leaf:sub(1, 8), 1, true) ~= nil,
+        "an unqueued accept is still the head to finish on a live next: "
+        .. printed)
+      assert(printed:find("queued", 1, true) == nil,
+        "and it is not marked queued: " .. printed)
       return true
     end)
 end
