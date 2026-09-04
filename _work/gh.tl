@@ -149,6 +149,28 @@ local record HeadChecks
   runs: {review.CheckRun}
 end
 
+--- The pure classification behind `head_checks`: a run list to
+--- "green" | "red" | "running" | "none", the same `{CheckRun} ->
+--- string` shape as `review.blocks_on_ci` (which this calls to decide
+--- "red") — callable directly against synthetic runs rather than only
+--- through `head_checks`'s own network reads.
+--- @param runs {review.CheckRun} The head's check runs
+--- @return string The state
+local function head_state(runs: {review.CheckRun}): string
+  if review.blocks_on_ci(runs) ~= nil then
+    return "red"
+  end
+  if #runs == 0 then
+    return "none"
+  end
+  for _, r in ipairs(runs) do
+    if r.status ~= "completed" then
+      return "running"
+    end
+  end
+  return "green"
+end
+
 --- Composes `pull` and `checks` in ONE call each — the same one-read
 --- discipline `gitverdict.cmd_verdict` and `gitgate.handover_refusal`
 --- already hold. Fails exactly when either underlying read does — no
@@ -169,20 +191,7 @@ local function head_checks(s: store.Store, number: integer, repo: string | nil):
   if runs == nil then
     return nil, cerr
   end
-  local state = "green"
-  if review.blocks_on_ci(runs) ~= nil then
-    state = "red"
-  elseif #runs == 0 then
-    state = "none"
-  else
-    for _, r in ipairs(runs) do
-      if r.status ~= "completed" then
-        state = "running"
-        break
-      end
-    end
-  end
-  return {state = state, head_sha = p.head_sha, runs = runs}, ""
+  return {state = head_state(runs), head_sha = p.head_sha, runs = runs}, ""
 end
 
 local record gh
@@ -191,6 +200,7 @@ local record gh
   review.Pull | nil, string
   checks: function(s: store.Store, sha: string, repo: string | nil):
   {review.CheckRun} | nil, string
+  head_state: function(runs: {review.CheckRun}): string
   head_checks: function(s: store.Store, number: integer, repo: string | nil):
   HeadChecks | nil, string
   type HeadChecks = HeadChecks
@@ -200,6 +210,7 @@ local M: gh = {
   slug = slug,
   pull = pull,
   checks = checks,
+  head_state = head_state,
   head_checks = head_checks,
 }
 

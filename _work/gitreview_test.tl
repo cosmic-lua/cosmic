@@ -299,9 +299,9 @@ local function test_the_review_lease_is_short_and_exact()
     "a review locks minutes of work; a build locks hours")
 end
 
--- PR #1657's evidence: a review claimed while `smoke`/`repro` were
--- still `in_progress` burned a reviewer session before anything had
--- settled. Green, red and a repo with no checks at all still claim —
+-- A review claimed while CI checks are still `in_progress` burns a
+-- reviewer session before anything has settled. Green, red and a
+-- repo with no checks at all still claim —
 -- a decided fact (or none) is a reviewer's to read; only a run still
 -- going is refused, and only without `--force`.
 local function test_ci_running_refuses_the_review_claim()

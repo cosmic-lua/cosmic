@@ -25,3 +25,32 @@ local function test_slug_without_an_origin_is_an_error()
   assert(slug == nil, "a checkout with no origin addresses nothing")
   assert(err:find("no origin remote", 1, true) ~= nil, "got: " .. err)
 end
+
+-- `head_state` is the pure classification `head_checks` composes with
+-- a fetched pull and its check runs — exercised directly against
+-- synthetic run lists, the same way `review_test.tl` exercises
+-- `blocks_on_ci` directly, rather than only through a stub standing
+-- in for the whole of `head_checks`.
+local function test_head_state_is_green_when_every_run_completed_clean()
+  assert(gh.head_state({
+        {name = "ci", status = "completed", conclusion = "success"},
+      }) == "green", "one clean completed run is green")
+end
+
+local function test_head_state_is_red_on_a_concluded_failure()
+  assert(gh.head_state({
+        {name = "ci", status = "completed", conclusion = "success"},
+        {name = "build", status = "completed", conclusion = "failure"},
+      }) == "red", "a concluded failure among the runs is red")
+end
+
+local function test_head_state_is_running_while_anything_is_incomplete()
+  assert(gh.head_state({
+        {name = "ci", status = "completed", conclusion = "success"},
+        {name = "smoke", status = "in_progress", conclusion = ""},
+      }) == "running", "one run still going, none failed yet, is running")
+end
+
+local function test_head_state_is_none_with_no_runs_at_all()
+  assert(gh.head_state({}) == "none", "an empty run list is none")
+end
