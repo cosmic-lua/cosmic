@@ -377,8 +377,10 @@ discipline). the backlog is perf hypotheses on the work board.
 what to build next is decided by the `work` skill (`skills/work/SKILL.md`):
 one prioritized queue of items in two states — `todo` and `doing` (claimed) —
 with quality held by a spec bar at pull and a fresh-context review before
-merge, not by stage columns. the board lives on the orphan `board` branch —
-one `items/<ksuid>.tl` per item, the machinery beside it — reached as a worktree.
+merge, not by stage columns. the board lives in the repository
+cosmic-lua/work — one git ref per item, the machinery beside it —
+reached as a clone at `o/board`, operated by the pinned release
+`bin/gitboard` runs (`bin/gitboard.pin`).
 the skill has the bootstrap; the tool serves the system itself —
 `gitboard help <topic>` for the doctrine, `gitboard help <verb>` for the
 mechanics, `gitboard brief` for subagent prompts. issues remain only the

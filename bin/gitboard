@@ -1,0 +1,101 @@
+#!/bin/sh
+set -e
+
+# The board's trust root: the same shape as bin/cosmic, one job
+# smaller. Obtain the ONE pinned artifact named in bin/gitboard.pin — a
+# gitboard release built by cosmic-lua/work's own gate — verify it,
+# assimilate it, and exec it with whatever arguments it was given.
+# Nothing is built here: the machinery's tree is for changing the
+# machinery, and a session needs only the binary and a clone of the
+# board's refs. The chain is
+#
+#     kernel -> this script -> one pin -> the board
+#
+# with POSIX sh, curl, sha256sum and od the whole host surface.
+#
+#     bin/gitboard sync          bring the board's refs up to date
+#     bin/gitboard next          the one next action
+#
+# The state repository defaults to o/board under this checkout: the
+# script exports GITBOARD_DIR when the caller has not, and every verb
+# reads it as the default for --dir.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PIN="${SCRIPT_DIR}/gitboard.pin"
+BOOTSTRAP="${ROOT}/o/bootstrap/gitboard"
+
+verify_sha256() {
+    file="$1"
+    expected="$2"
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "${file}" | cut -d' ' -f1)"
+    elif command -v shasum >/dev/null 2>&1; then
+        actual="$(shasum -a 256 "${file}" | cut -d' ' -f1)"
+    else
+        echo "no sha256 tool available to verify ${file}" >&2
+        return 1
+    fi
+    [ "${actual}" = "${expected}" ]
+}
+
+download() {
+    url="$1"
+    dest="$2"
+    dest_tmp="${dest}.tmp.$$"
+    attempt=0
+    until curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+        -o "${dest_tmp}" "${url}"; do
+        attempt=$((attempt + 1))
+        if [ "${attempt}" -ge 3 ]; then
+            echo "Failed to download ${url} after ${attempt} attempts" >&2
+            rm -f "${dest_tmp}"
+            return 1
+        fi
+        echo "Retrying download of ${url} (attempt ${attempt})..." >&2
+        sleep $((attempt * 5))
+    done
+    mv -f "${dest_tmp}" "${dest}"
+}
+
+ensure_bootstrap() {
+    url="$(sed -n 's/^url *= *//p' "${PIN}")"
+    sha256="$(sed -n 's/^sha256 *= *//p' "${PIN}")"
+    if [ -z "${url}" ] || [ -z "${sha256}" ]; then
+        echo "could not read url/sha256 from ${PIN}" >&2
+        exit 1
+    fi
+    if [ -x "${BOOTSTRAP}" ] &&
+        [ "$(cat "${BOOTSTRAP}.pin" 2>/dev/null)" = "${sha256}" ]; then
+        return 0
+    fi
+    echo "Downloading pinned gitboard..." >&2
+    mkdir -p "${ROOT}/o/bootstrap"
+    boot_tmp="${BOOTSTRAP}.boot.$$"
+    download "${url}" "${boot_tmp}" || exit 1
+    if ! verify_sha256 "${boot_tmp}" "${sha256}"; then
+        echo "pinned gitboard checksum verification failed; refusing to run" >&2
+        rm -f "${boot_tmp}"
+        exit 1
+    fi
+    chmod +x "${boot_tmp}"
+    # A release may already be a native ELF; an APE is assimilated
+    # through its own shell stub, since the program behind it does not
+    # know the flag.
+    if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+        sh "${boot_tmp}" --assimilate
+    fi
+    if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+        echo "assimilation failed: still an APE" >&2
+        rm -f "${boot_tmp}"
+        exit 1
+    fi
+    mv -f "${boot_tmp}" "${BOOTSTRAP}"
+    printf '%s\n' "${sha256}" > "${BOOTSTRAP}.pin"
+}
+
+cd "${ROOT}"
+ensure_bootstrap
+GITBOARD_DIR="${GITBOARD_DIR:-${ROOT}/o/board}"
+export GITBOARD_DIR
+exec "${BOOTSTRAP}" "$@"

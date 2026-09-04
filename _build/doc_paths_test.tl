@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 --- reads: .github 3p _build _cli _docs _eval _make _perf _tool _types cmd cosmic docs embed skills sys
---- ref: origin/board
+--- ref: refs/remotes/work/main
 -- Every backtick path in the prose names a file that exists.
 --
 -- A path-shaped span can resolve anywhere in the tree, so this
@@ -19,11 +19,12 @@
 -- it is not a reference at all.
 --
 -- One family of spans names a file that exists, but not here: the
--- board's machinery under `_work/` lives on the orphan `board` branch,
--- so those spans are checked against that branch's tree as git last
--- fetched it, and skipped aloud when no fetched ref can answer. The
--- ref is declared as an input above (`--- ref:`), so a fetch that
--- moves it re-runs this file instead of replaying its verdict.
+-- board's machinery under `_work/` lives in the repository
+-- cosmic-lua/work, so those spans are checked against that repository's
+-- main branch as git last fetched it, and skipped aloud when no
+-- fetched ref can answer. The ref is declared as an input above
+-- (`--- ref:`), so a fetch that moves it re-runs this file instead of
+-- replaying its verdict.
 --
 -- The reasons come in three shapes and the three lists ARE the whole
 -- allowlist: a RULE over the span's text (a glob, a `<name>`
@@ -90,12 +91,12 @@ local SPANS < const >: {string: string} = {
   ["doc/gendoc.tl"] = "a deletion, recorded by the name it had",
 }
 
---- The prefix under which a span names the board branch's tree, and
+--- The prefix under which a span names the work repository's tree, and
 --- the ref that tree is read from — the remote-tracking ref a fetch
---- of `board` leaves behind, never a local branch, so the check reads
---- what the remote has and not a checkout's own edits.
+--- of cosmic-lua/work's `main` leaves behind, never a local branch, so
+--- the check reads what the remote has and not a checkout's own edits.
 local BOARD_PREFIX < const > = "_work/"
-local BOARD_REF < const > = "origin/board"
+local WORK_REF < const > = "refs/remotes/work/main"
 
 --- How long the board read waits for `git` to answer. A hung `git`
 --- (a lock held by another process) must not hang the whole gate.
@@ -158,7 +159,7 @@ local function is_path_shaped(text: string): boolean
   return ext ~= nil and EXTENSIONS[ext] == true
 end
 
---- Whether a span names the board branch's tree rather than this one.
+--- Whether a span names the work repository's tree rather than this one.
 --- @param span Span
 --- @return boolean
 local function is_board_path(span: Span): boolean
@@ -189,15 +190,15 @@ local function resolves(span: Span): boolean
   return fs.is_file(span.text) or fs.is_dir(span.text)
 end
 
---- The board branch's files under the prefix, as the fetched ref has
---- them: one bounded `git ls-tree` per run, read the first time it is
---- asked for. Nil, and why, when git cannot answer — no `origin/board`
---- fetched, no git, a timeout — so the caller can skip aloud instead
---- of mistaking silence for an empty tree.
+--- The work repository's files under the prefix, as the fetched ref
+--- has them: one bounded `git ls-tree` per run, read the first time it
+--- is asked for. Nil, and why, when git cannot answer — no
+--- `refs/remotes/work/main` fetched, no git, a timeout — so the caller
+--- can skip aloud instead of mistaking silence for an empty tree.
 --- @return {string: boolean} | nil The board paths under the prefix
 --- @return string Why git could not answer
-local function board_paths(): {string: boolean} | nil, string
-  local argv = {"git", "ls-tree", "-r", "--name-only", BOARD_REF, "--",
+local function work_paths(): {string: boolean} | nil, string
+  local argv = {"git", "ls-tree", "-r", "--name-only", WORK_REF, "--",
     BOARD_PREFIX:sub(1, -2)}
   local h, serr = child.start(argv, {stdin = ""})
   if not (h is child.Handle) then
@@ -209,7 +210,7 @@ local function board_paths(): {string: boolean} | nil, string
     return nil, "git did not answer within " .. GIT_MS .. "ms"
   end
   if not r.ok then
-    return nil, BOARD_REF .. " is not readable here (" ..
+    return nil, WORK_REF .. " is not readable here (" ..
     (r.stderr:gsub("%s+$", "")) .. ")"
   end
   local out: {string: boolean} = {}
@@ -259,12 +260,13 @@ local function test_every_path_reference_names_a_file_in_the_tree()
     "reason:\n  " .. table.concat(missing, "\n  "))
 end
 
--- The board gate: a `_work/` span names a file on `origin/board`. A
--- rename there strands a pointer in this tree's prose, and no gate on
--- either branch reads across, so this one does — against the ref as
--- fetched, which is why a checkout without it skips with the reason
--- printed rather than passing on an answer it never had.
-local function test_every_board_reference_names_a_file_on_the_board_branch()
+-- The board gate: a `_work/` span names a file on cosmic-lua/work's
+-- `main` branch. A rename there strands a pointer in this tree's
+-- prose, and no gate on either repository reads across, so this one
+-- does — against the ref as fetched, which is why a checkout without
+-- it skips with the reason printed rather than passing on an answer it
+-- never had.
+local function test_every_board_reference_names_a_file_in_the_work_repo()
   local spans: {Span} = {}
   for _, span in ipairs(path_spans()) do
     if is_board_path(span) then
@@ -273,25 +275,26 @@ local function test_every_board_reference_names_a_file_on_the_board_branch()
   end
   assert(#spans > 0, "no `" .. BOARD_PREFIX .. "` span in any prose file — " ..
     "the board gate in _build/doc_paths_test.tl has nothing left to check")
-  local paths, why = board_paths()
+  local paths, why = work_paths()
   if not paths then
     if os.getenv("CI") then
-      error(BOARD_REF .. " board paths unchecked in CI: " .. why ..
-        " — pr.yml's fetch step should have brought " .. BOARD_REF .. " down")
+      error(WORK_REF .. " board paths unchecked in CI: " .. why ..
+        " — pr.yml's fetch step should have brought " .. WORK_REF .. " down")
     end
-    print("skipped: " .. BOARD_REF .. " board paths unchecked: " .. why ..
-      " — `git fetch origin board` to check them")
+    print("skipped: " .. WORK_REF .. " board paths unchecked: " .. why ..
+      " — `git fetch https://github.com/cosmic-lua/work " ..
+      "+refs/heads/main:refs/remotes/work/main` to check them")
     return
   end
   local missing: {string} = {}
   for _, span in ipairs(spans) do
     if not paths[span.text] then
       missing[#missing + 1] = span.file .. ":" .. span.line .. ": `" ..
-      span.text .. "` names no file on " .. BOARD_REF
+      span.text .. "` names no file on " .. WORK_REF
     end
   end
   assert(#missing == 0, #missing .. " stale board reference(s) — fix the " ..
-    "prose to name what " .. BOARD_REF .. " has:\n  " ..
+    "prose to name what " .. WORK_REF .. " has:\n  " ..
     table.concat(missing, "\n  "))
 end
 

@@ -2,8 +2,9 @@
 --- prerequisite so a moved ref is a moved dependency.
 ---
 --- A test that reads a git ref at run time (`_build/doc_paths_test.tl`
---- checks the prose's `_work/` pointers against `origin/board` through
---- `git ls-tree`) has an input no path names: the ref is not a file
+--- checks the prose's `_work/` pointers against cosmic-lua/work's
+--- fetched `refs/remotes/work/main` through `git ls-tree`) has an
+--- input no path names: the ref is not a file
 --- under the project root, so no `reads:` path can cover it, and a
 --- fetch that moves it leaves every prerequisite of
 --- `o/<path>.test.got` unmoved -- the cached verdict replays over a
@@ -79,7 +80,8 @@ end
 --- The stamp's bytes: one line per declared name, sorted --
 --- `name=commit` for a ref that resolved, the bare `name` for one that
 --- did not. Absent must key differently from every commit, and a stamp
---- that reads `origin/board=<commit>` explains its own re-run.
+--- that reads `refs/remotes/work/main=<commit>` explains its own
+--- re-run.
 --- @param names {string} Declared ref names
 --- @param commits {string: string} Each name's commit; absent when unresolved
 --- @return string The stamp content, newline-terminated

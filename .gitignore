@@ -10,6 +10,8 @@ results/
 bin/*
 !bin/cosmic
 !bin/cosmic.pin
+!bin/gitboard
+!bin/gitboard.pin
 
 # ah agent harness
 .ah/

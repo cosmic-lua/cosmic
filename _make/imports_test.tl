@@ -214,9 +214,9 @@ end
 -- what lets a build under an older parser ignore it instead of
 -- refusing the project over a path that does not exist.
 local function test_ref_scan_splits_on_whitespace_and_is_not_a_read()
-  local src = "--- ref: origin/board scratch\nprint('x')\n"
+  local src = "--- ref: refs/remotes/work/main scratch\nprint('x')\n"
   local got = table.concat(imports.ref_scan(src), ",")
-  assert(got == "origin/board,scratch", "got: " .. got)
+  assert(got == "refs/remotes/work/main,scratch", "got: " .. got)
   assert(#imports.reads_scan(src) == 0, "a ref line must not read as a path")
 end
 

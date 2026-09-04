@@ -444,18 +444,18 @@ end
 -- two things first, or the gate it runs cannot pass: strip the
 -- `includeIf.gitdir` credential entries actions/checkout leaves in
 -- `.git/config` (unreadable once root steps aside, and any git
--- subprocess spawned later trips on them), and fetch `origin/board`
--- (`_build/doc_paths_test.tl`'s board check FAILS rather than skips
--- when it is unreadable under `CI`, doc_paths_test.tl:268-282). Both
--- landed in pr.yml's `ci` job together; release.yml's `build` job ran
--- `--make ci` the same way for two releases without either, invisibly,
--- because no gate here checked for them -- only a scheduled release
--- run surfaced it. Derived over every job in every workflow, never
--- listed, so a third `--make ci` lane inherits the rule instead of
--- silently missing it.
-local function test_every_gate_lane_strips_includeif_and_fetches_the_board_ref()
+-- subprocess spawned later trips on them), and fetch cosmic-lua/work's
+-- `main` (`_build/doc_paths_test.tl`'s board check FAILS rather than
+-- skips when it is unreadable under `CI`, doc_paths_test.tl:268-282).
+-- Both landed in pr.yml's `ci` job together; release.yml's `build` job
+-- ran `--make ci` the same way for two releases without either,
+-- invisibly, because no gate here checked for them -- only a scheduled
+-- release run surfaced it. Derived over every job in every workflow,
+-- never listed, so a third `--make ci` lane inherits the rule instead
+-- of silently missing it.
+local function test_every_gate_lane_strips_includeif_and_fetches_the_work_ref()
   local INCLUDEIF < const > = 'git config --local --remove-section "includeIf.gitdir:'
-  local BOARD_FETCH < const > = "+refs/heads/board:refs/remotes/origin/board"
+  local WORK_FETCH < const > = "+refs/heads/main:refs/remotes/work/main"
   local checked = 0
   for _, path in ipairs(workflows()) do
     for name in pairs(jobs_in(path)) do
@@ -465,14 +465,14 @@ local function test_every_gate_lane_strips_includeif_and_fetches_the_board_ref()
         assert(body:find(INCLUDEIF, 1, true),
           path .. ": job '" .. name .. "' runs `--make ci` but never " ..
           "strips the includeIf.gitdir credential entries first -- a " ..
-          "git subprocess under the gate (board_paths()'s own `git " ..
+          "git subprocess under the gate (work_paths()'s own `git " ..
           "ls-tree`) fails on the unreadable include once root steps " ..
           "aside to the builder")
-        assert(body:find(BOARD_FETCH, 1, true),
+        assert(body:find(WORK_FETCH, 1, true),
           path .. ": job '" .. name .. "' runs `--make ci` but never " ..
-          "fetches origin/board first -- _build/doc_paths_test.tl's " ..
+          "fetches cosmic-lua/work's main first -- _build/doc_paths_test.tl's " ..
           "board check fails outright, rather than skipping, when " ..
-          "origin/board is unreadable under CI")
+          "refs/remotes/work/main is unreadable under CI")
       end
     end
   end

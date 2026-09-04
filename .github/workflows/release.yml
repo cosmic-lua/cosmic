@@ -55,7 +55,7 @@ jobs:
           # actions/checkout adds includeIf.gitdir entries to this repo's
           # LOCAL .git/config, pointing at a credentials config file under
           # a runner temp dir that only root (who wrote it) can read. Any
-          # git subprocess builder spawns later — board_paths()'s own
+          # git subprocess builder spawns later — work_paths()'s own
           # `git ls-tree`, inside the gate below — parses .git/config and
           # fails on that unreadable include ("fatal: bad config line N"),
           # even though the command itself has nothing to do with
@@ -94,18 +94,21 @@ jobs:
       # to be — and a pin older than a build-system change would
       # otherwise ship an artifact built by rules the tree no longer has.
       #
-      # The board ref is fetched first, as pr.yml's fetch step does:
+      # The work ref is fetched first, as pr.yml's fetch step does:
       # _build/doc_paths_test.tl checks the prose's `_work/` pointers
-      # against origin/board, which the checkout's depth-1 fetch of the
-      # release commit alone does not bring, and under CI that check
-      # fails rather than skips.
+      # against cosmic-lua/work's main branch, which the checkout's
+      # depth-1 fetch of the release commit alone does not bring, and
+      # under CI that check fails rather than skips. cosmic-lua/work is
+      # public, so this is an unauthenticated fetch of its own URL --
+      # the board moved to its own repository and is no longer a branch
+      # of this one.
       - name: build the release binaries
         shell: bash
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             COSMIC_VERSION="${{ steps.tag.outputs.tag }}" bash -ec '
-            git fetch -q --depth=1 origin +refs/heads/board:refs/remotes/origin/board
+            git fetch -q --depth=1 https://github.com/cosmic-lua/work +refs/heads/main:refs/remotes/work/main
             bin/cosmic --make fetch
             bin/cosmic --make build
             o/bin/cosmic --make build'
