@@ -95,3 +95,85 @@ capture's job):
 - Does not relitigate `3IkMf7BY1UOxBTAIwbNFQwRZJDA` (the pin-bump
   item), which is now itself blocked on this item in full — not
   narrowed, not partially landable — pending this decision.
+
+## Resolution
+
+**2026-09-04.** The decision this item asked for was made and recorded
+while it waited: [D43](docs/decisions/d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md)
+(cosmic PR #1657), implemented by `_make/seed.tl` (PR #1656,
+`f156e879`, cleanup fix #1661 `8758f80c`), the outcome of the twin
+capture `3IoULYAulj0d9OKzeaf1FGTZOR3` (same wall, hit by
+`A3HK_gamw`'s builder a day after this one). It is neither (a) nor (b)
+above: generation 1 now seeds `o/_types/types_gen` from the FETCHED
+`3p/cosmos` pin before any generator's closure compiles, so the
+closure is checked against the new declarations and an adapted
+wrapper compiles in both of the build's compile passes. The
+generation-phase dependency on `cosmic.child`/`cosmic.fs`/
+`cosmic.proc` stays; it stopped mattering.
+
+What still holds, and is the ONE remaining wall: the seed pass is
+engine code, and generation 1 runs the TRUST ROOT's engine, not the
+tree's. `bin/cosmic.pin` (`2026-08-31-a5b36f4`) predates #1656, and no
+cosmic release since carries it (newest published: `2026-09-02-c60dcf1`;
+`release.yml` is red — «6JrA_3Dgs»). Measured in a fresh detached
+worktree of `79aa8c16` (= `origin/main` today):
+
+```
+$ unzip -l o/bootstrap/cosmic | grep -E '_make/(seed|generate)\.lua'   # the pinned engine
+     5769  1980-01-01 00:00   _make/generate.lua
+$ unzip -l o/bin/cosmic | grep -E '_make/(seed|generate)\.lua'         # the tree's own build
+     4145  1980-01-01 00:00   _make/generate.lua
+     1737  1980-01-01 00:00   _make/seed.lua
+```
+
+Three cold builds (`rm -rf o && <engine> --make fetch && <engine>
+--make build`), all with `3p/cosmos/cosmos_pin.tl` bumped to
+`2026.09.04-65bc139fc` (sha256 `9f3cb4bada57…8886`, the newest release,
+computed from the downloaded `cosmos.zip`):
+
+- **A — pin bump only, pinned engine.** Generation passes (the
+  closures still match the OLD bundled types), the graph then fails:
+  `cosmic -c: compile-batch: 6 of 148 failed` — `fd.tl`, `re.tl`,
+  `re_test.tl`, `signal.tl`, `time.tl`, `tty.tl`. This is the item's
+  "old destructuring" leg, reproduced.
+- **B — `cosmic/fd.tl`'s `pipe()` adapted to the `unix.Pipe` record,
+  pinned engine.** Fails BEFORE the graph, in the closure compile:
+  ```
+  generate _types/tlast_gen.tl
+  cosmic/fd.tl:251:34: error: cannot index key 'reader' in variable 'p' of type integer (inferred at cosmic/fd.tl:248:3)
+  make: _types/tlast_gen.tl: cannot build o/cosmic/fd.lua
+  build: FAIL (generate failed)
+  ```
+  This is the item's "new destructuring" leg, reproduced: under the
+  current trust root the deadlock is exactly as described.
+- **C — the same adapted tree, generation 1 driven by the tree's own
+  binary (an engine carrying #1656; `cp o/bin/cosmic /home/user/engine-seed`
+  from build A's baseline run).** `fd.tl` compiles in the closure
+  pass; the closure compile now fails at the NEXT unadapted member,
+  against the NEW declarations:
+  ```
+  generate _types/tlast_gen.tl
+  cosmic/fs/dir.tl:28:20: error: in return value: got integer | string, expected integer
+  ```
+  Adapting `fs/dir.tl` moves it to `fs/file.tl:103` (`MkstempPath |
+  string`), and so on — the ordinary "adapt the wrapper" failure, the
+  one a single PR fixes, not a two-sided wall.
+
+So, for a puller: a binding-contract cosmos pin bump is a ONE-PR
+change again as soon as `bin/cosmic.pin` names a release that contains
+`8758f80c` — that bump is «Xvox_XNCM» (`3Ip8zrCbHnPiV5bRM49XvoxXNCM`),
+amended today to carry this second consumer set, blocked on the
+`release.yml` lane repair. Until it lands, NO pin bump touching a
+generator-closure binding can cold-build, whatever the wrappers say
+(the two legs above). The three pin bumps that were blocked here —
+`3IkMf7BY1UOxBTAIwbNFQwRZJDA` (spec un-narrowed today, the measured
+affected set is in it), `3ImjB20Oly8ZWwt0lMAutpfHTkH`,
+`3In3fTdCYXfhCWXSULqgx09qUkP` — are re-blocked on that chain.
+
+One more measured fact for whoever does the bump: the affected set
+must be measured under an engine that carries #1656. The pinned
+engine's own `gentype` renders the new annotations differently (build
+A's graph pass accepted `child/init.tl`'s `unix.wait` and
+`fs/file.tl`'s `unix.mkstemp` sites; the tree's `gentype` rejects
+both — 6 and 10 errors), so a pass under the old trust root is not
+evidence the tree is adapted.
