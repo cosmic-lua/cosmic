@@ -6,7 +6,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1708,
   ["title"] = "item.tl: doc-comment the builders field's wire-shape mismatch with decode",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "1bb160369cad6d8099e100f0960d137a1f68a477",
   ["verdict_spec"] = "3a1286b6a49bb08a283ae6f2175449ed2f45e22a9122e0f328fba200cd9186d8",
 }
