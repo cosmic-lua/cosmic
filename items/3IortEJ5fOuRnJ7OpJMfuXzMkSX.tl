@@ -8,7 +8,6 @@ return {
   ["pr"] = 1694,
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "tl: consume the curated tl.Env in _teal_ast.tl/_teal_engine.tl, closing 3 tl-compiler-surface casts (needs a bin/cosmic.pin bump first)",
-  ["verdict"] = "request changes",
   ["verdict_head"] = "1586dd3d93a91e0a31805d7f72370256f35686c4",
   ["verdict_spec"] = "d2315d8480821051541c3cbfacbacd0c7f7950b28de60606341524b2f65bdd8f",
 }
