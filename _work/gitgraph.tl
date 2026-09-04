@@ -74,6 +74,11 @@ local function cmd_new(s: store.Store, title: string, parent: string,
       return gate.verdict_line("new", false, ("no item %s"):format(parent))
     end
   end
+  if parent == "" and (repo or "") ~= "" then
+    return gate.verdict_line("new", false, "a root carries no repo: pass "
+      .. "`--parent ID` to file it under an outcome, or `new` it bare and "
+      .. "`attach`, then `set ID --repo`")
+  end
   local it: item.Item = {
     id = ksuid.new(), title = title, parent = parent, repo = repo or "",
     beats = {},

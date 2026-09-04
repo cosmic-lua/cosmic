@@ -120,7 +120,8 @@ local CSPEC: flags.CommandSpec = {
           {long = "parent", arg = "ID", help = "the item this decomposes"},
           {long = "spec-file", arg = "FILE", help = "spec markdown sidecar"},
           {long = "repo", arg = "OWNER/NAME",
-            help = "the repo its PR lands in; default is the board's origin"},
+            help = "the repo its PR lands in; default is the board's origin "
+            .. "(needs --parent)"},
           {long = "force", help = "file a `friction:` item over an "
             .. "incomplete roll call"},
           {long = "why", arg = "REASON", help = "why --force was needed"}}}},
