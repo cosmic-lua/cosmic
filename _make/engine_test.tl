@@ -1,4 +1,5 @@
 local check = require("cosmic.check")
+local fs = require("cosmic.fs")
 local engine = require("_make.engine")
 
 -- _make/** and _cli/** match by position: this project's own tooling
@@ -15,51 +16,63 @@ local function test_make_and_cli_paths_match()
     "a nested _cli/** path still matches")
 end
 
--- The five `_tool/**` files confirmed (by reproducing the staleness bug
--- per-file) to spawn `TEST_BIN`'s built cosmic the same way
--- `_make/fixtures_test.tl` did.
-local function test_confirmed_tool_spawners_match()
-  check.truthy(engine.exercises_the_engine("_tool/benchmark_test.tl"),
-    "benchmark_test.tl spawns cosmic --benchmark")
-  check.truthy(engine.exercises_the_engine("_tool/coverage/baseline_test.tl"),
-    "coverage/baseline_test.tl spawns cosmic for a real coverage run")
-  check.truthy(engine.exercises_the_engine("_tool/example_test.tl"),
-    "example_test.tl spawns cosmic --check example")
-  check.truthy(engine.exercises_the_engine("_tool/lint_test.tl"),
-    "lint_test.tl spawns cosmic --check lint")
-  check.truthy(engine.exercises_the_engine("_tool/testrun_test.tl"),
-    "testrun_test.tl spawns TEST_BIN/cosmic directly")
+-- Position matches even when the path does not exist: `_make/**` and
+-- `_cli/**` never fall through to the content read.
+local function test_nonexistent_positional_path_still_matches()
+  check.truthy(engine.exercises_the_engine("_make/does_not_exist_test.tl"),
+    "_make/** matches by position alone, no read needed")
 end
 
--- The rest of `_tool/**` is pure-unit tests over one module: they must
--- NOT match, or a `^_tool/` blanket would force them to re-run on every
--- engine edit for no reason -- the over-invalidation this item's audit
--- was written to avoid.
-local function test_unconfirmed_tool_paths_do_not_match()
-  check.truthy(not engine.exercises_the_engine("_tool/discover_test.tl"),
-    "discover_test.tl never spawns TEST_BIN")
-  check.truthy(not engine.exercises_the_engine("_tool/floor_test.tl"),
-    "floor_test.tl never spawns TEST_BIN")
-  check.truthy(not engine.exercises_the_engine("_tool/records_test.tl"),
-    "records_test.tl never spawns TEST_BIN")
-  check.truthy(not engine.exercises_the_engine("_tool/seam_test.tl"),
-    "seam_test.tl spawns o/bootstrap/cosmic, declared via its own reads:")
-  check.truthy(not engine.exercises_the_engine("_tool/coverage/lines_test.tl"),
-    "coverage/lines_test.tl never spawns TEST_BIN")
-  check.truthy(not engine.exercises_the_engine("_tool/doc/index_test.tl"),
-    "doc/index_test.tl never spawns TEST_BIN")
+-- Outside `_make/**` and `_cli/**`, content decides it: a file naming
+-- the literal `TEST_BIN` token matches, whatever tree it lives in.
+local function test_content_rule_matches_test_bin_token()
+  local dir = check.must(os.getenv("TEST_TMPDIR"))
+  local with = fs.join(dir, "x_test.tl")
+  check.must(fs.write(with,
+      "local bin = os.getenv(\"TEST_BIN\")\nprint(bin)\n"))
+  check.truthy(engine.exercises_the_engine(with),
+    "a cosmic/**-shaped file mentioning TEST_BIN matches")
 end
 
--- Everywhere else -- cosmic/**, _perf/**, the repo root -- is out of
--- scope for this positional rule; a path there never matches, whatever
--- it happens to import.
-local function test_other_paths_do_not_match()
-  check.truthy(not engine.exercises_the_engine("cosmic/proc_test.tl"),
-    "cosmic/** is not _make/_cli/_tool")
-  check.truthy(not engine.exercises_the_engine("_perf/bench/binary.tl"),
-    "_perf/** is not _make/_cli/_tool")
-  check.truthy(not engine.exercises_the_engine("tool_test.tl"),
-    "a bare prefix match ('tool' vs '_tool/') must not slip through")
+local function test_content_rule_does_not_match_without_the_token()
+  local dir = check.must(os.getenv("TEST_TMPDIR"))
+  local without = fs.join(dir, "y_test.tl")
+  check.must(fs.write(without, "local x = 1\nprint(x)\n"))
+  check.truthy(not engine.exercises_the_engine(without),
+    "a file that never mentions TEST_BIN does not match")
+end
+
+-- A path that cannot be read falls back to position alone: outside
+-- `_make/**`/`_cli/**`, a missing or unreadable file does not match.
+local function test_unreadable_path_falls_back_to_position()
+  local dir = check.must(os.getenv("TEST_TMPDIR"))
+  local missing = fs.join(dir, "does_not_exist_test.tl")
+  check.truthy(not engine.exercises_the_engine(missing),
+    "an unreadable path outside _make/_cli does not match")
+end
+
+-- The five former `_tool/**` list entries, re-checked against the real
+-- tree: the content rule must subsume every one of them. TEST_TMPDIR is
+-- not the root, so this reads them by repo-relative path only when the
+-- cwd actually is the root; otherwise it skips the sub-assertion aloud
+-- rather than chdir-ing out of TEST_TMPDIR.
+local function test_content_rule_subsumes_former_tool_list()
+  if not fs.is_file("_make/engine.tl") then
+    print("skip: cwd is not the repo root, cannot read _tool/** by" ..
+      " repo-relative path")
+    return
+  end
+  local former_list = {
+    "_tool/benchmark_test.tl",
+    "_tool/coverage/baseline_test.tl",
+    "_tool/example_test.tl",
+    "_tool/lint_test.tl",
+    "_tool/testrun_test.tl",
+  }
+  for _, path in ipairs(former_list) do
+    check.truthy(engine.exercises_the_engine(path),
+      path .. " still matches under the content rule")
+  end
 end
 
 print("all engine tests passed")
