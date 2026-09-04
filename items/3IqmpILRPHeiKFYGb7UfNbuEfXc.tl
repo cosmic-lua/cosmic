@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["pr"] = 1690,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-fNbu_EfXc-7f9141e2",
   ["title"] = "perf lane residue: _perf/baseline.tl's default --asset names perf.json, which no release carries since D44; compare_test.tl still says 'release lane'",
 }
