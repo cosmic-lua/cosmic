@@ -116,8 +116,7 @@ local function test_a_pr_less_pair_guard_degrades_to_the_spec_alone()
   local back = check.must(store.load(s, leaf))
   assert(flow.substate(back) == "rework", "the send-back stands")
   assert(back.claim == "session-a", "with the builder's claim kept")
-  assert((back.verdict_spec or "") ~= "",
-    "the judged spec revision is on the record")
+  assert((back.verdict_spec or "") ~= "", "the judged spec revision is on the record")
   local code, printed = verdict_and_capture(s, leaf, "request changes", 0, "",
     "reviewer-a")
   assert(code ~= 0, "the same unchanged spec has nothing new to judge")
@@ -164,8 +163,7 @@ local function test_a_verdict_refuses_a_pair_it_already_judged()
   local back = check.must(store.load(s, leaf))
   assert(flow.substate(back) == "rework", "the send-back stands")
   assert(back.claim == "session-a", "with the builder's claim kept")
-  assert((back.verdict_spec or "") ~= "",
-    "the judged spec revision is on the record")
+  assert((back.verdict_spec or "") ~= "", "the judged spec revision is on the record")
   -- The rework hands back: the same PR, and the verdict re-opens.
   assert(verbs.cmd_take(s, leaf, "session-a", 6, false, "") == 0)
   assert(flow.substate(check.must(store.load(s, leaf))) == "review",
@@ -295,6 +293,19 @@ local function test_a_reject_returns_the_item_to_todo()
     "and the builders record still says who built the rejected round")
 end
 
+-- The already-recorded case: a second identical reject is a no-op —
+-- reject always clears the same fields, so nothing changed.
+local function test_a_second_identical_reject_is_a_noop_success()
+  local s = init_state_repo("verdict-reject-noop")
+  local _, leaf = root_with_leaf(s)
+  handed_over(s, leaf, 31)
+  assert(vrd.cmd_verdict(s, leaf, "reject", 31, "abc1234", "review-1") == 0)
+  local before = fixture.commits(s)
+  local code, line = verdict_and_capture(s, leaf, "reject", 31, "abc1234", "review-1")
+  assert(code == 0 and fixture.commits(s) == before
+    and line:find("nothing to record", 1, true) ~= nil, line)
+end
+
 -- The judgment consumes the review claim, whoever held it: the claim
 -- is mutual exclusion over the reading, and the reading is over.
 local function test_a_verdict_consumes_the_review_claim()
@@ -305,8 +316,7 @@ local function test_a_verdict_consumes_the_review_claim()
   it.reviewer = "review-9"
   assert(store.save(s, it, "review claim for the fixture"))
   assert(vrd.cmd_verdict(s, leaf, "request changes", 41, "abc1234") == 0)
-  assert(check.must(store.load(s, leaf)).reviewer == "",
-    "the verdict consumed the claim")
+  assert(check.must(store.load(s, leaf)).reviewer == "", "the verdict consumed the claim")
 end
 
 -- The head is verified before anything commits: a malformed --head is
@@ -345,8 +355,7 @@ local function test_verdict_refuses_a_flag_shaped_session()
   local it = check.must(store.load(s, leaf))
   assert(it.verdict == "" and it.verdict_head == "",
     "the refusal recorded nothing")
-  assert(#check.must(publish.history(s, leaf)) == #before_events,
-    "and committed nothing")
+  assert(#check.must(publish.history(s, leaf)) == #before_events, "and committed nothing")
 end
 
 -- A well-formed head over a local-only board (no origin to check it

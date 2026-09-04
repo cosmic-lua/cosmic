@@ -23,6 +23,24 @@ local LOST_RACE < const > = "lost the push race — the mutation was dropped "
 .. "whole and the checkout re-synced; re-run the verb against the "
 .. "current board"
 
+--- The fixed prefix a no-op `save` carries, so `is_noop` can tell one
+--- from an ordinary success or a terminal failure without matching
+--- the whole message.
+local NOOP_PREFIX < const > = "nothing to record: "
+
+--- Whether an outcome from `save` (or a caller built on it, like
+--- `_work.gitgate.commit_and_publish`) is the no-op success: the
+--- mutation asked for is the state the board already holds, so
+--- nothing was staged and nothing committed. The verb layer prints
+--- `detail` as-is on this path rather than composing its own success
+--- text, so the same "nothing to record" line reaches the operator
+--- regardless of which verb hit it.
+--- @param detail string The message returned alongside a truthy `save`
+--- @return boolean True on a no-op success
+local function is_noop(detail: string): boolean
+  return (detail or ""):sub(1, #NOOP_PREFIX) == NOOP_PREFIX
+end
+
 --- Git defaults for every store call: a deterministic committer, so a
 --- state commit is attributable to the board tool rather than the
 --- host's git config, and rename-based object finalization —
@@ -286,8 +304,10 @@ end
 --- @param message string Commit subject, e.g. "move fetch-retry ready -> do"
 --- @param spec string Replacement spec markdown; omitted leaves the sidecar alone
 --- @param also {item.Item} Further items to write into the same commit
---- @return boolean True on success
---- @return string Error message; "nothing to record" when state is unchanged
+--- @return boolean True on success — a no-op mutation succeeds too
+--- @return string "" on an ordinary success; on a no-op, the
+--- `is_noop`-testable "nothing to record: ..." message; the failure
+--- detail otherwise
 local function save(s: Store, it: item.Item, message: string,
     spec?: string, also?: {item.Item}): boolean, string
   local ok, err = stage(s, it, spec)
@@ -301,12 +321,13 @@ local function save(s: Store, it: item.Item, message: string,
     end
   end
   -- A mutation that changes nothing stages nothing, and `git commit`
-  -- reports that on STDOUT while exiting non-zero — which reads as a
-  -- bare "git commit failed:" unless it is caught here. Re-running an
-  -- identical verdict or spec is the way to meet it.
+  -- reports that on STDOUT while exiting non-zero. That reads as a
+  -- failure unless it is caught here — but the state the caller asked
+  -- for is the state the board already holds, so this is a SUCCESS,
+  -- not a refusal: the mutation's own idempotence, not a fresh commit.
   local clean = git(s, {"diff", "--cached", "--quiet"})
   if clean ~= nil and clean.ok then
-    return false, ("nothing to record: %s leaves the board unchanged"):format(
+    return true, NOOP_PREFIX .. ("%s leaves the board unchanged"):format(
       message)
   end
   local _, cerr = git_ok(s, {"commit", "-q", "-m", message})
@@ -319,6 +340,7 @@ end
 local record store
   type Store = Store
   LOST_RACE: string
+  is_noop: function(detail: string): boolean
   git: function(s: Store, argv: {string}): child.Result | nil, string
   git_ok: function(s: Store, argv: {string}): child.Result | nil, string
   init_repo: function(dir: string): boolean, string
@@ -337,6 +359,7 @@ end
 
 local M: store = {
   LOST_RACE = LOST_RACE,
+  is_noop = is_noop,
   git = git,
   git_ok = git_ok,
   init_repo = init_repo,

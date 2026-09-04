@@ -173,9 +173,9 @@ local function test_edge_refusals()
     :find("itself", 1, true), "nothing outranks itself")
   assert(check.must(prio.edge_refusal(index, b.id, fresh_id()))
     :find("no item", 1, true), "an unknown id is refused")
-  assert(check.must(prio.edge_refusal(index, b.id, a.id))
-    :find("already outranks", 1, true),
-    "a duplicate edge is refused rather than written twice")
+  assert(prio.edge_refusal(index, b.id, a.id) == nil,
+    "a direct duplicate is not refused here — the caller leaves it "
+    .. "untouched and `save`'s own no-op success closes it out")
   local reverse = prio.edge_refusal(index, a.id, b.id)
   assert(reverse ~= nil and reverse:find("cyclic", 1, true),
     "and the contradicting edge is refused, not silently reversed: "

@@ -60,6 +60,9 @@ local function cmd_spec(s: store.Store, id: string, file: string,
   if not ok then
     return gate.verdict_line("spec", false, err)
   end
+  if store.is_noop(err) then
+    return gate.verdict_line("spec", true, err)
+  end
   return gate.verdict_line("spec", true, ("%s's spec replaced"):format(id:sub(1, 8)))
 end
 

@@ -56,15 +56,21 @@ local function test_the_spec_bar_still_refuses_a_hollow_spec()
   assert(check.must(store.load(s, leaf)).claim == "", "it stayed put")
 end
 
--- Re-running a mutation that records the same values says so.
+-- Re-running a mutation that records the same values is a no-op that
+-- succeeds, not a refusal — the state asked for is already the board's.
 local function test_a_no_op_mutation_is_named()
   local s = init_state_repo("noop")
   local _, leaf = root_with_leaf(s)
   local path = fs.join(tmpdir, "ready-spec.md")
   assert(fs.write(path, READY_SPEC))
   assert(gitspec.cmd_spec(s, leaf, path) == 0)
-  assert(gitspec.cmd_spec(s, leaf, path, path) ~= 0,
-    "the same spec twice records nothing the second time")
+  local old_print = _G.print
+  local seen = ""
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local code = gitspec.cmd_spec(s, leaf, path, path)
+  _G.print = old_print
+  assert(code == 0 and seen:find("nothing to record", 1, true) ~= nil,
+    "the same spec twice is a no-op the second time: " .. seen)
 end
 
 -- One markdown file under tmpdir, for the spec tests below.

@@ -224,16 +224,29 @@ local function test_save_writes_every_touched_item_as_one_commit()
   assert(check.must(store.load(s, kid.id)).id == kid.id, "so is the child")
 end
 
--- A mutation that changes nothing must say so, not surface git's
--- exit code with the explanation on a stream nobody read.
-local function test_save_refuses_a_no_op()
+-- A mutation that changes nothing is the state the caller asked for
+-- already holding: `save` SUCCEEDS, no commit made, `is_noop`-testable
+-- on the message it carries — not a refusal surfacing git's exit code
+-- with the explanation on a stream nobody read.
+local function test_save_succeeds_on_a_no_op()
   local root = init_state_repo("noop")
   local s = check.must(store.open(root))
   local it = make_item()
   assert(store.save(s, it, "new item"))
+  local before = commit_count(root)
   local ok, err = store.save(s, it, "take it nowhere")
-  assert(not ok, "an unchanged item is not a commit")
+  assert(ok, "an unchanged item is still a success: " .. tostring(err))
+  assert(store.is_noop(err), "is_noop recognizes it: " .. err)
   assert(err:find("nothing to record", 1, true), "got: " .. err)
+  assert(commit_count(root) == before, "and no commit is made")
+end
+
+-- An ordinary success and a terminal failure are never mistaken for
+-- the no-op outcome.
+local function test_is_noop_is_specific()
+  assert(not store.is_noop(""), "an empty message is not a no-op")
+  assert(not store.is_noop("git commit failed: disk full"),
+    "an unrelated failure is not a no-op")
 end
 
 -- The bricking incident: a multiline title must not abort `list` — the

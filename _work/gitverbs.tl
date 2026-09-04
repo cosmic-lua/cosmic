@@ -433,6 +433,9 @@ local function cmd_done(s: store.Store, id: string, reason: string,
   if not ok then
     return gate.verdict_line("done", false, err)
   end
+  if store.is_noop(err) then
+    return gate.verdict_line("done", true, err)
+  end
   -- A parent whose last open child just ended is workable again by
   -- derivation — nothing to write, but worth saying: verifying the
   -- outcome its children were supposed to deliver is the next thing
