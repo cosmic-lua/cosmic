@@ -19,6 +19,31 @@ accepts squash merges only. One extra call with `merge_method: "squash"`
 resolved it. "Merge directly" alone is incomplete guidance; the method
 matters too.
 
+**Corroborated again 2026-09-04, a later `/work 9 --routine` pass
+(friction log `friction-2026-09-04-work9.md`, filed alongside this
+item's original)**: of 5 accept verdicts recorded on `board`-targeting
+PRs across that pass, **3 independently hit the identical
+`enable_pr_auto_merge` dead end** before any brief fix had landed:
+
+- review-sxzp_M1yR-d6f1cc41 (PR #1706): hit it, found the fix via
+  `gitboard help review`, merged directly (squash).
+- review-mzpu_OKna-d6f1cc41 (PR #1707): hit it, correctly stood down per
+  its brief rather than guessing, reported it as a blocker — orchestrator
+  merged manually.
+- review-LmNB_gMXm-d6f1cc41 (PR #1710): hit it, sampled 20 recent closed
+  `board`-PRs via the GitHub API to check whether the gap was systemic,
+  correctly concluded the brief's instructions don't cover this branch —
+  orchestrator merged manually.
+
+Only once the orchestrator started hand-appending an ad hoc correction to
+each review brief for a `board`-targeting PR (starting with
+review-nwzb_73yW-d6f1cc41, PR #1711) did reviewers merge directly on the
+first attempt with no dead end — validating that the `## Change` below
+(branching the brief's own text on `base`) is sufficient to close this
+gap once it ships; two further round-2 reviews this same pass
+(review-4B0h_t06K-d6f1cc41, review-VbI3_FiHP-d6f1cc41) also landed clean
+once briefed with the same ad hoc correction.
+
 ## Change
 
 `_work/brieftext_review.tl`'s "Recording your verdict" section (around
