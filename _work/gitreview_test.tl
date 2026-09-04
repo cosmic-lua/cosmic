@@ -21,14 +21,27 @@ local root_with_leaf = fixture.root_with_leaf
 --- `f`, restoring the real function even when `f` fails an assertion
 --- — a fixture PR in each of the four states, since `_work.gh_test`'s
 --- own scope note is that `pull`/`checks` are exercised only against
---- a real repository, never faked at the transport.
+--- a real repository, never faked at the transport. The head sha and
+--- run list riding the returned record are fixed fixture values too —
+--- the callers under test read them instead of re-fetching, so a stub
+--- with nothing there would starve them. A nil `state` stands in for
+--- no GitHub reach, so the stub itself returns nil then, not a record.
 --- @param state string | nil The state `head_checks` reports
 --- @param f function(): boolean The test body; returns true when done
 local function with_ci_state(state: string | nil, f: function(): boolean)
   local real = gh.head_checks
   gh.head_checks = function(_s: store.Store, _pr: integer, _repo: string | nil):
-    string | nil, string
-    return state, ""
+    gh.HeadChecks | nil, string
+    if state == nil then
+      return nil, "no github reach"
+    end
+    if state == "running" then
+      return {state = state,
+        head_sha = "cafef00dfeedfacebeef1234567890abcdef1234",
+        runs = {{name = "ci", status = "completed", conclusion = "success"},
+          {name = "smoke", status = "in_progress", conclusion = ""}}}, ""
+    end
+    return {state = state, head_sha = "", runs = {}}, ""
   end
   local ok, err = pcall(f)
   gh.head_checks = real

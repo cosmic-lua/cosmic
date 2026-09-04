@@ -130,23 +130,37 @@ local function checks(s: store.Store, sha: string, repo: string | nil):
 end
 
 --- One pull request's head reduced to a single summary a caller can
---- act on without re-deriving it from the raw run list: "green" (every
---- completed run passed), "red" (`review.blocks_on_ci` already calls
---- that a failure), "running" (nothing has failed yet, but something
---- is still going), or "none" (the repo runs no checks on this head
---- at all — not the same as passing, and worth a word of its own
---- rather than an empty list a caller must interpret itself).
----
---- Composes `pull` and `checks`, so it fails exactly when either does
---- — no origin, no token, a network or API error — and a caller reads
---- that the same way it always could: nil is "unknown", never "red".
+--- act on without re-deriving it from the raw run list, plus the raw
+--- data it was derived from — so a caller that needs to EXPLAIN the
+--- state (a sha7 and a done/total count in a refusal message) reads
+--- `head_sha` and `runs` off this one record instead of re-fetching
+--- the same PR and check-run list a second time.
+local record HeadChecks
+  --- "green" (every completed run passed), "red" (`review.blocks_on_ci`
+  --- already calls that a failure), "running" (nothing has failed yet,
+  --- but something is still going), or "none" (the repo runs no checks
+  --- on this head at all — not the same as passing, and worth a word
+  --- of its own rather than an empty list a caller must interpret
+  --- itself).
+  state: string
+  --- The head commit this summarizes.
+  head_sha: string
+  --- The check runs `state` was derived from, possibly empty.
+  runs: {review.CheckRun}
+end
+
+--- Composes `pull` and `checks` in ONE call each — the same one-read
+--- discipline `gitverdict.cmd_verdict` and `gitgate.handover_refusal`
+--- already hold. Fails exactly when either underlying read does — no
+--- origin, no token, a network or API error — and a caller reads that
+--- the same way it always could: nil is "unknown", never "red".
 --- @param s store.Store The store
 --- @param number integer The PR number
 --- @param repo string | nil The item's repo field, when it carries one
---- @return string | nil "green" | "red" | "running" | "none"
+--- @return HeadChecks | nil The summary
 --- @return string Error message
 local function head_checks(s: store.Store, number: integer, repo: string | nil):
-  string | nil, string
+  HeadChecks | nil, string
   local p, perr = pull(s, number, repo)
   if p == nil then
     return nil, perr
@@ -155,18 +169,20 @@ local function head_checks(s: store.Store, number: integer, repo: string | nil):
   if runs == nil then
     return nil, cerr
   end
+  local state = "green"
   if review.blocks_on_ci(runs) ~= nil then
-    return "red", ""
-  end
-  if #runs == 0 then
-    return "none", ""
-  end
-  for _, r in ipairs(runs) do
-    if r.status ~= "completed" then
-      return "running", ""
+    state = "red"
+  elseif #runs == 0 then
+    state = "none"
+  else
+    for _, r in ipairs(runs) do
+      if r.status ~= "completed" then
+        state = "running"
+        break
+      end
     end
   end
-  return "green", ""
+  return {state = state, head_sha = p.head_sha, runs = runs}, ""
 end
 
 local record gh
@@ -176,7 +192,8 @@ local record gh
   checks: function(s: store.Store, sha: string, repo: string | nil):
   {review.CheckRun} | nil, string
   head_checks: function(s: store.Store, number: integer, repo: string | nil):
-  string | nil, string
+  HeadChecks | nil, string
+  type HeadChecks = HeadChecks
 end
 
 local M: gh = {

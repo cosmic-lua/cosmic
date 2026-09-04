@@ -114,6 +114,11 @@ end
 --- on. A read failure (no origin, no token, a network error) answers
 --- neither: a brief for a store with no GitHub reach emits exactly as
 --- it always has, `<HEAD_SHA>` left for the caller to fill.
+---
+--- One `head_checks` call does the whole read: the sha and run list
+--- this needs both for `<HEAD_SHA>` and for the running/red refusal
+--- text ride the returned record, so nothing here re-fetches the PR
+--- or its checks a second time.
 --- @param s store.Store The store
 --- @param it item.Item The item under review
 --- @param id8 string The item's handle, for the refusal text
@@ -121,32 +126,27 @@ end
 --- @return string The PR's head sha, "" when unknown or not green
 local function ci_refusal(s: store.Store, it: item.Item, id8: string):
   string, string
-  local state, _serr = gh.head_checks(s, it.pr, it.repo)
-  if state ~= "green" and state ~= "running" and state ~= "red" then
+  local hc, _herr = gh.head_checks(s, it.pr, it.repo)
+  if hc == nil
+  or (hc.state ~= "green" and hc.state ~= "running" and hc.state ~= "red") then
     return "", ""
   end
-  local p, _perr = gh.pull(s, it.pr, it.repo)
-  if state == "green" then
-    if p == nil then
-      return "", ""
-    end
-    return "", p.head_sha
+  if hc.state == "green" then
+    return "", hc.head_sha
   end
   local sha7 = "?"
-  local runs: {review.CheckRun} = {}
-  if p ~= nil then
-    sha7 = p.head_sha:sub(1, 7)
-    runs = gh.checks(s, p.head_sha, it.repo) or {}
+  if hc.head_sha ~= "" then
+    sha7 = hc.head_sha:sub(1, 7)
   end
-  if state == "running" then
+  if hc.state == "running" then
     local done = 0
-    for _, r in ipairs(runs) do
+    for _, r in ipairs(hc.runs) do
       if r.status == "completed" then done = done + 1 end
     end
     return ("REFUSED: %s's head %s has CI running (%d of %d checks done) — "
-      .. "review when it settles"):format(id8, sha7, done, #runs), ""
+      .. "review when it settles"):format(id8, sha7, done, #hc.runs), ""
   end
-  return "REFUSED: " .. (review.blocks_on_ci(runs)
+  return "REFUSED: " .. (review.blocks_on_ci(hc.runs)
     or "CI has already concluded failure on this head"), ""
 end
 

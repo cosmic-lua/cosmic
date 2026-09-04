@@ -19,10 +19,31 @@ local init_state_repo = fixture.init_state_repo
 local give_spec = fixture.give_spec
 local root_with_leaf = fixture.root_with_leaf
 
+--- The check runs `with_ci_fixture` reports for a state, shared between
+--- its `gh.head_checks` and `gh.checks` stubs so the two ride the same
+--- fixture data rather than two copies that could drift apart.
+--- @param state string The state to fabricate runs for
+--- @return {review.CheckRun} The fixture runs
+local function fixture_runs(state: string): {review.CheckRun}
+  if state == "red" then
+    return {{name = "ci", status = "completed", conclusion = "failure"}}
+  end
+  if state == "running" then
+    return {{name = "ci", status = "completed", conclusion = "success"},
+      {name = "smoke", status = "in_progress", conclusion = ""}}
+  end
+  return {}
+end
+
 --- Stand `gh.head_checks`, `gh.pull` and `gh.checks` in for a fixed
 --- PR fixture for the duration of `f`, restoring all three even when
 --- `f` fails an assertion — a fixture PR in each of the four states,
 --- the way `_work.gitreview_test`'s own `with_ci_state` covers `take`.
+--- `gh.pull`/`gh.checks` cover the handover-recording path (`take
+--- --pr`, which reads through `gitgate.handover_refusal`); `_work.gh`'s
+--- own `head_checks` is a closure over its OWN `pull`/`checks` upvalues
+--- rather than the `gh` table's fields, so faking those two does not
+--- reach it — it needs its own stub, given the same fixture data.
 --- @param state string The state `head_checks` reports
 --- @param sha string The fixture PR's head sha
 --- @param f function(): boolean The test body; returns true when done
@@ -32,8 +53,8 @@ local function with_ci_fixture(state: string, sha: string,
   local real_pull = gh.pull
   local real_checks = gh.checks
   gh.head_checks = function(_s: store.Store, _pr: integer, _repo: string | nil):
-    string | nil, string
-    return state, ""
+    gh.HeadChecks | nil, string
+    return {state = state, head_sha = sha, runs = fixture_runs(state)}, ""
   end
   gh.pull = function(_s: store.Store, number: integer, _repo: string | nil):
     review.Pull | nil, string
@@ -42,14 +63,7 @@ local function with_ci_fixture(state: string, sha: string,
   end
   gh.checks = function(_s: store.Store, _sha: string, _repo: string | nil):
     {review.CheckRun} | nil, string
-    if state == "red" then
-      return {{name = "ci", status = "completed", conclusion = "failure"}}, ""
-    end
-    if state == "running" then
-      return {{name = "ci", status = "completed", conclusion = "success"},
-        {name = "smoke", status = "in_progress", conclusion = ""}}, ""
-    end
-    return {}, ""
+    return fixture_runs(state), ""
   end
   local ok, err = pcall(f)
   gh.head_checks = real_head_checks
