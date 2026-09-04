@@ -2,136 +2,152 @@
 
 Bring cosmic onto a cosmos release carrying the exact-contract work
 landed upstream after the current pin, so the items that consume one of
-those contracts (`unix.nanosleep`'s remainder table, `cosmo.cov.budget`)
-can each be a small wrapper change instead of a hidden pin bump that
-breaks every other wrapper at once.
+those contracts (`unix.nanosleep`'s remainder table, `cosmo.cov.budget`,
+FTS5, `register_extension`) can each be a small wrapper change instead
+of a hidden pin bump that breaks every other wrapper at once.
 
-**Narrowed 2026-09-01**: the original spec named every wrapper the
-upstream window's contract changes touch. A builder attempt found that
-a subset of those wrappers cannot compile under ANY single source text
-today — `cosmic/fd.tl`, `cosmic/fs/ops.tl`, `cosmic/fs/file.tl`,
-`cosmic/embed/init.tl`, `cosmic/child/init.tl`,
-`cosmic/proc/rusage.tl`, `cosmic/time.tl`, and `_cli/main_handlers.tl`
-are all transitively required during the build's own generation phase
-(via `cosmic.fs`/`cosmic.child`/`cosmic.proc`, or loaded on every cold
-invocation), so they compile under `bin/cosmic.pin`'s stale embedded
-types during generation and under the tree's fresh post-bump types
-during the later compile-batch step — no single destructuring
-satisfies both. This is now its own capture,
-`3IkSSqvH4BLD8YdvdYwohk2Pemz`, needing a real decision (stage behind a
-`bin/cosmic.pin` bump, or decouple the generation-phase dependency)
-before those specific wrappers can be fixed. This item is narrowed to
-drop them; picking this item back up on the OTHER wrappers, listed
-below, is unaffected by that hazard — confirmed by the same builder
-attempt via `o/bootstrap/cosmic --check types`.
+**Un-narrowed 2026-09-04.** The 2026-09-01 narrowing (drop the eight
+generator-closure wrappers, leave them on the old shape) is withdrawn:
+`3IkSSqvH4BLD8YdvdYwohk2Pemz`'s Resolution measured that NO shape of
+those files cold-builds under the current trust root, and that under a
+trust root carrying D43's seed pass (#1656) they are ordinary one-PR
+adaptations. This item is therefore the WHOLE adaptation again, one PR,
+and it waits on exactly one thing: `bin/cosmic.pin` naming a release
+that contains `8758f80c` — item `3Ip8zrCbHnPiV5bRM49XvoxXNCM`
+(«Xvox_XNCM»), this item's blocker. Do not pull it before that lands;
+do not try the narrowing again.
 
 ## Evidence
 
-The pin (`3p/cosmos/cosmos_pin.tl`) was `2026.08.31-6dfa6728a`. Verify
-the newest cosmic-lua/cosmopolitan release fresh at pickup time — a
-prior version of this spec named `2026.09.01-97f4b4e16`, which was
-already stale by the time a builder checked; `2026.09.01-0f64e8e6c`
-was the newest at that check. Re-derive: `git tag --sort=-creatordate`
-in a fresh cosmopolitan clone, or list releases via the GitHub API, and
-independently compute the `cosmos.zip` sha256 against the release's
-own `SHA256SUMS` — do not trust either this spec's or a prior
-attempt's stated version/sha blindly.
+Measured 2026-09-04 against `origin/main` `79aa8c16`, in a detached
+worktree, cosmos pin bumped from `2026.08.31-6dfa6728a` to
+`2026.09.04-65bc139fc` (the newest release; sha256 of the downloaded
+`cosmos.zip`: `9f3cb4bada574951f04bd46e79933e087d3594c1c94ee35d77ca7102d6488886`,
+matching the release's `SHA256SUMS` row). Re-verify the newest release
+at pickup time exactly as before: list releases, download
+`cosmos.zip`, `sha256sum` it, compare with `SHA256SUMS` — a prior
+version of this spec named a version that was stale within hours.
 
-Contract changes in the upstream window, each a frozen-boundary change
-the pinned types will re-render (upstream PR in parentheses) —
-**scoped to the wrappers THIS item still covers**:
+**The affected set, measured the only valid way.** The pinned engine's
+own `gentype` renders the new annotations differently from the tree's
+(a cold build under `2026-08-31-a5b36f4` reported 6 failing files; the
+tree's renderer reports 23), so the set below was produced by
+generating the declarations with the tree's own binary and checking
+every non-test source against them:
 
-- `unix.gmtime` shape and comment updates fall under the excluded
-  `cosmic/time.tl` (see Narrowed note) — NOT in this item's scope.
-- `re.Regex:find` returns one `re.Match` table (#318); `re.Regex:search`
-  / `:match` / `re.search` bundle match+captures (#319) —
-  `cosmic/re.tl`, `cosmic/re_test.tl`, `_perf/bench/re_bench.tl`.
-- `unix.raise` / `unix.sigprocmask` raise on argument-shape errors
-  (#324); `unix.setitimer` bundles previous-value fields (#331) —
-  `cosmic/signal.tl`.
-- `unix.openpty` declared shape corrected (#311) — `cosmic/tty.tl`
-  (`isatty`, #307, needs no change).
-- `getopt.parse` raises on argument-shape errors (#317) —
-  `cosmic/flags/getopt.tl` (`cosmic/flags/parse.tl` needs no change).
-- `lsqlite3.open`/`open_memory` failure slot order (#316) —
-  `cosmic/sqlite/init.tl` (`stmt_cache.tl`, `defaults.tl`,
-  `init_example.tl` route prepare-errors through `raw_db:errmsg()` and
-  need no change for #322/#334).
-- `unix.pipe` returns one `unix.Pipe` table (#328) —
-  `cosmic/quicksand/proxy.tl`, `cosmic/quicksand/init.tl`,
-  `cosmic/quicksand/box/run.tl` (NOT `cosmic/fd.tl` or
-  `cosmic/child/init.tl` — those are the excluded, generation-reachable
-  set).
-- `cosmic/net/socket.tl` (`getsockopt`) — verify at pickup time whether
-  any change is needed; a prior attempt found none (the generic 3-tuple
-  shape is unchanged; #332's SO_LINGER-arity fix doesn't affect this
-  wrapper, which never special-cased SO_LINGER).
+```
+$ o/bin/cosmic _types/types_gen.tl /tmp/newtypes        # tree binary, new pin fetched
+$ git ls-files 'cosmic/*.tl' '_cli/*.tl' '_make/*.tl' '_tool/*.tl' '_perf/*.tl' '_fuzz/*.tl' \
+    '_types/*.tl' '_build/*.tl' '_docs/*.tl' 'cmd/*.tl' | grep -v '_test\.tl$\|\.d\.tl$' \
+  | xargs o/bin/cosmic --check types --include-dir /tmp/newtypes 2>&1 \
+  | grep 'error:' | cut -d: -f1 | sort | uniq -c
+      4 _cli/main_handlers.tl          unix.mkstemp   slot 2 is MkstempPath | string (#329, #374)
+      6 cosmic/child/init.tl           unix.wait → WaitResult (#340); unix.pipe → Pipe (#328)
+      3 cosmic/child/io.tl             unix.wait; unix.sigaction → SignalAction (#338)
+     10 cosmic/embed/init.tl           unix.mkstemp
+      1 cosmic/fd.tl                   unix.pipe
+      1 cosmic/fs/dir.tl               unix.Dir:read slot 2 is integer | string (#326, #374)
+     10 cosmic/fs/file.tl              unix.mkstemp
+      1 cosmic/fs/ops.tl               unix.mkstemp
+      1 cosmic/flags/getopt.tl         getopt.parse raises on shape errors (#317)
+      3 cosmic/proc/init.tl            unix.wait
+      2 cosmic/proc/rusage.tl          unix.getrlimit → Rlimit
+      9 cosmic/quicksand/box/run.tl    unix.pipe, unix.wait
+      6 cosmic/quicksand/init.tl       unix.pipe
+      9 cosmic/quicksand/proc.tl       unix.pipe, unix.wait
+     14 cosmic/quicksand/proxy.tl      unix.pipe, unix.wait
+      1 cosmic/quicksand/proxy/serve.tl unix.wait
+      8 cosmic/re.tl                   re.Regex:find → Match; :search/:match/re.search → SearchMatch (#318, #319)
+      8 cosmic/signal.tl               unix.sigaction, unix.setitimer → Itimerval (#331), unix.raise/sigprocmask (#324)
+      4 cosmic/sqlite/init.tl          lsqlite3.open/open_memory failure slot order (#316); wal_checkpoint (#334, #374)
+     21 cosmic/time.tl                 unix.nanosleep → SleepRemainder (#315); gmtime/localtime → BrokenDownTime
+      3 cosmic/tty.tl                  unix.openpty (#311); unix.tiocgwinsz (#335)
+```
 
-Cosmic call sites, in-scope files only, measured with
-`grep -rnoE '<binding names>' --include=*.tl cosmic/ _cli/ _make/ _tool/ _perf/ _fuzz/ | grep -v _test.tl`
-at pickup time (re-run rather than trust this list — the tree moves):
-`cosmic/re.tl`, `cosmic/signal.tl`, `cosmic/tty.tl`,
-`cosmic/flags/getopt.tl`, `cosmic/sqlite/init.tl`,
-`cosmic/quicksand/proxy.tl`, `cosmic/quicksand/init.tl`,
-`cosmic/quicksand/box/run.tl`, `cosmic/net/socket.tl`,
-`_perf/bench/re_bench.tl`.
+(`cosmic/fd.tl` and `cosmic/fs/dir.tl` show 1 each because the
+measurement worktree had already adapted them to prove the seed path;
+the pristine tree reports `fd.tl:253` and `dir.tl:28` — same sites.)
+Tests that fail the same check: `cosmic/re_test.tl` (15),
+`cosmic/quicksand/box/run_test.tl` (2), `cosmic/child/io_test.tl` (1).
+`_perf/bench/re_bench.tl`, `cosmic/net/socket.tl` (`getsockopt`) and
+`cosmic/sqlite/{stmt_cache,defaults}.tl` pass unchanged.
 
-Two todo items already assume a pin bump happens inside their own PR
-— `1iOZ_4iqj` (time.tl for nanosleep, #315) and `qPiX_DdxS` (fuzz
-budget, #304) — both of which touch the EXCLUDED, generation-reachable
-set (`cosmic/time.tl`) or a module not addressed here; they stay
-blocked until `3IkSSqvH4BLD8YdvdYwohk2Pemz`'s decision lands.
+A type-check pass under the OLD trust root is not evidence of
+adaptation: it accepted `child/init.tl:165`'s `wpid == 0` against a
+`WaitResult` — code that would never reap a child at runtime. Every
+`unix.wait`/`unix.pipe` caller above is a behaviour change, not only a
+type change; `cosmic/child/init_test.tl` and the quicksand tests are
+the proof they still work.
+
+Upstream window: the binding PRs named per row above (from the
+2026-09-01 version of this spec, #311–#331) plus the `definitions.lua`
+commits between the two releases —
+`git log 6dfa6728a..65bc139fc -- tool/net/definitions.lua` in a FULL
+cosmopolitan clone (a shallow clone's ancestry answers are wrong):
+#333–#338, #340, #342, #356, #364, #370–#372, #374, #377, #382. Two of
+those are not shape changes but matter to the same wrappers: #372
+(lsqlite3 distinguishes BLOB from TEXT at the value boundary — a
+runtime behaviour change `cosmic/sqlite/*_test.tl` must still pass
+under) and #377 (fallible `@overload` arms now render `true|nil`
+tuples — new `| nil` slots may appear on bindings not in the table;
+the build's own type check finds them).
+
+Two todo items already assume this pin bump: `1iOZ_4iqj` (time.tl for
+nanosleep, #315) and `qPiX_DdxS` (fuzz budget, #304); `3ImjB20O`
+(FTS5, needs ≥ `d88e994fc`) and `3In3fTdC` (`register_extension`,
+needs ≥ `405d8840d`) are satisfied by any release at or after
+`2026.09.02-405d8840d` — the newest is — and are blocked on this item.
 
 ## Change
 
-One PR on cosmic-lua/cosmic:
+One PR on cosmic-lua/cosmic, pulled only after «Xvox_XNCM» is on main
+(`git show origin/main:bin/cosmic.pin | grep url` names a release
+whose tag commit contains `8758f80c`):
 
 1. `3p/cosmos/cosmos_pin.tl`: bump `version` and `sha` to the newest
-   cosmos release at pickup time (re-verify per Evidence above). Then,
-   per AGENTS.md's update procedure: `bin/cosmic --make fetch`,
-   `bin/cosmic --make build`, `o/bin/cosmic --make ci`.
-2. For every wrapper THIS item's Evidence lists (the non-excluded set)
-   that the regenerated types break, change ONLY the wrapper's internal
-   destructuring of the `cosmo.*` call to the new shape. Each wrapper's
-   own public contract (its Teal signature and its documented error
-   behaviour) is unchanged. If a wrapper's contract cannot be preserved
-   under the new binding shape, stop and file that wrapper as its own
-   item blocked on nothing, then continue with the rest.
-3. Do NOT touch `cosmic/fd.tl`, `cosmic/fs/ops.tl`, `cosmic/fs/file.tl`,
-   `cosmic/embed/init.tl`, `cosmic/child/init.tl`,
-   `cosmic/proc/rusage.tl`, `cosmic/time.tl`, or
-   `_cli/main_handlers.tl` — these stay on the OLD destructuring
-   (correct against the OLD pin, and the only shape that lets the
-   build's generation phase compile under `bin/cosmic.pin` today) until
-   `3IkSSqvH4BLD8YdvdYwohk2Pemz` resolves. If the pin bump alone (with
-   no destructuring changes anywhere) fails to reach a green `--make ci`
-   because one of these excluded files' generation-phase compile
-   already breaks even under the OLD destructuring, STOP — that would
-   mean the hazard is broader than currently scoped, and is itself new
-   evidence for `3IkSSqvH4BLD8YdvdYwohk2Pemz`, not something to
-   improvise around here.
-4. Run the compare gate against the previous pin per the `optimize`
-   skill (`_perf/run.tl` before and after, `_perf/gate.tl compare`), as
-   AGENTS.md requires for a cosmos pin bump.
+   cosmos release at pickup time, at or after `2026.09.04-65bc139fc`
+   (re-verify per Evidence). Then, per AGENTS.md's update procedure:
+   `bin/cosmic --make fetch`, `bin/cosmic --make build`,
+   `o/bin/cosmic --make ci`. Generation 1 now seeds the declarations
+   from this pin (D43), so the closure compile fails on the FIRST
+   unadapted closure member with the real error — adapt and re-run.
+2. For every file the regenerated types break (the table above is the
+   expected set; the build is the authority), change ONLY the
+   wrapper's internal destructuring of the `cosmo.*` call to the new
+   shape. Each wrapper's own public contract — its Teal signature and
+   its documented error behaviour — is unchanged. Where slot 2 is now
+   a union (`MkstempPath | string`, `integer | string`), narrow with
+   `is` on the success branch; no casts. If a wrapper's contract
+   cannot be preserved under the new binding shape, stop and file that
+   wrapper as its own item, unparented, with the site quoted, then
+   continue with the rest.
+3. Run the compare gate against the previous pin per the `optimize`
+   skill (`_perf/run.tl` before and after, `_perf/gate.tl compare`),
+   as AGENTS.md requires for a cosmos pin bump.
+
+Sizing: ~23 files, ~130 diagnostics, most of them one- or two-line
+destructuring edits. It is over the ~400-line smell threshold and is
+still one PR: a pin bump is atomic — the tree compiles against exactly
+one `definitions.lua` — so there is no file-disjoint split that leaves
+each half green.
 
 ## Non-goals
 
 - No consumption of the NEW capabilities the release carries
   (`cosmo.cov.budget`, `nanosleep`'s EINTR remainder for
-  `sleep_remaining_ms`): those are `1iOZ_4iqj` and `qPiX_DdxS`, both
-  still blocked pending `3IkSSqvH4BLD8YdvdYwohk2Pemz`.
+  `sleep_remaining_ms`, FTS5 search, `register_extension`): those are
+  `1iOZ_4iqj`, `qPiX_DdxS`, «So6c_e5pY» via `3ImjB20O`, and
+  «bnpp_lZOK» via `3In3fTdC`.
 - No wrapper contract changes; no `cosmo.*` direct use added anywhere
   outside `cosmic/`.
-- No fix to any of the generation-reachable wrappers listed in
-  `## Change` step 3 — that is `3IkSSqvH4BLD8YdvdYwohk2Pemz`'s decision
-  to unblock, then its own follow-up item(s).
+- No `bin/cosmic.pin` change here — that is «Xvox_XNCM», landed first.
 
 ## Acceptance
 
 - `3p/cosmos/cosmos_pin.tl` carries the newest cosmos release verified
   at pickup time.
-- `o/bin/cosmic --make ci` ends `ci: PASS` with ONLY the in-scope
-  wrappers' destructuring changed — `git diff --name-only` against the
-  prior commit shows no touch to any file step 3 excludes.
+- A COLD build passes: `rm -rf o && bin/cosmic --make fetch &&
+  bin/cosmic --make ci` ends `ci: PASS` (the `build` and `repro` lanes
+  run exactly this).
 - The perf compare gate (`_perf/gate.tl compare`) against the previous
   pin shows no unexplained regression.
