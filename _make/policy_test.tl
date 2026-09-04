@@ -244,6 +244,58 @@ local function write_baseline_fixture(name: string): string, Project
   return root, {root = root, binaries = {}, files = files}
 end
 
+--- A project like `write_baseline_fixture`'s but with one extra
+--- module, `lib/unlisted.tl`, fully covered and carrying no row in the
+--- committed baseline at all -- the shape a builder sees after adding
+--- a new file. Callers must `fs.set_cwd(root)` before reading it, same
+--- as `write_baseline_fixture`'s.
+--- @param name string Subdirectory of TEST_TMPDIR to build it in
+--- @return string The fixture root
+local function new_file_fixture(name: string): string
+  local root = fs.join(tmpdir, name)
+  check.must(fs.remove_all(root))
+  check.must(fs.make_dirs(fs.join(root, "lib")))
+  check.must(fs.make_dirs(fs.join(root, "o", ".coverage")))
+  for _, stem in ipairs({"known", "unlisted"}) do
+    check.must(fs.write(fs.join(root, "lib/" .. stem .. ".tl"),
+        "local x = 1\nlocal y = 2\nreturn x + y\n"))
+  end
+  check.must(fs.write(fs.join(root, "o/.coverage/run.cov"),
+      'return {version=1,hits={["@lib/known.tl"]={[1]=1,[2]=1,[3]=1},'
+      .. '["@lib/unlisted.tl"]={[1]=1,[2]=1,[3]=1}}}'))
+  check.must(fs.write(fs.join(root, policy.BASELINE),
+      baseline_fixture({{"lib/known.tl", 3, 3}})))
+  return root
+end
+
+-- The evidence this item answers: a builder adding a file with no
+-- baseline row was told to hand-edit it, with no number to write. A
+-- plain `check` (no --baseline) now prints the row itself, for the
+-- unlisted file only, in the same syntax `baseline_fixture` writes --
+-- a paste, not a guess -- and still fails the ratchet exactly as before.
+local function test_check_prints_the_row_for_a_file_absent_from_the_baseline()
+  local root = new_file_fixture("policy-new-file-row")
+  local cwd = check.must(fs.cwd())
+  check.must(fs.set_cwd(root))
+  local captured = fs.join(root, "stdout.txt")
+  local out, oerr = io.open(captured, "w")
+  assert(out, oerr)
+  io.output(out)
+  local code = baseline.check(policy.BASELINE, {fs.join("o", ".coverage"), "lib"})
+  io.output(io.stdout)
+  out:close()
+  check.must(fs.set_cwd(cwd))
+  local printed = check.must(fs.read(captured))
+
+  assert(code == 1, "a file absent from the baseline still fails the ratchet, got " .. code)
+  assert(printed:find("new files, rows to add by hand", 1, true),
+    "must print the header: " .. printed)
+  assert(printed:find('  ["lib/unlisted.tl"] = {covered = 3, total = 3},', 1, true),
+    "must print the exact row to paste: " .. printed)
+  assert(not printed:find('"lib/known.tl"', 1, true),
+    "a file already in the baseline must not get a row printed: " .. printed)
+end
+
 --- The current value of `COSMIC_COVERAGE_ENV`, to hand to
 --- `restore_coverage_env` once a test that flips it is done -- so the
 --- marker cannot leak into a later test.
@@ -280,9 +332,9 @@ end
 -- `write_baseline` refuses rather than rewriting the floor with
 -- whatever THIS machine measured -- the bug report's 173 unrelated
 -- rows. The floor on disk must be untouched, the exit code nonzero, and
--- the refusal must name the escape hatches (hand-edit one row; set
--- COSMIC_COVERAGE_ENV from the recording environment) rather than just
--- failing silently.
+-- the refusal must name the escape hatches (hand-edit one row; a new
+-- file's row comes from a plain `--make coverage`) rather than naming
+-- the COSMIC_COVERAGE_ENV bypass in the same breath.
 local function test_write_baseline_refuses_outside_recording_env()
   local root, proj = write_baseline_fixture("policy-write-baseline-refused")
   local before = check.must(fs.read(fs.join(root, policy.BASELINE)))
@@ -301,10 +353,12 @@ local function test_write_baseline_refuses_outside_recording_env()
   local printed = check.must(fs.read(captured))
 
   assert(code ~= 0, "a refusal must be a nonzero exit code")
-  assert(printed:find("COSMIC_COVERAGE_ENV", 1, true),
-    "the refusal must name the escape hatch: " .. printed)
+  assert(not printed:find("COSMIC_COVERAGE_ENV", 1, true),
+    "the bypass env var must not be named: " .. printed)
   assert(printed:find("hand-edit", 1, true),
     "the refusal must point at hand-editing the one row: " .. printed)
+  assert(printed:find("--make coverage", 1, true),
+    "the refusal must point a new file's row at a plain coverage run: " .. printed)
   local after = check.must(fs.read(fs.join(root, policy.BASELINE)))
   assert(after == before, "a refused rewrite must not touch " .. policy.BASELINE)
 end

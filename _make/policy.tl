@@ -178,9 +178,8 @@ local function write_baseline(proj: Project): integer
       "A rewrite here would bake THIS machine's sandbox/identity/compiler " ..
       "ceiling into the shared floor instead of the recording " ..
       "environment's. To move the one row your change actually affects, " ..
-      "hand-edit its covered/total pair in .cosmic-coverage. To rewrite " ..
-      "the whole floor, run this from the recording environment with " ..
-      "COSMIC_COVERAGE_ENV=1 set.\n")
+      "hand-edit its covered/total pair in .cosmic-coverage. A new " ..
+      "file's row is printed by a plain `--make coverage`; paste it.\n")
     return stage.verdict("coverage", false, "not the recording environment")
   end
   local report: {string} = {fs.join(project.BUILD_DIR, COVERAGE_DIR)}
