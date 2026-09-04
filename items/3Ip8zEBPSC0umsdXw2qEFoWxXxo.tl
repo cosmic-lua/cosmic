@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["pr"] = 1682,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-EFoW_xXxo-1e1a9125",
   ["title"] = "guide.make: list COSMIC_COVERAGE_ENV, and ratchet the public table against the build's reads",
 }
