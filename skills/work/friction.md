@@ -57,7 +57,10 @@ every entry has four parts, and the second one carries numbers:
 ## the log
 
 one file per pass, `friction-<date>-<label>.md` in the session's
-scratch directory, opened before the first board verb runs:
+scratch directory, opened after the bootstrap and `sync` and before
+the first verb that selects work (`next`, `take`): a cold session has
+no worktree to bootstrap from a log, and `sync` refreshes state
+rather than choosing anything.
 
 ```text
 # friction: <date> <label> (/work N --routine)
