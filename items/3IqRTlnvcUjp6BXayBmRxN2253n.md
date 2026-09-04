@@ -40,21 +40,25 @@ independently reviewing the same item under the tool-generated label.
 
 ## Change
 
-Give a review claim's session label a component unique to the physical
-session doing the reviewing, not just the item handle — e.g. `gitboard
-brief review <handle>` could derive `review-<handle>-<short-session-id>`
-from `CLAUDE_CODE_SESSION_ID` (already read elsewhere in the tool per
-`gitboard show`'s own "session: ... (from CLAUDE_CODE_SESSION_ID)" line)
-instead of the constant `-1` suffix, OR (cheaper, no label-format change)
-have `take` on a review, immediately before returning success, `sync`
-and re-check for a distinct LIVE claim already recorded under a
-different session identity on the same item and refuse with a clear
-"already being reviewed by <session>" message rather than silently
-letting both proceed. Either fix should be verified by simulating two
-concurrent `take`+review cycles against the same test item (two board
-worktrees, same handle, distinct `CLAUDE_CODE_SESSION_ID` values) and
-confirming the second either never starts or fails fast at claim time
-rather than at verdict time after a full review.
+The minted session label carries the orchestrator: `<kind>-<handle>-
+<orch8>`, where `<kind>` is `build`, `research`, `review`, `refine` or
+`decompose` and `<orch8>` is the first 8 characters of the session id
+the tool already derives (`gitboard show`'s "session: ... (from
+CLAUDE_CODE_SESSION_ID)" line). `gitboard brief KIND ID` fills the
+label itself — the `<REVIEW_SESSION>` placeholder goes away — and
+prints it on its verdict line so the orchestrator claims under the
+same string (`take ID --session <label>`). `gitboard take` on a review
+(and a pull) refuses a claim whose live holder is a different label:
+`REFUSED: <id> is under review by review-<handle>-<other> — take over
+a live review with --force --why`; today the identical label reads as
+the same session re-taking and both proceed. `help orchestrate` and
+`help review` state the label shape.
+
+`_work/brief_test.tl`: the label appears filled, with the session's
+own 8 characters. `_work/gittake_test.tl`: two labels differing only
+in `<orch8>` on one item — the second `take` is refused at claim time.
+A self-named reviewer (solo session) keeps `review-<handle>-<unique>`
+as before; the shape is what changes.
 
 ## Non-goals
 
