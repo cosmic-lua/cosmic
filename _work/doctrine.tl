@@ -319,34 +319,32 @@ worktree or push rights to `board`:
   release the claim (`drop ID --why`, a worker-side reason) so the
   item is pullable again. Still running: leave it. Then the PRs are
   yours to watch — the agents are gone.
-- What never fans out: the review verdict — reviews run one fresh
-  subagent AT A TIME, however many PRs await; N agents reviewing N
-  PRs in parallel is N unreviewed merges wearing a costume — and
-  refinement, because two parallel refiners decompose the same
-  outcome twice. Sequential is not fanning out: a pass MAY run
-  several reviews back to back, each in its own fresh subagent.
+- Reviews fan out like builds: one fresh subagent per PR awaiting
+  a verdict, each under its own minted review session, all in the
+  background. What the review needs is distance from the BUILDER —
+  a window that never held the build — and a verdict that is one
+  agent's alone; N reviewers on N different PRs keep both. What
+  never fans out is refinement, because two parallel refiners
+  decompose the same outcome twice.
 
 The standing loop (a session invoked as an orchestrator with a
-width N) runs ONE bounded pass and ends it. Never wait inside a
-pass — not for a wave agent, not for CI, not for an answer; the
-single exception is a review subagent. Reviews outrank pulls
+width N, three to five in practice) runs ONE bounded pass and ends
+it. Never wait inside a pass — not for a wave agent, not for a
+review agent, not for CI, not for an answer. Reviews outrank pulls
 inside the pass, and the tool holds that mechanically: `take`
 refuses a todo pull while an unclaimed diff the session could
-review awaits a verdict — builds fan out N at a time while
-reviews drain one at a time, so a loop that reviewed less than it
+review awaits a verdict, so a loop that reviewed less than it
 pulled accumulated open PRs until the doing bound refused every
-take. Drain first and neither refusal ever fires:
+take. Claim the reviews first and neither refusal ever fires:
 
 1. `sync`, then reconcile the previous wave (above).
 2. Merge whatever carries an accept.
-3. Drain the reviews: while items await a verdict, review them —
-   one fresh subagent at a time, sequentially, a distinct minted
-   review session for each. Only the sequencing is yours to hold;
-   that the wave cannot fill past waiting verdicts, the take gate
-   already holds.
-4. Fill the wave: claim then spawn in the background, up to the
-   smallest of N and what is actually disjoint. Zero agents is a
-   legitimate pass.
+3. Claim and spawn a review for every item awaiting a verdict —
+   one fresh subagent each, in the background, a distinct minted
+   review session for each. They count against N first.
+4. Fill the rest of the wave with builds: claim then spawn in the
+   background, up to the smallest of N and what is actually
+   disjoint. Zero agents is a legitimate pass.
 5. Spare width goes to one or two refine/triage actions.
 6. Report a terse ledger — one line per board action, one for
    anything posted for a human — and end the pass.
