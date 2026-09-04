@@ -7,7 +7,9 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1697,
   ["repo"] = "cosmic-lua/cosmic",
-  ["reviewer"] = "review-rNh1_b1Se-41598fb4",
   ["speccers"] = "617186a3-6ded-5f05-a74a-6054c4631945",
   ["title"] = "builder brief: measure headroom before editing, check per file between edits, keep the diff on a bounce, report a base conflict",
+  ["verdict"] = "accept",
+  ["verdict_head"] = "6c6c23fe878811c2d306e225ca461f3c07f17d60",
+  ["verdict_spec"] = "19849792bef9150c91608443d06776c6cc4b69f018abeb1a48e972a5ce3f6e8a",
 }
