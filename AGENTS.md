@@ -1,5 +1,7 @@
 # AGENTS.md
 
+`CLAUDE.md` at the root is a symlink to this file; edit `AGENTS.md`, and read any instruction naming `CLAUDE.md` as naming this file.
+
 ## Project Overview
 
 cosmic is a batteries-included Lua distribution built on [Cosmopolitan Libc](https://github.com/jart/cosmopolitan). it produces fat-binary executables that run on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD from a single file. the language is [Teal](https://github.com/teal-language/tl) (typed Lua) compiled to Lua 5.4.
