@@ -201,8 +201,10 @@ local CSPEC: flags.CommandSpec = {
       .. "its handover (--pr N for a diff, --result for a research spec)",
       spec = {usage = "ID [options]", flags = {dir_flag(),
           {long = "session", arg = "SESSION",
-            help = "the claiming session. Omit to derive it from the "
-            .. "environment"},
+            help = "the claiming session; an orchestrator claiming for an "
+            .. "agent always passes the name it minted for that agent — "
+            .. "omitted, the claim binds to THIS session's one-claim "
+            .. "identity"},
           {long = "pr", arg = "N",
             help = "record the PR that hands the build over for review"},
           {long = "result", help = "record the research handover: the "
