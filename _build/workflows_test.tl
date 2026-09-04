@@ -447,12 +447,12 @@ end
 -- subprocess spawned later trips on them), and fetch `origin/board`
 -- (`_build/doc_paths_test.tl`'s board check FAILS rather than skips
 -- when it is unreadable under `CI`, doc_paths_test.tl:268-282). Both
--- landed in pr.yml's `ci` job together (#1669/#1674); release.yml's
--- `build` job ran `--make ci` the same way for two releases without
--- either, invisibly, because no gate here checked for them -- only a
--- scheduled release run surfaced it (#1688). Derived over every job in
--- every workflow, never listed, so a third `--make ci` lane inherits
--- the rule instead of silently missing it.
+-- landed in pr.yml's `ci` job together; release.yml's `build` job ran
+-- `--make ci` the same way for two releases without either, invisibly,
+-- because no gate here checked for them -- only a scheduled release
+-- run surfaced it. Derived over every job in every workflow, never
+-- listed, so a third `--make ci` lane inherits the rule instead of
+-- silently missing it.
 local function test_every_gate_lane_strips_includeif_and_fetches_the_board_ref()
   local INCLUDEIF < const > = 'git config --local --remove-section "includeIf.gitdir:'
   local BOARD_FETCH < const > = "+refs/heads/board:refs/remotes/origin/board"
