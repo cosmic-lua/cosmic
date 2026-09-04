@@ -1,7 +1,7 @@
 return {
   ["beats"] = "3IYMNJ628t8lkLDklTtEAi9RFmX",
-  ["block_reason"] = {["3IqivZIzqqCUdFQvIbPAcp1MOgO"] = "no release can be cut until release.yml's gate gets past doc_paths_test; the includeIf/board-fetch fix is the first of the lane's two blockers"},
-  ["blocked_by"] = "3IqivZIzqqCUdFQvIbPAcp1MOgO",
+  ["block_reason"] = {["3IqivZIzqqCUdFQvIbPAcp1MOgO"] = "no release can be cut until release.yml's gate gets past doc_paths_test; the includeIf/board-fetch fix is the first of the lane's two blockers", ["3IqjzQtr436z6057LJQZCBol1NV"] = "with the perf compare off the release (D44), the re_match_log_line question no longer holds a release back; the trust-root bump waits on the release lane being green, which is this item plus 3IqivZIz"},
+  ["blocked_by"] = "3IqivZIzqqCUdFQvIbPAcp1MOgO 3IqjzQtr436z6057LJQZCBol1NV",
   ["id"] = "3Ip8zrCbHnPiV5bRM49XvoxXNCM",
   ["parent"] = "3HyRcW05wBip6Wqcz145bUQBTyj",
   ["repo"] = "cosmic-lua/cosmic",
