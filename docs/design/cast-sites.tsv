@@ -1,6 +1,6 @@
 path	line	class
 _fuzz/compress_fuzz_test.tl	76	enum relation
-_make/generate.tl	100	record union after guard
+_make/closure.tl	62	record union after guard
 _make/init.tl	143	dynamic name lookup
 _make/init.tl	184	dynamic name lookup
 _make/init.tl	246	dynamic name lookup

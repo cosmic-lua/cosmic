@@ -66,6 +66,7 @@ return {
   ["_make/bytecode.tl"] = {["covered"] = 44, ["total"] = 54},
   ["_make/check.tl"] = {["covered"] = 93, ["total"] = 95},
   ["_make/clean.tl"] = {["covered"] = 44, ["total"] = 58},
+  ["_make/closure.tl"] = {["covered"] = 55, ["total"] = 63},
   ["_make/converge.tl"] = {["covered"] = 34, ["total"] = 62},
   ["_make/deps.tl"] = {["covered"] = 73, ["total"] = 73},
   ["_make/docs.tl"] = {["covered"] = 13, ["total"] = 31},

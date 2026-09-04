@@ -1,6 +1,6 @@
 return {
   ["_fuzz/compress_fuzz_test.tl"] = 1,
-  ["_make/generate.tl"] = 1,
+  ["_make/closure.tl"] = 1,
   ["_make/init.tl"] = 7,
   ["_make/stage.tl"] = 1,
   ["_perf/bench/micro_bench.tl"] = 1,
