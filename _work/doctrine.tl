@@ -314,11 +314,15 @@ worktree or push rights to `board`:
   check, judged on the MERGE — a shared file with thin headroom
   under a line cap counts as shared. Say what you skipped and why.
   Never split one item across agents to make it faster.
-- One fresh worktree per agent, never nested inside another checkout
-  — nesting breaks build gates in both directions, and neither
-  failure names the layout. A fresh worktree bootstraps first; a
-  copied tree drops its stale output directory, or its first gate
-  result is fiction.
+- One fresh worktree per agent, on the branch `take` names, never
+  detached, and never nested inside another checkout — nesting breaks
+  build gates in both directions, and neither failure names the
+  layout. `take`'s own success line names the branch (the id's first
+  8 characters) and the base to check it out from, so read that line
+  before you create the worktree rather than detaching and re-doing
+  it once the brief repeats the same convention. A fresh worktree
+  bootstraps first; a copied tree drops its stale output directory,
+  or its first gate result is fiction.
 - The brief carries the spec verbatim — "read the board and do it"
   turns a specified item back into an interpretation. Emit briefs
   with `brief builder ID` / `brief research ID` / `brief review ID` /
