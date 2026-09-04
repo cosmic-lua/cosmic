@@ -1,4 +1,5 @@
 return {
+  ["base"] = "board",
   ["builders"] = "build-sWmK_pFNW-41598fb4",
   ["claim"] = "build-sWmK_pFNW-41598fb4",
   ["id"] = "3Iqz0MKivJMoWrGrPU0sWmKpFNW",
