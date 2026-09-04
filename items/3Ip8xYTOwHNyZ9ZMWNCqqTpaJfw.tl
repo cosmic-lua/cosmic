@@ -4,6 +4,7 @@ return {
   ["claim"] = "build-qqTp_aJfw-1",
   ["id"] = "3Ip8xYTOwHNyZ9ZMWNCqqTpaJfw",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
+  ["pr"] = 380,
   ["repo"] = "cosmic-lua/cosmopolitan",
   ["title"] = "gcov: lock the .gcda read-merge-write so parallel test processes stop dropping each other's counts",
 }
