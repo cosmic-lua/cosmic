@@ -382,6 +382,38 @@ local function flat(s: string): string
   return (s:gsub("%s+", " "))
 end
 
+-- The review template names the GitHub access path (no `gh` CLI, use
+-- the MCP tools), the correct CI-status method (`get_check_runs`, not
+-- `get_status`), the board-branch diff-scope caveat (`git show --stat`
+-- over a range diff), and the correct worktree-creation order (`git
+-- worktree add` before `cd`) — friction recorded by three independent
+-- reviewers in one pass.
+local function test_review_brief_names_the_recorded_friction()
+  local s = init_state_repo("brief-review-friction")
+  local _, leaf = root_with_leaf(s)
+  give_spec(s, leaf)
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
+  assert(verbs.cmd_take(s, leaf, "session-a", 42, false, "") == 0)
+  pin_session("f00dcafefeed1234abcd")
+  local code, out = brief_and_capture(s, "review", leaf)
+  unpin_session()
+  assert(code == 0, "the recorded PR unlocks the review brief: " .. out)
+  local flat_out = flat(out)
+  assert(flat_out:find("no `gh` CLI", 1, true) ~= nil
+    and flat_out:find("mcp__github__", 1, true) ~= nil,
+    "names the GitHub MCP access path: " .. out)
+  assert(flat_out:find("get_check_runs", 1, true) ~= nil
+    and flat_out:find("get_status", 1, true) ~= nil,
+    "names the correct CI-status method: " .. out)
+  assert(flat_out:find("git show --stat", 1, true) ~= nil
+    and flat_out:find("over-reports", 1, true) ~= nil,
+    "names the board-branch diff-scope caveat: " .. out)
+  assert(flat_out:find("git worktree add", 1, true) ~= nil
+    and flat_out:find("never `cd` into a scratch path before creating "
+      .. "it there", 1, true) ~= nil,
+    "names the correct worktree-creation order: " .. out)
+end
+
 -- The friction ask rides after EVERY kind's own "Final report"
 -- section, unconditionally — one `find` per kind, so no orchestrator
 -- can spawn a brief that omits it the way the friction log this item
