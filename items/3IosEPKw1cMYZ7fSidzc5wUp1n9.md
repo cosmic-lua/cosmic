@@ -123,12 +123,27 @@ conclusion) — two independent non-reproductions rather than one.
 
 ## Decision
 
-This is `## Change` step 3's outcome: the cross-session run does NOT
-reproduce `pmIX_ommp`'s regression — it holds inside noise and flips
-sign, independently confirmed twice. Per this item's own decision
-tree: close with no code change; `pmIX_ommp`
-(`3IopfBATkXMfl9qRpLDpmIXommp`) and `3IonN6KwrW1QezqdCBs0pa6japm`'s
-original CI flag is noise, and should be marked dismissed on those
-items — the within-session result did not survive either
-independent re-run, exactly the case `measurement.md`'s
-cross-session-reproduction rule exists to catch.
+Superseded. `## Change` step 3 fired on this cross-session result and
+`3IqZDdd7` (`review-c5wU_p1n9-3`) correctly reopened it: `3IpIfJ5G`'s
+own accepted, day-separated finding (2026-09-04, 11/12 pairs "new
+slower", pooled mean +4.15%, outside a same-binary ±1% control band)
+and that review's own fresh third build (5/6 pairs, ~+4.4% mean) both
+land on "regression", not "net zero" — three independent sessions now
+agree on direction even though this item's own single-day pair did
+not. The "close, no code change, mark noise" conclusion above is
+withdrawn; do not act on it.
+
+`3IqZDdd7` held the resulting fork open (one more day-separated
+session vs. short-circuit to the fix) for the goal owner. Their call,
+recorded there: (b) — short-circuit. Do not spend a fourth
+measurement session chasing exact magnitude; proceed directly to
+`## Change` step 2's first option — prove the invariant statically at
+the one narrowing site in `cosmic/re.tl`'s `match()` so no runtime
+`assert(caps is {string}, ...)` is needed at all — gated by
+`--make ci` and the compare gate (`_perf/gate.tl compare`) per
+`skills/optimize/SKILL.md`, same as step 2 already specified. Once
+that lands (or is found infeasible and a cheaper-check/accept-cost
+fallback is chosen instead, per step 2's other options), close this
+item and update `pmIX_ommp`/`3IonN6KwrW1QezqdCBs0pa6japm` to match
+whichever outcome actually landed — not the withdrawn "noise" verdict
+above.
