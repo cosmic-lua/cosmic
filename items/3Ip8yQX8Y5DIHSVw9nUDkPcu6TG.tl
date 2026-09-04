@@ -6,5 +6,6 @@ return {
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["pr"] = 1676,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-DkPc_u6TG-1",
   ["title"] = "make: add the o/bin/cosmic test prerequisite only when the project builds cmd/cosmic",
 }
