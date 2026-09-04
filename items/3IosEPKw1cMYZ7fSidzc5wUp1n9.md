@@ -147,3 +147,55 @@ fallback is chosen instead, per step 2's other options), close this
 item and update `pmIX_ommp`/`3IonN6KwrW1QezqdCBs0pa6japm` to match
 whichever outcome actually landed — not the withdrawn "noise" verdict
 above.
+
+## Resolution
+
+The narrowing site no longer exists. `3IkMf7BY`'s cosmos pin bump
+(#1705, merged) replaced `regex:match`'s tuple return (`m, caps` with
+`caps` unioned against the error-string case) with a single bundled
+`re.SearchMatch` result whose `.captures` field is already `{string}`
+with no union — so `cosmic/re.tl`'s `match()` no longer needs
+`assert(caps is {string}, ...)` at all, and the pin bump dropped it
+along with the rest of the tuple-return adaptation (confirmed:
+`grep -n "cast:\|assert:" cosmic/re.tl` on current `main` returns
+nothing; the compiled `o/cosmic/re.lua` carries no `type()`/`assert`
+check on `caps`/`captures` anywhere in `match()`). This is `## Change`
+step 2's first option, "proving the invariant statically", arrived at
+via the binding contract itself rather than a re.tl-local change.
+
+Measured 2026-09-04 to confirm the regression is actually gone, not
+just the code: built `5d5dc3a5` (pre-pin-bump, still carries the
+assert, `bin_sha 6ca3496789a6...`) and current `main` at `2385634d`
+(post-pin-bump, no assert, `bin_sha 6cb433773591...`) in separate
+worktrees, confirmed distinct `bin_sha`, then ran 3 order-randomized
+interleaved `--make run _perf/run.tl --only re_match_log_line`
+pairs (before-first, after-first, before-first):
+
+    pair  order        before(us/op)  after(us/op)  delta
+    1     before-first  3.52           3.59          +2.1%
+    2     after-first    3.56          3.65          +2.5%  (after measured first)
+    3     before-first  3.60           3.71          +3.1%
+
+`_perf/gate.tl selfcheck` on the after binary alone: noise band
+±10.0% for this scenario on this machine. `_perf/gate.tl compare`
+(pair 1 as base/current, `--only re_match_log_line`):
+`re_match_log_line 3.52 µs -> 3.59 µs +2.1% (noise ±10.0%) ok` —
+`perf-compare: PASS`. All three pairs' deltas (+2.1% to +3.1%) sit
+inside the noise band; no regression survives.
+
+Note: the "after" binary's `alloc` column reads slightly higher
+(0.48 KB vs 0.38 KB) — the new `re.SearchMatch` binding shape bundles
+match+captures into one C-side table that `match()` immediately
+unpacks into its own `{text=.., caps=..}` record, a small extra
+allocation the old tuple return didn't pay. Per this item's own
+Non-goals ("scope is strictly the one narrowing site"), that is a
+separate, new observation about the pin bump's binding shape, not
+this item's regression — worth its own hypothesis capture if a future
+session wants to chase it, not folded into this closure.
+
+No code change: nothing to gate with `--make ci` beyond what #1705
+already gated. `pmIX_ommp` and `3IonN6Kw` need no further update —
+both are already closed with resolution text that does not assert
+the withdrawn "noise" verdict this item's own stale Decision section
+carried; `3IonN6Kw`'s own closing note already correctly named this
+item as carrying the remaining work.
