@@ -9,7 +9,9 @@ description: >
   item, pulling one to implement, reviewing a PR against its spec, or
   landing an accepted one. Invoked with a number (`/work 5`, typically
   under `/loop`), run one orchestrator pass: reconcile the last wave,
-  then fan out up to that many disjoint items.
+  then fan out up to that many disjoint items; with `--friction` after
+  the number, also keep the friction log friction.md describes and
+  file it on the board.
 ---
 
 # The system of work for cosmic
@@ -56,3 +58,16 @@ orchestrate` describes, and end the pass. under `/loop` in dynamic
 mode a pass that moved nothing is a no-op tick; agents in flight
 notify on completion, so the wakeup is a long fallback, never a
 poll.
+
+## /work N --friction — the same pass, observed
+
+with `--friction` the pass also keeps a friction log: for the
+orchestrator and for every agent it runs, each place where the goal
+and what actually happened differed in a way that cost time, tokens,
+or quality, with the numbers that size the cost, what made the
+difference, and the countermeasure. the procedure, the shape of an
+entry, the note that asks each agent to report its own, and the
+transcript recipes are `skills/work/friction.md`. the log ends the
+pass as an unparented board item to triage, and every countermeasure
+that already passes the bar is filed as its own item before the pass
+ends.
