@@ -3,13 +3,13 @@
 --- answer already filled: the item's id, handle, title, spec sidecar
 --- verbatim, repo and base branch, the item branch, the PR under
 --- review, and this checkout's own absolute path. Templates are
---- `_work.brieftext`; `review` picks between two by the handover the
---- item carries — a PR (`REVIEW`) or a research result
---- (`RESEARCH_REVIEW`); the fill grammar is `<UPPER_SNAKE>`, and a
---- placeholder the board cannot answer (a worktree path, a bounce
---- paragraph) survives the fill — the closing verdict line names each
---- survivor, so the caller's whole job is those and pasting the body
---- verbatim.
+--- `_work.brieftext` and `_work.brieftext_review`; `review` picks
+--- between two by the handover the item carries — a PR (`REVIEW`) or
+--- a research result (`RESEARCH_REVIEW`); the fill grammar is
+--- `<UPPER_SNAKE>`, and a placeholder the board cannot answer (a
+--- worktree path, a bounce paragraph) survives the fill — the closing
+--- verdict line names each survivor, so the caller's whole job is
+--- those and pasting the body verbatim.
 ---
 --- Every brief also mints and fills the session label this kind's own
 --- claim belongs under (`mint_label`) and repeats it on the closing
@@ -19,6 +19,7 @@
 ---
 --- A read, not a mutation: nothing here writes the board.
 local brieftext = require("_work.brieftext")
+local brieftext_review = require("_work.brieftext_review")
 local fs = require("cosmic.fs")
 local gate = require("_work.gitgate")
 local gh = require("_work.gh")
@@ -31,7 +32,7 @@ local tail = require("_work.tail")
 local KINDS < const >: {string: string} = {
   builder = brieftext.BUILDER,
   research = brieftext.RESEARCH,
-  review = brieftext.REVIEW,
+  review = brieftext_review.REVIEW,
   refine = brieftext.REFINE,
   decompose = brieftext.DECOMPOSE,
 }
@@ -179,7 +180,7 @@ local function cmd_brief(s: store.Store, kind: string, id: string): integer
   local head_sha = ""
   if kind == "review" then
     if (it.result or "") ~= "" then
-      template = brieftext.RESEARCH_REVIEW
+      template = brieftext_review.RESEARCH_REVIEW
     elseif (it.pr or 0) == 0 then
       return gate.verdict_line("brief", false,
         ("%s has no handover recorded — `take %s --pr N` (a diff) or "

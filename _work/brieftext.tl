@@ -1,6 +1,8 @@
 --- The brief templates `brief` emits: the prompt handed verbatim to a
---- builder, reviewer (of a PR, or of a research handover), or refiner
---- subagent. Templates live in the tool
+--- builder, research, refiner, or decomposer subagent. The two
+--- reviewer templates (of a PR, or of a research handover) live in
+--- `_work.brieftext_review` instead — split out so this module keeps
+--- headroom to grow. Templates live in the tool, not in prose,
 --- because a hand-written brief drifts — one once dropped the Board:
 --- line, another told a builder to re-verify `## Acceptance` bullets
 --- as a second gate — and because most placeholders are board facts
@@ -47,13 +49,18 @@ and nothing less:
 1. Re-run any measured commands the spec names, against the current
    tree — a moved number is fine (refresh your understanding, don't
    stop over it alone); a fact that breaks the Change's shape is a
-   real blocker: STOP and report it (see below).
+   real blocker: STOP and report it (see below). Before the first
+   edit, `wc -l` every file the Change names; if the Change's
+   additions cannot fit under the 500-line cap, STOP now (report the
+   count) rather than after implementing.
 2. Make exactly the `## Change`. Touch no file outside its stated
    scope; hold every `## Non-goals` wall.
-3. Run the repo's gate locally and confirm it is green (`bin/cosmic
-   --make ci` for cosmic; `make -j$(nproc) o//tool/lua/test` for
-   cosmopolitan). This run is for you, to catch a red head before it
-   burns a review round; it is never pasted into the PR.
+3. Between edits, `bin/cosmic --check types <file>` on the files you
+   touched; run the full gate once, before the push. Run the repo's
+   gate locally and confirm it is green (`bin/cosmic --make ci` for
+   cosmic; `make -j$(nproc) o//tool/lua/test` for cosmopolitan). This
+   run is for you, to catch a red head before it burns a review
+   round; it is never pasted into the PR.
 4. If the spec carries an `## Acceptance` section: it is the
    refiner's own worked proof, not a second gate you owe beyond the
    Change and a green gate. Never treat it as a checklist to
@@ -63,7 +70,10 @@ and nothing less:
    restore it exactly.
 6. Commit with a clear, descriptive message. No model name or
    identifier in it.
-7. Push: `git push -u origin <BRANCH>`
+7. Push: `git push -u origin <BRANCH>`. If the push or the PR shows
+   a conflict with the base branch, stop and report it with the
+   conflicting files; merging the base into the item branch is the
+   orchestrator's, never a builder's rebase.
 8. Open a PR from `<BRANCH>` to `<BASE_BRANCH>` in `<REPO>`. READY
    for review, NOT draft. The PR body's FIRST LINE must be exactly:
    `Board: <ITEM_ID>`
@@ -77,9 +87,10 @@ and nothing less:
 
 A spec that turns out wrong or under-specified in a way you cannot
 resolve literally — STOP. Do not improvise, do not widen scope to
-make it work, do not push. Report exactly what is blocking, with the
-command and output that shows the gap. Stopping here is a good
-outcome, not a failure.
+make it work, do not push. Leave your diff committed on the item
+branch (unpushed), never reverted: the respec starts from it. Report
+exactly what is blocking, with the command and output that shows the
+gap. Stopping here is a good outcome, not a failure.
 
 If you notice a real defect OUTSIDE this item's scope, do not fix it
 and do not file it yourself — report it as one evidence paragraph in
@@ -186,175 +197,6 @@ repo's AGENTS.md alone is not yours to guess past.
 4. Any out-of-scope findings, as separate paragraphs.
 Keep it factual and precise — the orchestrator applies your
 recommendation mechanically, so precision matters more than prose.
-]]
-
-local REVIEW < const > = [[
-You are a fresh-context code reviewer for `<REPO>`. You have never
-seen this change before — that is deliberate: the review must come
-from a distance from the builder. Everything you need is below.
-
-## What you're reviewing
-
-Board item id: `<ITEM_ID>` (handle <HANDLE>)
-Title: <TITLE>
-Pull request: <PR_URL> (head sha `<HEAD_SHA>`)
-
-Fetch the PR diff and description yourself. Read the current PR
-state fresh; do not trust anything here except the spec below, which
-is authoritative. The builder's PR description makes claims — read
-them, but verify independently. Its `## Acceptance` bullets, if any,
-were the refiner's worked proof at spec time, not a checklist this
-review re-executes.
-
-## The spec this PR is supposed to satisfy (verbatim)
-
----
-<SPEC>
----
-
-## How to review — the posture is ADVERSARIAL
-
-Your job is to try to make this diff fail, not to confirm it looks
-fine.
-
-1. CI is mechanical, but read it fresh on the PR's CURRENT head. Red
-   or still running ends the review immediately — record nothing,
-   stop and report why.
-2. The diff is the Change — everything present, nothing extra. List
-   the changed files and confirm each is inside the spec's stated
-   scope. Anything outside it is scope creep — quote it, even when
-   it looks good; good ideas become their own items.
-3. The walls held: every `## Non-goals` line honored, frozen
-   contracts unmoved.
-4. Conventions hold: the repo's AGENTS.md binds. Anything a gate
-   should have caught but did not is itself a finding to report.
-5. It serves the outcome: judge the diff against the item's parent
-   chain, not just the letter of `## Change`. A green gate on a
-   change that misses the point means the SPEC was wrong — say so,
-   never wave the diff through.
-6. It is the least thing: name any surplus concretely and treat it
-   as a gap to quote.
-
-Mutation-test at least one guard the change adds or relies on: break
-what it guards, confirm the diff's own test catches it, restore it
-exactly. Do this from your own fresh checkout — never reuse another
-agent's worktree.
-
-## Recording your verdict
-
-Three verdicts: `accept`, `request-changes`, `reject`. gitboard is
-already built in the board worktree; this review is claimed under
-session `<REVIEW_SESSION>` — you MUST use that exact string. Export
-SSL_USE_SYSTEM_CERTS=1 before any command that reaches GitHub.
-
-```
-cd <BOARD_DIR>
-export SSL_USE_SYSTEM_CERTS=1
-o/bin/gitboard verdict <ITEM_ID> <accept|request-changes|reject> \
-  --pr <PR_NUMBER> --head <HEAD_SHA> --session <REVIEW_SESSION>
-```
-
-Then, by verdict:
-- accept: a main-repo PR lands by enabling auto-merge (squash),
-  never by merging directly. Do NOT call `gitboard done` — the item
-  ends only once the merge is confirmed, which is the orchestrator's
-  job.
-- request-changes: post the concrete gaps, quoted with file:line, as
-  a PR comment. Do not push a fix yourself — the builder reworks on
-  the same PR.
-- reject: close the PR with a comment explaining what was
-  fundamentally wrong. If the approach failed because a decision is
-  open, tell the orchestrator in your report so the question is
-  filed and the item blocked on it.
-
-## Final report
-
-The verdict you recorded (or why you could not), the mutation-test
-you ran and its result, and any concrete findings quoted with
-file:line. Keep it factual and concise.
-]]
-
-local RESEARCH_REVIEW < const > = [[
-You are a fresh-context reviewer for `<REPO>`. You have never seen
-this work before — that is deliberate: the review must come from a
-distance from whoever did it. Everything you need is below.
-
-## What you're reviewing
-
-Board item id: `<ITEM_ID>` (handle <HANDLE>)
-Title: <TITLE>
-
-This is a RESEARCH SLICE: its deliverable is board state, not a
-diff — no PR to fetch, no CI to read. Under judgment is the spec
-below as it stands on the board: its recorded probes, its findings,
-and the captures it names (items filed with `new`/`attach`/`block`).
-
-## The spec under review (verbatim)
-
----
-<SPEC>
----
-
-## How to review — the posture is ADVERSARIAL
-
-Your job is to try to make this evidence fail, not to confirm it
-reads well.
-
-1. Re-run EVERY probe the spec records — each measured command,
-   against a fresh read-only clone of `<REPO>` bootstrapped per its
-   own AGENTS.md — and compare what it returns now with what the
-   spec pastes. A number that moved is a finding to quote; a command
-   that no longer produces the claimed shape is a gap.
-2. The findings are the Change — every claim carries its command
-   and pasted output; a claim with neither is inference, and a gap
-   to quote.
-3. The captures landed: for each item the spec says it filed
-   (`new`/`attach`/`block`), find it on the board (`show`, or `grep
-   -ril '<phrase>' items/` in the board checkout) and check that it
-   sits under the parent the spec names, carries the blocker edge it
-   names, and meets the bar (`help bar`).
-4. The walls held: every `## Non-goals` line honored — no product
-   tree touched, no PR opened by this slice.
-5. It serves the outcome: judge the recommendation against the
-   item's parent chain, not just the letter of `## Change`. A
-   recommendation that misses the point means the SPEC was wrong —
-   say so, never wave it through.
-6. It is the least thing: name any surplus concretely (a capture
-   nobody asked for) and treat it as a gap to quote.
-
-## Recording your verdict
-
-Three verdicts: `accept`, `request-changes`, `reject`. gitboard is
-already built in the board worktree; this review is claimed under
-session `<REVIEW_SESSION>` — you MUST use that exact string. Export
-SSL_USE_SYSTEM_CERTS=1 before any command that reaches GitHub.
-
-```
-cd <BOARD_DIR>
-export SSL_USE_SYSTEM_CERTS=1
-o/bin/gitboard verdict <ITEM_ID> <accept|request-changes|reject> \
-  --session <REVIEW_SESSION>
-```
-
-No `--pr` and no `--head`: the verdict judges the spec revision the
-handover recorded, and refuses one that moved since — if it does,
-stop and report that; never edit the spec yourself.
-
-Then, by verdict:
-- accept: do NOT call `gitboard done` — ending the item is the
-  orchestrator's job.
-- request-changes: there is no PR to comment on, so the concrete
-  gaps go in your final report, each quoted with the probe and what
-  it returned. The claimant reworks the spec in place.
-- reject: say what was fundamentally wrong with the recommendation.
-  If it failed because a decision is open, tell the orchestrator in
-  your report so the question is filed and the item blocked on it.
-
-## Final report
-
-The verdict you recorded (or why you could not), each probe you
-re-ran with what it returned, and any concrete findings quoted.
-Keep it factual and concise.
 ]]
 
 local REFINE < const > = [[
@@ -479,8 +321,6 @@ ordered, and the verb verdict lines. Keep it factual and concise.
 local record brieftext
   BUILDER: string
   RESEARCH: string
-  REVIEW: string
-  RESEARCH_REVIEW: string
   REFINE: string
   DECOMPOSE: string
 end
@@ -488,8 +328,6 @@ end
 local M: brieftext = {
   BUILDER = BUILDER,
   RESEARCH = RESEARCH,
-  REVIEW = REVIEW,
-  RESEARCH_REVIEW = RESEARCH_REVIEW,
   REFINE = REFINE,
   DECOMPOSE = DECOMPOSE,
 }
