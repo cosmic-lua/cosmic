@@ -1,11 +1,11 @@
 return {
   ["base"] = "board",
   ["builders"] = "build-VbI3_FiHP-d6f1cc41",
-  ["claim"] = "build-VbI3_FiHP-d6f1cc41",
   ["id"] = "3IqUsQOPao736PalHxTVbI3FiHP",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1709,
   ["repo"] = "cosmic-lua/cosmic",
+  ["resolution"] = "completed",
   ["title"] = "gitboard take: say that an orchestrator always passes --session, and let the one-claim refusal say it too",
   ["verdict"] = "accept",
   ["verdict_head"] = "297912565ed9574d29df543f24772b5b88f4db7c",
