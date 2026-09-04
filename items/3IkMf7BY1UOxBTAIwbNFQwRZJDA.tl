@@ -2,7 +2,6 @@ return {
   ["block_reason"] = {["3IkSSqvH4BLD8YdvdYwohk2Pemz"] = "cosmos pin bump cannot reach a green --make ci while bin/cosmic.pin stays fixed: 8 generation-reachable/cold-invocation files (fd.tl, fs/ops.tl, fs/file.tl, embed/init.tl, child/init.tl, proc/rusage.tl, time.tl, main_handlers.tl) fail one of the build's two compile passes under either old or new destructuring, confirmed by a second builder pass", ["3Ip8zrCbHnPiV5bRM49XvoxXNCM"] = "generation 1 runs the trust root's engine, and bin/cosmic.pin (2026-08-31-a5b36f4) predates the D43 seed pass (#1656): measured in 3IkSSqvH's Resolution, no cosmos pin bump touching a generator-closure binding cold-builds in either wrapper shape until the trust root carries 8758f80c", ["3IqwVIFnyKvKoaIuCncmtGvFTL6"] = "cold build fails during generate _types/tlast_gen.tl: the interpreted searcher resolves cosmo.* against the bootstrap's bundled (pre-bump) declarations for any file it reaches outside the two generators' own closures (main_handlers.tl, tty.tl both reproduce) -- warm build/ci is fully green on cosmic-pin-bump-3IkMf7BY (pushed), but Acceptance requires a cold build too"},
   ["blocked_by"] = "3IkSSqvH4BLD8YdvdYwohk2Pemz 3Ip8zrCbHnPiV5bRM49XvoxXNCM 3IqwVIFnyKvKoaIuCncmtGvFTL6",
   ["builders"] = "wave21-1-pinbump 6a6c39f4-13ef-5170-bf86-7c8195f1f8ff",
-  ["claim"] = "6a6c39f4-13ef-5170-bf86-7c8195f1f8ff",
   ["id"] = "3IkMf7BY1UOxBTAIwbNFQwRZJDA",
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
   ["repo"] = "cosmic-lua/cosmic",
