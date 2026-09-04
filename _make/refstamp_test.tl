@@ -84,8 +84,8 @@ end
 -- An unresolved name stands bare, so a reader of the stamp sees which
 -- ref was absent.
 local function test_content_writes_an_absent_ref_bare()
-  local got = refstamp.content({"origin/board"}, {})
-  assert(got == "origin/board\n", "got: " .. got)
+  local got = refstamp.content({"refs/remotes/work/main"}, {})
+  assert(got == "refs/remotes/work/main\n", "got: " .. got)
 end
 
 -- path_of: dot-prefixed under o/.ref/, so the mirror under o/ (which
