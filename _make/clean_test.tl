@@ -127,6 +127,27 @@ local function test_clean_keeps_the_verified_bootstrap()
     "everything else still goes: " .. r.out)
 end
 
+-- The pristine sibling and the stamp `bin/cosmic` keeps beside the
+-- assimilated bootstrap survive with it: `KEEP` matches `o/bootstrap`
+-- by name, whole, so there is no per-file removal decision to get
+-- wrong between `cosmic`, `cosmic.ape` and `cosmic.pin` -- one keep
+-- covers all three, same as one stamp verifies both binaries.
+local function test_clean_keeps_the_pristine_sibling_too()
+  local root = app("cleanape")
+  assert(make(root, "build").code == 0, "build first")
+  local boot = fs.join(root, "o/bootstrap")
+  assert(fs.make_dirs(boot))
+  assert(fs.write(fs.join(boot, "cosmic"), "pretend assimilated bytes\n"))
+  assert(fs.write(fs.join(boot, "cosmic.ape"), "pretend pristine bytes\n"))
+  assert(fs.write(fs.join(boot, "cosmic.pin"), "deadbeef\n"))
+
+  local r = make(root, "clean")
+  assert(r.code == 0, "clean should succeed: " .. r.err)
+  assert(fs.is_file(fs.join(boot, "cosmic")), "the assimilated copy survives")
+  assert(fs.is_file(fs.join(boot, "cosmic.ape")), "and the pristine sibling: " .. r.out)
+  assert(fs.is_file(fs.join(boot, "cosmic.pin")), "and the stamp naming both: " .. r.out)
+end
+
 -- ...and a live git checkout. `skills/work/SKILL.md` has callers run
 -- `git clone https://github.com/cosmic-lua/work o/board`, so a
 -- checkout root can sit directly under `o/`; clean must not delete it.

@@ -16,6 +16,17 @@ set -e
 #     bin/cosmic --make ci        run the gate
 #     bin/cosmic --make build     build the binaries
 #
+# The verified download is assimilated to a native ELF before it is
+# saved as the bootstrap -- sandboxed rules cannot grant the APE
+# loader's extraction step, so an un-assimilated bootstrap fails inside
+# the very build it is provisioning. That trade is one-way (the
+# portable header does not come back), so this script keeps the
+# pristine download too, beside it as `<bootstrap>.ape`: it is the base
+# a downstream project builds onto when it declares no runtime of its
+# own, and an ELF standing in for it would make every such artifact
+# host-only under a fat binary's name. See `_make/artifact.tl`'s
+# `bases_of` for what reads that sibling back.
+#
 # It prefers the tree's OWN cosmic when one exists, and reaches for the
 # pin only on a cold start. Staleness is not this script's problem: the
 # engine compares its own identity against what a rebuild produces and
@@ -84,15 +95,12 @@ download() {
 }
 
 ensure_bootstrap() {
-    # Download, verify against the pin, assimilate to a native ELF, and
-    # stamp which pin produced it.
-    #
-    # Assimilation is not cosmetic: sandboxed rules cannot grant the APE
-    # loader's ~/.ape-* extraction, so an un-assimilated bootstrap fails
-    # inside the very build it is provisioning. The stamp beside the
-    # binary is a string compare on the hot path rather than a hash, and
-    # it is what makes a pin bump re-download instead of leaving local
-    # trees running the previous release.
+    # Download, verify against the pin, keep the pristine download as
+    # `${BOOTSTRAP}.ape`, assimilate a COPY to a native ELF at
+    # `${BOOTSTRAP}`, and stamp which pin produced the pair. The stamp
+    # is a string compare on the hot path rather than a hash, and it is
+    # what makes a pin bump re-download (and re-assimilate) both files
+    # instead of leaving local trees running the previous release.
     url="$(sed -n 's/^url *= *//p' "${PIN}")"
     sha256="$(sed -n 's/^sha256 *= *//p' "${PIN}")"
     if [ -z "${url}" ] || [ -z "${sha256}" ]; then
@@ -105,21 +113,24 @@ ensure_bootstrap() {
     fi
     echo "Downloading pinned cosmic..." >&2
     mkdir -p "${ROOT}/o/bootstrap"
-    boot_tmp="${BOOTSTRAP}.boot.$$"
-    download "${url}" "${boot_tmp}" || exit 1
-    if ! verify_sha256 "${boot_tmp}" "${sha256}"; then
+    ape_tmp="${BOOTSTRAP}.ape.tmp.$$"
+    download "${url}" "${ape_tmp}" || exit 1
+    if ! verify_sha256 "${ape_tmp}" "${sha256}"; then
         echo "pinned cosmic checksum verification failed; refusing to run" >&2
-        rm -f "${boot_tmp}"
+        rm -f "${ape_tmp}"
         exit 1
     fi
-    chmod +x "${boot_tmp}"
+    chmod +x "${ape_tmp}"
+    boot_tmp="${BOOTSTRAP}.boot.$$"
+    cp "${ape_tmp}" "${boot_tmp}"
     "${boot_tmp}" --assimilate
     if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
         echo "assimilation failed: still an APE — sandboxed rules need a native ELF (no loader grants)" >&2
-        rm -f "${boot_tmp}"
+        rm -f "${ape_tmp}" "${boot_tmp}"
         exit 1
     fi
     mv -f "${boot_tmp}" "${BOOTSTRAP}"
+    mv -f "${ape_tmp}" "${BOOTSTRAP}.ape"
     printf '%s\n' "${sha256}" > "${BOOTSTRAP}.pin"
 }
 
