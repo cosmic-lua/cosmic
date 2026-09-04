@@ -5,5 +5,6 @@ return {
   ["parent"] = "3HyRcd9FVIczIYW5swnw2IXbnGA",
   ["pr"] = 1687,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-ZCBo_l1NV-259ba306",
   ["title"] = "release publishes regardless of the perf compare; the measurement moves to a daily non-blocking perf lane (perf.yml) against the latest release",
 }
