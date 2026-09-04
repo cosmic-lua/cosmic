@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-djEO_SQWp-1",
+  ["claim"] = "build-djEO_SQWp-1",
   ["id"] = "3IqHFc4BeoqgpdXg9kPdjEOSQWp",
   ["parent"] = "3HyRck1p5rpapP45GRGJ9anmT6e",
   ["repo"] = "cosmic-lua/cosmic",
