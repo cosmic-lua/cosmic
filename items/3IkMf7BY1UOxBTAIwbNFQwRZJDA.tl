@@ -6,5 +6,5 @@ return {
   ["parent"] = "3IQtewgN78SnlsiBLPgF1i3VNKE",
   ["repo"] = "cosmic-lua/cosmic",
   ["speccers"] = "wave21-1-pinbump 259ba306-c053-56fc-b9ad-784a9d4ed050",
-  ["title"] = "cosmos pin bump: 2026.08.31-6dfa6728a to a release carrying the post-#304 exact contracts (#315, #321, #324, #328, #329, #331)",
+  ["title"] = "cosmos pin bump: 2026.08.31-6dfa6728a to the newest release (>= 2026.09.04-65bc139fc), the whole exact-contract adaptation in one PR",
 }
