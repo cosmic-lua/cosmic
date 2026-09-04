@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-sxzp_M1yR-d6f1cc41",
+  ["claim"] = "build-sxzp_M1yR-d6f1cc41",
   ["id"] = "3IrfJ5s62kkTyyzSWGqsxzpM1yR",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["speccers"] = "07d7b9b9-4374-5aae-9149-46fdff7aa81e",
