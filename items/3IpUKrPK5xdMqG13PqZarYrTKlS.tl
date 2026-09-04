@@ -1,4 +1,6 @@
 return {
+  ["builders"] = "build-arYr_TKlS-1",
+  ["claim"] = "build-arYr_TKlS-1",
   ["id"] = "3IpUKrPK5xdMqG13PqZarYrTKlS",
   ["parent"] = "3HyRdABz3YA28CsiM5alei5yM5b",
   ["repo"] = "cosmic-lua/cosmic",
