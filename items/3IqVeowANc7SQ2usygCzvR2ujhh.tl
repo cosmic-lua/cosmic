@@ -2,6 +2,8 @@ return {
   ["base"] = "board",
   ["block_reason"] = {["3IqRTlnvcUjp6BXayBmRxN2253n"] = "the coverage check reads which agents an orchestrator claimed for off the minted label's orchestrator component, which does not exist until the label item lands"},
   ["blocked_by"] = "3IqRTlnvcUjp6BXayBmRxN2253n",
+  ["builders"] = "build-zvR2_ujhh-07d7b9b9",
+  ["claim"] = "build-zvR2_ujhh-07d7b9b9",
   ["id"] = "3IqVeowANc7SQ2usygCzvR2ujhh",
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["repo"] = "cosmic-lua/cosmic",
