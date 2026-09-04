@@ -2,6 +2,8 @@
 local Box = require("cosmic.quicksand.box")
 local check = require("cosmic.check")
 local quicksand = require("cosmic.quicksand")
+local deep = require("cosmic.deep")
+local types = require("cosmic.quicksand.types")
 
 local function test_module_exports()
   assert(type(Box.new) == "function")
@@ -138,15 +140,13 @@ end
 -- as test_run_on_linux_returns_clean_shape already does — never
 -- touches this process's own namespaces.
 local function with_mock_capabilities(overrides: {string: any}, body: function(): boolean)
-  local real = quicksand.capabilities()
-  local mocked: {string: any} = {}
-  for k, v in pairs(real as {string: any}) do mocked[k] = v end -- cast: record to map probe
-  for k, v in pairs(overrides) do mocked[k] = v end
-  local saved = (quicksand as {string: function}).capabilities; -- cast: record to map probe
-  (quicksand as {string: function}).capabilities = function(): any return mocked end -- cast: record to map probe
-  local ok, err = pcall(body);
-  (quicksand as {string: function}).capabilities = saved -- cast: record to map probe
-  if not ok then error(err, 0) end
+  local mocked: types.Capabilities = deep.copy(quicksand.capabilities())
+  for k, v in pairs(overrides) do
+    (mocked as {string: any})[k] = v -- cast: probe module surface to swap a member its declared type owns
+  end
+  check.swap_members(quicksand, {
+      capabilities = function(): types.Capabilities return mocked end,
+    }, body)
 end
 
 -- Non-goal: a host with neither tier refuses a net policy outright,

@@ -81,21 +81,8 @@ end
 -- landlock_net_test.tl uses) exercises the ABI < 6 fail-closed/skip path
 -- deterministically: a live host is always either ABI >= 6 (this CI
 -- lane) or lacks landlock outright, never usefully "ABI 5".
-local function with_mock_landlock(mocks: {string: function}, body: function(): boolean)
-  local saved: {string: function} = {}
-  for name, fn in pairs(mocks) do
-    saved[name] = (landlock as {string: function})[name]; -- cast: record to map probe
-    (landlock as {string: function})[name] = fn -- cast: record to map probe
-  end
-  local ok, err = pcall(body)
-  for name, fn in pairs(saved) do
-    (landlock as {string: function})[name] = fn -- cast: record to map probe
-  end
-  if not ok then error(err, 0) end
-end
-
 local function test_scope_fails_closed_below_abi_6()
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       abi = function(): integer | nil, string return 5 end,
     }, function(): boolean
@@ -120,7 +107,7 @@ end
 -- that gate needs its own proof, mirroring
 -- test_restrict_own_abi_gate_below_abi_4 in landlock_net_test.tl.
 local function test_restrict_own_abi_gate_below_abi_6()
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       abi = function(): integer | nil, string return 5 end,
     }, function(): boolean
