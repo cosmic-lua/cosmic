@@ -13,7 +13,7 @@
 --- it, just at a lower rate limit). The previous release is the
 --- newest one by created_at, prereleases included and drafts
 --- excluded, that carries an asset named exactly --asset (default
---- "perf.json"). Its asset is downloaded to --out.
+--- "cosmic-lua"). Its asset is downloaded to --out.
 ---
 --- Verdict line, always the last line printed:
 ---   perf-baseline: OK <tag>            asset downloaded to --out
@@ -64,7 +64,7 @@ local RELEASES_SPEC < const > = shape.list(shape.record({
             }))),
     }))
 
-local ASSET_NAME < const > = "perf.json"
+local ASSET_NAME < const > = "cosmic-lua"
 local API_URL < const > = "https://api.github.com/repos/%s/releases?per_page=30"
 
 local USAGE = [[
@@ -77,7 +77,7 @@ local SPEC: flags.Spec = {
     {long = "repo", arg = "OWNER/NAME", required = true, help = "GitHub repo to query"},
     {long = "out", arg = "PATH", required = true, help = "write the baseline asset here"},
     {long = "asset", arg = "NAME", default = ASSET_NAME,
-      help = "release asset name to fetch (default perf.json)"},
+      help = "release asset name to fetch (default cosmic-lua)"},
   },
 }
 
