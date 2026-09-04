@@ -409,12 +409,14 @@ local function cycle_problems(items: {Item}): {string}
   return out
 end
 
---- The refusal recording `winner > loser` earns, or nil when the
---- edge may be written. A DIRECT contrary edge is the caller's to
---- reverse (`compare` does, in one commit); what is refused here is
---- the duplicate, and the reversal no single edge can honestly make —
---- a loser placed above the winner only transitively, where the new
---- edge would close a cycle several comparisons built.
+--- The refusal recording `winner > loser` earns, or nil when the edge
+--- may be written. A direct edge that already stands is `compare`'s
+--- to leave untouched — its own no-op success (`save`'s clean-diff
+--- outcome) closes that out without a refusal here. A DIRECT contrary
+--- edge is the caller's to reverse (`compare` does, in one commit);
+--- what IS refused here is the reversal no single edge can honestly
+--- make — a loser placed above the winner only transitively, where
+--- the new edge would close a cycle several comparisons built.
 --- @param index Index Items by id
 --- @param winner string The id ranked above
 --- @param loser string The id ranked below
@@ -429,12 +431,6 @@ local function edge_refusal(index: Index, winner: string,
   end
   if index[loser] == nil then
     return ("no item %s"):format(loser)
-  end
-  for _, b in ipairs(index[winner].beats or {}) do
-    if b == loser then
-      return ("%s already outranks %s"):format(winner:sub(1, 8),
-        loser:sub(1, 8))
-    end
   end
   if dominated(index, loser)[winner] then
     return ("%s already outranks %s through other comparisons — recording "

@@ -108,6 +108,7 @@ Hard rules:
 - repo conventions are never relaxed: the repo's gate and its
   AGENTS.md bind every PR. When a convention keeps tripping
   sessions, the fix is a countermeasure item, never an exception.
+- a mutation the board already holds is a no-op that succeeds.
 ]]},
 
   {name = "bar", title = "the spec bar: what makes an item pullable",

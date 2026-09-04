@@ -143,6 +143,9 @@ local function cmd_attach(s: store.Store, id: string, parent: string): integer
   if not ok then
     return gate.verdict_line("attach", false, err)
   end
+  if store.is_noop(err) then
+    return gate.verdict_line("attach", true, err)
+  end
   local workable = ""
   if not flow.has_open_children(all, id) then
     workable = " — workable, in todo"
@@ -218,29 +221,26 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
       ("%s does not wait on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
   end
   -- An edge that already exists is compared, not blindly refused: the
-  -- SAME reason re-run stays a no-op (so re-running block never writes
-  -- an empty commit), but a DIFFERENT reason replaces the stored one in
-  -- place — one mutation, where the old refusal forced an unblock+block
-  -- pair with a race window where the edge was briefly gone.
+  -- SAME reason re-run leaves the item untouched, so `save`'s own
+  -- no-op success closes it out; a DIFFERENT reason replaces the
+  -- stored one in place — one mutation, where the old refusal forced
+  -- an unblock+block pair with a race window where the edge was
+  -- briefly gone.
   local had_reason = (it.block_reason or {})[blocker]
   local updating = not remove and had and had_reason ~= reason
-  if not remove and had and not updating then
-    return gate.verdict_line(verb, false,
-      ("%s already waits on %s"):format(id:sub(1, 8), blocker:sub(1, 8)))
-  end
-  if not updating then
+  if remove or updating or not had then
     if not remove then
       kept[#kept + 1] = blocker
     end
     it.blocked_by = kept
+    local reasons = it.block_reason or {}
+    if remove then
+      reasons[blocker] = nil
+    else
+      reasons[blocker] = reason
+    end
+    it.block_reason = reasons
   end
-  local reasons = it.block_reason or {}
-  if remove then
-    reasons[blocker] = nil
-  else
-    reasons[blocker] = reason
-  end
-  it.block_reason = reasons
   -- Guidance for the add path, decided against the same board the
   -- gates read. Both notes are the block-first procedure's edges: a
   -- blocker no comparison reaches is one `take` refuses, so the chain
@@ -264,6 +264,9 @@ local function cmd_block(s: store.Store, id: string, blocker: string,
     ("%s %s on %s"):format(verb, id:sub(1, 8), blocker:sub(1, 8)))
   if not ok then
     return gate.verdict_line(verb, false, err)
+  end
+  if store.is_noop(err) then
+    return gate.verdict_line(verb, true, err)
   end
   if updating then
     return gate.verdict_line(verb, true,
@@ -351,6 +354,9 @@ local function cmd_set(s: store.Store, id: string, title: string | nil,
     ("set %s %s"):format(id:sub(1, 8), table.concat(fields, " ")))
   if not ok then
     return gate.verdict_line("set", false, err)
+  end
+  if store.is_noop(err) then
+    return gate.verdict_line("set", true, err)
   end
   return gate.verdict_line("set", true,
     ("%s: %s updated"):format(id:sub(1, 8), table.concat(fields, ", ")))

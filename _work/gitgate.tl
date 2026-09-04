@@ -284,13 +284,13 @@ end
 --- @param body string Replacement spec markdown, or nil to leave the sidecar alone
 --- @param message string Commit subject
 --- @param also {item.Item} Further items the same mutation writes
---- @return boolean True once committed (and pushed, given a remote)
---- @return string Error message; `store.LOST_RACE` for a lost race
+--- @return boolean True once committed (and pushed, given a remote), or a no-op
+--- @return string Error; `store.LOST_RACE` for a lost race, `store.is_noop` for a no-op
 local function commit_and_publish(s: store.Store, it: item.Item, body: string,
     message: string, also?: {item.Item}): boolean, string
   local saved, serr = store.save(s, it, message, body, also)
-  if not saved then
-    return false, serr
+  if not saved or store.is_noop(serr) then
+    return saved, serr
   end
   return publish.publish(s)
 end

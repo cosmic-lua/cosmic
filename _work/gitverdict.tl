@@ -290,6 +290,9 @@ local function cmd_verdict(s: store.Store, id: string, kind: string,
   if not ok then
     return gate.verdict_line("verdict", false, err)
   end
+  if store.is_noop(err) then
+    return gate.verdict_line("verdict", true, err)
+  end
   local note = ""
   if merged_sha ~= "" then
     note = (" (PR #%d was already merged)"):format(it.pr)

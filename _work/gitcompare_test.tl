@@ -43,8 +43,10 @@ local function test_compare_reverses_direct_refuses_transitive()
   local low = file_item(s, "the lesser outcome", "")
   local high = file_item(s, "the greater outcome", "")
   assert(cmp.cmd_compare(s, high, low) == 0)
-  assert(cmp.cmd_compare(s, high, low) ~= 0,
-    "the same edge twice is refused rather than duplicated")
+  local before_dup = fixture.commits(s)
+  assert(cmp.cmd_compare(s, high, low) == 0,
+    "the same edge twice is a no-op, not a duplicate")
+  assert(fixture.commits(s) == before_dup, "and it writes nothing")
   local before = fixture.commits(s)
   assert(cmp.cmd_compare(s, low, high) == 0,
     "the direct reverse is a reversal, not a refusal")
@@ -70,7 +72,32 @@ local function test_every_comparison_is_one_commit()
   assert(cmp.cmd_compare(s, high, low) == 0)
   assert(fixture.commits(s) == before + 1,
     "one comparison, one commit")
-  assert(cmp.cmd_compare(s, high, low) ~= 0)
+  assert(cmp.cmd_compare(s, high, low) == 0,
+    "an edge already present is the state already asked for")
   assert(fixture.commits(s) == before + 1,
-    "and a refused one commits nothing")
+    "and a no-op commits nothing")
+end
+
+-- The already-recorded case: the board already holds the edge asked
+-- for, so `compare` prints store's own "nothing to record" line and
+-- exits 0 — not a refusal, the same status a fresh comparison earns.
+local function test_compare_of_a_standing_edge_is_a_noop_success()
+  local s = init_state_repo("compare-noop")
+  local low = file_item(s, "the lesser outcome", "")
+  local high = file_item(s, "the greater outcome", "")
+  assert(cmp.cmd_compare(s, high, low) == 0)
+  local old_print = _G.print
+  local lines: {string} = {}
+  _G.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local code = cmp.cmd_compare(s, high, low)
+  _G.print = old_print
+  assert(code == 0, "recording the same edge again succeeds, not refuses")
+  assert(table.concat(lines, "\n"):find("nothing to record", 1, true) ~= nil,
+    "prints store's own no-op line: " .. table.concat(lines, "\n"))
 end

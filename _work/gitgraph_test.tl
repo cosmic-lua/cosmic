@@ -69,12 +69,26 @@ local function test_attach_refuses_a_cycle()
   assert(check.must(store.load(s, leaf)).parent ~= kid, "and not written")
 end
 
+-- Attaching a pair already attached asks for the state the board already
+-- has — a no-op that succeeds, printing store's own line, not a misleading
+-- "now under" as though a fresh edge had landed.
+local function test_attach_of_an_already_attached_pair_is_a_noop_success()
+  local s = init_state_repo("attach-noop")
+  local goal, leaf = root_with_leaf(s)
+  local before, seen, old_print = commits(s), "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local code = graph.cmd_attach(s, leaf, goal)
+  _G.print = old_print
+  assert(code == 0 and commits(s) == before and seen:find("nothing to record", 1, true) ~= nil, seen)
+end
+
 --- Run graph.cmd_block and capture exactly what it prints via print() --
 --- the same swap-and-restore pattern verdict_and_capture in
---- gitverdict_test.tl uses -- so a test can pin the exact refusal text,
---- not just the exit code (a store-level no-op refusal and the
---- edge-already-exists refusal both return nonzero, and only the text
---- tells them apart).
+--- gitverdict_test.tl uses -- so a test can pin the exact line printed,
+--- not just the exit code (an edge already present is a no-op SUCCESS
+--- that prints `store`'s own "nothing to record" line, and only the
+--- text says so -- the exit code alone reads the same as any other
+--- success).
 --- @param s store.Store The store
 --- @param id string The waiting item
 --- @param blocker string The item it waits on
@@ -117,10 +131,9 @@ local function test_block_records_landing_order_and_refuses_nonsense()
   local before_noop = commits(s)
   local noop_code, noop_line = block_and_capture(s, second, first, false,
     "first lands the API")
-  assert(noop_code ~= 0, "an identical reason is refused as a no-op")
-  assert(noop_line:find("already waits on", 1, true) ~= nil,
-    "refused as the standing edge, not laundered through store's own " ..
-    "empty-diff refusal: " .. noop_line)
+  assert(noop_code == 0, "an identical reason is a no-op, not a refusal")
+  assert(noop_line:find("nothing to record", 1, true) ~= nil,
+    "prints store's own no-op line: " .. noop_line)
   assert(commits(s) == before_noop, "a no-op writes no commit")
   local unchanged = check.must(store.load(s, second))
   assert(#unchanged.blocked_by == 1, "the blocker list is untouched")
@@ -270,6 +283,31 @@ local function test_set_round_trips_title_repo_and_base()
     and moved.repo == "whilp/cosmopolitan",
     "an unset flag leaves its field alone")
   assert(goal ~= "", "root filed for the fixture")
+end
+
+-- The already-recorded case: setting a field to the value it already
+-- holds asks for the state the board already has — a no-op that
+-- succeeds, not a refusal, printing `store`'s own no-op line.
+local function test_set_the_same_value_is_a_noop_success()
+  local s = init_state_repo("set-noop")
+  local _, leaf = root_with_leaf(s)
+  assert(graph.cmd_set(s, leaf, "a truer title", nil, nil) == 0)
+  local before = commits(s)
+  local old_print = _G.print
+  local lines: {string} = {}
+  _G.print = function(...: any)
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+      parts[i] = tostring((select(i, ...)))
+    end
+    lines[#lines + 1] = table.concat(parts, "\t")
+  end
+  local code = graph.cmd_set(s, leaf, "a truer title", nil, nil)
+  _G.print = old_print
+  assert(code == 0, "the same title again is a no-op, not a refusal")
+  assert(table.concat(lines, "\n"):find("nothing to record", 1, true) ~= nil,
+    "prints store's own no-op line: " .. table.concat(lines, "\n"))
+  assert(commits(s) == before, "a no-op writes no commit")
 end
 
 -- No flags at all names nothing to repair.

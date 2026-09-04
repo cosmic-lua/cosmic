@@ -63,8 +63,7 @@ local function test_take_refuses_a_flag_shaped_session()
   assert(verbs.cmd_take(s, leaf, "builder-a", 7, false, "") == 0)
   assert(verbs.cmd_take(s, leaf, "--force", 0, false, "") ~= 0,
     "a flag-shaped reviewer is refused")
-  assert(check.must(store.load(s, leaf)).reviewer == "",
-    "and no reviewer is recorded")
+  assert(check.must(store.load(s, leaf)).reviewer == "", "and no reviewer is recorded")
 end
 
 -- An unplaced item is refused at take: placement is ordinal, and an
@@ -164,18 +163,18 @@ local function test_take_pr_refuses_a_number_another_item_holds()
   assert(check.must(store.load(s, b)).pr == 0, "and nothing is written")
 end
 
--- The same item re-recording its own number stays the existing no-op:
--- the collision check never fires against itself.
+-- Re-recording the item's own number is a no-op, printing store's own line rather than a bespoke one — the collision check never fires against itself.
 local function test_take_pr_rerecord_of_its_own_number_stays_a_noop()
   local s = init_state_repo("pr-self-noop")
   local _, leaf = root_with_leaf(s)
   give_spec(s, leaf)
-  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0)
-  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0)
-  local before = commits(s)
-  assert(verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0,
-    "re-recording its own number is a no-op")
-  assert(commits(s) == before, "nothing new to commit")
+  assert(verbs.cmd_take(s, leaf, "session-a", 0, false, "") == 0
+    and verbs.cmd_take(s, leaf, "session-a", 7, false, "") == 0)
+  local before, seen, old_print = commits(s), "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local again = verbs.cmd_take(s, leaf, "session-a", 7, false, "")
+  _G.print = old_print
+  assert(again == 0 and commits(s) == before and seen:find("nothing to record", 1, true) ~= nil, seen)
 end
 
 -- A DONE item's PR is spent: it does not block another item from
@@ -188,8 +187,7 @@ local function test_take_pr_ignores_a_done_items_number()
   give_spec(s, b)
   assert(verbs.cmd_take(s, a, "session-a", 0, false, "") == 0)
   assert(verbs.cmd_take(s, a, "session-a", 7, false, "") == 0)
-  assert(verbs.cmd_done(s, a, "completed", true,
-      "closing for the fixture") == 0)
+  assert(verbs.cmd_done(s, a, "completed", true, "closing for the fixture") == 0)
   assert(verbs.cmd_take(s, b, "session-b", 0, false, "") == 0)
   assert(verbs.cmd_take(s, b, "session-b", 7, false, "") == 0,
     "A's PR is spent once A is done")
@@ -385,8 +383,20 @@ local function test_done_says_when_a_container_is_workable_again()
   assert(flow.role(parent, all) == "work",
     "its last child closed, so the container is workable by derivation")
   assert(#flow.graph_problems(all) == 0,
-    "and nothing is left off the board: "
-    .. table.concat(flow.graph_problems(all), "; "))
+    "and nothing is left off the board: " .. table.concat(flow.graph_problems(all), "; "))
+end
+
+-- The already-recorded case: `done` again with the same reason is a no-op that succeeds.
+local function test_done_again_is_a_noop_success()
+  local s = init_state_repo("done-noop")
+  local id = file_item(s, "a lone item", "")
+  assert(verbs.cmd_done(s, id, "completed", false, "") == 0)
+  local before, seen, old_print = commits(s), "", _G.print
+  _G.print = function(msg: any) seen = tostring(msg) end
+  local again = verbs.cmd_done(s, id, "completed", false, "")
+  _G.print = old_print
+  assert(again == 0 and commits(s) == before
+    and seen:find("nothing to record", 1, true) ~= nil, seen)
 end
 
 -- --force is for repair, and a repair the log cannot explain is

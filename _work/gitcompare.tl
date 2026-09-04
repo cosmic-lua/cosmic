@@ -60,16 +60,28 @@ local function cmd_compare(s: store.Store, winner: string,
   if refusal then
     return gate.verdict_line("compare", false, "REFUSED: " .. refusal)
   end
-  local kept: {string} = {}
-  local seen: {string: boolean} = {}
+  -- An edge that already stands is left exactly as it is: rebuilding
+  -- and re-appending `loser` would reorder `beats` even when nothing
+  -- about the judgment changed, turning a re-run into a spurious
+  -- commit instead of the no-op `save` would otherwise settle it as.
+  local already = false
   for _, b in ipairs(it.beats or {}) do
-    if not seen[b] and b ~= loser then
-      seen[b] = true
-      kept[#kept + 1] = b
+    if b == loser then
+      already = true
     end
   end
-  kept[#kept + 1] = loser
-  it.beats = kept
+  if not already then
+    local kept: {string} = {}
+    local seen: {string: boolean} = {}
+    for _, b in ipairs(it.beats or {}) do
+      if not seen[b] and b ~= loser then
+        seen[b] = true
+        kept[#kept + 1] = b
+      end
+    end
+    kept[#kept + 1] = loser
+    it.beats = kept
+  end
   local also: {item.Item} = {}
   local note = ""
   if reversed then
@@ -82,6 +94,9 @@ local function cmd_compare(s: store.Store, winner: string,
     also)
   if not ok then
     return gate.verdict_line("compare", false, err)
+  end
+  if store.is_noop(err) then
+    return gate.verdict_line("compare", true, err)
   end
   -- The standing after the write, not the edge just made: one edge is
   -- a judgment, and what the session wants to see is where the item
