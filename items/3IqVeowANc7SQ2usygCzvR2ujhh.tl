@@ -8,5 +8,6 @@ return {
   ["parent"] = "3HyRdT1JQS7pCPgF3sZi2Deo66q",
   ["pr"] = 1703,
   ["repo"] = "cosmic-lua/cosmic",
+  ["reviewer"] = "review-zvR2_ujhh-07d7b9b9",
   ["title"] = "gitboard new: a friction log names every agent this orchestrator claimed for, or the filing is refused",
 }
