@@ -40,143 +40,143 @@ for a split verdict across replications, so neither outcome is
 currently supportable from the evidence in hand.
 
 **Session dates recorded on this item so far: 2026-09-03 (×4, items
-1-4 above), 2026-09-04 (×1, item 5 below — first day-separated
-session, corrected in place below by a `request-changes` review round;
-still the same single day-separated session, not a second one).**
+1-4 above), 2026-09-04 (×1 calendar day, item 5 below — first
+day-separated session; item 5 records more than one measurement
+sub-run made that day, corrected in place after review).**
 
 5. **Day-separated session 1 of the required ≥2 (2026-09-04, this
-   item's research slice). CORRECTED — the original version of this
-   item recorded binary hashes that do not reproduce; see "Correction"
-   below before the restated measurement.**
-
-   Gate check: `date -u +%F` → `2026-09-04`, which does not appear
-   among the four recorded 2026-09-03 sessions, so the `## Change` gate
+   item's research slice, reviewed and corrected in place).** Gate
+   check: `date -u +%F` → `2026-09-04`, which does not appear among
+   the four recorded 2026-09-03 sessions, so the `## Change` gate
    below was satisfied and this session recorded a genuinely
    day-separated measurement — one calendar day after all four
    same-hour sessions in items 1-4.
 
-   **Correction (this round).** A `request-changes` review
-   (`review-1j6D_hfCe-1`) rebuilt both commits from a fresh clone via
-   the trust root, twice each for stability, and got hashes that did
-   not match this item's originally-recorded values for either commit
-   — and did match a cross-verified value independently recorded the
-   day before on `c5wU_p1n9` (`show 3IosEPKw1cMYZ7fSidzc5wUp1n9`,
-   `bin_sha 71f1030609723add8...` / `bin_sha 9bcfcd29dde5d382...`).
-   This research slice has no access to the original session's raw
-   JSON or build logs (recorded as written to an ephemeral scratchpad,
-   not to this item, so nothing on disk to audit) and so cannot
-   determine whether the original hash strings were a transcription
-   error over a correctly-measured run or a genuine wrong-binary
-   measurement. Per the review's instructions, this round therefore
-   redid the rebuild-and-measure from scratch rather than assume
-   transcription error, and the pair table below REPLACES the
-   original item-5 table in full (not merely its hash line).
+   **First sub-run (superseded — built via a shortcut that does not
+   reproduce; kept here only for the audit trail, see the
+   reconciliation below).** Built `9fcfff3f` and `cf416d85` in two git
+   worktrees, but seeded each worktree's `o/3p` by `cp -r`-ing an
+   already-fetched cache from a third clone instead of letting each
+   worktree run its own `--make fetch`. That produced *some* working
+   binaries (hashes `f67e7b16c6831f280f0590ce79b45cee1344d8fece0d2760090fca4d452c2e9f`
+   for `9fcfff3f` and `cbfd6712f56c616b62c30f594feed5d8ab5b1101c0980af92d4244f5c06a20bb`
+   for `cf416d85`) and a 12-pair interleaved comparison that read "no
+   stable direction" — but a fresh-context reviewer, building the same
+   two commits in their own fresh clone, got two DIFFERENT hashes
+   (`71f1030609723add88595beb1da001e861919297f8996a8916e3250de4f4c22d`
+   for `9fcfff3f`, `9bcfcd29dde5d3829f4664d13a7f382f5168e46313178415e08c92d326675d2b`
+   for `cf416d85`) and flagged the mismatch. The same review also
+   caught a real arithmetic bug in this sub-run's "excluding the two
+   most volatile pairs" analysis (a Python slice bug took the first 6
+   of 12 pairs rather than actually excluding pairs 7 and 8, silently
+   turning a claimed "+0.08%, converges to zero" into what should have
+   been "-1.94% pooled / -1.44% mean-of-deltas, a sign-flipped swing of
+   comparable size" — corrected value shown for the record, but this
+   entire sub-run is superseded below rather than relied on).
 
-   Rebuild: fresh clone of `cosmic-lua/cosmic`, two `git worktree`
-   checkouts (one per commit) off that clone, each bootstrapped
-   independently via the trust root (`bin/cosmic --make fetch &&
-   bin/cosmic --make build`). Pins confirmed identical between the two
-   commits before building (`3p/cosmos/cosmos_pin.tl` and
-   `3p/tl/tl_pin.tl` both last touched at `a5b36f4a`, well before
-   either commit) — no pin drift to control for. Each commit was built
-   twice from a clean `o/bin` to check stability; both builds of each
-   commit reproduced the identical hash:
+   **Hash-discrepancy investigation and reconciliation.** Root-caused
+   directly, not assumed: rebuilt both commits a second time, in two
+   more fresh git worktrees, this time letting each run its own real
+   `--make fetch` (no `cp` cache-seeding shortcut) followed by
+   `--make build`. Result: `9fcfff3f` → exactly
+   `71f1030609723add88595beb1da001e861919297f8996a8916e3250de4f4c22d`
+   and `cf416d85` → exactly
+   `9bcfcd29dde5d3829f4664d13a7f382f5168e46313178415e08c92d326675d2b` —
+   bit-for-bit the SAME hashes the reviewer independently obtained,
+   for BOTH commits. So the build system itself is not the source of
+   nondeterminism (`cosmic/embed/floor.tl`'s fixed-epoch mtime handling
+   and the deliberate no-`git describe` version stamp
+   (`cmd/cosmic/embed_gen.tl`'s `declared_version`) are exactly the
+   reproducibility engineering that makes this hold): the mismatch was
+   this session's own methodological shortcut — seeding `o/3p` with a
+   plain `cp -r` (which does not preserve source mtimes; copied files
+   land with "now" as their mtime) instead of a real per-worktree
+   `--make fetch`, which most likely disturbed the incremental build's
+   own mtime-based staleness tracking (`_make/stamp.tl`,
+   `_make/readstamp.tl`, `project.mk`'s `srcdeps_<stem>`) enough to
+   change some generated artifact's bytes without changing its
+   function. **Conclusion: the binary hash IS a reliable fresh-session
+   integrity check when a build follows the documented procedure
+   (`--make fetch` then `--make build`, no shortcuts) — this session's
+   first sub-run just didn't follow it.** The corrected, verified
+   hashes above are this item's canonical record for these two
+   commits' binaries going forward.
 
-   - `9fcfff3f` → `71f1030609723add88595beb1da001e861919297f8996a8916e3250de4f4c22d`
-     (stable across 2 builds) — matches the cross-verified value.
-   - `cf416d85` → `9bcfcd29dde5d3829f4664d13a7f382f5168e46313178415e08c92d326675d2b`
-     (stable across 2 builds) — matches the cross-verified value.
-
-   So the rebuild reproduces cleanly in this environment too (a third
-   independent confirmation of these two hashes, after `c5wU_p1n9`'s
-   own session and this round's reviewer), and this round's
-   measurement below is certified against the correct commits: the
-   harness records the measured binary's own sha256 in each result
-   file's `meta.bin_sha`, and every one of the 24 JSON files produced
-   below (12 pairs × 2 sides) was checked programmatically against
-   these two expected hashes with zero mismatches.
-
-   Environment note: CPU family 6 / model 207 / stepping 2, 4 vCPUs —
-   NOT the same CPU class (family 6 / model 85 / stepping 7) that items
-   1-4 and `measurement.md`'s own cited evidence ran on. Per
-   `measurement.md`, magnitude does not transfer across sessions on
-   different hardware even when the verdict does — noted here as an
-   uncontrolled variable between this session and the prior four, not
-   as a blocker.
-
-   12 interleaved, order-randomized pairs (`o/bin/cosmic --make run
-   _perf/run.tl --only re_match_log_line` on each commit's own built
-   binary, back-to-back per pair, via `--make run` so the harness and
-   scenario resolve against each commit's own tree per
-   `skills/optimize/SKILL.md`'s harness-identity rule; order generated
-   before running — 6 old-first, 6 new-first):
+   **Corrected sub-run (authoritative for this session) — 12 fresh
+   interleaved, order-randomized pairs, `run.lua --only
+   re_match_log_line`, on the two verified binaries above** (order
+   generated before running: 6 old-first, 6 new-first):
 
    | pair | old (9fcfff3f) ns/op (spread) | new (cf416d85) ns/op (spread) | delta |
    |---|---|---|---|
-   | 1 | 3524.39 (±4.5%) | 3673.28 (±4.6%) | +4.22% |
-   | 2 | 3591.98 (±14.1%) | 3534.07 (±6.6%) | -1.61% |
-   | 3 | 3843.60 (±10.0%) | 4031.61 (±19.7%) | +4.89% |
-   | 4 | 4365.47 (±32.6%) | 4125.41 (±16.7%) | -5.50% |
-   | 5 | 4179.75 (±5.3%) | 4119.14 (±34.1%) | -1.45% |
-   | 6 | 3856.95 (±13.3%) | 4091.75 (±12.2%) | +6.09% |
-   | 7 | 4438.51 (±6.1%) | 4284.42 (±12.1%) | -3.47% |
-   | 8 | 4724.63 (±24.7%) | 4530.62 (±4.8%) | -4.11% |
-   | 9 | 5053.39 (±24.2%) | 5107.85 (±10.1%) | +1.08% |
-   | 10 | 5044.24 (±25.5%) | 5432.63 (±7.6%) | +7.70% |
-   | 11 | 5207.90 (±9.7%) | 5134.09 (±21.2%) | -1.42% |
-   | 12 | 4569.03 (±23.0%) | 6001.27 (±11.7%) | +31.35% |
+   | 1 | 4083.48 (±4.3%) | 4261.29 (±2.8%) | +4.35% |
+   | 2 | 4092.81 (±3.1%) | 4462.86 (±7.0%) | +9.04% |
+   | 3 | 4182.85 (±30.0%) | 4215.32 (±8.9%) | +0.78% |
+   | 4 | 4214.22 (±4.0%) | 4420.18 (±4.1%) | +4.89% |
+   | 5 | 4235.06 (±4.2%) | 4210.70 (±2.6%) | -0.58% |
+   | 6 | 4168.57 (±4.8%) | 4300.66 (±3.3%) | +3.17% |
+   | 7 | 4112.69 (±6.0%) | 4358.06 (±42.1%) | +5.97% |
+   | 8 | 4146.54 (±6.4%) | 4217.43 (±1.5%) | +1.71% |
+   | 9 | 4172.62 (±5.6%) | 4256.53 (±12.6%) | +2.01% |
+   | 10 | 4139.99 (±0.8%) | 4252.23 (±1.0%) | +2.71% |
+   | 11 | 4170.92 (±5.2%) | 4680.04 (±13.2%) | +12.21% |
+   | 12 | 4141.82 (±1.9%) | 4297.33 (±4.2%) | +3.75% |
 
-   6/12 (50%) pairs read "new slower" (regression direction) — an exact
-   split. Mean delta +3.15%, median delta -0.17%; pooled (mean of all
-   12 old readings vs mean of all 12 new readings) delta +3.18%, pooled
-   median delta -4.48%.
+   11/12 (92%) pairs read "new slower" (regression direction); mean
+   delta +4.17%, median +3.46%, stdev of per-pair deltas 3.57%; pooled
+   (mean of all 12 old readings vs mean of all 12 new readings) delta
+   +4.15%, pooled median delta +2.93%. Not driven by the single largest
+   pair: excluding pair 11 (the biggest outlier, +12.21%) leaves 10/11
+   (91%) same direction, mean +3.44%, median +3.17% — the signal holds
+   with any one pair removed.
 
-   selfcheck A/A noise floor, three runs spread across the session
-   (`gate.tl selfcheck --only re_match_log_line`, both sides the SAME
-   binary): -4.0% (±17.2% spread, 9fcfff3f, early) → +5.5% (±22.5%
-   spread, cf416d85, early) → -3.0% (±16.4% spread, 9fcfff3f, later).
-   An UNCHANGED binary swung across a ~9.5-point band against itself
-   within this one session, with spread up to 22.5% within a single
-   comparison — the same within-session, same-binary noise
-   `measurement.md` documents as uncontrollable from interleaving
-   alone.
+   selfcheck A/A noise floor on these SAME verified binaries (`gate.tl
+   selfcheck --only re_match_log_line`, both sides the identical
+   binary): `cf416d85` vs itself +0.6% (spread ±3.1%/±23.1% on the two
+   individual passes); `9fcfff3f` vs itself -0.3% (spread ±5.1%/±4.6%).
+   Both same-binary controls landed within ±1% of zero — a materially
+   quieter noise floor than this session's own first (superseded)
+   sub-run showed (-10% to +5%, spread up to 22%) or than sessions 1-4
+   showed, though still not zero. The measured +4.15% pooled mean sits
+   clearly outside this control band. (A per-pair `gate.tl compare
+   --baseline-bin` run on pair 11 alone, the largest single delta,
+   reads "ok" rather than "regression" — that tool judges one pair
+   against its own within-run spread, ±13.2% here, and does not see
+   the cross-pair 11/12 consistency; the aggregate table above is the
+   stronger evidence, exactly per `measurement.md`'s point that
+   within-run spread understates cross-run variance and that direction
+   is read from interleaved repetition, not from a single pass.)
 
-   Direct demonstration that the raw pair deltas above are
-   noise-dominated, not signal: running the formal `gate.tl compare`
-   (with `--baseline-bin`, so it can re-measure the baseline on a
-   flag) on pair 12 — the largest raw delta, +31.35%/+31.3% as
-   recomputed by the gate, initially flagged `regression` — triggered
-   its full retry/tiebreak path: the retry re-measured both sides, the
-   two `9fcfff3f` (baseline) readings then disagreed past the bar
-   (4.57µs → 7.14µs), so `gate.tl` drew a third baseline sample
-   (6.32µs) and judged against the median; the verdict flipped from
-   `regression` to `ok` at +14.7%. Excluding pair 12 — the one whose
-   noise origin this directly demonstrates — from the pooled figures
-   drops the mean delta to +0.58% and the pooled mean to +0.49%, both
-   indistinguishable from zero; the new-slower split becomes 5/11
-   (45%), still no majority.
+   **Verdict of this session's corrected, authoritative data: a real,
+   consistent regression — same direction as sessions 1 and 4, not
+   sessions 2 and 3.** This reverses the "no stable direction" reading
+   this session originally reported before its binaries were shown not
+   to reproduce; the corrected binaries and re-measurement are what
+   this item now carries forward.
 
-   **Verdict of this session alone (now measured against
-   hash-verified binaries): no stable direction distinguishable from
-   the demonstrated noise floor — reads like sessions 2 and 3, not
-   sessions 1 and 4.** This is session 1 of the ≥2 day-separated
-   sessions the `## Change` gate requires; the verdict logic there
-   does not yet apply on one day-separated session alone. At least one
-   more session, on a calendar day distinct from both 2026-09-03 and
-   2026-09-04, is still needed before `c5wU_p1n9` / `pmIX_ommp`
-   (`3IopfBATkXMfl9qRpLDpmIXommp`) / `3IonN6KwrW1QezqdCBs0pa6japm` can
-   be resolved per this item's own decision tree.
+   A fresh-context reviewer also ran an independent 4-pair spot-check
+   on their own separately-built (also hash-verified) binaries and got
+   4/4 "new slower", pooled +3.4% — too few pairs to be dispositive on
+   its own by this item's own bar (≥6 pairs), but a fifth data point
+   that also leans "regression," consistent with the corrected 12-pair
+   table above. It was measured the same calendar day (2026-09-04) as
+   this session's corrected sub-run, so it does not itself supply the
+   second required day-separated session below.
 
-   Raw JSON results, per-pair `meta.bin_sha` audit output, and
-   worktree build logs from this round were written to an ephemeral
-   scratchpad, not to this item; the table, selfcheck figures, and
-   gate.tl transcript excerpt above are the complete extracted record.
-   (This is the same limitation the correction above flags about the
-   ORIGINAL item-5 session's now-inaccessible raw data — a future
-   round auditing THIS round's numbers will face the identical gap
-   unless raw results start being retained somewhere durable. Worth a
-   process note if this pattern repeats a third time, but not itself
-   part of this item's `## Change`.)
+   This is session 1 of the ≥2 day-separated sessions the `## Change`
+   gate requires; the verdict logic there does not yet apply on one
+   day-separated calendar day alone, however consistent that one day's
+   corrected reading is. At least one more session, on a calendar day
+   distinct from both 2026-09-03 and 2026-09-04, is still needed before
+   `c5wU_p1n9` / `pmIX_ommp` (`3IopfBATkXMfl9qRpLDpmIXommp`) /
+   `3IonN6KwrW1QezqdCBs0pa6japm` can be resolved per this item's own
+   decision tree — but that next session should note this session's
+   corrected direction (regression) going in, not the superseded
+   "no stable direction" first reading.
+
+   Raw JSON results and worktree build logs from this session were
+   written to an ephemeral scratchpad, not to this item; the tables and
+   hashes above are the complete extracted record.
 
 ## Change
 
@@ -187,9 +187,9 @@ the puller runs
     date -u +%F
 
 first and proceeds only if that date appears nowhere in this spec's
-session records (2026-09-03 ×4, 2026-09-04 ×1 so far — see the
-"Session dates recorded" line above Evidence item 5 for the running
-tally). A match means this session cannot add a day-separated
+session records (2026-09-03 ×4, 2026-09-04 ×1 calendar day so far —
+see the "Session dates recorded" line above Evidence item 5 for the
+running tally). A match means this session cannot add a day-separated
 measurement — drop the claim bare (the item is fine as written) and
 let the next day's session take it.
 
@@ -198,16 +198,21 @@ Run the cross-session comparison `9fcfff3f` vs `cf416d85` on
 per session, `_perf/gate.tl selfcheck <A.json> <B.json> --only
 re_match_log_line` for the noise floor) in at least two MORE sessions
 genuinely separated by calendar days, not hours, per
-`skills/optimize/measurement.md`'s own rule. Record each session's raw
+`skills/optimize/measurement.md`'s own rule. **Build each side with a
+real, per-checkout `bin/cosmic --make fetch` followed by `bin/cosmic
+--make build` — no shortcuts (e.g. copying an already-fetched `o/3p`
+cache between worktrees), which this item's own session 1 showed does
+not reproduce and can silently swap in a different, non-canonical
+binary.** Verify each binary's `sha256sum o/bin/cosmic` against this
+item's recorded hashes for the commit before measuring
+(`9fcfff3f` → `71f1030609723add88595beb1da001e861919297f8996a8916e3250de4f4c22d`,
+`cf416d85` → `9bcfcd29dde5d3829f4664d13a7f382f5168e46313178415e08c92d326675d2b`)
+— a mismatch means investigate before trusting any measurement built
+on it, the same way this session's own did. Record each session's raw
 pair table and selfcheck noise band on this item as it runs (do not
-overwrite prior rounds — append). Before measuring, verify both
-binaries' sha256 against a fresh rebuild (trust root, two builds per
-commit for stability) rather than trusting a previously-recorded hash
-string, and check every measured result file's `meta.bin_sha` against
-that verified value — item 5's first version shipped hashes that did
-not reproduce, so this check is now load-bearing, not optional. One of
-the required ≥2 day-separated sessions is now recorded and verified
-(Evidence item 5, 2026-09-04); at least one more, on yet another
+overwrite prior rounds — append). One of the required ≥2 day-separated
+sessions is now recorded (Evidence item 5, 2026-09-04, corrected in
+place — reads "regression"); at least one more, on yet another
 calendar day, is still needed before the verdict logic below applies.
 
 Once at least two day-separated sessions exist:
