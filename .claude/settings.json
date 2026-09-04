@@ -4,6 +4,7 @@
       "Bash(bin/cosmic --make run _work/gitboard.tl *)",
       "Bash(cd o/board && bin/cosmic --make run _work/gitboard.tl *)",
       "Bash(o/bin/gitboard *)",
+      "Bash(bin/gitboard *)",
       "Bash(cd o/board && o/bin/gitboard *)",
       "Bash(git clone https://github.com/cosmic-lua/work o/board)",
       "Bash(bin/cosmic --make test *)",

@@ -25,19 +25,20 @@ older version of this skill: read the tool's pages.
 
 ## bootstrap
 
-ALL work state lives in the repository cosmic-lua/work, cloned
-alongside the checkout you already have; the repository carries its
-own machinery and builds its own tool:
+ALL work state lives in the repository cosmic-lua/work; the tool is
+a pinned release of that repository's own binary, obtained by the
+trust root `bin/gitboard` (`bin/gitboard.pin` names it), so nothing
+is built here:
 
 ```bash
 git clone https://github.com/cosmic-lua/work o/board   # once per checkout
-cd o/board && bin/cosmic --make build # once, on a cold clone
+bin/gitboard sync                                       # every session
 ```
 
-that build produces `o/bin/gitboard`. where a proxy re-terminates
-TLS, export `SSL_USE_SYSTEM_CERTS=1` in the session (never in a
-committed file), or the verbs that reach GitHub fail every call with
-`badcert_not_trusted`.
+`bin/gitboard` exports `GITBOARD_DIR=o/board` so every verb reads that
+clone. where a proxy re-terminates TLS, export `SSL_USE_SYSTEM_CERTS=1`
+in the session (never in a committed file), or the verbs that reach
+GitHub fail every call with `badcert_not_trusted`.
 
 ## then let the tool teach
 
