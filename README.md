@@ -34,6 +34,7 @@ High-level utilities and tools built on top of cosmo.
 | [ip](cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [js](cosmic/js.md) |  JavaScript string-literal escaping. |
 | [json](cosmic/json.md) |  JSON encoding and decoding utilities. |
+| [ksuid](cosmic/ksuid.md) |  K-Sortable Unique IDs: 20 bytes — a 4-byte big-endian timestamp |
 | [literal](cosmic/literal.md) |  Teal source read and written as data: one `return { … }` of literals. |
 | [log](cosmic/log.md) |  Leveled logging. |
 | [init](cosmic/net/init.md) |  Networking and socket utilities. |
