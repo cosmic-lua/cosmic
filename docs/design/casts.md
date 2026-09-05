@@ -347,12 +347,18 @@ table built up over several statements.
 which the checker verifies field by field: the module tables and the
 response constructor have every value in scope already; the row
 iterator declares its field set up front, with the metatable's closures
-assigned after. `merge`'s accumulator is the one holdout — it walks an
+assigned after. Two holdouts remain. `merge`'s accumulator walks an
 unknown key set at runtime (an unrecognized key merges as a scalar, by
 design), so its shape is never known at a single assignment the way the
-others' is. That is a floor, not a gap this pass left open. When the
-cast bridges two same-shaped declarations, the fix is the alias, not
-the literal.
+others' is. `cosmic/fetch/init.tl`'s `make_response(t as Response)` call
+is the other: `t` arrives through `cosmic/fetch/extras.tl`'s `wrap`
+callback parameter (`function(any): any`), typed `any` on purpose so
+`cosmic/fetch/init.tl` (which owns `Response`) and
+`cosmic/fetch/extras.tl` (which must stay generic) don't need a
+circular import — the record it satisfies is asserted at that seam,
+not built inside the function that casts it. That is a floor, not a
+gap this pass left open. When the cast bridges two same-shaped
+declarations, the fix is the alias, not the literal.
 
 ### pcall return shape
 
@@ -400,10 +406,19 @@ modules can pass a value without a circular type dependency.
   local co = coroutine as {string: any} -- cast: patch stdlib table
 ```
 
-**What closes it here.** Declaring the type is the whole fix, and the
-type is knowable in every case: a narrow record for the two stdlib
-functions the coverage hook swaps, the walker taking the record it
-walks, and the response callback declaring the map it accepts.
+**What closes it here.** Declaring the type closes four of these five: a
+narrow record for the two stdlib functions the coverage hook swaps, and
+the module surface `check.swap_members` and `with_mock_capabilities`
+probe to assign a replacement through a computed key. The fifth,
+`merge_section`'s walk in `cosmic/quicksand/box/merge.tl`, is a floor
+exception, not a fourth pattern that closes it: it walks an unknown key
+set at runtime (an unrecognized key merges as a scalar, by design), so
+the record it walks cannot be taken directly — Teal refuses `pairs`
+over a record whose fields differ in type, and refuses discriminating
+a map keyed by the field union just as it refuses the record itself,
+so the walker never sees a type narrower than `{string: any}`. The
+next cast in that same function is the same floor site under
+"incremental record construction" below.
 
 ## The floor
 

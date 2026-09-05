@@ -67,7 +67,7 @@ cosmic/fetch/init.tl	239	binding contract shape
 cosmic/fetch/init.tl	241	binding contract shape
 cosmic/fetch/init.tl	367	binding contract shape
 cosmic/fetch/init.tl	371	binding contract shape
-cosmic/fetch/init.tl	388	map view of a declared value
+cosmic/fetch/init.tl	388	incremental record construction
 cosmic/fs/dir_test.tl	170	userdata boundary
 cosmic/fs/find.tl	163	userdata boundary
 cosmic/fs/find.tl	187	userdata boundary
