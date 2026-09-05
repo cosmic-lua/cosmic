@@ -3,14 +3,14 @@
 this document says why cosmic exists, what "good" means here, and how each
 goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
 when a goal holds — and **instruments** — how we see and steer, orthogonal
-to the outcomes they serve. outcomes are ordered, by paired comparison
-([D25](decisions/d25-outcomes-and-instruments.md), method in
-`skills/work/decompose.md`): each answer is committed on the board as
-one `gitboard compare` edge, and the order is DERIVED from those
-comparisons rather than asserted anywhere. the list below is that
-order written out for a reader, so changing it means re-asking the
-contested pairs and landing both — the comparisons and this PR. the
-tradeoffs behind these goals are recorded as decisions in
+to the outcomes they serve; the board does not read this grouping; it only
+ranks outcomes. outcomes are the board's children, ranked by its owner
+with `gitboard rank` (`gitboard help order` is the rule —
+[D25](decisions/d25-outcomes-and-instruments.md),
+[D45](decisions/d45-rank-is-a-list-position-at-every-level.md)). the list
+below is that order written out for a reader, so changing it means
+re-ranking on the board and landing both — the rank change and this PR.
+the tradeoffs behind these goals are recorded as decisions in
 [decisions/](decisions/) — read that before relitigating one.
 
 ## Mission
@@ -232,17 +232,17 @@ at the bottom of the order until activated.
 
 ## Holding
 
-an outcome graduates here once a VERIFICATION item under it is
-accepted and its root is marked held (`gitboard hold`) — see
-`skills/work/decompose.md` for the procedure. each entry names the
-outcome, the date it was verified, and the VERIFICATION item that
-carries the evidence:
+an outcome graduates here once its VERIFICATION item is accepted and
+the outcome is ended with `gitboard done <id> --reason completed --by
+<verification-id>` — see `skills/work/decompose.md` for the procedure.
+each entry names the outcome, the date it was verified, and the
+VERIFICATION item that carries the evidence:
 
-- `### G<n> — <original title>` — held YYYY-MM-DD, verified by
+- `### G<n> — <original title>` — done YYYY-MM-DD, verified by
   `items/<id>` (PR #<n>); the `measured by:` output is quoted there.
   filing a new item under it reopens it automatically.
 
-nothing is held yet.
+nothing has graduated yet.
 
 ## Instruments
 
