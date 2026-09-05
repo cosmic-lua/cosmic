@@ -271,8 +271,8 @@ name, a `package.searchers` slot, a module fetched through an
 indirection that defeats static resolution.
 
 ```text
--- _make/init.tl:143
-  local v = by_name("build") as Verb -- cast: the registry defines it
+-- cosmic/searcher_test.tl:58
+  local ok, why = pcall((s as function(string): any), missing)
 ```
 
 **What closes it here.** The registry is this tree's own data. A
