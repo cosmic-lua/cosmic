@@ -1,7 +1,10 @@
 -- The integer-strict group of the carried tl patch: a prototype rule
 -- for a `number`-declared local, gated off by default. It is not
--- enabled for this tree -- see docs/design/integer-strictness.md for
--- the census this entry's evidence belongs to.
+-- enabled for this tree, and this entry covers only the
+-- narrowed_declaration laundering handled below -- a tree-wide census
+-- of every other place a number-declared value can reach an
+-- integer-typed slot unchecked is separate, larger work this patch
+-- does not attempt.
 --
 -- Stock tl's `narrowed_declaration` re-narrows a local's flow-tracked
 -- type to its initializer's inferred type whenever that is narrower
