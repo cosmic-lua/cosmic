@@ -50,8 +50,8 @@
   engineering-complete and gate-green (board item `FePr_L4FB`,
   branch `3IpBKCCg`, commit `f0234765`) sat unable to land for a step
   nobody present could do. Existing practice already diverged from
-  the letter of this clause — `narrow-and-operand`'s note
-  (`3p/tl/tl_patch/narrow.tl:28`) cites `whilp/cosmic#942`, an issue in
+  the letter of this clause — `3p/tl/tl_patch/narrow.tl`'s
+  `narrow-and-operand` entry cites `whilp/cosmic#942`, an issue in
   the project's own repo, not `teal-language/tl`. That practice is now
   the rule: a carried patch's `note` field records why the edit
   exists — an issue in `cosmic-lua/cosmic` or `cosmic-lua/cosmopolitan`
