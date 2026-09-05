@@ -19,6 +19,16 @@ ADR-style in [docs/decisions/](docs/decisions/), one file per record, each carry
 consult both before proposing directional changes — settled decisions are amended there, not
 relitigated in passing; writing, amending, or superseding one is the `decide` skill (`skills/decide/SKILL.md`), whose form is itself a record ([D26](docs/decisions/d26-decision-records.md)).
 
+**reach for cosmic first, including throwaway work.** a one-off data
+query, a JSON or SQLite munge, a file walk to answer "how many of X" —
+the instinct to open `python3 -c` or `jq` instead of `bin/cosmic
+script.lua` is itself the friction the efficiency promise and the G1
+eval instrument exist to catch. this holds even for scratch scripts
+never meant to be committed: dogfooding is not only for code that
+ships. reach for another language only when the task is outside
+cosmic's actual surface (nothing in `cosmic --docs` covers it, and
+wrapping it is its own yak-shave), not out of habit.
+
 ## Repository Layout
 
 ```
