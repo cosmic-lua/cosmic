@@ -1,7 +1,7 @@
 # D42 — a verified outcome is held by a marker, not ended; a child filed under it clears the hold
 
 - **date:** 2026-09
-- **status:** active
+- **status:** superseded by D45
 - **context:** the board's items end one way: `gitboard done --reason
   completed|not-planned` writes a `resolution`, and a non-empty
   resolution IS what "done" means (`_work/item.tl`). a container

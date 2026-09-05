@@ -1,7 +1,7 @@
 # D37 — the board holds two states; quality is two gates, not stages
 
 - **date:** 2026-08
-- **status:** amended 2026-08
+- **status:** amended 2026-09 (D45 replaced the blocked_by edge)
 - **context:** the flow system ran a six-phase kanban (`backlog` →
   `plan` → `ready` → `do` → `check` → `land`) with per-phase WIP
   limits in `_work/flow.tl`, a triage bound, a hand-run flow review
@@ -112,3 +112,13 @@
   the item is fine to re-offer as-is. the derived-state doctrine is
   unchanged: blocked-todo already existed, and no third state was
   added.
+- **amended 2026-09 (D45):** "dependencies are `blocked_by` edges", in
+  this record's rejected section, and the `blocked_by` edge the
+  2026-08 amendment above describes are both superseded. a
+  prerequisite is a child of the item that waits on it, inheriting the
+  waiter's rank prefix, and the block-first exit files the question as
+  that child rather than an edge
+  ([D45](d45-rank-is-a-list-position-at-every-level.md)); the item
+  still waits on the answer and the child's `done` frees it with no
+  further verb, exactly as the 2026-08 amendment describes, now with
+  no separate edge kind to keep in step with the parent chain.
