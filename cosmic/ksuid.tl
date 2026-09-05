@@ -37,21 +37,15 @@ local function is_id(id: string): boolean
   return id ~= nil and #id == LEN and id:match("^[%w]+$") ~= nil
 end
 
---- A KSUID from its two fields. The one constructor `new` and the
---- tests share, so a test minting deterministic ids exercises the
---- same encoding a live call does.
---- @param seconds integer Unix seconds; must be at or after the KSUID epoch
+--- The base62 encoding itself: infallible given an already-validated
+--- timestamp offset and a 16-byte payload — the byte-packing and
+--- base-256-to-base-62 conversion never produce a nil, so this is the
+--- one place both `encode` (after validating its inputs) and `new`
+--- (whose inputs are correct by construction) route through.
+--- @param ts integer Seconds since the KSUID epoch, 0..0xffffffff
 --- @param payload string Exactly 16 bytes of entropy
---- @return string | nil The 27-character id
---- @return string Error message
-local function encode(seconds: integer, payload: string): string | nil, string
-  if payload == nil or #payload ~= 16 then
-    return nil, "payload must be exactly 16 bytes"
-  end
-  local ts = seconds - EPOCH
-  if ts < 0 or ts > 0xffffffff then
-    return nil, "seconds outside the KSUID timestamp range"
-  end
+--- @return string The 27-character id
+local function encode_valid(ts: integer, payload: string): string
   local bytes: {integer} = {
     (ts >> 24) & 0xff, (ts >> 16) & 0xff, (ts >> 8) & 0xff, ts & 0xff,
   }
@@ -86,14 +80,31 @@ local function encode(seconds: integer, payload: string): string | nil, string
   return table.concat(reversed)
 end
 
---- A fresh id: now, with 16 CSPRNG bytes.
+--- A KSUID from its two fields. The one constructor `new` and the
+--- tests share, so a test minting deterministic ids exercises the
+--- same encoding a live call does.
+--- @param seconds integer Unix seconds; must be at or after the KSUID epoch
+--- @param payload string Exactly 16 bytes of entropy
+--- @return string | nil The 27-character id
+--- @return string Error message
+local function encode(seconds: integer, payload: string): string | nil, string
+  if payload == nil or #payload ~= 16 then
+    return nil, "payload must be exactly 16 bytes"
+  end
+  local ts = seconds - EPOCH
+  if ts < 0 or ts > 0xffffffff then
+    return nil, "seconds outside the KSUID timestamp range"
+  end
+  return encode_valid(ts, payload)
+end
+
+--- A fresh id: now, with 16 CSPRNG bytes. `time.now()` and
+--- `rand.bytes(16)` are both infallible, and the offset from the KSUID
+--- epoch stays in range for a very long time, so this never routes
+--- through a value that can be nil.
 --- @return string The 27-character id
 local function new(): string
-  local seconds = time.now()
-  local id = encode(seconds, rand.bytes(16))
-  -- encode fails only on a malformed payload or a clock outside the
-  -- 32-bit window; rand.bytes(16) and any sane clock satisfy both.
-  return assert(id) -- assert: rand.bytes(16) and a sane clock always satisfy encode
+  return encode_valid(time.now() - EPOCH, rand.bytes(16))
 end
 
 --- The creation time an id carries.
