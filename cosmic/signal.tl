@@ -283,8 +283,7 @@ end
 --- Suspend the process until a signal is delivered.
 --- @param mask Sigset? Temporary signal mask while suspended
 --- @return boolean True once a signal was delivered and handled
---- @return string? Error message on any errno other than EINTR
---- @return string Error message: EINTR after a signal was handled
+--- @return string Error message: any errno other than EINTR, or EINTR after a signal was already handled
 local function sigsuspend(mask?: Sigset): boolean, string
   local _, err, eno = unix.sigsuspend(mask)
   if errno_is(eno, "EINTR") then
