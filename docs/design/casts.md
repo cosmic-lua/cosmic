@@ -228,7 +228,7 @@ metatable, read off the carried patch surface, into a parameter typed
 function that wants a table instead of `any`.
 
 ```text
--- _types/tlast.tl:349
+-- _types/tlast.tl:350
     hooks.type_mt as {any: any}) -- cast: metatable as plain table identity
 ```
 
@@ -269,7 +269,7 @@ type, an element enum where the element is `string`, a bare `table`
 narrowed to a shape. Teal's containers are invariant.
 
 ```text
--- cosmic/sqlite/bind.tl:120
+-- cosmic/sqlite/bind.tl:132
   local list = params as {any} -- cast: array-part probe of the params table
 ```
 
