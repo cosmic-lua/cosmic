@@ -20,6 +20,7 @@ local record CheckModule
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
   refuses: function(f: any, ...: any): string
   is_exposed: function(module: any, name: string): boolean
+  metamethod: function(v: any, name: string): function(any, any) | nil
   swap_members: function(module: any, members: {string: any}, body: function())
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
@@ -121,6 +122,27 @@ function is_exposed(module: any, name: string): boolean
 **Returns:**
 
 - boolean - True when `module[name]` is non-nil
+
+### metamethod
+
+```teal
+function metamethod(v: any, name: string): function(any, any) | nil
+```
+
+ Read a metamethod off a value's metatable — what a `<close>` probe
+ uses to invoke `__close` directly, since this repo compiles Teal
+ targeting 5.3 syntax and a test cannot itself write
+ `local x <close> = ...`. `is` narrows the read at each step, so
+ fetching a metamethod costs no cast.
+
+**Parameters:**
+
+- `v` (any) - The value whose metatable to probe
+- `name` (string) - The metamethod name (e.g. "__close")
+
+**Returns:**
+
+- function(any, - any) | nil The metamethod, or nil when v has none by that name
 
 ### swap_members
 
