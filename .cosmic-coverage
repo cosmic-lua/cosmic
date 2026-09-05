@@ -187,6 +187,7 @@ return {
   ["cosmic/deep.tl"] = {["covered"] = 53, ["total"] = 53},
   ["cosmic/doc/init.tl"] = {["covered"] = 210, ["total"] = 242},
   ["cosmic/doc/lookup.tl"] = {["covered"] = 44, ["total"] = 69},
+  ["cosmic/doc/mentions.tl"] = {["covered"] = 195, ["total"] = 197},
   ["cosmic/doc/query.tl"] = {["covered"] = 224, ["total"] = 290},
   ["cosmic/doc/show.tl"] = {["covered"] = 285, ["total"] = 338},
   ["cosmic/doc/types.tl"] = {["covered"] = 2, ["total"] = 2},
