@@ -202,6 +202,14 @@ key concepts:
 - **versioned deps**: 3p modules declare a `*_pin.tl` — literal data, read
   by `cosmic.literal` and never executed. `fetch` unpacks a pin beside
   the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`
+- **carried patches**: a pin may ride a `*_patch.tl`/`*_patch/` beside it —
+  exact `find`/`replace` edits `fetch` applies after the pristine unpack
+  ([D21](docs/decisions/d21-carried-tl-patch.md)). Landing one is never
+  blocked on filing an issue upstream (this environment has no cross-org
+  GitHub access to `teal-language/tl` or similar); the entry's `note`
+  field records why it exists — an issue in `cosmic-lua/cosmic` or
+  `cosmic-lua/cosmopolitan`, a direct upstream reference when one already
+  exists, or the reasoning itself
 - **trust root**: `bin/cosmic` is POSIX sh and obtains exactly one pinned
   artifact (`bin/cosmic.pin`), verifies its sha256 and execs it. Cosmic
   extracts its own build engine from its own zip, so the chain is

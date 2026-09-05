@@ -55,7 +55,7 @@ build when the committed copy drifts.
 | D18 | expensive recipe steps skip on input bytes, not just on mtime | amended 2026-08 (declared env) | [→](d18-step-skip.md) |
 | D19 | what "public" means for toolchain modules, and the visibility lint | amended 2026-08 (a root `_tool/` tree) | [→](d19-toolchain-visibility.md) |
 | D20 | the naming charter, and the renames that applied it | amended 2026-09 (iterator terminating payload; earlier: the kept-POSIX set, rule 11) | [→](d20-naming-charter.md) |
-| D21 | carried patches: the middle path between pin and fork | active | [→](d21-carried-tl-patch.md) |
+| D21 | carried patches: the middle path between pin and fork | amended 2026-09 (upstream filing is not a landing gate) | [→](d21-carried-tl-patch.md) |
 | D22 | the CSPRNG surface is infallible; a broken one crashes | amended 2026-08 (adds a seedable, non-crypto source beside the CSPRNG) | [→](d22-infallible-csprng.md) |
 | D23 | cosmic.check throws by design; needs/reap may exit | amended 2026-08 (the closed list becomes a rule: an unreachable-nil assert) | [→](d23-check-throws.md) |
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | active | [→](d24-structured-failures.md) |
