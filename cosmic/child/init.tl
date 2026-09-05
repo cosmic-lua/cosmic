@@ -197,7 +197,8 @@ end
 --- `interpreter()` — NOT arg[0] (/zip/main.lua), not the interpreter.
 --- @param argv {string} Command and arguments
 --- @param opts Options? Start options
---- @return Handle | nil, string? Process handle or nil + error
+--- @return Handle | nil A process handle, or nil if the process could not be started
+--- @return string Error message when slot 1 is nil
 local function start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
 
@@ -441,7 +442,8 @@ end
 --- — so `check.must(child.run(...))` means what it says.
 --- @param argv {string} Command and arguments
 --- @param opts Options? Start options
---- @return Result | nil, string The Result, or nil plus why
+--- @return Result | nil The Result, or nil if the child never started (or the reap failed)
+--- @return string Error message when slot 1 is nil
 local function run(argv: {string}, opts?: Options): Result | nil, string
   local h, err = start(argv, opts)
   if not h then

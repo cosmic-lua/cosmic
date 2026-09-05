@@ -184,7 +184,8 @@ end
 --- @param prog string Absolute path to the executable
 --- @param args {string} Argument vector passed to the program
 --- @param env {string} Environment variables (KEY=value format)
---- @return nil, string Only returns on error
+--- @return nil The exec did not happen — this only returns on error
+--- @return string Error message
 local function execve(prog: string, args: {string}, env: {string}): nil, string
   local _, err = unix.execve(prog, args, env)
   return nil, errstr(err, "execve: " .. prog)
@@ -194,7 +195,8 @@ end
 --- Unlike execve(), this searches for prog in $PATH.
 --- @param prog string The program name to execute
 --- @param argv {string}? Argument vector. Defaults to {prog}
---- @return nil, string Only returns on error
+--- @return nil The exec did not happen — this only returns on error
+--- @return string Error message
 local function execvp(prog: string, argv?: {string}): nil, string
   local _, err = unix.execvp(prog, argv)
   return nil, errstr(err, "execvp: " .. prog)
@@ -205,7 +207,8 @@ end
 --- @param prog string The program name to execute
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment variables. Inherits if not specified
---- @return nil, string Only returns on error
+--- @return nil The exec did not happen — this only returns on error
+--- @return string Error message
 local function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string
   local _, err = unix.execvpe(prog, argv, envp)
   return nil, errstr(err, "execvpe: " .. prog)
@@ -216,7 +219,8 @@ end
 --- @param fd integer Open file descriptor pointing to an executable
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment variables. Inherits if not specified
---- @return nil, string Only returns on error
+--- @return nil The exec did not happen — this only returns on error
+--- @return string Error message
 local function fexecve(fd: integer, argv: {string}, envp?: {string}): nil, string
   local _, err = unix.fexecve(fd, argv, envp)
   return nil, errstr(err, "fexecve")
@@ -225,7 +229,8 @@ end
 -- Process Control (children) --
 
 --- Creates a new process (fork).
---- @return integer | nil The child pid in the parent, 0 in the child, or nil + error on failure
+--- @return integer | nil The child pid in the parent, 0 in the child, or nil on failure
+--- @return string Error message when slot 1 is nil
 local function fork(): integer | nil, string
   local pid, err = unix.fork(); if pid == nil then return nil, errstr(err, "fork") end
   return pid
