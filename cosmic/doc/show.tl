@@ -17,6 +17,15 @@ local COSMIC_EQUIVALENTS: {string: string} = {
 
 local fuzzy = require("cosmic.fuzzy")
 local str = require("cosmic.string")
+local mentions = require("cosmic.doc.mentions")
+
+--- Append a "Mentioned in:" section to `output` when the shipped guides
+--- and other modules' docs mention `full_name` elsewhere.
+local function append_mentions(output: string, full_name: string): string
+  local section = mentions.render(mentions.mentions(full_name))
+  if section == "" then return output end
+  return output .. "\n" .. section .. "\n"
+end
 
 --- Extract first paragraph from module description.
 --- @param text string Full description text
@@ -275,15 +284,19 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
             output = output .. render_example(example)
           end
         end
-        return output
+        return append_mentions(output, mentions.qualify(doc.file, func.name))
       end
     end
   end
   if doc.records then
     for _, rec in ipairs(doc.records) do
       if rec.name == symbol or rec.name:lower() == symbol:lower() then
-        if method then return find_method(rec, method) end
-        return render_record(rec)
+        if method then
+          local found = find_method(rec, method)
+          if not found then return nil end
+          return append_mentions(found, mentions.qualify(doc.file, rec.name, method))
+        end
+        return append_mentions(render_record(rec), mentions.qualify(doc.file, rec.name))
       end
     end
     -- Also search record fields for re-exported function symbols
@@ -296,7 +309,7 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
           text = text .. "**Examples:**\n\n"
           for _, example in ipairs(matching_examples) do text = text .. render_example(example) end
         end
-        return text
+        return append_mentions(text, mentions.qualify(doc.file, rec.name, symbol))
       end
     end
   end
@@ -304,7 +317,7 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
     for _, example in ipairs(doc.examples) do
       local example_name = example.name:gsub("^Example_?", "")
       if example_name == symbol or example_name:lower() == symbol:lower() then
-        return render_example(example)
+        return append_mentions(render_example(example), mentions.qualify(doc.file, example.name))
       end
     end
   end
