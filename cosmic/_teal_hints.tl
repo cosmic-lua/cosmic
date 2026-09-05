@@ -73,7 +73,7 @@ local function hint_for_message(msg: string): string | nil
   -- record FIELD (guarding `o.sub` never narrows `o.sub`) or a value
   -- that was never guarded at all.
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
-    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.checking`"
+    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.gotchas` — section record-fields-dont-narrow"
   end
   -- Pattern 2c: for-in over a value the checker cannot call. The message
   -- names no type, and the usual cause is an iterator still `T | nil`
@@ -85,7 +85,7 @@ local function hint_for_message(msg: string): string | nil
   -- standalone top-level record is file-local; importers can only name
   -- types nested in (or aliased into) the module's interface record.
   if msg:find("unknown type %w+%.%w+") then
-    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.checking`"
+    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.gotchas` — section exported-record-types"
   end
   -- Pattern 2e: colon-calling a name the value's record does not
   -- declare. Also fires on a plain typo, so the hint covers both.
@@ -120,7 +120,7 @@ local function hint_for_message(msg: string): string | nil
     if msg:find("| nil", 1, true) then
       return "  hint: `{T} | nil` needs its guard before the loop (`if not xs then return end`, or `assert(xs)`); a record FIELD does not narrow — copy it to a local and guard the local — see `cosmic --docs guide.checking`"
     end
-    return "  hint: cast first, e.g. `local items = data as {any}`"
+    return "  hint: cast first, e.g. `local items = data as {any}` — see `cosmic --docs guide.gotchas` — section any-from-json-decode"
   end
   -- Pattern 4b: concat with any type
   if msg:find("cannot use operator '%.%.'") and msg:find("<any type>") then
