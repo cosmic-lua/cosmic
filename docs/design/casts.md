@@ -211,18 +211,33 @@ Each probed shape needs one cast to name what it found — six today.
 
 `getmetatable` and `debug.getmetatable` return `any` by definition, so
 an identity compare against a known metatable, or a read of a
-metamethod off one, costs a cast at every site. The `__close` tests use
-the second form; the sqlite blob check uses the first.
+metamethod off one, used to cost a cast at every site. Nine of the ten
+sites closed without any residual cast: an identity compare needs none
+once one side of the `==` is explicitly typed `any` (the pattern
+`cosmic/json.tl`'s `array_marker: any` already established), and a
+metamethod read needs none once `is {string: any}` and
+`is function(any, any)` narrow the lookup instead of casting it —
+`cosmic.check.metamethod` is that narrowing, shared by the two
+`__close` probes; `cosmic/sqlite/bind.tl`'s own `is_metatable` local
+covers its two call sites the same way.
+
+One site does not fit either shape and stays a cast: it never calls
+`getmetatable` at all. `_types/tlast.tl` passes `tl`'s own type
+metatable, read off the carried patch surface, into a parameter typed
+`{any: any}` — no comparison, no metamethod, just a value handed to a
+function that wants a table instead of `any`.
 
 ```text
--- cosmic/sqlite/bind.tl:40
-  return getmetatable(v) == blob_mt as any -- cast: metatable identity compare
+-- _types/tlast.tl:350
+    hooks.type_mt as {any: any}) -- cast: metatable as plain table identity
 ```
 
 **Why it is a floor.** A metatable is a table whose type is whatever
 its owner made it; Lua's contract for `getmetatable` returns a value of
 no particular type, and a typed wrapper would assert the same thing one
-level down. Two helpers — identity compare and metamethod fetch.
+level down. The class is closed but for the one site above, which is a
+different shape wearing this class's tag; `docs/design/cast-sites.tsv`
+still carries it here pending re-triage.
 
 ### function shape
 
@@ -254,7 +269,7 @@ type, an element enum where the element is `string`, a bare `table`
 narrowed to a shape. Teal's containers are invariant.
 
 ```text
--- cosmic/sqlite/bind.tl:120
+-- cosmic/sqlite/bind.tl:132
   local list = params as {any} -- cast: array-part probe of the params table
 ```
 

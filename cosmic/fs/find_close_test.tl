@@ -82,9 +82,7 @@ local function test_find_iter_to_be_closed_scope()
   -- __close metamethod directly instead of a `local iter <close> = ...`
   -- declaration (which works in user scripts on the 5.4 runtime); same
   -- reason cosmic/sqlite/close_test.tl does.
-  local mt = getmetatable(iter) as {string: any} -- cast: raw metatable access
-  -- cast: probe past the declared surface
-  local close_mm = mt["__close"] as function(any, any)
+  local close_mm = check.metamethod(iter, "__close")
   assert(close_mm, "FileIter must have a __close metamethod")
   close_mm(iter, nil)
   local after = count_open_fds()

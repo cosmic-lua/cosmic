@@ -13,11 +13,10 @@ _types/gentype.tl	19	module surface record
 _types/gentype.tl	24	module surface record
 _types/gentype.tl	30	module surface record
 _types/tlast.tl	105	tl compiler surface
-_types/tlast.tl	158	metatable access
-_types/tlast.tl	328	module surface record
 _types/tlast.tl	329	module surface record
-_types/tlast.tl	339	tl compiler surface
-_types/tlast.tl	349	metatable access
+_types/tlast.tl	330	module surface record
+_types/tlast.tl	340	tl compiler surface
+_types/tlast.tl	350	metatable access
 _types/tlast_test.tl	50	module surface record
 _types/tlast_test.tl	60	tl compiler surface
 cmd/cosmic/main.tl	456	container variance
@@ -34,8 +33,8 @@ cosmic/_teal_discard.tl	258	tl compiler surface
 cosmic/_teal_engine.tl	256	pcall return shape
 cosmic/check.tl	121	type-defeating test probe
 cosmic/check.tl	139	type-defeating test probe
-cosmic/check.tl	151	map view of a declared value
-cosmic/check.tl	326	record union after guard
+cosmic/check.tl	171	map view of a declared value
+cosmic/check.tl	346	record union after guard
 cosmic/check_assertions_test.tl	101	type-defeating test probe
 cosmic/check_assertions_test.tl	321	type-defeating test probe
 cosmic/compress_test.tl	24	enum relation
@@ -65,8 +64,6 @@ cosmic/fs/dir_test.tl	170	userdata boundary
 cosmic/fs/find.tl	163	userdata boundary
 cosmic/fs/find.tl	187	userdata boundary
 cosmic/fs/find.tl	317	userdata boundary
-cosmic/fs/find_close_test.tl	85	metatable access
-cosmic/fs/find_close_test.tl	87	metatable access
 cosmic/fs/ops.tl	411	userdata boundary
 cosmic/fs/ops.tl	425	userdata boundary
 cosmic/fs/tree.tl	23	userdata boundary
@@ -113,15 +110,9 @@ cosmic/shape.tl	279	generic T
 cosmic/shm.tl	146	pcall return shape
 cosmic/shm.tl	171	pcall return shape
 cosmic/signal.tl	255	binding contract shape
-cosmic/sqlite/bind.tl	40	metatable access
-cosmic/sqlite/bind.tl	49	metatable access
-cosmic/sqlite/bind.tl	56	binding contract shape
-cosmic/sqlite/bind.tl	120	container variance
-cosmic/sqlite/bind.tl	131	container variance
-cosmic/sqlite/close_test.tl	59	metatable access
-cosmic/sqlite/close_test.tl	61	metatable access
-cosmic/sqlite/close_test.tl	172	metatable access
-cosmic/sqlite/close_test.tl	174	metatable access
+cosmic/sqlite/bind.tl	68	binding contract shape
+cosmic/sqlite/bind.tl	132	container variance
+cosmic/sqlite/bind.tl	143	container variance
 cosmic/sqlite/extras.tl	63	pcall return shape
 cosmic/sqlite/extras.tl	106	pcall return shape
 cosmic/stream.tl	237	runtime capability probe
