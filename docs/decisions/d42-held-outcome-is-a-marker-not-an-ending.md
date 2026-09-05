@@ -25,8 +25,8 @@
     root. `gitboard hold <root> --reason WHY` sets it, refusing a
     non-root, a done item, an already-held root, and a blank reason;
     the reason rides in the commit subject and the verdict line, so
-    the log is the record, exactly as it is for a comparison
-    (`_work/gitcompare.tl`).
+    the log is the record, exactly as it is for a comparison (the
+    `compare` verb's module, since retired).
   - the marker clears automatically the moment a child is filed or
     attached under the root: `gate.containered` in `_work/gitgate.tl`
     — the hook that already clears a parent's claim and reviewer when
@@ -39,8 +39,8 @@
     `flow.roots` (`_work/flow.tl`) returns held ids as a third value
     and `_work/intake.tl` walks past them to the next-ranked open root.
     every other verb, gate, `show` (bare or by id), and the derived-order
-    closure (`_work/priority.tl`) treat a held root as open, because
-    it is — it keeps every edge and its position.
+    closure (the priority module, since retired) treat a held root as
+    open, because it is — it keeps every edge and its position.
 - **rejected:**
   - ending the root with `done --reason completed`. two reasons it
     lost. first, no verb reopens a done item, and `set` refuses one on
