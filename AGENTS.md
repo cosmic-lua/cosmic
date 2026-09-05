@@ -29,6 +29,14 @@ ships. reach for another language only when the task is outside
 cosmic's actual surface (nothing in `cosmic --docs` covers it, and
 wrapping it is its own yak-shave), not out of habit.
 
+cosmic's own `python3 -c`/`-e` equivalent is `cosmic -e '<lua>'`
+(Lua's standard flag, semicolon-joined statements and all) for a true
+one-liner; for anything long enough to want real line breaks,
+`cosmic /dev/stdin <<'EOF' ... EOF` runs a heredoc as one script —
+bare `cosmic <<EOF` with no path instead drops into the line-by-line
+REPL and silently mishandles multi-line `local`s, so `/dev/stdin`
+is the one to reach for.
+
 ## Repository Layout
 
 ```
