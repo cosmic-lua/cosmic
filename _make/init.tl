@@ -140,7 +140,7 @@ local function run_build(proj: Project, paths: {string},
     return stage.verdict("build", false, "bad selection")
   end
   local binaries = wanted
-  local v = by_name("build") as Verb -- cast: the registry defines it
+  local v = policy.must_verb(by_name, "build")
   local ok, detail = stage.graph_stage(v, proj, {}, cosmic)
   if not ok then
     return stage.verdict("build", false, detail)
@@ -181,7 +181,7 @@ end
 --- @return string The error message
 local function prepare_stage(proj: Project, cosmic: string): boolean, string
   if #proj.binaries > 0 then
-    local b = by_name("build") as Verb -- cast: the registry defines it
+    local b = policy.must_verb(by_name, "build")
     local ok, detail = stage.graph_stage(b, proj, {}, cosmic)
     if not ok then return false, detail end
     local aok, adetail = assemble(proj, proj.binaries, cosmic, false)
@@ -243,12 +243,12 @@ local VERBS < const >: {Verb} = {
         return policy.fix(proj, paths)
       end
       -- cast: the registry defines it
-      return stage.run_graph(by_name("fmt") as Verb, proj, paths, cosmic)
+      return stage.run_graph(policy.must_verb(by_name, "fmt"), proj, paths, cosmic)
     end},
   {name = "test", target = "test", select = stage.SELECTS.test,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
-      return run_against_stage(by_name("test") as Verb, proj, paths, cosmic)
+      return run_against_stage(policy.must_verb(by_name, "test"), proj, paths, cosmic)
     end},
   -- `run` takes a PATH, never a binary name -- see _make.runverb.
   {name = "run", passthrough = true,
@@ -280,7 +280,7 @@ local VERBS < const >: {Verb} = {
   {name = "example", target = "example", select = stage.SELECTS.example,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
-      return run_against_stage(by_name("example") as Verb, proj, paths, cosmic)
+      return run_against_stage(policy.must_verb(by_name, "example"), proj, paths, cosmic)
     end},
   -- `test`'s third sibling. It runs against the stage for the same
   -- reason `test` and `example` do: a benchmark measures the project's
@@ -288,7 +288,7 @@ local VERBS < const >: {Verb} = {
   {name = "benchmark", target = "benchmark", select = stage.SELECTS.benchmark,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
-      return run_against_stage(by_name("benchmark") as Verb, proj, paths, cosmic)
+      return run_against_stage(policy.must_verb(by_name, "benchmark"), proj, paths, cosmic)
     end},
   {name = "lint", target = "lint", select = stage.SELECTS.lint},
   {name = "ci", run = function(proj: Project, paths: {string},
@@ -297,7 +297,7 @@ local VERBS < const >: {Verb} = {
     end},
   {name = "coverage", target = "coverage", select = stage.SELECTS.coverage,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
-      local v = by_name("coverage") as Verb -- cast: the registry defines it
+      local v = policy.must_verb(by_name, "coverage")
       local ready, perr = prepare_stage(proj, cosmic)
       if not ready then
         return stage.verdict("coverage", false, perr)
