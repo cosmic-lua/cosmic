@@ -139,6 +139,26 @@ local function is_exposed(module: any, name: string): boolean
   return (module as {string: any})[name] ~= nil
 end
 
+--- Read a metamethod off a value's metatable — what a `<close>` probe
+--- uses to invoke `__close` directly, since this repo compiles Teal
+--- targeting 5.3 syntax and a test cannot itself write
+--- `local x <close> = ...`. `is` narrows the read at each step, so
+--- fetching a metamethod costs no cast.
+--- @param v any The value whose metatable to probe
+--- @param name string The metamethod name (e.g. "__close")
+--- @return function(any, any) | nil The metamethod, or nil when v has none by that name
+local function metamethod(v: any, name: string): function(any, any) | nil
+  local mt = getmetatable(v)
+  if not (mt is {string: any}) then
+    return nil
+  end
+  local fn = mt[name]
+  if fn is function(any, any) then
+    return fn
+  end
+  return nil
+end
+
 --- Swap named members of a module (or record) for the duration of a call,
 --- restoring every one afterward — whether body returns or throws. Built
 --- for a test that monkeypatches a function a module exposes only through
@@ -356,6 +376,7 @@ local record CheckModule
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
   refuses: function(f: any, ...: any): string
   is_exposed: function(module: any, name: string): boolean
+  metamethod: function(v: any, name: string): function(any, any) | nil
   swap_members: function(module: any, members: {string: any}, body: function())
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
@@ -376,6 +397,7 @@ local M: CheckModule = {
   must = must,
   refuses = refuses,
   is_exposed = is_exposed,
+  metamethod = metamethod,
   swap_members = swap_members,
   failed = failed,
   enforcing = enforcing,

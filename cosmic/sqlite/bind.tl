@@ -33,11 +33,23 @@ local function blob(data: string): Blob
   return setmetatable({data = data}, blob_mt)
 end
 
+--- Compare a value's metatable against a known one by identity.
+--- A direct `getmetatable(v) == blob_mt` needs a cast because
+--- `blob_mt` is the concrete `metatable<Blob>`; taking it through an
+--- `any`-typed parameter is what lets `==` compare two `any` values
+--- instead, the same trick `cosmic/json.tl`'s `array_marker: any` uses.
+--- @param v any The value to test
+--- @param mt any The metatable to compare its metatable against
+--- @return boolean True when getmetatable(v) is exactly mt
+local function is_metatable(v: any, mt: any): boolean
+  return getmetatable(v) == mt
+end
+
 --- Report whether a value is a `blob()` wrapper.
 --- @param v any The value to test
 --- @return boolean true when v was produced by blob()
 local function is_blob(v: any): boolean
-  return getmetatable(v) == blob_mt as any -- cast: metatable identity compare
+  return is_metatable(v, blob_mt)
 end
 
 --- Bind one positional parameter, routing blob() wrappers to bind_blob.
@@ -46,7 +58,7 @@ end
 --- @param v any The value (or blob() wrapper) to bind
 --- @return number The sqlite result code from the bind call
 local function bind_at(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
-  if v is Blob and getmetatable(v) == blob_mt as any then -- cast: metatable identity compare
+  if v is Blob and is_metatable(v, blob_mt) then
     return raw_stmt:bind_blob(i, v.data)
   end
   if v == nil or v is string or v is number or v is boolean then
