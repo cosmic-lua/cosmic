@@ -297,6 +297,21 @@ local STAGES < const >: {Stage} = {
   {verb = "coverage", needs = {"test"}},
 }
 
+--- Look up a verb the registry is known to define.
+---
+--- The registry (`_make/init.tl`) is literal data: every name a caller
+--- passes here names a row it defines, so a lookup miss is an
+--- impossible state, not a runtime failure worth a nilable return.
+--- @param by_name function Registry lookup, passed in to avoid a cycle
+--- @param name string The verb name, a row the registry defines
+--- @return Verb
+local function must_verb(by_name: function(string): Verb | nil,
+    name: string): Verb
+  local v = by_name(name)
+  assert(v, "make: no verb " .. name) -- assert: the registry is literal data in _make/init.tl and every name passed here is a row it defines
+  return v
+end
+
 --- `ci` — every stage, in order, each gated by material.
 ---
 --- Runs to the END rather than stopping at the first failure: a gate
@@ -355,6 +370,7 @@ local record PolicyModule
   fix: function(proj: Project, paths: {string}): integer
   write_baseline: function(proj: Project): integer
   run_ci: function(by_name: function(string): Verb | nil, proj: Project, _paths: {string}, cosmic: string): integer
+  must_verb: function(by_name: function(string): Verb | nil, name: string): Verb
 end
 
 local M: PolicyModule = {
@@ -370,6 +386,7 @@ local M: PolicyModule = {
   fix = fix,
   write_baseline = write_baseline,
   run_ci = run_ci,
+  must_verb = must_verb,
 }
 
 return M
