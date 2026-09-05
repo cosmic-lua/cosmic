@@ -85,6 +85,48 @@ local function test_rebuild_atomic_wipes_a_leftover_temp_file_first()
   assert(fs.remove_all(fs.dirname(path)))
 end
 
+-- The destination-side counterpart of the temp-litter gotcha above: a
+-- crashed process that held final_path open in WAL mode (and never
+-- checkpointed) leaves a real, non-empty -wal beside final_path itself.
+-- A rename only replaces the one path it names, so that leftover -wal
+-- must be wiped too, or SQLite replays it against the freshly rebuilt
+-- main file on the very next open, resurrecting pre-crash content.
+local function test_rebuild_atomic_wipes_a_leftover_final_wal_first()
+  local path = db_path()
+
+  -- Simulate the crash: fork a child that opens final_path itself in
+  -- WAL mode, disables auto-checkpoint so the WAL can never fold back
+  -- into the main file on its own, writes a table+row, then exits
+  -- without closing -- leaving a real outstanding -wal behind, exactly
+  -- as a killed process would.
+  local pid = check.must(proc.fork())
+  if pid == 0 then
+    local crashed = check.must(sqlite.open(path))
+    assert(crashed:exec("PRAGMA wal_autocheckpoint = 0"))
+    assert(crashed:exec("CREATE TABLE old_stuff (id INTEGER PRIMARY KEY, name TEXT)"))
+    assert(crashed:exec("INSERT INTO old_stuff (name) VALUES ('OLD-DATA-FROM-CRASHED-PROCESS')"))
+    proc.exit(0)
+  end
+  assert(proc.wait(pid))
+  assert(fs.is_present(path .. "-wal"), "the crash simulation must leave a real -wal behind")
+  local wal_stat = check.must(fs.stat(path .. "-wal"))
+  assert(wal_stat:size() > 0, "the leftover -wal must be non-empty, not just present")
+
+  local db = check.must(sqlite.rebuild_atomic(path, function(tmp_path: string): boolean, string
+        local fresh = check.must(sqlite.open(tmp_path))
+        assert(fresh:exec("CREATE TABLE new_stuff (id INTEGER PRIMARY KEY, name TEXT)"))
+        assert(fresh:exec("INSERT INTO new_stuff (name) VALUES ('fresh')"))
+        return fresh:close()
+      end))
+  local row = check.must(db:query_one("SELECT name FROM new_stuff WHERE id = 1"))
+  check.equal(row.name, "fresh", "the rebuilt file must reflect only what fill_fn just wrote")
+  local old_row, old_err = db:query_one("SELECT name FROM old_stuff")
+  assert(old_row == nil, "the destination's stale pre-crash table must not survive the rebuild")
+  assert(old_err, "expected a query failure since old_stuff must no longer exist")
+  assert(db:close())
+  assert(fs.remove_all(fs.dirname(path)))
+end
+
 local function test_rebuild_atomic_reopened_connection_is_wal()
   local path = db_path()
   local db = check.must(sqlite.rebuild_atomic(path, function(tmp_path: string): boolean, string

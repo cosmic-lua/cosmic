@@ -11,11 +11,18 @@
 --- checkpoint-before-rename step is a genuine, non-obvious gotcha: a
 --- rename only moves the one path it names, so a `-wal` left behind
 --- under the temp name becomes permanent litter beside the renamed
---- file instead. The checkpoint here goes through the raw lsqlite3
---- binding rather than cosmic.sqlite's own ergonomic wrapper: this
---- module cannot import that wrapper's Database type without cycling
---- back to init.tl, its own caller, and a bare PRAGMA needs nothing
---- an ergonomic wrapper would add.
+--- file instead. The same is true from the other side: `final_path`
+--- may have its own outstanding `-wal`/`-shm` from an unrelated prior
+--- crash (a process that held `final_path` itself open in WAL mode and
+--- never checkpointed), and a rename would leave that pair sitting
+--- right beside the freshly renamed file, where SQLite would replay it
+--- on the next open — so `finish` wipes `final_path`'s own sidecars
+--- immediately before the rename too, once it is committed to
+--- replacing `final_path` wholesale. The checkpoint here goes through
+--- the raw lsqlite3 binding rather than cosmic.sqlite's own ergonomic
+--- wrapper: this module cannot import that wrapper's Database type
+--- without cycling back to init.tl, its own caller, and a bare PRAGMA
+--- needs nothing an ergonomic wrapper would add.
 
 local fs = require("cosmic.fs")
 local lsqlite3 = require("cosmo.lsqlite3")
@@ -59,11 +66,12 @@ local function discard(tmp_path: string)
   remove_if_present({tmp_path, table.unpack(sidecars(tmp_path))})
 end
 
---- Force the populated temp file's WAL checkpoint, drop its sidecars,
---- and rename it into place. Call once `fill_fn` has populated and
---- closed its own connection at `tmp_path`.
+--- Force the populated temp file's WAL checkpoint, drop its sidecars
+--- and final_path's own leftover sidecars, and rename it into place.
+--- Call once `fill_fn` has populated and closed its own connection at
+--- `tmp_path`.
 --- @param tmp_path string The populated temp file
---- @param final_path string Where to rename it
+--- @param final_path string Where to rename it; its own leftover -wal/-shm are wiped first
 --- @return boolean True once the file is in place at final_path
 --- @return string Error message
 local function finish(tmp_path: string, final_path: string): boolean, string
@@ -80,6 +88,13 @@ local function finish(tmp_path: string, final_path: string): boolean, string
     return false, raw_db:errmsg()
   end
   remove_if_present(sidecars(tmp_path))
+  -- A rename only replaces the one path it names: final_path's OWN
+  -- leftover -wal/-shm (e.g. a prior process crashed mid-write against
+  -- final_path itself, before a checkpoint) would otherwise survive the
+  -- swap untouched, and SQLite would replay it against the brand-new
+  -- main file on the very next open. Wiping them here is safe precisely
+  -- because this rename is about to replace final_path wholesale anyway.
+  remove_if_present(sidecars(final_path))
   return fs.move(tmp_path, final_path)
 end
 
