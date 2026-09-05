@@ -256,7 +256,8 @@ function execve(prog: string, args: {string}, env: {string}): nil, string
 
 **Returns:**
 
-- nil, - string Only returns on error
+- nil - The exec did not happen — this only returns on error
+- string - Error message
 
 ### execvp
 
@@ -274,7 +275,8 @@ function execvp(prog: string, argv?: {string}): nil, string
 
 **Returns:**
 
-- nil, - string Only returns on error
+- nil - The exec did not happen — this only returns on error
+- string - Error message
 
 ### execvpe
 
@@ -293,7 +295,8 @@ function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string
 
 **Returns:**
 
-- nil, - string Only returns on error
+- nil - The exec did not happen — this only returns on error
+- string - Error message
 
 ### fexecve
 
@@ -312,7 +315,8 @@ function fexecve(fd: integer, argv: {string}, envp?: {string}): nil, string
 
 **Returns:**
 
-- nil, - string Only returns on error
+- nil - The exec did not happen — this only returns on error
+- string - Error message
 
 ### fork
 
@@ -324,7 +328,8 @@ function fork(): integer | nil, string
 
 **Returns:**
 
-- integer - | nil The child pid in the parent, 0 in the child, or nil + error on failure
+- integer - | nil The child pid in the parent, 0 in the child, or nil on failure
+- string - Error message when slot 1 is nil
 
 ### wait
 

@@ -94,7 +94,8 @@ function start(argv: {string}, opts?: Options): Handle | nil, string
 
 **Returns:**
 
-- Handle - | nil, string? Process handle or nil + error
+- Handle - | nil A process handle, or nil if the process could not be started
+- string - Error message when slot 1 is nil
 
 ### run
 
@@ -113,7 +114,8 @@ function run(argv: {string}, opts?: Options): Result | nil, string
 
 **Returns:**
 
-- Result - | nil, string The Result, or nil plus why
+- Result - | nil The Result, or nil if the child never started (or the reap failed)
+- string - Error message when slot 1 is nil
 
 ### handle:stop
 

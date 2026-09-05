@@ -242,5 +242,4 @@ function sigsuspend(mask?: Sigset): boolean, string
 **Returns:**
 
 - boolean - True once a signal was delivered and handled
-- string? - Error message on any errno other than EINTR
-- string - Error message: EINTR after a signal was handled
+- string - Error message on any errno other than EINTR; nil when a signal was delivered and handled
