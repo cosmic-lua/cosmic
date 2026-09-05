@@ -403,6 +403,37 @@ return {
                   table.insert(out, t)
                end]=====],
   },
+  ["narrow-pcall-zero-return"] = {
+    file = "tl.lua",
+    note = "pcall on a zero-return callee compiles: an any-typed error slot 2 is added only when the callee's own declared return arity is 0",
+    find = [=====[      local rets = self:type_check_funcall(fnode, ftype, b, argdelta + base_nargs)
+      if rets.typename == "invalid" then
+         return rets
+      end
+      table.insert(rets.tuple, 1, bool)
+      return rets
+   end]=====],
+    replace = [=====[      local rets = self:type_check_funcall(fnode, ftype, b, argdelta + base_nargs)
+      if rets.typename == "invalid" then
+         return rets
+      end
+      -- cosmic carried patch: a callee that declares zero return values
+      -- (e.g. unix.Memory:write/:store) leaves pcall typed as a bare
+      -- `boolean` -- one value, no error slot at all -- so
+      -- `local ok, err = pcall(f, ...)` fails to compile even though the
+      -- call is exactly the honest-failure shape this codebase writes
+      -- everywhere else. Add an any-typed slot 2 ONLY on this exact
+      -- path (arity>=1 callees already get their own real declared
+      -- return types here, untouched, which is correct and needs no
+      -- widening).
+      local had_no_rets = #rets.tuple == 0
+      table.insert(rets.tuple, 1, bool)
+      if had_no_rets then
+         table.insert(rets.tuple, a_type(node, "any", {}))
+      end
+      return rets
+   end]=====],
+  },
   ["narrow-truthiness"] = {
     file = "tl.lua",
     note = "whilp/cosmic#942: truthiness narrows nil-unions of records/maps/arrays",
