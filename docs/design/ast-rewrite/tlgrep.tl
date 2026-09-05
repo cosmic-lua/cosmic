@@ -300,7 +300,13 @@ match_value = function(pv: any, nv: any, caps: {string: M}, seen: {any: boolean}
     return pv == nv -- scalar: string/number/boolean
   end
   local pt = pv as M
-  if pt["kind"] == "variable" and is_capture(pt["tk"]) then
+  -- a capture can appear as either kind: `$X` used as a value reference
+  -- (`f($X)`) parses as "variable", but the SAME `$X` used as a member
+  -- name (`cosmo.$X(...)`) parses as "identifier" -- tl's own grammar
+  -- distinction between "a name that resolves" and "a name that just
+  -- labels a field", confirmed by inspection when `cosmo.$F(...)`
+  -- silently matched nothing until this was widened.
+  if (pt["kind"] == "variable" or pt["kind"] == "identifier") and is_capture(pt["tk"]) then
     if not (nv is M) then
       return false
     end
