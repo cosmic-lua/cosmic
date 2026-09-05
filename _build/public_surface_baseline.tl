@@ -24,6 +24,7 @@ return {
   ["cosmic.ip"] = true,
   ["cosmic.js"] = true,
   ["cosmic.json"] = true,
+  ["cosmic.ksuid"] = true,
   ["cosmic.literal"] = true,
   ["cosmic.log"] = true,
   ["cosmic.net"] = true,

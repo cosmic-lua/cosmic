@@ -228,6 +228,7 @@ return {
   ["cosmic/ip.tl"] = {["covered"] = 109, ["total"] = 109},
   ["cosmic/js.tl"] = {["covered"] = 12, ["total"] = 12},
   ["cosmic/json.tl"] = {["covered"] = 23, ["total"] = 24},
+  ["cosmic/ksuid.tl"] = {["covered"] = 68, ["total"] = 75},
   ["cosmic/literal.tl"] = {["covered"] = 211, ["total"] = 233},
   ["cosmic/log.tl"] = {["covered"] = 68, ["total"] = 70},
   ["cosmic/net/connect.tl"] = {["covered"] = 31, ["total"] = 37},
