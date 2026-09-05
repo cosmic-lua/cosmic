@@ -103,6 +103,49 @@ structural matcher already walks (`local_declaration`/`local_function`/
 a function's own parameter list introduce bindings; `statements`/block
 nodes delimit their lifetime and shadowing follows nesting).
 
+## Performance notes
+
+Measured against the spike, not guessed. Baselines via a floor test
+(`bin/cosmic` running a trivial `.lua`) and via `bin/cosmic --compile`
+to separate the tool's own fixed cost from real per-file work.
+
+**Fixed per-invocation overhead dominates for typical files.**
+- process boot (APE loader + Lua init): ~8-9ms
+- `+ require("tl")`, `cosmic.fs`, `cosmic.format`: ~11-12ms
+- `+` re-type-checking `tlgrep.tl` itself from source every run (as
+  opposed to running a precompiled copy): ~14ms
+
+**Real work is small until the file gets big.** Precompiled and run
+against a 1-line file: ~12ms (all fixed overhead, ~0ms of actual work).
+Against the largest file in `cosmic/` (500 lines): ~21ms (~9ms of real
+work).
+
+**Lex+parse is the dominant real cost, not the matcher.** The
+suspect going in was the span computation's repeated
+`node_start`/`node_end` recursion — called fresh with an empty `seen`
+table multiple times per hit (once for sorting, once for display, once
+per capture during replace), which looks wasteful on paper. Measured
+directly: on the 500-line file, `tl.lex` + `tl.parse_program` alone
+account for ~8ms of that ~9ms; the rest of the pipeline (`collect` +
+`match_value` + all span computation, however naively re-run) adds only
+~1-2ms on top. Not worth optimizing at this scale — a concrete instance
+of measuring before assuming.
+
+**Batching amortizes the fixed cost; this is the real lever.** The same
+50 real files, run two ways:
+- 50 separate `bin/cosmic` invocations (today's shape): 738ms (~14.8ms/file)
+- 1 invocation looping over all 50 internally: 281ms (~5.6ms/file)
+
+**2.6x faster**, purely from paying the ~12ms fixed cost once instead of
+per file. A larger 242-file sweep (`_make`/`_cli`/`_tool`/`_types`/
+`_docs`/`_perf`/`cmd`, lex+parse only) came to 658ms total (~2.7ms/file)
+batched, against ~16ms/file measured earlier shelling out per file — a
+similar effect at an even wider margin, since that comparison excluded
+the small remaining match overhead too. This is the concrete evidence
+behind the project-wide-traversal point below: it isn't a nice-to-have,
+it's a 3-7x difference at repo scale, and it comes entirely from
+process/module-load amortization — not from the matching algorithm.
+
 ## If this became a real module
 
 - `cosmic/ast/` (public, like `cosmic/fs/`), split under the 500-line
