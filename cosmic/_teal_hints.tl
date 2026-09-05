@@ -7,6 +7,12 @@
 --- script runner), so this module must stay requireable from all of
 --- them: message matching only, no compiler state.
 ---
+--- The 13 patterns below carry fixes, not just pointers, and stay
+--- hand-written; a message none of them recognizes falls through to
+--- `cosmic._teal_symptoms`, which matches against the symptom blocks
+--- `docs/guides/gotchas.md` carries per section and names the section
+--- directly instead of pointing at the guide as a whole.
+---
 --- Matches the most common traps:
 ---   1. got number, expected integer (string index/length requires integer)
 ---   2. X | nil used un-narrowed: passed where X is expected, indexed,
@@ -84,7 +90,7 @@ local function hint_for_message(msg: string): string | nil
   -- Pattern 2e: colon-calling a name the value's record does not
   -- declare. Also fires on a plain typo, so the hint covers both.
   if msg:find("invalid key '[%w_]+' in record") then
-    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs guide.gotchas`"
+    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs guide.gotchas` — section colon-call"
   end
   -- Pattern 3: excess return values (wrong number of returns)
   if msg:find("excess return values") then
@@ -105,7 +111,7 @@ local function hint_for_message(msg: string): string | nil
       if arity and arity > max_arity then max_arity = arity end
     end
     if given and given > max_arity and max_arity > 0 then
-      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs guide.gotchas`"
+      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs guide.gotchas` — section tuple-spread"
     end
   end
   -- Pattern 4a: ipairs on a nil union or on any — different fixes: a
@@ -124,7 +130,9 @@ local function hint_for_message(msg: string): string | nil
   if msg:find("cannot index") and msg:find("<any type>") then
     return "  hint: cast first, e.g. `local obj = val as {string: any}`"
   end
-  return nil
+  -- Fall through: none of the 13 hand patterns above recognized this
+  -- message. A gotcha section may still document its exact shape.
+  return require("cosmic._teal_symptoms").hint_for_message(msg)
 end
 
 local record TealHintsModule

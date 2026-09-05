@@ -12,6 +12,11 @@ fix.
 
 ## integer-vs-number
 
+```text
+got number, expected integer
+cannot index object of type ... with number
+```
+
 Teal distinguishes `integer` from `number`: string indices
 (`string.sub`, `string.byte`, table lookups) require `integer`, and
 arithmetic yields `number`. the `got number, expected integer` error
@@ -33,6 +38,11 @@ sizes — are annotated `integer` at the source of truth, so no
 conversion dance is needed on that side.)
 
 ## any-from-json-decode
+
+```text
+attempting ipairs on something that's not an array: <any type>
+cannot index key '...' in variable '...' of type <any type>
+```
 
 for the two common top-level shapes, skip `any` entirely:
 `json.decode_object` returns `{string: any} | nil, string` and
@@ -92,9 +102,18 @@ cosmic.main(function(args: {string}, env: cosmic.Env): number, string
 
 ## multi-return-capture
 
+```text
+excess return values
+assignment in declaration did not produce an initial value for variable '...'
+```
+
 the checker's `excess return values` error carries the fix as a hint:
 capture multiple returns first — `local v, err = f(...)`. wrapping a
 multi-return call inside another expression discards the extra returns.
+the converse mismatch — a declaration naming more locals than the call
+provides — is caught too: `assignment in declaration did not produce an
+initial value for variable 'b'` means the function on the right returns
+fewer values than the left side declares.
 
 ```teal
 local check = require("cosmic.check")
@@ -111,6 +130,10 @@ end
 ```
 
 ## record-fields-dont-narrow
+
+```text
+cannot index key '...' in type ... | nil
+```
 
 a guard on a plain variable narrows it: truthiness (`if r then`, `if
 not r then return end`), `assert(r, "msg")`, `r and r.field`, and
@@ -161,6 +184,10 @@ produce name the un-narrowed type but not the cause: `cannot index key
 
 ## exported-record-types
 
+```text
+unknown type ...
+```
+
 a standalone top-level `local record` is visible only inside its own
 file. another file writing `store.Task` gets `unknown type store.Task` —
 at every use site — even though the value-level API works fine. to
@@ -191,6 +218,10 @@ works when the record must stay standalone for internal reasons — see
 how `cosmic.fs` re-exports `Stat`.)
 
 ## records-are-nominal
+
+```text
+... is not a ...
+```
 
 Teal record identity is nominal, not structural: two `record`
 declarations with identical fields are unrelated types, even when both
@@ -308,6 +339,10 @@ print(page)
 ```
 
 ## tuple-spread
+
+```text
+wrong number of arguments (given ..., expects ...)
+```
 
 Lua spreads every return of a call in the LAST argument position into
 the argument list, and the checker counts the declared tuple — so
