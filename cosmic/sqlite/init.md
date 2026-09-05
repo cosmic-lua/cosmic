@@ -142,6 +142,17 @@ local record sqlite
   column_text: function(row: {string: any}, column: string): string | nil, string
   column_number: function(row: {string: any}, column: string): number | nil, string
   column_integer: function(row: {string: any}, column: string): integer | nil, string
+  --  Atomically rebuild a WAL file in place; see cosmic.sqlite.rebuild.
+  rebuild_atomic: function(final_path: string, fill_fn: function(tmp_path: string): boolean, string): Database | nil, string
+  --  Schema fingerprint plus a tiny `cosmic_meta` convention; see cosmic.sqlite.meta.
+  schema_fingerprint: function(db: Database): string | nil, string
+  meta_get: function(db: Database, key: string): string | nil, string
+  meta_set: function(db: Database, key: string, value: string): boolean, string
+  db_user_version: function(db: Database): integer | nil, string
+  --  FTS5 MATCH-expression builders; see cosmic.sqlite.fts.
+  escape_token: function(tok: string): string
+  match_all: function(text: string): string
+  match_any: function(text: string): string
 end
 ```
 
@@ -200,6 +211,25 @@ function open(filename: string, opts?: Options): Database | nil, string
 
 - Database - | nil Database handle with __close support
 - string - Error message on failure
+
+### rebuild_atomic
+
+```teal
+function rebuild_atomic(final_path: string, fill_fn: function(tmp_path: string): boolean, string): Database | nil, string
+```
+
+ Atomically rebuild a WAL file: `fill_fn` opens/fills/closes its own
+ connection at a temp path; see cosmic.sqlite.rebuild for the rest.
+
+**Parameters:**
+
+- `final_path` (string) - The file to rebuild
+- `fill_fn` (function(tmp_path:) - string): boolean, string Opens/fills/closes its own connection there
+
+**Returns:**
+
+- Database - | nil The reopened final connection, WAL mode
+- string - Error message
 
 ### stmt:bind
 
