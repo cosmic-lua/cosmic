@@ -223,8 +223,28 @@ batteries include serving: the test for a battery is "should a
 cosmic-built binary be able to do this without shelling out or
 vendoring C" — which includes an HTTP(S) server and a real concurrency
 model, since single-file portable services are a natural payoff of
-`--embed`. deliberately not urgent; direction, not deadline; it sits
-at the bottom of the order until activated.
+`--embed`. deliberately not urgent; direction, not deadline; it stays
+low in the order until activated.
+
+- **measured by:** not yet. when this activates, it is compared into
+  the order and gets eval tasks and win conditions like everything
+  else.
+
+### G10 — sharing code between cosmic artifacts (later)
+
+batteries include reuse: a cosmic project should be able to depend on
+modules published inside another cosmic artifact, resolved and baked
+in at BUILD time — no runtime linkage, no registry, no solver (the
+shape a first cut sketched: a package pin kind, a declared export
+manifest, foreign sources compiled strict against the consumer's own
+stdlib so version skew becomes a build-time type error rather than a
+runtime failure). deliberately not urgent, and explicitly blocked:
+D10 is the right to break, and a package system turns every stdlib
+break into breakage in code the project does not own, discovered in a
+build the project does not run — shipping the mechanism before a
+stated compatibility commitment bounds D10 is shipping a way to
+distribute future breakage. sits at the bottom of the order until
+D10 is bounded and it activates.
 
 - **measured by:** not yet. when this activates, it is compared into
   the order and gets eval tasks and win conditions like everything
