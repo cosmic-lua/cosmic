@@ -11,67 +11,40 @@
 --- reads: docs/design
 -- Ratchet over `docs/design/cast-sites.tsv`, the cast site inventory.
 --
--- The map drifts the moment a cast closes: the row survives, the site
--- does not. Nothing read the file before this gate, so a closure could
--- lower `_build/casts_baseline.tl` and leave the inventory saying
--- otherwise with `--make ci` still green. Three checks, all against
--- what is actually committed: the per-file count the inventory implies
--- agrees with the cast baseline (which subsumes the total), every
--- class named in the inventory has a heading in `docs/design/casts.md`
--- and every heading has at least one row, and every row's line really
--- holds an `as` cast by the lexer `_cli.lint.cast_lines` uses, not by
--- grepping for the word `as` — the grep also matches the word in prose.
+-- A site is keyed by `(path, enclosing function, ordinal)`, never by
+-- line, so a line shift never drifts the map from what it names —
+-- checked directly below by shifting real casts and reconciling.
+-- Four more checks, all against what is actually committed: the
+-- per-file count the inventory implies agrees with the cast baseline
+-- (which subsumes the total), every class named in the inventory has
+-- a heading in `docs/design/casts.md` and every heading has at least
+-- one row, every row's cast text still names a real cast site on
+-- the current tree, and the header row the doc states is the file's own.
 
 local cast_sites = require("_build.cast_sites")
 local casts = require("_build.casts")
 local check = require("cosmic.check")
-local child = require("cosmic.child")
 local fs = require("cosmic.fs")
-local lint = require("_cli.lint")
 
---- Runs a git command inside `root`, failing the test loudly if it
---- does not exit 0 — the fixtures below need `git`'s own history, not
---- a mock of it, since `reconcile`'s shift pass reads `git show HEAD:`.
---- @param root string Working directory for the command
---- @param ...string Arguments after `git`
-local function git(root: string, ...: string)
-  local argv: {string} = {"git", ...}
-  local r = check.must(child.run(argv, {cwd = root}))
-  assert(r.ok, "git " .. table.concat({...}, " ") .. " failed:\n"
-    .. r.stdout .. r.stderr)
-end
-
---- Sets up a fixture at `TEST_TMPDIR/<name>`: writes `old_source` to
---- `cosmic/shift_test.tl` and, when `track_git`, commits it (so `git
---- show HEAD:` can read it back); then overwrites the source with
---- `new_source`, so the working tree and HEAD disagree exactly the
---- way an edit would. The tsv is never git-tracked — `reconcile` reads
---- it straight off disk, same as the real one.
+--- Sets up a fixture at `TEST_TMPDIR/<name>`: writes `source` to
+--- `cosmic/shift_test.tl` and `rows` to a sibling `cast-sites.tsv`,
+--- the same layout `reconcile` reads for real (a tsv beside the tree
+--- it describes, never git-tracked).
 --- @param name string A subdirectory under `TEST_TMPDIR`, unique per case
---- @param old_source string The `.tl` file's contents AS COMMITTED
---- @param new_source string The `.tl` file's contents in the working tree
---- @param old_rows {{string, integer, string}} Committed (path, line, class) rows
---- @param track_git boolean Whether to `git init` and commit at all
+--- @param source string The `.tl` file's current contents
+--- @param rows {{string, string, integer, string, string}} Committed
+--- (path, fn, n, cast, class) rows
 --- @return string The fixture root
 --- @return string The tsv path
-local function write_fixture(name: string, old_source: string,
-    new_source: string, old_rows: {{string, integer, string}},
-    track_git: boolean): string, string
+local function write_fixture(name: string, source: string,
+    rows: {{string, string, integer, string, string}}): string, string
   local root = fs.join(check.must(os.getenv("TEST_TMPDIR")), name)
   assert(fs.make_dirs(fs.join(root, "cosmic")))
-  local source_path = fs.join(root, "cosmic", "shift_test.tl")
-  assert(fs.write(source_path, old_source))
-  if track_git then
-    git(root, "init", "-q")
-    git(root, "add", "cosmic/shift_test.tl")
-    git(root, "-c", "user.email=test@example.com", "-c", "user.name=test",
-      "commit", "-q", "-m", "initial")
-  end
-  assert(fs.write(source_path, new_source))
-  local tsv_lines = {"path\tline\tclass\n"}
-  for _, r in ipairs(old_rows) do
+  assert(fs.write(fs.join(root, "cosmic", "shift_test.tl"), source))
+  local tsv_lines = {"path\tfn\tn\tcast\tclass\n"}
+  for _, r in ipairs(rows) do
     tsv_lines[#tsv_lines + 1] = string.format(
-      "%s\t%d\t%s\n", r[1], r[2], r[3])
+      "%s\t%s\t%d\t%s\t%s\n", r[1], r[2], r[3], r[4], r[5])
   end
   local tsv_path = fs.join(root, "cast-sites.tsv")
   assert(fs.write(tsv_path, table.concat(tsv_lines)))
@@ -82,8 +55,8 @@ local CASTS_MD < const > = "docs/design/casts.md"
 
 local REGEN < const > =
 "regenerate: bin/cosmic --make run _build/cast_sites.tl --reconcile" ..
-" (carries the class forward for a site that still exists; a newly" ..
-" discovered site has none and must be classified by hand first)" ..
+" (carries the class forward for a site whose key still matches; a" ..
+" newly discovered key has none and must be classified by hand first)" ..
 " and commit the result"
 
 local function test_per_file_counts_agree_with_the_cast_baseline()
@@ -151,208 +124,141 @@ local function test_every_class_has_a_heading_and_every_heading_has_a_row()
     .. " cast-sites.tsv:\n  " .. table.concat(missing_row, "\n  "))
 end
 
-local function test_every_row_holds_a_real_cast()
+local function test_every_row_names_a_real_site()
   local rows = check.must(cast_sites.read_tsv())
-  local cast_lines_by_path: {string: {integer: boolean}} = {}
+  local real: {string: boolean} = {}
+  for _, s in ipairs(cast_sites.scan(".")) do
+    real[s.path .. "\t" .. s.fn .. "\t" .. s.n] = true
+  end
   local bad: {string} = {}
   for _, r in ipairs(rows) do
-    local at = cast_lines_by_path[r.path]
-    if not at then
-      at = {}
-      local text = fs.read(r.path)
-      if text then
-        for _, y in ipairs(lint.cast_lines(text, r.path)) do
-          at[y] = true
-        end
-      end
-      cast_lines_by_path[r.path] = at
-    end
-    if not at[r.line] then
-      bad[#bad + 1] = string.format(
-        "%s:%d: no `as` token on this line", r.path, r.line)
+    if not real[r.path .. "\t" .. r.fn .. "\t" .. r.n] then
+      bad[#bad + 1] = string.format("%s: %s#%d is not a real cast site", r.path, r.fn, r.n)
     end
   end
   table.sort(bad)
   assert(#bad == 0,
-    "row(s) in cast-sites.tsv name a line with no real cast — "
+    "row(s) in cast-sites.tsv name a site the tree no longer has — "
     .. REGEN .. ":\n  " .. table.concat(bad, "\n  "))
 end
 
--- A comment line inserted above both casts shifts them by the same
--- one line, with their text untouched. Neither survives the exact-key
--- pass; the text pass reads each orphan's line back from `git show
--- HEAD:`, finds each newcomer's current line byte-identical to
--- exactly one of them, and carries both classes across.
-local function test_a_pure_line_shift_carries_both_classes_forward()
-  local old_source = table.concat({
-      "local a = x as {string} -- cast: reason a",
-      "local p = 1",
-      "local q = 2",
-      "local r = 3",
-      "local b = y as {string} -- cast: reason b",
+-- Two casts share one function; a line inserted above both shifts them
+-- down by one without touching their relative order. Neither cast's
+-- key (function, ordinal) depends on a line number at all, so
+-- reconcile finds the exact same two keys it was given classes for —
+-- no reconcile forced, no finding raised.
+local function test_a_line_shift_leaves_both_keys_unchanged()
+  local source = table.concat({
+      "-- inserted comment, shifting every line below by one",
+      "local function shifted(x: any): integer",
+      "  local a = x as integer -- cast: reason a",
+      "  local b = x as string -- cast: reason b",
+      "  return a",
+      "end",
     }, "\n") .. "\n"
-  local new_source = "-- inserted comment\n" .. old_source
-  local root, tsv_path = write_fixture("shift-both", old_source, new_source, {
-      {"cosmic/shift_test.tl", 1, "classA"},
-      {"cosmic/shift_test.tl", 5, "classB"},
-    }, true)
-  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
-  assert(#unclassified == 0,
-    "expected no unclassified sites, got: " .. table.concat(unclassified, ", "))
+  local root, tsv_path = write_fixture("line-shift", source, {
+      {"cosmic/shift_test.tl", "shifted", 1, "local a = x as integer -- cast: reason a", "classA"},
+      {"cosmic/shift_test.tl", "shifted", 2, "local b = x as string -- cast: reason b", "classB"},
+    })
+  local rows, findings = cast_sites.reconcile(root, tsv_path)
+  assert(#findings == 0,
+    "expected no findings, got: " .. table.concat(findings, ", "))
   local got = check.must(rows, "reconcile of a pure shift should succeed")
   assert(#got == 2, "expected 2 rows, got " .. tostring(#got))
-  assert(got[1].line == 2 and got[1].class == "classA",
-    "first row: line " .. tostring(got[1].line) .. " class " .. got[1].class)
-  assert(got[2].line == 6 and got[2].class == "classB",
-    "second row: line " .. tostring(got[2].line) .. " class " .. got[2].class)
+  assert(got[1].fn == "shifted" and got[1].n == 1 and got[1].class == "classA",
+    "first row: fn " .. got[1].fn .. " n " .. tostring(got[1].n) .. " class " .. got[1].class)
+  assert(got[2].fn == "shifted" and got[2].n == 2 and got[2].class == "classB",
+    "second row: fn " .. got[2].fn .. " n " .. tostring(got[2].n) .. " class " .. got[2].class)
 end
 
--- The two casts trade relative order AND land on lines that match
--- neither original committed line — so the exact-key pass matches
--- neither and both reach the text pass — where position-based pairing
--- would swap their classes, silently. Each cast's line text is
--- distinct and unedited, so the text pass follows the text, not the
--- slot: each newcomer inherits the class of the orphan whose
--- committed text it matches, whichever line that orphan used to sit
--- on, and whichever line the newcomer now sits on.
-local function test_a_reorder_follows_text_not_position()
-  local old_source = table.concat({
-      "local a = x as {string} -- cast: reason a",
-      "local p = 1",
-      "local q = 2",
-      "local r = 3",
-      "local b = y as {string} -- cast: reason b",
+-- The cast's own text is untouched but it now sits inside a different
+-- function, so its key changes even though nothing shifted a line.
+-- `(path, fn, n)` no longer matches any committed row, so reconcile
+-- refuses — but because the cast's exact text still matches exactly
+-- one orphaned row, the refusal's one finding names both the new key
+-- and the old one, so a person can carry the class across by hand.
+local function test_a_cast_moved_to_another_function_gets_a_finding_naming_both_keys()
+  local source = table.concat({
+      "local function origin(): integer",
+      "  return 0",
+      "end",
+      "",
+      "local function destination(x: any): integer",
+      "  local a = x as integer -- cast: reason a",
+      "  return a",
+      "end",
     }, "\n") .. "\n"
-  local new_source = table.concat({
-      "-- pad",
-      "local b = y as {string} -- cast: reason b",
-      "local p = 1",
-      "local q = 2",
-      "local r = 3",
-      "local a = x as {string} -- cast: reason a",
-    }, "\n") .. "\n"
-  local root, tsv_path = write_fixture("reorder", old_source, new_source, {
-      {"cosmic/shift_test.tl", 1, "classA"},
-      {"cosmic/shift_test.tl", 5, "classB"},
-    }, true)
-  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
-  assert(#unclassified == 0,
-    "expected no unclassified sites, got: " .. table.concat(unclassified, ", "))
-  local got = check.must(rows, "reconcile of a reorder should succeed")
-  assert(#got == 2, "expected 2 rows, got " .. tostring(#got))
-  assert(got[1].line == 2 and got[1].class == "classB",
-    "line 2 now holds cast b's text, so it must take classB, got "
-    .. got[1].class)
-  assert(got[2].line == 6 and got[2].class == "classA",
-    "line 6 now holds cast a's text, so it must take classA, got "
-    .. got[2].class)
-end
-
--- Two committed casts share byte-identical line text; both shift by
--- the same inserted line. Each newcomer's text matches BOTH orphans,
--- not exactly one, so neither has an honest single class to take —
--- a wrong guess is worse than none, so both stay unclassified.
-local function test_identical_text_orphans_stay_ambiguous()
-  local old_source = table.concat({
-      "local v = x as {string} -- cast: reason",
-      "local p = 1",
-      "local v = x as {string} -- cast: reason",
-    }, "\n") .. "\n"
-  local new_source = "-- inserted\n" .. old_source
-  local root, tsv_path = write_fixture("identical-text", old_source,
-    new_source, {
-      {"cosmic/shift_test.tl", 1, "classA"},
-      {"cosmic/shift_test.tl", 3, "classB"},
-    }, true)
-  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
+  local root, tsv_path = write_fixture("moved-function", source, {
+      {"cosmic/shift_test.tl", "origin", 1, "local a = x as integer -- cast: reason a", "classA"},
+    })
+  local rows, findings = cast_sites.reconcile(root, tsv_path)
   assert(rows == nil, "expected reconcile to refuse, got rows")
-  assert(#unclassified == 2,
-    "expected 2 unclassified sites, got " .. tostring(#unclassified))
-  assert(unclassified[1] == "cosmic/shift_test.tl\t2"
-    and unclassified[2] == "cosmic/shift_test.tl\t4",
-    "unexpected unclassified keys: " .. table.concat(unclassified, ", "))
+  assert(#findings == 1, "expected 1 finding, got " .. tostring(#findings))
+  local finding = findings[1]
+  assert(finding:find("cosmic/shift_test.tl\tdestination\t1", 1, true),
+    "finding names the new key: " .. finding)
+  assert(finding:find("cosmic/shift_test.tl\torigin\t1", 1, true),
+    "finding names the old key: " .. finding)
+  assert(finding:find("classA", 1, true),
+    "finding names the class carried from: " .. finding)
 end
 
--- The cast's line text is edited (not just moved) at the same time it
--- shifts. Its committed text no longer appears among the newcomers'
--- current text at all, so nothing matches — this is a real content
--- change, and it is refused exactly like a brand-new site: the old
--- row drops, the new one asks for a class by hand.
-local function test_an_edited_cast_line_asks_for_its_class_again()
-  local old_source = table.concat({
-      "local a = x as {string} -- cast: reason a",
-      "local p = 1",
+-- A cast's own text is edited in place (its ordinal and enclosing
+-- function unchanged) — reconcile matches on `(path, fn, n)` alone, so
+-- the class still carries, and the committed row's `cast` column now
+-- shows the new text, which is what makes the edit visible on review.
+local function test_an_edited_cast_text_keeps_its_class_at_the_same_key()
+  local source = table.concat({
+      "local function edited(x: any): integer",
+      "  local a = x as string -- cast: reason a, edited",
+      "  return 0",
+      "end",
     }, "\n") .. "\n"
-  local new_source = table.concat({
-      "-- inserted",
-      "local a = x as {integer} -- cast: reason a, edited",
-      "local p = 1",
-    }, "\n") .. "\n"
-  local root, tsv_path = write_fixture("edited-and-shifted", old_source,
-    new_source, {
-      {"cosmic/shift_test.tl", 1, "classA"},
-    }, true)
-  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
-  assert(rows == nil, "expected reconcile to refuse, got rows")
-  assert(#unclassified == 1,
-    "expected 1 unclassified site, got " .. tostring(#unclassified))
-  assert(unclassified[1] == "cosmic/shift_test.tl\t2",
-    "unexpected unclassified key: " .. unclassified[1])
+  local root, tsv_path = write_fixture("edited-text", source, {
+      {"cosmic/shift_test.tl", "edited", 1, "local a = x as integer -- cast: reason a", "classA"},
+    })
+  local rows, findings = cast_sites.reconcile(root, tsv_path)
+  assert(#findings == 0, "expected no findings, got: " .. table.concat(findings, ", "))
+  local got = check.must(rows, "reconcile of an in-place edit should succeed")
+  assert(#got == 1, "expected 1 row, got " .. tostring(#got))
+  assert(got[1].class == "classA", "class should still carry, got " .. got[1].class)
+  assert(got[1].cast == "local a = x as string -- cast: reason a, edited",
+    "committed cast text should reflect the edit, got: " .. got[1].cast)
 end
 
--- The fixture root is never `git init`-ed at all, so `git show HEAD:`
--- cannot read the committed text back — there is no committed text to
--- compare against, so both shifted newcomers stay unclassified rather
--- than guessing from position.
-local function test_an_untracked_file_carries_nothing()
-  local old_source = table.concat({
-      "local a = x as {string} -- cast: reason a",
-      "local p = 1",
-      "local q = 2",
-      "local r = 3",
-      "local b = y as {string} -- cast: reason b",
+-- A cast with no matching key and no orphan sharing its exact text
+-- (a genuinely new site) is refused with just its own key — nothing to
+-- pair it with.
+local function test_a_brand_new_site_is_refused_with_just_its_own_key()
+  local source = table.concat({
+      "local function fresh(x: any): integer",
+      "  local a = x as integer -- cast: reason a",
+      "  return a",
+      "end",
     }, "\n") .. "\n"
-  local new_source = "-- inserted comment\n" .. old_source
-  local root, tsv_path = write_fixture("no-git", old_source, new_source, {
-      {"cosmic/shift_test.tl", 1, "classA"},
-      {"cosmic/shift_test.tl", 5, "classB"},
-    }, false)
-  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
+  local root, tsv_path = write_fixture("brand-new", source, {})
+  local rows, findings = cast_sites.reconcile(root, tsv_path)
   assert(rows == nil, "expected reconcile to refuse, got rows")
-  assert(#unclassified == 2,
-    "expected 2 unclassified sites (no git history to compare against)"
-    .. ", got " .. tostring(#unclassified))
+  assert(#findings == 1, "expected 1 finding, got " .. tostring(#findings))
+  assert(findings[1] == "cosmic/shift_test.tl\tfresh\t1",
+    "unexpected finding: " .. findings[1])
 end
 
--- One committed cast's exact text now appears on TWO working-tree
--- lines (the line was duplicated as well as shifted). The orphan side
--- is unique — only one committed row ever held that text — but the
--- newcomer side is not: uniqueness must hold on BOTH sides, so
--- neither of the two identical newcomers has a single line the class
--- is honestly for, and both stay unclassified rather than one of them
--- guessing the class that was never duplicated.
-local function test_a_duplicated_newcomer_line_stays_unclassified()
-  local old_source = table.concat({
-      "local a = x as {string} -- cast: reason a",
-      "local p = 1",
-    }, "\n") .. "\n"
-  local new_source = table.concat({
-      "-- inserted",
-      "local a = x as {string} -- cast: reason a",
-      "local p = 1",
-      "local a = x as {string} -- cast: reason a",
-    }, "\n") .. "\n"
-  local root, tsv_path = write_fixture("duplicated-newcomer", old_source,
-    new_source, {
-      {"cosmic/shift_test.tl", 1, "classA"},
-    }, true)
-  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
-  assert(rows == nil, "expected reconcile to refuse, got rows")
-  assert(#unclassified == 2,
-    "expected 2 unclassified sites, got " .. tostring(#unclassified))
-  assert(unclassified[1] == "cosmic/shift_test.tl\t2"
-    and unclassified[2] == "cosmic/shift_test.tl\t4",
-    "unexpected unclassified keys: " .. table.concat(unclassified, ", "))
+local function test_the_doc_states_the_tsv_header_row_exactly()
+  local tsv = check.must(fs.read("docs/design/cast-sites.tsv"))
+  local header = tsv:match("^([^\n]*)\n")
+  local doc = check.must(fs.read(CASTS_MD))
+  local stated: string = nil
+  for line in doc:gmatch("[^\n]*") do
+    if line:match("^path\t") then
+      stated = line
+      break
+    end
+  end
+  assert(stated ~= nil, CASTS_MD .. " states no fenced `path\\t...` header row")
+  assert(stated == header, string.format(
+      "%s states the header row as %q but cast-sites.tsv opens with %q",
+      CASTS_MD, stated, header))
 end
 
 print("all cast site inventory tests passed")

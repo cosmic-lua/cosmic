@@ -13,6 +13,15 @@
 --- under the CURRENT binary before the tree rebuilds, so it may only
 --- use the surface that binary already embeds — holding it to today's
 --- tree would break the bootstrap.
+---
+--- The per-require check above sees one file at a time, so a directory
+--- of shards with no public parent at all never trips it: nothing
+--- outside ever requires the shard directly, because there is no
+--- `cosmic.<name>` to require instead. `check_shard_dir_init` closes
+--- that gap by looking at the directory a shard lives in rather than
+--- its requires — a `cosmic/<name>/` holding a non-test `.tl` file and
+--- no `init.tl` is a library nobody outside `cosmic/` can name.
+local fs = require("cosmic.fs")
 local style = require("_tool.lint")
 
 local type Diagnostic = style.Diagnostic
@@ -44,12 +53,37 @@ local function check_shard_require(file: string, lines: {string}): {Diagnostic}
   return diagnostics
 end
 
+--- Report a top-level `cosmic/<name>/` directory that holds a shard
+--- with no `init.tl` beside it — nothing outside `cosmic/` can require
+--- ANY name in it, so the module is unreachable by construction.
+--- @param file string The file being linted
+--- @return {Diagnostic} One finding if file is such a shard, else none
+local function check_shard_dir_init(file: string): {Diagnostic}
+  local dir, name = file:match("^(cosmic/[%w_]+)/([%w_]+%.tl)$")
+  if not dir or name == "init.tl" or name:match("_test%.tl$") then
+    return {}
+  end
+  if fs.is_file(dir .. "/init.tl") then
+    return {}
+  end
+  return {{
+      file = file,
+      line = 1,
+      col = 1,
+      rule = "visibility",
+      message = dir .. "/: shards with no public parent — add " .. dir ..
+      "/init.tl re-exporting what outside callers need",
+    }}
+end
+
 local record VisibilityModule
   check_shard_require: function(file: string, lines: {string}): {Diagnostic}
+  check_shard_dir_init: function(file: string): {Diagnostic}
 end
 
 local M: VisibilityModule = {
   check_shard_require = check_shard_require,
+  check_shard_dir_init = check_shard_dir_init,
 }
 
 return M
