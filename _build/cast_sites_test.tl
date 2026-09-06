@@ -324,4 +324,35 @@ local function test_an_untracked_file_carries_nothing()
     .. ", got " .. tostring(#unclassified))
 end
 
+-- One committed cast's exact text now appears on TWO working-tree
+-- lines (the line was duplicated as well as shifted). The orphan side
+-- is unique — only one committed row ever held that text — but the
+-- newcomer side is not: uniqueness must hold on BOTH sides, so
+-- neither of the two identical newcomers has a single line the class
+-- is honestly for, and both stay unclassified rather than one of them
+-- guessing the class that was never duplicated.
+local function test_a_duplicated_newcomer_line_stays_unclassified()
+  local old_source = table.concat({
+      "local a = x as {string} -- cast: reason a",
+      "local p = 1",
+    }, "\n") .. "\n"
+  local new_source = table.concat({
+      "-- inserted",
+      "local a = x as {string} -- cast: reason a",
+      "local p = 1",
+      "local a = x as {string} -- cast: reason a",
+    }, "\n") .. "\n"
+  local root, tsv_path = write_fixture("duplicated-newcomer", old_source,
+    new_source, {
+      {"cosmic/shift_test.tl", 1, "classA"},
+    }, true)
+  local rows, unclassified = cast_sites.reconcile(root, tsv_path)
+  assert(rows == nil, "expected reconcile to refuse, got rows")
+  assert(#unclassified == 2,
+    "expected 2 unclassified sites, got " .. tostring(#unclassified))
+  assert(unclassified[1] == "cosmic/shift_test.tl\t2"
+    and unclassified[2] == "cosmic/shift_test.tl\t4",
+    "unexpected unclassified keys: " .. table.concat(unclassified, ", "))
+end
+
 print("all cast site inventory tests passed")

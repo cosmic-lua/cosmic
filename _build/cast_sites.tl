@@ -143,13 +143,15 @@ end
 --- file, the NEWCOMERS and the ORPHANS. For a file with at least one
 --- of each, the second pass reads the file's committed text at `git
 --- show HEAD:<path>` and compares each orphan's committed line,
---- trimmed, against each newcomer's CURRENT line, also trimmed: a
---- newcomer whose trimmed text matches exactly one orphan's trimmed
---- text inherits that orphan's class, because that is the same cast,
---- moved. A newcomer matching zero or several orphan lines has no
---- honest single class to take, so it stays unclassified, and every
---- orphan simply drops — order and count are never consulted, so
---- reordering two casts cannot swap their classes, and editing a
+--- trimmed, against each newcomer's CURRENT line, also trimmed.
+--- Uniqueness holds on BOTH sides: a newcomer inherits an orphan's
+--- class only when that trimmed text names exactly one orphan AND
+--- exactly one newcomer — one committed line whose text now appears
+--- on two working-tree lines is exactly as unclassifiable as a
+--- newcomer matching zero or several orphans, because either way
+--- there is no single line the class is honestly for. Every orphan
+--- not so matched simply drops — order and count are never consulted,
+--- so reordering two casts cannot swap their classes, and editing a
 --- cast's line asks for its class again exactly as a brand-new site
 --- would. A file `git` cannot read at `HEAD` (untracked, or no `git`
 --- on `PATH`) carries nothing: without committed text there is
@@ -212,23 +214,37 @@ local function reconcile(root: string, tsv_path?: string): {Row} | nil, {string}
         local committed_lines = str.lines(committed)
         local current_lines = str.lines(current)
         -- How many orphans share each trimmed text, and which class
-        -- that text carries — a text seen once is a safe carry, a
-        -- text seen zero or several times is not.
-        local text_count: {string: integer} = {}
+        -- that text carries — a text seen once on the orphan side is
+        -- a safe carry ONLY if it is also seen once on the newcomer
+        -- side (below); seen zero or several times on either side, it
+        -- is not.
+        local orphan_text_count: {string: integer} = {}
         local text_class: {string: string} = {}
         for _, o in ipairs(orphans) do
           local line = committed_lines[o.line]
           if line then
             local trimmed = str.trim(line)
-            text_count[trimmed] = (text_count[trimmed] or 0) + 1
+            orphan_text_count[trimmed] = (orphan_text_count[trimmed] or 0) + 1
             text_class[trimmed] = o.class
+          end
+        end
+        -- How many newcomers share each trimmed text — one committed
+        -- line whose text now appears on two working-tree lines has
+        -- no single line to carry to, even though only one orphan
+        -- ever held that class.
+        local newcomer_text_count: {string: integer} = {}
+        for _, p in ipairs(pending) do
+          local line = current_lines[p.site.line]
+          if line then
+            local trimmed = str.trim(line)
+            newcomer_text_count[trimmed] = (newcomer_text_count[trimmed] or 0) + 1
           end
         end
         for _, p in ipairs(pending) do
           local line = current_lines[p.site.line]
           if line then
             local trimmed = str.trim(line)
-            if text_count[trimmed] == 1 then
+            if orphan_text_count[trimmed] == 1 and newcomer_text_count[trimmed] == 1 then
               resolved[p.index] = {
                 path = p.site.path,
                 line = p.site.line,
