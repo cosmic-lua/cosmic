@@ -54,8 +54,7 @@ local function test_a_miss_declines_rather_than_throws()
   local missing = "cosmic_searcher_" .. "no_such_module_here"
   local found = false
   for _, s in ipairs(package.searchers) do
-    -- cast: package.searchers entries are untyped
-    local ok, why = pcall((s as function(string): any), missing)
+    local ok, why = pcall(s, missing)
     if ok and why is string and why:find("no .tl source found", 1, true) then
       found = true
       break

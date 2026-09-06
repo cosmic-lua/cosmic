@@ -278,23 +278,6 @@ rule: `{Promise}` where `{string}` is wanted, and `{string: Rule}`
 where `{string: any}` is wanted, are sound everywhere this tree uses
 them. The bare-`table` sites are the exception and want a union.
 
-### dynamic name lookup
-
-A table indexed by a name computed at runtime, where the declared type
-cannot say what any single name maps to: a verb registry keyed by verb
-name, a `package.searchers` slot, a module fetched through an
-indirection that defeats static resolution.
-
-```text
--- cosmic/searcher_test.tl:58
-  local ok, why = pcall((s as function(string): any), missing)
-```
-
-**What closes it here.** The registry is this tree's own data. A
-`by_name` returning `Verb | nil` closes seven of these outright, and
-the guard that follows is one the checker already narrows. The searcher
-slot wants a declared record and nothing more.
-
 ### generic T
 
 A fresh table, a map view, or a value pulled out of a dynamic walk,
