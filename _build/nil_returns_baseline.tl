@@ -2,6 +2,7 @@ return {
   ["_docs/publish.tl"] = 12,
   ["_eval/bundle.tl"] = 1,
   ["_eval/journal.tl"] = 4,
+  ["_fuzz/driver.tl"] = 1,
   ["_make/artifact.tl"] = 1,
   ["_make/extract.tl"] = 3,
   ["_make/fixpoint_test.tl"] = 2,

@@ -39,9 +39,12 @@ local DEFAULT_ITERS = 256
 --- so this default sits more than 2000x above what the tree needs.
 local DEFAULT_BUDGET = 50000000
 
---- What the budget hook throws. Raised with level 0, so a caught value
---- equal to this string IS a budget failure, not a property throw.
+--- What the Lua budget hook throws. Raised with level 0, so a caught
+--- value equal to this string IS a budget failure, not a property throw.
 local BUDGET_MESSAGE = "_fuzz.driver: instruction budget exceeded"
+
+--- What the C collector's own budget hook (cosmo.cov.budget) throws.
+local COLLECTOR_BUDGET_MESSAGE = "cosmo.cov: instruction budget exceeded"
 
 --- Floor of the isolated child's wall-clock backstop, in milliseconds.
 --- The backstop scales with the iteration count (see timeout_for), and
@@ -59,22 +62,55 @@ local DEFAULT_TIMEOUT_MS = 30000
 --- healthy deep-lane run is reported as a hang.
 local TIMEOUT_PER_ITER_MS = 10
 
---- Arm the budget hook when the VM's one hook slot is free.
---- @param budget integer VM instructions until the hook throws
---- @return boolean True when the hook was armed
+--- The runtime's C instruction-budget/line-hit collector. Type-only:
+--- the generated declaration is the one description of the binding.
+local type CCov = require("cosmo.cov")
+
+--- Detected through package.preload, as cosmic/coverage/init.tl's
+--- find_ccov does, so a runtime without the binding never requires it.
+--- @return CCov | nil The C collector, or nil on a runtime without one
+local function find_ccov(): CCov
+  if package.preload["cosmo.cov"] == nil then
+    return nil
+  end
+  local req = require as function(string): any -- cast: bypass static module resolution
+  return req("cosmo.cov") as CCov -- cast: dynamic require returns any
+end
+
+local ccov: CCov = find_ccov()
+
+--- Which mechanism last armed the budget, so disarm_budget clears the
+--- right one. nil when neither is currently armed.
+local armed_via: string = nil
+
+--- Arm the instruction budget: the collector's own budget first (it
+--- succeeds exactly when collection is running on this thread), else
+--- the VM hook, when the VM's one hook slot is free.
+--- @param budget integer VM instructions until the budget fails the call
+--- @return boolean True when a budget was armed
 local function arm_budget(budget: integer): boolean
+  if ccov and ccov.budget(budget) then
+    armed_via = "collector"
+    return true
+  end
   if debug.gethook() ~= nil then
     return false
   end
   debug.sethook(function() error(BUDGET_MESSAGE, 0) end, "", budget)
+  armed_via = "hook"
   return true
 end
 
---- Turn the budget hook off. tl's sethook declaration has no argless
---- clearing form; an empty mask with no count is the same off state
---- (Lua turns the hook off when mask and count are both zero).
+--- Turn the armed budget off, whichever mechanism armed it. tl's
+--- sethook declaration has no argless clearing form; an empty mask
+--- with no count is the same off state.
 local function disarm_budget()
-  debug.sethook(function() end, "")
+  if armed_via == "collector" then
+    ccov.budget(0)
+  else
+    debug.sethook(function() end, "")
+  end
+  armed_via = nil
 end
 
 --- One fuzz property: what to generate, and what must hold for it.
@@ -92,12 +128,11 @@ local record Options
   --- reruns included. Overrides DEFAULT_BUDGET when set. A property
   --- that runs past it fails the run like any
   --- other failure, reporting `budget=<n> exceeded`, so a hung parser
-  --- is attributed to its input instead of hanging the suite. The VM
-  --- has one debug-hook slot, so the budget arms only when that slot
-  --- is free: under the instrumented coverage stage the collector owns
-  --- it (cosmo.cov's C hook, which Lua can neither call nor reinstall)
-  --- and the budget stands down. A hang inside a single C call cannot
-  --- be caught either way — the hook fires between VM instructions.
+  --- is attributed to its input instead of hanging the suite. The
+  --- budget arms on the coverage collector's own hook when collection
+  --- is running on this thread, and on the VM's own debug hook
+  --- otherwise. A hang inside a single C call cannot be caught either
+  --- way — both hooks fire only between VM instructions.
   budget: integer
   --- Milliseconds the isolated child may run before it is treated as
   --- hung. Absolute when set: it replaces the scaled allowance rather
@@ -141,7 +176,7 @@ local function attempt(
   end
   if not ok then
     local thrown = tostring(held)
-    if thrown == BUDGET_MESSAGE then
+    if thrown == BUDGET_MESSAGE or thrown == COLLECTOR_BUDGET_MESSAGE then
       return false, ("budget=%d exceeded"):format(budget)
     end
     return false, "threw: " .. thrown

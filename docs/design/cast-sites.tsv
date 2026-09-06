@@ -1,5 +1,7 @@
 path	line	class
 _fuzz/compress_fuzz_test.tl	76	enum relation
+_fuzz/driver.tl	76	module surface record
+_fuzz/driver.tl	77	module surface record
 _make/closure.tl	62	record union after guard
 _make/stage.tl	183	record union after guard
 _perf/bench/micro_bench.tl	192	record union after guard

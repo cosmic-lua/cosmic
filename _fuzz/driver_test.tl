@@ -252,6 +252,28 @@ local function test_a_looping_property_fails_within_its_budget()
     end)
 end
 
+-- Unlike the test above, this one holds collection running instead of
+-- stopping it: the collector owns the VM's hook slot, so arm_budget
+-- must arm on cosmo.cov.budget instead and still catch the loop.
+local function test_the_budget_holds_under_the_collector()
+  coverage.start()
+  local ok, msg = driver.run_unisolated({
+      name = "looper_under_collector",
+      iters = 3,
+      budget = 100000,
+      gen = function(src: source.Recorder): string
+        return driver.bytes(src, 8)
+      end,
+      check = function(_input: string): boolean, string
+        while true do end
+      end,
+    })
+  coverage.stop()
+  check.equal(ok, false, "a looping property must fail under the collector too")
+  check.truthy(msg:find("budget=100000 exceeded", 1, true),
+    "the budget failure is named: " .. msg)
+end
+
 local function test_a_terminating_property_passes_under_its_budget()
   local ok, msg = driver.run_unisolated({
       name = "well_within",
