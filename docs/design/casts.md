@@ -61,21 +61,21 @@ alone on the line above — so a `file:line` join between the grep's
 output and the lexer's mismatches on all of those. Where the inventory
 and this prose disagree, the inventory is right.
 
-The inventory is half generated, half curated. Its path and line
-columns are `_cli.lint.cast_lines`' answer, the same lexer
-`_build/casts.tl` counts with — a fact about the tree, reproducible by
-a walk. Its class column is this document's judgment about what each
-site is for, which no walk can produce. So there is no full
-`--baseline`-style regen: `bin/cosmic --make run _build/cast_sites.tl
---reconcile` re-derives path and line, carries the class forward for
-every site that still exists, drops a row whose site is gone, and
-refuses to write — naming the site instead — when a cast has appeared
-with no prior row to carry a class from, because a blank class is a
-worse map than a stale one. `_build/cast_sites_test.tl` gates the
-committed file against a fresh reconcile: its per-file counts against
-`_build/casts_baseline.tl`, every class against a `### ` heading here
-and back, and every row's line against a real cast by the lexer, never
-a grep.
+The inventory is half generated, half curated. Its path and line columns
+are `_cli.lint.cast_lines`' answer, the same lexer `_build/casts.tl`
+counts with — a fact about the tree, reproducible by a walk. Its class
+column is this document's judgment about what each site is for, which no
+walk can produce. So there is no full `--baseline`-style regen:
+`bin/cosmic --make run _build/cast_sites.tl --reconcile` re-derives path
+and line, carries the class forward for every site that still exists,
+drops a row whose site is gone, and refuses to write — naming the site
+instead — when a cast has appeared with no prior row to carry a class
+from, because a blank class is a worse map than a stale one. A pure line
+shift keeps its classes; only a changed cast count in a file asks for a
+class. `_build/cast_sites_test.tl` gates the committed file against a
+fresh reconcile: its per-file counts against `_build/casts_baseline.tl`,
+every class against a `### ` heading here and back, and every row's line
+against a real cast by the lexer, never a grep.
 
 ## Classes
 
