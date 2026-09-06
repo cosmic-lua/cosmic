@@ -1,11 +1,14 @@
 local record Inner
-  x: integer
+  y: integer
+end
+local record Middle
+  inner: Inner | nil
 end
 local record Outer
-  sub: Inner | nil
+  mid: Middle
 end
-local o: Outer = {sub = {x = 1}}
+local o: Outer = {mid = {inner = {y = 1}}}
 
-if o.sub then
-  print(o.sub.x)
+if o.mid.inner then
+  print(o.mid.inner.y)
 end

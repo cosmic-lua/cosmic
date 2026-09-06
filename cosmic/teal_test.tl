@@ -481,28 +481,6 @@ local function test_no_hint_for_plain_errors()
 end
 
 -- The carried tl patch's other canary (3p/tl/tl_patch/narrow.tl,
--- narrow-pcall-zero-return): a zero-return-arity callee (e.g.
--- unix.Memory:write) types `pcall(f, ...)` as a bare `boolean` under
--- the unpatched checker, so `local ok, err = pcall(f, ...)` fails to
--- compile even though it is this codebase's ordinary failure shape.
--- A tl pin bump without the patch, or a drifted anchor, fails HERE.
-local function test_pcall_zero_return_canary()
-  local path = fs.join(tmpdir, "pcall_zero_ok.tl")
-  assert(fs.write(path, [[
-local function noisy(x: integer)
-  if x < 0 then error("negative") end
-end
-local function use(x: integer): boolean
-  local ok, err = pcall(noisy, x)
-  if not ok then
-    print(err)
-    return false
-  end
-  return true
-end
-print(use(1))
-]]))
-  local result = teal.check_file(path)
-  assert(result.ok, "pcall on a zero-return callee must compile: "
-    .. (result.ok and "" or teal.format_issues(result.errors)))
-end
+-- narrow-pcall-zero-return) lives in teal_narrowing_test.tl
+-- (test_pcall_zero_return_canary) — split out by the 500-line file
+-- limit.
