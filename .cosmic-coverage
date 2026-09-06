@@ -150,6 +150,7 @@ return {
   ["_tool/doc/index.tl"] = {["covered"] = 101, ["total"] = 107},
   ["_tool/doc/init.tl"] = {["covered"] = 225, ["total"] = 251},
   ["_tool/doc/scan.tl"] = {["covered"] = 67, ["total"] = 67},
+  ["_tool/doc/signature.tl"] = {["covered"] = 59, ["total"] = 62},
   ["_tool/example.tl"] = {["covered"] = 134, ["total"] = 167},
   ["_tool/floor.tl"] = {["covered"] = 11, ["total"] = 11},
   ["_tool/friction.tl"] = {["covered"] = 179, ["total"] = 183},

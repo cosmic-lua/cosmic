@@ -118,58 +118,6 @@ local function export_surface(source: string,
   return names, aliases
 end
 
---- The top-level return-slot count a signature declares: commas outside
---- enclosing parens and braces, counted after the `):` that closes the
---- PARAMETER LIST — never the first `):` found by text search, which a
---- nested `function(...): (...)` parameter's own colon can shadow.
----
---- A signature that opens with `(` has a real parameter list: the
---- first point its paren depth returns to zero is that list's close,
---- whatever a parameter's own type nests inside it, so the return text
---- is whatever follows a `:` right there — empty when there is none, the
---- "no return declared" case. A string that never opens with `(` (a
---- bare return-type fragment, or a type with its own `{`/`(`) is
---- return text already, counted as-is.
---- @param signature string A function's full signature, or bare return-type text
---- @return integer The number of top-level return slots, 0 if none
-local function return_slots(signature: string): integer
-  local text = signature
-  if signature:sub(1, 1) == "(" then
-    local depth = 0
-    local rest: string = nil
-    for i = 1, #signature do
-      local c = signature:sub(i, i)
-      if c == "(" or c == "{" then
-        depth = depth + 1
-      elseif c == ")" or c == "}" then
-        depth = depth - 1
-        if depth == 0 then
-          if signature:sub(i + 1, i + 1) == ":" then
-            rest = signature:sub(i + 2):match("^%s*(.*)$")
-          end
-          break
-        end
-      end
-    end
-    text = rest or ""
-  end
-  if text == "" then
-    return 0
-  end
-  local depth, slots = 0, 1
-  for i = 1, #text do
-    local c = text:sub(i, i)
-    if c == "(" or c == "{" then
-      depth = depth + 1
-    elseif c == ")" or c == "}" then
-      depth = depth - 1
-    elseif c == "," and depth == 0 then
-      slots = slots + 1
-    end
-  end
-  return slots
-end
-
 --- Drop a module's private helpers from its own page.
 ---
 --- A local is published only where the module's export surface names
@@ -183,12 +131,10 @@ end
 local record ExportsModule
   export_surface: function(source: string,
   records: {RecordDoc}): {string: boolean}, {string: string}
-  return_slots: function(signature: string): integer
 end
 
 local M: ExportsModule = {
   export_surface = export_surface,
-  return_slots = return_slots,
 }
 
 return M

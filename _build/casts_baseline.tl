@@ -7,6 +7,7 @@ return {
   ["_perf/bench/micro_bench.tl"] = 1,
   ["_tool/coverage/lines.tl"] = 3,
   ["_tool/discover.tl"] = 3,
+  ["_tool/doc/signature.tl"] = 1,
   ["_types/gentype.tl"] = 3,
   ["_types/gentype_defs.tl"] = 1,
   ["_types/tlast.tl"] = 5,

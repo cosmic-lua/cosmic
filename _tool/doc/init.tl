@@ -11,43 +11,13 @@ local type ModuleDoc = doc_types.ModuleDoc
 
 local doc_dtl = require("_tool.doc.dtl")
 local doc_exports = require("_tool.doc.exports")
+local doc_signature = require("_tool.doc.signature")
 local scan = require("_tool.doc.scan")
 local doc_comments = require("_tool.doc.comments")
 local extract_doc_comment = doc_comments.extract_doc_comment
 local parse_annotations = doc_comments.parse_annotations
 
 local BYTE_NEWLINE = string.byte("\n")
-local BYTE_LPAREN = string.byte("(")
-local BYTE_RPAREN = string.byte(")")
-
---- Extract function signature starting from a given position.
---- @param source string The source code
---- @param start_pos integer Position to start searching from
---- @return string The extracted signature
-local function extract_signature(source: string, start_pos: integer): string
-  local sig_start = source:find("%(", start_pos)
-  if not sig_start then return "()" end
-  local sig_end = sig_start
-  local depth = 0
-  for i = sig_start, #source do
-    local b = source:byte(i)
-    if b == BYTE_LPAREN then depth = depth + 1
-    elseif b == BYTE_RPAREN then
-      depth = depth - 1
-      if depth == 0 then
-        sig_end = i
-        local j = i + 1
-        while j <= #source do
-          if source:byte(j) == BYTE_NEWLINE then break end
-          sig_end = j
-          j = j + 1
-        end
-        break
-      end
-    end
-  end
-  return source:sub(sig_start, sig_end)
-end
 
 --- Parse `name: type` fields from a record body.
 --- @param source string The full source (for doc-comment lookup)
@@ -174,68 +144,31 @@ local function parse(source: string, file_path: string): ModuleDoc
     end
     last_pos = new_pos
   end
-  -- Local functions
-  for func_start, is_local, func_name in source:gmatch("()(local%s+)function%s+([%w_:]+)<?[^>%(\n]*>?%s*%(") do
-    update_line_num(func_start)
-    local line_start = func_start
-    while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
-      line_start = line_start - 1
-    end
-    local line_prefix = source:sub(line_start, (func_start) - 1)
-    -- A definition starts its own line. Anything with code before it on
-    -- the line is a `function` WORD, not a definition: a record field
-    -- (`read: function(self)`), a comment, or -- the case that put a
-    -- phantom `on` on a page -- prose inside a string literal ("a
-    -- function on your MODULE's record is dot-called...").
-    if not line_prefix:match("^%s*$") then goto continue_local end
-    if not (func_name):match("^Example") then
-      local signature = extract_signature(source, func_start)
-      local func_doc = extract_doc_comment(source, func_start)
+  -- Functions: read off the module's own AST rather than scanned out
+  -- of its text, so a `local`/`global`/record-owned definition is
+  -- never confused with a `function`-typed record field or a stray
+  -- word in a comment or string literal, and a signature split across
+  -- several lines is exactly as easy to read as a one-liner.
+  -- Locals and non-locals are kept in two lists, each in the AST's own
+  -- (source) order, then appended local-first -- the same grouping
+  -- the old two separate text scans produced, load-bearing for the
+  -- embedded index staying byte-identical.
+  local sigs = doc_signature.function_signatures(source, file_path)
+  if sigs then
+    local local_fns: {FunctionDoc} = {}
+    local other_fns: {FunctionDoc} = {}
+    for _, s in ipairs(sigs) do
+      local func_doc = extract_doc_comment(source, s.doc_pos)
       local params, returns, description = parse_annotations(func_doc)
-      table.insert(doc.functions, {
-          name = func_name, description = description,
-          params = params, returns = returns, signature = signature,
-          line = line_num, is_local = is_local ~= nil,
-        })
+      local entry: FunctionDoc = {
+        name = s.name, description = description,
+        params = params, returns = returns, signature = s.signature,
+        line = s.line, is_local = s.is_local,
+      }
+      table.insert(s.is_local and local_fns or other_fns, entry)
     end
-    ::continue_local::
-  end
-  -- Non-local functions
-  line_num = 1
-  last_pos = 1
-  -- The name pattern spans dots so `function stream.write_all(...)`
-  -- reads as one name. Stopping at the dot would file every
-  -- dot-defined function under the TABLE's name — entries nobody can
-  -- call, and the real functions documented nowhere.
-  for func_start, dotted_name in source:gmatch("()function%s+([%w_:%.]+)<?[^>%(\n]*>?%s*%(") do
-    -- `stream.write_all` is `write_all` on the page: a reader has the
-    -- module under whatever local name they chose, and every other
-    -- module's page lists the bare name.
-    local func_name = dotted_name:match("^[%w_]+%.([%w_:]+)$") or dotted_name
-    local line_start = func_start
-    while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
-      line_start = line_start - 1
-    end
-    local line_prefix = source:sub(line_start, (func_start) - 1)
-    -- Same rule as the local branch above: only a line that begins with
-    -- the definition is one. It subsumes the old record-field guard,
-    -- since `read: function(self)` has its name before the keyword.
-    if not line_prefix:match("^%s*$") then goto continue_nonlocal end
-    local before = source:sub(math.max(1, (func_start) - 20), (func_start) - 1)
-    if not before:match("local%s*$") then
-      update_line_num(func_start)
-      if not (func_name):match("^Example") then
-        local signature = extract_signature(source, func_start)
-        local func_doc = extract_doc_comment(source, func_start)
-        local params, returns, description = parse_annotations(func_doc)
-        table.insert(doc.functions, {
-            name = func_name, description = description,
-            params = params, returns = returns, signature = signature,
-            line = line_num, is_local = false,
-          })
-      end
-    end
-    ::continue_nonlocal::
+    for _, entry in ipairs(local_fns) do table.insert(doc.functions, entry) end
+    for _, entry in ipairs(other_fns) do table.insert(doc.functions, entry) end
   end
   -- Records
   line_num = 1

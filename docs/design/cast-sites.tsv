@@ -14,6 +14,7 @@ _tool/coverage/lines.tl	walk	2	for _, e in ipairs(v as {any}) do -- cast: array 
 _tool/discover.tl	definitions_of	1	for _, stmt in ipairs(program as {any}) do	tl compiler surface
 _tool/discover.tl	definitions_of	2	local node = stmt as {string: any} -- cast: tl AST node fields	tl compiler surface
 _tool/discover.tl	definitions_of	3	local name_node = node["name"] as {string: any}	tl compiler surface
+_tool/doc/signature.tl	function_signatures	1	local fn = n as FnNode -- cast: local_function/global_function/record_function fields cosmic.ast.Node doesn't model	tl compiler surface
 _types/gentype.tl	<chunk>	1	local render = require("_types.gentype_render") as GentypeRender -- cast: narrow surface	module surface record
 _types/gentype.tl	<chunk>	2	local extract = require("_types.gentype_extract") as GentypeExtract -- cast: narrow surface	module surface record
 _types/gentype.tl	<chunk>	3	local parse = require("_types.gentype_parse") as GentypeParse -- cast: narrow surface	module surface record
