@@ -27,7 +27,10 @@ Everything after runs under that pin. All build artifacts go to `o/`.
 4. open a PR against `main`
 
 CI runs the same `--make ci`: fmt, check, example, lint, coverage — tests
-run once, instrumented, in the coverage stage.
+run once, instrumented, in the coverage stage. The prose is gated too: a
+backtick path or a `cosmic.<mod>.<sym>` span in `docs/`, `skills/`,
+`README.md` or `AGENTS.md` must still name a real file or a symbol the
+doc index carries (`_build/doc_paths_test.tl`, `_build/doc_symbols_test.tl`).
 
 ## Writing a Module
 

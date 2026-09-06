@@ -278,6 +278,30 @@ local function parse(source: string, file_path: string): ModuleDoc
         fields = fields, line = line_num,
       })
   end
+  -- Interfaces: `local interface Name ... end`, the same body scan as
+  -- a record (find_record_end tracks `record`/`enum`/`end` depth,
+  -- which an interface's fields never open, so it closes an interface
+  -- body correctly too). `cosmic.errors.Failure` is one: a record's
+  -- own `local record` scan above never sees it, so `--docs
+  -- cosmic.errors.Failure` answered empty until this loop existed.
+  line_num = 1
+  last_pos = 1
+  for rec_start, rec_name in source:gmatch("()local%s+interface%s+([%w_]+)") do
+    update_line_num(rec_start)
+    local rec_doc = extract_doc_comment(source, rec_start)
+    local _, _, description = parse_annotations(rec_doc)
+    local fields: {{string, string, string}} = {}
+    local body_start = source:find("\n", rec_start)
+    if body_start then
+      local record_end, _ = find_record_end(source, body_start + 1)
+      local body = source:sub(body_start, record_end)
+      fields = parse_record_fields(source, body, body_start)
+    end
+    table.insert(doc.records, {
+        name = rec_name, description = description,
+        fields = fields, line = line_num,
+      })
+  end
   -- Type aliases: `local type Name = target`. The alias IS the public
   -- name (zip's Archive aliases the generated
   -- cosmo.zip.Reader) while the target holds the field/method table, so

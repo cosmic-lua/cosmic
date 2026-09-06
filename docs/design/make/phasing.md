@@ -105,7 +105,7 @@ predicted and what actually happened — is in [log/](log/).
      → `3p/cosmos/cosmos_pin.tl` and `3p/tl/tl_pin.tl`, read by the same
      grammar `--make fetch` uses. What the repo needed was not the verb
      but a *reader* both sides can call — the fourth instance of the
-     rule above, so `cosmic.literal` is public and `cosmic._make.pin`
+     rule above, so `cosmic.literal` is public and `_make/pin.tl`
      keeps only what is specific to a pin.
 
      Closed out by a **bootstrap bump to a release cut from this
@@ -172,7 +172,7 @@ predicted and what actually happened — is in [log/](log/).
        one: `o/embed/` is both the root unit's generated-payload
        directory and where the build writes its bookkeeping about
        `embed/**`, so a lint run before a build shipped
-       `cosmic.mk.lint.got` inside the binary.
+       `o/embed/cosmic.mk.lint.got` inside the binary.
      - **A pin older than a build-system change cannot build the tree.**
        The pin predated the `*_pin.tl`/`*_gen.tl` rename, so it read the
        tree as having no pins and no generator and produced a bare Lua
