@@ -35,6 +35,10 @@ cosmic/_teal_discard.tl	205	tl compiler surface
 cosmic/_teal_discard.tl	258	tl compiler surface
 cosmic/_teal_engine.tl	256	pcall return shape
 cosmic/ast/node.tl	138	tl compiler surface
+cosmic/ast/walk.tl	47	map view of a declared value
+cosmic/ast/walk.tl	56	map view of a declared value
+cosmic/ast/walk.tl	67	map view of a declared value
+cosmic/ast/walk.tl	70	map view of a declared value
 cosmic/check.tl	121	type-defeating test probe
 cosmic/check.tl	139	type-defeating test probe
 cosmic/check.tl	171	map view of a declared value

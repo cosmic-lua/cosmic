@@ -181,6 +181,7 @@ return {
   ["cosmic/_teal_symptoms.tl"] = {["covered"] = 62, ["total"] = 65},
   ["cosmic/ansi.tl"] = {["covered"] = 86, ["total"] = 86},
   ["cosmic/ast/node.tl"] = {["covered"] = 13, ["total"] = 15},
+  ["cosmic/ast/walk.tl"] = {["covered"] = 103, ["total"] = 110},
   ["cosmic/check.tl"] = {["covered"] = 145, ["total"] = 153},
   ["cosmic/child/fast.tl"] = {["covered"] = 40, ["total"] = 52},
   ["cosmic/child/init.tl"] = {["covered"] = 0, ["total"] = 212},
