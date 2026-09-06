@@ -28,25 +28,18 @@ older version of this skill: read the tool's pages.
 ALL work state lives in the repository cosmic-lua/work; the tool is
 a pinned release of that repository's own binary, obtained by the
 trust root `bin/gitboard` (`bin/gitboard.pin` names it), so nothing
-is built here. Some sessions (multi-repo remote sessions in
-particular) already carry a sibling clone of cosmic-lua/work — check
-for one before cloning a second copy into `o/board`:
+is built here. bin/gitboard prefers a sibling `../work` clone of
+cosmic-lua/work over `o/board`; clone into `o/board` only when no
+sibling exists:
 
 ```bash
-sibling="$(cd .. 2>/dev/null && cd work 2>/dev/null && pwd)"
-if [ -n "${sibling}" ] && git -C "${sibling}" remote get-url origin 2>/dev/null | grep -q cosmic-lua/work; then
-  export GITBOARD_DIR="${sibling}"          # reuse it, no clone needed
-else
-  git clone https://github.com/cosmic-lua/work o/board   # once per checkout
-fi
+git clone https://github.com/cosmic-lua/work o/board   # only when no sibling
 bin/gitboard sync                                       # every session
 ```
 
-without a sibling, `bin/gitboard` exports `GITBOARD_DIR=o/board` itself
-so every verb reads that clone; with one, the exported `GITBOARD_DIR`
-above overrides it. where a proxy re-terminates TLS, export
-`SSL_USE_SYSTEM_CERTS=1` in the session (never in a committed file), or
-the verbs that reach GitHub fail every call with `badcert_not_trusted`.
+where a proxy re-terminates TLS, export `SSL_USE_SYSTEM_CERTS=1` in the
+session (never in a committed file), or the verbs that reach GitHub
+fail every call with `badcert_not_trusted`.
 
 ## then let the tool teach
 
