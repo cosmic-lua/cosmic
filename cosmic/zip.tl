@@ -209,17 +209,17 @@ local function open(path: string | integer, opts?: OpenOptions): Archive | nil, 
   local mode: Mode = (opts and opts.mode) or "read"
   local raw_opts = to_raw_options(opts)
   if mode == "read" then
-    local handle: any
+    local handle: zip.Reader
     local err: string
     if raw_opts then
-      handle, err = zip.open(path, "r", raw_opts)
+      handle, err = zip.reader(path, raw_opts)
     else
-      handle, err = zip.open(path, "r")
+      handle, err = zip.reader(path)
     end
     if not handle then
       return nil, err or "failed to open zip archive"
     end
-    return make_archive("read", {reader = handle as zip.Reader}) -- cast: from any
+    return make_archive("read", {reader = handle})
   end
   if mode == "write" then
     local handle, err = zip.create(path, raw_opts)

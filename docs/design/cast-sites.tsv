@@ -113,4 +113,3 @@ cosmic/stream.tl	253	runtime capability probe
 cosmic/sys.tl	46	enum relation
 cosmic/sys_test.tl	14	enum relation
 cosmic/sys_test.tl	29	enum relation
-cosmic/zip.tl	222	userdata boundary

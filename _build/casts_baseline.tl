@@ -55,5 +55,4 @@ return {
   ["cosmic/stream.tl"] = 1,
   ["cosmic/sys.tl"] = 1,
   ["cosmic/sys_test.tl"] = 2,
-  ["cosmic/zip.tl"] = 1,
 }
