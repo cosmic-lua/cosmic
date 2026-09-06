@@ -179,11 +179,11 @@ function lines(r: stream.Reader): stream.LineIter
 
  Iterate complete lines from a Reader, buffering partial lines
  across chunks. On clean EOF a final unterminated line is yielded
- once, then nil. On a read error the buffered partial line is
- truncated data and is discarded — the iterator yields nil plus the
- error once, then plain nil forever (cosmic.sse consumes the same
- iterator). A reader carrying the DelimReader capability skips the
- Lua buffering entirely.
+ once, then the loop ends. On a read error the buffered partial line
+ is truncated data and is discarded — iteration ends there too, and
+ `it:err()` reads the terminating message afterward (cosmic.sse
+ consumes the same iterator). A reader carrying the DelimReader
+ capability skips the Lua buffering entirely.
 
 **Parameters:**
 
@@ -191,4 +191,4 @@ function lines(r: stream.Reader): stream.LineIter
 
 **Returns:**
 
-- function - Iterator yielding lines without the trailing newline
+- LineIter - Iterator yielding lines without the trailing newline
