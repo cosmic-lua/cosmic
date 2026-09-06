@@ -12,17 +12,27 @@
 --- `docs/design/ast-rewrite/tlgrep.tl`'s own generic match does.
 ---
 --- The one place that reflection needs care: a NAMED field can hold
---- either a real node (its own `y` is set) or a BARE array of nodes
---- with no position of its own (`if_blocks`; a "statements" node's own
---- array part, reached again through a DIFFERENT node's named field).
+--- either a real node (a `Node`) or a BARE array of nodes with no
+--- position of its own (`if_blocks`; a "statements" node's own array
+--- part, reached again through a DIFFERENT node's named field).
 --- Checking `is {any: any}` cannot tell the two apart -- Teal's generic
 --- map type structurally covers an array too, so it matches EITHER
 --- shape at runtime. That was exactly the first version of this walk's
 --- bug: an `elseif v is {any} then ...` fallback placed after an
 --- `is {any: any}` branch never ran, so `if_blocks` was silently never
---- descended into at all. `classify` below checks the actual `y` field
---- instead, confirmed against a real "if" fixture rather than assumed
---- from reading tl's grammar alone.
+--- descended into at all. `classify` below checks the actual `kind`
+--- field instead -- present as a string on every real `Node`, and on
+--- nothing else reachable this way, including the "op" node's own
+--- `OpInfo` payload table (`cosmic/ast/node.tl`'s `.op` field), which
+--- the live parser also stamps with `y`/`x` (arity and precedence live
+--- there too) but never with `kind`. A `y`-field check reads that
+--- payload as a real node too -- inert for span computation only
+--- because `OpInfo.y`/`.x` duplicate the enclosing "op" node's own
+--- position, but it violates `walk`'s "once per node reached" contract
+--- and a consumer built on `walk` (a matcher) has no such guarantee to
+--- lean on. Confirmed against a real "if" fixture and against
+--- `os.execute(cmd)`'s "op" payload rather than assumed from reading
+--- tl's grammar alone.
 local tl = require("tl")
 local node_mod = require("cosmic.ast.node")
 
@@ -48,15 +58,15 @@ end
 
 --- Classify one value found while reflecting over a Node's fields.
 --- @param value any A field value, or an array element
---- @return Node|nil The value itself, when it is a real node (its own `y` is set)
+--- @return Node|nil The value itself, when it is a real node (its own `kind` is a string)
 --- @return {any}|nil Its elements, when it is a bare array of nodes instead
 local function classify(value: any): Node | nil, {any} | nil
   if not (value is {any: any}) then
     return nil, nil
   end
   local vt = value as {any: any} -- cast: map view of a declared value
-  local vy = vt["y"]
-  if vy is integer then
+  local vkind = vt["kind"]
+  if vkind is string then
     return vt as Node, nil -- cast: map view of a declared value
   end
   return nil, vt
@@ -151,7 +161,13 @@ end
 
 --- Is there a real close-bracket token -- `)`, `]`, or `}` -- at
 --- 1-based (`y`, `x`)? A single-character token, so its own position
---- IS the position to match against.
+--- IS the position to match against: `t.x` is a token's START column
+--- while the `xend` this is matched against (`trusted_end` below) is
+--- the INCLUSIVE last column of whatever it was stamped from, and
+--- those two only ever coincide for a token exactly one character
+--- wide -- true of every close bracket, which is why a plain equality
+--- check on (`y`, `x`) suffices here and would not for a multi-column
+--- token.
 --- @param tokens {tl.Token} The token stream from the SAME parse as the node
 --- @param y integer
 --- @param x integer

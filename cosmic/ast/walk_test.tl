@@ -134,6 +134,29 @@ local function test_span_end_if_recovers_end_through_its_block_body()
     .. source:sub(ex - 2, ex))
 end
 
+--- `walk` must never call `visit` on an "op" node's `OpInfo` payload
+--- table (`node.op`) as though it were a real `Node`. The live parser
+--- stamps `y`/`x` on that payload too (`cosmic/ast/node.tl:22-25`), so
+--- a classifier that discriminates on "does this table have a `y`
+--- field" reads the payload as a node and walks into it --
+--- `os.execute(cmd)`'s outer "op" node carries exactly such a payload.
+--- Every value `walk` reaches a real `Node`'s way is a real `Node`,
+--- and a real `Node` always carries a string `kind`; `OpInfo` never
+--- does. This must FAIL against the classifier that checks `y` instead
+--- of `kind` (confirmed by reverting to it locally) and pass here.
+local function test_walk_never_visits_an_op_payload_as_a_node()
+  local parsed = parse_ok("os.execute(cmd)\n", "op_payload.tl")
+  local visits = 0
+  walk_mod.walk(parsed.node, function(n: node_mod.Node)
+      visits = visits + 1
+      local kind: any = n.kind
+      assert(kind is string,
+        "visited a value with no string kind (likely an OpInfo payload): "
+        .. tostring(kind))
+    end)
+  assert(visits > 0, "walk visited nothing")
+end
+
 --- `span_start` finds the leftmost position over the WHOLE subtree,
 --- not just the compound node's own `y`/`x` -- an "op"/"@funcall" node
 --- records its position right after `(`, not at `os`'s own column.
