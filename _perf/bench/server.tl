@@ -2,6 +2,11 @@
 --- (download_bench, http_bench, stream_bench): reading a request off an
 --- accepted connection, writing a response back in full, and tearing
 --- down the forked server child once a run is done.
+---
+--- Each sibling also defines its own accept loop (`serve_loop`, run
+--- inside the forked child and never returning) rather than sharing
+--- one here, because the response it sends back over these helpers
+--- differs per bench.
 
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")

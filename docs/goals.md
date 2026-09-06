@@ -246,9 +246,7 @@ stated compatibility commitment bounds D10 is shipping a way to
 distribute future breakage. sits at the bottom of the order until
 D10 is bounded and it activates.
 
-- **measured by:** not yet. when this activates, it is compared into
-  the order and gets eval tasks and win conditions like everything
-  else.
+- **measured by:** not yet — same as G7's, once one of these activates.
 
 ## Holding
 

@@ -47,9 +47,7 @@ usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only SUB] [MODULE...
          [--selfcheck-a AA.json --selfcheck-b AB.json]
 ]]
 
---- Parse command-line arguments.
---- @param argv {string} Raw arguments
---- @return Args Parsed arguments; Args.err is set on parse failure
+--- Parse this CLI's flags via `cosmic.flags`.
 local SPEC: flags.Spec = {
   name = "run.lua",
   flags = {
@@ -352,9 +350,7 @@ local function run_compare(a: Args): integer
   return 0
 end
 
---- CLI entry point.
---- @param ... string Command-line arguments
---- @return integer Exit code
+--- Runs the bench modules from the command line.
 local function main(...: string): integer
   local a = parse_args({...})
   if a.help then

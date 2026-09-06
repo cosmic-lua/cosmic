@@ -7,7 +7,7 @@ local fetch = require("cosmic.fetch")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
 
---- Read one HTTP request (head plus Content-Length body) from a connection.
+--- Reads one HTTP request off a connection.
 local function read_request(conn: net.Socket): string
   local buf = ""
   while true do

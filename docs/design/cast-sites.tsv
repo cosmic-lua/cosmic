@@ -1,5 +1,7 @@
 path	line	class
 _fuzz/compress_fuzz_test.tl	76	enum relation
+_fuzz/driver.tl	76	module surface record
+_fuzz/driver.tl	77	module surface record
 _make/closure.tl	62	record union after guard
 _make/stage.tl	183	record union after guard
 _perf/bench/micro_bench.tl	192	record union after guard
@@ -20,7 +22,7 @@ _types/tlast.tl	340	tl compiler surface
 _types/tlast.tl	350	metatable access
 _types/tlast_test.tl	50	module surface record
 _types/tlast_test.tl	60	tl compiler surface
-cmd/cosmic/main.tl	456	container variance
+cmd/cosmic/main.tl	191	container variance
 cosmic/_literal_format.tl	113	container variance
 cosmic/_literal_format.tl	131	container variance
 cosmic/_probe.tl	15	runtime capability probe
@@ -32,6 +34,24 @@ cosmic/_teal_discard.tl	183	tl compiler surface
 cosmic/_teal_discard.tl	205	tl compiler surface
 cosmic/_teal_discard.tl	258	tl compiler surface
 cosmic/_teal_engine.tl	256	pcall return shape
+cosmic/ast/match.tl	30	tl compiler surface
+cosmic/ast/match.tl	95	tl compiler surface
+cosmic/ast/match.tl	102	tl compiler surface
+cosmic/ast/match.tl	103	tl compiler surface
+cosmic/ast/match.tl	120	tl compiler surface
+cosmic/ast/match.tl	125	incremental record construction
+cosmic/ast/match.tl	203	tl compiler surface
+cosmic/ast/match.tl	207	tl compiler surface
+cosmic/ast/match.tl	210	tl compiler surface
+cosmic/ast/match.tl	236	tl compiler surface
+cosmic/ast/match_test.tl	46	tl compiler surface
+cosmic/ast/match_test.tl	55	tl compiler surface
+cosmic/ast/match_test.tl	64	tl compiler surface
+cosmic/ast/node.tl	138	tl compiler surface
+cosmic/ast/walk.tl	47	map view of a declared value
+cosmic/ast/walk.tl	56	map view of a declared value
+cosmic/ast/walk.tl	67	map view of a declared value
+cosmic/ast/walk.tl	70	map view of a declared value
 cosmic/check.tl	121	type-defeating test probe
 cosmic/check.tl	139	type-defeating test probe
 cosmic/check.tl	171	map view of a declared value
@@ -58,9 +78,9 @@ cosmic/fetch/init.tl	367	binding contract shape
 cosmic/fetch/init.tl	371	binding contract shape
 cosmic/fetch/init.tl	388	incremental record construction
 cosmic/fs/dir_test.tl	170	userdata boundary
-cosmic/fs/find.tl	166	userdata boundary
-cosmic/fs/find.tl	190	userdata boundary
-cosmic/fs/find.tl	320	userdata boundary
+cosmic/fs/find.tl	163	userdata boundary
+cosmic/fs/find.tl	187	userdata boundary
+cosmic/fs/find.tl	317	userdata boundary
 cosmic/fs/ops.tl	411	userdata boundary
 cosmic/fs/ops.tl	425	userdata boundary
 cosmic/fs/tree.tl	23	userdata boundary
@@ -113,4 +133,3 @@ cosmic/stream.tl	253	runtime capability probe
 cosmic/sys.tl	46	enum relation
 cosmic/sys_test.tl	14	enum relation
 cosmic/sys_test.tl	29	enum relation
-cosmic/zip.tl	222	userdata boundary

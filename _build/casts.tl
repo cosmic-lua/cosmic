@@ -28,15 +28,14 @@ local lint = require("_cli.lint")
 local proc = require("cosmic.proc")
 local shape = require("cosmic.shape")
 
---- The committed floor: where this module writes it and the test reads
---- it, relative to the project root.
+--- Where the cast-count floor lives; see `_build/ratchet.tl` for the
+--- committed-floor convention.
 local BASELINE < const > = "_build/casts_baseline.tl"
 
 --- The floor's shape: a flat map of root-relative path to cast count.
 local COUNTS_SPEC < const > = shape.map(shape.integer)
 
---- The trees the count covers: every tree of committed Teal source.
---- `3p/` is not one — its contents are vendored, not written here.
+--- The trees this count covers; see `_build/ratchet.tl`.
 local TREES < const >: {string} = {
   "_build", "_cli", "_docs", "_eval",
   "_fuzz", "_make", "_perf", "_tool",
@@ -92,7 +91,8 @@ local function baseline(path?: string): {string: integer} | nil, string
   return shape.into(data, COUNTS_SPEC)
 end
 
---- Rewrite the baseline from a fresh count of the tree.
+--- Rewrite the casts baseline from a fresh count; see
+--- `_build/ratchet.tl` for the convention.
 --- @param ... string Command-line arguments
 --- @return integer The exit status
 local function main(...: string): integer

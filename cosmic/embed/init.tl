@@ -480,8 +480,8 @@ local function write(paths: {string}, opts?: Options): integer | nil, string
 end
 
 local record EmbedModule
-  --- Exported so callers can name options and results; type aliases,
-  --- not runtime values.
+  --- Exported so callers can name options and results; see
+  --- `cosmic/teal.tl`.
   type Options = Options
   type ExtractOptions = extract_mod.ExtractOptions
 

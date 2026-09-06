@@ -21,9 +21,7 @@ local function reports(rows: {{string, integer, integer}}): {FileReport}
   return out
 end
 
---- A baseline text literal from `{path, covered, total}` rows.
---- @param rows {{string, integer, integer}} path, covered, total triples
---- @return string A `return { ["path"] = {covered = C, total = T}, ... }` literal
+--- Same fixture literal as `_tool/coverage/baseline_test.tl`'s.
 local function fixture(rows: {{string, integer, integer}}): string
   local parts: {string} = {}
   for _, row in ipairs(rows) do

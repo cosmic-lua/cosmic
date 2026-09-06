@@ -1,5 +1,6 @@
 return {
   ["_fuzz/compress_fuzz_test.tl"] = 1,
+  ["_fuzz/driver.tl"] = 2,
   ["_make/closure.tl"] = 1,
   ["_make/stage.tl"] = 1,
   ["_perf/bench/micro_bench.tl"] = 1,
@@ -15,6 +16,10 @@ return {
   ["cosmic/_teal_ast_test.tl"] = 4,
   ["cosmic/_teal_discard.tl"] = 3,
   ["cosmic/_teal_engine.tl"] = 1,
+  ["cosmic/ast/match.tl"] = 10,
+  ["cosmic/ast/match_test.tl"] = 3,
+  ["cosmic/ast/node.tl"] = 1,
+  ["cosmic/ast/walk.tl"] = 4,
   ["cosmic/check.tl"] = 4,
   ["cosmic/check_assertions_test.tl"] = 2,
   ["cosmic/compress_test.tl"] = 3,
@@ -55,5 +60,4 @@ return {
   ["cosmic/stream.tl"] = 1,
   ["cosmic/sys.tl"] = 1,
   ["cosmic/sys_test.tl"] = 2,
-  ["cosmic/zip.tl"] = 1,
 }

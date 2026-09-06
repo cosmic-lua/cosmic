@@ -19,7 +19,7 @@ local BODY < const > = shape.record({answer = shape.integer})
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
---- Read one HTTP request (head plus Content-Length body) from a connection.
+--- Reads one HTTP request off a connection.
 local function read_request(conn: net.Socket): string
   local buf = ""
   while true do

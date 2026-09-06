@@ -26,7 +26,7 @@ local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local work = require("_cli.build.work")
 
---- The one prefix a recipe step's failure wears; see steps.tl.
+--- The recipe-step failure prefix; see `_cli/build/steps.tl`.
 local function fail(msg: string): integer
   io.stderr:write("cosmic -c: " .. msg .. "\n")
   return 1
