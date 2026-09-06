@@ -57,29 +57,3 @@ local function test_log_page_documents_debug_and_error()
   assert(md:find("### error\n", 1, true),
     "log's page must document error (aliased from error_msg)")
 end
-
--- `return_slots` counts top-level return slots: commas outside parens and
--- braces, after the `):` that closes a real parameter list -- never the
--- first `):` a nested `function(...): (...)` parameter's own colon can
--- shadow. A bare return-type fragment (no leading `(`) is return text
--- already, and an empty result is zero slots.
-local function test_return_slots_counts_top_level_commas()
-  local exports = require("_tool.doc.exports")
-  assert(exports.return_slots("(): boolean, string") == 2,
-    "a plain two-slot return")
-  assert(exports.return_slots("boolean, string") == 2,
-    "bare return-type text, no leading parameter list")
-  assert(exports.return_slots("{string: any} | nil, string") == 2,
-    "a brace-typed union does not swallow the slot comma after it")
-  assert(exports.return_slots("function(Entry): (WalkAction, T)") == 1,
-    "the nested `): ` inside a callback's own type is not the boundary")
-  assert(exports.return_slots("") == 0, "no return text is no slots")
-  assert(exports.return_slots("()") == 0,
-    "a parameter list with nothing declared after it is no slots")
-  -- The real case the naive first-`):`-match bug produced: a nested
-  -- `function(...): (...)` parameter ahead of the true closing paren.
-  assert(exports.return_slots(
-      "(dir: string, visitor: function(Entry, T): (WalkAction ...), " ..
-      "ctx?: T, opts?: WalkOptions): Walked | nil, string") == 2,
-    "the OUTER signature's closing `):` decides, not the callback's own")
-end

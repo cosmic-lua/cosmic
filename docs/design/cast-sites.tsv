@@ -11,6 +11,7 @@ _tool/coverage/lines.tl	133	tl compiler surface
 _tool/discover.tl	86	tl compiler surface
 _tool/discover.tl	87	tl compiler surface
 _tool/discover.tl	90	tl compiler surface
+_tool/doc/signature.tl	163	tl compiler surface
 _types/gentype.tl	19	module surface record
 _types/gentype.tl	24	module surface record
 _types/gentype.tl	30	module surface record

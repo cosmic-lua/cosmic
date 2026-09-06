@@ -158,26 +158,26 @@ local function function_signatures(source: string, file_path: string): {Signatur
   local starts = ast.line_starts(source)
   local sigs: {Signature} = {}
   ast.walk(parsed.node, function(n: Node)
-    if n.kind == "local_function" or n.kind == "global_function"
-    or n.kind == "record_function" then
-      local fn = n as FnNode -- cast: local_function/global_function/record_function fields cosmic.ast.Node doesn't model
-      local name: string
-      local is_local = n.kind == "local_function"
-      if n.kind == "record_function" then
-        name = record_function_name(fn)
-      else
-        name = fn.name.tk
+      if n.kind == "local_function" or n.kind == "global_function"
+      or n.kind == "record_function" then
+        local fn = n as FnNode -- cast: local_function/global_function/record_function fields cosmic.ast.Node doesn't model
+        local name: string
+        local is_local = n.kind == "local_function"
+        if n.kind == "record_function" then
+          name = record_function_name(fn)
+        else
+          name = fn.name.tk
+        end
+        if not name:match("^Example") then
+          local doc_pos = ast.offset_of(starts, n.y, n.x)
+          sigs[#sigs + 1] = {
+            name = name, is_local = is_local, line = n.y, doc_pos = doc_pos,
+            signature = extract_signature(source, doc_pos),
+            return_slots = #fn.rets.tuple,
+          }
+        end
       end
-      if not name:match("^Example") then
-        local doc_pos = ast.offset_of(starts, n.y, n.x)
-        sigs[#sigs + 1] = {
-          name = name, is_local = is_local, line = n.y, doc_pos = doc_pos,
-          signature = extract_signature(source, doc_pos),
-          return_slots = #fn.rets.tuple,
-        }
-      end
-    end
-  end)
+    end)
   return sigs, nil
 end
 

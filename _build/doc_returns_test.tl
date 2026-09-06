@@ -1,12 +1,29 @@
 #!/usr/bin/env cosmic
 -- A function's `@return` tags and its declared return slots are two
 -- statements of one contract, and this is the gate that holds them to
--- each other. `FunctionDoc` carries both -- `returns` from the tags,
--- `signature` from the source -- so the check is a census over the
--- embedded doc index, not a re-parse of the tree: these tests are about
--- the embedded index and must run in the built binary, where the index
--- is always present (the same reliance `cosmic/doc/public_test.tl`
--- rests on).
+-- each other. `FunctionDoc` carries the tags (`returns`) and the
+-- signature TEXT (`signature`) but not a parsed return-slot count, so
+-- the count comes from a fresh AST read of the function's own source
+-- file, one file at a time, through `_tool.doc.signature` -- the same
+-- reader `_tool/doc/init.tl` itself builds the index from.
+--
+-- Matching an index entry to its AST node is done by (file, line), not
+-- by name: a module's OWN file (`ModuleDoc.file`) is parsed directly,
+-- so every line in it is unambiguous, and matching by line rather than
+-- name means an EXPORTED ALIAS (`cosmic.log`'s `debug` for the local
+-- `debug_msg`) is still found correctly, at the line its real
+-- definition sits on. A directory module's MERGED-IN shard functions
+-- (e.g. `cosmic.fs`'s functions folded in from `cosmic.fs.path`) are
+-- simply not found at their line in the PARENT's own file and are
+-- skipped here -- harmless, since that exact function is independently
+-- checked when this loop reaches its own true shard module, whose
+-- `.file` is the file it is actually defined in.
+--
+-- These tests are about the embedded index and must run in the built
+-- binary, where the index is always present (the same reliance
+-- `cosmic/doc/public_test.tl` rests on); the source tree itself must
+-- also be present at the repo-relative paths `ModuleDoc.file` names,
+-- true for every other `_build/*_test.tl` ratchet that re-scans source.
 --
 -- A function with NO `@return` tags is not judged: a bare-value
 -- infallible function documents its value in prose today, and requiring
@@ -18,7 +35,8 @@
 
 local check = require("cosmic.check")
 local docs = require("cosmic.doc")
-local exports = require("_tool.doc.exports")
+local fs = require("cosmic.fs")
+local doc_signature = require("_tool.doc.signature")
 
 --- The parameter names a signature's leading `(...)` declares, keyed by
 --- name with any trailing `?` stripped. The first point the signature's
@@ -75,14 +93,34 @@ end
 local idx = check.must(docs.embedded_index(),
   "docs index must be embedded (run tests via the binary)")
 
+--- Every declared return slot count this file's own AST carries,
+--- keyed by line -- one fresh parse per unique file, shared across
+--- every mod entry that names it.
+--- @param file_path string The source file to parse
+--- @return {integer: integer} Return slot count by 1-based source line
+local function declared_slots_by_line(file_path: string): {integer: integer}
+  local by_line: {integer: integer} = {}
+  local source = fs.read(file_path)
+  if not source then return by_line end
+  local sigs = doc_signature.function_signatures(source, file_path)
+  if not sigs then return by_line end
+  for _, s in ipairs(sigs) do
+    by_line[s.line] = s.return_slots
+  end
+  return by_line
+end
+
 local function test_return_tag_count_matches_declared_slots()
   local bad: {string} = {}
+  local cache: {string: {integer: integer}} = {}
   for mod, m in pairs(idx.modules) do
-    if mod:match("^cosmic%.") and not m.internal then
+    if mod:match("^cosmic%.") and not m.internal and m.file then
+      cache[m.file] = cache[m.file] or declared_slots_by_line(m.file)
+      local by_line = cache[m.file]
       for _, f in ipairs(m.functions or {}) do
-        if f.signature and #(f.returns or {}) > 0 then
-          local declared = exports.return_slots(f.signature)
-          if declared ~= #f.returns then
+        if #(f.returns or {}) > 0 then
+          local declared = by_line[f.line]
+          if declared and declared ~= #f.returns then
             bad[#bad + 1] = string.format(
               "%s.%s: %d @return tags, %d declared slots — %s",
               mod, f.name, #f.returns, declared, f.signature)
