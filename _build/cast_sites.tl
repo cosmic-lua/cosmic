@@ -8,9 +8,10 @@
 --- of what each cast is for, which no scan can produce. `--reconcile`
 --- re-derives the first two columns from the tree and carries the
 --- third column forward from the committed file for every site that
---- still exists; a pure line shift — the same casts, in the same
---- order, just at new lines — carries by position instead of exact
---- line, so only a changed cast count in a file asks for a class. A
+--- still exists; a cast whose line TEXT is unchanged keeps its class
+--- across a move, matched against the committed text at `git show
+--- HEAD:<path>` rather than against the old line number, so a shift
+--- carries forward but an edited cast line asks for its class again. A
 --- site with no prior row has no class to carry, so it is refused
 --- rather than written in blank, and stays committed unclassified
 --- until a person edits the row in by hand. A full
@@ -23,6 +24,7 @@
 --- module's read of it and against `_build/casts_baseline.tl`.
 
 local casts = require("_build.casts")
+local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local lint = require("_cli.lint")
 local proc = require("cosmic.proc")
@@ -117,6 +119,20 @@ local record Pending
   index: integer
 end
 
+--- A file's committed text at `HEAD`, read once per file that has
+--- both orphans and newcomers to try to pair by text.
+--- @param root string Working directory to run `git` in
+--- @param path string The file, relative to `root`
+--- @return string|nil The committed text, or nil when `git` is not on
+--- `PATH` or `path` is not tracked at `HEAD`
+local function committed_text(root: string, path: string): string | nil
+  local r = child.run({"git", "show", "HEAD:" .. path}, {cwd = root})
+  if not r or not r.ok then
+    return nil
+  end
+  return r.stdout
+end
+
 --- Reconcile the committed inventory against a fresh walk of the tree:
 --- carry the class forward for every site that still exists, drop a
 --- row whose site is gone, and refuse to write when a site has
@@ -124,13 +140,20 @@ end
 ---
 --- Two passes. The first keys on the exact `path\tline` pair, as
 --- before. Sites and rows the first pass could not match are, per
---- file, the NEWCOMERS and the ORPHANS; when a file has exactly as
---- many of one as the other, they are the same casts moved by the same
---- edit, so the second pass pairs them in line order and carries each
---- orphan's class to its newcomer. A count mismatch means a real
---- addition or removal happened alongside the shift, and there is no
---- honest pairing to make, so that file's newcomers stay unclassified
---- and its orphans simply drop.
+--- file, the NEWCOMERS and the ORPHANS. For a file with at least one
+--- of each, the second pass reads the file's committed text at `git
+--- show HEAD:<path>` and compares each orphan's committed line,
+--- trimmed, against each newcomer's CURRENT line, also trimmed: a
+--- newcomer whose trimmed text matches exactly one orphan's trimmed
+--- text inherits that orphan's class, because that is the same cast,
+--- moved. A newcomer matching zero or several orphan lines has no
+--- honest single class to take, so it stays unclassified, and every
+--- orphan simply drops — order and count are never consulted, so
+--- reordering two casts cannot swap their classes, and editing a
+--- cast's line asks for its class again exactly as a brand-new site
+--- would. A file `git` cannot read at `HEAD` (untracked, or no `git`
+--- on `PATH`) carries nothing: without committed text there is
+--- nothing to compare against.
 --- @param root string The project root to walk
 --- @param tsv_path string? The committed inventory (default `TSV_PATH`)
 --- @return {Row}|nil The reconciled rows, sorted by path then line
@@ -182,13 +205,38 @@ local function reconcile(root: string, tsv_path?: string): {Row} | nil, {string}
   for _, path in ipairs(pending_order) do
     local pending = pending_by_path[path]
     local orphans = orphans_by_path[path]
-    if orphans and #orphans == #pending then
-      for i, p in ipairs(pending) do
-        resolved[p.index] = {
-          path = p.site.path,
-          line = p.site.line,
-          class = orphans[i].class,
-        }
+    if orphans then
+      local committed = committed_text(root, path)
+      local current = fs.read(fs.join(root, path))
+      if committed and current then
+        local committed_lines = str.lines(committed)
+        local current_lines = str.lines(current)
+        -- How many orphans share each trimmed text, and which class
+        -- that text carries — a text seen once is a safe carry, a
+        -- text seen zero or several times is not.
+        local text_count: {string: integer} = {}
+        local text_class: {string: string} = {}
+        for _, o in ipairs(orphans) do
+          local line = committed_lines[o.line]
+          if line then
+            local trimmed = str.trim(line)
+            text_count[trimmed] = (text_count[trimmed] or 0) + 1
+            text_class[trimmed] = o.class
+          end
+        end
+        for _, p in ipairs(pending) do
+          local line = current_lines[p.site.line]
+          if line then
+            local trimmed = str.trim(line)
+            if text_count[trimmed] == 1 then
+              resolved[p.index] = {
+                path = p.site.path,
+                line = p.site.line,
+                class = text_class[trimmed],
+              }
+            end
+          end
+        end
       end
     end
   end

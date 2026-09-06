@@ -70,12 +70,13 @@ walk can produce. So there is no full `--baseline`-style regen:
 and line, carries the class forward for every site that still exists,
 drops a row whose site is gone, and refuses to write — naming the site
 instead — when a cast has appeared with no prior row to carry a class
-from, because a blank class is a worse map than a stale one. A pure line
-shift keeps its classes; only a changed cast count in a file asks for a
-class. `_build/cast_sites_test.tl` gates the committed file against a
-fresh reconcile: its per-file counts against `_build/casts_baseline.tl`,
-every class against a `### ` heading here and back, and every row's line
-against a real cast by the lexer, never a grep.
+from, because a blank class is a worse map than a stale one. A cast
+whose line text is unchanged keeps its class across a move; an edited
+cast line asks for its class again. `_build/cast_sites_test.tl` gates
+the committed file against a fresh reconcile: its per-file counts
+against `_build/casts_baseline.tl`, every class against a `### ` heading
+here and back, and every row's line against a real cast by the lexer,
+never a grep.
 
 ## Classes
 
