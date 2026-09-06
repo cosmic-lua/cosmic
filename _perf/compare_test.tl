@@ -242,11 +242,11 @@ local function test_triage_format_counts_noise()
   assert(text:find("1 noise", 1, true), "summary should count noise:\n" .. text)
 end
 
--- The release lane's json_decode_large flag, in numbers: 798.63µs ->
+-- The perf lane's json_decode_large flag, in numbers: 798.63µs ->
 -- 891.35µs is +11.6%, and the same binary drifts ~12.6% between two of
 -- its three runs while reading ~+0.4% between the other two. Triaging
 -- against only the quiet pair keeps the regression and holds the
--- release; reading the LOUDEST pair reclassifies it, because 11.6 is
+-- lane; reading the LOUDEST pair reclassifies it, because 11.6 is
 -- within TRIAGE_K=2 * 12.6.
 local function test_the_loudest_control_pair_sets_the_noise_credit()
   local base = results({m("json_decode_large", 798630, 2)})

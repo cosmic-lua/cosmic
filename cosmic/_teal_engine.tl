@@ -152,16 +152,23 @@ end
 -- accumulates checked-module state across calls; within one process
 -- that accumulation is exactly the amortization, and sources do not
 -- change mid-process.
-local env_cache: {string: any} = {}
+-- Named apart from process_source's own `tl` local: this binding never
+-- runs at call time (it exists only so tl.Env resolves in the two type
+-- positions below), while process_source re-requires "tl" fresh on every
+-- call so a package.loaded["tl"] swap (patch.reverse's test hook) is
+-- picked up rather than frozen at this module's own load time.
+local tl_types = require("tl")
+
+local env_cache: {string: tl_types.Env} = {}
 
 --- Construct a fresh env for the given options (report_types on for
 --- strict, matching what the discarded-error pass reads).
 --- @param lax boolean If true, lax mode; if false, strict mode
 --- @param gen_target string Codegen target
 --- @param gen_compat string Compat shims
---- @return any The env, or nil on failure
+--- @return tl.Env | nil The env, or nil on failure
 --- @return string? Error message on failure
-local function build_env(lax: boolean, gen_target: string, gen_compat: string): any, string
+local function build_env(lax: boolean, gen_target: string, gen_compat: string): tl_types.Env | nil, string
   local env, env_err = require("cosmic._teal_ast").new_env({
       feat_lax = lax and "on" or "off",
       feat_arity = "on",
@@ -172,8 +179,7 @@ local function build_env(lax: boolean, gen_target: string, gen_compat: string): 
     return nil, env_err
   end
   if not lax then
-    local env_map = env as {any: any} -- cast: beyond the narrowed API
-    env_map["report_types"] = true
+    env.report_types = true
   end
   return env
 end
@@ -189,6 +195,9 @@ end
 --- @return ProcessResult Processing result with tl_result or error
 local function process_source(input: string, name: string, include_dirs: {string},
     lax: boolean, gen_target?: string, gen_compat?: string): ProcessResult
+  -- Required fresh on every call (not the module-scope tl_types binding
+  -- above) so a package.loaded["tl"] swap (patch.reverse's test hook) is
+  -- picked up rather than frozen at this module's own load time.
   local tl = require("tl")
 
   -- Extract shebang if present (to preserve it in output)
@@ -215,7 +224,7 @@ local function process_source(input: string, name: string, include_dirs: {string
   local use_compat = gen_compat or DEFAULT_GEN_COMPAT
   local cache_key = table.concat(
     {lax and "lax" or "strict", use_target, use_compat, tl_path}, "\0")
-  local env: any = env_cache[cache_key]
+  local env: tl.Env | nil = env_cache[cache_key]
   if env == nil then
     local fresh, env_err = build_env(lax, use_target, use_compat)
     if not fresh then
@@ -228,20 +237,11 @@ local function process_source(input: string, name: string, include_dirs: {string
     -- A reused env remembers results by chunk name (tl.check_string
     -- returns env.loaded[filename] when present); evict this name so a
     -- re-check checks the source in hand, not the remembered one.
-    local env_map = env as {any: any} -- cast: beyond the narrowed API
-    local loaded = env_map["loaded"] as {any: any} -- cast: beyond the narrowed API
-    if loaded then
-      loaded[name] = nil
-    end
+    env.loaded[name] = nil
   end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
-  local ok, result_or_err = pcall(tl.process_string, input, false,
-    env as tl.Env, -- cast: env's declared type stays any until build_env and
-    -- process_source are retyped to return Env directly; this cast only
-    -- satisfies tl.process_string's now-curated 4th parameter and is
-    -- removed once that retyping lands
-    name)
+  local ok, result_or_err = pcall(tl.process_string, input, false, env, name)
 
   tl.path = saved_tl_path
 

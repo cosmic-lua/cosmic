@@ -186,25 +186,12 @@ end
 -- already required, since require() caches it) exercises every branch
 -- deterministically on any host, Landlock or not, rather than skipping
 -- the report-building logic itself wherever the live kernel disagrees.
-local function with_mock_landlock(mocks: {string: function}, body: function(): boolean)
-  local saved: {string: function} = {}
-  for name, fn in pairs(mocks) do
-    saved[name] = (landlock as {string: function})[name]; -- cast: record to map probe
-    (landlock as {string: function})[name] = fn -- cast: record to map probe
-  end
-  local ok, err = pcall(body)
-  for name, fn in pairs(saved) do
-    (landlock as {string: function})[name] = fn -- cast: record to map probe
-  end
-  if not ok then error(err, 0) end
-end
-
 local function test_apply_reports_full_landlock_enforcement()
   if sys.host_os() ~= "linux" then
     check.enforce_skip("landlock is the Linux-only fs mechanism")
     return
   end
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       restrict = function(_opts: landlock.RestrictOptions): landlock.Enforcement | nil, string
         return {abi = 3, handled = landlock.ALL, stripped = 0}
@@ -224,7 +211,7 @@ local function test_apply_reports_degraded_landlock_enforcement()
     check.enforce_skip("landlock is the Linux-only fs mechanism")
     return
   end
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       restrict = function(_opts: landlock.RestrictOptions): landlock.Enforcement | nil, string
         return {abi = 2, handled = landlock.ALL & ~ landlock.TRUNCATE,
@@ -253,7 +240,7 @@ local function test_strict_refuses_a_would_be_degraded_restrict_before_applying(
     check.enforce_skip("landlock is the Linux-only fs mechanism")
     return
   end
-  with_mock_landlock({
+  check.swap_members(landlock, {
       available = function(): boolean return true end,
       abi = function(): integer | nil, string return 2 end,
       restrict = function(_opts: landlock.RestrictOptions): landlock.Enforcement | nil, string

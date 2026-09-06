@@ -338,13 +338,14 @@ local function test_every_containerised_job_drops_to_a_non_root_builder()
   end
 end
 
--- The release perf compare's exit status must actually reach the step:
--- it arrives through `| tee`, and a pipeline's status is tee's without
--- `pipefail`, so a one-token edit that drops it could turn the gate
--- back into a report without any other test noticing.
-local function test_the_release_perf_compare_propagates_its_verdict()
-  local path = WORKFLOWS .. "/release.yml"
-  local body = step_body(path, "compare against the previous release")
+-- The perf lane's compare exit status must actually reach the step: it
+-- arrives through `| tee`, and a pipeline's status is tee's without
+-- `pipefail`, so a one-token edit that drops it could turn the lane's
+-- one signal -- a red run on a reproduced regression -- into a quiet
+-- green without any other test noticing.
+local function test_the_perf_lane_compare_propagates_its_verdict()
+  local path = WORKFLOWS .. "/perf.yml"
+  local body = step_body(path, "compare against the latest release")
   assert(body:find("pipefail", 1, true),
     path .. ": the compare step must run under `pipefail` — the compare's " ..
     "status arrives through `| tee`, and a pipeline's status is tee's " ..
@@ -361,17 +362,17 @@ local function test_the_release_perf_compare_propagates_its_verdict()
     path .. ": the bootstrap path (no baseline yet) must still succeed")
 end
 
---- The release compare is only a compare if both sides run the SAME
---- instrument. Run the previous binary bare and it answers `_perf.*`
---- from its own embedded copy, so the baseline number describes the
---- previous release's scenarios rather than this tree's — and a
---- `_perf` signature change becomes unlandable in one PR. The step
---- must therefore measure the baseline through `_perf/baserun.tl`,
---- whose `--modules` root scopes the tree to `_perf` alone, and must
---- not carry the bare form beside it.
-local function test_the_release_baseline_runs_the_trees_perf()
-  local path = WORKFLOWS .. "/release.yml"
-  local body = step_body(path, "compare against the previous release")
+--- The perf lane's compare is only a compare if both sides run the SAME
+--- instrument. Run the release binary bare and it answers `_perf.*`
+--- from its own embedded copy, so the baseline number describes that
+--- release's scenarios rather than this tree's — and a `_perf`
+--- signature change becomes unlandable in one PR. The step must
+--- therefore measure the baseline through `_perf/baserun.tl`, whose
+--- `--modules` root scopes the tree to `_perf` alone, and must not
+--- carry the bare form beside it.
+local function test_the_perf_lane_baseline_runs_the_trees_perf()
+  local path = WORKFLOWS .. "/perf.yml"
+  local body = step_body(path, "compare against the latest release")
   assert(body:find("_perf/baserun.tl", 1, true),
     path .. ": the compare step must measure the baseline through " ..
     "`_perf/baserun.tl`, or the previous binary answers `_perf.*` from " ..
@@ -382,6 +383,26 @@ local function test_the_release_baseline_runs_the_trees_perf()
   assert(body:find("--baseline-bin", 1, true),
     path .. ": the gate still needs `--baseline-bin` so a flagged " ..
     "regression re-measures both sides")
+end
+
+-- The release publishes whatever the perf lane reads (D44): the compare
+-- lives in perf.yml and nothing in release.yml measures speed or
+-- branches on a perf verdict. A step that quietly reintroduced either
+-- would put the daily release back behind a noise-prone gate, so the
+-- absence is ratcheted by name.
+local function test_the_release_does_not_gate_on_perf()
+  local path = WORKFLOWS .. "/release.yml"
+  local body = job_body(path, "build")
+  for _, needle in ipairs({"_perf/gate.tl", "_perf/run.tl", "perf_gate",
+      "PERF_GATE", "selfcheck.json"}) do
+    assert(not body:find(needle, 1, true),
+      path .. ": the `build` job must not carry `" .. needle .. "` — the " ..
+      "perf compare runs in perf.yml and never gates a release")
+  end
+  local contents = check.must(fs.read(path))
+  assert(not contents:find("perf_gate", 1, true),
+    path .. ": no `perf_gate` dispatch input — there is no perf gate to " ..
+    "disable")
 end
 
 -- The peer table is measured by running the peer harness bare, so
@@ -417,6 +438,46 @@ local function test_the_peers_lane_measures_this_runs_own_binary()
   assert(build:find("name: cosmic-lua", 1, true),
     path .. ": the `build` job must upload the `cosmic-lua` artifact " ..
     "the `peers` job downloads, or the two lanes are not the one binary")
+end
+
+-- Every gate lane that runs `--make ci` as the non-root builder must do
+-- two things first, or the gate it runs cannot pass: strip the
+-- `includeIf.gitdir` credential entries actions/checkout leaves in
+-- `.git/config` (unreadable once root steps aside, and any git
+-- subprocess spawned later trips on them), and fetch cosmic-lua/work's
+-- `main` (`_build/doc_paths_test.tl`'s board check FAILS rather than
+-- skips when it is unreadable under `CI`, doc_paths_test.tl:268-282).
+-- Both landed in pr.yml's `ci` job together; release.yml's `build` job
+-- ran `--make ci` the same way for two releases without either,
+-- invisibly, because no gate here checked for them -- only a scheduled
+-- release run surfaced it. Derived over every job in every workflow,
+-- never listed, so a third `--make ci` lane inherits the rule instead
+-- of silently missing it.
+local function test_every_gate_lane_strips_includeif_and_fetches_the_work_ref()
+  local INCLUDEIF < const > = 'git config --local --remove-section "includeIf.gitdir:'
+  local WORK_FETCH < const > = "+refs/heads/main:refs/remotes/work/main"
+  local checked = 0
+  for _, path in ipairs(workflows()) do
+    for name in pairs(jobs_in(path)) do
+      local body = job_body(path, name)
+      if body:find("--make ci", 1, true) then
+        checked = checked + 1
+        assert(body:find(INCLUDEIF, 1, true),
+          path .. ": job '" .. name .. "' runs `--make ci` but never " ..
+          "strips the includeIf.gitdir credential entries first -- a " ..
+          "git subprocess under the gate (work_paths()'s own `git " ..
+          "ls-tree`) fails on the unreadable include once root steps " ..
+          "aside to the builder")
+        assert(body:find(WORK_FETCH, 1, true),
+          path .. ": job '" .. name .. "' runs `--make ci` but never " ..
+          "fetches cosmic-lua/work's main first -- _build/doc_paths_test.tl's " ..
+          "board check fails outright, rather than skipping, when " ..
+          "refs/remotes/work/main is unreadable under CI")
+      end
+    end
+  end
+  assert(checked >= 2,
+    "expected several lanes running `--make ci`, saw " .. checked)
 end
 
 print("all workflow ratchet tests passed")

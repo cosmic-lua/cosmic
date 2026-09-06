@@ -84,7 +84,7 @@ local function Example_find_iter()
   -- find_iter returns nil, err if the root cannot be opened; must
   -- passes the iterator and its closing guard through on success.
   for p in check.must(fs.find_iter(tmpdir, {glob = "*.txt"})) do
-    table.insert(names, fs.basename(check.must(p)))
+    table.insert(names, fs.basename(p))
   end
   table.sort(names)
   for _, n in ipairs(names) do

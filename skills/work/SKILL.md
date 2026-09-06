@@ -9,7 +9,9 @@ description: >
   item, pulling one to implement, reviewing a PR against its spec, or
   landing an accepted one. Invoked with a number (`/work 5`, typically
   under `/loop`), run one orchestrator pass: reconcile the last wave,
-  then fan out up to that many disjoint items.
+  then fan out up to that many disjoint items; with `--routine` after
+  the number, run unattended: terse output, no questions, and the
+  friction log friction.md describes recorded on the board.
 ---
 
 # The system of work for cosmic
@@ -23,19 +25,28 @@ older version of this skill: read the tool's pages.
 
 ## bootstrap
 
-ALL work state lives on the orphan `board` branch of
-cosmic-lua/cosmic, reached as a worktree of the checkout you already
-have; the branch carries its own machinery and builds its own tool:
+ALL work state lives in the repository cosmic-lua/work; the tool is
+a pinned release of that repository's own binary, obtained by the
+trust root `bin/gitboard` (`bin/gitboard.pin` names it), so nothing
+is built here. Some sessions (multi-repo remote sessions in
+particular) already carry a sibling clone of cosmic-lua/work — check
+for one before cloning a second copy into `o/board`:
 
 ```bash
-git worktree add o/board board        # once per checkout
-cd o/board && bin/cosmic --make build # once, on a cold worktree
+sibling="$(cd .. 2>/dev/null && cd work 2>/dev/null && pwd)"
+if [ -n "${sibling}" ] && git -C "${sibling}" remote get-url origin 2>/dev/null | grep -q cosmic-lua/work; then
+  export GITBOARD_DIR="${sibling}"          # reuse it, no clone needed
+else
+  git clone https://github.com/cosmic-lua/work o/board   # once per checkout
+fi
+bin/gitboard sync                                       # every session
 ```
 
-that build produces `o/bin/gitboard`. where a proxy re-terminates
-TLS, export `SSL_USE_SYSTEM_CERTS=1` in the session (never in a
-committed file), or the verbs that reach GitHub fail every call with
-`badcert_not_trusted`.
+without a sibling, `bin/gitboard` exports `GITBOARD_DIR=o/board` itself
+so every verb reads that clone; with one, the exported `GITBOARD_DIR`
+above overrides it. where a proxy re-terminates TLS, export
+`SSL_USE_SYSTEM_CERTS=1` in the session (never in a committed file), or
+the verbs that reach GitHub fail every call with `badcert_not_trusted`.
 
 ## then let the tool teach
 
@@ -43,10 +54,10 @@ start every session with `sync`. every verb ends with a
 `gitboard-<verb>:` verdict line — read that, never a piped exit
 status. `gitboard help` lists the verbs and the doctrine topics;
 `gitboard help <verb>` and `gitboard help <topic>` serve everything
-else. the decompose procedure — verification items, held roots — is
-`skills/work/decompose.md`. this file deliberately restates none of it — the doctrine
-ships with the tool, so a change to how the board is operated never
-needs an edit here.
+else. the decompose procedure — ranking outcomes, verification items,
+verified outcomes — is `skills/work/decompose.md`. this file
+deliberately restates none of it — the doctrine ships with the tool,
+so a change to how the board is operated never needs an edit here.
 
 ## /work N — the standing loop
 
@@ -56,3 +67,41 @@ orchestrate` describes, and end the pass. under `/loop` in dynamic
 mode a pass that moved nothing is a no-op tick; agents in flight
 notify on completion, so the wakeup is a long fallback, never a
 poll.
+
+## /work N --routine — the same pass, unattended
+
+with `--routine` the pass runs with nobody reading and nobody to
+ask, and it observes itself while it runs:
+
+- **terse.** no human is reading the chat. there are no progress
+  updates between actions, no narration, no summary of the doctrine,
+  no restating what the verdict lines already said; the only prose
+  the pass writes is one terse summary at its end: what moved, one
+  line per board action, and the friction log's handle. everything
+  else a reader might want is already on the board.
+- **no questions.** never ask; the tool that asks the user is not
+  used at all. a decision that belongs to the goal owner — a
+  comparison that would put new work above existing work, a wall a
+  spec cannot answer, a reject that reopens a decision — is not a
+  question here: file it as an item with the evidence, block what
+  waits on it, take the next thing, and let the ledger name it. the
+  bar and the doctrine already say what to do at every other fork;
+  `next` names the head, and `none` ends the pass.
+- **the friction log.** for the orchestrator and for every agent it
+  runs, each place where the goal and what actually happened
+  differed in a way that cost time, tokens, or quality, with the
+  numbers that size the cost, what made the difference, and the
+  countermeasure. the shape of an entry and the reasoning are
+  `skills/work/friction.md`; the steps are these, and a pass that
+  skipped one has not run:
+  1. open the log before the first board verb;
+  2. every spawned agent's prompt ends with the friction ask
+     (`friction.md`, "what the agent reports") — until `gitboard
+     brief` carries it, append it by hand, every time;
+  3. when an agent reports, run `cosmic _tool/friction.tl
+     <transcript>` on its `.output` file and write its section from
+     the numbers plus its own `## Friction` account — one section per
+     agent, none skipped, an agent with nothing to report still gets
+     its numbers;
+  4. file bar-passing countermeasures as items, then the whole log as
+     one unparented item to triage, and end the pass.

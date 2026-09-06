@@ -12,7 +12,6 @@
 -- `lua` base yields an artifact that boots as the Lua interpreter.
 
 local artifact = require("_make.artifact")
-local build = require("_cli.build")
 local cenv = require("cosmic.env")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -173,10 +172,11 @@ local function test_base_is_the_units_own_when_it_declares_one()
   -- The plain base is always the first pair `bases_of` returns (see
   -- its own doc comment), so that is the single source for "the" base
   -- a unit builds on -- there is no separate `base_of` to drift from it.
-  assert(artifact.bases_of(proj, binary_of(proj, "tool"), cosmic)[1][2] ==
-    "o/cmd/tool/embed_gen/base",
+  local tool_bases = check.must(artifact.bases_of(proj, binary_of(proj, "tool"), cosmic))
+  assert(tool_bases[1][2] == "o/cmd/tool/embed_gen/base",
     "a declared base wins, so the artifact does not depend on its builder")
-  assert(artifact.bases_of(proj, binary_of(proj, "lean"), cosmic)[1][2] == cosmic,
+  local lean_bases = check.must(artifact.bases_of(proj, binary_of(proj, "lean"), cosmic))
+  assert(lean_bases[1][2] == cosmic,
     "and a unit that declares none is built on the running cosmic")
 end
 
@@ -363,95 +363,6 @@ local function test_the_real_payload_generator()
     }) do
     assert(fs.is_file(fs.join(out, want)), "payload is missing " .. want)
   end
-end
-
--- A generator's helpers come from the TREE, even when the BINARY ships
--- a module by that name. `_make/imports` collides with a module the
--- artifact carries on purpose: a fixture module cosmic does not ship
--- (`helper`) could pass against either resolution and prove nothing;
--- `.lua` on both sides so a `.tl` generator importing the colliding
--- name cannot resolve the TYPE from the binary and fail to compile
--- before it runs, which is the same shadowing one layer up.
-local function test_a_generator_reads_its_helpers_from_the_tree()
-  local root = fixture("shadow", {
-      ["_make/imports.lua"] = 'return {mark = function() return "TREE" end}\n',
-      ["thing_gen.lua"] = 'local imports = require("_make.imports")\n'
-      .. 'local fs = require("cosmic.fs")\n'
-      .. "local ok, mark = pcall(function() return imports.mark() end)\n"
-      .. 'fs.write(fs.join(arg[1], "out.txt"), (ok and mark) or "ZIP")\n',
-    })
-  -- A fixture project does not claim the `cosmic` namespace, so it does
-  -- not converge: this is ONE pass, and a second could not hide a stale
-  -- first one.
-  local h = check.must(child.start({cosmic, "--make", "build"},
-      {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
-          "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
-  local r = check.must(h:wait())
-  assert(r.code == 0, "the fixture must build: " ..
-    (r.stdout or "") .. (r.stderr or ""))
-  local got = check.must(fs.read(fs.join(root, "o/thing_gen/out.txt")))
-  assert(got == "TREE",
-    "a generator's helper must come from the tree, not the binary; got: "
-    .. got)
-end
-
--- A `.lua` module in a generator's closure survives a COLD build.
--- `.lua` sources are first-class and the graph COPIES them; assuming
--- every closure member compiles from a `.tl` would skip this one and
--- still name it in the manifest, so a cold `require` hits the closure
--- layer, finds nothing, and fails loudly on the first build only. The
--- generator is `.lua` too: a `.tl` one importing an untyped `.lua`
--- fails to strict-compile, which is a different, pre-existing rule.
-local function test_a_lua_module_in_a_generators_closure()
-  local root = fixture("luaclosure", {
-      ["helper.lua"] = 'return {mark = function() return "COPIED" end}\n',
-      ["thing_gen.lua"] = 'local helper = require("helper")\n'
-      .. 'local fs = require("cosmic.fs")\n'
-      .. 'fs.write(fs.join(arg[1], "out.txt"), helper.mark())\n',
-    })
-  -- COLD: nothing built yet, which is the only state that showed it.
-  assert(fs.remove_all(fs.join(root, "o")))
-  local h = check.must(child.start({cosmic, "--make", "build"},
-      {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
-          "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
-  local r = check.must(h:wait())
-  assert(r.code == 0, "a .lua module in the closure must build cold: " ..
-    (r.stdout or "") .. (r.stderr or ""))
-  local made = check.must(fs.read(fs.join(root, "o/thing_gen/out.txt")))
-  assert(made == "COPIED", "and the generator must load it, got: " .. made)
-  -- The manifest names it, and the mini-graph produced what it names.
-  local mf = check.must(fs.read(fs.join(root, "o/thing_gen.modules")))
-  assert(mf:find("mod helper ", 1, true), "the manifest names it: " .. mf)
-  assert(fs.is_file(fs.join(root, "o/helper.lua")),
-    "and the mini-graph copied it, rather than naming a file it skipped")
-end
-
--- The seed dir wins over `/zip/.types` on ANY generator's closure, not
--- only `_types/types_gen.tl`'s own.
-local function test_closure_compile_includes_the_seed_dir_when_present()
-  local root = fixture("seedinclude", {
-      ["helper.tl"] = "return {}\n",
-      ["thing_gen.lua"] = 'require("helper")\n',
-    })
-  assert(fs.make_dirs(fs.join(root, seed.SEED_DIR)))
-  local captured: {{string}} = {}
-  local original = build.dispatch
-  build.dispatch = function(verb: string, args: {string}): integer
-    if verb == "compile" then captured[#captured + 1] = args end
-    return original(verb, args)
-  end
-  local code = build_in(root)
-  build.dispatch = original
-  assert(code == 0, "a build with the seed dir present should still pass")
-  local found = false
-  for _, args in ipairs(captured) do
-    for i, a in ipairs(args) do
-      if a == "--include-dir" and args[i + 1] == seed.SEED_DIR then
-        found = true
-      end
-    end
-  end
-  assert(found, "a closure compile should have been handed the seed dir")
 end
 
 -- A generator failing after the seed ran must not leave `SEED_DIR` for

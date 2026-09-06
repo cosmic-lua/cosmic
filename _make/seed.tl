@@ -17,6 +17,23 @@
 --- the running binary's own helpers -- exactly the fallback
 --- `closure_argv`'s doc already describes, taken once, deliberately,
 --- so the real closure compile that follows never has to.
+---
+--- The RUNNING binary here is `bin/cosmic.pin`'s trust root, not the
+--- tree's own build -- a fresh load of its Teal engine inside that
+--- process resolves to ITS embedded copy, not the tree's source, so a
+--- tree-side default-include-dirs change cannot teach the running
+--- binary a new path; only what its ALREADY-COMPILED code already
+--- reads (an explicit CLI flag, an env var, or a hardcoded default
+--- like `o/_types/types_gen` itself) can. That default is also the
+--- ONLY path the interpreted searcher's own on-demand compile of an
+--- arbitrary module -- `_cli/main_handlers.tl` (main.lua's own
+--- unconditional require), or any `cosmic/*.tl` a generator's run
+--- happens to reach -- ever consults; those never receive the
+--- `--include-dir` flags `closure_argv` attaches to a generator
+--- SCRIPT's own compile step. So `run` below promotes the seed
+--- straight into `o/_types/types_gen` once it succeeds, atomically,
+--- rather than leaving it at a separate directory nothing but the one
+--- explicit flag ever finds.
 local child = require("cosmic.child")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
@@ -30,12 +47,20 @@ local type Project = types.Project
 --- fixture that owns no such file is untouched.
 local TYPES_GEN < const > = "_types/types_gen.tl"
 
---- Where the seed pass writes, relative to the project root. Separate
---- from `TYPES_GEN`'s own owned directory (`o/_types/types_gen`, which
---- `run_generator` clears and rewrites on the real run) so a seed
---- failure can never corrupt or partially populate the directory the
---- graph, the stamp digest, and `cmd/cosmic/embed_gen.tl` all read.
+--- Where the seed pass stages its output before promoting it into
+--- `TYPES_GEN`'s own owned directory (`o/_types/types_gen`, which
+--- `run_generator` clears and rewrites on the real run), relative to
+--- the project root. Staged here first, separately, so a seed failure
+--- can never corrupt or partially populate `o/_types/types_gen` itself
+--- -- `run` only promotes a COMPLETE staged directory, atomically.
 local SEED_DIR < const > = "o/_types/types_seed"
+
+--- Where `run` promotes a successful seed to -- the same directory
+--- `TYPES_GEN`'s real run owns, and the one path every project's
+--- compile include list (`_teal_engine.default_include_dirs`)
+--- hardcodes. Named apart from `TYPES_GEN` (the generator's source
+--- path) for readability at each call site below.
+local TYPES_GEN_DIR < const > = "o/_types/types_gen"
 
 --- Whether `proj` needs a seed pass before its generators' closures
 --- compile.
@@ -66,7 +91,7 @@ local function should_seed(proj: Project): boolean
   if not has_gen then
     return false
   end
-  if not fs.is_present(fs.join(proj.root, "o/_types/types_gen")) then
+  if not fs.is_present(fs.join(proj.root, TYPES_GEN_DIR)) then
     return true
   end
   return fs.is_present(fs.join(proj.root, SEED_DIR))
@@ -82,6 +107,16 @@ end
 --- would with no closure computed at all -- the fallback `closure_argv`
 --- already takes when `o/_types/types_gen` is absent, here taken on
 --- purpose before that closure compile runs at all.
+---
+--- On success, promotes the staged output into `TYPES_GEN_DIR` itself
+--- with one `fs.move` -- an atomic same-filesystem rename, not a copy
+--- -- so every consumer of the hardcoded default (the interpreted
+--- searcher's on-demand compiles included, never just the one
+--- generator-script compile `closure_argv` flags explicitly) sees the
+--- seed at the one path they all already know. `should_seed` above
+--- only ever calls `run` when `TYPES_GEN_DIR` is absent (or a prior
+--- run's `SEED_DIR` was left dangling), so there is never a real
+--- directory here for the rename to clobber.
 --- @param proj Project The scanned project
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return boolean, string Success, or false plus the reason
@@ -112,6 +147,12 @@ local function run(proj: Project, cosmic: string): boolean, string
   if not r.ok then
     return false, "make: seed failed: " .. TYPES_GEN .. " failed"
   end
+  local gen_at = fs.join(proj.root, TYPES_GEN_DIR)
+  local promoted, perr = fs.move(at, gen_at)
+  if not promoted then
+    return false, "make: seed failed: cannot promote " .. SEED_DIR .. " to " ..
+    TYPES_GEN_DIR .. ": " .. (perr or "unknown error")
+  end
   return true
 end
 
@@ -132,6 +173,7 @@ end
 
 local record SeedModule
   SEED_DIR: string
+  TYPES_GEN_DIR: string
   should_seed: function(proj: Project): boolean
   run: function(proj: Project, cosmic: string): boolean, string
   cleanup: function(): boolean, string
@@ -139,6 +181,7 @@ end
 
 local M: SeedModule = {
   SEED_DIR = SEED_DIR,
+  TYPES_GEN_DIR = TYPES_GEN_DIR,
   should_seed = should_seed,
   run = run,
   cleanup = cleanup,

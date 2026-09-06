@@ -148,8 +148,8 @@ cover every accepted form. The caller has guarded; the declaration has
 not.
 
 ```text
--- cosmic/time.tl:132
-    return nil, errno.format(mon as string, "gmtime") -- cast: tuple element
+-- cosmic/fetch/init.tl:241
+      status = status as integer, -- cast: dual-shape binding return
 ```
 
 **What closes it upstream.** These declarations are generated from
@@ -198,48 +198,68 @@ reader implements the delimiter capability, whether a module predates a
 function.
 
 ```text
--- cosmic/stream.tl:237
+-- cosmic/stream.tl:253
   local dr = r as stream.DelimReader -- cast: duck-typed capability probe
 ```
 
 **Why it is a floor.** The question is unanswerable at check time by
 construction: a type says what a value is in the tree being checked,
 and the probe exists because the value may come from a different tree.
-Each probed shape needs one cast to name what it found — five today.
+Each probed shape needs one cast to name what it found — six today.
 
 ### metatable access
 
 `getmetatable` and `debug.getmetatable` return `any` by definition, so
 an identity compare against a known metatable, or a read of a
-metamethod off one, costs a cast at every site. The `__close` tests use
-the second form; the sqlite blob check uses the first.
+metamethod off one, used to cost a cast at every site. Nine of the ten
+sites closed without any residual cast: an identity compare needs none
+once one side of the `==` is explicitly typed `any` (the pattern
+`cosmic/json.tl`'s `array_marker: any` already established), and a
+metamethod read needs none once `is {string: any}` and
+`is function(any, any)` narrow the lookup instead of casting it —
+`cosmic.check.metamethod` is that narrowing, shared by the two
+`__close` probes; `cosmic/sqlite/bind.tl`'s own `is_metatable` local
+covers its two call sites the same way.
+
+One site does not fit either shape and stays a cast: it never calls
+`getmetatable` at all. `_types/tlast.tl` passes `tl`'s own type
+metatable, read off the carried patch surface, into a parameter typed
+`{any: any}` — no comparison, no metamethod, just a value handed to a
+function that wants a table instead of `any`.
 
 ```text
--- cosmic/sqlite/bind.tl:40
-  return getmetatable(v) == blob_mt as any -- cast: metatable identity compare
+-- _types/tlast.tl:350
+    hooks.type_mt as {any: any}) -- cast: metatable as plain table identity
 ```
 
 **Why it is a floor.** A metatable is a table whose type is whatever
 its owner made it; Lua's contract for `getmetatable` returns a value of
 no particular type, and a typed wrapper would assert the same thing one
-level down. Two helpers — identity compare and metamethod fetch.
+level down. The class is closed but for the one site above, which is a
+different shape wearing this class's tag; `docs/design/cast-sites.tsv`
+still carries it here pending re-triage.
 
 ### function shape
 
 An overloaded binding declared as a union of signatures, with one arm
-selected by casting the function before calling it. The unix socket
-calls are the pure case: `bind` and `connect` take either a sockaddr or
-a filesystem path, and one declaration covers both.
+selected by casting the function before calling it. The class is down
+to four sites, all in the unix socket/connect family: `bind` and
+`connect` take either a sockaddr or a filesystem path, and the
+generated type keeps only one of the two success shapes.
 
 ```text
 -- cosmic/net/socket.tl:334
     local ok, err = (unix.bind as function(number, string): (boolean, string))(fd, path)
 ```
 
-**What closes it upstream.** `tool/net/definitions.lua` declares one
-function per C entry point, so an overload is one annotation covering
-two contracts. Splitting the overloaded entries into separately
-annotated names removes the cast at every call site.
+**What closes it upstream.** `tool/net/definitions.lua` annotates both
+success shapes, but the generator that turns those annotations into
+`cosmo.d.tl` keeps only one overload arm per binding and drops the
+other, so the dropped shape never reaches the generated type and a
+caller reaching for it has to cast. That generator gap is
+`gentype-overloads`, tracked as its own item — splitting the
+overloaded entries so every annotated arm survives generation removes
+the cast at each remaining call site.
 
 ### container variance
 
@@ -249,7 +269,7 @@ type, an element enum where the element is `string`, a bare `table`
 narrowed to a shape. Teal's containers are invariant.
 
 ```text
--- cosmic/sqlite/bind.tl:120
+-- cosmic/sqlite/bind.tl:132
   local list = params as {any} -- cast: array-part probe of the params table
 ```
 
@@ -257,40 +277,6 @@ narrowed to a shape. Teal's containers are invariant.
 rule: `{Promise}` where `{string}` is wanted, and `{string: Rule}`
 where `{string: any}` is wanted, are sound everywhere this tree uses
 them. The bare-`table` sites are the exception and want a union.
-
-### numeric narrowing
-
-A value the code has established is an integer, declared `number`:
-digits just parsed by `tonumber` with an explicit base, a computation
-bounded above and below, a value a `math.type` check has already
-sorted, or a tl API field reporting a line or column.
-
-```text
--- cosmic/fs/octal.tl:23
-  return tonumber(digits, 8) as integer -- cast: octal digits parse integral
-```
-
-**What closes it upstream.** `math.type(x) == "integer"` is a guard the
-checker could narrow on, exactly as it narrows a nil union, and
-`tonumber(s, base)` over a digit string is integral by Lua's contract.
-Both are checker rules, so both land in the patch or upstream in tl.
-
-### dynamic name lookup
-
-A table indexed by a name computed at runtime, where the declared type
-cannot say what any single name maps to: a verb registry keyed by verb
-name, a `package.searchers` slot, a module fetched through an
-indirection that defeats static resolution.
-
-```text
--- _make/init.tl:143
-  local v = by_name("build") as Verb -- cast: the registry defines it
-```
-
-**What closes it here.** The registry is this tree's own data. A
-`by_name` returning `Verb | nil` closes seven of these outright, and
-the guard that follows is one the checker already narrows. The searcher
-slot wants a declared record and nothing more.
 
 ### generic T
 
@@ -326,23 +312,6 @@ narrow record is the module's real contract written on the wrong side
 of the seam. Declaring it in the module's own source and returning it
 typed makes the plain `require` resolve to that type.
 
-### decoded data shaping
-
-A value that came out of `literal.parse`, a decoded config or a parsed
-baseline, then read field by field or narrowed into a declared record.
-The outermost table is typed by the decoder; everything under it is
-`any`, so each field read costs its own cast.
-
-```text
--- _tool/coverage/baseline.tl:138
-  return {covered = covered as integer, total = total as integer} -- cast: math.type checked above
-```
-
-**What closes it here.** `cosmic.shape` already validates a value
-against a declared spec and returns it typed, which is the
-decode-into-a-record step these sites hand-roll. Routing the baseline
-and pin readers through it replaces the field-wise casts with one call.
-
 ### record union after guard
 
 A union re-typed after a guard the checker does not carry to the use:
@@ -376,12 +345,18 @@ table built up over several statements.
 which the checker verifies field by field: the module tables and the
 response constructor have every value in scope already; the row
 iterator declares its field set up front, with the metatable's closures
-assigned after. `merge`'s accumulator is the one holdout — it walks an
+assigned after. Two holdouts remain. `merge`'s accumulator walks an
 unknown key set at runtime (an unrecognized key merges as a scalar, by
 design), so its shape is never known at a single assignment the way the
-others' is. That is a floor, not a gap this pass left open. When the
-cast bridges two same-shaped declarations, the fix is the alias, not
-the literal.
+others' is. `cosmic/fetch/init.tl`'s `make_response(t as Response)` call
+is the other: `t` arrives through `cosmic/fetch/extras.tl`'s `wrap`
+callback parameter (`function(any): any`), typed `any` on purpose so
+`cosmic/fetch/init.tl` (which owns `Response`) and
+`cosmic/fetch/extras.tl` (which must stay generic) don't need a
+circular import — the record it satisfies is asserted at that seam,
+not built inside the function that casts it. That is a floor, not a
+gap this pass left open. When the cast bridges two same-shaped
+declarations, the fix is the alias, not the literal.
 
 ### pcall return shape
 
@@ -425,14 +400,25 @@ parameter it declared `any` at a module seam — re-typed to
 modules can pass a value without a circular type dependency.
 
 ```text
--- cosmic/coverage/init.tl:92
-  local co = coroutine as {string: any} -- cast: patch stdlib table
+-- cosmic/check.tl:171
+  local surface = module as {string: any}
 ```
 
-**What closes it here.** Declaring the type is the whole fix, and the
-type is knowable in every case: a narrow record for the two stdlib
-functions the coverage hook swaps, the walker taking the record it
-walks, and the response callback declaring the map it accepts.
+**What closes it here.** Declaring the type closes four of these five:
+direct reassignment to `coroutine.create`/`coroutine.wrap`/`os.exit` in
+the coverage hook, checked against the fields' own already-declared
+types with no cast and no new record, and the module surface
+`check.swap_members` and `with_mock_capabilities` probe to assign a
+replacement through a computed key. The fifth,
+`merge_section`'s walk in `cosmic/quicksand/box/merge.tl`, is a floor
+exception, not a fourth pattern that closes it: it walks an unknown key
+set at runtime (an unrecognized key merges as a scalar, by design), so
+the record it walks cannot be taken directly — Teal refuses `pairs`
+over a record whose fields differ in type, and refuses discriminating
+a map keyed by the field union just as it refuses the record itself,
+so the walker never sees a type narrower than `{string: any}`. The
+next cast in that same function is the same floor site under
+"incremental record construction" below.
 
 ## The floor
 

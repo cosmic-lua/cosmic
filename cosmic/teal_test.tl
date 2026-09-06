@@ -183,7 +183,7 @@ print(use({mid = {}}))
   assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
     "wrong error: " .. msg)
   assert(hint:find("do not narrow", 1, true), "wrong hint: " .. hint)
-  assert(hint:find("guide.checking", 1, true), "wrong hint: " .. hint)
+  assert(hint:find("section record-fields-dont-narrow", 1, true), "wrong hint: " .. hint)
 end
 
 local function test_hint_for_loop_nil_union_iterator()
@@ -478,4 +478,31 @@ local function test_no_hint_for_plain_errors()
     "plain error should have no hint")
   assert(teal.hint_for_message("syntax error, expected 'end'") == nil,
     "syntax error should have no hint")
+end
+
+-- The carried tl patch's other canary (3p/tl/tl_patch/narrow.tl,
+-- narrow-pcall-zero-return): a zero-return-arity callee (e.g.
+-- unix.Memory:write) types `pcall(f, ...)` as a bare `boolean` under
+-- the unpatched checker, so `local ok, err = pcall(f, ...)` fails to
+-- compile even though it is this codebase's ordinary failure shape.
+-- A tl pin bump without the patch, or a drifted anchor, fails HERE.
+local function test_pcall_zero_return_canary()
+  local path = fs.join(tmpdir, "pcall_zero_ok.tl")
+  assert(fs.write(path, [[
+local function noisy(x: integer)
+  if x < 0 then error("negative") end
+end
+local function use(x: integer): boolean
+  local ok, err = pcall(noisy, x)
+  if not ok then
+    print(err)
+    return false
+  end
+  return true
+end
+print(use(1))
+]]))
+  local result = teal.check_file(path)
+  assert(result.ok, "pcall on a zero-return callee must compile: "
+    .. (result.ok and "" or teal.format_issues(result.errors)))
 end

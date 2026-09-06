@@ -23,13 +23,13 @@ local type Project = types.Project
 --- project unbuildable offline.
 local KEEP < const >: {string: boolean} = {bootstrap = true}
 
---- Is `path` the root of a git worktree? A worktree root carries a
+--- Is `path` the root of a git checkout? A checkout root carries a
 --- `.git` entry directly inside it -- a FILE (`gitdir: <path>`) for a
---- linked worktree, a DIRECTORY for the main checkout -- so a bare
---- filesystem check is enough; no `git` invocation, no registry read.
---- `skills/work/SKILL.md` and the board branch's README both have
---- callers run `git worktree add o/board board`, so a live board
---- worktree can sit directly under `o/` and must survive a clean.
+--- linked worktree, a DIRECTORY for a plain clone or the main checkout
+--- -- so a bare filesystem check is enough; no `git` invocation, no
+--- registry read. `skills/work/SKILL.md` has callers run `git clone
+--- https://github.com/cosmic-lua/work o/board`, so a live board clone
+--- can sit directly under `o/` and must survive a clean.
 --- @param path string A direct child of the build directory
 --- @return boolean True when path/.git is present
 local function is_worktree_root(path: string): boolean

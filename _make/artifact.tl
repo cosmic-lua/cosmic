@@ -222,24 +222,15 @@ local function generated_payload(root: string, unit: string, out: {Staged})
 end
 
 --- The name a unit's output directory gives the runtime its artifact is
---- built ON, as opposed to what it carries.
+--- built ON, as opposed to what it carries: `o/<unit>/embed_gen/base`
+--- next to `o/<unit>/embed_gen/embed/**`. The directory is the
+--- generator's, so the engine clears it whole between runs (see
+--- `gen_dir`), which stops a base outliving the payload it matched.
 ---
---- Two names in one directory, and the whole convention:
----
----   o/<unit>/embed_gen/embed/**   what the artifact carries
----   o/<unit>/embed_gen/base       what it carries it on
----
---- The directory is the generator's, not the unit's, so the engine
---- clears it whole between runs (see `gen_dir`) — which is what stops a
---- base outliving the payload it matched.
----
---- Without the second one, `build` has exactly one base available —
---- the cosmic that is running it — and that is wrong in the case this
---- build system most has to get right. Stripping a base removes its zip
---- entries but not their bytes, so a cosmic built on a cosmic built on a
---- cosmic grows by its own payload every generation and the fixpoint
---- converges on nothing. A project that pins a runtime can say so, and
---- its artifact is the same size whichever binary built it.
+--- Without it, `build` falls back to the cosmic running it (see
+--- `bases_of` for what that resolves to) -- stripping a base removes
+--- zip entries but not their bytes, so a cosmic built on a cosmic grows
+--- every generation and the fixpoint never converges.
 local BASE_NAME < const > = "base"
 
 --- The first stored-path collision in a sorted plan, if there is one.
@@ -361,37 +352,41 @@ end
 
 --- Every runtime this unit ships its payload on.
 ---
---- A unit that produced `o/<unit>/embed_gen/base` names its own —
---- cosmic's own generator copies the `lua` out of the pinned cosmos
---- zip, so a cosmic built by any cosmic is built on the runtime the
---- project pinned rather than on whichever binary happened to run the
---- build. Everything else falls back to the running cosmic, which is
---- the right answer for a project that pins nothing: their artifact is
---- a cosmic with their code in it.
+--- A unit that produced `o/<unit>/embed_gen/base` names its own --
+--- cosmic's own generator copies `lua` from the pinned cosmos zip, so a
+--- cosmic built by any cosmic builds on the pinned runtime. Everything
+--- else falls back to the RUNNING cosmic, except `bin/cosmic`
+--- assimilates its download to a native ELF before saving it as the
+--- bootstrap -- so the fallback prefers the pristine `<cosmic>.ape`
+--- sibling it keeps (trusted only alongside its `<cosmic>.pin` stamp),
+--- falls back to `cosmic` itself when still `MZ` at byte 0, and
+--- otherwise REFUSES rather than ship an ELF as a fat binary.
 ---
 --- A unit that also writes `base-<variant>` beside `base` gets a
---- second artifact, `o/bin/<name>-<variant>`, carrying the SAME
---- payload on a different runtime. That is what a debug build is —
---- cosmic ships `cosmic` and `cosmic-debug` off one payload and two
---- cosmos runtimes — and expressing it as another file in the
---- directory the convention already reads keeps it out of the model:
---- no variant field, no second `cmd/` unit whose generator has to be
---- kept in step with the first.
+--- second artifact, `o/bin/<name>-<variant>`, on that runtime -- how
+--- cosmic ships `cosmic` and `cosmic-debug` off one payload.
 ---
---- The plain `base` comes first, so the unnamed artifact is the one a
---- project without variants gets and the one every other verb means —
---- `result[1][2]` is "the" base a unit builds on, with no separate
---- single-base accessor to drift from it.
+--- The plain `base` comes first: `result[1][2]` is "the" base, with no
+--- separate single-base accessor to drift from it.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact being built
 --- @param cosmic string Absolute path to the running cosmic
---- @return {{string, string}} Output suffix paired with base path
+--- @return {{string, string}}|nil Suffix/base pairs, nil when untrustworthy
+--- @return string The refusal, set only when the first return is nil
 local function bases_of(proj: Project, binary: Binary,
-    cosmic: string): {{string, string}}
+    cosmic: string): {{string, string}} | nil, string
   local dir = gen_dir(binary.dir)
   local base = fs.join(dir, BASE_NAME)
   if not fs.is_file(fs.join(proj.root, base)) then
-    return {{"", cosmic}}
+    local sibling = cosmic .. ".ape"
+    if fs.is_file(sibling) and fs.is_file(cosmic .. ".pin") then
+      return {{"", sibling}}
+    end
+    if (fs.read(cosmic) or ""):sub(1, 2) == "MZ" then
+      return {{"", cosmic}}
+    end
+    return nil, "make: " .. cosmic .. " is an assimilated bootstrap; run the " ..
+    "published release, or declare this unit's own base via embed_gen.tl"
   end
   local out: {{string, string}} = {{"", base}}
   -- One level, not a walk: `embed/` is right there and is the payload.
@@ -440,7 +435,8 @@ end
 --- @return string|nil The artifact path, or nil on failure
 --- @return string The error message
 local function build(proj: Project, binary: Binary, cosmic: string): string | nil, string
-  local bases = bases_of(proj, binary, cosmic)
+  local bases, berr = bases_of(proj, binary, cosmic)
+  if not bases then return nil, berr end
   local dir, serr = stage(proj, binary, fs.join(proj.root, bases[1][2]))
   if not dir then
     return nil, serr or "make: staging failed"
@@ -479,7 +475,8 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
 end
 
 local record ArtifactModule
-  bases_of: function(proj: Project, binary: Binary, cosmic: string): {{string, string}}
+  bases_of: function(proj: Project, binary: Binary,
+  cosmic: string): {{string, string}} | nil, string
   scope_of: function(proj: Project, binary: Binary): {File}
   plan: function(proj: Project, binary: Binary): {Staged}
   stage: function(proj: Project, binary: Binary,

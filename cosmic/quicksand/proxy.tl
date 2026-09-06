@@ -73,7 +73,7 @@ local function handle_stop(self: ProxyHandle, timeout_ms?: integer): boolean
   local deadline = now_ms() + timeout_ms
   while true do
     local gone = unix.wait(pid, unix.WNOHANG)
-    if gone == pid then
+    if gone and gone.pid == pid then
       self.pid = 0
       return true
     end
@@ -93,7 +93,7 @@ end
 local function handle_alive(self: ProxyHandle): boolean
   if self.pid == 0 then return false end
   local gone = unix.wait(self.pid, unix.WNOHANG)
-  if gone == self.pid then
+  if gone and gone.pid == self.pid then
     self.pid = 0
     return false
   end
@@ -114,10 +114,10 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
   -- cast: widen rule map for validator
   local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
   if not vok then return nil, verr end
-  local r, w = unix.pipe()
-  if not r then return nil, errno.format(w, "pipe") end
-  local rfd = r
-  local wfd = w
+  local p, perr = unix.pipe()
+  if not p then return nil, errno.format(perr, "pipe") end
+  local rfd = p.reader
+  local wfd = p.writer
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)
@@ -133,27 +133,18 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
       unix.close(wfd)
       io.stderr:write("proxy.start: " .. tostring(nerr) .. "\n")
       unix.exit(1) -- exits: forked child; setup failure is on the pipe
+      return nil, tostring(nerr) -- unreachable: narrows srv past unix.exit, which the checker can't see is terminal
     end
-    -- A guard narrows a nil union only when its block RETURNS; this one
-    -- ends in unix.exit, which the checker cannot see is terminal, so
-    -- srv stays `Server | nil` below. Reach the methods through a map
-    -- view at the proven non-nil use site.
-    local server = srv as {string: any} -- cast: record union after guard
-    -- cast: function shape from map view
-    local listen_fn = server.listen as function(): (integer | nil, string)
-    local port_fn = server.port as function(): integer -- cast: function shape
-    -- cast: function shape
-    local serve_fn = server.serve_forever as function(): (boolean, string)
-    local fd, lerr = listen_fn()
+    local fd, lerr = srv.listen()
     if not fd then
       unix.write(wfd, string.pack("<i4", -1))
       unix.close(wfd)
       io.stderr:write("proxy.start: listen: " .. tostring(lerr) .. "\n")
       unix.exit(1) -- exits: forked child; the listen error is on the pipe
     end
-    unix.write(wfd, string.pack("<i4", port_fn()))
+    unix.write(wfd, string.pack("<i4", srv.port()))
     unix.close(wfd)
-    local sok, serr = serve_fn()
+    local sok, serr = srv.serve_forever()
     if not sok then
       io.stderr:write("proxy.serve: " .. tostring(serr) .. "\n")
       unix.exit(1) -- exits: forked child; the serve error went to stderr

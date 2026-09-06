@@ -73,8 +73,10 @@ local function staged(name: string): string
   return root
 end
 
---- `cosmic --make <verb>` inside a fixture.
-local function make(dir: string, verb: string): integer, string
+--- `cosmic --make <verb>` inside a fixture, under `runner` when given
+--- (a different `cosmic` than the one driving this test file), else
+--- under TEST_BIN's own.
+local function make(dir: string, verb: string, runner?: string): integer, string
   local env: {string} = {
     "PATH=" .. (os.getenv("PATH") or ""),
     "COSMIC_MAKE=" .. make_bin,
@@ -82,7 +84,7 @@ local function make(dir: string, verb: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(child.start({cosmic, "--make", verb}, {cwd = dir, env = env}))
+  local h = check.must(child.start({runner or cosmic, "--make", verb}, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -122,6 +124,46 @@ end
 
 -- The smallest project that is a project.
 fixture("hello", {hello = "hello from hello"})
+
+-- A fresh clone's FIRST build runs under an ASSIMILATED bootstrap, not
+-- under a tree binary of its own: `bin/cosmic` trades the fat APE's
+-- portable header for a native ELF one so the sandbox can exec it
+-- without the loader, so a build that fell back onto that ELF directly
+-- shipped a host-only binary wearing a fat one's name. `hello` declares
+-- no base of its own, so it is exactly the project this fix is for.
+--
+-- Simulated rather than run against the real pinned bootstrap: that
+-- binary is a frozen release carrying whatever `_make/artifact.tl`
+-- shipped the day it was cut, not this tree's own fix. Assimilating a
+-- COPY of TEST_BIN's own cosmic reshapes it exactly the way
+-- `bin/cosmic` does -- same embedded engine, an ELF header instead of
+-- an MZ one -- with a pristine sibling and stamp beside it, the way a
+-- real bootstrap keeps one.
+local function test_hello_is_fat_when_built_under_an_assimilated_copy()
+  local sim_elf = fs.join(tmpdir, "simboot", "cosmic")
+  assert(fs.remove_all(fs.dirname(sim_elf)))
+  assert(fs.make_dirs(fs.dirname(sim_elf)))
+  assert(fs.copy(cosmic, sim_elf .. ".ape"))
+  assert(fs.copy(cosmic, sim_elf))
+  assert(fs.write(sim_elf .. ".pin", "test\n"))
+  -- Through `/bin/sh`, like `bin/cosmic` itself: cosmic-lua's own exec
+  -- path recognizes an APE payload directly and never reaches the
+  -- shell-script trampoline `--assimilate` lives in, so asking THIS
+  -- process to spawn it would silently no-op the rewrite.
+  local h = check.must(child.start({"/bin/sh", "-c", sim_elf .. " --assimilate"}))
+  local r = check.must(h:wait())
+  assert((r.code or 128) == 0, "assimilate should succeed: " .. (r.stderr or ""))
+  local reshaped = check.must(fs.read(sim_elf))
+  assert(reshaped:sub(1, 2) ~= "MZ", "the copy should now be a native image")
+
+  local root = staged("hello")
+  local code, out = make(root, "build", sim_elf)
+  assert(code == 0, "build under the assimilated copy should pass:\n" .. out)
+  local built = check.must(fs.read(fs.join(root, "o/bin/hello")))
+  assert(built:sub(1, 2) == "MZ",
+    "the artifact should be the fat APE base, not the assimilated " ..
+    "copy's own shape, got: " .. built:sub(1, 4))
+end
 
 -- A runner-mode *_test.tl, checked from a tree that has never built:
 -- `fixture` runs `--make check` before anything has a chance to build
@@ -246,6 +288,20 @@ local function test_benchmark_runs_against_the_stage()
   local mk = check.must(fs.read(fs.join(root, "o/project.mk")))
   assert(mk:find("deps_greet/greet_benchmark := o/greet/init.lua", 1, true),
     "a benchmark gets the built closure of what it imports, got:\n" .. mk)
+end
+
+-- A downstream project with an `_cli/**` test but no `cmd/cosmic`: the
+-- unguarded site gave every such test `o/bin/cosmic` as a plain make
+-- prerequisite, and nothing in this project produces it -- make refused
+-- with "No rule to make target 'o/_cli/foo_test.tl.test.got', needed by
+-- 'o/test-summary.txt'.  Stop." `_make/graph.tl`'s guard
+-- (`project.has_binary`) is what lets `--make test` reach here.
+fixture("tooling", {app = "hello from tooling"})
+
+local function test_engine_shaped_test_runs_without_a_cosmic_binary()
+  local root = staged("tooling")
+  local code, out = make(root, "test")
+  assert(code == 0, out)
 end
 
 print("all fixture tests passed")

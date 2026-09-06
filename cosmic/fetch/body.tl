@@ -16,7 +16,7 @@ local record Body is stream_mod.Reader
   --- Close the reader; boolean, string like every stdlib close.
   close: function(self: Body): boolean, string
   closed: function(self: Body): boolean
-  lines: function(self: Body): function(): string | nil, string
+  lines: function(self: Body): stream_mod.LineIter
 end
 
 --- Create a Body wrapping a raw stream reader.
@@ -128,13 +128,14 @@ local function make_body(raw_reader: cosmo.StreamReader): Body
 
   --- Return an iterator that yields complete lines.
   --- Buffers partial lines across chunks until a newline is received.
-  --- On clean EOF a final unterminated line is yielded, then nil. On a
-  --- read error (reset, truncation, TLS failure) the iterator yields
-  --- nil plus the error message once — the buffered partial line is
-  --- truncated data and is discarded — then plain nil forever.
+  --- On clean EOF a final unterminated line is yielded, then the loop
+  --- ends. On a read error (reset, truncation, TLS failure) — the
+  --- buffered partial line is truncated data and is discarded —
+  --- iteration ends there too, and `it:err()` reads the terminating
+  --- message afterward, never by calling the iterator again.
   --- The algorithm lives in cosmic.stream.lines; this delegates.
-  --- @return function iterator yielding lines without trailing newline
-  function body:lines(): function(): string | nil, string
+  --- @return LineIter iterator yielding lines without trailing newline
+  function body:lines(): stream_mod.LineIter
     return stream_mod.lines(self)
   end
 

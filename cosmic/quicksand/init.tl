@@ -70,7 +70,7 @@ local function probe(fn: any): boolean
   -- A varargs return, because this probe is handed an ARBITRARY
   -- binding: it reads slot 1 and the numeric errno, and has no business
   -- declaring how many slots some other binding returns.
-  local call = fn as function(any, any): any ... -- cast: function shape
+  local call = fn as function(any, any): any ... -- cast: runtime capability probe: fn is any, an arbitrary binding
   local ok, _, eno = call(nil, nil)
   if ok then return true end
   if errno.is_code(eno, "ENOSYS") then return false end
@@ -112,10 +112,10 @@ end
 local function probe_unshare(flags: integer): boolean
   local host_uid = unix.geteuid()
   local host_gid = unix.getegid()
-  local r, w = unix.pipe(unix.O_CLOEXEC)
-  if not r then return false end
-  local rfd = r
-  local wfd = w
+  local p = unix.pipe(unix.O_CLOEXEC)
+  if not p then return false end
+  local rfd = p.reader
+  local wfd = p.writer
   local pid = unix.fork()
   if pid == nil then
     unix.close(rfd)

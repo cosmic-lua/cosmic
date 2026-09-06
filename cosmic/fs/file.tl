@@ -95,37 +95,43 @@ write_atomic = function(path: string, data: string, mode?: integer): boolean, st
   if not fd then
     return false, errstr(tmp, "write_atomic: mkstemp: " .. path .. ".XXXXXX")
   end
+  if tmp is string then
+    -- fd succeeded, so tmp is the created MkstempPath in practice; the
+    -- checker does not correlate the two return slots, so narrow here.
+    return false, errstr(tmp, "write_atomic: mkstemp: " .. path .. ".XXXXXX")
+  end
+  local tmp_path = tmp.path
   -- The Handle owns fd from here; EINTR retries and the short-write
   -- loop live in fd.Handle + stream.write_all, not a local copy.
   local h = cfd.wrap(fd)
   local function fail(err: string): boolean, string
     local _ok, _err = h:close()
-    unix.unlink(tmp)
+    unix.unlink(tmp_path)
     return false, err
   end
   local wok, werr = stream.write_all(h, data)
   if not wok then
-    return fail("write_atomic: write: " .. tmp .. ": " .. tostring(werr))
+    return fail("write_atomic: write: " .. tmp_path .. ": " .. tostring(werr))
   end
   local synced, serr = h:sync()
   if not synced then
-    return fail("write_atomic: fsync: " .. tmp .. ": " .. tostring(serr))
+    return fail("write_atomic: fsync: " .. tmp_path .. ": " .. tostring(serr))
   end
   -- mkstemp creates the file 0600; apply the requested bits before the
   -- rename so the destination never appears with the wrong mode.
-  local chmodded, cerr = unix.chmod(tmp, mode or tonumber("644", 8))
+  local chmodded, cerr = unix.chmod(tmp_path, mode or tonumber("644", 8))
   if not chmodded then
-    return fail(errstr(cerr, "write_atomic: chmod: " .. tmp))
+    return fail(errstr(cerr, "write_atomic: chmod: " .. tmp_path))
   end
   local closed, clerr = h:close()
   if not closed then
-    unix.unlink(tmp)
-    return false, "write_atomic: close: " .. tmp .. ": " .. tostring(clerr)
+    unix.unlink(tmp_path)
+    return false, "write_atomic: close: " .. tmp_path .. ": " .. tostring(clerr)
   end
-  local renamed, rerr = unix.rename(tmp, path, unix.AT_FDCWD, unix.AT_FDCWD)
+  local renamed, rerr = unix.rename(tmp_path, path, unix.AT_FDCWD, unix.AT_FDCWD)
   if not renamed then
-    unix.unlink(tmp)
-    return false, errstr(rerr, "write_atomic: rename: " .. tmp .. " -> " .. path)
+    unix.unlink(tmp_path)
+    return false, errstr(rerr, "write_atomic: rename: " .. tmp_path .. " -> " .. path)
   end
   return true
 end

@@ -1,0 +1,8 @@
+# The board's one pin: the gitboard release bin/gitboard runs.
+#
+# Read by bin/gitboard with sed, so it stays two plain lines like
+# bin/cosmic.pin. Every push to main of cosmic-lua/work publishes a
+# release; bump both fields together, the sha is what is verified
+# before anything is executed.
+url = https://github.com/cosmic-lua/work/releases/download/2026-09-06-9dea3f3/gitboard
+sha256 = 7a849822a8878831916242996c0b087be28468e3f40af0e6f84cc4d8d91e46bf

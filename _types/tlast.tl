@@ -155,7 +155,8 @@ local function serialize(prelude: {any: any}, stdlib: {any: any},
   --- The constructor wrapper a table needs: TY for type nodes, NO for
   --- parser nodes, bare braces for plain tables.
   local function tag_of(t: {any: any}): string, string
-    local mt = getmetatable(t) as {any: any} -- cast: metatable identity compare
+    local mt: any
+    mt = getmetatable(t)
     if mt == type_mt then
       return "TY(", ")"
     elseif mt ~= nil then

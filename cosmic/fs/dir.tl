@@ -25,6 +25,11 @@ local function wrap_dir(raw: unix.Dir): Dir
     read = function(_self: Dir): string | nil, integer
       if is_closed then return nil end
       local name, kind = raw:read()
+      -- kind's slot doubles as the error string on a real read error
+      -- (name nil, kind a string) vs. plain end-of-directory (both
+      -- nil); this wrapper does not distinguish the two, matching its
+      -- pre-existing contract.
+      if kind is string then return nil end
       return name, kind
     end,
     close = function(_self: Dir)

@@ -407,6 +407,35 @@ still checked, because a renamed file is unfollowable whichever commit
 it was measured at. the sentence only counts as a declaration outside a
 code fence; a document quoting it has not declared anything.
 
+## reads-declaration
+
+a `*_test.tl` that calls `fs.glob()` without a `--- reads:` header is
+reaching the filesystem for inputs the project model can't see. the
+model finds a test's dependencies by a STATIC scan of that header
+(`_make/imports.tl`); it cannot see what `fs.glob()` enumerates at
+runtime. an undeclared call gets a cached PASS that outlives the tree
+it was supposed to re-check — the coverage stage's ratchet then reports
+a clean floor over files that changed since the last real run.
+
+```
+o/bin/cosmic --check lint /tmp/lintcheck/some_test.tl
+/tmp/lintcheck/some_test.tl:2:15: reads-declaration: /tmp/lintcheck/some_test.tl:2: fs.glob() enumerates files with no '--- reads:' declaration; a static import scan can't see what it finds at runtime, so this test's cached PASS never re-runs when those files change — add '--- reads: <dir>' naming what the glob covers (see _make/imports.tl)
+```
+
+the message names the fix — declare what the glob covers:
+
+```teal
+--- reads: cosmic
+local fs = require("cosmic.fs")
+local found = fs.glob("cosmic", "*.tl")
+print(found)
+```
+
+the trigger is `fs.glob` only: `fs.find`, `fs.find_iter`, `fs.find_info`,
+`fs.visit`, and a computed `require` target are each a wider, unaudited
+trigger and are follow-up work, not this rule's job. the rule applies to
+`*_test.tl` files only.
+
 ## running one rule's worth of output
 
 ```bash

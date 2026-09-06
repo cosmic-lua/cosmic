@@ -88,9 +88,13 @@ end
 ---     end
 local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   local raw_longopts = to_raw_longopts(longopts)
-  local res, err = cosmo_getopt.parse(args, optstring, raw_longopts)
-  if not res then
-    return nil, err
+  -- The binding no longer reports a malformed call as a fallible nil,
+  -- err: any shape no correct caller can produce is now a
+  -- bad-argument error it raises directly, so the pcall converts
+  -- that back to this wrapper's established fallible contract.
+  local ok, res = pcall(cosmo_getopt.parse, args, optstring, raw_longopts)
+  if not ok then
+    return nil, tostring(res)
   end
   return res
 end

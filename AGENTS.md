@@ -1,5 +1,7 @@
 # AGENTS.md
 
+`CLAUDE.md` at the root is a symlink to this file; edit `AGENTS.md`, and read any instruction naming `CLAUDE.md` as naming this file.
+
 ## Project Overview
 
 cosmic is a batteries-included Lua distribution built on [Cosmopolitan Libc](https://github.com/jart/cosmopolitan). it produces fat-binary executables that run on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD from a single file. the language is [Teal](https://github.com/teal-language/tl) (typed Lua) compiled to Lua 5.4.
@@ -16,6 +18,24 @@ the project's mission, ranked promises, and measurable goals live in
 ADR-style in [docs/decisions/](docs/decisions/), one file per record, each carrying a `status` the derived index gates.
 consult both before proposing directional changes — settled decisions are amended there, not
 relitigated in passing; writing, amending, or superseding one is the `decide` skill (`skills/decide/SKILL.md`), whose form is itself a record ([D26](docs/decisions/d26-decision-records.md)).
+
+**reach for cosmic first, including throwaway work.** a one-off data
+query, a JSON or SQLite munge, a file walk to answer "how many of X" —
+the instinct to open `python3 -c` or `jq` instead of `bin/cosmic
+script.lua` is itself the friction the efficiency promise and the G1
+eval instrument exist to catch. this holds even for scratch scripts
+never meant to be committed: dogfooding is not only for code that
+ships. reach for another language only when the task is outside
+cosmic's actual surface (nothing in `cosmic --docs` covers it, and
+wrapping it is its own yak-shave), not out of habit.
+
+cosmic's own `python3 -c`/`-e` equivalent is `cosmic -e '<lua>'`
+(Lua's standard flag, semicolon-joined statements and all) for a true
+one-liner; for anything long enough to want real line breaks,
+`cosmic /dev/stdin <<'EOF' ... EOF` runs a heredoc as one script —
+bare `cosmic <<EOF` with no path instead drops into the line-by-line
+REPL and silently mishandles multi-line `local`s, so `/dev/stdin`
+is the one to reach for.
 
 ## Repository Layout
 
@@ -54,6 +74,7 @@ bin/
   pr.yml               CI on push/PR (--make ci)
   docs.yml             publish docs on push to main
   release.yml          daily release build
+  perf.yml             daily perf compare, main against the latest release
   fuzz.yml             daily deep fuzz (--make test _fuzz)
 ```
 
@@ -198,11 +219,29 @@ key concepts:
   the graph produced, so it runs last
 - **versioned deps**: 3p modules declare a `*_pin.tl` — literal data, read
   by `cosmic.literal` and never executed. `fetch` unpacks a pin beside
-  the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`
+  the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`.
+  A build or test run reuses an already-unpacked `o/3p/<name>` rather
+  than re-deriving it, so to confirm a `3p/*/tl_patch/*.tl` edit
+  actually took effect, `rm -rf o/3p/<name>` (e.g. `o/3p/tl`) before
+  `bin/cosmic --make fetch`
+- **carried patches**: a pin may ride a `*_patch.tl`/`*_patch/` beside it —
+  exact `find`/`replace` edits `fetch` applies after the pristine unpack
+  ([D21](docs/decisions/d21-carried-tl-patch.md)). Landing one is never
+  blocked on filing an issue upstream (this environment has no cross-org
+  GitHub access to `teal-language/tl` or similar); the entry's `note`
+  field records why it exists — an issue in `cosmic-lua/cosmic` or
+  `cosmic-lua/cosmopolitan`, a direct upstream reference when one already
+  exists, or the reasoning itself
 - **trust root**: `bin/cosmic` is POSIX sh and obtains exactly one pinned
   artifact (`bin/cosmic.pin`), verifies its sha256 and execs it. Cosmic
   extracts its own build engine from its own zip, so the chain is
-  kernel → script → one pin → everything else
+  kernel → script → one pin → everything else. It also keeps a
+  pristine copy of the download beside the assimilated one it runs
+  (sandboxed rules need a native ELF, not the fat APE's loader) — a
+  project that declares no runtime of its own falls back to whichever
+  cosmic is doing the build, and without that copy the fallback would
+  be the assimilated ELF, silently shipping a host-only artifact under
+  a fat binary's name (see `_make/artifact.tl`'s `bases_of`)
 - **constant rules, generated facts**: `embed/cosmic.mk` is committed,
   ships at `/zip/cosmic.mk`, and is byte-identical for every project. No
   rule is ever generated. `o/project.mk` holds only variable assignments —
@@ -374,8 +413,10 @@ discipline). the backlog is perf hypotheses on the work board.
 what to build next is decided by the `work` skill (`skills/work/SKILL.md`):
 one prioritized queue of items in two states — `todo` and `doing` (claimed) —
 with quality held by a spec bar at pull and a fresh-context review before
-merge, not by stage columns. the board lives on the orphan `board` branch —
-one `items/<ksuid>.tl` per item, the machinery beside it — reached as a worktree.
+merge, not by stage columns. the board lives in the repository
+cosmic-lua/work — one git ref per item, the machinery beside it —
+reached as a clone at `o/board`, operated by the pinned release
+`bin/gitboard` runs (`bin/gitboard.pin`).
 the skill has the bootstrap; the tool serves the system itself —
 `gitboard help <topic>` for the doctrine, `gitboard help <verb>` for the
 mechanics, `gitboard brief` for subagent prompts. issues remain only the
@@ -398,4 +439,5 @@ inbound queue; pull requests carry fixes and review as before.
 - **release.yml**: daily release, built twice — the pinned cosmic builds one from the tree, and
   THAT one builds what ships, so a release is produced by its own code, not the pin. cron runs
   default to a prerelease; a real one needs `workflow_dispatch` with `prerelease: false`
+- **perf.yml**: daily perf compare, `0 3 * * *` (three hours BEFORE release.yml's `0 6`, so the baseline is yesterday's release and the subject is the tree today's release is cut from). Builds the tree in two generations, measures it twice, re-measures the latest release's binary through `_perf/baserun.tl`, and runs `_perf/gate.tl compare`; a `perf-compare: FAIL` turns the lane red and blocks nothing — the release never gates on perf ([D44](docs/decisions/d44-release-publishes-regardless-of-the-perf-compare.md)). Readings are the run's artifacts
 - **fuzz.yml**: daily deep fuzz, `0 9 * * *` (three hours after release.yml's `0 6`, so the two never contend). `_fuzz` at FUZZ_ITERS=50000 (2000 on its own `pull_request` trigger), seeded `date -u +%Y%m%d` unless a `workflow_dispatch` input overrides it for replay; a red run fails loudly but never blocks or delays a release

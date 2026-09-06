@@ -1,82 +1,53 @@
 # Decomposing an outcome
 
-an outcome root in `docs/goals.md` never carries work itself: it is
-worked by the items filed under it, and intake (`gitboard next`,
-`_work/intake.tl`) offers the highest-placed open root with no live
-work as the thing to decompose next. three parts of that procedure
-are recorded here, because they are what places an outcome and moves
-it from "worked" to "held" and back: the paired-comparison tournament
-that ranks the outcomes intake reads, the VERIFICATION item, and what
-a held root does at intake. everything else — the spec bar, `take`,
-review, landing — is the same for these items as for any other, and
-`gitboard help <topic>` serves it.
+an outcome in `docs/goals.md` never carries work itself: it is worked
+by the items filed under it, and intake (`gitboard next`,
+`_work/intake.tl`) offers the highest-ranked open outcome with no live
+work as the thing to decompose next. three parts of that procedure are
+recorded here, because they are what places an outcome and moves it
+from "worked" to "verified" and back: ranking an outcome among its
+siblings, the VERIFICATION item, and what a verified outcome does at
+intake. everything else — the spec bar, `take`, review, landing — is
+the same for these items as for any other, and `gitboard help <topic>`
+serves it.
 
-## the paired-comparison tournament
+## ranking an outcome
 
-the order intake reads is never asserted: it is derived from
-comparisons committed on the board, one per pair asked. a comparison
-is `gitboard compare A B` — "A outranks B", recorded as one `beats`
-entry on A — and the derived order is the transitive closure over
-every such edge (`_work/priority.tl`), so `A beats B` and `B beats
-C` settle A against C with nobody asked. age is the last word among
-items no comparison separates. an item no edge reaches, at any
-height, is unplaced: invisible to every queue and refused by `take`
-until it is compared in or attached under a placed outcome.
-`gitboard help system` carries that ordering in full and `gitboard
-help compare` the verb; this section is the procedure around them.
+the order intake reads is never asserted: it is a position in the
+board's own `order` list, the same list any parent holds for its
+children (`gitboard help order`). an outcome absent from that list is
+unranked among its siblings and is triage — invisible to every queue
+and refused by `take` — until it is ranked or attached under a ranked
+outcome's subtree.
 
-**the question.** every pair answers one question, always the same
-one: "if only one of these could hold, which cosmic is better?"
-nothing about effort, readiness, or who is around to build it —
-those are the spec bar's and the queue's concerns, and the order is
-what they rank within.
+**placing a new outcome.** `rank ID --before X | --after X | --last`
+edits the board's list in one commit. walk the current order down from
+the top until the new outcome loses once — until a session judges the
+outcome above it the better cosmic to hold — and rank it below the
+first outcome it loses to; two or three comparisons usually place it.
+it stays triage, invisible to intake, until that first `rank` lands.
 
-**when to run one.** a tournament is asked, never scheduled:
+**re-ranking.** evidence moves against the committed order — an
+outcome's distance from verified changes, or a session cannot say why
+the outcome above it should be worked first — and `rank` moves it
+directly; a re-rank that moves nothing is a fine outcome, the order
+was right. the outcome nearest to verified takes no re-rank at all:
+finishing beats starting, so it is finished, not debated.
 
-- an outcome enters `docs/goals.md` — a dormant one activates, a new
-  one is added — and has no position yet.
-- evidence moves against the committed order: a root's distance from
-  holding changes, or a session cannot say why the root above it
-  should be worked first.
-- a captured finding is promoted to a root and needs a place.
-
-it is never run to make an item pullable, and a re-rank that moves
-nothing is a fine outcome — the order was right.
-
-**which pairs to ask.** only the contested ones. the closure already
-answers every pair reachable through committed edges, and `compare`
-refuses a duplicate and a reversal that would close a cycle several
-comparisons built (a direct contrary edge is reversed in one
-commit). so:
-
-- a new outcome is compared against its neighbours: walk down the
-  committed order until it loses once and up until it wins once —
-  two or three pairs usually place it.
-- a re-rank asks the adjacent pairs of the current order plus every
-  pair the new evidence puts in question, and stops when the closure
-  is total again.
-- the outcome nearest to holding takes a bye: finishing beats
-  starting, so it is not debated, only finished.
-- a cycle is never averaged away. it means the question was
-  ambiguous for that pair; restate the pair and re-ask it.
-
-**who answers.** a comparison that would put NEW work above existing
+**who answers.** a rank change that would put NEW work above existing
 work belongs to the goal owner — it answers "which is the better
 cosmic", and that is not the session's call. post the pair (in chat,
-or in the session's report when nobody is watching) and keep
-working; the answer lands as a `compare` whenever it arrives. when
-nobody is around to rank a new item, attach it under the
-lowest-placed outcome it plausibly serves and say so, so the item is
-placed today and the comparison can still be asked later.
+or in the session's report when nobody is watching) and keep working;
+the answer lands as a `rank` whenever it arrives. when nobody is
+around to place a new outcome at all, attach it under the
+lowest-ranked outcome it plausibly serves and say so, so the item is
+placed today and the rank can still be asked later.
 
-**how the result lands.** each answer is one commit on the board
-branch, `gitboard compare WINNER LOSER`, and every rendered order
-derives from it at once — no ranking is written anywhere else.
-`docs/goals.md` lists the outcome order written out for a reader, so
-a tournament that changes the order of outcomes lands twice: the
-comparisons on the board, and a PR that rewrites the list and names
-each pair it asked and how it fell. the PR is the record of the
-matches; the board is the order.
+**how the result lands.** `docs/goals.md` lists the outcome order
+written out for a reader, so a re-rank that changes the order of
+outcomes lands twice: the `rank` on the board, and a PR that rewrites
+the list and names what moved and why. the PR is the record of the
+reasoning; the board is the order.
 
 ## the VERIFICATION item
 
@@ -106,35 +77,34 @@ one judging whether the claim holds. a review that finds the quoted
 output short of the win condition rejects the item the same way it
 rejects any PR that misses its acceptance.
 
-## a held root at intake
+## a verified outcome
 
-once the VERIFICATION item is accepted and merged, a session marks
-the root held:
+once the VERIFICATION item is accepted and merged, a session ends the
+outcome by that evidence:
 
 ```bash
-gitboard hold <root-id> --reason '<why the win condition holds>'
+gitboard done <outcome-id> --reason completed --by <verification-id>
 ```
 
-`hold` refuses on a non-root (only an outcome's win condition holds),
-a done item (a finished root is not held), an already-held one, and a
-blank reason; the reason rides in the commit subject and the verdict
-line, so the board's log is the record. the marker is `is_held` on
-the item — distinct from `resolution`, which is what `done` means.
+`done` refuses this on an outcome with an open child (nothing may
+still be in flight), a `--by` that is not the outcome's own completed
+child, or no `--by` at all — an outcome cannot be verified by
+assertion. the child's id rides in the commit subject and the verdict
+line, so the board's log names the evidence.
 
-a held root stays OPEN. `gitboard show` (bare, the board-wide status)
-and `gitboard show <root-id>` still find it, it keeps every `beats`
-edge and its place in the derived order, and every gate treats it as
-the open root it is. what changes is intake alone: `_work/intake.tl`'s
-walk over `flow.roots` skips a held root exactly as it skips one with
-live work, so intake moves to the next-ranked open root with no hand
-edit to goals.md and no re-rank. the goals file records the hold in
-its `## Holding` section.
+a verified outcome is DONE, the same resolution any other finished
+item carries, and every derived-order view treats it exactly as it
+treats any done item: intake skips it with no rule of its own, and
+`gitboard show` (bare, the board-wide status) and `gitboard show
+<outcome-id>` still find it and render it as done, since it is the
+record of what holds. the goals file records the graduation in its
+`## Holding` section.
 
-filing or attaching a new item under a held root — fresh evidence
-that the win condition slipped — clears the hold in the same commit
-as the child (`gate.containered`, the hook that already clears a
-parent's claim and reviewer when it gains a child), so the outcome is
-live again automatically and intake offers it once its new work is
-done. that is the normal reopen path. `gitboard unhold <root-id>` is
-the correction for an erroneous hold with no new child to file —
-never the way an outcome with real evidence against it reopens.
+filing or attaching a new item under a done outcome — fresh evidence
+that the win condition slipped — clears its resolution in the same
+commit as the child (`gate.containered`, the hook that already clears
+a parent's claim and reviewer when it gains a child), so the outcome
+is open again automatically and intake offers it once its new work is
+done. that is the only reopen path: a done outcome carries no separate
+marker to correct by hand, so evidence under it is the whole of how
+it reopens.

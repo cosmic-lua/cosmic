@@ -86,7 +86,7 @@ local function test_find_iter_symlink_cycle_terminates()
 
   local collected: {string} = {}
   for p in check.must(fs_find.find_iter(base, {glob = "*.lua"})) do
-    collected[#collected + 1] = check.must(p)
+    collected[#collected + 1] = p
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
       "files() appears to iterate infinitely (>10 results from 1 real file)")
@@ -210,9 +210,9 @@ local function test_find_iter_permission_denied_subdir_reports_error()
   assert(fs.set_mode(locked, tonumber("755", 8)))
 
   assert(seen["seen.txt"], "readable entries must still be yielded")
-  -- The exhausted iterator reports the subtree-error LIST from then
-  -- on; calling it again re-reports rather than resuming anything.
-  local _, suberrs = iter()
+  -- The subtree-error list is read through iter:errors(), never by
+  -- calling the iterator again.
+  local suberrs = iter:errors()
   assert(suberrs and suberrs[1] and suberrs[1]:match("EACCES"),
     "find_iter must surface the denied subdir once exhausted: "
     .. tostring(suberrs and suberrs[1]))
@@ -427,7 +427,7 @@ local function test_find_iter_honors_depth_and_dirs()
   local base = setup_depth_tree()
   local names: {string: boolean} = {}
   for p in check.must(fs_find.find_iter(base, {include_dirs = true, max_depth = 1})) do
-    names[fs.basename(check.must(p))] = true
+    names[fs.basename(p)] = true
   end
   assert(names["a.txt"] and names["bdir"], "top level yielded, dirs included")
   assert(not names["c.txt"], "max_depth = 1 must not descend")

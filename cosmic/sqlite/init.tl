@@ -35,6 +35,9 @@ local row_iter = require("cosmic.sqlite.row_iter")
 local bind_mod = require("cosmic.sqlite.bind")
 local column_mod = require("cosmic.sqlite.column")
 local extras_mod = require("cosmic.sqlite.extras")
+local fts_mod = require("cosmic.sqlite.fts")
+local meta_mod = require("cosmic.sqlite.meta")
+local rebuild_mod = require("cosmic.sqlite.rebuild")
 
 -- The raw lsqlite3 surface is fully typed since the 2026.07.13 pin;
 -- the wrapper uses the generated types directly (no Raw* mirrors).
@@ -402,10 +405,12 @@ local function open(filename: string, opts?: Options): Database | nil, string
   local raw_db: lsqlite3.Database | nil
   local errcode: number | nil
   local errmsg: string | nil
+  -- The binding's failure slot order swapped: errormsg now lands in
+  -- slot 2 and errorcode in slot 3 (previously the reverse).
   if opts and opts.read_only then
-    raw_db, errcode, errmsg = sqlite3.open(filename, sqlite3.OPEN_READONLY)
+    raw_db, errmsg, errcode = sqlite3.open(filename, sqlite3.OPEN_READONLY)
   else
-    raw_db, errcode, errmsg = sqlite3.open(filename)
+    raw_db, errmsg, errcode = sqlite3.open(filename)
   end
   -- `is` narrows the guarded variable, here in the positive branch;
   -- safe at this cosmo.* boundary because the cosmic searcher is the
@@ -419,6 +424,26 @@ local function open(filename: string, opts?: Options): Database | nil, string
     return make_database(raw_db)
   end
   return nil, errmsg or ("error code " .. tostring(errcode))
+end
+
+--- Atomically rebuild a WAL file: `fill_fn` opens/fills/closes its own
+--- connection at a temp path; see cosmic.sqlite.rebuild for the rest.
+--- @param final_path string The file to rebuild
+--- @param fill_fn function(tmp_path: string): boolean, string Opens/fills/closes its own connection there
+--- @return Database | nil The reopened final connection, WAL mode
+--- @return string Error message
+local function rebuild_atomic(final_path: string, fill_fn: function(tmp_path: string): boolean, string): Database | nil, string
+  local tmp_path = rebuild_mod.start(final_path)
+  local fok, ferr = fill_fn(tmp_path)
+  if not fok then
+    rebuild_mod.discard(tmp_path)
+    return nil, ferr or "fill_fn failed"
+  end
+  local fin_ok, fin_err = rebuild_mod.finish(tmp_path, final_path)
+  if not fin_ok then
+    return nil, fin_err
+  end
+  return open(final_path, {wal = true})
 end
 
 local record sqlite
@@ -435,7 +460,6 @@ local record sqlite
 
   open: function(filename: string, opts?: Options): Database | nil, string
   blob: function(data: string): bind_mod.Blob
-
   --- Typed column readers over a row. A row is `{string: any}`, so
   --- reading a column whose type the caller knows costs a cast at every
   --- read; these move that check into one place that reports a mismatch
@@ -444,6 +468,17 @@ local record sqlite
   column_text: function(row: {string: any}, column: string): string | nil, string
   column_number: function(row: {string: any}, column: string): number | nil, string
   column_integer: function(row: {string: any}, column: string): integer | nil, string
+  --- Atomically rebuild a WAL file in place; see cosmic.sqlite.rebuild.
+  rebuild_atomic: function(final_path: string, fill_fn: function(tmp_path: string): boolean, string): Database | nil, string
+  --- Schema fingerprint plus a tiny `cosmic_meta` convention; see cosmic.sqlite.meta.
+  schema_fingerprint: function(db: Database): string | nil, string
+  meta_get: function(db: Database, key: string): string | nil, string
+  meta_set: function(db: Database, key: string, value: string): boolean, string
+  db_user_version: function(db: Database): integer | nil, string
+  --- FTS5 MATCH-expression builders; see cosmic.sqlite.fts.
+  escape_token: function(tok: string): string
+  match_all: function(text: string): string
+  match_any: function(text: string): string
 end
 
 local M: sqlite = {
@@ -452,6 +487,14 @@ local M: sqlite = {
   column_text = column_mod.column_text,
   column_number = column_mod.column_number,
   column_integer = column_mod.column_integer,
+  rebuild_atomic = rebuild_atomic,
+  schema_fingerprint = meta_mod.schema_fingerprint,
+  meta_get = meta_mod.meta_get,
+  meta_set = meta_mod.meta_set,
+  db_user_version = meta_mod.db_user_version,
+  escape_token = fts_mod.escape_token,
+  match_all = fts_mod.match_all,
+  match_any = fts_mod.match_any,
 }
 
 return M

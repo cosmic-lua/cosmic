@@ -201,8 +201,9 @@ end
 
 local function test_latin1_roundtrip()
   local original = "café résumé naïve"
-  local encoded = check.must(codec.encode_latin1(original))
-  local decoded = codec.decode_latin1(encoded)
+  local encoded, err = codec.encode_latin1(original)
+  assert(err == nil, "encode failed: " .. (err or ""))
+  local decoded = codec.decode_latin1(check.must(encoded))
   assert(decoded == original, "roundtrip mismatch: got '" .. decoded .. "'")
 end
 

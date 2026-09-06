@@ -7,6 +7,12 @@
 --- script runner), so this module must stay requireable from all of
 --- them: message matching only, no compiler state.
 ---
+--- The 13 patterns below carry fixes, not just pointers, and stay
+--- hand-written; a message none of them recognizes falls through to
+--- `cosmic._teal_symptoms`, which matches against the symptom blocks
+--- `docs/guides/gotchas.md` carries per section and names the section
+--- directly instead of pointing at the guide as a whole.
+---
 --- Matches the most common traps:
 ---   1. got number, expected integer (string index/length requires integer)
 ---   2. X | nil used un-narrowed: passed where X is expected, indexed,
@@ -67,7 +73,7 @@ local function hint_for_message(msg: string): string | nil
   -- record FIELD (guarding `o.sub` never narrows `o.sub`) or a value
   -- that was never guarded at all.
   if msg:find("cannot index") and msg:find("| nil", 1, true) then
-    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.checking`"
+    return "  hint: record fields do not narrow — copy the field to a local and guard the local (`local v = o.sub; if v then ... end`); an unguarded `T | nil` needs its guard first — see `cosmic --docs guide.gotchas` — section record-fields-dont-narrow"
   end
   -- Pattern 2c: for-in over a value the checker cannot call. The message
   -- names no type, and the usual cause is an iterator still `T | nil`
@@ -79,12 +85,12 @@ local function hint_for_message(msg: string): string | nil
   -- standalone top-level record is file-local; importers can only name
   -- types nested in (or aliased into) the module's interface record.
   if msg:find("unknown type %w+%.%w+") then
-    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.checking`"
+    return "  hint: a type other files use must be nested in the module's interface record (`record StoreModule record Task ... end end`), or aliased in with `type Task = Task` — see `cosmic --docs guide.gotchas` — section exported-record-types"
   end
   -- Pattern 2e: colon-calling a name the value's record does not
   -- declare. Also fires on a plain typo, so the hint covers both.
   if msg:find("invalid key '[%w_]+' in record") then
-    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs guide.gotchas`"
+    return "  hint: the value's record type does not declare this key — check the spelling; and a function on your MODULE's record is dot-called with the value first (`store.add(db, ...)`), never colon-called (`db:add(...)`) — see `cosmic --docs guide.gotchas` — section colon-call"
   end
   -- Pattern 3: excess return values (wrong number of returns)
   if msg:find("excess return values") then
@@ -105,7 +111,7 @@ local function hint_for_message(msg: string): string | nil
       if arity and arity > max_arity then max_arity = arity end
     end
     if given and given > max_arity and max_arity > 0 then
-      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs guide.gotchas`"
+      return "  hint: if the last argument is a multi-return call it spreads all its declared returns — parenthesize to pass just the first: `f(x, (str.partition(s, \"=\")))` — see `cosmic --docs guide.gotchas` — section tuple-spread"
     end
   end
   -- Pattern 4a: ipairs on a nil union or on any — different fixes: a
@@ -114,7 +120,7 @@ local function hint_for_message(msg: string): string | nil
     if msg:find("| nil", 1, true) then
       return "  hint: `{T} | nil` needs its guard before the loop (`if not xs then return end`, or `assert(xs)`); a record FIELD does not narrow — copy it to a local and guard the local — see `cosmic --docs guide.checking`"
     end
-    return "  hint: cast first, e.g. `local items = data as {any}`"
+    return "  hint: cast first, e.g. `local items = data as {any}` — see `cosmic --docs guide.gotchas` — section any-from-json-decode"
   end
   -- Pattern 4b: concat with any type
   if msg:find("cannot use operator '%.%.'") and msg:find("<any type>") then
@@ -124,7 +130,9 @@ local function hint_for_message(msg: string): string | nil
   if msg:find("cannot index") and msg:find("<any type>") then
     return "  hint: cast first, e.g. `local obj = val as {string: any}`"
   end
-  return nil
+  -- Fall through: none of the 13 hand patterns above recognized this
+  -- message. A gotcha section may still document its exact shape.
+  return require("cosmic._teal_symptoms").hint_for_message(msg)
 end
 
 local record TealHintsModule

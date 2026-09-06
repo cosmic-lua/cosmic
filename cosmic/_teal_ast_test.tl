@@ -49,10 +49,15 @@ local function test_new_env_checks_like_the_parse_path()
       }))
   local code = "local s: string = string.rep(\"x\", \"not a number\")\n"
   local result = tl.process_string(code, false,
-    env as tl.Env, -- cast: env comes from teal_ast.new_env, still declared any
-    -- until that wrapper is retyped to return Env directly; this cast
-    -- only satisfies tl.process_string's now-curated 3rd parameter here
-    -- and is removed once that retyping lands
+    env as tl.Env, -- cast: satisfies process_string's curated 3rd parameter
+    -- until teal_ast.new_env returns tl.Env directly. The pinned
+    -- bootstrap's embedded tl.d.tl has no Env, so this line fails
+    -- `--check types` under the bootstrap alone -- it survives a cold
+    -- build because this file is only compiled at test time, after
+    -- _types/types_gen.tl has produced o/_types/types_gen/tl.d.tl.
+    -- _teal_ast.tl does NOT get that same reprieve: the /zip engine
+    -- requires it FROM THE TREE, so no tl.Env cast may land there before
+    -- the pin bump retires this one
     "probe.tl")
   assert(#result.type_errors == 1,
     "expected exactly one type error, got " .. #result.type_errors)

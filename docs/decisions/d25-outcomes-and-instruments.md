@@ -1,7 +1,7 @@
 # D25 — goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard
 
 - **date:** 2026-08
-- **status:** amended 2026-08 (D37 replaced G8's measured-by detail)
+- **status:** amended 2026-09 (D45 replaced the paired-comparison ranking method)
 - **context:** goals.md listed seven goals in one flat tier, and three
   structural problems surfaced when the flow system
   (`skills/work`) tried to work backwards from them. first, G1 (the
@@ -62,3 +62,10 @@
   or columns to measure adherence and starvation against
   ([D37](d37-two-states-two-gates.md)), so flow health is now lead
   time, rework rate, and the cost ratchet.
+- **amended 2026-09 (D45):** the two-tier split stands unchanged; the
+  paired-comparison tournament that ranked outcomes retires. outcomes
+  are the board's children, ranked by its owner with `gitboard rank`
+  exactly as any parent ranks its children
+  ([D45](d45-rank-is-a-list-position-at-every-level.md)); the committed
+  order in `docs/goals.md` is still what intake reads, now written out
+  from the board's own ranking instead of a tournament's wins.

@@ -38,13 +38,13 @@ end
 --- @return Rlimit | nil The soft and hard limits
 --- @return string? Error message on failure
 local function getrlimit(resource: integer): Rlimit | nil, string
-  local soft, hard = unix.getrlimit(resource)
-  if soft == nil then
-    -- On failure the binding returns (nil, err, errno): the error string
-    -- arrives in the second slot, where the hard limit would have been.
-    return nil, errstr(hard, "getrlimit")
+  -- The binding now returns one unix.Rlimit table on success; on
+  -- failure the error string has its own dedicated slot 2.
+  local limit, err = unix.getrlimit(resource)
+  if not limit then
+    return nil, errstr(err, "getrlimit")
   end
-  return {soft = soft, hard = hard}
+  return {soft = limit.soft, hard = limit.hard}
 end
 
 --- Sets resource limits for the current process.

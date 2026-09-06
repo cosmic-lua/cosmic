@@ -1,7 +1,7 @@
 # D21 — carried patches: the middle path between pin and fork
 
 - **date:** 2026-08
-- **status:** active
+- **status:** amended 2026-09 (upstream filing is not a landing gate)
 - **context:** D5 says upstream-first, fork-if-blocked on Teal. The gap
   between those two states was unpriced: an improvement this project
   wants NOW (truthiness narrowing of nil unions, whilp/cosmic#942)
@@ -42,3 +42,26 @@
   working, not it failing. The checker the tree gates under is no
   longer byte-identical to released tl 0.24.8; the divergence is one
   named, tested, documented edit.
+- **amended 2026-09 (upstream filing is not a landing gate):** "must
+  be submitted upstream" blocked landing on an action no session in
+  this environment can take — GitHub access here is scoped to
+  `cosmic-lua/cosmic` and `cosmic-lua/cosmopolitan`, never
+  `teal-language/tl` or another upstream org, so a patch otherwise
+  engineering-complete and gate-green (board item `FePr_L4FB`,
+  branch `3IpBKCCg`, commit `f0234765`) sat unable to land for a step
+  nobody present could do. Existing practice already diverged from
+  the letter of this clause — `3p/tl/tl_patch/narrow.tl`'s
+  `narrow-and-operand` entry cites `whilp/cosmic#942`, an issue in
+  the project's own repo, not `teal-language/tl`. That practice is now
+  the rule: a carried patch's `note` field records why the edit
+  exists — an issue in `cosmic-lua/cosmic` or `cosmic-lua/cosmopolitan`
+  when one is worth filing, a direct upstream reference when one
+  already exists (`3p/tl/tl_patch/for_control_var.tl`'s
+  "Upstream teal-language/tl#1058"), or the reasoning itself when
+  neither does. Filing upstream is welcome whenever someone with the
+  access and the time does it, and remains what deletes the patch once
+  it lands there — it is no longer a precondition to landing the patch
+  in this tree, and work never blocks on it. What would make us
+  revisit: this session environment gaining cross-org GitHub access,
+  at which point filing upstream promptly becomes cheap again and
+  worth reconsidering as a norm (not a gate).

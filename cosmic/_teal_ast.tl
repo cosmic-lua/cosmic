@@ -19,7 +19,7 @@ local tl = require("tl")
 local CACHE_PATH < const > = "/zip/.tl_ast.luac"
 
 local record teal_ast
-  new_env: function(defaults: tl.CheckOptions): any, string
+  new_env: function(defaults: tl.CheckOptions): tl.Env | nil, string
 end
 
 local cached_prelude: any = nil
@@ -63,9 +63,9 @@ end
 --- tl.new_env with the artifact's pre-parsed stdlib when available.
 --- Same contract as tl.new_env: the env, or nil plus a message.
 --- @param defaults CheckOptions The per-env feature/codegen defaults
---- @return any The tl env, or nil
+--- @return tl.Env | nil The tl env, or nil
 --- @return string Error message on failure
-function teal_ast.new_env(defaults: tl.CheckOptions): any, string
+function teal_ast.new_env(defaults: tl.CheckOptions): tl.Env | nil, string
   local prelude_ast, stdlib_ast = programs()
   return tl.new_env({
       defaults = defaults,

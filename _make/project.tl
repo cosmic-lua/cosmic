@@ -412,6 +412,19 @@ local function paths_of(files: {File}): {string}
   return out
 end
 
+--- Does the project build a binary with this name?
+--- @param proj Project The scanned project
+--- @param name string The binary's stem, `o/bin/<name>`
+--- @return boolean True when some entry names this binary
+local function has_binary(proj: Project, name: string): boolean
+  for _, b in ipairs(proj.binaries) do
+    if b.name == name then
+      return true
+    end
+  end
+  return false
+end
+
 --- The distinct directories holding compiled sources, sorted.
 ---
 --- What a coverage report needs to see a module NO test loaded: the
@@ -451,6 +464,7 @@ local record ProjectModule
   payload_depth: function(segs: {string}): integer | nil
   import_path: function(rel: string): string | nil
   of_kind: function(project: Project, kinds: {Kind}): {File}
+  has_binary: function(proj: Project, name: string): boolean
   segments: function(rel: string): {string}
   paths_of: function(files: {File}): {string}
   source_dirs: function(proj: Project): {string}
@@ -471,6 +485,7 @@ local M: ProjectModule = {
   payload_depth = payload_depth,
   import_path = import_path,
   of_kind = of_kind,
+  has_binary = has_binary,
   segments = segments,
   paths_of = paths_of,
   source_dirs = source_dirs,

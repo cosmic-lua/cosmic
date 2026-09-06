@@ -55,11 +55,11 @@ build when the committed copy drifts.
 | D18 | expensive recipe steps skip on input bytes, not just on mtime | amended 2026-08 (declared env) | [→](d18-step-skip.md) |
 | D19 | what "public" means for toolchain modules, and the visibility lint | amended 2026-08 (a root `_tool/` tree) | [→](d19-toolchain-visibility.md) |
 | D20 | the naming charter, and the renames that applied it | amended 2026-09 (iterator terminating payload; earlier: the kept-POSIX set, rule 11) | [→](d20-naming-charter.md) |
-| D21 | carried patches: the middle path between pin and fork | active | [→](d21-carried-tl-patch.md) |
+| D21 | carried patches: the middle path between pin and fork | amended 2026-09 (upstream filing is not a landing gate) | [→](d21-carried-tl-patch.md) |
 | D22 | the CSPRNG surface is infallible; a broken one crashes | amended 2026-08 (adds a seedable, non-crypto source beside the CSPRNG) | [→](d22-infallible-csprng.md) |
 | D23 | cosmic.check throws by design; needs/reap may exit | amended 2026-08 (the closed list becomes a rule: an unreachable-nil assert) | [→](d23-check-throws.md) |
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | active | [→](d24-structured-failures.md) |
-| D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | amended 2026-08 (D37 replaced G8's measured-by detail) | [→](d25-outcomes-and-instruments.md) |
+| D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | amended 2026-09 (D45 replaced the paired-comparison ranking method) | [→](d25-outcomes-and-instruments.md) |
 | D26 | a decision record: four sections, a status header, amended in place | active | [→](d26-decision-records.md) |
 | D27 | every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default | active | [→](d27-one-committed-floor.md) |
 | D28 | a validating decode is combinators the checker checks, not a table of type-name strings | active | [→](d28-shape-combinators.md) |
@@ -71,10 +71,12 @@ build when the committed copy drifts.
 | D34 | the perf gate judges reproduction against the re-measured baseline | superseded by D36 | [→](d34-reproduction-against-remeasured-baseline.md) |
 | D35 | a dismissed perf regression owes the same evidence a credited one does | amended 2026-08 (D36 disproved the baseline-pair credit) | [→](d35-dismissal-owes-evidence.md) |
 | D36 | a disagreeing baseline pair earns a third reading and is judged by the median | active | [→](d36-baseline-tiebreak-third-reading.md) |
-| D37 | the board holds two states; quality is two gates, not stages | amended 2026-08 | [→](d37-two-states-two-gates.md) |
+| D37 | the board holds two states; quality is two gates, not stages | amended 2026-09 (D45 replaced the blocked_by edge) | [→](d37-two-states-two-gates.md) |
 | D38 | main lands through a GitHub merge queue; board keeps merge-at-accept | amended 2026-08 (gate/* mirror retired) | [→](d38-merge-queue-on-main.md) |
 | D39 | no prose exemption from the file cap; reclaim before you split | active | [→](d39-no-prose-exemption-from-the-file-cap.md) |
 | D40 | sandbox.apply reports full/degraded/skipped per section, and refuses when nothing enforced | active | [→](d40-sandbox-enforcement-report.md) |
 | D41 | entry.stat is a lazy method, not an eager field | active | [→](d41-lazy-entry-stat.md) |
-| D42 | a verified outcome is held by a marker, not ended; a child filed under it clears the hold | active | [→](d42-held-outcome-is-a-marker-not-an-ending.md) |
+| D42 | a verified outcome is held by a marker, not ended; a child filed under it clears the hold | superseded by D45 | [→](d42-held-outcome-is-a-marker-not-an-ending.md) |
 | D43 | generation 1 seeds `cosmo.*` declarations from the tree's own cosmos pin, not the pinned binary | active | [→](d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md) |
+| D44 | the release publishes regardless of the perf compare; perf is a daily non-blocking lane | active | [→](d44-release-publishes-regardless-of-the-perf-compare.md) |
+| D45 | rank is a position in the parent's list at every level, the board included | active | [→](d45-rank-is-a-list-position-at-every-level.md) |

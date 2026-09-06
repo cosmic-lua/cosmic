@@ -139,6 +139,54 @@ local function is_exposed(module: any, name: string): boolean
   return (module as {string: any})[name] ~= nil
 end
 
+--- Read a metamethod off a value's metatable — what a `<close>` probe
+--- uses to invoke `__close` directly, since this repo compiles Teal
+--- targeting 5.3 syntax and a test cannot itself write
+--- `local x <close> = ...`. `is` narrows the read at each step, so
+--- fetching a metamethod costs no cast.
+--- @param v any The value whose metatable to probe
+--- @param name string The metamethod name (e.g. "__close")
+--- @return function(any, any) | nil The metamethod, or nil when v has none by that name
+local function metamethod(v: any, name: string): function(any, any) | nil
+  local mt = getmetatable(v)
+  if not (mt is {string: any}) then
+    return nil
+  end
+  local fn = mt[name]
+  if fn is function(any, any) then
+    return fn
+  end
+  return nil
+end
+
+--- Swap named members of a module (or record) for the duration of a call,
+--- restoring every one afterward — whether body returns or throws. Built
+--- for a test that monkeypatches a function a module exposes only through
+--- its declared record type: swap it out, run body, put the original back.
+--- @param module any The module (or record) whose members to swap
+--- @param members {string: any} Replacement values keyed by member name
+--- @param body function() The code to run with the members replaced
+local function swap_members(module: any, members: {string: any}, body: function())
+  -- cast: probe module surface to swap a member its declared type owns
+  local surface = module as {string: any}
+  local saved: {string: any} = {}
+  for name, replacement in pairs(members) do
+    saved[name] = surface[name]
+    surface[name] = replacement
+  end
+  -- body declares no return, so pcall has no second slot to bind statically;
+  -- xpcall's message handler captures the same error into an upvalue instead.
+  local caught: any = nil
+  local ok = xpcall(body, function(e: any): any
+      caught = e
+      return e
+    end)
+  for name, original in pairs(saved) do
+    surface[name] = original
+  end
+  if not ok then error(caught, 0) end -- throws: check may throw; rethrows body's error after restoring members
+end
+
 --- Assert that a (value, err) pair represents failure.
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
@@ -328,6 +376,8 @@ local record CheckModule
   must: function<T>(value: T | nil, err?: string | errors.Failure): T
   refuses: function(f: any, ...: any): string
   is_exposed: function(module: any, name: string): boolean
+  metamethod: function(v: any, name: string): function(any, any) | nil
+  swap_members: function(module: any, members: {string: any}, body: function())
   failed: function(value: any, err: string, label?: string)
   enforcing: function(): boolean
   enforce_skip: function(reason: string, strict?: boolean)
@@ -347,6 +397,8 @@ local M: CheckModule = {
   must = must,
   refuses = refuses,
   is_exposed = is_exposed,
+  metamethod = metamethod,
+  swap_members = swap_members,
   failed = failed,
   enforcing = enforcing,
   enforce_skip = enforce_skip,

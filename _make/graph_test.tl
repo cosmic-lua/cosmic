@@ -127,6 +127,37 @@ local function test_project_mk_carries_per_test_closures()
   end
 end
 
+-- A leading `_` marks a tree internal, not a project that builds
+-- `cmd/cosmic`: a downstream `_cli/**` or `_make/**` test must not get
+-- the engine's own binary as a prerequisite when nothing builds it.
+local function test_project_mk_omits_engine_binary_without_cosmic()
+  local proj = fixture("no-cosmic-bin", {
+      ["_cli/foo_test.tl"] = "assert(true)\n",
+      ["main.tl"] = "print('x')\n",
+    })
+  local text = check.must(graph.project_mk(proj, "/bin/cosmic"))
+  local line = text:match("(deps__cli/foo_test := [^\n]*)")
+  assert(line, "expected a deps__cli/foo_test line: " .. text)
+  assert(not line:find("o/bin/cosmic", 1, true),
+    "no cmd/cosmic in the project: must not get the engine prerequisite: " .. line)
+end
+
+-- The same test, but the project DOES build a `cosmic` binary: now the
+-- prerequisite belongs, because `o/bin/cosmic` is something make can
+-- actually produce.
+local function test_project_mk_adds_engine_binary_when_project_builds_cosmic()
+  local proj = fixture("with-cosmic-bin", {
+      ["_cli/foo_test.tl"] = "assert(true)\n",
+      ["main.tl"] = "print('x')\n",
+      ["cmd/cosmic/main.tl"] = "print('x')\n",
+    })
+  local text = check.must(graph.project_mk(proj, "/bin/cosmic"))
+  local line = text:match("(deps__cli/foo_test := [^\n]*)")
+  assert(line, "expected a deps__cli/foo_test line: " .. text)
+  assert(line:find("o/bin/cosmic", 1, true),
+    "the project builds cmd/cosmic: must get the engine prerequisite: " .. line)
+end
+
 -- Deterministic: same tree, same bytes. Sorting is what makes the file
 -- a function of the project rather than of directory order.
 local function test_project_mk_is_deterministic()

@@ -444,13 +444,11 @@ that would lower more than half the committed floor's rows refuses
 outright, because that shape is what a partial or stale run produces —
 a narrowed test selection, `.cov` files a rebuild left behind — not a
 real project-wide decline; a legitimate rewrite still wants reading
-like any other diff before it is committed. declare `.cosmic-coverage
-merge=union` in `.gitattributes`
-and what conflict remains resolves itself: both sides' rows land, and
-the ratchet reads a repeated path as its LOWER percentage — the safe
-direction, since a merge that raised a floor would fail a build for a
-decline neither side introduced. it says how many rows it resolved that
-way, and the next `--baseline` rewrites the file clean.
+like any other diff before it is committed. declare `.cosmic-coverage merge=union` in
+`.gitattributes` and what conflict remains resolves itself: both sides' rows land, and the
+ratchet reads a repeated path as its LOWER percentage — the safe direction, since a merge
+that raised a floor would fail a build for a decline neither side introduced. it says how
+many rows it resolved that way, and the next `--baseline` rewrites the file clean.
 
 ## Environment variables
 
@@ -463,9 +461,11 @@ part of the contract:
 | `COSMIC_JOBS` | build parallelism (default: nproc) |
 | `COSMIC_MAKE_ROOT` | name the project root instead of using the cwd |
 | `COSMIC_COVERAGE` | a DIRECTORY to dump `.cov` files into |
+| `COSMIC_COVERAGE_ENV` | `1` marks the `.cosmic-coverage` recording environment; `--baseline` refuses elsewhere |
 | `COSMIC_VERSION` | the `--version` stamp, when no `.version` is committed |
 | `COSMIC_INSTRUMENTATION` | `1`/`true` emits timing spans to stderr |
 | `COSMIC_LOG_LEVEL` | `cosmic.log`'s threshold |
+| `COSMIC_FIXPOINT`, `COSMIC_FAIL_FAST`, `COSMIC_BENCHMARK_MIN_MS` | gate knobs: the two-build fixpoint test, stop a batched compile at its first failure, `--benchmark`'s timing floor |
 | `COSMIC_NO_WELCOME`, `COSMIC_NO_REQUIRE_HINTS`, `COSMIC_FULL_TRACEBACK` | output knobs |
 | `NO_COLOR`, `TERM`, `TMPDIR`, `HOME`, `PATH`, `XDG_*`, `SOURCE_DATE_EPOCH`, `CI` | third-party conventions cosmic honours rather than invents |
 

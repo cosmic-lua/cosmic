@@ -3,14 +3,14 @@
 this document says why cosmic exists, what "good" means here, and how each
 goal is measured. goals come in two tiers: **outcomes** — what cosmic IS
 when a goal holds — and **instruments** — how we see and steer, orthogonal
-to the outcomes they serve. outcomes are ordered, by paired comparison
-([D25](decisions/d25-outcomes-and-instruments.md), method in
-`skills/work/decompose.md`): each answer is committed on the board as
-one `gitboard compare` edge, and the order is DERIVED from those
-comparisons rather than asserted anywhere. the list below is that
-order written out for a reader, so changing it means re-asking the
-contested pairs and landing both — the comparisons and this PR. the
-tradeoffs behind these goals are recorded as decisions in
+to the outcomes they serve; the board does not read this grouping; it only
+ranks outcomes. outcomes are the board's children, ranked by its owner
+with `gitboard rank` (`gitboard help order` is the rule —
+[D25](decisions/d25-outcomes-and-instruments.md),
+[D45](decisions/d45-rank-is-a-list-position-at-every-level.md)). the list
+below is that order written out for a reader, so changing it means
+re-ranking on the board and landing both — the rank change and this PR.
+the tradeoffs behind these goals are recorded as decisions in
 [decisions/](decisions/) — read that before relitigating one.
 
 ## Mission
@@ -131,11 +131,14 @@ when the gap it polices closes.
 perf is a stated goal only where it defines the product experience:
 binary startup, `--check types` latency on a reference project, the
 embed build cycle, and agent cycles-per-task on the eval suite (G1).
-improvement is driven internally — a per-release ratchet on each path,
-enforced by the existing `perf-compare` gate and the eval history —
-and everything off the defining paths stays plain non-regression.
+improvement is driven internally — a daily compare on each path,
+reported by the perf lane (`perf.yml`: today's main against the latest
+release, never a release gate — [D44](decisions/d44-release-publishes-regardless-of-the-perf-compare.md))
+and the eval history — and everything off the defining paths stays
+plain non-regression.
 
-- **measured by:** the perf suite's ratchets per release; the peer
+- **measured by:** the perf suite's daily compare against the latest
+  release, its readings kept as the lane's run artifacts; the peer
   table — the same metrics for CPython, Node, Go, and comparable
   checkers — published with each release.
 - **win condition:** every defining-path ratchet holds (no regression,
@@ -169,8 +172,8 @@ diff).
 - **measured by:** a per-PR ratchet on the public module surface
   (committed baseline of public names); a per-release size report
   (source lines and file count per tree, binary size, AGENTS.md
-  doctrine size) published and compared release over release alongside
-  the perf history (G6's release-asset pattern).
+  doctrine size) published as a release asset and compared release
+  over release.
 - **win condition:** the surface ratchet holds; the size report ships
   with every release with growth named in the diffs that caused it;
   doctrine size trends down (shared with G3); pruning work is opened
@@ -220,8 +223,28 @@ batteries include serving: the test for a battery is "should a
 cosmic-built binary be able to do this without shelling out or
 vendoring C" — which includes an HTTP(S) server and a real concurrency
 model, since single-file portable services are a natural payoff of
-`--embed`. deliberately not urgent; direction, not deadline; it sits
-at the bottom of the order until activated.
+`--embed`. deliberately not urgent; direction, not deadline; it stays
+low in the order until activated.
+
+- **measured by:** not yet. when this activates, it is compared into
+  the order and gets eval tasks and win conditions like everything
+  else.
+
+### G10 — sharing code between cosmic artifacts (later)
+
+batteries include reuse: a cosmic project should be able to depend on
+modules published inside another cosmic artifact, resolved and baked
+in at BUILD time — no runtime linkage, no registry, no solver (the
+shape a first cut sketched: a package pin kind, a declared export
+manifest, foreign sources compiled strict against the consumer's own
+stdlib so version skew becomes a build-time type error rather than a
+runtime failure). deliberately not urgent, and explicitly blocked:
+D10 is the right to break, and a package system turns every stdlib
+break into breakage in code the project does not own, discovered in a
+build the project does not run — shipping the mechanism before a
+stated compatibility commitment bounds D10 is shipping a way to
+distribute future breakage. sits at the bottom of the order until
+D10 is bounded and it activates.
 
 - **measured by:** not yet. when this activates, it is compared into
   the order and gets eval tasks and win conditions like everything
@@ -229,17 +252,17 @@ at the bottom of the order until activated.
 
 ## Holding
 
-an outcome graduates here once a VERIFICATION item under it is
-accepted and its root is marked held (`gitboard hold`) — see
-`skills/work/decompose.md` for the procedure. each entry names the
-outcome, the date it was verified, and the VERIFICATION item that
-carries the evidence:
+an outcome graduates here once its VERIFICATION item is accepted and
+the outcome is ended with `gitboard done <id> --reason completed --by
+<verification-id>` — see `skills/work/decompose.md` for the procedure.
+each entry names the outcome, the date it was verified, and the
+VERIFICATION item that carries the evidence:
 
-- `### G<n> — <original title>` — held YYYY-MM-DD, verified by
+- `### G<n> — <original title>` — done YYYY-MM-DD, verified by
   `items/<id>` (PR #<n>); the `measured by:` output is quoted there.
   filing a new item under it reopens it automatically.
 
-nothing is held yet.
+nothing has graduated yet.
 
 ## Instruments
 
@@ -267,7 +290,7 @@ ergonomics (G2), gate adoption (G4).
 
 ### G8 — the flow system
 
-the system of work (`skills/work`, the board on the `board` branch):
+the system of work (`skills/work`, the board in cosmic-lua/work):
 sophisticated models decompose these goals into ready work, less
 sophisticated models implement it, and a sophisticated model's review
 is the final gate. its job is to make the outcomes above move and to
@@ -278,7 +301,7 @@ say what the movement costs.
   than one review round or a bounce — and the cost ratchet: tokens ×
   model tier per merged slice, tracked and trending down. the
   measurement is currently UNBUILT for the file-based board: every
-  mutation is a commit on the `board` branch, so `git log` holds the
+  mutation is a commit in cosmic-lua/work, so `git log` holds the
   flow record, but nothing reads it yet — the label-era `stats` tool
   measured GitHub timelines, which no longer carry the board.
 - **win condition:** the board runs the repo's work with flow health
