@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- reads: docs skills README.md AGENTS.md o/cmd/cosmic/embed_gen/embed/.docs/index.lua
+--- reads: docs skills README.md AGENTS.md
 -- Every backtick `cosmic.<mod>.<sym>` span in the prose names a symbol
 -- the doc index carries.
 --
@@ -12,13 +12,16 @@
 -- binary already carries every module, function, record, record field
 -- and example, so this test asks it the same question `--docs` would.
 --
--- The index is read from THIS TREE'S OWN BUILD, never `/zip` (the
+-- The index is built from THIS TREE, never read from `/zip` (the
 -- running binary's embedded copy): a gate that read the running
 -- binary's index would judge whatever tree built that binary, not the
--- one under test — the same reason `_build/doc_paths_test.tl` reads
--- the tree directly rather than asking a binary what files it shipped.
--- The declared `--- reads:` path above is this generator's OUTPUT, so
--- a rebuilt index re-runs this test.
+-- one under test. A build OUTPUT can never be a `--- reads:` input
+-- either — it does not exist on a cold clone, before the first build
+-- has run — so this calls the same `_tool.doc.index` API
+-- `cmd/cosmic/embed_gen.tl`'s `write_index` does, in-process, over a
+-- fresh `_make.project` scan of the tree: no dependency on a prior
+-- build, and no file this test would need to declare as an input
+-- beyond the prose itself.
 --
 -- Only `cosmic.<mod>.<sym>` is in scope: it is exactly the form
 -- `cosmic --docs` accepts, which is what makes a span checkable at
@@ -40,12 +43,22 @@ local type DocIndex = docs.DocIndex
 local type ModuleDoc = docs.ModuleDoc
 local type RecordDoc = docs.RecordDoc
 
+local project = require("_make.project")
+local index_m = require("_tool.doc.index")
+local mtypes = require("_make.types")
+local type Project = mtypes.Project
+
 local ROOTS < const >: {string} = {"docs", "skills"}
 local EXTRA_FILES < const >: {string} = {"README.md", "AGENTS.md"}
 
---- Where the tree's own build wrote the doc index — this generation
---- unit's payload output, not the running binary's `/zip` copy.
-local INDEX_PATH < const > = "o/cmd/cosmic/embed_gen/embed/.docs/index.lua"
+--- Where `_types/types_gen.tl` writes the generated `cosmo.*` and `tl`
+--- declarations. A normal generation unit, not a binary's payload
+--- generator: every verb that touches the graph runs it first, so it
+--- is already fresh by the time this test runs, on a cold clone same
+--- as a warm one. `cmd/cosmic/embed_gen.tl` has its own copy of this
+--- same constant, for the same reason: a generator is run, not
+--- required, so its private helpers are not reachable from here.
+local TYPES_DIR < const > = "o/_types/types_gen"
 
 --- Files excused whole, by path prefix: each names the tree as it was
 --- when a slice landed, so a span in it was right the day it was
@@ -160,16 +173,56 @@ local function symbol_spans(): {Span}
   return out
 end
 
---- Load the doc index this tree's own build just wrote.
---- @return DocIndex | nil The parsed index
---- @return string Why it could not be loaded
-local function load_index(): DocIndex | nil, string
-  local source, rerr = fs.read(INDEX_PATH)
-  if not source then
-    return nil, INDEX_PATH .. ": " .. (rerr or "cannot read") ..
-    " — run `cosmic --make build` first"
+--- Every generated `.d.tl` under TYPES_DIR, with the import path it
+--- documents. The same derivation `cmd/cosmic/embed_gen.tl`'s
+--- `declared_names` uses, duplicated here for the reason above.
+--- @return {string: string} Source path -> import path
+local function declared_names(): {string: string}
+  local out: {string: string} = {}
+  local found = fs.find(TYPES_DIR) or {}
+  local prefix = TYPES_DIR .. "/"
+  for _, path in ipairs(found) do
+    if path:sub(-5) == ".d.tl" and path:sub(1, #prefix) == prefix then
+      out[path] = path:sub(#prefix + 1):gsub("%.d%.tl$", ""):gsub("/", ".")
+    end
   end
-  local chunk, cerr = load("return " .. source, "=docindex", "t", {})
+  return out
+end
+
+--- Every source the doc index is built from: every module, entry and
+--- example in the project, plus the generated `cosmo.*` declarations.
+--- The same derivation `cmd/cosmic/embed_gen.tl`'s `documented` uses.
+--- @param proj Project The scanned project
+--- @return {string}
+local function documented(proj: Project): {string}
+  local out: {string} = {}
+  for _, f in ipairs(project.of_kind(proj, {"module", "entry", "example", "types"})) do
+    if f.path:sub(-3) == ".tl" then
+      out[#out + 1] = f.path
+    end
+  end
+  for path in pairs(declared_names()) do
+    out[#out + 1] = path
+  end
+  return out
+end
+
+--- Build the doc index fresh from this tree — the same
+--- `_tool.doc.index.generate` call `cmd/cosmic/embed_gen.tl`'s
+--- `write_index` makes, minus the file write: this test only ever
+--- needs the parsed result, never a copy on disk.
+--- @return DocIndex | nil The built index
+--- @return string Why it could not be built
+local function build_index(): DocIndex | nil, string
+  local proj, serr = project.scan(".")
+  if not proj then
+    return nil, "project scan: " .. (serr or "unknown error")
+  end
+  local body, gerr = index_m.generate(documented(proj), declared_names())
+  if not body then
+    return nil, "doc index: " .. (gerr or "unknown error")
+  end
+  local chunk, cerr = load("return " .. body, "=docindex", "t", {})
   if not chunk then
     return nil, "failed to parse index: " .. (cerr or "unknown")
   end
@@ -325,7 +378,7 @@ end
 -- up to 3 near misses — the same fuzzy search `--docs` runs on a typo,
 -- so the fix is right there in the message.
 local function test_every_symbol_reference_resolves_in_the_doc_index()
-  local index, ierr = load_index()
+  local index, ierr = build_index()
   assert(index, ierr)
   local candidates = candidates_of(index)
   local missing: {string} = {}
@@ -348,7 +401,7 @@ end
 -- nothing needs, and an allowlist only grows unless its entries earn
 -- their place.
 local function test_every_excuse_is_still_needed()
-  local index, ierr = load_index()
+  local index, ierr = build_index()
   assert(index, ierr)
   local needed: {string: boolean} = {}
   for _, span in ipairs(symbol_spans()) do
