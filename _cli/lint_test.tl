@@ -51,21 +51,37 @@ local function test_lint_file_over_default()
   assert(diagnostics[1].rule == "file-length", "expected file-length rule")
 end
 
--- A binary (or any non-Teal/Lua file) over the length limit gets the
--- .cosmicignore hint: "split this file" is not actionable advice for an
--- ELF binary the walk swept in.
-local function test_lint_file_hints_cosmicignore_for_binary()
+-- A file whose bytes contain NUL has no line grammar to cap — it is a
+-- binary the project walk swept in, and the file-length rule does not
+-- run on it at all, regardless of how many newline bytes it happens to
+-- contain. Prose stays judged: a long README.md still gets the
+-- file-length diagnostic, with the "not Teal/Lua source" hint it
+-- always had — pinned here beside the binary case.
+local function test_lint_file_skips_binary_with_nul()
   local path = fs.join(tmpdir, "toolbinary")
-  local chunk = "\0\1\2ELF junk line\n"
-  assert(fs.write(path, chunk:rep(600)))
+  -- fixed byte pattern, not /dev/urandom: deterministic across runs.
+  -- 3 bytes per repeat gives well over 500 newline bytes in 4 KiB.
+  local chunk = "\0X\n"
+  local content = chunk:rep(4096 // #chunk + 1):sub(1, 4096)
+  assert(fs.write(path, content))
 
   local diagnostics = check.must(lint.lint_file(path))
-  assert(#diagnostics == 1, "expected 1 diagnostic, got: " .. tostring(#diagnostics))
-  assert(diagnostics[1].rule == "file-length", "expected file-length rule")
-  assert(diagnostics[1].message:find("a binary file", 1, true),
-    "expected the binary nature named, got: " .. diagnostics[1].message)
-  assert(diagnostics[1].message:find(".cosmicignore", 1, true),
-    "expected a .cosmicignore hint, got: " .. diagnostics[1].message)
+  assert(#diagnostics == 0,
+    "expected no diagnostics for a file with a NUL byte, got: " .. tostring(#diagnostics))
+
+  local readme_path = fs.join(tmpdir, "README.md")
+  local lines: {string} = {}
+  for i = 1, 600 do
+    table.insert(lines, "line " .. tostring(i))
+  end
+  assert(fs.write(readme_path, table.concat(lines, "\n") .. "\n"))
+
+  local readme_diagnostics = check.must(lint.lint_file(readme_path))
+  assert(#readme_diagnostics == 1,
+    "expected 1 diagnostic for a long README, got: " .. tostring(#readme_diagnostics))
+  assert(readme_diagnostics[1].rule == "file-length", "expected file-length rule")
+  assert(readme_diagnostics[1].message:find("not Teal/Lua source", 1, true),
+    "expected the nature named, got: " .. readme_diagnostics[1].message)
 end
 
 local function test_lint_file_hints_cosmicignore_for_non_source_text()
@@ -400,9 +416,9 @@ end
 print("all lint tests passed")
 
 -- The diagnostic renderer prints the offending line under each finding
--- (no snippet for file-length: it is about the whole file, and the
--- file may not even be text). Long lines truncate so one bad line
--- cannot flood the terminal.
+-- (no snippet for file-length: it is about the whole file, not one
+-- line). Long lines truncate so one bad line cannot flood the
+-- terminal.
 local function test_render_diagnostics_snippets()
   local path = fs.join(tmpdir, "render_me.tl")
   local long_tail = string.rep("y", 150)
@@ -419,8 +435,12 @@ local function test_render_diagnostics_snippets()
   assert(text:find("%.%.%.\n") ~= nil,
     "an over-long snippet truncates: " .. text)
 
-  local binpath = fs.join(tmpdir, "notsource")
-  assert(fs.write(binpath, string.rep("\0junk\n", 600)))
+  local binpath = fs.join(tmpdir, "notsource.txt")
+  local bin_lines: {string} = {}
+  for i = 1, 600 do
+    table.insert(bin_lines, "line " .. tostring(i))
+  end
+  assert(fs.write(binpath, table.concat(bin_lines, "\n") .. "\n"))
   local bindiags = check.must(lint.lint_file(binpath))
   assert(#bindiags == 1 and bindiags[1].rule == "file-length",
     "length finding expected")

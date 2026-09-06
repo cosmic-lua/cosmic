@@ -6,7 +6,12 @@
 --- check the committed files still match.
 
 local fs = require("cosmic.fs")
-local zip = require("cosmic.zip")
+-- The raw binding, not the `cosmic.zip` wrapper: this module produces
+-- `cosmo/zip.d.tl` itself, and `cosmic.zip` compiles against those same
+-- declarations, so routing the read below through the wrapper would put
+-- it inside its own bootstrap -- unable to compile against a binding
+-- this very generation step is what introduces.
+local zip = require("cosmo.zip")
 
 --- The pinned cosmos runtime, which carries `definitions.lua`.
 ---
@@ -38,11 +43,12 @@ local function read(): string | nil, string
     return source
   end
   local runtime = runtime_path()
-  local reader, oerr = zip.open(runtime)
-  if not reader then
+  local handle, oerr = zip.open(runtime, "r")
+  if not handle then
     return nil, "Failed to open " .. runtime ..
     " (run `cosmic --make fetch`): " .. (oerr or "unknown error")
   end
+  local reader = handle as zip.Reader -- cast: from any
   local source, rerr = reader:read(".lua/definitions.lua")
   if not source then
     return nil, "Failed to read .lua/definitions.lua from " .. runtime ..

@@ -12,6 +12,7 @@ _tool/discover.tl	90	tl compiler surface
 _types/gentype.tl	19	module surface record
 _types/gentype.tl	24	module surface record
 _types/gentype.tl	30	module surface record
+_types/gentype_defs.tl	51	userdata boundary
 _types/tlast.tl	105	tl compiler surface
 _types/tlast.tl	329	module surface record
 _types/tlast.tl	330	module surface record
