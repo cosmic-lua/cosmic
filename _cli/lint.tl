@@ -314,21 +314,25 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     n = n - 1
   end
 
-  local diagnostics = style.check_file_length(path, n, style.DEFAULT_FILE_LINES)
-  -- A length failure on something that is not Teal/Lua source is almost
-  -- never fixed by splitting the file: it is a binary or a data file the
-  -- project walk swept in (lint reads bytes, deliberately), and the fix
-  -- the model already provides is `.cosmicignore`. Say so in the
-  -- diagnostic, where the reader is — the rule alone reads as "split
-  -- your 90,000-line file" when the file is an ELF binary.
-  if not (path:match("%.tl$") or path:match("%.lua$")) then
-    local nature = content:find("\0", 1, true)
-    and "a binary file, not text" or "not Teal/Lua source"
-    for _, d in ipairs(diagnostics) do
-      if d.rule == "file-length" then
-        d.message = d.message .. " — " .. nature .. "; lint gates every"
-        .. " file the project walk sees, so if this one should not be"
-        .. " judged, list it in .cosmicignore"
+  local is_binary = content:find("\0", 1, true) ~= nil
+  local diagnostics: {Diagnostic} = {}
+  -- A file with a NUL byte has no line grammar to cap: it is a binary the
+  -- project walk swept in (lint reads bytes, deliberately), not text with
+  -- lines to count or split. The file-length rule has nothing to say
+  -- about it, so it does not run.
+  if not is_binary then
+    diagnostics = style.check_file_length(path, n, style.DEFAULT_FILE_LINES)
+    -- A length failure on something that is not Teal/Lua source is almost
+    -- never fixed by splitting the file: it is prose or data the project
+    -- walk swept in, and the fix the model already provides is
+    -- `.cosmicignore`. Say so in the diagnostic, where the reader is.
+    if not (path:match("%.tl$") or path:match("%.lua$")) then
+      for _, d in ipairs(diagnostics) do
+        if d.rule == "file-length" then
+          d.message = d.message .. " — not Teal/Lua source; lint gates"
+          .. " every file the project walk sees, so if this one should"
+          .. " not be judged, list it in .cosmicignore"
+        end
       end
     end
   end

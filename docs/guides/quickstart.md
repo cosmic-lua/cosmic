@@ -29,11 +29,6 @@ a source's path relative to the project root IS its import path —
 from the project root (the `cosmic` binary itself is written here as
 `cosmic`; use the path you have it at).
 
-one caution before you start: keep the `cosmic` binary OUTSIDE the
-project directory (or list it in a `.cosmicignore` file). the lint gate
-reads every file the project walk sees, and a 10MB executable fails the
-file-length rule in a confusing way.
-
 ## the library module
 
 `greet/text.tl` — a module is a record describing its API, returned at
