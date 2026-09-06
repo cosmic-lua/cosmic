@@ -9,6 +9,7 @@ High-level utilities and tools built on top of cosmo.
 | Module | Description |
 |--------|-------------|
 | [ansi](cosmic/ansi.md) |  ANSI terminal styling. |
+| [init](cosmic/ast/init.md) |  Public parent for the cosmic.ast.* shards: parsing, walking, and |
 | [check](cosmic/check.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [init](cosmic/child/init.md) |  Child process management. |
 | [codec](cosmic/codec.md) |  Encoding and decoding utilities: bytes in, bytes out. |
