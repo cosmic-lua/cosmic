@@ -462,4 +462,30 @@ end
   print("test_record_fields_skip_comments: PASS")
 end
 
+-- `local interface Name ... end` is the same shape as a record without
+-- the keyword, and cosmic.errors.Failure is a live one: the extractor
+-- must land it in `records` (with its doc comment and its method
+-- field) so `--docs cosmic.errors.Failure` can answer.
+local function test_parse_interface()
+  local source = [[
+--- The one supertype for structured errors.
+local interface Failure
+  --- Human-readable failure detail.
+  message: string
+  metamethod __tostring: function(Failure): string
+end
+]]
+
+  local result = doc.parse(source, "test.tl")
+  assert(#result.records == 1, "should find one interface, got " .. #result.records)
+  local rec = result.records[1]
+  assert(rec.name == "Failure", "interface name should be 'Failure'")
+  assert(rec.description:find("supertype"), "should have the doc comment")
+  local found_method = false
+  for _, f in ipairs(rec.fields) do
+    if f[2]:match("^function") then found_method = true end
+  end
+  assert(found_method, "should find the method field")
+end
+
 print("All doc tests passed!")
