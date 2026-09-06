@@ -27,8 +27,7 @@ local type Handle = cfd.Handle
 --- Iterator over file paths, as returned by find_iter().
 local type FileIter = fs_find.FileIter
 
---- Visitor verdict for visit()/walk(): nil continues, "skip" prunes,
---- "stop" ends the walk.
+--- Visitor verdict for visit()/walk(); see the `FsModule` field below.
 local type WalkAction = fs_walk.WalkAction
 
 --- Options for visit()/walk() (max_depth).

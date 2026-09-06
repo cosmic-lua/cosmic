@@ -277,9 +277,7 @@ local function run_compare(prev_path: string, cur_path: string): integer
   return 0
 end
 
---- CLI entry point.
---- @param ... string Command-line arguments
---- @return integer Exit code
+--- Runs the size ratchet from the command line.
 local function main(...: string): integer
   local argv = {...}
   if argv[1] == "compare" then

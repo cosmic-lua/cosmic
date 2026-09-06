@@ -5,6 +5,11 @@
 --- fact common to every brief (a *_test.tl file exists) so it is
 --- implemented once instead of seven times.
 ---
+--- Every sibling's entry point is `check(workspace: string): integer,
+--- {string}` -- the absolute path to the task's workspace in, the
+--- number of failed Acceptance facts and what failed (one entry per
+--- count) out.
+---
 --- Deliberately NOT in scope here: re-running `<workspace>/cosmic
 --- --make ci` to reverify the "ci: PASS" acceptance fact. Doing that
 --- meaningfully needs the real candidate binary and a real Teal

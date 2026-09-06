@@ -44,8 +44,7 @@ local record LineStats
   last: string
 end
 
---- Accept loop run inside the forked server child. Never returns.
---- @param srv Socket The listening socket
+--- The accept loop; see `_perf/bench/server.tl`.
 local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()
