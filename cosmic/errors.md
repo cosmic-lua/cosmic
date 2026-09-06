@@ -25,3 +25,14 @@
 ## Types
 
 ### ErrorsModule
+
+### Failure
+
+```teal
+local record Failure
+  --  Human-readable failure detail, without any classification
+  --  prefix; `tostring(err)` renders the classified form.
+  message: string
+  __tostring: function(Failure): string
+end
+```
