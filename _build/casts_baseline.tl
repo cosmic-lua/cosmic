@@ -17,7 +17,7 @@ return {
   ["cosmic/check.tl"] = 4,
   ["cosmic/check_assertions_test.tl"] = 2,
   ["cosmic/compress_test.tl"] = 3,
-  ["cosmic/coverage/init.tl"] = 4,
+  ["cosmic/coverage/init.tl"] = 2,
   ["cosmic/deep.tl"] = 2,
   ["cosmic/embed/init.tl"] = 1,
   ["cosmic/errno.tl"] = 2,

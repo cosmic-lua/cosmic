@@ -400,8 +400,8 @@ parameter it declared `any` at a module seam — re-typed to
 modules can pass a value without a circular type dependency.
 
 ```text
--- cosmic/coverage/init.tl:92
-  local co = coroutine as {string: any} -- cast: patch stdlib table
+-- cosmic/check.tl:171
+  local surface = module as {string: any}
 ```
 
 **What closes it here.** Declaring the type closes four of these five: a
