@@ -184,6 +184,7 @@ return {
   ["cosmic/ansi.tl"] = {["covered"] = 86, ["total"] = 86},
   ["cosmic/ast/init.tl"] = {["covered"] = 13, ["total"] = 13},
   ["cosmic/ast/match.tl"] = {["covered"] = 99, ["total"] = 106},
+  ["cosmic/ast/rewrite.tl"] = {["covered"] = 84, ["total"] = 92},
   ["cosmic/ast/node.tl"] = {["covered"] = 13, ["total"] = 15},
   ["cosmic/ast/walk.tl"] = {["covered"] = 103, ["total"] = 110},
   ["cosmic/check.tl"] = {["covered"] = 145, ["total"] = 153},
