@@ -387,6 +387,17 @@ test_trim()
 
 each test gets its own temp directory via `TEST_TMPDIR`.
 
+**A test that reads a file the graph cannot see** — a script copied
+with `fs.copy`, a fixture under `testdata/`, a generated index under
+`o/` — declares it with a `--- reads: <path>` line in its header, one
+path per line, before the first `local`; the runner re-records the
+result when that file changes. Without the line an edit to the file
+reuses the last recorded pass, and only deleting `o/<path>.test.*`
+by hand re-runs it. `_build/doc_symbols_test.tl` declares its inputs
+this way (`--- reads: docs skills README.md AGENTS.md`), and
+`_cli/gitboard_root_test.tl` declares the script it copies
+(`--- reads: bin/gitboard`).
+
 `_make/fixpoint_test.tl` (two full builds) is gated: run it with
 `COSMIC_FIXPOINT=1 bin/cosmic --make test _make/fixpoint_test.tl`.
 
