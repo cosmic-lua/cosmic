@@ -15,7 +15,7 @@ local source = require("_fuzz.source")
 local MAX_DEPTH = 4
 --- Generated integers are drawn from [-2^53, 2^53].
 local INT_LIMIT = 9007199254740992
---- Bounds on a generated string's length and a generated table's width.
+--- Same bounds as `_fuzz/literal_fuzz_test.tl`'s.
 local MAX_STRING_LEN = 12
 local MAX_TABLE_LEN = 4
 --- The longest arbitrary input the totality property decodes.
@@ -36,9 +36,7 @@ local function random_char(src: source.Recorder): string
   return STRING_ALPHABET:sub(i, i)
 end
 
---- Draw a string of alphabet characters.
---- @param src source.Recorder The source to draw from
---- @return string A string of 0 to MAX_STRING_LEN characters
+--- Same as `_fuzz/literal_fuzz_test.tl`'s `random_string`.
 local function random_string(src: source.Recorder): string
   local out: {string} = {}
   for i = 1, src:int(0, MAX_STRING_LEN) do

@@ -45,9 +45,7 @@ local SPEC: flags.Spec = {
   },
 }
 
---- Parse command-line arguments.
---- @param argv {string} Raw arguments
---- @return Args Parsed arguments; Args.err is set on parse failure
+--- Parse this CLI's flags via `cosmic.flags`.
 local function parse_args(argv: {string}): Args
   local a: Args = {}
   local parsed, perr = flags.parse(SPEC, argv)

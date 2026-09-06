@@ -38,8 +38,7 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 local server_pid: integer | nil
 local listener: net.Socket | nil
 
---- Accept loop run inside the forked server child. Never returns.
---- @param srv Socket The listening socket
+--- The accept loop; see `_perf/bench/server.tl`.
 local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()

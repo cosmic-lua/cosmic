@@ -77,8 +77,7 @@ local function make(dir: string, ...: string): Run
   return {code = r.code or 128, out = r.stdout or "", err = r.stderr or ""}
 end
 
---- A project with a package, an entry, a test, a .lua source, and an
---- asset -- one of everything the rules have a pattern for.
+--- Same fixture shape as `_make/build_test.tl`'s `app`.
 local function app(name: string): string
   return fixture(name, {
       ["cmd/app/main.tl"] = "local db = require('db')\nprint(db.name())\n",

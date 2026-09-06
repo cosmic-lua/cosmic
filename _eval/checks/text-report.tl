@@ -26,9 +26,7 @@ local WANT_REPORT < const > = table.concat({
     "total 7",
   }, "\n") .. "\n"
 
---- @param workspace string Absolute path to the task's workspace
---- @return integer The number of failed Acceptance facts
---- @return {string} What failed, one entry per count
+--- This task's `check(workspace)`; see `_eval/checks/support.tl`.
 local function check(workspace: string): integer, {string}
   local acc = support.new()
 

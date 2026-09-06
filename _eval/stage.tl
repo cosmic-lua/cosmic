@@ -59,9 +59,7 @@ local SPEC: flags.Spec = {
   },
 }
 
---- Parse command-line arguments.
---- @param argv {string} Raw arguments
---- @return Args Parsed arguments; Args.err is set on parse failure
+--- Parse this CLI's flags via `cosmic.flags`.
 local function parse_args(argv: {string}): Args
   local a: Args = {}
   local parsed, perr = flags.parse(SPEC, argv)
@@ -314,9 +312,7 @@ local function commands_text(out: string, manifest: eval_types.Manifest): string
   return table.concat(parts, "\n")
 end
 
---- CLI entry point.
---- @param ... string Command-line arguments
---- @return integer Exit code
+--- Runs one eval stage from the command line.
 local function main(...: string): integer
   local a = parse_args({...})
   if a.help then

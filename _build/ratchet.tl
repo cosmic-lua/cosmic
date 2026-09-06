@@ -15,6 +15,16 @@
 --- The rest of a ratchet -- what each row must say, and against which
 --- value -- stays in the test. That part is the judgement; this part is
 --- just bytes.
+---
+--- A counting ratchet (`_build/casts.tl`, `_build/nil_returns.tl`, and
+--- the like) keeps its own committed floor instead: a
+--- `_build/<name>_baseline.tl` file holding one `["path"] = count`
+--- entry per source that carries any, read and written through
+--- `_tool.floor`. Every such ratchet counts the same trees -- every
+--- tree of committed Teal source, `3p/` excluded since it is vendored
+--- rather than written here -- and rewrites its floor the same way,
+--- from a fresh count of the tree: `bin/cosmic --make run
+--- _build/<name>.tl --baseline`.
 
 local fs = require("cosmic.fs")
 

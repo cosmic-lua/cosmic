@@ -17,11 +17,8 @@ local FileInfo = types.FileInfo
 local type Entry = types.Entry
 local type WalkDirHandle = types.DirHandle
 
---- Convert a glob pattern to a Lua pattern.
---- Supports * (any run) and ? (one char); every other character —
---- including [ ] brackets and Lua-pattern magic like % — is literal.
---- @param glob string The glob pattern
---- @return string The equivalent Lua pattern
+--- Convert a glob pattern to a Lua pattern; see the `FsFindModule`
+--- field below for the full contract.
 local function glob_to_pattern(glob: string): string
   -- Escape every Lua pattern magic character, including [ ] and + - which are
   -- meaningful inside Lua character classes. Otherwise a glob like "*[a-z]*"

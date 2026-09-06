@@ -13,7 +13,7 @@ local type Project = types.Project
 local cosmic = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
---- Build a fixture tree from a path -> contents map and scan it.
+--- Same fixture builder as `_make/project_test.tl`'s.
 local function fixture(name: string, files: {string: string}): Project
   local root = fs.join(tmpdir, "seed-" .. name)
   assert(fs.remove_all(root))

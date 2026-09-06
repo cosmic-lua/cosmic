@@ -60,9 +60,9 @@ cosmic/fetch/init.tl	367	binding contract shape
 cosmic/fetch/init.tl	371	binding contract shape
 cosmic/fetch/init.tl	388	incremental record construction
 cosmic/fs/dir_test.tl	170	userdata boundary
-cosmic/fs/find.tl	166	userdata boundary
-cosmic/fs/find.tl	190	userdata boundary
-cosmic/fs/find.tl	320	userdata boundary
+cosmic/fs/find.tl	163	userdata boundary
+cosmic/fs/find.tl	187	userdata boundary
+cosmic/fs/find.tl	317	userdata boundary
 cosmic/fs/ops.tl	411	userdata boundary
 cosmic/fs/ops.tl	425	userdata boundary
 cosmic/fs/tree.tl	23	userdata boundary

@@ -71,7 +71,8 @@ baseline, no ratchet. Zero configuration, and a fresh project doesn't
 fail on a stage that had nothing to do. (A baseline is *input* data, so
 it stays committed; only generated things are banned from the tree.)
 
-Every verb ends in a machine-readable verdict line and an exit code.
+Every verb ends in a machine-readable verdict line and an exit code;
+see [docs/guides/make.md](../../guides/make.md) for the shape.
 
 ## The lanes converge on the verbs
 
