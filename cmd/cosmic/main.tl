@@ -111,6 +111,9 @@ local function main(): integer, string
     return require("_cli.check").run(opts.check_kind, opts.check_files,
       opts.include_dirs)
   end
+  if opts.find_pattern then
+    return require("_cli.find").run(opts.find_pattern, opts.find_paths)
+  end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end
   if opts.extract then return handlers.handle_extract(opts.extract, opts.exe) end
 

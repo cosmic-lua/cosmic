@@ -24,6 +24,10 @@ local record Options
   --- The kind named by `--check <kind>`, and the files it applies to.
   check_kind: string
   check_files: {string}
+  --- The pattern named by `--find <pattern>`, and the paths it searches
+  --- (empty means the project's own `.tl` sources).
+  find_pattern: string
+  find_paths: {string}
   embed: {string}
   output: string
   extract: string
@@ -77,6 +81,7 @@ local function parse_args(): Options
     ["report"] = true,
     ["coverage-report"] = true,
     ["check"] = true,
+    ["find"] = true,
     ["fix"] = true,
     ["format"] = true,
   }
@@ -217,6 +222,12 @@ local function parse_args(): Options
     opts.check_kind = p.values["check"]
     opts.check_files = cli_args.with_extra_paths(nil, p.args)
   end
+  if p.values["find"] then
+    -- The pattern is the flag's argument; the paths are the
+    -- positionals left in p.args (empty means the whole project).
+    opts.find_pattern = p.values["find"]
+    opts.find_paths = p.args
+  end
   for _, path in ipairs(p.lists["embed"]) do
     opts.embed[#opts.embed + 1] = path
   end
@@ -244,9 +255,10 @@ local function parse_args(): Options
   -- A command flag ends the run before any script dispatch, matching
   -- the old parse loop's early returns.
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
-  or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.extract
-  or opts.examples or opts.benchmark or opts.docs or opts.test_output
-  or opts.report_paths or opts.coverage_report_paths or opts.make_verb then
+  or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.find_pattern
+  or opts.extract or opts.examples or opts.benchmark or opts.docs
+  or opts.test_output or opts.report_paths or opts.coverage_report_paths
+  or opts.make_verb then
     return opts
   end
 

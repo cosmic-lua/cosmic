@@ -31,6 +31,7 @@ return {
   ["_cli/citations.tl"] = {["covered"] = 127, ["total"] = 129},
   ["_cli/driver.tl"] = {["covered"] = 21, ["total"] = 34},
   ["_cli/env_vars.tl"] = {["covered"] = 72, ["total"] = 72},
+  ["_cli/find.tl"] = {["covered"] = 55, ["total"] = 65},
   ["_cli/grants.tl"] = {["covered"] = 158, ["total"] = 168},
   ["_cli/help.tl"] = {["covered"] = 46, ["total"] = 48},
   ["_cli/lint.tl"] = {["covered"] = 190, ["total"] = 215},

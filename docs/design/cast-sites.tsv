@@ -22,7 +22,7 @@ _types/tlast.tl	340	tl compiler surface
 _types/tlast.tl	350	metatable access
 _types/tlast_test.tl	50	module surface record
 _types/tlast_test.tl	60	tl compiler surface
-cmd/cosmic/main.tl	191	container variance
+cmd/cosmic/main.tl	194	container variance
 cosmic/_literal_format.tl	113	container variance
 cosmic/_literal_format.tl	131	container variance
 cosmic/_probe.tl	15	runtime capability probe
