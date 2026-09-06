@@ -109,7 +109,7 @@ ensure_bootstrap
 if [ -z "${GITBOARD_DIR}" ] && [ -d "${ROOT}/../work" ]; then
     sibling="$(cd "${ROOT}/../work" && pwd)"
     case "$(git -C "${sibling}" remote get-url origin 2>/dev/null || true)" in
-        *cosmic-lua/work | *cosmic-lua/work.git)
+        */cosmic-lua/work | *:cosmic-lua/work | */cosmic-lua/work.git | *:cosmic-lua/work.git)
             GITBOARD_DIR="${sibling}"
             ;;
     esac
