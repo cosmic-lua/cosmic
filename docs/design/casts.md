@@ -378,19 +378,29 @@ error type. That rule lands in the carried patch or upstream in tl.
 ### binding constant by name
 
 A `cosmo.unix` constant resolved by a name computed at runtime — an
-`E*` errno name, a `SIG*` signal name — which needs the module table
-viewed as a map and the result re-typed to `integer`. The constants are
-declared correctly; looking one up by name has no typed surface.
+`E*` errno name, a `SIG*` signal name, a `CAP_*` capability name — which
+needs the module table viewed as a map and the result re-typed to
+`integer`. `unix.E` and `unix.SIG` are both declared upstream as
+`table<string, integer>` and now generate as real typed maps —
+`_types/gentype_parse.tl`'s `@type`-tag field parsing used to truncate
+that generic annotation to its head token, so the class stayed open
+here rather than upstream. With the parser fixed, `cosmic/errno.tl`'s
+`code_of` and `cosmic/quicksand/proc.tl`'s `become_init` read `unix.E`
+and `unix.SIG` directly, with an honest `| nil`, and their two cast
+pairs are gone.
+
+One site does not fit either shape and stays a cast: `unix.CAP` shares
+the identical upstream shape, but `cosmic/quicksand/caps.tl`'s own
+lookup and its shape are tracked and closed by a separate item, not
+here.
 
 ```text
--- cosmic/errno.tl:52
-  return (unix as {string: any})[name] as integer -- cast: dynamic E* lookup, from any
+-- cosmic/quicksand/caps.tl:63
+  local n = (unix as {string: any})[name] as integer -- cast: dynamic constant lookup
 ```
 
-**What closes it upstream.** `cosmic-lua/cosmopolitan` holds the constants
-and can expose them as real maps — one `{string: integer}` for the
-errno names and one for the signal names — annotated so the generator
-emits typed tables. The lookup becomes a map read with an honest `| nil`.
+**What closes it here.** The same direct-map read this class's `E`/`SIG`
+sites just took, applied to `unix.CAP`.
 
 ### map view of a declared value
 

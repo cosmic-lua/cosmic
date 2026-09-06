@@ -49,7 +49,7 @@ end
 --- @param name string errno constant name
 --- @return integer | nil errno number, nil when the host does not define it
 local function code_of(name: string): integer | nil
-  return (unix as {string: any})[name] as integer -- cast: dynamic E* lookup, from any
+  return unix.E[name]
 end
 
 --- True when a failed call's numeric errno (the third return value of a
@@ -87,41 +87,14 @@ local function name_in(msg: string): string | nil
   return string.match(msg, "%f[%w](E[%u%d]+):")
 end
 
--- Every errno name cosmo.unix may define. An explicit list rather than an
--- `E*` scan of the module, which would pick up the termios flags (ECHO,
--- ECHOE, ECHOK, ECHONL). Names the host does not define are skipped.
-local ERRNO_NAMES < const >: {string} = {
-  "E2BIG", "EACCES", "EADDRINUSE", "EADDRNOTAVAIL", "EAFNOSUPPORT",
-  "EAGAIN", "EALREADY", "EBADF", "EBADFD", "EBADMSG", "EBUSY",
-  "ECANCELED", "ECHILD", "ECONNABORTED", "ECONNREFUSED", "ECONNRESET",
-  "EDEADLK", "EDESTADDRREQ", "EDOM", "EDQUOT", "EEXIST", "EFAULT",
-  "EFBIG", "EFTYPE", "EHOSTDOWN", "EHOSTUNREACH", "EHWPOISON", "EIDRM",
-  "EILSEQ", "EINPROGRESS", "EINTR", "EINVAL", "EIO", "EISCONN",
-  "EISDIR", "ELOOP", "EMEDIUMTYPE", "EMFILE", "EMLINK", "EMSGSIZE",
-  "EMULTIHOP", "ENAMETOOLONG", "ENETDOWN", "ENETRESET", "ENETUNREACH",
-  "ENFILE", "ENOBUFS", "ENODATA", "ENODEV", "ENOENT", "ENOEXEC",
-  "ENOLCK", "ENOLINK", "ENOMEDIUM", "ENOMEM", "ENOMSG", "ENONET",
-  "ENOPROTOOPT", "ENOSPC", "ENOSR", "ENOSTR", "ENOSYS", "ENOTBLK",
-  "ENOTCONN", "ENOTDIR", "ENOTEMPTY", "ENOTRECOVERABLE", "ENOTSOCK",
-  "ENOTSUP", "ENOTTY", "ENXIO", "EOPNOTSUPP", "EOVERFLOW", "EOWNERDEAD",
-  "EPERM", "EPFNOSUPPORT", "EPIPE", "EPROTO", "EPROTONOSUPPORT",
-  "EPROTOTYPE", "ERANGE", "EREMOTE", "ERESTART", "ERFKILL", "EROFS",
-  "ESHUTDOWN", "ESOCKTNOSUPPORT", "ESPIPE", "ESRCH", "ESTALE", "ETIME",
-  "ETIMEDOUT", "ETOOMANYREFS", "ETXTBSY", "EUSERS", "EXDEV",
-}
-
 --- Errno name -> number for every constant the host defines
 --- (`codes.ENOENT`, `codes["EAGAIN"]`, ...). The table form of
 --- `code_of`: use it to iterate, to look names up dynamically, or to avoid
---- reaching through `cosmo.unix` for a raw constant.
-local codes: {string: integer} = {}
-for _, name in ipairs(ERRNO_NAMES) do
-  local v = (unix as {string: any})[name] -- cast: dynamic E* lookup
-  local n = v is number and math.tointeger(v) or nil
-  if n then
-    codes[name] = n
-  end
-end
+--- reaching through `cosmo.unix` for a raw constant. `unix.E` is already
+--- exactly this table (every errno constant, keyed by name; it excludes
+--- E-prefixed termios flags like ECHO, ECHOE that are not errno numbers),
+--- so there is nothing to re-derive.
+local codes: {string: integer} = unix.E
 
 local record ErrnoModule
   format: function(err: any, prefix?: string): string
