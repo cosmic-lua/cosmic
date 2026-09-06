@@ -114,6 +114,10 @@ local function main(): integer, string
   if opts.find_pattern then
     return require("_cli.find").run(opts.find_pattern, opts.find_paths)
   end
+  if opts.rewrite_pattern then
+    return require("_cli.rewrite").run(opts.rewrite_pattern, opts.rewrite_paths,
+      opts.rewrite_apply)
+  end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end
   if opts.extract then return handlers.handle_extract(opts.extract, opts.exe) end
 

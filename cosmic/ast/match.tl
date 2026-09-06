@@ -264,7 +264,8 @@ end
 --- success. Subset matching: every named field `pattern` sets must
 --- match; a field `pattern` leaves unset is never consulted, so a
 --- partial pattern matches without spelling out every field of the
---- kind it names.
+--- kind it names. Capture keys carry the desugared `_` prefix (`$CMD`
+--- binds as `_CMD`).
 --- @param pattern Node A compiled pattern (see `compile_pattern`)
 --- @param node Node A candidate node to test
 --- @return {string: Node}|nil Capture bindings by name, or nil when `pattern` does not match `node`

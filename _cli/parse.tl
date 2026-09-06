@@ -28,6 +28,16 @@ local record Options
   --- (empty means the project's own `.tl` sources).
   find_pattern: string
   find_paths: {string}
+  --- The pattern named by `--rewrite <pattern>`. In search mode (no
+  --- `--apply`) `rewrite_paths` is the PATH list, exactly `find_paths`.
+  --- In apply mode (`--rewrite PATTERN REPL --apply PATH...`) `--apply`
+  --- is a bare boolean switch -- it takes no argument of its own, so it
+  --- can never absorb a PATH -- and `rewrite_paths` holds REPL followed
+  --- by every target PATH: `_cli.rewrite` reads `rewrite_paths[1]` as
+  --- REPL and the rest as the files to rewrite.
+  rewrite_pattern: string
+  rewrite_paths: {string}
+  rewrite_apply: boolean
   embed: {string}
   output: string
   extract: string
@@ -64,6 +74,7 @@ local function parse_args(): Options
     format = {},
     fix = {},
     check_files = {},
+    rewrite_apply = false,
     welcome = false,
     write_if_changed = false,
     include_dirs = {},
@@ -77,11 +88,18 @@ local function parse_args(): Options
   -- anything else stops this scan at the first positional past a flag's
   -- declared arity and reads the rest as a script name, so the parser
   -- never sees those paths. Greedy, they arrive as the list they are.
+  -- `--apply` takes no argument of its own, but it can still be the
+  -- FIRST option in an invocation (--apply PATH... --rewrite PATTERN
+  -- REPL is a valid, if undocumented, ordering) -- without it here the
+  -- scan would stop at the positional right after `--apply` and read
+  -- it as the script name, silently dropping the rest of the line.
   local long_greedy: {string: boolean} = {
     ["report"] = true,
     ["coverage-report"] = true,
     ["check"] = true,
     ["find"] = true,
+    ["rewrite"] = true,
+    ["apply"] = true,
     ["fix"] = true,
     ["format"] = true,
   }
@@ -228,6 +246,15 @@ local function parse_args(): Options
     opts.find_pattern = p.values["find"]
     opts.find_paths = p.args
   end
+  if p.values["rewrite"] then
+    -- Same split as --find: the pattern is the flag's own argument,
+    -- the rest is whatever positionals are left in p.args. In apply
+    -- mode (--apply set) those positionals are REPL followed by the
+    -- target paths -- _cli.rewrite reads rewrite_paths[1] as REPL.
+    opts.rewrite_pattern = p.values["rewrite"]
+    opts.rewrite_paths = p.args
+    opts.rewrite_apply = p.switches["apply"]
+  end
   for _, path in ipairs(p.lists["embed"]) do
     opts.embed[#opts.embed + 1] = path
   end
@@ -256,6 +283,7 @@ local function parse_args(): Options
   -- the old parse loop's early returns.
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
   or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.find_pattern
+  or opts.rewrite_pattern
   or opts.extract or opts.examples or opts.benchmark or opts.docs
   or opts.test_output or opts.report_paths or opts.coverage_report_paths
   or opts.make_verb then

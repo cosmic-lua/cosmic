@@ -20,6 +20,8 @@ Cosmic options:
   --find <pattern> [path]...    structural search: cosmic.ast.match over
                                 .tl files ($NAME/$$$NAME captures;
                                 default: this project's .tl sources)
+  --rewrite <pattern> [path]... like --find; add <repl> --apply <path>...
+                                to apply via cosmic.ast.rewrite in place
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
   --output <file>               output file for --embed (default: cosmic)
