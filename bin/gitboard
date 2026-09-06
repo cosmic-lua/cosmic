@@ -96,6 +96,22 @@ ensure_bootstrap() {
 
 cd "${ROOT}"
 ensure_bootstrap
+
+# Prefer a sibling ../work clone of cosmic-lua/work over o/board, so a
+# session that already carries one never diverges into a second, dead
+# local-only board -- this used to be a shell snippet every session's
+# bootstrap carried by hand (skills/work/SKILL.md); now the tool does
+# it, and nothing else needs to.
+if [ -z "${GITBOARD_DIR}" ]; then
+    sibling="$(cd "${ROOT}/.." 2>/dev/null && cd work 2>/dev/null && pwd)"
+    if [ -n "${sibling}" ]; then
+        case "$(git -C "${sibling}" remote get-url origin 2>/dev/null)" in
+            */cosmic-lua/work | */cosmic-lua/work.git)
+                GITBOARD_DIR="${sibling}"
+                ;;
+        esac
+    fi
+fi
 GITBOARD_DIR="${GITBOARD_DIR:-${ROOT}/o/board}"
 export GITBOARD_DIR
 exec "${BOOTSTRAP}" "$@"
