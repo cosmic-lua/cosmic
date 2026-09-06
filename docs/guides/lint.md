@@ -348,6 +348,13 @@ through its public parent: `require("cosmic.fs")` is API,
 internal. inside `cosmic/`, shards require each other freely — that is
 what shards are for.
 
+the same rule also runs the other way: a top-level `cosmic/<name>/`
+directory holding a non-test `.tl` file and no `init.tl` is flagged too
+— not one outside require reaching too deep, but no `cosmic.<name>` to
+require in the first place, so nothing outside `cosmic/` can name the
+module at all. a directory holding only tests is exempt, since there is
+no shard yet for anything to reach.
+
 ## doc-citation
 
 markdown that cites the tree by `path:line` has to cite something that

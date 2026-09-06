@@ -375,6 +375,9 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(visibility.check_shard_require(path, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(visibility.check_shard_dir_init(path)) do
+      diagnostics[#diagnostics + 1] = d
+    end
   end
   -- Prose is gated too: a document citing the tree by `file:line` is
   -- evidence a reader cannot re-derive, so the citation is checked the
