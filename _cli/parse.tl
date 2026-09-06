@@ -28,6 +28,15 @@ local record Options
   --- (empty means the project's own `.tl` sources).
   find_pattern: string
   find_paths: {string}
+  --- The pattern named by `--rewrite <pattern>`. In search mode (no
+  --- `--fix`) `rewrite_paths` is the PATH list, exactly `find_paths`.
+  --- In `--fix` mode (`--rewrite PATTERN REPL --fix PATH...`) cosmic.flags'
+  --- own `--fix` flag (registered for `--format`/`--fix`) absorbs the
+  --- first PATH as ITS value, so REPL lands as `rewrite_paths[1]` and
+  --- `fix` (below) plus `rewrite_paths[2:]` are the real target paths --
+  --- `_cli.rewrite` reassembles the two.
+  rewrite_pattern: string
+  rewrite_paths: {string}
   embed: {string}
   output: string
   extract: string
@@ -82,6 +91,7 @@ local function parse_args(): Options
     ["coverage-report"] = true,
     ["check"] = true,
     ["find"] = true,
+    ["rewrite"] = true,
     ["fix"] = true,
     ["format"] = true,
   }
@@ -228,6 +238,15 @@ local function parse_args(): Options
     opts.find_pattern = p.values["find"]
     opts.find_paths = p.args
   end
+  if p.values["rewrite"] then
+    -- Same split as --find: the pattern is the flag's own argument,
+    -- the rest is whatever positionals are left in p.args. In --fix
+    -- mode those positionals are REPL plus every path past the one
+    -- --fix's own registration absorbed -- _cli.rewrite reassembles
+    -- the two using opts.fix.
+    opts.rewrite_pattern = p.values["rewrite"]
+    opts.rewrite_paths = p.args
+  end
   for _, path in ipairs(p.lists["embed"]) do
     opts.embed[#opts.embed + 1] = path
   end
@@ -256,6 +275,7 @@ local function parse_args(): Options
   -- the old parse loop's early returns.
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
   or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.find_pattern
+  or opts.rewrite_pattern
   or opts.extract or opts.examples or opts.benchmark or opts.docs
   or opts.test_output or opts.report_paths or opts.coverage_report_paths
   or opts.make_verb then

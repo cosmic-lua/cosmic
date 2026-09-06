@@ -128,10 +128,15 @@ end
 
 local record FindModule
   run: function(pattern_src: string, paths: {string}): integer
+  --- Exported so `_cli.rewrite` (multi-file, one process) shares this
+  --- exact selection rule rather than a second, separately-maintained
+  --- file-walk.
+  files_for: function(paths: {string}): {string} | nil, string
 end
 
 local M: FindModule = {
   run = run,
+  files_for = files_for,
 }
 
 return M
