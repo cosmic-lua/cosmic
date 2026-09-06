@@ -102,11 +102,7 @@ local function main(): integer, string
         return (handlers.handle_format(path, opts.output, opts.write_if_changed))
       end)
   end
-  -- `--rewrite PATTERN REPL --fix PATH...` re-registers the SAME
-  -- `--fix` flag `--format`/`--fix` use, so it also lands here as
-  -- `#opts.fix > 0` -- guarded off so a rewrite's own dispatch (below)
-  -- gets it instead of this format-in-place branch.
-  if #opts.fix > 0 and not opts.rewrite_pattern then
+  if #opts.fix > 0 then
     return cli_args.over_paths(opts.fix, function(path: string): integer
         return (handlers.handle_format(path, path, true))
       end)
@@ -120,7 +116,7 @@ local function main(): integer, string
   end
   if opts.rewrite_pattern then
     return require("_cli.rewrite").run(opts.rewrite_pattern, opts.rewrite_paths,
-      opts.fix)
+      opts.rewrite_apply)
   end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end
   if opts.extract then return handlers.handle_extract(opts.extract, opts.exe) end

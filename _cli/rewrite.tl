@@ -3,20 +3,18 @@
 --- process boot plus `require`s across every file in one invocation
 --- instead of one `bin/cosmic` per file.
 ---
---- One mechanism, never two: without `--fix` this IS `--find`'s own
+--- One mechanism, never two: without `--apply` this IS `--find`'s own
 --- search mode, delegated rather than re-implemented, and prints
---- exactly what `--find` prints. `--rewrite PATTERN REPL --fix
+--- exactly what `--find` prints. `--rewrite PATTERN REPL --apply
 --- PATH...` is the only new behaviour: it applies REPL over every
 --- match, in place, via `cosmic.ast.rewrite`, and refuses (leaves
 --- untouched) any hit that would silently drop a comment -- reported
 --- to stderr, never re-decided here.
 ---
---- `cosmic.flags` recognizes `--fix` from ITS OWN registration
---- (`--format`/`--fix`'s FILE-taking flag), so in `--rewrite PATTERN
---- REPL --fix PATH...` that flag absorbs the first PATH as its own
---- value: REPL lands as `paths[1]` and the real target paths are
---- `fix_paths` (that absorbed PATH plus every remaining positional)
---- with REPL's own leading slot removed. `run` reassembles the two.
+--- `--apply` is a bare boolean switch, not a FILE-taking flag, so it
+--- can never absorb a PATH as its own value: in apply mode `paths`
+--- (`opts.rewrite_paths`) is REPL followed by every target PATH, one
+--- list, no reassembly.
 
 local ast = require("cosmic.ast")
 local fs = require("cosmic.fs")
@@ -61,25 +59,23 @@ local function fix_one(pattern: Node, replacement: string, path: string): intege
 end
 
 --- Run `--rewrite PATTERN [PATH...]` (search) or `--rewrite PATTERN
---- REPL --fix PATH...` (apply).
+--- REPL --apply PATH...` (apply).
 --- @param pattern_src string Pattern source, `$NAME`/`$$$NAME` metavariables
 --- @param paths {string} Positionals left after the pattern: PATH... in
---- search mode, or REPL followed by PATH...[2:] in --fix mode
---- @param fix_paths {string} `opts.fix`: empty in search mode; in --fix
---- mode, the path `--fix` absorbed as its own value followed by every
---- remaining positional (REPL included, at index 2 -- see module doc)
+--- search mode, or REPL followed by the target PATH... in apply mode
+--- @param apply boolean Whether `--apply` was given
 --- @return integer Exit code: 0 on a clean apply/any hits, 1 on a
 --- refusal or none applied, 2 on refused input (bad pattern/files/args)
-local function run(pattern_src: string, paths: {string}, fix_paths: {string}): integer
-  if #fix_paths == 0 then
+local function run(pattern_src: string, paths: {string}, apply: boolean): integer
+  if not apply then
     return find.run(pattern_src, paths)
   end
-  if #paths == 0 then
-    io.write("rewrite: refused: --fix requires a replacement argument\n")
+  if #paths < 2 then
+    io.write("rewrite: refused: --apply requires a replacement and at least one path\n")
     return 2
   end
   local replacement = paths[1]
-  local real_paths: {string} = {fix_paths[1]}
+  local real_paths: {string} = {}
   for i = 2, #paths do
     real_paths[#real_paths + 1] = paths[i]
   end
@@ -110,7 +106,7 @@ local function run(pattern_src: string, paths: {string}, fix_paths: {string}): i
 end
 
 local record RewriteModule
-  run: function(pattern_src: string, paths: {string}, fix_paths: {string}): integer
+  run: function(pattern_src: string, paths: {string}, apply: boolean): integer
 end
 
 local M: RewriteModule = {
