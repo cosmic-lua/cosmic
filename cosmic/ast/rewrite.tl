@@ -109,11 +109,66 @@ local function byte_span(node: Node, tokens: {tl.Token}, starts: {integer}): int
   return offset_of(starts, sy, sx), offset_of(starts, ey, ex)
 end
 
+--- The byte range `[a, b]` of the next WHOLE-identifier occurrence of
+--- `name` in `text` at or after `init`, or nil if there is none.
+--- "Whole-identifier" means not immediately preceded or followed by
+--- an identifier character (`[%w_]`): a plain substring search would
+--- let a capture name that is a literal prefix of another's
+--- (`_X`/`_XS`, `_N`/`_NAME`) match INSIDE the longer name's own
+--- spelling, corrupting it. Shared by `kept_ranges` and `substitute`
+--- so the two can never disagree about what counts as an occurrence.
+--- @param text string
+--- @param name string A capture's own desugared name (`_X`, `___XS`, ...)
+--- @param init integer 1-based byte offset to start searching from
+--- @return integer|nil a
+--- @return integer|nil b
+local function find_name(text: string, name: string, init: integer): integer | nil, integer | nil
+  local pos = init
+  while pos <= #text + 1 do
+    local a, b = text:find(name, pos, true)
+    if not a then
+      return nil, nil
+    end
+    local before = a > 1 and text:sub(a - 1, a - 1) or ""
+    local after = b < #text and text:sub(b + 1, b + 1) or ""
+    if not before:match("[%w_]") and not after:match("[%w_]") then
+      return a, b
+    end
+    pos = a + 1
+  end
+  return nil, nil
+end
+
+--- Every whole-identifier occurrence of `name` in `text` replaced with
+--- `value`, verbatim (no pattern-substitution escaping: `value` is
+--- spliced in as literal bytes, never reinterpreted as a `gsub`
+--- replacement pattern).
+--- @param text string
+--- @param name string A capture's own desugared name
+--- @param value string The literal bytes to splice in for each occurrence
+--- @return string
+local function substitute(text: string, name: string, value: string): string
+  local out: {string} = {}
+  local pos = 1
+  while true do
+    local a, b = find_name(text, name, pos)
+    if not a then
+      out[#out + 1] = text:sub(pos)
+      break
+    end
+    out[#out + 1] = text:sub(pos, a - 1)
+    out[#out + 1] = value
+    pos = b + 1
+  end
+  return table.concat(out)
+end
+
 --- Byte ranges `[a, b]` (inclusive) whose capture's OWN span the
 --- `replacement` template actually reuses, checked literally
---- (`replacement:find(name, 1, true)`) rather than by re-parsing the
---- template -- exactly the source text a rewrite carries forward
---- verbatim, as opposed to a captured span the template discards.
+--- (`find_name`, a whole-identifier occurrence) rather than by
+--- re-parsing the template -- exactly the source text a rewrite
+--- carries forward verbatim, as opposed to a captured span the
+--- template discards.
 --- @param caps {string: Node} A hit's capture bindings
 --- @param replacement string The (already desugared) replacement template
 --- @param tokens {tl.Token} The token stream from the SAME parse as `caps`' nodes
@@ -123,7 +178,7 @@ local function kept_ranges(caps: {string: Node}, replacement: string, tokens: {t
     starts: {integer}): {{integer, integer}}
   local kept: {{integer, integer}} = {}
   for name, cap in pairs(caps) do
-    if replacement:find(name, 1, true) then
+    if find_name(replacement, name, 1) then
       local a, b = byte_span(cap, tokens, starts)
       kept[#kept + 1] = {a, b}
     end
@@ -212,8 +267,7 @@ local function rewrite(source: string, name: string, pattern: Node,
       local text = desugared
       for cname, cap in pairs(h.caps) do
         local ca, cb = byte_span(cap, parsed.tokens, starts)
-        -- gsub: replacement %%-escaped on the line above
-        text = text:gsub(cname, (source:sub(ca, cb):gsub("%%", "%%%%")))
+        text = substitute(text, cname, source:sub(ca, cb))
       end
       out = out:sub(1, a - 1) .. text .. out:sub(b + 1)
     end

@@ -29,6 +29,35 @@ local function test_rewrite_applies_a_clean_splice_and_formats_it()
   check.equal(#result.refused, 0)
 end
 
+--- One capture name that is a literal prefix of another's (`_X` inside
+--- `_XS`, once desugared) must not corrupt the longer name's own
+--- substitution: an unanchored `text:gsub(cname, ...)` over `_X` would
+--- also hit the `_X` inside `_XS`, turning "xs" into "xS" -- whole-
+--- identifier matching (`find_name`) is what keeps the two capture
+--- names from colliding.
+local function test_rewrite_does_not_corrupt_a_capture_name_that_is_a_prefix_of_another()
+  local pattern = pattern_ok("return $X + $XS")
+  local result, err = rewrite_mod.rewrite(
+    "return x + xs\n", "prefix.tl", pattern, "return $XS - $X")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 0)
+  check.equal(result.code, "return xs - x\n")
+end
+
+--- Two matches in one source: splicing must run back-to-front so the
+--- first hit's byte offsets (computed once, up front) stay valid after
+--- the second hit's splice runs -- front-to-back would shift them out
+--- from under it, corrupting the first hit's replacement into a syntax
+--- error.
+local function test_rewrite_applies_both_hits_in_a_two_hit_source()
+  local pattern = pattern_ok("os.execute($X)")
+  local source = "os.execute(cmd1)\nos.execute(cmd2)\n"
+  local result, err = rewrite_mod.rewrite(source, "two.tl", pattern, "assert(os.execute($X))")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 0)
+  check.equal(result.code, "assert(os.execute(cmd1))\nassert(os.execute(cmd2))\n")
+end
+
 --- A comment sitting between the two captures -- in the gap the swapped
 --- template doesn't cover -- is not carried forward by either capture's
 --- own span, so the hit is refused: left byte-for-byte unmodified
