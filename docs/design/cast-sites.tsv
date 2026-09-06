@@ -34,6 +34,19 @@ cosmic/_teal_discard.tl	183	tl compiler surface
 cosmic/_teal_discard.tl	205	tl compiler surface
 cosmic/_teal_discard.tl	258	tl compiler surface
 cosmic/_teal_engine.tl	256	pcall return shape
+cosmic/ast/match.tl	30	tl compiler surface
+cosmic/ast/match.tl	95	tl compiler surface
+cosmic/ast/match.tl	102	tl compiler surface
+cosmic/ast/match.tl	103	tl compiler surface
+cosmic/ast/match.tl	120	tl compiler surface
+cosmic/ast/match.tl	125	incremental record construction
+cosmic/ast/match.tl	203	tl compiler surface
+cosmic/ast/match.tl	207	tl compiler surface
+cosmic/ast/match.tl	210	tl compiler surface
+cosmic/ast/match.tl	236	tl compiler surface
+cosmic/ast/match_test.tl	46	tl compiler surface
+cosmic/ast/match_test.tl	55	tl compiler surface
+cosmic/ast/match_test.tl	64	tl compiler surface
 cosmic/ast/node.tl	138	tl compiler surface
 cosmic/ast/walk.tl	47	map view of a declared value
 cosmic/ast/walk.tl	56	map view of a declared value
