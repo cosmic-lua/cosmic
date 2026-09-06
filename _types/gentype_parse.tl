@@ -259,8 +259,12 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
   -- below misses it and the raw line leaks into the generated doc comment
   -- (visible above every unix.* errno constant). Anchored to exactly three
   -- dashes: a plain two-dash Lua comment ("-- @type ...") is not a doc tag
-  -- and must not be able to inject a constant type.
-  local TYPE_TAG = "^%-%-%-%s*@type%s+([%w_%.]+)"
+  -- and must not be able to inject a constant type. The capture takes the
+  -- whole rest of the line, not just a bare identifier: a generic type
+  -- (`table<string, integer>`) has a comma and internal whitespace that
+  -- `[%w_%.]+` would truncate at `table`, so the head token is extracted
+  -- below with scan_token, which already knows how to keep `<...>` intact.
+  local TYPE_TAG = "^%-%-%-%s*@type%s+(.+)$"
 
   for _, line in ipairs(lines) do
     if not line:match("^%-%-%-@") and not line:match(TYPE_TAG) then
@@ -433,6 +437,9 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
 
     local ttype = line:match(TYPE_TAG)
     if ttype then
+      -- Take just the type token (scan_token keeps `<...>` balanced); a
+      -- trailing description after the type, if any, is not captured here.
+      ttype = (scan_token(ttype))
       table.insert(returns, {return_type = ttype, description = "type"})
     end
   end

@@ -250,6 +250,26 @@ re = {
   print("test_constant_docs_and_comment_braces: PASS")
 end
 
+-- A module constant's `---@type` annotation can itself be a generic type
+-- (upstream's shape for unix.E/unix.SIG/unix.CAP: a name-to-integer lookup
+-- table). The head-token regex that used to drive this tag truncated
+-- `table<string, integer>` to the bare `table` before generic-type
+-- conversion ever ran; it must instead round-trip to the Teal map type.
+local function test_generic_type_field_round_trips()
+  local source = [==[
+unix = {
+    --- Errno name to number.
+    ---@type table<string, integer>
+    E = {},
+}
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "unix"))
+  assert(dtl:match("E: {string: integer}"),
+    "a `table<K, V>` @type field should render as the Teal map type "
+    .. "{K: V}, not bare table:\n" .. dtl)
+  print("test_generic_type_field_round_trips: PASS")
+end
+
 -- A module's surface includes VALUES, not only functions, and the
 -- definitions write those qualified: `cosmo.null = {}` under a
 -- `---@type` block, outside the module table. A qualified value field
