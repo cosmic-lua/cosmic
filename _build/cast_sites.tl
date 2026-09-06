@@ -8,9 +8,13 @@
 --- of what each cast is for, which no scan can produce. `--reconcile`
 --- re-derives the first two columns from the tree and carries the
 --- third column forward from the committed file for every site that
---- still exists; a site with no prior row has no class to carry, so it
---- is refused rather than written in blank, and stays committed
---- unclassified until a person edits the row in by hand. A full
+--- still exists; a cast whose line TEXT is unchanged keeps its class
+--- across a move, matched against the committed text at `git show
+--- HEAD:<path>` rather than against the old line number, so a shift
+--- carries forward but an edited cast line asks for its class again. A
+--- site with no prior row has no class to carry, so it is refused
+--- rather than written in blank, and stays committed unclassified
+--- until a person edits the row in by hand. A full
 --- rewrite the way `_build/casts.tl --baseline` rewrites its floor
 --- would destroy exactly the column nothing else holds.
 ---
@@ -20,6 +24,7 @@
 --- module's read of it and against `_build/casts_baseline.tl`.
 
 local casts = require("_build.casts")
+local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local lint = require("_cli.lint")
 local proc = require("cosmic.proc")
@@ -106,15 +111,57 @@ local function scan(root: string): {Site}
   return out
 end
 
+--- A scanned site with no exact-key match: where in the output it
+--- belongs, so a class found later can be dropped in without
+--- disturbing the scan's own path-then-line order.
+local record Pending
+  site: Site
+  index: integer
+end
+
+--- A file's committed text at `HEAD`, read once per file that has
+--- both orphans and newcomers to try to pair by text.
+--- @param root string Working directory to run `git` in
+--- @param path string The file, relative to `root`
+--- @return string|nil The committed text, or nil when `git` is not on
+--- `PATH` or `path` is not tracked at `HEAD`
+local function committed_text(root: string, path: string): string | nil
+  local r = child.run({"git", "show", "HEAD:" .. path}, {cwd = root})
+  if not r or not r.ok then
+    return nil
+  end
+  return r.stdout
+end
+
 --- Reconcile the committed inventory against a fresh walk of the tree:
 --- carry the class forward for every site that still exists, drop a
 --- row whose site is gone, and refuse to write when a site has
 --- appeared with no prior row to carry a class from.
+---
+--- Two passes. The first keys on the exact `path\tline` pair, as
+--- before. Sites and rows the first pass could not match are, per
+--- file, the NEWCOMERS and the ORPHANS. For a file with at least one
+--- of each, the second pass reads the file's committed text at `git
+--- show HEAD:<path>` and compares each orphan's committed line,
+--- trimmed, against each newcomer's CURRENT line, also trimmed.
+--- Uniqueness holds on BOTH sides: a newcomer inherits an orphan's
+--- class only when that trimmed text names exactly one orphan AND
+--- exactly one newcomer — one committed line whose text now appears
+--- on two working-tree lines is exactly as unclassifiable as a
+--- newcomer matching zero or several orphans, because either way
+--- there is no single line the class is honestly for. Every orphan
+--- not so matched simply drops — order and count are never consulted,
+--- so reordering two casts cannot swap their classes, and editing a
+--- cast's line asks for its class again exactly as a brand-new site
+--- would. A file `git` cannot read at `HEAD` (untracked, or no `git`
+--- on `PATH`) carries nothing: without committed text there is
+--- nothing to compare against.
 --- @param root string The project root to walk
+--- @param tsv_path string? The committed inventory (default `TSV_PATH`)
 --- @return {Row}|nil The reconciled rows, sorted by path then line
 --- @return {string} Site keys (`path\tline`) with no class on record
-local function reconcile(root: string): {Row} | nil, {string}
-  local old, err = read_tsv()
+local function reconcile(root: string, tsv_path?: string): {Row} | nil, {string}
+  local old, err = read_tsv(tsv_path)
   if not old then
     return nil, {err}
   end
@@ -122,15 +169,102 @@ local function reconcile(root: string): {Row} | nil, {string}
   for _, r in ipairs(old) do
     class_of[r.path .. "\t" .. r.line] = r.class
   end
-  local rows: {Row} = {}
-  local unclassified: {string} = {}
-  for _, s in ipairs(scan(root)) do
+
+  local sites = scan(root)
+  local matched: {string: boolean} = {}
+  local resolved: {integer: Row} = {}
+  local pending_by_path: {string: {Pending}} = {}
+  local pending_order: {string} = {}
+  for i, s in ipairs(sites) do
     local key = s.path .. "\t" .. s.line
     local class = class_of[key]
     if class then
-      rows[#rows + 1] = {path = s.path, line = s.line, class = class}
+      resolved[i] = {path = s.path, line = s.line, class = class}
+      matched[key] = true
     else
-      unclassified[#unclassified + 1] = key
+      local pending = pending_by_path[s.path]
+      if not pending then
+        pending = {}
+        pending_by_path[s.path] = pending
+        pending_order[#pending_order + 1] = s.path
+      end
+      pending[#pending + 1] = {site = s, index = i}
+    end
+  end
+
+  local orphans_by_path: {string: {Row}} = {}
+  for _, r in ipairs(old) do
+    if not matched[r.path .. "\t" .. r.line] then
+      local orphans = orphans_by_path[r.path]
+      if not orphans then
+        orphans = {}
+        orphans_by_path[r.path] = orphans
+      end
+      orphans[#orphans + 1] = r
+    end
+  end
+
+  for _, path in ipairs(pending_order) do
+    local pending = pending_by_path[path]
+    local orphans = orphans_by_path[path]
+    if orphans then
+      local committed = committed_text(root, path)
+      local current = fs.read(fs.join(root, path))
+      if committed and current then
+        local committed_lines = str.lines(committed)
+        local current_lines = str.lines(current)
+        -- How many orphans share each trimmed text, and which class
+        -- that text carries — a text seen once on the orphan side is
+        -- a safe carry ONLY if it is also seen once on the newcomer
+        -- side (below); seen zero or several times on either side, it
+        -- is not.
+        local orphan_text_count: {string: integer} = {}
+        local text_class: {string: string} = {}
+        for _, o in ipairs(orphans) do
+          local line = committed_lines[o.line]
+          if line then
+            local trimmed = str.trim(line)
+            orphan_text_count[trimmed] = (orphan_text_count[trimmed] or 0) + 1
+            text_class[trimmed] = o.class
+          end
+        end
+        -- How many newcomers share each trimmed text — one committed
+        -- line whose text now appears on two working-tree lines has
+        -- no single line to carry to, even though only one orphan
+        -- ever held that class.
+        local newcomer_text_count: {string: integer} = {}
+        for _, p in ipairs(pending) do
+          local line = current_lines[p.site.line]
+          if line then
+            local trimmed = str.trim(line)
+            newcomer_text_count[trimmed] = (newcomer_text_count[trimmed] or 0) + 1
+          end
+        end
+        for _, p in ipairs(pending) do
+          local line = current_lines[p.site.line]
+          if line then
+            local trimmed = str.trim(line)
+            if orphan_text_count[trimmed] == 1 and newcomer_text_count[trimmed] == 1 then
+              resolved[p.index] = {
+                path = p.site.path,
+                line = p.site.line,
+                class = text_class[trimmed],
+              }
+            end
+          end
+        end
+      end
+    end
+  end
+
+  local rows: {Row} = {}
+  local unclassified: {string} = {}
+  for i, s in ipairs(sites) do
+    local row = resolved[i]
+    if row then
+      rows[#rows + 1] = row
+    else
+      unclassified[#unclassified + 1] = s.path .. "\t" .. s.line
     end
   end
   if #unclassified > 0 then
@@ -189,7 +323,7 @@ local record CastSitesModule
   TSV_PATH: string
   read_tsv: function(path?: string): {Row} | nil, string
   scan: function(root: string): {Site}
-  reconcile: function(root: string): {Row} | nil, {string}
+  reconcile: function(root: string, tsv_path?: string): {Row} | nil, {string}
   main: function(...: string): integer
 end
 
