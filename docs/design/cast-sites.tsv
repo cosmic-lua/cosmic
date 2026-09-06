@@ -105,7 +105,6 @@ cosmic/sandbox/init.tl	206	runtime capability probe
 cosmic/sandbox/init_test.tl	132	container variance
 cosmic/sandbox/plan.tl	190	runtime capability probe
 cosmic/sandbox/plan.tl	241	runtime capability probe
-cosmic/searcher_test.tl	58	dynamic name lookup
 cosmic/shape.tl	279	generic T
 cosmic/shm.tl	146	pcall return shape
 cosmic/shm.tl	171	pcall return shape
