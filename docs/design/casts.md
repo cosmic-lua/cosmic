@@ -54,29 +54,40 @@ under several spellings and one spelling spans two shapes, so every
 site below was read rather than pattern-matched.
 
 The site inventory is committed beside this document as
-`docs/design/cast-sites.tsv`: one row per cast, holding the path, the
-line the `as` token is on, and the class. The reason comment is not
-always on the cast's line — for roughly a third of the sites it stands
-alone on the line above — so a `file:line` join between the grep's
-output and the lexer's mismatches on all of those. Where the inventory
-and this prose disagree, the inventory is right.
+`docs/design/cast-sites.tsv`, one row per cast, five tab-separated
+columns whose header row is exactly:
 
-The inventory is half generated, half curated. Its path and line columns
-are `_cli.lint.cast_lines`' answer, the same lexer `_build/casts.tl`
-counts with — a fact about the tree, reproducible by a walk. Its class
-column is this document's judgment about what each site is for, which no
-walk can produce. So there is no full `--baseline`-style regen:
-`bin/cosmic --make run _build/cast_sites.tl --reconcile` re-derives path
-and line, carries the class forward for every site that still exists,
-drops a row whose site is gone, and refuses to write — naming the site
-instead — when a cast has appeared with no prior row to carry a class
-from, because a blank class is a worse map than a stale one. A cast
-whose line text is unchanged keeps its class across a move; an edited
-cast line asks for its class again. `_build/cast_sites_test.tl` gates
-the committed file against a fresh reconcile: its per-file counts
-against `_build/casts_baseline.tl`, every class against a `### ` heading
-here and back, and every row's line against a real cast by the lexer,
-never a grep.
+```
+path	fn	n	cast	class
+```
+
+A row's key is `(path, fn, n)`: the file, the enclosing function
+(`<chunk>` outside every function, a record method qualified through
+its owner) and the ordinal of the cast among that function's own casts.
+`cast` is the trimmed source line the `as` sits on, committed so a
+reader sees the site without opening the file; `class` is this
+document's judgment about what the site is for. Where the inventory and
+this prose disagree, the inventory is right.
+
+The inventory is half generated, half curated: the first four columns
+are a fact about the tree, read by walking each file's AST with
+`cosmic.ast`, and the last is a reading no walk can produce. So there
+is no full `--baseline`-style regen: `bin/cosmic --make run
+_build/cast_sites.tl --reconcile` re-derives the key columns and
+carries `class` forward for every key that still matches. At the three
+edits that actually happen: an edit above a cast shifts its line and
+changes nothing, since no column holds a line; an edit to the cast's
+own text at the same key keeps its class, and the diff of the `cast`
+column shows what changed; a cast moved to another function gets a new
+key, and the reconcile refuses to write, naming the new key and, when
+the text matches exactly one orphaned row, the old one too, so the
+class is carried across by hand rather than rediscovered. A brand-new
+site is refused with just its own key, because a blank class is a
+worse map than a stale one. `_build/cast_sites_test.tl` gates the
+committed file: per-file counts against `_build/casts_baseline.tl`,
+every class against a `### ` heading here and back, every row against
+a real site in a fresh walk, and the header row above against the
+file's own first line.
 
 ## Classes
 

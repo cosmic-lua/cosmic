@@ -1,4 +1,5 @@
 return {
+  ["_build/cast_sites.tl"] = 3,
   ["_fuzz/compress_fuzz_test.tl"] = 1,
   ["_fuzz/driver.tl"] = 2,
   ["_make/closure.tl"] = 1,
