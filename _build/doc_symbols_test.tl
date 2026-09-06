@@ -110,9 +110,9 @@ local function prose_files(): {string}
   return out
 end
 
---- The backtick spans of one file's prose. A fenced block is code, not
---- prose, and is skipped whole: a backtick inside it is the
---- language's, not markdown's.
+--- The backtick spans of one file's prose, under the same fence rule
+--- as `_build/doc_paths_test.tl`'s `spans_of` (a fenced block is
+--- skipped whole); this copy keeps the symbol gate's inputs its own.
 --- @param path string The markdown file
 --- @param out {Span} Accumulator
 local function spans_of(path: string, out: {Span})
