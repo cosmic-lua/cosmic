@@ -156,9 +156,10 @@ local _ok, _err = db:exec("CREATE TABLE t (x TEXT)") -- db is Database below
 where truthiness and `assert` deliberately do nothing (`false` is
 falsy, so truthy does not mean "not nil" there).
 
-what still does NOT narrow is a record FIELD, even a scalar one: after
-`if o.sub then`, `o.sub` is still `Inner | nil` at the use. copy the
-field to a local and guard the local:
+a guard on `x.field`, where `x` is itself a plain variable, narrows
+the FIELD the same way: after `if o.sub then`, `o.sub` is `Inner`, not
+`Inner | nil`, at the use (the carried tl patch,
+`3p/tl/tl_patch/narrow_record_field.tl`):
 
 ```teal
 local record Inner
@@ -169,9 +170,32 @@ local record Outer
 end
 local o: Outer = {sub = {x = 1}}
 
-local sub = o.sub -- Inner | nil
-if sub then
-  print(sub.x) -- narrowed; the field read would not be
+if o.sub then
+  print(o.sub.x) -- narrowed
+end
+```
+
+what still does NOT narrow is a guard two fields deep, where the base
+of the guarded field is itself a field access rather than a plain
+variable: `o.mid` narrows fine, but after `if o.mid.inner then`,
+`o.mid.inner` is still `Inner | nil` at the use. copy the field to a
+local and guard the local:
+
+```teal
+local record Inner
+  y: integer
+end
+local record Middle
+  inner: Inner | nil
+end
+local record Outer
+  mid: Middle
+end
+local o: Outer = {mid = {inner = {y = 1}}}
+
+local inner = o.mid.inner -- Inner | nil
+if inner then
+  print(inner.y) -- narrowed; the field read would not be
 end
 ```
 
@@ -179,7 +203,7 @@ end
 `return` does not narrow below itself — the checker cannot see that
 the block is terminal; use `assert` there.) the errors these shapes
 produce name the un-narrowed type but not the cause: `cannot index key
-'x' in ... of type Inner | nil`. the full pattern set is in
+'y' in ... of type Inner | nil`. the full pattern set is in
 `cosmic --docs guide.checking`.
 
 ## exported-record-types

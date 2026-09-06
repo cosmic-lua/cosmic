@@ -153,24 +153,32 @@ print(early() + positive() + arr() + via_assert() + via_assert_expression()
     .. (result.ok and "" or teal.format_issues(result.errors)))
 end
 
--- Record FIELDS still do not narrow — a guard on `o.sub` leaves `o.sub`
--- un-narrowed at the use; the error names the type but not the cause,
+-- The carried tl patch's record-field narrowing canary lives in
+-- teal_nilflow_test.tl (test_narrowing_field_canary) — split out by
+-- the 500-line file limit; this file's own canary above stays the
+-- bare-variable one. The named residual here: only a bare-variable
+-- base is tracked, so a guard TWO fields deep (`o.mid.inner`, where
+-- `o.mid` is itself a field access rather than a plain variable)
+-- still does not narrow. The error names the type but not the cause,
 -- so the shape carries a hint at the fix (copy the field to a local).
-local function test_hint_index_through_nil_union()
+local function test_hint_index_through_nested_nil_union()
   local msg, hint = first_hinted_error("h_idx_union.tl", [[
 local record Inner
-  x: integer
+  y: integer
+end
+local record Middle
+  inner: Inner | nil
 end
 local record Outer
-  sub: Inner | nil
+  mid: Middle
 end
 local function use(o: Outer): integer
-  if o.sub then
-    return o.sub.x
+  if o.mid.inner then
+    return o.mid.inner.y
   end
   return 0
 end
-print(use({}))
+print(use({mid = {}}))
 ]])
   assert(msg:find("cannot index", 1, true) and msg:find("| nil", 1, true),
     "wrong error: " .. msg)
@@ -473,28 +481,6 @@ local function test_no_hint_for_plain_errors()
 end
 
 -- The carried tl patch's other canary (3p/tl/tl_patch/narrow.tl,
--- narrow-pcall-zero-return): a zero-return-arity callee (e.g.
--- unix.Memory:write) types `pcall(f, ...)` as a bare `boolean` under
--- the unpatched checker, so `local ok, err = pcall(f, ...)` fails to
--- compile even though it is this codebase's ordinary failure shape.
--- A tl pin bump without the patch, or a drifted anchor, fails HERE.
-local function test_pcall_zero_return_canary()
-  local path = fs.join(tmpdir, "pcall_zero_ok.tl")
-  assert(fs.write(path, [[
-local function noisy(x: integer)
-  if x < 0 then error("negative") end
-end
-local function use(x: integer): boolean
-  local ok, err = pcall(noisy, x)
-  if not ok then
-    print(err)
-    return false
-  end
-  return true
-end
-print(use(1))
-]]))
-  local result = teal.check_file(path)
-  assert(result.ok, "pcall on a zero-return callee must compile: "
-    .. (result.ok and "" or teal.format_issues(result.errors)))
-end
+-- narrow-pcall-zero-return) lives in teal_narrowing_test.tl
+-- (test_pcall_zero_return_canary) — split out by the 500-line file
+-- limit.

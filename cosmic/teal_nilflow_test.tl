@@ -160,3 +160,56 @@ print(s:upper())
   assert(not result.ok,
     "indexing an unnarrowed string | nil must be refused")
 end
+
+-- The carried tl patch's record-field narrowing canary
+-- (3p/tl/tl_patch/narrow_record_field.tl): a guard on `o.sub` (truthy,
+-- `assert`, `== nil` / `~= nil`, the left operand of `and`, and the
+-- negated early-return shape) narrows `o.sub` itself at reads of
+-- `o.sub.x` after the guard — the same shapes teal_test.tl's canary
+-- covers for a bare variable, one field access deep. A patch whose
+-- anchor drifted, or a tl pin bump that lands without it, fails HERE,
+-- not as a hundred downstream "cannot index" errors.
+local function test_narrowing_field_canary()
+  local path = fs.join(tmpdir, "narrow_field_ok.tl")
+  assert(fs.write(path, [[
+local record Inner
+  x: integer
+end
+local record Outer
+  sub: Inner | nil
+end
+local function via_truthy(o: Outer): integer
+  if o.sub then
+    return o.sub.x
+  end
+  return 0
+end
+local function via_early_return(o: Outer): integer
+  if not o.sub then
+    return 0
+  end
+  return o.sub.x
+end
+local function via_assert(o: Outer): integer
+  assert(o.sub)
+  return o.sub.x
+end
+local function via_eq_nil(o: Outer): integer
+  if o.sub == nil then
+    return 0
+  end
+  return o.sub.x
+end
+local function via_and_operand(o: Outer): integer
+  if o.sub and o.sub.x > 0 then
+    return o.sub.x
+  end
+  return 0
+end
+print(via_truthy({}) + via_early_return({}) + via_assert({sub = {x = 1}})
+  + via_eq_nil({}) + via_and_operand({}))
+]]))
+  local result = teal.check_file(path)
+  assert(result.ok, "a guard on a record field must narrow it (carried tl patch): "
+    .. (result.ok and "" or teal.format_issues(result.errors)))
+end
