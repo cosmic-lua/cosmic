@@ -353,6 +353,13 @@ o/bin/cosmic --make example             # run Example_* functions
 o/bin/cosmic --make benchmark           # run every *_benchmark.tl
 ```
 
+**`--check types` on a file that requires a sibling you edited in the
+same session resolves that sibling against the LAST BUILD's embedded
+snapshot, not live disk** — run `bin/cosmic --make build` before
+checking the caller of a module whose signature just changed, or the
+checker reports the old arity — `wrong number of arguments (given 2,
+expects 1)` against a two-parameter signature is the shape of it.
+
 **The `.cosmic-coverage` floor is recorded in one environment, not
 yours**: CI's `ci` lane in `.github/workflows/pr.yml` — a digest-pinned
 `buildpack-deps:noble` container, run `--privileged`, built and gated as
