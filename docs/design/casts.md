@@ -198,7 +198,7 @@ reader implements the delimiter capability, whether a module predates a
 function.
 
 ```text
--- cosmic/stream.tl:237
+-- cosmic/stream.tl:253
   local dr = r as stream.DelimReader -- cast: duck-typed capability probe
 ```
 

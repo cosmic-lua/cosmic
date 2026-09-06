@@ -100,7 +100,7 @@ end
 local function lines_of(sock: net.Socket): {string}
   local out: {string} = {}
   for line in stream.lines(sock) do
-    out[#out + 1] = check.must(line)
+    out[#out + 1] = line
   end
   return out
 end
@@ -171,8 +171,9 @@ local function test_set_timeout_ms_bounds_line_iteration()
   local a, b = pair()
   assert(b:set_timeout_ms(50))
   assert(a:send_all("partial-without-newline"))
-  local line, err = stream.lines(b)()
-  assert(line == nil and err ~= nil,
+  local iter = stream.lines(b)
+  local line = iter()
+  assert(line == nil and iter:err() ~= nil,
     "expected line iteration to time out on a missing newline, got: " .. tostring(line))
   assert(a:close())
   assert(b:close())

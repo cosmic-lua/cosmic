@@ -50,10 +50,17 @@ local record stream
     contents: function(self: Buffer): string
   end
 
-  --- What lines() returns: each call yields the next line without its
-  --- trailing newline, then nil + the error once on a read failure,
-  --- then plain nil forever (exported so consumers can name it).
-  type LineIter = function(): string | nil, string
+  --- What lines() returns: a callable iterator (exported so consumers
+  --- can name it). `for line in it do ... end` — the for-in
+  --- convention — yields each line without its trailing newline,
+  --- terminating the loop the ordinary way once the stream ends.
+  --- `it:err()` reads the read failure that ended iteration, read once
+  --- after the loop ends rather than by calling the iterator again;
+  --- nil when the stream ended cleanly (or hasn't ended yet).
+  record LineIter
+    metamethod __call: function(self: LineIter): string
+    err: function(self: LineIter): string | nil
+  end
 
   --- Optional capability: a Reader that can scan for a delimiter
   --- natively (fetch.Reader buffers it in C). read_until(delim)
@@ -202,19 +209,22 @@ end
 --- Line iteration over a DelimReader: one C-buffered read_until("\n")
 --- per line, so no Lua-side chunk buffering at all. Same contract as
 --- the buffering path below: unterminated final line yielded once,
---- nil + error once on failure, then plain nil forever.
+--- then the terminating read failure (if any) through `err()`, then
+--- plain nil forever.
 --- @param dr DelimReader The source
---- @return function Iterator yielding lines without the trailing newline
+--- @return LineIter Iterator yielding lines without the trailing newline
 local function lines_via_read_until(dr: stream.DelimReader): stream.LineIter
   local done = false
-  return function(): string | nil, string
+  local last_err: string = nil
+  local function step(): string
     if done then
       return nil
     end
     local line, err = dr:read_until("\n")
     if err then
       done = true
-      return nil, err
+      last_err = err
+      return nil
     end
     if line == nil then
       done = true
@@ -222,17 +232,23 @@ local function lines_via_read_until(dr: stream.DelimReader): stream.LineIter
     end
     return line
   end
+  return setmetatable({}, {
+      __call = step,
+      __index = {
+        err = function(_self: stream.LineIter): string | nil return last_err end,
+      },
+    })
 end
 
 --- Iterate complete lines from a Reader, buffering partial lines
 --- across chunks. On clean EOF a final unterminated line is yielded
---- once, then nil. On a read error the buffered partial line is
---- truncated data and is discarded — the iterator yields nil plus the
---- error once, then plain nil forever (cosmic.sse consumes the same
---- iterator). A reader carrying the DelimReader capability skips the
---- Lua buffering entirely.
+--- once, then the loop ends. On a read error the buffered partial line
+--- is truncated data and is discarded — iteration ends there too, and
+--- `it:err()` reads the terminating message afterward (cosmic.sse
+--- consumes the same iterator). A reader carrying the DelimReader
+--- capability skips the Lua buffering entirely.
 --- @param r Reader The source
---- @return function Iterator yielding lines without the trailing newline
+--- @return LineIter Iterator yielding lines without the trailing newline
 function stream.lines(r: stream.Reader): stream.LineIter
   local dr = r as stream.DelimReader -- cast: duck-typed capability probe
   if type(dr.read_until) == "function" then
@@ -246,8 +262,9 @@ function stream.lines(r: stream.Reader): stream.LineIter
   local pos = 1
   local done = false
   local pending_err: string = nil
+  local last_err: string = nil
 
-  return function(): string | nil, string
+  local function step(): string
     while true do
       local newline_pos = buffer:find("\n", pos, true)
       if newline_pos then
@@ -257,10 +274,10 @@ function stream.lines(r: stream.Reader): stream.LineIter
       end
 
       if pending_err then
-        local err = pending_err
+        last_err = pending_err
         pending_err = nil
         done = true
-        return nil, err
+        return nil
       end
 
       if done then
@@ -295,6 +312,13 @@ function stream.lines(r: stream.Reader): stream.LineIter
       end
     end
   end
+
+  return setmetatable({}, {
+      __call = step,
+      __index = {
+        err = function(_self: stream.LineIter): string | nil return last_err end,
+      },
+    })
 end
 
 return stream

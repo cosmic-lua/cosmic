@@ -89,11 +89,14 @@ local function parse(reader: stream.Reader): EventStream
     end
 
     while true do
-      local line, read_err = lines_iter()
+      local line = lines_iter()
       if not line then
         done = true
         -- Stream ended. A pending unterminated event is discarded per
         -- spec: without its blank line it may be truncated mid-field.
+        -- The terminal read failure (if any) is read once here, after
+        -- the loop ends, never by calling the iterator again.
+        local read_err = lines_iter:err()
         if read_err then
           return nil, read_err
         end

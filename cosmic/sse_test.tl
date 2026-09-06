@@ -2,6 +2,7 @@
 local check = require("cosmic.check")
 local sse = require("cosmic.sse")
 local fetch = require("cosmic.fetch")
+local stream_mod = require("cosmic.stream")
 
 --- Create a mock reader over a string. When fail_with is given, read()
 --- returns nil, fail_with after the content is consumed — a mid-stream
@@ -40,39 +41,11 @@ local function mock_reader(content: string, fail_with?: string): fetch.Body
     return is_closed
   end
 
-  function reader:lines(): function(): string | nil, string
-    local buffer = ""
-    local done = false
-
-    return function(): string | nil, string
-      if done then
-        return nil
-      end
-      while true do
-        local newline_pos = buffer:find("\n")
-        if newline_pos then
-          local line = buffer:sub(1, newline_pos - 1)
-          buffer = buffer:sub(newline_pos + 1)
-          return line
-        end
-
-        local chunk, err = self:read()
-        if err then
-          done = true
-          return nil, err
-        end
-        if not chunk then
-          done = true
-          if #buffer > 0 then
-            local remaining = buffer
-            buffer = ""
-            return remaining
-          end
-          return nil
-        end
-        buffer = buffer .. chunk
-      end
-    end
+  -- Never called by these tests (sse.parse reads via cosmic.stream.lines
+  -- directly); delegating keeps this mock honestly typed as fetch.Body
+  -- without duplicating the real buffering algorithm.
+  function reader:lines(): stream_mod.LineIter
+    return stream_mod.lines(self)
   end
 
   return reader

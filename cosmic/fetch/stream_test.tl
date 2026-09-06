@@ -66,7 +66,7 @@ local function test_stream_lines_iterates()
   local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local lines: {string} = {}
   for line in result.reader:lines() do
-    table.insert(lines, check.must(line))
+    table.insert(lines, line)
   end
   assert(#lines == 3, "expected 3 lines, got " .. #lines)
   assert(lines[1] == "one" and lines[2] == "two" and lines[3] == "three",
@@ -109,21 +109,23 @@ local function test_stream_truncated_body_surfaces_error()
 end
 
 local function test_stream_lines_propagates_error_then_stops()
-  -- lines() yields nil, err once for a mid-stream failure, then plain nil;
-  -- a truncated stream is distinguishable from a graceful close.
+  -- lines() yields the complete line, then stops on the mid-stream
+  -- failure; the terminal read failure is read through iter:err()
+  -- afterward, never by calling the iterator again — a truncated
+  -- stream stays distinguishable from a graceful close.
   local truncated = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n"
   .. "complete line\npartial"
   local port, pid = serve({truncated})
   local result = check.must(fetch.stream("http://127.0.0.1:" .. port .. "/", {allow_private = true}))
   local iter = result.reader:lines()
-  local first, err1 = iter()
+  local first = iter()
   assert(first == "complete line", "the complete line arrives first, got: " .. tostring(first))
-  assert(err1 == nil, "no error on the complete line")
-  local second, err2 = iter()
+  assert(iter:err() == nil, "no error while a complete line is still arriving")
+  local second = iter()
   assert(second == nil, "truncation must not fake a line")
-  assert(err2 ~= nil, "the error must be yielded, not swallowed EOF")
-  local third, err3 = iter()
-  assert(third == nil and err3 == nil, "after the error, the iterator is exhausted")
+  assert(iter:err() ~= nil, "the error must be surfaced, not swallowed as EOF")
+  local third = iter()
+  assert(third == nil and iter:err() ~= nil, "after the error, the iterator stays exhausted")
   assert(result.reader:close())
   assert(proc.wait(pid))
 end

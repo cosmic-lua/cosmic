@@ -94,22 +94,25 @@ local function find_depth(opts?: FindOptions): integer
 end
 
 --- Iterator over file paths, as returned by find_iter(). Callable:
---- `for f in iter do ... end`. The second return is nil while paths
---- remain; once the tree is exhausted every further call returns
---- `nil, errs` — the subtree-error list, nil when the walk was clean.
+--- `for f in iter do ... end` — the for-in convention, terminating the
+--- loop the ordinary way once paths run out. The subtree-error list
+--- accumulated along the way is a SEPARATE accessor, `iter:errors()`,
+--- read once after the loop ends rather than by calling the iterator
+--- again: nil when the walk was clean.
 ---
 --- It owns the open directory handles, so it is also CLOSEABLE, the
 --- same shape `cosmic.sqlite`'s Rows has: draining it releases them,
 --- and so do `iter:close()`, leaving a `local iter <close> = ...`
---- scope, and (as the backstop) collection. That is why the guard is
---- not a fourth return value — a to-be-closed slot past the error
---- would break the two-slot error contract every fallible call relies on.
+--- scope, and (as the backstop) collection.
 local record FileIter
-  metamethod __call: function(self: FileIter): string | nil, {string}
+  metamethod __call: function(self: FileIter): string
   metamethod __close: function(self: FileIter)
   --- Release every open directory handle without draining the walk.
   --- Idempotent; the iterator yields nothing afterwards.
   close: function(self: FileIter)
+  --- Subtree failures encountered so far, in encounter order; nil when
+  --- the walk was clean. Meant to be read once the loop has finished.
+  errors: function(self: FileIter): {string} | nil
 end
 
 --- Iterate over matching paths lazily; same selection as find(),
@@ -122,7 +125,7 @@ end
 ---
 ---     local iter = check.must(fs.find_iter(dir))
 ---     for f in iter do ... end
----     local _, errs = iter() -- subtree errors, nil when clean
+---     local errs = iter:errors() -- subtree errors, nil when clean
 ---
 --- Draining the iterator closes every directory handle it opened. A
 --- loop that exits EARLY (`break`, or a `return` from inside it) has
@@ -190,7 +193,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
     end
   end
 
-  local step = function(): string, {string}
+  local step = function(): string
     while #stack > 0 do
       local current = stack[#stack]
       local current_dir = current[1]
@@ -236,10 +239,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
         end
       end
     end
-    if #errs == 0 then
-      return nil
-    end
-    return nil, errs
+    return nil
   end
 
   -- The iterator IS the resource handle: closing it — by draining, by
@@ -249,7 +249,15 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
       __call = step,
       __close = close_all,
       __gc = close_all,
-      __index = {close = close_all},
+      __index = {
+        close = close_all,
+        errors = function(_self: FileIter): {string} | nil
+          if #errs == 0 then
+            return nil
+          end
+          return errs
+        end,
+      },
     })
   return iter
 end
@@ -269,17 +277,12 @@ local function find(dir: string, opts?: FindOptions): Found | nil, string
   end
   local results: Found = {}
   for p in iter do
-    -- iter's __call is honestly `string | nil, {string}` (nil signals
-    -- exhaustion); the generic-for loop never runs this body with a nil
-    -- p, but the guard lets the checker see it too.
-    if not p then break end
     table.insert(results, p)
   end
-  local _, errs = iter()
   if opts and opts.sorted then
     table.sort(results)
   end
-  results.errors = errs
+  results.errors = iter:errors()
   return results
 end
 
