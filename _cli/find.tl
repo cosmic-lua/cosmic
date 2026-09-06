@@ -15,14 +15,12 @@
 --- the current directory) — one selection rule, not a second copy of
 --- it drifting here.
 
+local ast = require("cosmic.ast")
 local fs = require("cosmic.fs")
-local match = require("cosmic.ast.match")
 local mcheck = require("_make.check")
-local node_mod = require("cosmic.ast.node")
 local project = require("_make.project")
-local walk_mod = require("cosmic.ast.walk")
 
-local type Node = node_mod.Node
+local type Node = ast.Node
 
 --- One matched node, ready to sort and print.
 local record Hit
@@ -78,13 +76,13 @@ local function hits_in(pattern: Node, path: string): {Hit}
   if not source then
     return hits
   end
-  local parsed = node_mod.parse(source, path)
+  local parsed = ast.parse(source, path)
   if not parsed then
     return hits
   end
-  walk_mod.walk(parsed.node, function(n: Node)
-      if match.match(pattern, n) then
-        local y, x = walk_mod.span_start(n)
+  ast.walk(parsed.node, function(n: Node)
+      if ast.match(pattern, n) then
+        local y, x = ast.span_start(n)
         hits[#hits + 1] = {path = path, line = y, col = x, text = line_at(source, y)}
       end
     end)
@@ -96,7 +94,7 @@ end
 --- @param paths {string} PATH arguments, or empty for the whole project
 --- @return integer Exit code: 0 on hits, 1 on none, 2 on refusal
 local function run(pattern_src: string, paths: {string}): integer
-  local pattern, compile_err = match.compile_pattern(pattern_src)
+  local pattern, compile_err = ast.compile_pattern(pattern_src)
   if not pattern then
     io.write("find: refused: " .. compile_err .. "\n")
     return 2

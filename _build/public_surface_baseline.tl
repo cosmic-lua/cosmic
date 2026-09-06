@@ -1,5 +1,6 @@
 return {
   ["cosmic.ansi"] = true,
+  ["cosmic.ast"] = true,
   ["cosmic.check"] = true,
   ["cosmic.child"] = true,
   ["cosmic.codec"] = true,
