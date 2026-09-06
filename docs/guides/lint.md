@@ -439,24 +439,40 @@ the trigger is `fs.glob` only: `fs.find`, `fs.find_iter`, `fs.find_info`,
 trigger and are follow-up work, not this rule's job. the rule applies to
 `*_test.tl` files only.
 
-the same rule also flags a `--- reads:` entry that names a build OUTPUT —
-`o` itself, or any path starting with `o/`. `_make/imports.tl`'s
-`reads_of_file` already refuses such a declaration, but only when the
-graph is built — a warm `o/` from a prior build makes the path exist, so
-a builder's local gate passes and the failure lands only in CI's cold
-`build` lane instead (the cold-build rule, AGENTS.md). This lint catches
-it earlier, in `--check lint`, which runs the same warm or cold:
+the same rule also flags a `--- reads:` entry under `o/` that names a
+build OUTPUT. `_make/imports.tl`'s `reads_of_file` already refuses such
+a declaration, but only when the graph is built — a warm `o/` from a
+prior build makes the path exist, so a builder's local gate passes and
+the failure lands only in CI's cold `build` lane instead (the
+cold-build rule, AGENTS.md). This lint catches it earlier, in
+`--check lint`, which runs the same warm or cold:
 
 ```
 /tmp/lintcheck/doc_symbols_test.tl:1:12: reads-declaration: `reads: o/cmd/cosmic/embed_gen/embed/.docs/index.lua` names a build output, which does not exist on a cold tree; derive it in-process from the tree (the generator's own module) or declare the SOURCES it is built from
 ```
 
-the fix is one of the two the message names: derive the value
-in-process from the tree (import the generator's own module and call
-it, rather than reading its output off disk) or declare the SOURCES the
-output is built from instead of the output itself — a path merely
-containing an `/o/` segment elsewhere (not as its own leading directory)
-is not a build output and is not flagged.
+not every `o/` path is a build output: AGENTS.md documents two things
+under `o/` that exist BEFORE the graph is built, and a `reads:` entry
+naming either is allowed —
+
+- `o/bootstrap/**` — the pinned `cosmic` binary `bin/cosmic` downloads
+  and assimilates, the trust root "no verb reproduces" (`_make/clean.tl`)
+- `o/<dir>/<stem>_gen/**`, when `<dir>/<stem>_gen.tl` exists in the
+  tree — a generator's own output directory; AGENTS.md: "generators run
+  before the graph", so it is always there by the time a `reads:`
+  declaration is checked. A binary's OWN payload generator is the one
+  exception: `cmd/<name>/embed_gen.tl` "packs what the graph produced,
+  so it runs last" — its output directory is exactly the build-output
+  case this rule exists to catch, so `o/cmd/<name>/embed_gen/**` is
+  flagged even though `cmd/<name>/embed_gen.tl` exists
+
+the fix for anything else under `o/` is one of the two the message
+names: derive the value in-process from the tree (import the
+generator's own module and call it, rather than reading its output off
+disk) or declare the SOURCES the output is built from instead of the
+output itself — a path merely containing an `/o/` segment elsewhere
+(not as its own leading directory) is not a build output and is not
+flagged.
 
 ## running one rule's worth of output
 
