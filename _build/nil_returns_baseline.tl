@@ -53,6 +53,7 @@ return {
   ["cosmic/sqlite/row_iter.tl"] = 2,
   ["cosmic/sqlite/stmt_cache.tl"] = 2,
   ["cosmic/sse.tl"] = 1,
+  ["cosmic/stream.tl"] = 5,
   ["cosmic/time.tl"] = 2,
   ["cosmic/tty_pty_test.tl"] = 1,
   ["cosmic/zip.tl"] = 2,

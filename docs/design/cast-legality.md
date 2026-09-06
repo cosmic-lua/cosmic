@@ -200,7 +200,7 @@ compression, not new work, closes this class under the rule.
 corrects the item's framing.** Its five sites split into two shapes
 the item did not distinguish:
 
-- `cosmic/stream.tl:237` — `local dr = r as stream.DelimReader`, where
+- `cosmic/stream.tl:253` — `local dr = r as stream.DelimReader`, where
   `r: stream.Reader` is `stream.lines`'s own declared, PUBLIC parameter
   type. There is no private call site to push a cast out of: making
   this legal means widening `stream.lines`'s own signature to `r: any`,
