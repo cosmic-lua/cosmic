@@ -400,14 +400,16 @@ parameter it declared `any` at a module seam — re-typed to
 modules can pass a value without a circular type dependency.
 
 ```text
--- cosmic/coverage/init.tl:92
-  local co = coroutine as {string: any} -- cast: patch stdlib table
+-- cosmic/check.tl:171
+  local surface = module as {string: any}
 ```
 
-**What closes it here.** Declaring the type closes four of these five: a
-narrow record for the two stdlib functions the coverage hook swaps, and
-the module surface `check.swap_members` and `with_mock_capabilities`
-probe to assign a replacement through a computed key. The fifth,
+**What closes it here.** Declaring the type closes four of these five:
+direct reassignment to `coroutine.create`/`coroutine.wrap`/`os.exit` in
+the coverage hook, checked against the fields' own already-declared
+types with no cast and no new record, and the module surface
+`check.swap_members` and `with_mock_capabilities` probe to assign a
+replacement through a computed key. The fifth,
 `merge_section`'s walk in `cosmic/quicksand/box/merge.tl`, is a floor
 exception, not a fourth pattern that closes it: it walks an unknown key
 set at runtime (an unrecognized key merges as a scalar, by design), so

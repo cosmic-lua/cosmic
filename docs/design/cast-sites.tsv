@@ -42,8 +42,6 @@ cosmic/compress_test.tl	36	enum relation
 cosmic/compress_test.tl	139	enum relation
 cosmic/coverage/init.tl	44	module surface record
 cosmic/coverage/init.tl	45	module surface record
-cosmic/coverage/init.tl	92	map view of a declared value
-cosmic/coverage/init.tl	93	map view of a declared value
 cosmic/deep.tl	52	generic T
 cosmic/deep.tl	121	generic T
 cosmic/embed/init.tl	104	userdata boundary

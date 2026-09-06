@@ -89,10 +89,8 @@ local function install_wrappers(do_dump: function())
   end
   wrappers_installed = true
 
-  local co = coroutine as {string: any} -- cast: patch stdlib table
-  local os_mod = os as {string: any} -- cast: patch stdlib table
-  local raw_create = co["create"]
-  local raw_exit = os_mod["exit"]
+  local raw_create = coroutine.create
+  local raw_exit = os.exit
   -- The signature guards type raw_create's return as a real thread, so
   -- every downstream arm/resume site is plainly typed. A stdlib whose
   -- create or exit is not a function cannot occur; the guard leaves it
@@ -112,14 +110,14 @@ local function install_wrappers(do_dump: function())
       debug.sethook(cothread, on_line, "l")
     end
   end
-  co["create"] = function(f: any): any
+  coroutine.create = function(f: any): any
     local cothread = raw_create(f)
     if depth > 0 then
       arm(cothread)
     end
     return cothread
   end
-  co["wrap"] = function(f: any): any
+  coroutine.wrap = function(f: any): any
     local cothread = raw_create(f)
     if depth > 0 then
       arm(cothread)
@@ -133,7 +131,7 @@ local function install_wrappers(do_dump: function())
     end
   end
 
-  os_mod["exit"] = function(code: any, close: any)
+  os.exit = function(code: any, close: any)
     do_dump()
     raw_exit(code, close)
   end
