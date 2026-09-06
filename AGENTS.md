@@ -219,7 +219,11 @@ key concepts:
   the graph produced, so it runs last
 - **versioned deps**: 3p modules declare a `*_pin.tl` — literal data, read
   by `cosmic.literal` and never executed. `fetch` unpacks a pin beside
-  the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`
+  the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`.
+  A build or test run reuses an already-unpacked `o/3p/<name>` rather
+  than re-deriving it, so to confirm a `3p/*/tl_patch/*.tl` edit
+  actually took effect, `rm -rf o/3p/<name>` (e.g. `o/3p/tl`) before
+  `bin/cosmic --make fetch`
 - **carried patches**: a pin may ride a `*_patch.tl`/`*_patch/` beside it —
   exact `find`/`replace` edits `fetch` applies after the pristine unpack
   ([D21](docs/decisions/d21-carried-tl-patch.md)). Landing one is never
