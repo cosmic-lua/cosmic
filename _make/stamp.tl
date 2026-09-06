@@ -56,8 +56,8 @@ local type Project = types.Project
 --- `stamp_test` ratchets this list against a live child's
 --- package.loaded, so it can drift wide but never silently narrow.
 local BOOT_MODULES < const >: {string} = {
-  "_cli.args", "_cli.help", "_cli.main_handlers", "_cli.require_hints",
-  "_cli.run", "_cli.welcome",
+  "_cli.args", "_cli.help", "_cli.main_handlers", "_cli.parse",
+  "_cli.require_hints", "_cli.run", "_cli.welcome",
   "cosmic._fields", "cosmic.env", "cosmic.errno", "cosmic.fd", "cosmic.fs",
   "cosmic.fs.file", "cosmic.fs.find", "cosmic.fs.ops", "cosmic.fs.path", "cosmic.fs.tree",
   "cosmic.fs.types", "cosmic.fs.walk", "cosmic.fuzzy",

@@ -37,6 +37,7 @@ return {
   ["_cli/lint_render.tl"] = {["covered"] = 26, ["total"] = 26},
   ["_cli/main_handlers.tl"] = {["covered"] = 11, ["total"] = 221},
   ["_cli/nilreturn.tl"] = {["covered"] = 105, ["total"] = 109},
+  ["_cli/parse.tl"] = {["covered"] = 103, ["total"] = 147},
   ["_cli/pattern_args.tl"] = {["covered"] = 132, ["total"] = 135},
   ["_cli/reads_lint.tl"] = {["covered"] = 34, ["total"] = 34},
   ["_cli/require_hints.tl"] = {["covered"] = 104, ["total"] = 124},
