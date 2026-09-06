@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- reads: bin/gitboard
 -- bin/gitboard's default GITBOARD_DIR: a sibling ../work clone of
 -- cosmic-lua/work wins over o/board, an inherited GITBOARD_DIR wins
 -- over both, and the bootstrap stub is pre-placed so nothing downloads.
@@ -50,6 +51,10 @@ end
 local function test_falls_back_to_o_board_without_a_matching_sibling()
   local root = make_root("other-origin")
   sibling(root, "https://github.com/someone-else/work")
+  assert(run(root) == fs.join(root, "o", "board"))
+end
+local function test_falls_back_to_o_board_with_no_sibling_at_all()
+  local root = make_root("no-sibling")
   assert(run(root) == fs.join(root, "o", "board"))
 end
 local function test_explicit_gitboard_dir_wins()
