@@ -1,135 +1,138 @@
-path	line	class
-_fuzz/compress_fuzz_test.tl	76	enum relation
-_fuzz/driver.tl	76	module surface record
-_fuzz/driver.tl	77	module surface record
-_make/closure.tl	62	record union after guard
-_make/stage.tl	183	record union after guard
-_perf/bench/micro_bench.tl	192	record union after guard
-_tool/coverage/lines.tl	86	tl compiler surface
-_tool/coverage/lines.tl	98	tl compiler surface
-_tool/coverage/lines.tl	133	tl compiler surface
-_tool/discover.tl	86	tl compiler surface
-_tool/discover.tl	87	tl compiler surface
-_tool/discover.tl	90	tl compiler surface
-_types/gentype.tl	19	module surface record
-_types/gentype.tl	24	module surface record
-_types/gentype.tl	30	module surface record
-_types/gentype_defs.tl	51	userdata boundary
-_types/tlast.tl	105	tl compiler surface
-_types/tlast.tl	329	module surface record
-_types/tlast.tl	330	module surface record
-_types/tlast.tl	340	tl compiler surface
-_types/tlast.tl	350	metatable access
-_types/tlast_test.tl	50	module surface record
-_types/tlast_test.tl	60	tl compiler surface
-cmd/cosmic/main.tl	194	container variance
-cosmic/_literal_format.tl	113	container variance
-cosmic/_literal_format.tl	131	container variance
-cosmic/_probe.tl	15	runtime capability probe
-cosmic/_teal_ast_test.tl	33	tl compiler surface
-cosmic/_teal_ast_test.tl	34	tl compiler surface
-cosmic/_teal_ast_test.tl	36	tl compiler surface
-cosmic/_teal_ast_test.tl	52	tl compiler surface
-cosmic/_teal_discard.tl	183	tl compiler surface
-cosmic/_teal_discard.tl	205	tl compiler surface
-cosmic/_teal_discard.tl	258	tl compiler surface
-cosmic/_teal_engine.tl	256	pcall return shape
-cosmic/ast/match.tl	30	tl compiler surface
-cosmic/ast/match.tl	95	tl compiler surface
-cosmic/ast/match.tl	102	tl compiler surface
-cosmic/ast/match.tl	103	tl compiler surface
-cosmic/ast/match.tl	120	tl compiler surface
-cosmic/ast/match.tl	125	incremental record construction
-cosmic/ast/match.tl	203	tl compiler surface
-cosmic/ast/match.tl	207	tl compiler surface
-cosmic/ast/match.tl	210	tl compiler surface
-cosmic/ast/match.tl	236	tl compiler surface
-cosmic/ast/match_test.tl	46	tl compiler surface
-cosmic/ast/match_test.tl	55	tl compiler surface
-cosmic/ast/match_test.tl	64	tl compiler surface
-cosmic/ast/node.tl	138	tl compiler surface
-cosmic/ast/walk.tl	47	map view of a declared value
-cosmic/ast/walk.tl	56	map view of a declared value
-cosmic/ast/walk.tl	67	map view of a declared value
-cosmic/ast/walk.tl	70	map view of a declared value
-cosmic/check.tl	121	type-defeating test probe
-cosmic/check.tl	139	type-defeating test probe
-cosmic/check.tl	171	map view of a declared value
-cosmic/check.tl	346	record union after guard
-cosmic/check_assertions_test.tl	101	type-defeating test probe
-cosmic/check_assertions_test.tl	321	type-defeating test probe
-cosmic/compress_test.tl	24	enum relation
-cosmic/compress_test.tl	36	enum relation
-cosmic/compress_test.tl	139	enum relation
-cosmic/coverage/init.tl	44	module surface record
-cosmic/coverage/init.tl	45	module surface record
-cosmic/deep.tl	52	generic T
-cosmic/deep.tl	121	generic T
-cosmic/embed/init.tl	104	userdata boundary
-cosmic/fd.tl	187	binding contract shape
-cosmic/fetch/extras.tl	184	generic T
-cosmic/fetch/extras.tl	199	generic T
-cosmic/fetch/extras.tl	202	generic T
-cosmic/fetch/extras.tl	239	generic T
-cosmic/fetch/init.tl	214	enum relation
-cosmic/fetch/init.tl	239	binding contract shape
-cosmic/fetch/init.tl	241	binding contract shape
-cosmic/fetch/init.tl	367	binding contract shape
-cosmic/fetch/init.tl	371	binding contract shape
-cosmic/fetch/init.tl	388	incremental record construction
-cosmic/fs/dir_test.tl	170	userdata boundary
-cosmic/fs/find.tl	163	userdata boundary
-cosmic/fs/find.tl	187	userdata boundary
-cosmic/fs/find.tl	317	userdata boundary
-cosmic/fs/ops.tl	411	userdata boundary
-cosmic/fs/ops.tl	425	userdata boundary
-cosmic/fs/tree.tl	23	userdata boundary
-cosmic/fs/types.tl	263	userdata boundary
-cosmic/fs/types.tl	280	userdata boundary
-cosmic/fs/types.tl	294	userdata boundary
-cosmic/fs/walk.tl	165	userdata boundary
-cosmic/fs/walk.tl	201	generic T
-cosmic/fs/walk.tl	212	userdata boundary
-cosmic/hash.tl	104	enum relation
-cosmic/hash.tl	141	enum relation
-cosmic/hash.tl	203	enum relation
-cosmic/hash_test.tl	233	type-defeating test probe
-cosmic/hash_test.tl	268	type-defeating test probe
-cosmic/log_test.tl	103	type-defeating test probe
-cosmic/log_test.tl	114	type-defeating test probe
-cosmic/log_test.tl	163	type-defeating test probe
-cosmic/net/connect.tl	96	function shape
-cosmic/net/socket.tl	334	function shape
-cosmic/net/socket.tl	397	function shape
-cosmic/net/socket.tl	437	function shape
-cosmic/quicksand/box/init_test.tl	145	map view of a declared value
-cosmic/quicksand/box/merge.tl	135	map view of a declared value
-cosmic/quicksand/box/merge.tl	138	incremental record construction
-cosmic/quicksand/box/merge_test.tl	101	type-defeating test probe
-cosmic/quicksand/box/merge_test.tl	151	type-defeating test probe
-cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
-cosmic/quicksand/box/run.tl	254	record union after guard
-cosmic/quicksand/caps.tl	63	binding constant by name
-cosmic/quicksand/init.tl	73	runtime capability probe
-cosmic/quicksand/proxy.tl	115	container variance
-cosmic/quicksand/proxy/rules_test.tl	55	container variance
-cosmic/quicksand/proxy/rules_test.tl	125	type-defeating test probe
-cosmic/rand_test.tl	95	type-defeating test probe
-cosmic/rand_test.tl	168	container variance
-cosmic/sandbox/init.tl	206	runtime capability probe
-cosmic/sandbox/init_test.tl	132	container variance
-cosmic/sandbox/plan.tl	190	runtime capability probe
-cosmic/sandbox/plan.tl	241	runtime capability probe
-cosmic/shape.tl	279	generic T
-cosmic/shm.tl	146	pcall return shape
-cosmic/shm.tl	171	pcall return shape
-cosmic/signal.tl	255	binding contract shape
-cosmic/sqlite/bind.tl	68	binding contract shape
-cosmic/sqlite/bind.tl	132	container variance
-cosmic/sqlite/bind.tl	143	container variance
-cosmic/sqlite/extras.tl	63	pcall return shape
-cosmic/sqlite/extras.tl	106	pcall return shape
-cosmic/stream.tl	253	runtime capability probe
-cosmic/sys.tl	46	enum relation
-cosmic/sys_test.tl	14	enum relation
-cosmic/sys_test.tl	29	enum relation
+path	fn	n	cast	class
+_build/cast_sites.tl	function_name	1	local raw = fn as {string: any} -- cast: tl-parser field this Node kind doesn't name	tl compiler surface
+_build/cast_sites.tl	function_name	2	local name_field = raw.name as {string: any} -- cast: tl-parser field this Node kind doesn't name	tl compiler surface
+_build/cast_sites.tl	owner_text	1	local ot = o as {string: any} -- cast: tl-parser field this Node kind doesn't name	tl compiler surface
+_fuzz/compress_fuzz_test.tl	test_round_trip_identity	1	{format = format as compress.DecompressFormat})	enum relation
+_fuzz/driver.tl	find_ccov	1	local req = require as function(string): any -- cast: bypass static module resolution	module surface record
+_fuzz/driver.tl	find_ccov	2	return req("cosmo.cov") as CCov -- cast: dynamic require returns any	module surface record
+_make/closure.tl	fresh	1	local it = (into as fs.Stat):modify_time() -- cast: same	record union after guard
+_make/stage.tl	graph_stage	1	local sel = v.select as Selection -- cast: a graph verb always has one	record union after guard
+_perf/bench/micro_bench.tl	scenarios	1	return (a as ip.Addr):format()	record union after guard
+_tool/coverage/lines.tl	executable_lines	1	walk(ast as {any: any}, {}, out) -- cast: ast node as generic map	tl compiler surface
+_tool/coverage/lines.tl	walk	1	for _, child in ipairs(node as {any}) do -- cast: array view of ast map	tl compiler surface
+_tool/coverage/lines.tl	walk	2	for _, e in ipairs(v as {any}) do -- cast: array view of ast map	tl compiler surface
+_tool/discover.tl	definitions_of	1	for _, stmt in ipairs(program as {any}) do	tl compiler surface
+_tool/discover.tl	definitions_of	2	local node = stmt as {string: any} -- cast: tl AST node fields	tl compiler surface
+_tool/discover.tl	definitions_of	3	local name_node = node["name"] as {string: any}	tl compiler surface
+_types/gentype.tl	<chunk>	1	local render = require("_types.gentype_render") as GentypeRender -- cast: narrow surface	module surface record
+_types/gentype.tl	<chunk>	2	local extract = require("_types.gentype_extract") as GentypeExtract -- cast: narrow surface	module surface record
+_types/gentype.tl	<chunk>	3	local parse = require("_types.gentype_parse") as GentypeParse -- cast: narrow surface	module surface record
+_types/gentype_defs.tl	read	1	local reader = handle as zip.Reader -- cast: from any	userdata boundary
+_types/tlast.tl	array_part	1	return t as {any} -- cast: array view of a mixed AST table	tl compiler surface
+_types/tlast.tl	generate	1	local tl = tl_any as {string: any} -- cast: freshly loaded module surface	module surface record
+_types/tlast.tl	generate	2	local hooks = tl.ast_hooks as {string: any} -- cast: carried-patch surface	module surface record
+_types/tlast.tl	generate	3	local parse = tl.parse as function(string, string, string): ({any: any}, {any})	tl compiler surface
+_types/tlast.tl	generate	4	hooks.type_mt as {any: any}) -- cast: metatable as plain table identity	metatable access
+_types/tlast_test.tl	test_cache_thaws_on_fresh_tl	1	local fresh_tl = tl_chunk() as {string: any} -- cast: freshly loaded module surface	module surface record
+_types/tlast_test.tl	test_cache_thaws_on_fresh_tl	2	assert(#(stdlib_ast as {any}) > 0, -- cast: array view of a statement list	tl compiler surface
+cmd/cosmic/main.tl	main	1	_G.arg = opts.script_args as {string} -- cast: arg map includes 0/-1 keys	container variance
+cosmic/_literal_format.tl	all_scalar_values	1	for _, v in pairs(t as {any: any}) do -- cast: runtime keys are unconstrained	container variance
+cosmic/_literal_format.tl	sorted_keys	1	for k in pairs(t as {any: any}) do -- cast: runtime keys are unconstrained	container variance
+cosmic/_probe.tl	is_present	1	return (t as {string: any})[name] ~= nil	runtime capability probe
+cosmic/_teal_ast_test.tl	test_artifact_cache_thaws	1	local prelude_node = prelude_ast as {any: any} -- cast: AST node from thaw	tl compiler surface
+cosmic/_teal_ast_test.tl	test_artifact_cache_thaws	2	local stdlib_node = stdlib_ast as {any: any} -- cast: AST node from thaw	tl compiler surface
+cosmic/_teal_ast_test.tl	test_artifact_cache_thaws	3	assert(#(stdlib_node as {any}) > 0, -- cast: array view of a statement list	tl compiler surface
+cosmic/_teal_ast_test.tl	test_new_env_checks_like_the_parse_path	1	env as tl.Env, -- cast: satisfies process_string's curated 3rd parameter	tl compiler surface
+cosmic/_teal_discard.tl	issues	1	local get_report = rep["get_report"] as function(any): any	tl compiler surface
+cosmic/_teal_discard.tl	walk	1	local arr = node as {any} -- cast: a statements node is array-shaped	tl compiler surface
+cosmic/_teal_discard.tl	walk	2	local arr = args as {any} -- cast: an expression_list is array-shaped	tl compiler surface
+cosmic/_teal_engine.tl	process_source	1	local result = result_or_err as TlResult	pcall return shape
+cosmic/ast/match.tl	<chunk>	1	local name = pv["tk"] as string -- cast: narrowed to string by is_capture's own check	tl compiler surface
+cosmic/ast/match.tl	<chunk>	2	local pt = prev as {any: any} -- cast: generic ast node view of a prior binding	tl compiler surface
+cosmic/ast/match.tl	<chunk>	3	caps[name] = nv as Node -- cast: a matched candidate node is a real Node	tl compiler surface
+cosmic/ast/match.tl	<chunk>	4	if not (k is integer) and not IGNORE_KEYS[k as string] then -- cast: non-integer key is a field name	tl compiler surface
+cosmic/ast/match.tl	arr	1	return t as {any} -- cast: array view of a generic ast map	tl compiler surface
+cosmic/ast/match.tl	rest_capture_name	1	return node["tk"] as string -- cast: narrowed to string by is_rest_capture's own check	tl compiler surface
+cosmic/ast/match.tl	rest_capture_name	2	and #arr(node["e2"] as {any: any}) == 0 then -- cast: generic view of a call's args node	tl compiler surface
+cosmic/ast/match.tl	rest_capture_name	3	return e1["tk"] as string -- cast: narrowed to string by is_rest_capture's own check	tl compiler surface
+cosmic/ast/match.tl	rest_value	1	local mt = marker as {any: any} -- cast: generic ast node view	tl compiler surface
+cosmic/ast/match.tl	rest_value	2	return out as Node -- cast: synthetic bare-list node for a rest-capture's value	incremental record construction
+cosmic/ast/match_test.tl	collect_matches	1	walk(root as {any: any}) -- cast: generic ast node view	tl compiler surface
+cosmic/ast/match_test.tl	walk	1	local as_node = n as Node -- cast: a table walked from a real Node tree is one	tl compiler surface
+cosmic/ast/match_test.tl	walk	2	for _, e in ipairs(v as {any}) do -- cast: array view of a generic ast map	tl compiler surface
+cosmic/ast/node.tl	parse	1	return {node = ast as Node, tokens = tokens}, nil -- cast: tl.parse_program erases its AST to `any`	tl compiler surface
+cosmic/ast/walk.tl	array_of	1	return node as {any} -- cast: map view of a declared value	map view of a declared value
+cosmic/ast/walk.tl	classify	1	local vt = value as {any: any} -- cast: map view of a declared value	map view of a declared value
+cosmic/ast/walk.tl	classify	2	return vt as Node, nil -- cast: map view of a declared value	map view of a declared value
+cosmic/ast/walk.tl	map_of	1	return node as {any: any} -- cast: map view of a declared value	map view of a declared value
+cosmic/check.tl	is_exposed	1	return (module as {string: any})[name] ~= nil	type-defeating test probe
+cosmic/check.tl	reap	1	local status = (wr as proc.WaitResult).status -- cast: record union after guard	record union after guard
+cosmic/check.tl	refuses	1	local call = f as function(...: any): (any, any)	type-defeating test probe
+cosmic/check.tl	swap_members	1	local surface = module as {string: any}	map view of a declared value
+cosmic/check_assertions_test.tl	test_must_default_message	1	check.must(nil as string | nil) -- cast: deliberate invalid input	type-defeating test probe
+cosmic/check_assertions_test.tl	test_not_equal_different_types	1	check.not_equal(1 as any, "1")	type-defeating test probe
+cosmic/compress_test.tl	test_max_output_bytes_bound_per_format	1	cformat = format as compress.CompressFormat	enum relation
+cosmic/compress_test.tl	test_roundtrip_empty_per_format	1	{format = format as compress.DecompressFormat})	enum relation
+cosmic/compress_test.tl	test_roundtrip_explicit_formats	1	{format = format as compress.DecompressFormat})	enum relation
+cosmic/coverage/init.tl	find_ccov	1	local req = require as function(string): any -- cast: bypass static module resolution	module surface record
+cosmic/coverage/init.tl	find_ccov	2	return req("cosmo.cov") as CCov -- cast: dynamic require returns any	module surface record
+cosmic/deep.tl	copy	1	return copy_impl(value, {}) as T	generic T
+cosmic/deep.tl	merge	1	return merge_impl(base as {any: any}, override as {any: any}) as T	generic T
+cosmic/embed/init.tl	do_walk	1	local handle = raw as EmbedDirHandle -- cast: userdata boundary	userdata boundary
+cosmic/fd.tl	handle.fcntl	1	return result as integer -- cast: from any	binding contract shape
+cosmic/fetch/extras.tl	prepare	1	local opts = opts_in as PrepareOptions -- cast: generic T via mirror record	generic T
+cosmic/fetch/extras.tl	prepare	2	for k, v in pairs(opts_in as {string: any}) do -- cast: generic T as map to copy	generic T
+cosmic/fetch/extras.tl	prepare	3	local prepared = o as PrepareOptions -- cast: copied map as mirror record	generic T
+cosmic/fetch/extras.tl	prepare	4	return url, o as T, nil -- cast: copied map back to generic T	generic T
+cosmic/fetch/init.tl	<chunk>	1	return make_response(t as Response) -- cast: from any	incremental record construction
+cosmic/fetch/init.tl	do_fetch	1	local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})	binding contract shape
+cosmic/fetch/init.tl	do_fetch	2	status = status as integer, -- cast: dual-shape binding return	binding contract shape
+cosmic/fetch/init.tl	fail	1	local k = (kind or "invalid_request") as ErrorKind -- cast: enum superset of binding string	enum relation
+cosmic/fetch/init.tl	stream	1	return fail(headers_or_err, reader_or_kind as string)	binding contract shape
+cosmic/fetch/init.tl	stream	2	local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})	binding contract shape
+cosmic/fs/dir_test.tl	fake_raw_reporting_eopnotsupp	1	return raw as unix.Dir -- cast: test double for userdata boundary	userdata boundary
+cosmic/fs/find.tl	find_iter	1	table.insert(stack, {dir, handle as WalkDirHandle, 1}) -- cast: userdata boundary	userdata boundary
+cosmic/fs/find.tl	glob_level	1	local h = handle as WalkDirHandle -- cast: userdata boundary	userdata boundary
+cosmic/fs/find.tl	push_subdir	1	table.insert(stack, {path, subhandle as WalkDirHandle, child_depth})	userdata boundary
+cosmic/fs/ops.tl	statfs	1	return types.wrap_statfs(info as any)	userdata boundary
+cosmic/fs/ops.tl	statfs_fd	1	return types.wrap_statfs(info as any)	userdata boundary
+cosmic/fs/tree.tl	copy_entries	1	local h = handle as TreeDirHandle -- cast: userdata boundary	userdata boundary
+cosmic/fs/types.tl	<chunk>	1	return raw as fs_types.Stat -- cast: userdata boundary	userdata boundary
+cosmic/fs/types.tl	<chunk>	2	return raw as fs_types.Statfs -- cast: userdata boundary	userdata boundary
+cosmic/fs/types.tl	install_predicates	1	return extend_metatable(raw as any, raw_predicates) -- cast: userdata boundary	userdata boundary
+cosmic/fs/walk.tl	<chunk>	1	return walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errs, depth, max_depth)	userdata boundary
+cosmic/fs/walk.tl	visit	1	ctx = ctx or {} as T -- cast: fresh table as generic T	generic T
+cosmic/fs/walk.tl	visit	2	walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errs, 1, max_depth)	userdata boundary
+cosmic/hash.tl	digest	1	string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening	enum relation
+cosmic/hash.tl	hash_password	1	config.variant = opts.variant as argon2.Variant -- cast: same literal set	enum relation
+cosmic/hash.tl	hmac	1	string.upper(algo) as cosmo.CryptoHashName, data, key) -- cast: enum widening	enum relation
+cosmic/hash_test.tl	test_digest_unknown_algo	1	local ok, err = pcall(hash.digest, "md4" as hash.Algo, "abc")	type-defeating test probe
+cosmic/hash_test.tl	test_hmac_unknown_algo	1	local ok, err = pcall(hash.hmac, "md4" as hash.Algo, "key", "data")	type-defeating test probe
+cosmic/log_test.tl	test_log_rejects_runtime_garbage_level	1	log.log("verbose" as log.Level, "boom") -- cast: deliberate invalid input	type-defeating test probe
+cosmic/log_test.tl	test_set_level_rejects_runtime_garbage	1	local ok, err = log.set_level("verbose" as log.Level) -- cast: deliberate invalid input	type-defeating test probe
+cosmic/log_test.tl	test_syslog_output_drops_runtime_garbage_level	1	log.syslog_output("boom", "verbose" as log.Level) -- cast: deliberate invalid input	type-defeating test probe
+cosmic/net/connect.tl	unix_with_timeout	1	local uconnect = unix.connect as function(number, string): (boolean, string, integer)	function shape
+cosmic/net/socket.tl	sock.bind_unix	1	local ok, err = (unix.bind as function(number, string): (boolean, string))(fd, path)	function shape
+cosmic/net/socket.tl	sock.connect_unix	1	local ok, err = (unix.connect as function(number, string): (boolean, any))(fd, path)	function shape
+cosmic/net/socket.tl	sock.set_timeout_ms	1	local sso = unix.setsockopt as function(number, number, number, number, number): (boolean, any)	function shape
+cosmic/quicksand/box/init_test.tl	with_mock_capabilities	1	(mocked as {string: any})[k] = v -- cast: probe module surface to swap a member its declared type owns	map view of a declared value
+cosmic/quicksand/box/merge.tl	merge	1	acc = merge_section("", acc, t as {string: any}) -- cast: record inspected as map	map view of a declared value
+cosmic/quicksand/box/merge.tl	merge	2	return acc as types.BoxOptions -- cast: dynamic walk rebuilt as the record it walked	incremental record construction
+cosmic/quicksand/box/merge_test.tl	test_empty_merge	1	local as_map = out as {string: any} -- cast: record inspected as map	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	test_unknown_key_merges_as_scalar	1	local out = m.merge(a as types.BoxOptions, b as types.BoxOptions)	type-defeating test probe
+cosmic/quicksand/box/merge_test.tl	test_unknown_key_merges_as_scalar	2	local view = out as {string: any} -- cast: record inspected as map	type-defeating test probe
+cosmic/quicksand/box/run.tl	supervisor	1	local handle = h as proxy.ProxyHandle -- cast: record union after guard (die)	record union after guard
+cosmic/quicksand/caps.tl	number_of	1	local n = (unix as {string: any})[name] as integer -- cast: dynamic constant lookup	binding constant by name
+cosmic/quicksand/init.tl	probe	1	local call = fn as function(any, any): any ... -- cast: runtime capability probe: fn is any, an arbitrary binding	runtime capability probe
+cosmic/quicksand/proxy.tl	start	1	local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})	container variance
+cosmic/quicksand/proxy/rules_test.tl	test_auth_header	1	assert(rules.auth_header(true as rules.ProxyRule) == nil, "true injects nothing")	type-defeating test probe
+cosmic/quicksand/proxy/rules_test.tl	test_validate_rejects_malformed_rules	1	assert(err:find(case[2] as string, 1, true), -- cast: tuple element	container variance
+cosmic/rand_test.tl	test_int_invalid_args	1	ok = pcall(rand.int, 1.5 as integer, 3) -- cast: deliberate invalid input	type-defeating test probe
+cosmic/rand_test.tl	test_shuffle_actually_shuffles	1	assert(rand.shuffle(list as {any})) -- cast: widen {integer} to {any} param	container variance
+cosmic/sandbox/init.tl	check_policy	1	local v = (fs as {string: any})[name] -- cast: record to map probe	runtime capability probe
+cosmic/sandbox/init_test.tl	test_promise_list_matches_validator	1	local all = table.concat(pledge.PROMISES as {string}, " ") -- cast: enum to strings	container variance
+cosmic/sandbox/plan.tl	validate_net	1	local v = (net as {string: any})[name] -- cast: record to map probe	runtime capability probe
+cosmic/sandbox/plan.tl	validate_scope	1	local v = (scope as {string: any})[name] -- cast: record to map probe	runtime capability probe
+cosmic/shape.tl	into	1	return holder[1] as T	generic T
+cosmic/shm.tl	mem.store	1	local ok, err = pcall(raw.store, raw, word_index, value) as (boolean, any)	pcall return shape
+cosmic/shm.tl	mem.write	1	local ok, err = pcall(raw.write, raw, off, data, write_count) as (boolean, any)	pcall return shape
+cosmic/signal.tl	sigaction	1	local raw_handler = handler as (function | integer) -- cast: handler union	binding contract shape
+cosmic/sqlite/bind.tl	bind_at	1	return raw_stmt:bind(i, v as string)	binding contract shape
+cosmic/sqlite/bind.tl	bind_params	1	local list = params as {any} -- cast: array-part probe of the params table	container variance
+cosmic/sqlite/bind.tl	bind_params	2	local named = params as {string: any} -- cast: map view of the params table	container variance
+cosmic/sqlite/extras.tl	db.savepoint	1	return false, (verdict as string) or "savepoint failed"	pcall return shape
+cosmic/sqlite/extras.tl	db.transaction	1	return false, (verdict as string) or "transaction failed"	pcall return shape
+cosmic/stream.tl	stream.lines	1	local dr = r as stream.DelimReader -- cast: duck-typed capability probe	runtime capability probe
+cosmic/sys.tl	normalize_host_os	1	return host_os_names[lowered] or (lowered as HostOs) -- cast: enum widening	enum relation
+cosmic/sys_test.tl	test_host_os_is_lowercase	1	local os_name = sys.host_os() as string -- cast: enum to plain string	enum relation
+cosmic/sys_test.tl	test_host_os_never_returns_raw_token	1	local os_name = sys.host_os() as string -- cast: enum to plain string	enum relation
