@@ -23,9 +23,12 @@ Teal's record system).
 db/query.tl:501:1: file-length: db/query.tl has 512 lines (limit: 500)
 ```
 
-a length failure on a NON-source file (a stray binary, a data file) is
-the walk telling you it swept in something you did not mean to gate —
-the fix is `.cosmicignore`, not splitting the file.
+a file with a NUL byte has no line grammar to cap — it is a binary the
+project walk swept in, not text with lines to count or split — so the
+rule skips it outright, and there is nothing to `.cosmicignore`. a
+length failure on a non-binary, NON-source file (prose, a data file)
+is still the walk telling you it swept in something you did not mean
+to gate — the fix there is `.cosmicignore`, not splitting the file.
 
 ## cast-justify
 
