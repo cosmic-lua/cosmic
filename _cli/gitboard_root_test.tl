@@ -48,6 +48,16 @@ local function test_prefers_a_sibling_work_clone()
   local sib = sibling(root, "https://github.com/cosmic-lua/work")
   assert(run(root) == sib)
 end
+local function test_prefers_an_ssh_sibling_work_clone()
+  local root = make_root("ssh-sibling")
+  local sib = sibling(root, "git@github.com:cosmic-lua/work.git")
+  assert(run(root) == sib)
+end
+local function test_refuses_a_sibling_whose_org_merely_ends_in_cosmic_lua()
+  local root = make_root("evil-org")
+  sibling(root, "https://github.com/evilcosmic-lua/work")
+  assert(run(root) == fs.join(root, "o", "board"))
+end
 local function test_falls_back_to_o_board_without_a_matching_sibling()
   local root = make_root("other-origin")
   sibling(root, "https://github.com/someone-else/work")
