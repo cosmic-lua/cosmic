@@ -69,6 +69,12 @@ local function socket_pair(opts?: SocketOptions): SocketPair | nil, string
     -- arrives in the second slot, where the second fd would have been.
     return nil, errstr(fd2, "socketpair")
   end
+  -- fd1 succeeded, so fd2 is the second fd in practice; the checker
+  -- does not correlate the two return slots, so narrow explicitly
+  -- rather than casting.
+  if fd2 is string then
+    return nil, errstr(fd2, "socketpair")
+  end
   return {a = make_socket(fd1), b = make_socket(fd2)}
 end
 

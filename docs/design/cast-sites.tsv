@@ -45,8 +45,6 @@ cosmic/coverage/init.tl	45	module surface record
 cosmic/deep.tl	52	generic T
 cosmic/deep.tl	121	generic T
 cosmic/embed/init.tl	104	userdata boundary
-cosmic/errno.tl	52	binding constant by name
-cosmic/errno.tl	119	binding constant by name
 cosmic/fd.tl	187	binding contract shape
 cosmic/fetch/extras.tl	184	generic T
 cosmic/fetch/extras.tl	199	generic T
@@ -92,8 +90,6 @@ cosmic/quicksand/box/merge_test.tl	152	type-defeating test probe
 cosmic/quicksand/box/run.tl	254	record union after guard
 cosmic/quicksand/caps.tl	63	binding constant by name
 cosmic/quicksand/init.tl	73	runtime capability probe
-cosmic/quicksand/proc.tl	270	binding constant by name
-cosmic/quicksand/proc.tl	273	binding constant by name
 cosmic/quicksand/proxy.tl	115	container variance
 cosmic/quicksand/proxy/rules_test.tl	55	container variance
 cosmic/quicksand/proxy/rules_test.tl	125	type-defeating test probe
