@@ -26,11 +26,58 @@ local ALLOWLIST < const >: {string: boolean} = {
   ["_cli/reads_lint_test.tl"] = true,
 }
 
---- Flag an undeclared `fs.glob()` call in a `*_test.tl` file.
+--- Whether a `--- reads:` token names a build OUTPUT rather than a
+--- tracked source: `o` itself, or anything under `o/`. `_make/imports.tl`
+--- (`reads_of_file`) already refuses such an entry when the graph is
+--- built — but only then, so a build output declared as a `reads:`
+--- passes a warm `o/` and fails only CI's cold-tree `build` lane
+--- (AGENTS.md's cold-build rule). A path that merely CONTAINS `/o/`
+--- (a directory named `o` nested somewhere else) is not this: only the
+--- leading segment matters.
+--- @param token string One whitespace-separated token from a `reads:` line
+--- @return boolean
+local function names_build_output(token: string): boolean
+  return token == "o" or token:match("^o/") ~= nil
+end
+
+--- Flag a `reads:` header entry that names a build output, at the
+--- header line it appears on.
+--- @param file string Path, for the diagnostic message
+--- @param lines {string} The file's lines
+--- @return {Diagnostic}
+local function check_reads_output_path(file: string,
+    lines: {string}): {Diagnostic}
+  local diagnostics: {Diagnostic} = {}
+  for i, line in ipairs(lines) do
+    local rest = line:match("^%-%-%- reads: (.+)$")
+    if rest then
+      for token in rest:gmatch("%S+") do
+        if names_build_output(token) then
+          diagnostics[#diagnostics + 1] = {
+            file = file,
+            line = i,
+            col = line:find(token, 1, true) or 1,
+            rule = "reads-declaration",
+            message = string.format(
+              "`reads: %s` names a build output, which does not exist"
+              .. " on a cold tree; derive it in-process from the tree"
+              .. " (the generator's own module) or declare the SOURCES"
+              .. " it is built from", token),
+          }
+        end
+      end
+    end
+  end
+  return diagnostics
+end
+
+--- Flag an undeclared `fs.glob()` call, and a `reads:` header entry
+--- naming a build output, in a `*_test.tl` file.
 ---
---- Scope is `fs.glob` only (see the item's Non-goals): `fs.find`,
---- `fs.find_iter`, `fs.find_info`, `fs.visit` and computed `require`
---- targets are each a wider, unaudited trigger and are follow-up work.
+--- Scope for `fs.glob` is that call only (see the item's Non-goals):
+--- `fs.find`, `fs.find_iter`, `fs.find_info`, `fs.visit` and computed
+--- `require` targets are each a wider, unaudited trigger and are
+--- follow-up work.
 --- @param file string Path, for the diagnostic message
 --- @param content string The file's bytes
 --- @param lines {string} The file's lines
@@ -40,13 +87,13 @@ local function check_reads_declaration(file: string, content: string,
   if not file:match("_test%.tl$") then
     return {}
   end
+  local diagnostics: {Diagnostic} = check_reads_output_path(file, lines)
   if ALLOWLIST[file] then
-    return {}
+    return diagnostics
   end
   if #imports.reads_scan(content) > 0 then
-    return {}
+    return diagnostics
   end
-  local diagnostics: {Diagnostic} = {}
   for i, line in ipairs(lines) do
     local col = line:find("fs%.glob%s*%(")
     if col then

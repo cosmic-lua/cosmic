@@ -52,3 +52,33 @@ local function test_fs_find_is_not_this_rules_trigger()
   check.equal(#diagnose("cosmic/some_test.tl", src), 0,
     "this slice's trigger is fs.glob only, not fs.find")
 end
+
+local function test_reads_build_output_dir_is_flagged()
+  local src = "--- reads: o/cmd/cosmic/embed_gen/embed/.docs/index.lua\n"
+  .. GLOB_SRC
+  local diags = diagnose("_build/some_test.tl", src)
+  local found = false
+  for _, d in ipairs(diags) do
+    if d.rule == "reads-declaration" and d.line == 1
+    and d.message:find("names a build output", 1, true) then
+      found = true
+    end
+  end
+  check.truthy(found,
+    "a `reads: o/...` entry must be flagged as a build output")
+end
+
+local function test_reads_bare_o_is_flagged()
+  local src = "--- reads: o\n" .. GLOB_SRC
+  local diags = diagnose("_build/some_test.tl", src)
+  check.equal(#diags, 1, "a bare `reads: o` entry must be flagged")
+  check.equal(diags[1].rule, "reads-declaration")
+  check.equal(diags[1].line, 1)
+end
+
+local function test_reads_path_containing_o_segment_passes()
+  local src = "--- reads: docs/o/notes.md\n" .. GLOB_SRC
+  local diags = diagnose("_build/some_test.tl", src)
+  check.equal(#diags, 0,
+    "a path merely containing an `/o/` segment names no build output")
+end
