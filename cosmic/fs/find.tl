@@ -112,7 +112,7 @@ local record FileIter
   close: function(self: FileIter)
   --- Subtree failures encountered so far, in encounter order; nil when
   --- the walk was clean. Meant to be read once the loop has finished.
-  errors: function(self: FileIter): {string}
+  errors: function(self: FileIter): {string} | nil
 end
 
 --- Iterate over matching paths lazily; same selection as find(),
@@ -251,7 +251,7 @@ local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, strin
       __gc = close_all,
       __index = {
         close = close_all,
-        errors = function(_self: FileIter): {string}
+        errors = function(_self: FileIter): {string} | nil
           if #errs == 0 then
             return nil
           end

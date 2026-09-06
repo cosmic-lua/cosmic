@@ -37,7 +37,7 @@ return {
   ["cosmic/flags/command.tl"] = 2,
   ["cosmic/flags/getopt.tl"] = 1,
   ["cosmic/flags/parse.tl"] = 7,
-  ["cosmic/fs/find.tl"] = 2,
+  ["cosmic/fs/find.tl"] = 1,
   ["cosmic/quicksand/box/run.tl"] = 1,
   ["cosmic/quicksand/box/run_test.tl"] = 1,
   ["cosmic/quicksand/proc_test.tl"] = 1,

@@ -59,7 +59,7 @@ local record stream
   --- nil when the stream ended cleanly (or hasn't ended yet).
   record LineIter
     metamethod __call: function(self: LineIter): string
-    err: function(self: LineIter): string
+    err: function(self: LineIter): string | nil
   end
 
   --- Optional capability: a Reader that can scan for a delimiter
@@ -235,7 +235,7 @@ local function lines_via_read_until(dr: stream.DelimReader): stream.LineIter
   return setmetatable({}, {
       __call = step,
       __index = {
-        err = function(_self: stream.LineIter): string return last_err end,
+        err = function(_self: stream.LineIter): string | nil return last_err end,
       },
     })
 end
@@ -316,7 +316,7 @@ function stream.lines(r: stream.Reader): stream.LineIter
   return setmetatable({}, {
       __call = step,
       __index = {
-        err = function(_self: stream.LineIter): string return last_err end,
+        err = function(_self: stream.LineIter): string | nil return last_err end,
       },
     })
 end
