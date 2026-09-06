@@ -159,8 +159,7 @@ alias of `cosmic.fs.find.FileIter` — field and method table: `cosmic --docs co
 
 ### WalkAction
 
- Visitor verdict for visit()/walk(): nil continues, "skip" prunes,
- "stop" ends the walk.
+ Visitor verdict for visit()/walk(); see the `FsModule` field below.
 
 alias of `cosmic.fs.walk.WalkAction` — field and method table: `cosmic --docs cosmic.fs.walk.WalkAction`
 
