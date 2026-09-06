@@ -6,6 +6,7 @@ return {
   ["_tool/coverage/lines.tl"] = 3,
   ["_tool/discover.tl"] = 3,
   ["_types/gentype.tl"] = 3,
+  ["_types/gentype_defs.tl"] = 1,
   ["_types/tlast.tl"] = 5,
   ["_types/tlast_test.tl"] = 2,
   ["cmd/cosmic/main.tl"] = 1,
