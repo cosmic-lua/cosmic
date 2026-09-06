@@ -14,12 +14,12 @@
 -- A site is keyed by `(path, enclosing function, ordinal)`, never by
 -- line, so a line shift never drifts the map from what it names —
 -- checked directly below by shifting real casts and reconciling.
--- Three more checks, all against what is actually committed: the
+-- Four more checks, all against what is actually committed: the
 -- per-file count the inventory implies agrees with the cast baseline
 -- (which subsumes the total), every class named in the inventory has
 -- a heading in `docs/design/casts.md` and every heading has at least
--- one row, and every row's cast text still names a real cast site on
--- the current tree.
+-- one row, every row's cast text still names a real cast site on
+-- the current tree, and the header row the doc states is the file's own.
 
 local cast_sites = require("_build.cast_sites")
 local casts = require("_build.casts")
@@ -242,6 +242,23 @@ local function test_a_brand_new_site_is_refused_with_just_its_own_key()
   assert(#findings == 1, "expected 1 finding, got " .. tostring(#findings))
   assert(findings[1] == "cosmic/shift_test.tl\tfresh\t1",
     "unexpected finding: " .. findings[1])
+end
+
+local function test_the_doc_states_the_tsv_header_row_exactly()
+  local tsv = check.must(fs.read("docs/design/cast-sites.tsv"))
+  local header = tsv:match("^([^\n]*)\n")
+  local doc = check.must(fs.read(CASTS_MD))
+  local stated: string = nil
+  for line in doc:gmatch("[^\n]*") do
+    if line:match("^path\t") then
+      stated = line
+      break
+    end
+  end
+  assert(stated ~= nil, CASTS_MD .. " states no fenced `path\\t...` header row")
+  assert(stated == header, string.format(
+      "%s states the header row as %q but cast-sites.tsv opens with %q",
+      CASTS_MD, stated, header))
 end
 
 print("all cast site inventory tests passed")
