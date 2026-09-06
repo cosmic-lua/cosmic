@@ -27,10 +27,10 @@
 return {
   ["narrow-record-field-helpers"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: fact_key/fact_base_type/drop_field_narrows the record-field entries below share",
+    note = "fact_key/fact_base_type/drop_field_narrows: the helpers the record-field entries below share",
     find = [=====[   function TypeChecker:type_check_index(anode, bnode, a, b)
 ]=====],
-    replace = [=====[   -- cosmic carried patch (teal-language/tl#PENDING): a fact key for
+    replace = [=====[   -- cosmic carried patch: a fact key for
    -- record-field narrowing. A bare variable's key is its own name;
    -- `x.field`'s key is "varname.fieldname" -- a string no real
    -- identifier can collide with, since Lua names never contain a
@@ -101,7 +101,7 @@ return {
   },
   ["narrow-record-field-dot"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: a truthy `x.field` (`if x.field then`, the left operand of `and`) narrows the field, and a prior narrow on it is read back here",
+    note = "a truthy `x.field` (`if x.field then`, the left operand of `and`) narrows the field, and a prior narrow on it is read back here",
     find = [=====[            if node.op.op == "." then
                node.receiver = ua
 
@@ -136,7 +136,7 @@ return {
                local btype = a_type(node.e2, "string", { literal = node.e2.tk })
                local t = self:type_check_index(node.e1, bnode, ua, btype)
 
-               -- cosmic carried patch (teal-language/tl#PENDING): a
+               -- cosmic carried patch: a
                -- guard on `x.field` narrows the field's nil union at
                -- reads of `x.field` after the guard, the same as a
                -- plain variable already does -- a truthy read here
@@ -177,7 +177,7 @@ return {
   },
   ["narrow-record-field-eq-nil"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: `x.field == nil` / `~= nil` is the same exact test narrow-eq-nil gives a bare variable",
+    note = "`x.field == nil` / `~= nil` is the same exact test narrow-eq-nil gives a bare variable",
     find = [=====[               elseif self:is_a(ub, ua) or ua.typename == "typevar" then
                   -- cosmic carried patch (whilp/cosmic#942): comparing a
                   -- variable against nil is an exact type test -- __eq
@@ -203,7 +203,7 @@ return {
                   -- never fires with a nil operand -- so it carries an
                   -- IsFact, whose negation narrows, instead of an EqFact,
                   -- whose negation is deliberately information-free.
-                  -- cosmic carried patch (teal-language/tl#PENDING): the
+                  -- cosmic carried patch: the
                   -- same test on `x.field` narrows the field, keyed the
                   -- same way a truthy read on it is -- but only when the
                   -- field's OWN declared type admits nil. A field
@@ -241,7 +241,7 @@ return {
   },
   ["narrow-record-field-assert"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: assert(x.field) narrows the field the same way assert(x) narrows a bare variable",
+    note = "assert(x.field) narrows the field the same way assert(x) narrows a bare variable",
     find = [=====[         local arg1 = node.e2[1]
          if arg1 and arg1.kind == "variable" and not arg1.known and b.tuple[1] then
             local typ = without_nil(self, arg1, b.tuple[1], true)
@@ -250,7 +250,7 @@ return {
             end
          end]=====],
     replace = [=====[         local arg1 = node.e2[1]
-         -- cosmic carried patch (teal-language/tl#PENDING): the same
+         -- cosmic carried patch: the same
          -- narrow when the argument is `x.field` rather than a bare
          -- variable, keyed the same way a truthy read on it is.
          local arg1_key = arg1 and fact_key(arg1)
@@ -263,14 +263,14 @@ return {
   },
   ["narrow-record-field-assignment"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: a write to `x` or `x.field` drops the field's narrow, invalidating it the same way a bare variable's own write already does",
+    note = "a write to `x` or `x.field` drops the field's narrow, invalidating it the same way a bare variable's own write already does",
     find = [=====[               local varnode = node.vars[i]
                local varname = varnode.tk
                local valtype = valtypes.tuple[i]
                local rvar, rval, err = self:check_assignment(varnode, vartype, valtype)]=====],
     replace = [=====[               local varnode = node.vars[i]
                local varname = varnode.tk
-               -- cosmic carried patch (teal-language/tl#PENDING): do
+               -- cosmic carried patch: do
                -- not narrow a record field across a write to it, or
                -- to the variable it is read off of -- a new value
                -- may not share the old one's fields. `x = ...` drops
@@ -289,7 +289,7 @@ return {
   },
   ["narrow-record-field-not-facts"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: a field fact's current type falls back to its base variable's declared field type",
+    note = "a field fact's current type falls back to its base variable's declared field type",
     find = [=====[      not_facts = function(self, fs)
          local ret = {}
          for var, f in pairs(fs) do
@@ -301,13 +301,13 @@ return {
     replace = [=====[      not_facts = function(self, fs)
          local ret = {}
          for var, f in pairs(fs) do
-            -- cosmic carried patch (teal-language/tl#PENDING): a field
+            -- cosmic carried patch: a field
             -- key's current type is not always a var find_var_type
             -- already knows -- see fact_base_type.
             local typ = self:fact_base_type(f)
 
             if not typ then
-               -- cosmic carried patch (teal-language/tl#PENDING): a
+               -- cosmic carried patch: a
                -- field key that cannot be resolved here has moved
                -- past the scope its fact was built in (see
                -- fact_base_type) -- drop it silently instead of
@@ -320,7 +320,7 @@ return {
   },
   ["narrow-record-field-eval-fact"] = {
     file = "tl.lua",
-    note = "teal-language/tl#PENDING: same fallback as narrow-record-field-not-facts, for the positive-fact path",
+    note = "same fallback as narrow-record-field-not-facts, for the positive-fact path",
     find = [=====[      eval_fact = function(self, f)
          if not f then
             return {}
@@ -333,12 +333,12 @@ return {
          if not f then
             return {}
          elseif f.fact == "is" then
-            -- cosmic carried patch (teal-language/tl#PENDING): see
+            -- cosmic carried patch: see
             -- fact_base_type -- a field key's current type is not
             -- always a var find_var_type already knows.
             local typ = self:fact_base_type(f)
             if not typ then
-               -- cosmic carried patch (teal-language/tl#PENDING): see
+               -- cosmic carried patch: see
                -- not_facts -- an unresolvable field key drops
                -- silently rather than reporting an unresolvable
                -- variable.
