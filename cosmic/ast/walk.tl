@@ -127,7 +127,8 @@ end
 --- `os.execute(cmd)`'s "@funcall" op node records the position right
 --- after `(`, not `os`'s own leftmost column.
 --- @param node Node
---- @return integer, integer 1-based line, column
+--- @return integer The 1-based line
+--- @return integer The 1-based column
 local function span_start(node: Node): integer, integer
   local function compute(n: Node, seen: {Node: boolean}): integer, integer
     local by, bx = n.y, n.x
@@ -204,7 +205,8 @@ end
 --- @param tokens {tl.Token} The token stream from the SAME parse (`Parsed.tokens`) --
 ---   needed for the bracket check above. A raw byte offset for splicing is a
 ---   different need, taken on by the ast-rewrite item instead, not this one.
---- @return integer, integer 1-based line, column
+--- @return integer The 1-based line
+--- @return integer The 1-based column
 local function span_end(node: Node, tokens: {tl.Token}): integer, integer
   local function trusted_end(n: Node, by: integer, bx: integer): integer, integer
     local yend, xend = n.yend, n.xend

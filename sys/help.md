@@ -17,6 +17,9 @@ Cosmic options:
                                   example   run Example_* and check output
                                 a kind IS its verb: the whole project is
                                 `--make check|fmt|lint|example`
+  --find <pattern> [path]...    structural search: cosmic.ast.match over
+                                .tl files ($NAME/$$$NAME captures;
+                                default: this project's .tl sources)
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
   --output <file>               output file for --embed (default: cosmic)

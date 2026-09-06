@@ -31,6 +31,7 @@ local spec: flags.Spec = {
     -- to — so the per-file spelling and the project-wide one are one
     -- vocabulary instead of four flags beside four verbs.
     {long = "check", arg = "KIND", help = "run one check kind on files"},
+    {long = "find", arg = "PATTERN", help = "structural search over cosmic.ast.match"},
     {long = "embed", arg = "PATH", repeated = true,
       help = "embed a file into the output executable"},
     {long = "output", arg = "FILE", help = "where to write"},
