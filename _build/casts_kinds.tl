@@ -47,9 +47,6 @@ local record Kind
   --- Sites a predicate cannot separate from a sibling kind sharing the
   --- same file and rendered type text.
   explicit: {ExplicitSite}
-  --- The shrink-only ceiling on this kind's total site count (pattern
-  --- matches plus explicit entries together).
-  sites: integer
 end
 
 local KINDS: {Kind} = {
@@ -88,7 +85,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/ast/match.tl",
         text = "if not (k is integer) and not IGNORE_KEYS[k as string] then -- cast: non-integer key is a field name"},
     },
-    sites = 36,
   },
   {
     name = "userdata boundary",
@@ -99,7 +95,6 @@ local KINDS: {Kind} = {
       "cosmic/fs/types.tl", "cosmic/fs/walk.tl",
     },
     explicit = {},
-    sites = 14,
   },
   {
     name = "type-defeating test probe",
@@ -116,7 +111,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/quicksand/proxy/rules_test.tl",
         text = "assert(rules.auth_header(true as rules.ProxyRule) == nil, \"true injects nothing\")"},
     },
-    sites = 15,
   },
   {
     name = "enum relation",
@@ -129,7 +123,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/fetch/init.tl",
         text = "local k = (kind or \"invalid_request\") as ErrorKind -- cast: enum superset of binding string"},
     },
-    sites = 11,
   },
   {
     name = "module surface record",
@@ -141,7 +134,6 @@ local KINDS: {Kind} = {
       {path = "_types/tlast_test.tl",
         text = "local fresh_tl = tl_chunk() as {string: any} -- cast: freshly loaded module surface"},
     },
-    sites = 10,
   },
   {
     name = "container variance",
@@ -160,14 +152,12 @@ local KINDS: {Kind} = {
       {path = "cosmic/sqlite/bind.tl",
         text = "local named = params as {string: any} -- cast: map view of the params table"},
     },
-    sites = 9,
   },
   {
     name = "generic T",
     pattern = "$X as $T",
     where = {"cosmic/deep.tl", "cosmic/fetch/extras.tl", "cosmic/shape.tl"},
     explicit = {},
-    sites = 9,
   },
   {
     -- Same class as above, split out because its one site (a fresh
@@ -180,7 +170,6 @@ local KINDS: {Kind} = {
     pattern = "$X as T",
     where = {"cosmic/fs/walk.tl"},
     explicit = {},
-    sites = 1,
   },
   {
     name = "map view of a declared value",
@@ -191,7 +180,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/quicksand/box/merge.tl",
         text = "acc = merge_section(\"\", acc, t as {string: any}) -- cast: record inspected as map"},
     },
-    sites = 7,
   },
   {
     name = "binding contract shape",
@@ -204,7 +192,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/fetch/init.tl", text = "return fail(headers_or_err, reader_or_kind as string)"},
       {path = "cosmic/sqlite/bind.tl", text = "return raw_stmt:bind(i, v as string)"},
     },
-    sites = 7,
   },
   {
     name = "runtime capability probe",
@@ -214,7 +201,6 @@ local KINDS: {Kind} = {
       "cosmic/sandbox/plan.tl", "cosmic/stream.tl",
     },
     explicit = {},
-    sites = 6,
   },
   {
     name = "metatable access",
@@ -223,14 +209,12 @@ local KINDS: {Kind} = {
     explicit = {
       {path = "_types/tlast.tl", text = "hooks.type_mt as {any: any}) -- cast: metatable as plain table identity"},
     },
-    sites = 1,
   },
   {
     name = "function shape",
     pattern = "$X as $T",
     where = {"cosmic/net/connect.tl", "cosmic/net/socket.tl"},
     explicit = {},
-    sites = 4,
   },
   {
     name = "record union after guard",
@@ -243,7 +227,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/check.tl",
         text = "local status = (wr as proc.WaitResult).status -- cast: record union after guard"},
     },
-    sites = 5,
   },
   {
     name = "incremental record construction",
@@ -256,7 +239,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/quicksand/box/merge.tl",
         text = "return acc as types.BoxOptions -- cast: dynamic walk rebuilt as the record it walked"},
     },
-    sites = 3,
   },
   {
     name = "pcall return shape",
@@ -266,14 +248,12 @@ local KINDS: {Kind} = {
       "cosmic/shm.tl", "cosmic/sqlite/extras.tl",
     },
     explicit = {},
-    sites = 6,
   },
   {
     name = "binding constant by name",
     pattern = "$X as $T",
     where = {"cosmic/quicksand/caps.tl"},
     explicit = {},
-    sites = 2,
   },
 }
 

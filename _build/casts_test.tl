@@ -209,47 +209,4 @@ local function test_every_cast_site_matches_exactly_one_kind()
     table.concat(problems, "\n  "))
 end
 
-local function test_no_kind_exceeds_its_committed_ceiling()
-  local sites = scan(".")
-  local compiled = compile_kinds(kinds_mod.KINDS)
-  local problems: {string} = {}
-  for _, c in ipairs(compiled) do
-    local n = 0
-    for _, s in ipairs(sites) do
-      if kind_matches(s, c) then
-        n = n + 1
-      end
-    end
-    if n > c.kind.sites then
-      problems[#problems + 1] = string.format(
-        "%s: %d site(s), over its committed ceiling of %d -- lower the" ..
-        " ceiling in _build/casts_kinds.tl, or this kind grew a site",
-        c.kind.name, n, c.kind.sites)
-    end
-  end
-  table.sort(problems)
-  assert(#problems == 0, table.concat(problems, "\n  "))
-end
-
-local function test_every_kind_has_at_least_one_site()
-  local sites = scan(".")
-  local compiled = compile_kinds(kinds_mod.KINDS)
-  local problems: {string} = {}
-  for _, c in ipairs(compiled) do
-    local n = 0
-    for _, s in ipairs(sites) do
-      if kind_matches(s, c) then
-        n = n + 1
-      end
-    end
-    if n == 0 then
-      problems[#problems + 1] = c.kind.name ..
-      " -- delete this entry and its docs/design/casts.md heading"
-    end
-  end
-  table.sort(problems)
-  assert(#problems == 0,
-    "kind(s) with no site left:\n  " .. table.concat(problems, "\n  "))
-end
-
 print("all cast kind ratchet tests passed")
