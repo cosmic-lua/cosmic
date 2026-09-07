@@ -21,6 +21,8 @@ Cosmic options:
                                 (default 500)
   --find <pattern> [path]...    structural search: cosmic.ast.match over
                                 .tl files ($NAME/$$$NAME captures;
+                                $X as TYPE/$X as $T for a cast, by literal
+                                type text or by capture;
                                 default: this project's .tl sources)
   --rewrite <pattern> [path]... like --find; add <repl> --apply <path>...
                                 to apply via cosmic.ast.rewrite in place

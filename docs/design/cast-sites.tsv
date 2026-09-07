@@ -45,11 +45,16 @@ cosmic/ast/match.tl	<chunk>	3	local pt = prev as {any: any} -- cast: generic ast
 cosmic/ast/match.tl	<chunk>	4	caps[name] = nv as Node -- cast: a matched candidate node is a real Node	tl compiler surface
 cosmic/ast/match.tl	<chunk>	5	if not (k is integer) and not IGNORE_KEYS[k as string] then -- cast: non-integer key is a field name	tl compiler surface
 cosmic/ast/match.tl	arr	1	return t as {any} -- cast: array view of a generic ast map	tl compiler surface
+cosmic/ast/match.tl	attach_predicates	1	local cap = match_cast.capture_name((n as {any: any})["casttype"]) -- cast: tl-parser field this Node kind doesn't name	tl compiler surface
 cosmic/ast/match.tl	rest_capture_name	1	return node["tk"] as string -- cast: narrowed to string by is_rest_capture's own check	tl compiler surface
 cosmic/ast/match.tl	rest_capture_name	2	and #arr(node["e2"] as {any: any}) == 0 then -- cast: generic view of a call's args node	tl compiler surface
 cosmic/ast/match.tl	rest_capture_name	3	return e1["tk"] as string -- cast: narrowed to string by is_rest_capture's own check	tl compiler surface
 cosmic/ast/match.tl	rest_value	1	local mt = marker as {any: any} -- cast: generic ast node view	tl compiler surface
 cosmic/ast/match.tl	rest_value	2	return out as Node -- cast: synthetic bare-list node for a rest-capture's value	incremental record construction
+cosmic/ast/match_cast.tl	match	1	local pt = prev as {any: any} -- cast: generic ast node view of a prior binding	tl compiler surface
+cosmic/ast/match_cast.tl	match	2	caps[cap] = nv as Node -- cast: a matched candidate node is a real Node	tl compiler surface
+cosmic/ast/match_cast.tl	type_array	1	return t as {any} -- cast: array view of a generic type-node field	tl compiler surface
+cosmic/ast/match_cast.tl	type_view	1	return t as {string: any} -- cast: tl-parser field this Node kind doesn't name	tl compiler surface
 cosmic/ast/match_test.tl	collect_matches	1	walk(root as {any: any}) -- cast: generic ast node view	tl compiler surface
 cosmic/ast/match_test.tl	walk	1	local as_node = n as Node -- cast: a table walked from a real Node tree is one	tl compiler surface
 cosmic/ast/match_test.tl	walk	2	for _, e in ipairs(v as {any}) do -- cast: array view of a generic ast map	tl compiler surface

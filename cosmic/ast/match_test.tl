@@ -228,3 +228,59 @@ local function test_acceptance_cosmo_call_against_doc_index()
   local hits = collect_matches(root, pattern)
   assert(#hits == 2, "expected 2 matches, got " .. tostring(#hits))
 end
+
+--- Two probe casts, side by side: one to a primitive, one to a map --
+--- the fixture the `$X as ...` tests below all share.
+--- @return Node Parsed root: `local v ... / local a = v as integer / local b = v as {string: any}`
+local function cast_probe_root(): Node
+  return parse_ok([[
+local v: any = 1
+local a = v as integer
+local b = v as {string: any}
+]], "cast_probe.tl")
+end
+
+--- A cast is matchable by LITERAL type text: `$X as integer` binds
+--- only the site whose own rendered type is exactly `integer`, not
+--- the map cast sitting right beside it.
+local function test_cast_literal_type_matches_only_that_rendered_type()
+  local pattern = pattern_ok("$X as integer")
+  local hits = collect_matches(cast_probe_root(), pattern)
+  assert(#hits == 1, "expected 1 match, got " .. tostring(#hits))
+end
+
+--- `$X as $T` is a capture in TYPE position: it binds BOTH probe
+--- casts, one per site, and `$T` itself binds the candidate's own
+--- `cast` node (not a copy of its type, not the surrounding `as`).
+local function test_cast_capture_binds_every_cast_and_the_cast_node()
+  local pattern = pattern_ok("$X as $T")
+  local root = cast_probe_root()
+  local hits = collect_matches(root, pattern)
+  assert(#hits == 2, "expected 2 matches, got " .. tostring(#hits))
+  local exps = check.must(root[3].exps, "local b's exps") -- `local b = v as {string: any}`
+  local caps = match.match(pattern, exps[1])
+  assert(caps ~= nil, "expected a match")
+  local cap = check.must(caps["_T"], "no $T capture")
+  assert(cap.kind == "cast", "captured $T must be the `cast` node, got " .. cap.kind)
+end
+
+--- `$X as $T:^{` -- the same `:PATTERN` predicate mechanism as any
+--- other capture, applied here to the cast's RENDERED type text
+--- instead of a node's own `tk`: selects the map cast (its rendered
+--- text starts with `{`) and excludes the integer cast beside it.
+local function test_cast_capture_predicate_filters_by_rendered_type()
+  local pattern = pattern_ok("$X as $T:^{")
+  local hits = collect_matches(cast_probe_root(), pattern)
+  assert(#hits == 1, "expected 1 match, got " .. tostring(#hits))
+end
+
+--- A cast's own operand may itself be a pattern: `f($A) as Foo`
+--- matches a call operand cast to a literal nominal type.
+local function test_cast_operand_may_be_a_call_pattern()
+  local pattern = pattern_ok("f($A) as Foo")
+  local hit = parse_ok("local c = f(x) as Foo", "call_cast.tl")
+  local miss = parse_ok("local c = g(x) as Foo", "call_cast_miss.tl")
+  assert(#collect_matches(hit, pattern) == 1, "f(x) as Foo must match f($A) as Foo")
+  assert(#collect_matches(miss, pattern) == 0,
+    "g(x) as Foo must NOT match f($A) as Foo: the callee name differs")
+end
