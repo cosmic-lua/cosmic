@@ -17,6 +17,7 @@ local record AstModule
   compile_pattern: function(pattern_src: string): Node | nil, string
   match: function(pattern: Node, node: Node): {string: Node} | nil
   find_all: function(ast: Node, pattern: Node): {Hit}
+  requires: function(parsed: Parsed): {string: string} | nil, string
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(source: string, name: string, pattern: Node,
