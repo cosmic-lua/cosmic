@@ -120,20 +120,27 @@ local function test_directory_module_entry_points()
 end
 
 --- Documented <=> public: every public module must have an
---- entry in the embedded docs index. doc/public_test.tl checks the
---- other direction (the listing shows public modules only).
+--- entry in the embedded docs index, and that entry must carry an
+--- actual header — `_tool.doc.index` registers a slot for every source
+--- file it is given regardless of whether `doc.parse` found one, so a
+--- new public module with no `---` header would otherwise pass this
+--- check on the strength of an empty slot. Checking `module_doc` is
+--- what turns "has an entry" into "is documented". doc/public_test.tl
+--- checks the other direction (the listing shows public modules only).
 local function test_public_modules_are_documented()
   local docs = require("cosmic.doc")
   local idx = check.must(docs.embedded_index())
   local undocumented: {string} = {}
   for _, name in ipairs(public) do
-    if not idx.modules[name] then
+    local mod = idx.modules[name]
+    if not mod or not mod.module_doc or mod.module_doc == "" then
       undocumented[#undocumented + 1] = name
     end
   end
   table.sort(undocumented)
   assert(#undocumented == 0,
-    "public modules with no docs entry: " .. table.concat(undocumented, ", "))
+    "public modules with no docs entry or no header comment: "
+    .. table.concat(undocumented, ", "))
 end
 
 --- The index generator applies the same rule inline, because it also

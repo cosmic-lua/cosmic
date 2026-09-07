@@ -111,3 +111,20 @@
   rewrite. The H1's claim no longer holds for any floor: nothing in
   this project commits a `cosmic.literal` floor today, though the
   format remains what the next one would reach for.
+  `cosmic/surface_test.tl`'s `test_public_modules_are_documented` was
+  widened in the same change to check the index entry's `module_doc`
+  field, not just its presence: `_tool/doc/index.tl` registers a slot
+  for every source file it is handed whether or not `doc.parse` found
+  a `---` header, so "has an entry" alone would have let a new public
+  module with no header pass silently. This closes the concrete gap
+  (an undocumented new public module goes red) but is knowingly
+  narrower than the deleted ratchet: the baseline forced a deliberate,
+  stated-reason `--baseline` regen for **any** new public module,
+  documented or not, and no test today reproduces that forced-review
+  step for one that ships with a header. Accepted as the deliberate
+  tradeoff this amendment makes: catching undocumented growth costs
+  one field check with no committed file to maintain; catching
+  documented growth as deliberately as the baseline did would need a
+  ratchet of the same shape this decision just removed. A stronger
+  deliberate-growth guarantee, if the project wants one back, is a
+  follow-up, not a reason to keep the file this amendment deletes.
