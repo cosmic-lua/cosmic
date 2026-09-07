@@ -207,6 +207,29 @@ local function test_the_pure_checks_come_from_style()
     "the composition and the lexer checks are this module's")
 end
 
+-- A cast that structurally matches an allowlisted kind in
+-- `_build/casts_kinds.tl` needs no `-- cast:` comment at all: the
+-- "userdata boundary" kind's pattern (`$X as $T:..`) scoped to
+-- `cosmic/fs/ops.tl` claims this site on shape alone.
+local function test_cast_justify_allowlisted_kind_passes()
+  local lines = {"local info: any = {}", "local x = info as any"}
+  local diags = lint.check_cast_justification("cosmic/fs/ops.tl",
+    table.concat(lines, "\n") .. "\n", lines)
+  assert(#diags == 0, "an allowlisted cast needs no comment, got "
+    .. #diags .. " diagnostic(s)")
+end
+
+-- The same cast, in a file no kind's `where` reaches, still needs its
+-- comment: the allowlist narrows what is exempt, it does not widen
+-- what is allowed.
+local function test_cast_justify_unmatched_cast_fails()
+  local lines = {"local info: any = {}", "local x = info as any"}
+  local diags = lint.check_cast_justification("cosmic/other/file.tl",
+    table.concat(lines, "\n") .. "\n", lines)
+  assert(#diags == 1 and diags[1].rule == "cast-justify",
+    "an unmatched, uncommented cast still fails cast-justify")
+end
+
 -- The convention is a TEST file one, and it applies to the functions
 -- that RUN: `test_*` and `Example_*`. A helper is defined once and
 -- called from several tests, so flagging helpers would make the rule
