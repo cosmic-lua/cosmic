@@ -89,6 +89,7 @@ local SPANS < const >: {string: string} = {
   ["tool/net/definitions.lua"] = COSMOPOLITAN,
   ["build/config.mk"] = COSMOPOLITAN,
   ["doc/gendoc.tl"] = "a deletion, recorded by the name it had",
+  ["_build/casts_baseline.tl"] = "a deletion, recorded by the name it had",
 }
 
 --- The prefix under which a span names the work repository's tree, and

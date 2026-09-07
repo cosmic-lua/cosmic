@@ -19,24 +19,34 @@ has moved.
 
 ## Method
 
-The authoritative total is the committed per-file floor, which
-`_build/casts.tl` produces by walking `as` tokens through the linter's
-lexer:
+There is no committed inventory: `_build/casts_kinds.tl` names every
+class below as an ALLOWLIST entry instead, and `_build/casts_test.tl`
+checks it against a fresh `cosmic.ast` walk of the tree on every run,
+the same way `--check lint` re-derives its own answers rather than
+trusting a stale one. An entry is a `cosmic.ast` pattern (the grammar
+`$X as $T` landed for: an unconstrained capture, a literal target type,
+or a `$T:<lua pattern>` predicate on the rendered type text) plus the
+files it applies to; where a predicate cannot tell a class apart from a
+neighbour sharing its file — two casts to the same rendered type doing
+two different jobs, `cosmic/ast/match.tl`'s two `as Node` sites being
+the sharpest example — the entry instead names its sites explicitly, by
+file and exact source line. Three checks run every kind against the
+walk: every cast matches exactly one kind (a site matching none names
+`file:line` and, when some kind's pattern would have matched outside
+its own scope, the kinds it nearly matched; a site matching two names
+both); no kind matches more sites than the ceiling committed beside it
+in `_build/casts_kinds.tl`, shrunk by hand as sites close; and every
+kind still has at least one site — a kind at zero is deleted outright,
+heading and all, never kept at zero.
 
-```text
-awk -F'= ' '/\] = /{gsub(/,/,"",$2); s+=$2} END {print s}' \
-  _build/casts_baseline.tl
-```
-
-A grep for the justification comment counts higher — 11 higher today —
-because a `-- cast: ` string can appear in a file without being a cast.
-The lint's own fixtures and doc comments quote the reason text as data,
-and a grep cannot tell code from a quoted example of code. That
-divergence is confined to five files: `_build/casts.tl`,
-`_build/casts_test.tl`, `_cli/assert_lint_test.tl`, `_cli/lint.tl` and
-`_tool/lint_test.tl`; everywhere else the two agree file for file. Use
-the lexer — `_cli.lint.cast_lines(content, file)` returns the real cast
-lines, and `_build/casts.tl` is its one caller.
+A grep for the justification comment counts higher than the tree's
+real cast count — 11 higher today — because a `-- cast: ` string can
+appear in a file without being a cast: the lint's own fixtures and doc
+comments quote the reason text as data, and a grep cannot tell code
+from a quoted example of code. `cosmic.ast`, parsing real source, has
+no such confusion; `_cli.lint.cast_lines(content, file)` is the same
+lexer `--check lint`'s cast-justify rule uses, and agrees with the AST
+walk file for file everywhere but those fixtures.
 
 ```text
 git ls-files '*.tl' | xargs grep -h -- "-- cast: " | wc -l
@@ -52,42 +62,6 @@ git ls-files '*.tl' | xargs grep -ho -- "-- cast: .*" \
 Reason text is a signal, not the classification: the same shape appears
 under several spellings and one spelling spans two shapes, so every
 site below was read rather than pattern-matched.
-
-The site inventory is committed beside this document as
-`docs/design/cast-sites.tsv`, one row per cast, five tab-separated
-columns whose header row is exactly:
-
-```
-path	fn	n	cast	class
-```
-
-A row's key is `(path, fn, n)`: the file, the enclosing function
-(`<chunk>` outside every function, a record method qualified through
-its owner) and the ordinal of the cast among that function's own casts.
-`cast` is the trimmed source line the `as` sits on, committed so a
-reader sees the site without opening the file; `class` is this
-document's judgment about what the site is for. Where the inventory and
-this prose disagree, the inventory is right.
-
-The inventory is half generated, half curated: the first four columns
-are a fact about the tree, read by walking each file's AST with
-`cosmic.ast`, and the last is a reading no walk can produce. So there
-is no full `--baseline`-style regen: `bin/cosmic --make run
-_build/cast_sites.tl --reconcile` re-derives the key columns and
-carries `class` forward for every key that still matches. At the three
-edits that actually happen: an edit above a cast shifts its line and
-changes nothing, since no column holds a line; an edit to the cast's
-own text at the same key keeps its class, and the diff of the `cast`
-column shows what changed; a cast moved to another function gets a new
-key, and the reconcile refuses to write, naming the new key and, when
-the text matches exactly one orphaned row, the old one too, so the
-class is carried across by hand rather than rediscovered. A brand-new
-site is refused with just its own key, because a blank class is a
-worse map than a stale one. `_build/cast_sites_test.tl` gates the
-committed file: per-file counts against `_build/casts_baseline.tl`,
-every class against a `### ` heading here and back, every row against
-a real site in a fresh walk, and the header row above against the
-file's own first line.
 
 ## Classes
 
@@ -105,6 +79,8 @@ forbids, or to reach a surface the type deliberately hides, so the
 runtime guard can be exercised. `check.refuses` is the shared helper
 for the invalid-input half, `check.is_exposed` for the absent-surface
 half, and together they carry the class's two library casts.
+
+**Pattern.** `$X as $T` in `cosmic/check_assertions_test.tl`, `cosmic/hash_test.tl`, `cosmic/log_test.tl`, `cosmic/quicksand/box/merge_test.tl`, plus `check.refuses`, `check.is_exposed` and two more sites named explicitly in `_build/casts_kinds.tl` (a rendered-type predicate cannot tell them from `cosmic/rand_test.tl` and `cosmic/quicksand/proxy/rules_test.tl`'s other class sharing those files).
 
 ```text
 -- cosmic/hash_test.tl:233
@@ -124,6 +100,8 @@ describes it; or a method table typed `{string: any}` whose `self` is
 narrow such a record, but cannot type an untyped handle in the first
 place.
 
+**Pattern.** `$X as $T:..` (a rendered type at least two characters long, which excludes a bare generic type variable) in `_types/gentype_defs.tl`, `cosmic/embed/init.tl` and `cosmic/fs/{dir_test,find,ops,tree,types,walk}.tl`.
+
 ```text
 -- cosmic/fs/types.tl:280
     return raw as fs_types.Stat -- cast: userdata boundary
@@ -140,6 +118,8 @@ The narrowed tl API types a parsed program, its statements and its
 environment as `any`, so every field read, array view and method beyond
 the curated surface costs a cast. Nothing here describes those shapes,
 because the AST is deliberately not part of what the extraction emits.
+
+**Pattern.** `$X as $T` in `_tool/coverage/lines.tl`, `_tool/discover.tl`, `_tool/doc/signature.tl`, `cosmic/_teal_ast_test.tl`, `cosmic/_teal_discard.tl`, `cosmic/ast/match_cast.tl`, `cosmic/ast/match_test.tl` and `cosmic/ast/node.tl`, plus 14 sites in `_types/tlast.tl`, `_types/tlast_test.tl` and `cosmic/ast/match.tl` named explicitly (those three files each hold another class's cast to the identical rendered type: `Node`, `{any}` or `{string: any}`, with nothing left to key a predicate on).
 
 ```text
 -- _tool/discover.tl:87
@@ -158,6 +138,8 @@ function can take or return: a tuple whose slots are all
 `success | failure`, a return typed `any`, or a parameter widened to
 cover every accepted form. The caller has guarded; the declaration has
 not.
+
+**Pattern.** `$X as $T` in `cosmic/fd.tl` and `cosmic/signal.tl`, plus the four `cosmic/fetch/init.tl` sites and one `cosmic/sqlite/bind.tl` site named explicitly in `_build/casts_kinds.tl` (both files also carry a sibling class's cast).
 
 ```text
 -- cosmic/fetch/init.tl:241
@@ -179,6 +161,8 @@ already makes every enum a subtype of `string` in the pinned 0.24.8 —
 confirmed by hand, no patch needed — so a cast that merely widens an
 enum into `string` was never blocked by a missing rule in the first
 place.
+
+**Pattern.** `$X as $T` in `_fuzz/compress_fuzz_test.tl`, `cosmic/compress_test.tl`, `cosmic/hash.tl`, `cosmic/sys.tl` and `cosmic/sys_test.tl`, plus one `cosmic/fetch/init.tl` site named explicitly.
 
 ```text
 -- _fuzz/compress_fuzz_test.tl:76
@@ -208,6 +192,8 @@ depends on the runtime or on which binary is loaded rather than on the
 types: whether this platform's `proc` carries `pledge`, whether a
 reader implements the delimiter capability, whether a module predates a
 function.
+
+**Pattern.** `$X as $T` in `cosmic/_probe.tl`, `cosmic/quicksand/init.tl`, `cosmic/sandbox/init.tl`, `cosmic/sandbox/plan.tl` and `cosmic/stream.tl`.
 
 ```text
 -- cosmic/stream.tl:253
@@ -239,6 +225,8 @@ metatable, read off the carried patch surface, into a parameter typed
 `{any: any}` — no comparison, no metamethod, just a value handed to a
 function that wants a table instead of `any`.
 
+**Pattern.** one site named explicitly in `_build/casts_kinds.tl` — its file, `_types/tlast.tl`, also carries a tl-compiler-surface and a module-surface-record cast, and this site's rendered type (`{any: any}`) collides with the module-surface-record one.
+
 ```text
 -- _types/tlast.tl:350
     hooks.type_mt as {any: any}) -- cast: metatable as plain table identity
@@ -248,7 +236,7 @@ function that wants a table instead of `any`.
 its owner made it; Lua's contract for `getmetatable` returns a value of
 no particular type, and a typed wrapper would assert the same thing one
 level down. The class is closed but for the one site above, which is a
-different shape wearing this class's tag; `docs/design/cast-sites.tsv`
+different shape wearing this class's tag; `_build/casts_kinds.tl`
 still carries it here pending re-triage.
 
 ### function shape
@@ -258,6 +246,8 @@ selected by casting the function before calling it. The class is down
 to four sites, all in the unix socket/connect family: `bind` and
 `connect` take either a sockaddr or a filesystem path, and the
 generated type keeps only one of the two success shapes.
+
+**Pattern.** `$X as $T` in `cosmic/net/connect.tl` and `cosmic/net/socket.tl`.
 
 ```text
 -- cosmic/net/socket.tl:334
@@ -280,6 +270,8 @@ array read as a map or the reverse, a map widened at its key or value
 type, an element enum where the element is `string`, a bare `table`
 narrowed to a shape. Teal's containers are invariant.
 
+**Pattern.** `$X as $T` in `cmd/cosmic/main.tl`, `cosmic/_literal_format.tl`, `cosmic/quicksand/proxy.tl` and `cosmic/sandbox/init_test.tl`, plus four sites named explicitly (each shares its file with another class).
+
 ```text
 -- cosmic/sqlite/bind.tl:132
   local list = params as {any} -- cast: array-part probe of the params table
@@ -297,6 +289,8 @@ re-typed as a generic parameter, because Teal cannot relate the
 concrete thing the body built to the `T` the signature promised. Every
 site sits in a generic whose contract is honest and unprovable inside.
 
+**Pattern.** `$X as $T` in `cosmic/deep.tl`, `cosmic/fetch/extras.tl` and `cosmic/shape.tl`, plus one `cosmic/fs/walk.tl` site named explicitly (that file's other two casts are userdata boundary, at the same rendered-type length the `userdata boundary` predicate keys on).
+
 ```text
 -- cosmic/deep.tl:52
   return copy_impl(value, {}) as T
@@ -304,8 +298,8 @@ site sits in a generic whose contract is honest and unprovable inside.
 
 **Why it is a floor.** The body of a generic function cannot construct
 a value of its own type parameter: only the caller knows what `T` is,
-and the walk underneath is dynamic by design. Eight sites, one per
-generic body that returns a constructed value, already incompressible.
+and the walk underneath is dynamic by design. One cast per generic body
+that returns a constructed value, already incompressible.
 
 ### module surface record
 
@@ -313,6 +307,8 @@ A `require` result, or a freshly loaded chunk, re-typed to a
 hand-written record naming only the part the caller uses. The record is
 a deliberate narrowing rather than a workaround — it documents the seam
 — but it is spelled as a cast.
+
+**Pattern.** `$X as $T` in `_fuzz/driver.tl`, `_types/gentype.tl` and `cosmic/coverage/init.tl`, plus three sites named explicitly.
 
 ```text
 -- _types/gentype.tl:19
@@ -331,6 +327,8 @@ the guard sits on a record FIELD rather than a plain variable, or it
 proved which arm of a record union a value is on in a way `is` cannot
 express. The fact is established; it does not survive to the next line.
 
+**Pattern.** `$X as $T` in `_make/closure.tl`, `_make/stage.tl`, `_perf/bench/micro_bench.tl` and `cosmic/quicksand/box/run.tl`, plus one `cosmic/check.tl` site named explicitly.
+
 ```text
 -- _make/stage.tl:183
   local sel = v.select as Selection -- cast: a graph verb always has one
@@ -347,6 +345,8 @@ A table assembled field by field, or seeded empty and filled by the
 lines that follow, re-typed to the record it satisfies once the filling
 is done. Teal checks a record literal but has nothing to say about a
 table built up over several statements.
+
+**Pattern.** three sites named explicitly in `_build/casts_kinds.tl` — each shares its file with another class casting to the identical rendered type.
 
 ```text
 -- cosmic/quicksand/box/merge.tl:138
@@ -377,6 +377,8 @@ the checker can only spell as `any`, so a caller that knows the
 protected function's signature re-types the tuple. Slot two is a raised
 error on failure and the callee's first return on success.
 
+**Pattern.** `$X as $T` in `_tool/coverage/minimum_test.tl`, `cosmic/_teal_engine.tl`, `cosmic/shm.tl` and `cosmic/sqlite/extras.tl`.
+
 ```text
 -- cosmic/shm.tl:146
     local ok, err = pcall(raw.write, raw, off, data, write_count) as (boolean, any)
@@ -406,6 +408,8 @@ the identical upstream shape, but `cosmic/quicksand/caps.tl`'s own
 lookup and its shape are tracked and closed by a separate item, not
 here.
 
+**Pattern.** one site named explicitly in `_build/casts_kinds.tl`, covering both casts the class's own description above needs — the module viewed as a map, and the result re-typed to `integer`.
+
 ```text
 -- cosmic/quicksand/caps.tl:63
   local n = (unix as {string: any})[name] as integer -- cast: dynamic constant lookup
@@ -420,6 +424,8 @@ A value this tree gave a type — a record, a stdlib module table, or a
 parameter it declared `any` at a module seam — re-typed to
 `{string: any}` so code can assign through a computed key, or so two
 modules can pass a value without a circular type dependency.
+
+**Pattern.** `$X as $T` in `cosmic/ast/walk.tl` and `cosmic/quicksand/box/init_test.tl`, plus two sites named explicitly.
 
 ```text
 -- cosmic/check.tl:171
@@ -442,50 +448,11 @@ so the walker never sees a type narrower than `{string: any}`. The
 next cast in that same function is the same floor site under
 "incremental record construction" below.
 
-## The floor
-
-Five classes carry the verdict **Why it is a floor**: type-defeating
-test probe, userdata boundary, runtime capability probe, metatable
-access, and generic T. Together they hold 51 of the tree's casts today,
-by `docs/design/cast-sites.tsv`. They do not all stay that size — four
-of the five compress hard, because the shape repeats and one helper can
-carry it. Summing each class's smallest reachable count — six wrap
-points, two probe helpers, five probed shapes, two metatable helpers
-and eight generic bodies — puts the floor at **23**.
-
-That number is what the win condition has to answer to. G3's measure in
-`docs/goals.md` is zero outside what `docs/design/cast-legality.md`'s
-checker rule permits, not zero `as` casts outright — and these 23 are
-not casts standing in for work nobody has done: they are the places
-where a type system that cannot see userdata, cannot see a metatable,
-cannot see another binary's surface, and cannot see inside its own
-generics has to be told. Reaching literal zero would mean deleting what
-they serve instead — the tests that prove the runtime guards refuse bad
-input, the typed wrappers over `cosmo.*` handles, the generic copy and
-merge — which is why G3 does not hold that as the target.
-
-The question this document used to put and not answer is settled: G3
-neither keeps zero casts as a literal target nor holds the floor as a
-hand-maintained, per-class allowance. `_build/casts_baseline.tl`'s
-per-file ratchet stays as the count-down mechanism in the meantime, but
-the win condition itself is the cast-legality rule
-(`3p/tl/tl_patch/cast.tl`) un-gated: `x as T` type-checks only from
-`any`, a `.d.tl` userdata record, or the enclosing generic's type
-variable, and every other cast is a refusal the checker makes directly
-— no per-site justification comment to maintain. The rule already
-enforces the test half of that bargain on its own: of the
-type-defeating test probe class's 14 sites (14 of the floor's 51),
-only the two behind `check.refuses` and `check.is_exposed` are legal
-under it, because only they cast an `any`-typed parameter; every
-hand-written probe elsewhere is a refusal until it is rewritten through
-one of those two helpers.
-
 ## What this is not
 
-Not a floor and not a gate. `_build/casts_baseline.tl` is the ratchet
-that holds the cast count down, per file; `cosmic --check lint` enforces
-the justification comment and checks this document's citations against
-the tree; `docs/design/cast-sites.tsv` is the site inventory, held
-against the baseline and against this document's headings by
-`_build/cast_sites_test.tl`. This document is the map: what the
-remaining sites are, which can be closed, and by whom.
+Not a floor and not a hand-maintained inventory. `_build/casts_kinds.tl`
+is the allowlist that holds each class's site count down, checked
+against a fresh walk of the tree by `_build/casts_test.tl`;
+`cosmic --check lint` enforces the justification comment and checks
+this document's citations against the tree. This document is the map:
+what the remaining sites are, which can be closed, and by whom.

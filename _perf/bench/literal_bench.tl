@@ -53,11 +53,12 @@ end
 
 --- Build a coverage-floor-shaped table: one `{covered, total}` row per
 --- source path. Coverage itself dropped its committed floor for a
---- command-line one (`docs/decisions/d27-one-committed-floor.md`), so
---- `_build/casts_baseline.tl` (65 rows) is now the largest committed
---- `cosmic.literal` input left in this toolchain; 100 is still a
---- representative per-op cost the harness resolves without flagging
---- its own A/A noise floor.
+--- command-line one (`docs/decisions/d27-one-committed-floor.md`), and
+--- casts followed with its own floor for an allowlist
+--- (`_build/casts_kinds.tl`), so `_build/public_surface_baseline.tl`
+--- (57 rows) is now the largest committed `cosmic.literal` input left
+--- in this toolchain; 100 is still a representative per-op cost the
+--- harness resolves without flagging its own A/A noise floor.
 --- @return {string: any} The floor, keyed by path
 local function build_floor(): {string: any}
   local rows: {string: any} = {}
