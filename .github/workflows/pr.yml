@@ -213,17 +213,11 @@ jobs:
           # re-run to ask a question the first run had already answered.
           # pipefail, or tee's clean exit would hide the gate's.
           #
-          # The tree's coverage floor is `--min 76 --min-file 0` (measured at
-          # #1778); it is stated on the invocation below only once the pinned
-          # release accepts the flags — generation 1 runs the PIN's own make
-          # engine, which refuses an unknown flag before anything builds (the
-          # cold-build rule), so the numbers land with the pin bump that
-          # follows the next release (board item COZq_Kk4X).
           set -euxo pipefail
           unshare --net -- bash -euxo pipefail -c '
             o/bootstrap/cosmic -e "$NETNS"
             runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-              bin/cosmic --make ci 2>&1 | tee o/gate.log'
+              bin/cosmic --make ci --min 76 --min-file 0 2>&1 | tee o/gate.log'
 
       - name: dump failing test output
         if: failure()
