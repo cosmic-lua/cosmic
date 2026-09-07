@@ -28,8 +28,16 @@
 --- module-level rather than fields on `Node` -- `Node` is a closed
 --- record `compile_pattern`'s two-slot fallible return cannot widen to
 --- carry a third value, per the naming charter's fallible-returns rule.
+---
+--- A capture may also appear in a cast's TYPE position (`$X as $T`,
+--- `$X as $T:^{`) -- `cosmic.ast.match_cast` holds that half (its own
+--- casttype rendering and matching), since this file had no line
+--- budget left for it; `capture_predicates` is keyed by `any` rather
+--- than by `Node` alone so the SAME table also serves a `cast` node's
+--- identity, with no separate store or cast to widen it.
 local node_mod = require("cosmic.ast.node")
 local ast_walk = require("cosmic.ast.walk")
+local match_cast = require("cosmic.ast.match_cast")
 
 local type Node = node_mod.Node
 
@@ -90,12 +98,15 @@ end
 local last_predicates: {string: string} = {}
 
 --- Predicate lookup for one capture node inside a compiled pattern's
---- OWN tree, keyed by the specific `Node` object rather than by name --
---- two occurrences of the same capture name in one pattern could each
---- carry a different predicate (or none). Populated once, by
+--- OWN tree, keyed by the specific node's identity rather than by name
+--- -- two occurrences of the same capture name in one pattern could
+--- each carry a different predicate (or none). Populated once, by
 --- `compile_pattern`; consulted by `match_value` for every capture it
---- binds.
-local capture_predicates: {Node: string} = {}
+--- binds. Keyed by `any`, not `Node`, because a cast-position capture
+--- (see `cosmic.ast.match_cast`) is keyed by its `cast` node while
+--- still narrowed to `{any: any}`, not `Node`, at the point it is
+--- looked up.
+local capture_predicates: {any: string} = {}
 
 --- Rewrite ast-grep-style `$NAME`/`$$$NAME` metavariables into valid
 --- Teal identifiers so the pattern lexes as real source (`$` is not a
@@ -138,6 +149,14 @@ local function attach_predicates(root: Node, names: {string: string}): Node
         local pred = names[tk]
         if pred then
           capture_predicates[n] = pred
+        end
+      elseif n.kind == "cast" then
+        local cap = match_cast.capture_name((n as {any: any})["casttype"]) -- cast: tl-parser field this Node kind doesn't name
+        if cap then
+          local pred = names[cap]
+          if pred then
+            capture_predicates[n] = pred
+          end
         end
       end
     end)
@@ -303,6 +322,9 @@ match_value = function(pv: any, nv: any, caps: {string: Node}, seen: {any: boole
   if pkind == "variable" or pkind == "identifier" or pkind == "string" then
     return pv["tk"] == nv["tk"]
   end
+  if pkind == "cast" then
+    return match_cast.match(pv, nv, caps, capture_predicates)
+  end
   if not match_list(arr(pv), arr(nv), caps, seen) then
     return false
   end
@@ -323,15 +345,34 @@ end
 --- own ("op", "variable", ...) rather than "statements". A statement
 --- pattern (`if ... end`) needs no unwrap either way: `program[1]` is
 --- already the right node in both cases.
+---
+--- A cast (`$X as $T`) or any other non-call expression is neither: it
+--- is not a valid Teal STATEMENT on its own, exactly as in real Teal
+--- (`x as integer` alone is a syntax error; only `return x as integer`
+--- parses, same as only a function call may stand alone as a
+--- statement). On a direct parse failure this retries wrapped in a
+--- `return`, then unwraps to the RETURNED expression instead of the
+--- wrapping `return` statement -- so a call/statement pattern's own
+--- top node is unaffected, and this path only ever runs once the
+--- direct parse already failed.
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return Node|nil The pattern's own top node, or nil on a parse failure
 --- @return string Error message on failure, nil on success
 local function compile_pattern(pattern_src: string): Node | nil, string
-  local parsed, err = node_mod.parse(desugar(pattern_src), "<pattern>")
-  if not parsed then
+  local desugared = desugar(pattern_src)
+  local parsed, err = node_mod.parse(desugared, "<pattern>")
+  if parsed then
+    return attach_predicates(parsed.node[1], last_predicates), nil
+  end
+  local wrapped = node_mod.parse("return " .. desugared, "<pattern>")
+  if not wrapped then
     return nil, err
   end
-  return attach_predicates(parsed.node[1], last_predicates), nil
+  local exps = wrapped.node[1].exps
+  if not exps or exps[1] == nil then
+    return nil, err
+  end
+  return attach_predicates(exps[1], last_predicates), nil
 end
 
 --- Match `pattern` against `node`, returning the capture bindings on
