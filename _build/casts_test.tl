@@ -244,7 +244,7 @@ local function test_every_kind_has_at_least_one_site()
     end
     if n == 0 then
       problems[#problems + 1] = c.kind.name ..
-        " -- delete this entry and its docs/design/casts.md heading"
+      " -- delete this entry and its docs/design/casts.md heading"
     end
   end
   table.sort(problems)
