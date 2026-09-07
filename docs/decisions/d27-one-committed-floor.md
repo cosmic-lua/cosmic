@@ -1,11 +1,11 @@
 # D27 — every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default
 
 - **date:** 2026-08
-- **status:** amended 2026-09 (coverage's and casts' floors are no longer files)
+- **status:** amended 2026-09 (coverage's, casts', and the public surface's floors are no longer files)
 - **context:** three gates already commit a "floor" — a file the build
   reads back and compares against, rather than a config a human hand-edits:
-  `_build/casts_baseline.tl` (per-file cast counts), `_build/public_surface_baseline.tl`
-  (the public API set), and the coverage ratchet's `.cosmic-coverage`
+  `_build/casts_baseline.tl` (per-file cast counts), a public-surface
+  baseline (the public API set), and the coverage ratchet's `.cosmic-coverage`
   (per-file covered/total line counts). The first two are already
   `cosmic.literal` files, written by `literal.format_file` and read back by
   `literal.parse_file` — `_build/casts.tl` and `_build/public_surface.tl` say
@@ -94,11 +94,20 @@
   --min PCT [--min-file PCT]` refuses under either number, computed
   fresh from the same `.cov` data every run, with no committed floor to
   merge, hand-edit, or rewrite. The H1's claim still holds for the
-  floors that remain: `_build/casts_baseline.tl` and
-  `_build/public_surface_baseline.tl` are still `cosmic.literal` files.
+  floors that remain: `_build/casts_baseline.tl` and the public-surface
+  baseline are still `cosmic.literal` files.
 - **amended 2026-09 (casts' floor is no longer a file):**
   `_build/casts_baseline.tl` and `docs/design/cast-sites.tsv` are gone;
   `_build/casts_test.tl` checks a fresh `cosmic.ast` walk of the tree
   directly against the allowlist in `_build/casts_kinds.tl`, with no
   committed count to merge, hand-edit, or rewrite. The H1's claim now
-  holds for one floor: `_build/public_surface_baseline.tl`.
+  holds for one floor: the public-surface baseline.
+- **amended 2026-09 (the public surface's floor is no longer a file
+  either):** the public-surface baseline and its ratchet test are
+  gone; `cosmic/surface_test.tl` and `cosmic/doc/public_test.tl` —
+  already independent derivations of the same position rule, one
+  against the embedded index and one against the docs listing — are
+  the surface's tests, with no committed set to merge, hand-edit, or
+  rewrite. The H1's claim no longer holds for any floor: nothing in
+  this project commits a `cosmic.literal` floor today, though the
+  format remains what the next one would reach for.
