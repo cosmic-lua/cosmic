@@ -73,3 +73,28 @@ local function test_explicit_gitboard_dir_wins()
   local want = fs.join(tmpdir, "explicit-board")
   assert(run(root, env.list({set = {GITBOARD_DIR = want}})) == want)
 end
+local function test_resolves_the_sibling_of_a_linked_worktrees_main_checkout()
+  -- A scratch main checkout with a `../work` sibling, and a linked
+  -- worktree under an UNRELATED parent (so its own `../work` does not
+  -- exist and only the main-checkout probe can find the sibling).
+  local main = make_root("worktree-main")
+  local r = check.must(child.run({"git", "init", "-q"}, {cwd = main}))
+  assert(r.ok, "git init failed: " .. r.stderr)
+  r = check.must(child.run({"git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+        "--allow-empty", "-m", "init"}, {cwd = main}))
+  assert(r.ok, "git commit failed: " .. r.stderr)
+  local sib = sibling(main, "https://github.com/cosmic-lua/work")
+  local wt = fs.join(fs.dirname(main), "elsewhere", "wt", "x")
+  r = check.must(child.run({"git", "worktree", "add", "-q", wt, "-b", "wtbranch"},
+      {cwd = main}))
+  assert(r.ok, "git worktree add failed: " .. r.stderr)
+  assert(fs.make_dirs(fs.join(wt, "bin")))
+  assert(fs.make_dirs(fs.join(wt, "o", "bootstrap")))
+  assert(fs.copy(fs.join(main, "bin", "gitboard"), fs.join(wt, "bin", "gitboard")))
+  assert(fs.copy(fs.join(main, "bin", "gitboard.pin"), fs.join(wt, "bin", "gitboard.pin")))
+  assert(fs.copy(fs.join(main, "o", "bootstrap", "gitboard"),
+      fs.join(wt, "o", "bootstrap", "gitboard")))
+  assert(fs.copy(fs.join(main, "o", "bootstrap", "gitboard.pin"),
+      fs.join(wt, "o", "bootstrap", "gitboard.pin")))
+  assert(run(wt) == sib)
+end
