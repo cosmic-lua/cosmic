@@ -97,22 +97,72 @@ ensure_bootstrap() {
 cd "${ROOT}"
 ensure_bootstrap
 
+is_work_origin() {
+    case "$(git -C "$1" remote get-url origin 2>/dev/null || true)" in
+        */cosmic-lua/work | *:cosmic-lua/work | */cosmic-lua/work.git | *:cosmic-lua/work.git)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# $1: a checkout directory whose ../work sibling might be the board.
+# Prints the sibling and succeeds only when it exists and its origin
+# is cosmic-lua/work.
+probe_sibling_of() {
+    dir="$1"
+    if [ -d "${dir}/../work" ]; then
+        sib="$(cd "${dir}/../work" && pwd)"
+        if is_work_origin "${sib}"; then
+            printf '%s\n' "${sib}"
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Prefer a sibling ../work clone of cosmic-lua/work over o/board, so a
 # session that already carries one never diverges into a second, dead
 # local-only board -- this used to be a shell snippet every session's
 # bootstrap carried by hand (skills/work/SKILL.md); now the tool does
-# it, and nothing else needs to.
-# Under `set -e` every step here must succeed when there is no
-# sibling at all: the directory test guards the cd, and the failing
-# `git remote` of a plain directory is `|| true`d, so the o/board
-# default below is reached either way.
-if [ -z "${GITBOARD_DIR}" ] && [ -d "${ROOT}/../work" ]; then
-    sibling="$(cd "${ROOT}/../work" && pwd)"
-    case "$(git -C "${sibling}" remote get-url origin 2>/dev/null || true)" in
-        */cosmic-lua/work | *:cosmic-lua/work | */cosmic-lua/work.git | *:cosmic-lua/work.git)
-            GITBOARD_DIR="${sibling}"
-            ;;
-    esac
+# it, and nothing else needs to. Run from a linked worktree (every
+# builder's checkout, per `gitboard worktree`), the sibling lives
+# beside the MAIN checkout, not beside the worktree, so a second probe
+# resolves `git rev-parse --git-common-dir`'s parent when it differs
+# from ROOT (relative `.git` in a main checkout, an absolute path to
+# one in a linked worktree -- resolved with `cd`+`pwd` before the
+# comparison so both forms compare equal to ROOT when they are ROOT).
+# Under `set -e` every step here must succeed when there is no sibling
+# and no git at all: each probe is directory-guarded or `|| true`d, so
+# the o/board default below is reached either way.
+if [ -z "${GITBOARD_DIR}" ]; then
+    if candidate="$(probe_sibling_of "${ROOT}")"; then
+        GITBOARD_DIR="${candidate}"
+    else
+        # --show-toplevel must equal ROOT before the common-dir is
+        # trusted: git resolves both from any subdirectory of a
+        # checkout, and ROOT here is a subdirectory (e.g. a fixture's
+        # scratch root nested inside a real repo, or a caller running
+        # from a subdirectory of its own checkout) whenever it does
+        # not, so a match beyond ROOT itself would belong to some
+        # unrelated enclosing repository, not ROOT's own.
+        toplevel="$(git -C "${ROOT}" rev-parse --show-toplevel 2>/dev/null || true)"
+        if [ -n "${toplevel}" ] && [ "${toplevel}" = "${ROOT}" ]; then
+            common_dir="$(git -C "${ROOT}" rev-parse --git-common-dir 2>/dev/null || true)"
+            if [ -n "${common_dir}" ]; then
+                case "${common_dir}" in
+                    /*) ;;
+                    *) common_dir="${ROOT}/${common_dir}" ;;
+                esac
+                main_root="$(cd "${common_dir}/.." && pwd)"
+                if [ "${main_root}" != "${ROOT}" ]; then
+                    if candidate="$(probe_sibling_of "${main_root}")"; then
+                        GITBOARD_DIR="${candidate}"
+                    fi
+                fi
+            fi
+        fi
+    fi
 fi
 GITBOARD_DIR="${GITBOARD_DIR:-${ROOT}/o/board}"
 export GITBOARD_DIR
