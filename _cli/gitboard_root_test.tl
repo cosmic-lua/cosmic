@@ -80,8 +80,8 @@ local function test_resolves_the_sibling_of_a_linked_worktrees_main_checkout()
   local main = make_root("worktree-main")
   local r = check.must(child.run({"git", "init", "-q"}, {cwd = main}))
   assert(r.ok, "git init failed: " .. r.stderr)
-  r = check.must(child.run({"git", "commit", "-q", "--allow-empty", "-m", "init"},
-      {cwd = main}))
+  r = check.must(child.run({"git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+        "--allow-empty", "-m", "init"}, {cwd = main}))
   assert(r.ok, "git commit failed: " .. r.stderr)
   local sib = sibling(main, "https://github.com/cosmic-lua/work")
   local wt = fs.join(fs.dirname(main), "elsewhere", "wt", "x")
