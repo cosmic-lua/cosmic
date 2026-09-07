@@ -1,47 +1,30 @@
-#!/usr/bin/env cosmic
 --- The public module surface, enumerated from the committed tree.
 ---
 --- A module is public because of where it sits: `cosmic/<name>.tl` or
 --- `cosmic/<name>/init.tl`, for a `<name>` that does not start with
 --- `_`. Position is the whole manifest, which means the surface can
---- grow by adding one file and nobody has to agree to it. This module
---- counts what the tree carries so `_build/public_surface_test.tl` can
---- hold it against the committed set in
---- `_build/public_surface_baseline.tl`. Rewrite that set whenever the
---- surface moves deliberately:
----
----     bin/cosmic --make run _build/public_surface.tl --baseline
+--- grow by adding one file and nobody has to agree to it.
 ---
 --- `cosmic/surface_test.tl` asks a different question of the same
 --- surface: it enumerates the modules EMBEDDED in the running binary
 --- and asserts each one loads and is documented. That is a statement
 --- about the artifact; this is a statement about the tree, and a name
---- can be added here long before anyone notices it shipped. Neither
---- test replaces the other.
+--- can be added here long before anyone notices it shipped.
+--- `cosmic/doc/public_test.tl` asserts the third leg: the `--docs`
+--- listing agrees with the same rule. `_build.size` is the one caller
+--- outside the tests that asks this module the tree-side question, for
+--- its report's public-module count.
 ---
 --- The rule for what counts as public is not restated here — the names
 --- go through `cosmic.doc`'s `public_of`, and the rule itself lives in
 --- `cosmic/doc/visibility.tl`, where a second copy of it would be the
---- drift this gate exists to prevent.
----
---- The set is written and read back through `_tool.floor`, over
---- `cosmic.literal.format_file`/`parse_file`, so one module owns both
---- directions. Its layout is what a baseline needs anyway: one entry per
---- line, sorted, so a review sees the names that changed and nothing
---- else. The grammar admits keyed entries only, so the set is spelled
---- `["<name>"] = true` — the names are the keys.
+--- drift this module exists to prevent.
 
 -- The position rule, asked rather than copied. `cosmic.doc` re-exports
 -- it: the rule itself lives in a shard no file outside cosmic/ may
 -- require.
 local doc = require("cosmic.doc")
-local floor = require("_tool.floor")
 local fs = require("cosmic.fs")
-local proc = require("cosmic.proc")
-
---- The committed set: where this module writes it and the test reads
---- it, relative to the project root.
-local BASELINE < const > = "_build/public_surface_baseline.tl"
 
 --- The public module names in a tree, sorted.
 ---
@@ -54,8 +37,8 @@ local BASELINE < const > = "_build/public_surface_baseline.tl"
 --- underscore name.
 ---
 --- A `root` with no `cosmic/` under it has no public surface, which is
---- the honest answer for a tree that is not this one; the gate reading
---- the result sees it as a surface that lost every name.
+--- the honest answer for a tree that is not this one; the caller
+--- reading the result sees it as a surface that lost every name.
 --- @param root string The project root to enumerate under
 --- @return {string} The public module names, sorted
 local function modules(root: string): {string}
@@ -86,65 +69,12 @@ local function modules(root: string): {string}
   return doc.public_of(found)
 end
 
---- The committed set, read as data and sorted.
---- @param path string|nil The baseline file (default the committed one)
---- @return {string}|nil The public module names
---- @return string The error when the file cannot be read or parsed
-local function baseline(path?: string): {string} | nil, string
-  local data, err = floor.read(path or BASELINE)
-  if not data then
-    return nil, err
-  end
-  local out: {string} = {}
-  for name in pairs(data) do
-    out[#out + 1] = name
-  end
-  table.sort(out)
-  return out
-end
-
---- Rewrite the baseline from a fresh enumeration of the tree.
---- @param ... string Command-line arguments
---- @return integer The exit status
-local function main(...: string): integer
-  local args = {...}
-  if args[1] ~= "--baseline" then
-    io.stderr:write(
-      "usage: cosmic --make run _build/public_surface.tl --baseline\n")
-    return 1
-  end
-  local names = modules(".")
-  local set: {string: boolean} = {}
-  for _, name in ipairs(names) do
-    set[name] = true
-  end
-  local ok, err = floor.write(BASELINE, set)
-  if not ok then
-    io.stderr:write("public_surface: " .. err .. "\n")
-    return 1
-  end
-  print(string.format("public_surface: wrote %s — %d public modules",
-      BASELINE, #names))
-  return 0
-end
-
-if proc.is_main() then
-  os.exit(main(...))
-end
-
 local record PublicSurfaceModule
-  --- The committed set's path, relative to the project root.
-  BASELINE: string
   modules: function(root: string): {string}
-  baseline: function(path?: string): {string} | nil, string
-  main: function(...: string): integer
 end
 
 local M: PublicSurfaceModule = {
-  BASELINE = BASELINE,
   modules = modules,
-  baseline = baseline,
-  main = main,
 }
 
 return M
