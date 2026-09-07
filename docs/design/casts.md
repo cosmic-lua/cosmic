@@ -20,10 +20,11 @@ has moved.
 ## Method
 
 There is no committed inventory: `_build/casts_kinds.tl` names every
-class below as an ALLOWLIST entry instead, and `_build/casts_test.tl`
-checks it against a fresh `cosmic.ast` walk of the tree on every run,
-the same way `--check lint` re-derives its own answers rather than
-trusting a stale one. An entry is a `cosmic.ast` pattern (the grammar
+class below as an ALLOWLIST entry instead, and `--check lint`'s
+`cast-justify` rule (`_cli/cast_lint.tl`) checks each file's casts
+against it as part of every `--make ci`/`--make lint` run, the same
+way `--check lint` re-derives its own answers rather than trusting a
+stale one. An entry is a `cosmic.ast` pattern (the grammar
 `$X as $T` landed for: an unconstrained capture, a literal target type,
 or a `$T:<lua pattern>` predicate on the rendered type text) plus the
 files it applies to; where a predicate cannot tell a class apart from a
@@ -448,8 +449,8 @@ next cast in that same function is the same floor site under
 ## What this is not
 
 Not a floor and not a hand-maintained inventory. `_build/casts_kinds.tl`
-is the allowlist, checked against a fresh walk of the tree by
-`_build/casts_test.tl`;
-`cosmic --check lint` enforces the justification comment and checks
-this document's citations against the tree. This document is the map:
-what the remaining sites are, which can be closed, and by whom.
+is the allowlist; `cosmic --check lint`'s `cast-justify` rule checks
+each cast against it directly, falls back to the justification comment
+for what it does not claim, and checks this document's citations
+against the tree. This document is the map: what the remaining sites
+are, which can be closed, and by whom.

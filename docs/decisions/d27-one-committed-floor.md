@@ -98,8 +98,9 @@
   baseline are still `cosmic.literal` files.
 - **amended 2026-09 (casts' floor is no longer a file):**
   `_build/casts_baseline.tl` and `docs/design/cast-sites.tsv` are gone;
-  `_build/casts_test.tl` checks a fresh `cosmic.ast` walk of the tree
-  directly against the allowlist in `_build/casts_kinds.tl`, with no
+  `--check lint`'s `cast-justify` rule (`_cli/cast_lint.tl`) checks
+  each file's casts, via a fresh `cosmic.ast` parse, directly against
+  the allowlist in `_build/casts_kinds.tl`, with no
   committed count to merge, hand-edit, or rewrite. The H1's claim now
   holds for one floor: the public-surface baseline.
 - **amended 2026-09 (the public surface's floor is no longer a file

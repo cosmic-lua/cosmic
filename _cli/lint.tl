@@ -15,6 +15,7 @@
 --- convention exactly.
 
 local assert_lint = require("_cli.assert_lint")
+local cast_lint = require("_cli.cast_lint")
 local citations = require("_cli.citations")
 local discover = require("_tool.discover")
 local fs = require("cosmic.fs")
@@ -32,55 +33,7 @@ local check_gsub_replacement = pattern_args.check_gsub_replacement
 
 local type Diagnostic = style.Diagnostic
 
---- Lines holding an `as` cast, token-exact so casts inside strings and
---- comments never count.
---- @param content string The file's bytes
---- @param file string Path, for the lexer's error messages
---- @return {integer} 1-based line numbers, each at most once
-local function cast_lines(content: string, file: string): {integer}
-  local tokens = tl.lex(content, file)
-  if not tokens then
-    return {}
-  end
-  local seen: {integer: boolean} = {}
-  local lines: {integer} = {}
-  for _, t in ipairs(tokens) do
-    if t.tk == "as" and not seen[t.y] then
-      seen[t.y] = true
-      lines[#lines + 1] = t.y
-    end
-  end
-  return lines
-end
-
---- Every `as` cast is an unchecked hole in the type system, so each one
---- must be deliberate and say why: a trailing `-- cast: <reason>`, or
---- one on the line directly above when 90 columns will not fit it.
---- @param file string Path, for the diagnostic
---- @param content string The file's bytes
---- @param lines {string} The file's lines
---- @return {Diagnostic} One per unjustified cast
-local function check_cast_justification(file: string, content: string,
-    lines: {string}): {Diagnostic}
-  local diagnostics: {Diagnostic} = {}
-  for _, y in ipairs(cast_lines(content, file)) do
-    if not style.is_justified(lines, y, "cast") then
-      diagnostics[#diagnostics + 1] = {
-        file = file,
-        line = y,
-        col = 1,
-        rule = "cast-justify",
-        message = string.format(
-          "%s:%d: `as` cast without justification: prefer `is` narrowing"
-          .. " or check.must (see `cosmic --docs guide.checking`); a"
-          .. " deliberate cast takes a trailing `-- cast: <reason>` (or on"
-          .. " the line above)",
-          file, y),
-      }
-    end
-  end
-  return diagnostics
-end
+local check_cast_justification = cast_lint.check_cast_justification
 
 --- Tests and examples must use cosmic.* wrappers, never raw cosmo.*
 --- bindings (AGENTS.md "cosmo vs cosmic"). Each entry here needs the raw
@@ -393,7 +346,6 @@ local function lint_file(path: string): {Diagnostic} | nil, string
 end
 
 local record LintModule
-  cast_lines: function(content: string, file: string): {integer}
   check_cast_justification: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_cosmo_require: function(file: string, lines: {string}): {Diagnostic}
   check_call_after_define: function(file: string, content: string, lines: {string}): {Diagnostic}
@@ -413,7 +365,6 @@ local record LintModule
 end
 
 local M: LintModule = {
-  cast_lines = cast_lines,
   check_cast_justification = check_cast_justification,
   check_cosmo_require = check_cosmo_require,
   check_call_after_define = check_call_after_define,
