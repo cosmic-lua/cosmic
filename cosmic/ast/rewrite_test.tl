@@ -75,15 +75,26 @@ end
 --- An empty replacement against a call-statement hit removes the whole
 --- STATEMENT -- `test_a()`'s own line entirely, not just its own byte
 --- span spliced with "" -- so the deletion leaves no blank line behind
---- and `run()` (the one call `$F:^test_()`'s predicate does not match)
---- survives untouched.
+--- and both `run()` calls (the one call `$F:^test_()`'s predicate does
+--- not match) survive untouched.
+---
+--- The deleted statement sits between two others, not first in the
+--- file: a byte-span-only deletion (the node's own span, leaving its
+--- line's newline and the next line's content behind) would leave a
+--- STRAY BLANK LINE mid-file, and `cosmic.format.format`'s own
+--- whitespace normalization does not remove a blank line already
+--- separating two statements -- only a leading blank line at the top
+--- of the file gets stripped that way. Deleting the hit first (nothing
+--- ahead of it) would let the formatter's leading-blank-line trim
+--- launder a byte-span deletion into the same output as a line-range
+--- one, so this case cannot tell the two apart.
 local function test_rewrite_deletes_a_call_statement_leaving_no_blank_line()
   local pattern = pattern_ok("$F:^test_()")
-  local source = "test_a()\nrun()\n"
+  local source = "run()\ntest_a()\nrun()\n"
   local result, err = rewrite_mod.rewrite(source, "delete.tl", pattern, "")
   assert(result, "rewrite failed: " .. tostring(err))
   check.equal(#result.refused, 0)
-  check.equal(result.code, "run()\n")
+  check.equal(result.code, "run()\nrun()\n")
 end
 
 --- The same deletion, reused-refusal side: a comment trailing the
