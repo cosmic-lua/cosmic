@@ -16,13 +16,10 @@
 -- files it applies to, or (where a predicate cannot tell a kind apart
 -- from a neighbour sharing its file) an explicit list of exact sites.
 -- This file walks a fresh `cosmic.ast` parse of the whole tree and
--- checks three things against that allowlist: every cast matches
--- exactly one kind, no kind matches more sites than its committed
--- ceiling (shrunk by hand in `casts_kinds.tl` as sites close), and
--- every kind still has at least one site (a kind at zero is deleted,
--- never kept at zero). A cast nothing here recognizes fails naming
--- `file:line` and, when some kind's PATTERN would have matched had its
--- `where` scope reached that file, the kinds it nearly matched --
+-- checks every cast against that allowlist: every cast matches exactly
+-- one kind. A cast nothing here recognizes fails naming `file:line`
+-- and, when some kind's PATTERN would have matched had its `where`
+-- scope reached that file, the kinds it nearly matched --
 -- `docs/design/casts.md`'s Classes section is where a real new site
 -- gets triaged into an existing kind or a new one.
 

@@ -5,27 +5,28 @@
 --- Each `Kind` claims a slice of the tree's `as` casts one of two ways:
 --- a `pattern` (the `cosmic.ast` grammar -- `$X as $T`, a literal
 --- target type, or `$T:<lua pattern>` predicate on the rendered type
---- text) applied to every file under `where`; or an `explicit` list of
---- exact sites, for a kind two neighbours share a file with and no
---- type-text predicate can tell apart (two casts to the same rendered
---- type, in the same file, doing two different jobs -- `cosmic/ast/
---- match.tl`'s two `as Node` sites are the sharpest example: one is
---- this tree's own AST surface, the other an incrementally-built
---- record, and nothing about either cast's TEXT says which). A kind
---- may carry both: `pattern`/`where` for the bulk of its sites, plus a
---- short `explicit` list for the handful a predicate cannot separate
---- from a sibling kind in the same file. An `explicit` entry is
---- `(path, exact trimmed source line)` -- stable under a line shifting
---- up or down the file, which a `(path, line number)` key would not
---- be, and precise enough that two casts sharing one line (`_cli.lint`
---- counts the LINE; this walks the AST, so a line holding two `as`
---- tokens is two sites) both resolve to the same entry.
+--- text) applied to every file under `where`; or an `explicit` list
+--- naming each exact one, for a kind two neighbours share a file with
+--- and no type-text predicate can tell apart (two casts to the same
+--- rendered type, in the same file, doing two different jobs --
+--- `cosmic/ast/match.tl`'s two `as Node` casts are the sharpest
+--- example: one is this tree's own AST surface, the other an
+--- incrementally-built record, and nothing about either cast's TEXT
+--- says which). A kind may carry both: `pattern`/`where` for most of
+--- its casts, plus a short `explicit` list for the handful a predicate
+--- cannot separate from a sibling kind in the same file. An `explicit`
+--- entry is `(path, exact trimmed source line)` -- stable under a line
+--- shifting up or down the file, which a `(path, line number)` key
+--- would not be, and precise enough that two casts sharing one line
+--- (`_cli.lint` counts the LINE; this walks the AST, so a line holding
+--- two `as` tokens is two distinct casts) both resolve to the same
+--- entry.
 ---
---- `sites` is the shrink-only ceiling `_build/casts_test.tl` checks
---- every kind against: lower it by hand as a kind's sites are closed,
---- same discipline `_build/casts_baseline.tl` used to enforce per file.
---- Deleting a kind's entry outright, once its last site closes, is
---- itself part of that shrink -- casts.md's `### ` heading goes with it.
+--- `_build/casts_test.tl` checks every kind against a fresh walk of the
+--- tree: every cast matches exactly one kind. A site matching none
+--- names `file:line` and, when some kind's pattern would have matched
+--- outside its own scope, the kinds it nearly matched; a site matching
+--- two names both.
 
 local record ExplicitSite
   --- The site's file, relative to the project root.
@@ -165,7 +166,7 @@ local KINDS: {Kind} = {
     -- "userdata boundary" casts of the same shape -- only the literal
     -- target type tells them apart, so this entry's `where` cannot
     -- merge with the broader `$X as $T` entry above without also
-    -- claiming those sites.
+    -- claiming those casts.
     name = "generic T",
     pattern = "$X as T",
     where = {"cosmic/fs/walk.tl"},
