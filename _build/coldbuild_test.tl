@@ -72,13 +72,16 @@ local function tree_sources(): {string}
 end
 
 --- Runs generation 1's exact type check over `files`: the pinned
---- release's shipped snapshot of the tree first, then the tree itself,
---- then the generated cosmo types.
+--- release's shipped snapshot of the tree first, then `tree_dir` — the
+--- resolution root for the tree's own modules, "." for the real repo
+--- or a fixture directory standing in for it — then the generated
+--- cosmo types.
+--- @param tree_dir string Include-dir standing in for the tree
 --- @param files {string} The .tl files to check
 --- @return child.Result The finished check's result (ok, stdout, stderr)
-local function check_generation_1(files: {string}): child.Result
+local function check_generation_1(tree_dir: string, files: {string}): child.Result
   local argv: {string} = {BOOTSTRAP, "--check", "types",
-    "--include-dir", SHIPPED_TREE, "--include-dir", ".",
+    "--include-dir", SHIPPED_TREE, "--include-dir", tree_dir,
     "--include-dir", GENERATED_TYPES}
   for _, f in ipairs(files) do
     argv[#argv + 1] = f
@@ -116,7 +119,7 @@ local function test_tree_type_checks_under_the_pinned_checker()
   local files = tree_sources()
   assert(#files > 0, "the sweep found no tree sources to guard")
 
-  local r = check_generation_1(files)
+  local r = check_generation_1(".", files)
   assert(r.ok, widened_call_message(r.stderr) ..
     "a tree source needs a checker, a patch, or a widened signature " ..
     "between two shipped modules newer than the pinned release, so " ..
@@ -151,7 +154,7 @@ local function test_widened_call_between_shipped_modules_is_refused()
   local tmpdir = env.get_or("TEST_TMPDIR", "/tmp")
   write_widened_call_fixture(tmpdir)
 
-  local r = check_generation_1({fs.join(tmpdir, "caller.tl")})
+  local r = check_generation_1(tmpdir, {fs.join(tmpdir, "caller.tl")})
   local message = widened_call_message(r.stderr)
   assert(not r.ok and message ~= "",
     "a call widened by an extra optional parameter on the caller's " ..
