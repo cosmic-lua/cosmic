@@ -23,6 +23,10 @@ Cosmic options:
                                 .tl files ($NAME/$$$NAME captures;
                                 $X as TYPE/$X as $T for a cast, by literal
                                 type text or by capture;
+                                $NAME:PATTERN also requires the capture's
+                                rendered name (or a cast's $T, its rendered
+                                type) to match the Lua pattern, e.g.
+                                $F:^test_;
                                 default: this project's .tl sources)
   --rewrite <pattern> [path]... like --find; add <repl> --apply <path>...
                                 to apply via cosmic.ast.rewrite in place
