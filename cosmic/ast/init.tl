@@ -5,6 +5,7 @@ local ast_node = require("cosmic.ast.node")
 local ast_walk = require("cosmic.ast.walk")
 local ast_match = require("cosmic.ast.match")
 local ast_rewrite = require("cosmic.ast.rewrite")
+local ast_requires = require("cosmic.ast.requires")
 
 local type Node = ast_node.Node
 local type Parsed = ast_node.Parsed
@@ -26,6 +27,7 @@ local record AstModule
   compile_pattern: function(pattern_src: string): Node | nil, string
   match: function(pattern: Node, node: Node): {string: Node} | nil
   find_all: function(ast: Node, pattern: Node): {Hit}
+  requires: function(parsed: Parsed): {string: string}
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(source: string, name: string, pattern: Node,
@@ -41,6 +43,7 @@ local M: AstModule = {
   compile_pattern = ast_match.compile_pattern,
   match = ast_match.match,
   find_all = ast_rewrite.find_all,
+  requires = ast_requires.requires,
   line_starts = ast_rewrite.line_starts,
   offset_of = ast_rewrite.offset_of,
   rewrite = ast_rewrite.rewrite,

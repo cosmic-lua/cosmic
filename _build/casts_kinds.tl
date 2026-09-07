@@ -58,6 +58,7 @@ local KINDS: {Kind} = {
       "_tool/coverage/lines.tl", "_tool/discover.tl", "_tool/doc/signature.tl",
       "cosmic/_teal_ast_test.tl", "cosmic/_teal_discard.tl",
       "cosmic/ast/match_cast.tl", "cosmic/ast/match_test.tl", "cosmic/ast/node.tl",
+      "cosmic/ast/requires.tl",
     },
     explicit = {
       {path = "_types/tlast.tl", text = "return t as {any} -- cast: array view of a mixed AST table"},
