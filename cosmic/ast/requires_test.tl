@@ -8,14 +8,14 @@ local requires_mod = require("cosmic.ast.requires")
 
 local function test_requires_resolves_a_single_alias()
   local parsed = check.must(node_mod.parse('local hash = require("cosmic.hash")\n', "one.tl"))
-  check.equal(requires_mod.requires(parsed), {hash = "cosmic.hash"})
+  check.equal(check.must(requires_mod.requires(parsed)), {hash = "cosmic.hash"})
 end
 
 local function test_requires_resolves_two_aliases()
   local source = 'local hash = require("cosmic.hash")\n'
   .. 'local str = require("cosmic.string")\n'
   local parsed = check.must(node_mod.parse(source, "two.tl"))
-  check.equal(requires_mod.requires(parsed), {hash = "cosmic.hash", str = "cosmic.string"})
+  check.equal(check.must(requires_mod.requires(parsed)), {hash = "cosmic.hash", str = "cosmic.string"})
 end
 
 --- A `require` of a module outside the `cosmic.` namespace is not a
@@ -23,7 +23,7 @@ end
 --- prefix check, not by the pattern shape.
 local function test_requires_excludes_a_non_cosmic_require()
   local parsed = check.must(node_mod.parse('local other = require("other.thing")\n', "other.tl"))
-  check.equal(requires_mod.requires(parsed), {})
+  check.equal(check.must(requires_mod.requires(parsed)), {})
 end
 
 --- A `local` binding inside a function body is a local variable, not a
@@ -34,7 +34,7 @@ local function test_requires_excludes_a_require_inside_a_function_body()
   .. '  local nested = require("cosmic.string")\n'
   .. 'end\n'
   local parsed = check.must(node_mod.parse(source, "nested.tl"))
-  check.equal(requires_mod.requires(parsed), {})
+  check.equal(check.must(requires_mod.requires(parsed)), {})
 end
 
 --- Re-assignment tracking is explicitly out of scope: the alias is
@@ -45,12 +45,12 @@ local function test_requires_does_not_track_reassignment()
   local source = 'local hash = require("cosmic.hash")\n'
   .. 'hash = "shadowed"\n'
   local parsed = check.must(node_mod.parse(source, "reassigned.tl"))
-  check.equal(requires_mod.requires(parsed), {hash = "cosmic.hash"})
+  check.equal(check.must(requires_mod.requires(parsed)), {hash = "cosmic.hash"})
 end
 
 local function test_requires_returns_an_empty_table_for_no_requires()
   local parsed = check.must(node_mod.parse('local x = 1\n', "none.tl"))
-  local result = requires_mod.requires(parsed)
+  local result = check.must(requires_mod.requires(parsed))
   check.truthy(result ~= nil, "result must not be nil")
   local count = 0
   for _ in pairs(result) do
