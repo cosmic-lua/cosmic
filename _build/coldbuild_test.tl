@@ -10,20 +10,33 @@
 --- clone. This test runs generation 1's type check directly, so that
 --- failure lands on the PR that introduces it.
 ---
---- The instrument: `--check types --include-dir .` under the pinned
---- bootstrap resolves MODULES from the tree ahead of its embedded
---- copies (probed: a scratch root shadowing cosmic.literal with a new
---- API type-checks under an old release binary) while the CHECKER
---- stays the pinned tl plus the pinned patch set — exactly what
---- generation 1 runs. The 08-23 release binary run this way refuses
---- the tree at the byte-identical site PR #1416's cold build failed
---- on, and today's bootstrap sweeps it clean.
+--- The instrument: the pinned release embeds the exact tree it was cut
+--- from at `/zip/.tl/**` (`unzip -l <bootstrap> | grep -c '\.tl/'`), and
+--- generation 1 resolves a tree module's requires against THAT copy of
+--- its siblings before ever reading them off disk. `--include-dir
+--- /zip/.tl` placed FIRST reproduces that resolution order; `.` after
+--- it is what lets a module the snapshot has never seen (nothing there
+--- to shadow it) still check straight from the tree, and the generated
+--- cosmo types come last. The 08-23 release binary run this way
+--- refuses the tree at the byte-identical site PR #1416's cold build
+--- failed on, and today's bootstrap sweeps it clean.
 ---
---- When this fails: the named file needs a checker or patch newer
---- than the pinned release. Stage that change behind a release and
---- pin bump (land the checker/patch first, bump bin/cosmic.pin to a
---- release carrying it, then land the code that needs it), or rewrite
---- the site to satisfy both checkers.
+--- A second shape lives here too, not only a checker rule: a call
+--- between two modules the pinned release ALREADY SHIPS, widened by
+--- an extra parameter on the caller's side. The tree's own two copies
+--- agree with each other, so `--check types --include-dir .` alone
+--- passes; the pinned release's SNAPSHOT of the callee still has the
+--- old arity, so generation 1 does not (PR #1775). The second test
+--- case below reproduces it on a throwaway fixture instead of waiting
+--- for a real one to land.
+---
+--- When this fails: the named file needs a checker, a patch, or a
+--- widened signature between two shipped modules newer than the
+--- pinned release. Stage the change behind a release and pin bump
+--- (land the checker/patch/signature first, bump bin/cosmic.pin to a
+--- release carrying it, then land the code that needs it), carry a
+--- widened value in a new module instead, or rewrite the site to
+--- satisfy both checkers.
 
 local check = require("cosmic.check")
 local child = require("cosmic.child")
@@ -32,6 +45,7 @@ local fs = require("cosmic.fs")
 
 local BOOTSTRAP = fs.join("o", "bootstrap", "cosmic")
 local GENERATED_TYPES = fs.join("o", "_types", "types_gen")
+local SHIPPED_TREE = fs.join("/zip", ".tl")
 
 --- The trees generation 1 compiles; mirrors the `--- reads:` line
 --- above so the dependency set and the sweep cover the same files.
@@ -57,6 +71,41 @@ local function tree_sources(): {string}
   return out
 end
 
+--- Runs generation 1's exact type check over `files`: the pinned
+--- release's shipped snapshot of the tree first, then the tree itself,
+--- then the generated cosmo types.
+--- @param files {string} The .tl files to check
+--- @return child.Result The finished check's result (ok, stdout, stderr)
+local function check_generation_1(files: {string}): child.Result
+  local argv: {string} = {BOOTSTRAP, "--check", "types",
+    "--include-dir", SHIPPED_TREE, "--include-dir", ".",
+    "--include-dir", GENERATED_TYPES}
+  for _, f in ipairs(files) do
+    argv[#argv + 1] = f
+  end
+  -- COSMIC_COVERAGE off: the bootstrap child would otherwise dump
+  -- .cov files for its own embedded sources into this test's coverage
+  -- directory.
+  return check.must(child.run(argv,
+      {env = env.list({set = {COSMIC_COVERAGE = "0"}})}))
+end
+
+--- The staging-rule sentence for a widened-call failure, with N and M
+--- read straight out of the checker's own "given N, expects M" text so
+--- the guidance always matches whatever call actually widened.
+--- @param stderr string The checker's stderr
+--- @return string The sentence, or "" when stderr names no such mismatch
+local function widened_call_message(stderr: string): string
+  local given, expects = stderr:match("given (%d+), expects (%d+)")
+  if not given then
+    return ""
+  end
+  return "a caller calls a callee with " .. given .. " args; the " ..
+  "pinned release's callee takes " .. expects .. " — a signature " ..
+  "change on a shipped module stages behind a release and pin bump, " ..
+  "or moves into a new module.\n"
+end
+
 local function test_tree_type_checks_under_the_pinned_checker()
   -- Loud, never a silent skip: a gate that reports PASS over files it
   -- never read is worse than no gate.
@@ -67,19 +116,48 @@ local function test_tree_type_checks_under_the_pinned_checker()
   local files = tree_sources()
   assert(#files > 0, "the sweep found no tree sources to guard")
 
-  local argv: {string} = {BOOTSTRAP, "--check", "types",
-    "--include-dir", ".", "--include-dir", GENERATED_TYPES}
-  for _, f in ipairs(files) do
-    argv[#argv + 1] = f
-  end
-  -- COSMIC_COVERAGE off: the bootstrap child would otherwise dump
-  -- .cov files for its own embedded sources into this test's coverage
-  -- directory.
-  local r = check.must(child.run(argv,
-      {env = env.list({set = {COSMIC_COVERAGE = "0"}})}))
-  assert(r.ok, "a tree source needs a checker or patch newer than the " ..
-    "pinned release, so build generation 1 (and every cold build) " ..
-    "fails on it even though the converged `--make ci` is green. " ..
-    "Stage the change behind a release + pin bump, or satisfy both " ..
-    "checkers:\n" .. r.stderr)
+  local r = check_generation_1(files)
+  assert(r.ok, widened_call_message(r.stderr) ..
+    "a tree source needs a checker, a patch, or a widened signature " ..
+    "between two shipped modules newer than the pinned release, so " ..
+    "build generation 1 (and every cold build) fails on it even " ..
+    "though the converged `--make ci` is green. Stage the change " ..
+    "behind a release + pin bump, or satisfy both checkers:\n" .. r.stderr)
+end
+
+--- Writes a fixture under `dir`: `_cli.lint`'s `lint_file` widened by
+--- one optional parameter (declaration and interface field both, the
+--- only two sites naming its old signature), with a caller passing
+--- it — the exact #1775 shape, reproduced on a throwaway copy rather
+--- than waiting for a real one to land.
+--- @param dir string Scratch directory to write the fixture under
+local function write_widened_call_fixture(dir: string)
+  local lint_src = check.must(fs.read(fs.join("_cli", "lint.tl")))
+  local widened, sites = lint_src:gsub(
+    "%(path: string%): {Diagnostic} | nil, string",
+    "(path: string, max_lines?: integer): {Diagnostic} | nil, string")
+  assert(sites == 2, "_cli/lint.tl's lint_file signature text moved; " ..
+    "expected 2 sites to widen (the declaration and the interface " ..
+    "field), found " .. sites)
+
+  check.must(fs.make_dir(fs.join(dir, "_cli")))
+  check.must(fs.write(fs.join(dir, "_cli", "lint.tl"), widened))
+  check.must(fs.write(fs.join(dir, "caller.tl"),
+      "local lint = require(\"_cli.lint\")\n" ..
+      "local _diags, _err = lint.lint_file(\"x.tl\", 10)\n"))
+end
+
+local function test_widened_call_between_shipped_modules_is_refused()
+  local tmpdir = env.get_or("TEST_TMPDIR", "/tmp")
+  write_widened_call_fixture(tmpdir)
+
+  local r = check_generation_1({fs.join(tmpdir, "caller.tl")})
+  local message = widened_call_message(r.stderr)
+  assert(not r.ok and message ~= "",
+    "a call widened by an extra optional parameter on the caller's " ..
+    "side only must fail generation 1's type check the same way " ..
+    "#1775 did — the pinned release's shipped snapshot of the callee " ..
+    "still has the old arity even though the fixture's own two copies " ..
+    "agree. Instead: ok=" .. tostring(r.ok) ..
+    "\nstdout: " .. r.stdout .. "\nstderr: " .. r.stderr)
 end
