@@ -488,4 +488,12 @@ end
   assert(found_method, "should find the method field")
 end
 
+-- A source that fails to parse surfaces the error, not an empty list
+local function test_parse_records_syntax_error()
+  local result = doc.parse("local function broken(\n", "broken.tl")
+  local err = (result as {string: any})["parse_error"] -- cast: dynamic module boundary, see init.tl's parse()
+  assert(err, "should record a parse error")
+  assert(#result.functions == 0, "should have no functions")
+end
+
 print("All doc tests passed!")

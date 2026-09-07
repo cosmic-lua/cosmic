@@ -153,7 +153,7 @@ local function parse(source: string, file_path: string): ModuleDoc
   -- (source) order, then appended local-first -- the same grouping
   -- the old two separate text scans produced, load-bearing for the
   -- embedded index staying byte-identical.
-  local sigs = doc_signature.function_signatures(source, file_path)
+  local sigs, sigs_err = doc_signature.function_signatures(source, file_path)
   if sigs then
     local local_fns: {FunctionDoc} = {}
     local other_fns: {FunctionDoc} = {}
@@ -169,6 +169,12 @@ local function parse(source: string, file_path: string): ModuleDoc
     end
     for _, entry in ipairs(local_fns) do table.insert(doc.functions, entry) end
     for _, entry in ipairs(other_fns) do table.insert(doc.functions, entry) end
+  else
+    -- ModuleDoc has no declared parse_error field: cosmic.doc already
+    -- ships in the pinned release, so a real field here would fail
+    -- generation 1's cold build the moment a sibling reads it back
+    -- against that stale snapshot. A dynamic key sidesteps it.
+    (doc as {string: any})["parse_error"] = sigs_err -- cast: dynamic module boundary, avoids the cold-build snapshot mismatch a declared field would trip
   end
   -- Records
   line_num = 1
