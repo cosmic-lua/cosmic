@@ -32,7 +32,8 @@ here is refused today, matching `docs/design/casts.md`'s own two probes
 any`) which both pass clean on the pinned checker.
 
 Two lines carry two refused casts each, so the site count is **133 of
-the tree's 198 cast sites** (`docs/design/cast-sites.tsv`). The 209
+the tree's 198 cast sites** (the committed site inventory of the day,
+since superseded by `_build/casts_kinds.tl`'s allowlist). The 209
 this item's own text cites has since moved: `daab8101` ("Add
 check.is_exposed and route the type-defeating test probes it fits")
 routed 13 of the 26 type-defeating-test-probe sites through that helper
@@ -43,8 +44,8 @@ refused `(file, line)` matches a row already in the committed site
 inventory, because the patch reports at the "op" node's own position,
 which parsing sets to the `as`/`is` keyword token
 (`o/3p/tl/tl.lua:3410`) — the same token `_cli.lint.cast_lines` (and so
-`cast-sites.tsv`) keys on. No line drifted, no refusal landed on a spot
-the inventory does not already track.
+that day's site inventory) keys on. No line drifted, no refusal landed
+on a spot the inventory did not already track.
 
 **A refusal names the operand's type**, via tl's own `show_type`, e.g.:
 
@@ -59,7 +60,7 @@ not a guess.
 
 ## By class
 
-One row per class, `docs/design/cast-sites.tsv`'s 21, allowed/refused
+One row per class, the day's site inventory's 21, allowed/refused
 under the rule:
 
 | class | sites | refused | allowed |

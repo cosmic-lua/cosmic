@@ -61,7 +61,7 @@ build when the committed copy drifts.
 | D24 | slot 2 may carry a structured error: concrete per-module records, one `Failure` supertype | active | [→](d24-structured-failures.md) |
 | D25 | goals split into ranked outcomes and instruments; ratchets gate, peers are the scoreboard | amended 2026-09 (D45 replaced the paired-comparison ranking method) | [→](d25-outcomes-and-instruments.md) |
 | D26 | a decision record: four sections, a status header, amended in place | active | [→](d26-decision-records.md) |
-| D27 | every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default | amended 2026-09 (coverage's floor is no longer a file) | [→](d27-one-committed-floor.md) |
+| D27 | every committed floor is a `cosmic.literal` file, and duplicate keys are refused by default | amended 2026-09 (coverage's and casts' floors are no longer files) | [→](d27-one-committed-floor.md) |
 | D28 | a validating decode is combinators the checker checks, not a table of type-name strings | active | [→](d28-shape-combinators.md) |
 | D29 | a test runs because it is defined, not because its file called it | active | [→](d29-tests-run-because-defined.md) |
 | D30 | a cosmic module throws or exits only where no caller could receive the value | active | [→](d30-throw-exit-boundaries.md) |

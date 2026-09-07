@@ -10,9 +10,10 @@
 ---
 --- These stay COMMITTED rather than generated into `o/` and embedded:
 --- they are read on GitHub, by people who are not running a build. So
---- the shape is the one `_build/casts_baseline.tl` already uses in this
---- repo -- a derived file, a command that rewrites it, and a gate that
---- fails when the committed copy is stale (`_build/docs_test.tl`).
+--- the shape is the one `_build/public_surface_baseline.tl` already
+--- uses in this repo -- a derived file, a command that rewrites it,
+--- and a gate that fails when the committed copy is stale
+--- (`_build/docs_test.tl`).
 ---
 ---     bin/cosmic _docs/derive.tl        # rewrite the derived regions
 ---
