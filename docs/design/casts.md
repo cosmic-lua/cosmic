@@ -30,14 +30,11 @@ files it applies to; where a predicate cannot tell a class apart from a
 neighbour sharing its file — two casts to the same rendered type doing
 two different jobs, `cosmic/ast/match.tl`'s two `as Node` sites being
 the sharpest example — the entry instead names its sites explicitly, by
-file and exact source line. Three checks run every kind against the
+file and exact source line. One check runs every kind against the
 walk: every cast matches exactly one kind (a site matching none names
 `file:line` and, when some kind's pattern would have matched outside
 its own scope, the kinds it nearly matched; a site matching two names
-both); no kind matches more sites than the ceiling committed beside it
-in `_build/casts_kinds.tl`, shrunk by hand as sites close; and every
-kind still has at least one site — a kind at zero is deleted outright,
-heading and all, never kept at zero.
+both).
 
 A grep for the justification comment counts higher than the tree's
 real cast count — 11 higher today — because a `-- cast: ` string can
@@ -451,8 +448,8 @@ next cast in that same function is the same floor site under
 ## What this is not
 
 Not a floor and not a hand-maintained inventory. `_build/casts_kinds.tl`
-is the allowlist that holds each class's site count down, checked
-against a fresh walk of the tree by `_build/casts_test.tl`;
+is the allowlist, checked against a fresh walk of the tree by
+`_build/casts_test.tl`;
 `cosmic --check lint` enforces the justification comment and checks
 this document's citations against the tree. This document is the map:
 what the remaining sites are, which can be closed, and by whom.

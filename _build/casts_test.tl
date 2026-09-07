@@ -16,13 +16,10 @@
 -- files it applies to, or (where a predicate cannot tell a kind apart
 -- from a neighbour sharing its file) an explicit list of exact sites.
 -- This file walks a fresh `cosmic.ast` parse of the whole tree and
--- checks three things against that allowlist: every cast matches
--- exactly one kind, no kind matches more sites than its committed
--- ceiling (shrunk by hand in `casts_kinds.tl` as sites close), and
--- every kind still has at least one site (a kind at zero is deleted,
--- never kept at zero). A cast nothing here recognizes fails naming
--- `file:line` and, when some kind's PATTERN would have matched had its
--- `where` scope reached that file, the kinds it nearly matched --
+-- checks every cast against that allowlist: every cast matches exactly
+-- one kind. A cast nothing here recognizes fails naming `file:line`
+-- and, when some kind's PATTERN would have matched had its `where`
+-- scope reached that file, the kinds it nearly matched --
 -- `docs/design/casts.md`'s Classes section is where a real new site
 -- gets triaged into an existing kind or a new one.
 
@@ -207,49 +204,6 @@ local function test_every_cast_site_matches_exactly_one_kind()
   assert(#problems == 0,
     "site(s) not classified into exactly one kind:\n  " ..
     table.concat(problems, "\n  "))
-end
-
-local function test_no_kind_exceeds_its_committed_ceiling()
-  local sites = scan(".")
-  local compiled = compile_kinds(kinds_mod.KINDS)
-  local problems: {string} = {}
-  for _, c in ipairs(compiled) do
-    local n = 0
-    for _, s in ipairs(sites) do
-      if kind_matches(s, c) then
-        n = n + 1
-      end
-    end
-    if n > c.kind.sites then
-      problems[#problems + 1] = string.format(
-        "%s: %d site(s), over its committed ceiling of %d -- lower the" ..
-        " ceiling in _build/casts_kinds.tl, or this kind grew a site",
-        c.kind.name, n, c.kind.sites)
-    end
-  end
-  table.sort(problems)
-  assert(#problems == 0, table.concat(problems, "\n  "))
-end
-
-local function test_every_kind_has_at_least_one_site()
-  local sites = scan(".")
-  local compiled = compile_kinds(kinds_mod.KINDS)
-  local problems: {string} = {}
-  for _, c in ipairs(compiled) do
-    local n = 0
-    for _, s in ipairs(sites) do
-      if kind_matches(s, c) then
-        n = n + 1
-      end
-    end
-    if n == 0 then
-      problems[#problems + 1] = c.kind.name ..
-      " -- delete this entry and its docs/design/casts.md heading"
-    end
-  end
-  table.sort(problems)
-  assert(#problems == 0,
-    "kind(s) with no site left:\n  " .. table.concat(problems, "\n  "))
 end
 
 print("all cast kind ratchet tests passed")

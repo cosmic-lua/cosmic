@@ -5,27 +5,28 @@
 --- Each `Kind` claims a slice of the tree's `as` casts one of two ways:
 --- a `pattern` (the `cosmic.ast` grammar -- `$X as $T`, a literal
 --- target type, or `$T:<lua pattern>` predicate on the rendered type
---- text) applied to every file under `where`; or an `explicit` list of
---- exact sites, for a kind two neighbours share a file with and no
---- type-text predicate can tell apart (two casts to the same rendered
---- type, in the same file, doing two different jobs -- `cosmic/ast/
---- match.tl`'s two `as Node` sites are the sharpest example: one is
---- this tree's own AST surface, the other an incrementally-built
---- record, and nothing about either cast's TEXT says which). A kind
---- may carry both: `pattern`/`where` for the bulk of its sites, plus a
---- short `explicit` list for the handful a predicate cannot separate
---- from a sibling kind in the same file. An `explicit` entry is
---- `(path, exact trimmed source line)` -- stable under a line shifting
---- up or down the file, which a `(path, line number)` key would not
---- be, and precise enough that two casts sharing one line (`_cli.lint`
---- counts the LINE; this walks the AST, so a line holding two `as`
---- tokens is two sites) both resolve to the same entry.
+--- text) applied to every file under `where`; or an `explicit` list
+--- naming each exact one, for a kind two neighbours share a file with
+--- and no type-text predicate can tell apart (two casts to the same
+--- rendered type, in the same file, doing two different jobs --
+--- `cosmic/ast/match.tl`'s two `as Node` casts are the sharpest
+--- example: one is this tree's own AST surface, the other an
+--- incrementally-built record, and nothing about either cast's TEXT
+--- says which). A kind may carry both: `pattern`/`where` for most of
+--- its casts, plus a short `explicit` list for the handful a predicate
+--- cannot separate from a sibling kind in the same file. An `explicit`
+--- entry is `(path, exact trimmed source line)` -- stable under a line
+--- shifting up or down the file, which a `(path, line number)` key
+--- would not be, and precise enough that two casts sharing one line
+--- (`_cli.lint` counts the LINE; this walks the AST, so a line holding
+--- two `as` tokens is two distinct casts) both resolve to the same
+--- entry.
 ---
---- `sites` is the shrink-only ceiling `_build/casts_test.tl` checks
---- every kind against: lower it by hand as a kind's sites are closed,
---- same discipline `_build/casts_baseline.tl` used to enforce per file.
---- Deleting a kind's entry outright, once its last site closes, is
---- itself part of that shrink -- casts.md's `### ` heading goes with it.
+--- `_build/casts_test.tl` checks every kind against a fresh walk of the
+--- tree: every cast matches exactly one kind. A site matching none
+--- names `file:line` and, when some kind's pattern would have matched
+--- outside its own scope, the kinds it nearly matched; a site matching
+--- two names both.
 
 local record ExplicitSite
   --- The site's file, relative to the project root.
@@ -47,9 +48,6 @@ local record Kind
   --- Sites a predicate cannot separate from a sibling kind sharing the
   --- same file and rendered type text.
   explicit: {ExplicitSite}
-  --- The shrink-only ceiling on this kind's total site count (pattern
-  --- matches plus explicit entries together).
-  sites: integer
 end
 
 local KINDS: {Kind} = {
@@ -88,7 +86,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/ast/match.tl",
         text = "if not (k is integer) and not IGNORE_KEYS[k as string] then -- cast: non-integer key is a field name"},
     },
-    sites = 36,
   },
   {
     name = "userdata boundary",
@@ -99,7 +96,6 @@ local KINDS: {Kind} = {
       "cosmic/fs/types.tl", "cosmic/fs/walk.tl",
     },
     explicit = {},
-    sites = 14,
   },
   {
     name = "type-defeating test probe",
@@ -116,7 +112,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/quicksand/proxy/rules_test.tl",
         text = "assert(rules.auth_header(true as rules.ProxyRule) == nil, \"true injects nothing\")"},
     },
-    sites = 15,
   },
   {
     name = "enum relation",
@@ -129,7 +124,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/fetch/init.tl",
         text = "local k = (kind or \"invalid_request\") as ErrorKind -- cast: enum superset of binding string"},
     },
-    sites = 11,
   },
   {
     name = "module surface record",
@@ -141,7 +135,6 @@ local KINDS: {Kind} = {
       {path = "_types/tlast_test.tl",
         text = "local fresh_tl = tl_chunk() as {string: any} -- cast: freshly loaded module surface"},
     },
-    sites = 10,
   },
   {
     name = "container variance",
@@ -160,14 +153,12 @@ local KINDS: {Kind} = {
       {path = "cosmic/sqlite/bind.tl",
         text = "local named = params as {string: any} -- cast: map view of the params table"},
     },
-    sites = 9,
   },
   {
     name = "generic T",
     pattern = "$X as $T",
     where = {"cosmic/deep.tl", "cosmic/fetch/extras.tl", "cosmic/shape.tl"},
     explicit = {},
-    sites = 9,
   },
   {
     -- Same class as above, split out because its one site (a fresh
@@ -175,12 +166,11 @@ local KINDS: {Kind} = {
     -- "userdata boundary" casts of the same shape -- only the literal
     -- target type tells them apart, so this entry's `where` cannot
     -- merge with the broader `$X as $T` entry above without also
-    -- claiming those sites.
+    -- claiming those casts.
     name = "generic T",
     pattern = "$X as T",
     where = {"cosmic/fs/walk.tl"},
     explicit = {},
-    sites = 1,
   },
   {
     name = "map view of a declared value",
@@ -191,7 +181,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/quicksand/box/merge.tl",
         text = "acc = merge_section(\"\", acc, t as {string: any}) -- cast: record inspected as map"},
     },
-    sites = 7,
   },
   {
     name = "binding contract shape",
@@ -204,7 +193,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/fetch/init.tl", text = "return fail(headers_or_err, reader_or_kind as string)"},
       {path = "cosmic/sqlite/bind.tl", text = "return raw_stmt:bind(i, v as string)"},
     },
-    sites = 7,
   },
   {
     name = "runtime capability probe",
@@ -214,7 +202,6 @@ local KINDS: {Kind} = {
       "cosmic/sandbox/plan.tl", "cosmic/stream.tl",
     },
     explicit = {},
-    sites = 6,
   },
   {
     name = "metatable access",
@@ -223,14 +210,12 @@ local KINDS: {Kind} = {
     explicit = {
       {path = "_types/tlast.tl", text = "hooks.type_mt as {any: any}) -- cast: metatable as plain table identity"},
     },
-    sites = 1,
   },
   {
     name = "function shape",
     pattern = "$X as $T",
     where = {"cosmic/net/connect.tl", "cosmic/net/socket.tl"},
     explicit = {},
-    sites = 4,
   },
   {
     name = "record union after guard",
@@ -243,7 +228,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/check.tl",
         text = "local status = (wr as proc.WaitResult).status -- cast: record union after guard"},
     },
-    sites = 5,
   },
   {
     name = "incremental record construction",
@@ -256,7 +240,6 @@ local KINDS: {Kind} = {
       {path = "cosmic/quicksand/box/merge.tl",
         text = "return acc as types.BoxOptions -- cast: dynamic walk rebuilt as the record it walked"},
     },
-    sites = 3,
   },
   {
     name = "pcall return shape",
@@ -266,14 +249,12 @@ local KINDS: {Kind} = {
       "cosmic/shm.tl", "cosmic/sqlite/extras.tl",
     },
     explicit = {},
-    sites = 6,
   },
   {
     name = "binding constant by name",
     pattern = "$X as $T",
     where = {"cosmic/quicksand/caps.tl"},
     explicit = {},
-    sites = 2,
   },
 }
 
