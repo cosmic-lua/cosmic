@@ -123,23 +123,21 @@ local function owner_text(owner: Node): string
   return owner.tk or ""
 end
 
---- The name `init.tl` has always recorded for a `record_function`:
---- bare for the dot form (owner dropped, whatever its own depth), the
---- full `Owner:name` for the colon (method) form. Mirrors the old
---- text extractor's own rule exactly — strip one leading identifier
---- segment from the dotted owner chain, keep any remainder — since a
---- deeper rewrite is not this item's Change.
+--- The name `init.tl` has always recorded for a `record_function`: bare
+--- for a one-segment dot-form owner (`M.bar` → `bar`), otherwise the
+--- full dotted owner chain plus the method — the same rule for both
+--- forms, however deep the chain: `M.Sub.bar` for the dot form,
+--- `M.Sub:baz` for the colon (method) form.
 --- @param node FnNode A "record_function" node
 --- @return string The function's recorded name
 local function record_function_name(node: FnNode): string
   local bare = node.name.tk
-  if node.is_method then
-    return owner_text(node.fn_owner) .. ":" .. bare
-  end
   local owner = owner_text(node.fn_owner)
-  local rest = owner:match("^[%w_]+%.(.+)$")
-  if rest then
-    return rest .. "." .. bare
+  if node.is_method then
+    return owner .. ":" .. bare
+  end
+  if owner:find("%.") then
+    return owner .. "." .. bare
   end
   return bare
 end

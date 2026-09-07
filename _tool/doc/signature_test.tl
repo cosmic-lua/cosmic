@@ -115,6 +115,30 @@ end
   assert(sigs[2].name == "M:baz", "colon form keeps Owner:name, got: " .. sigs[2].name)
 end
 
+-- Owner qualification at two levels: both forms keep the FULL dotted
+-- owner chain plus the method once the chain is more than one segment
+-- deep -- unlike the one-level case above, where the dot form drops
+-- the owner entirely.
+local function test_record_function_name_qualification_nested()
+  local source = [[
+local record M
+  record Sub
+  end
+end
+function M.Sub.bar(x: integer): M.Sub
+end
+function M.Sub:baz(x: integer): M.Sub
+end
+]]
+  local sigs = check.must(sig.function_signatures(source, "record_fns_nested.tl"))
+  assert(#sigs == 2, "two functions found, got " .. #sigs)
+  assert(sigs[1].name == "M.Sub.bar",
+    "nested dot form keeps the full chain, got: " .. sigs[1].name)
+  assert(sigs[1].is_local == false, "a record function is never local")
+  assert(sigs[2].name == "M.Sub:baz",
+    "nested colon form keeps the full chain, got: " .. sigs[2].name)
+end
+
 -- `Example*` functions are excluded here too: `init.tl`'s own separate
 -- Examples loop extracts their body and expected output, and a second
 -- entry from this shard would duplicate them as ordinary functions.
