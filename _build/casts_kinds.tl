@@ -166,10 +166,21 @@ local KINDS: {Kind} = {
     name = "generic T",
     pattern = "$X as $T",
     where = {"cosmic/deep.tl", "cosmic/fetch/extras.tl", "cosmic/shape.tl"},
-    explicit = {
-      {path = "cosmic/fs/walk.tl", text = "ctx = ctx or {} as T -- cast: fresh table as generic T"},
-    },
-    sites = 10,
+    explicit = {},
+    sites = 9,
+  },
+  {
+    -- Same class as above, split out because its one site (a fresh
+    -- table cast to the literal type name `T`) shares its file with
+    -- "userdata boundary" casts of the same shape -- only the literal
+    -- target type tells them apart, so this entry's `where` cannot
+    -- merge with the broader `$X as $T` entry above without also
+    -- claiming those sites.
+    name = "generic T",
+    pattern = "$X as T",
+    where = {"cosmic/fs/walk.tl"},
+    explicit = {},
+    sites = 1,
   },
   {
     name = "map view of a declared value",
@@ -259,12 +270,9 @@ local KINDS: {Kind} = {
   },
   {
     name = "binding constant by name",
-    pattern = "",
-    where = {},
-    explicit = {
-      {path = "cosmic/quicksand/caps.tl",
-        text = "local n = (unix as {string: any})[name] as integer -- cast: dynamic constant lookup"},
-    },
+    pattern = "$X as $T",
+    where = {"cosmic/quicksand/caps.tl"},
+    explicit = {},
     sites = 2,
   },
 }
