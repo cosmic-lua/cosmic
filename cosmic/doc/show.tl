@@ -186,6 +186,13 @@ local function render_module(name: string, doc: ModuleDoc): string
   local simple_name = name:match("([^%.]+)$") or name
   table.insert(lines, "# " .. simple_name)
   table.insert(lines, "")
+  -- parse_error rides as a dynamic key rather than a declared
+  -- ModuleDoc field -- see _tool/doc/init.tl's parse() for why.
+  local parse_error = (doc as {string: any})["parse_error"] as string -- cast: dynamic module boundary, reads the key parse() may have set
+  if parse_error then
+    table.insert(lines, "**parse error — this page is incomplete:** " .. parse_error)
+    table.insert(lines, "")
+  end
   if doc.internal then
     table.insert(lines, "**internal module — not API, may change without notice**")
     table.insert(lines, "")
