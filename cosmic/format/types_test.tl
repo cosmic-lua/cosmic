@@ -303,6 +303,18 @@ local function test_a_generic_function_type_still_carries_its_wrap()
     "test.tl")
 end
 
+-- Generic lists and declaration attributes use the same angle-bracket
+-- tokens. Parser-owned roles keep the generic tight while retaining the
+-- established spaced attribute style.
+local function test_generic_and_attribute_roles_have_distinct_spacing()
+  assert_format(
+    "local VALUE<const>:function<T,U>(T,U):T\n",
+    "local VALUE < const >: function<T, U>(T, U): T\n",
+    "generic and attribute contexts come from parsed syntax",
+    "roles.tl"
+  )
+end
+
 -- The workaround shape from the issue this pins: a named
 -- `function(): T` alias, discriminated with `type()` and cast. It must
 -- stay format-clean alongside the direct `is function` it replaced.

@@ -32,6 +32,13 @@ local interface Item
   kind: string
 end
 
+local function syntax_flag(item: Item, key: string): boolean | nil
+  local fields = item as {string: any} -- cast: private formatter metadata on Item
+  local value = fields[key]
+  if value is boolean then return value end
+  return nil
+end
+
 --- Determine if a `function` keyword is a block-opening function definition
 --- vs a function TYPE annotation.
 ---
@@ -44,6 +51,11 @@ end
 --- prevent, one line-break further along.
 local function is_function_block_opener(line_items: {Item}, func_idx: integer,
     continues_type?: boolean): boolean
+  local function_item = line_items[func_idx]
+  local classified = syntax_flag(function_item, "_syntax_classified")
+  if classified is boolean then
+    return not (syntax_flag(function_item, "_type_syntax") or false)
+  end
   if continues_type then
     local first: Item = nil
     for _, item in ipairs(line_items) do
@@ -265,6 +277,15 @@ end
 local function type_marks(line_items: {Item},
     continues_type?: boolean): {integer: boolean}
   local type_ctx: {integer: boolean} = {}
+  local structurally_classified = false
+  for idx, item in ipairs(line_items) do
+    local classified = syntax_flag(item, "_syntax_classified")
+    if classified is boolean then
+      structurally_classified = true
+      if syntax_flag(item, "_type_syntax") then type_ctx[idx] = true end
+    end
+  end
+  if structurally_classified then return type_ctx end
   if continues_type then
     mark_carried_type(line_items, type_ctx)
   end

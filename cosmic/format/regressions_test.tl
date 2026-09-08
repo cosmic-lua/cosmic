@@ -291,6 +291,17 @@ local function test_bug_variant_as_function_cast_inside_function_body()
   )
 end
 
+-- Formatting is syntax-only. Neither a missing imported module nor an
+-- assignment type error may prevent parser-owned type roles from working.
+local function test_type_formatting_does_not_require_inference()
+  assert_format(
+    "local missing = require(\"no.such.module\")\nlocal n:number = \"wrong\"\nlocal f:function<T>(T):T = missing.f\nreturn f\n",
+    "local missing = require(\"no.such.module\")\nlocal n: number = \"wrong\"\nlocal f: function<T>(T): T = missing.f\nreturn f\n",
+    "type formatting survives unresolved imports and type errors",
+    "broken.tl"
+  )
+end
+
 -- Bug variant: as function cast with multi-return type
 local function test_bug_variant_as_function_cast_multi_return_type()
   assert_format(
