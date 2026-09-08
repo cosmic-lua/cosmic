@@ -30,6 +30,7 @@ local TO_STRING: {string: boolean} = {
 local NAMED: {string: boolean} = {
   Token = true, Error = true, Result = true,
   EnvOptions = true, CheckOptions = true, Comment = true, Env = true,
+  TypeInfo = true, TypeReport = true,
 }
 
 local function erase(t: string): string
@@ -169,6 +170,9 @@ local FUNCTIONS: {Entry} = {
   {name = "new_env"},
   {name = "lex"},
   {name = "parse_program"},
+  {name = "check", comment = {
+      "-- checks an already parsed AST; does not lex or parse the root again",
+    }},
   {name = "process_string", optional_from = 5, comment = {
       "-- always returns a Result; parse/check failures land in its",
       "-- syntax_errors/type_errors fields, never in a second return.",
@@ -183,7 +187,7 @@ local FUNCTIONS: {Entry} = {
 
 local RECORD_FIELDS: {string: {string}} = {
   Error = {"filename", "y", "x", "msg", "tag"},
-  Result = {"ast", "syntax_errors", "type_errors", "warnings"},
+  Result = {"ast", "syntax_errors", "type_errors", "warnings", "dependencies"},
   Comment = {"x", "y", "text"},
   Token = {"x", "y", "tk", "kind", "comments"},
   CheckOptions = {
@@ -191,7 +195,12 @@ local RECORD_FIELDS: {string: {string}} = {
     "run_internal_compiler_checks",
   },
   EnvOptions = {"defaults", "predefined_modules", "parsed_prelude", "parsed_stdlib"},
-  Env = {"report_types", "loaded"},
+  Env = {"report_types", "loaded", "reporter"},
+  TypeInfo = {
+    "t", "str", "ref", "fields", "meta_fields", "args", "rets",
+    "vararg", "varret", "types", "keys", "values", "elements",
+  },
+  TypeReport = {"by_pos", "types"},
 }
 
 local PRELUDE < const > = [[-- GENERATED into o/_types/types_gen/ by _types/types_gen.tl from the pinned tl
@@ -213,6 +222,7 @@ local record tl
     syntax_errors: {Error}
     type_errors: {Error}
     warnings: {Error}
+    dependencies: {string: string}
   end
 
   -- one lexed comment, as tl's own Comment record: the three fields
@@ -257,9 +267,34 @@ local record tl
   record Env
     report_types: boolean
     loaded: {string: Result}
+    reporter: any
+  end
+
+  -- Structured checker report. TypeInfo.str is display text; structural
+  -- consumers use the referenced ids in args/rets/types/fields/containers.
+  record TypeInfo
+    t: integer
+    str: string
+    ref: integer
+    fields: {string: integer}
+    meta_fields: {string: integer}
+    args: {{integer, string}}
+    rets: {{integer, string}}
+    vararg: boolean
+    varret: boolean
+    types: {integer}
+    keys: integer
+    values: integer
+    elements: integer
+  end
+
+  record TypeReport
+    by_pos: {string: {integer: {integer: integer}}}
+    types: {integer: TypeInfo}
   end
 
   path: string
+  typecodes: {string: integer}
   warning_kinds: {string: boolean}
   -- carried-patch surface (tl_patch/ast_cache.tl ast-cache-hooks-*): the node and
   -- type metatables plus the typeid allocator an AST cache thaw needs
