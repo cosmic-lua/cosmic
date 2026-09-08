@@ -97,3 +97,31 @@ local function test_safe_fix_round_reparses_and_stops_at_a_fixpoint()
   assert(result.code == "bar()\n", "safe fix candidate was not applied")
   assert(result.rounds == 2, "runner should recheck one applied round")
 end
+
+local function test_default_type_capability_and_error_verdict()
+  local typed = rule({
+    id = "typed-default", needs = {"types"}, kinds = {"integer"},
+    visit = function(ctx: analysis.Context, hit: analysis.Hit)
+      assert(ctx.analysis and ctx.analysis.complete, "types must be inferred on demand")
+      ctx:report("policy violation", hit.node, "error")
+    end,
+  })
+  local result = analysis.run(parsed("return 1\n"), {typed})
+  assert(result.complete, result.error or "type analysis must complete")
+  assert(not result.ok and #result.diagnostics == 1)
+end
+
+local function test_type_invalid_fix_does_not_escape_as_output()
+  local replacement = rule({
+    id = "bad-typed-fix", needs = {"types"}, kinds = {"integer"},
+    visit = function(ctx: analysis.Context, hit: analysis.Hit)
+      local range = check.must(source.range(ctx.snapshot, hit.node))
+      local changed = check.must(edit.replace(ctx.snapshot, range, "'wrong'"))
+      ctx:propose(edit.fix("change value", "safe", {changed}))
+    end,
+  })
+  local original = "local x: integer = 1\nreturn x\n"
+  local result = analysis.run(parsed(original), {replacement}, {apply_fixes = true})
+  assert(not result.complete and not result.ok)
+  assert(result.code == original, "type-invalid candidate must remain private")
+end
