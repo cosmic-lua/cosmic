@@ -19,6 +19,8 @@ Cosmic options:
                                 `--make check|fmt|lint|example`
   --make check --changed <paths...>
                                check changed files and their callers; include deleted paths
+  --make check --report <file.json> [paths...]
+                               write scope, diagnostics, reused proofs, and failures as JSON
   --max-lines <n>               with --check lint: file-length cap
                                 (default 500)
   --find <pattern> [path]...    structural search: cosmic.ast.match over
