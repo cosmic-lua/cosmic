@@ -22,6 +22,12 @@ local find = require("_cli.find")
 
 local type Node = ast.Node
 
+local record Outcome
+  applied: integer
+  refused: integer
+  failed: boolean
+end
+
 --- Apply `pattern`/`replacement` to one file. Writes the file back only
 --- on an ok (formatted, reparsed-clean) result; a parse or format
 --- failure is reported to stderr and leaves the file untouched. Every
@@ -30,12 +36,12 @@ local type Node = ast.Node
 --- @param pattern Node A compiled pattern
 --- @param replacement string A replacement template, `$NAME`/`$$$NAME` surface syntax
 --- @param path string The file to rewrite in place
---- @return integer Hits applied in this file
---- @return integer Hits refused in this file
-local function fix_one(pattern: Node, replacement: string, path: string): integer, integer
-  local source = fs.read(path)
+--- @return Outcome Counts and whether this file could be processed and written
+local function fix_one(pattern: Node, replacement: string, path: string): Outcome
+  local source, read_err = fs.read(path)
   if not source then
-    return 0, 0
+    io.stderr:write("rewrite: " .. path .. ": " .. tostring(read_err) .. "\n")
+    return {applied = 0, refused = 0, failed = true}
   end
   local parsed = ast.parse(source, path)
   local total_hits = parsed and #ast.find_all(parsed.node, pattern) or 0
@@ -43,19 +49,21 @@ local function fix_one(pattern: Node, replacement: string, path: string): intege
   local result, err = ast.rewrite(source, path, pattern, replacement)
   if not result then
     io.stderr:write("rewrite: " .. path .. ": " .. tostring(err) .. "\n")
-    return 0, 0
+    return {applied = 0, refused = 0, failed = true}
   end
   for _, r in ipairs(result.refused) do
     local y, x = ast.span_start(r.node)
     io.stderr:write("rewrite: refused " .. path .. ":" .. y .. ":" .. x
       .. ": would drop " .. #r.comments .. " comment(s)\n")
   end
-  local ok, werr = fs.write(path, result.code)
-  if not ok then
-    io.stderr:write("rewrite: " .. path .. ": " .. tostring(werr) .. "\n")
-    return 0, #result.refused
+  if result.code ~= source then
+    local ok, werr = fs.write(path, result.code)
+    if not ok then
+      io.stderr:write("rewrite: " .. path .. ": " .. tostring(werr) .. "\n")
+      return {applied = 0, refused = #result.refused, failed = true}
+    end
   end
-  return total_hits - #result.refused, #result.refused
+  return {applied = total_hits - #result.refused, refused = #result.refused, failed = false}
 end
 
 --- Run `--rewrite PATTERN [PATH...]` (search) or `--rewrite PATTERN
@@ -91,15 +99,21 @@ local function run(pattern_src: string, paths: {string}, apply: boolean): intege
     return 2
   end
 
-  local applied, refused = 0, 0
+  local applied, refused, failed = 0, 0, 0
   for _, path in ipairs(files) do
-    local a, r = fix_one(pattern, replacement, path)
-    applied = applied + a
-    refused = refused + r
+    local result = fix_one(pattern, replacement, path)
+    applied = applied + result.applied
+    refused = refused + result.refused
+    if result.failed then
+      failed = failed + 1
+    end
   end
   io.write("rewrite: " .. applied .. " applied, " .. refused ..
     " refused in " .. #files .. " file(s)\n")
-  if refused > 0 then
+  if failed > 0 then
+    io.write("rewrite: " .. failed .. " file(s) failed\n")
+  end
+  if refused > 0 or failed > 0 then
     return 1
   end
   return applied > 0 and 0 or 1
