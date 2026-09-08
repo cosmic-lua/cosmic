@@ -24,6 +24,8 @@ local records = require("_tool.records")
 local seam = require("_tool.seam")
 local teal = require("cosmic.teal")
 local deps = require("_make.deps")
+local impact = require("_make.impact")
+local check_scope = require("_make.check_scope")
 local project = require("_make.project")
 local selection = require("_make.select")
 local stamp = require("_make.stamp")
@@ -126,12 +128,16 @@ end
 --- @return string An error naming a selection path that matched nothing
 local function select_files(proj: Project, paths: {string}): {File} | nil, string
   local all: {File} = {}
-  for _, f in ipairs(proj.files) do
+  local candidates = proj.files
+  if check_scope.changed() then
+    candidates = impact.affected(proj, paths).selected
+  end
+  for _, f in ipairs(candidates) do
     if checkable[f.kind] and f.path:sub(-3) == ".tl" then
       all[#all + 1] = f
     end
   end
-  return selection.files(all, paths, proj.root)
+  return selection.files(all, check_scope.changed() and {} or paths, proj.root)
 end
 
 --- Type-check the selected files, writing issues to stderr as they are
@@ -199,6 +205,15 @@ local function run(proj: Project, paths: {string}): integer
   end
 
   local selected = files
+  if check_scope.changed() then
+    local scope = impact.affected(proj, paths)
+    io.write("check: changed impact selects " .. #selected .. " checkable file(s), " ..
+      #scope.dependencies .. " additional dependency input(s), " ..
+      #scope.excluded .. " excluded file(s)\n")
+    if scope.conservative then
+      io.write("check: full selection: " .. scope.reason .. "\n")
+    end
+  end
   -- The graph's half first: a file whose strict compile is up to date
   -- against the same inputs is already checked, so re-deriving the
   -- answer in process is pure duplication — measured at 2m40s of a
