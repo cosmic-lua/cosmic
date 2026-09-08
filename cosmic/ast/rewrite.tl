@@ -39,8 +39,6 @@ local record Refusal
   node: Node
   --- The comment text(s) that would have been dropped.
   comments: {string}
-  --- Stable explanation for refusals that are not comment loss.
-  reason: string
 end
 
 --- The outcome of one `rewrite` call.
@@ -337,14 +335,14 @@ local function rewrite(source: string, name: string, pattern: Node,
     if replacement == "" and is_call(h.node) then
       if not direct_calls[h.node] then
         refused[#refused + 1] = {
-          node = h.node, comments = {}, reason = "matched call is not a statement",
+          node = h.node, comments = {},
         }
         goto continue
       end
       local sa, sb = statement_range(h.node, parsed.tokens, starts, source)
       if not sa or not sb then
         refused[#refused + 1] = {
-          node = h.node, comments = {}, reason = "statement deletion range is ambiguous",
+          node = h.node, comments = {},
         }
         goto continue
       end
@@ -359,7 +357,7 @@ local function rewrite(source: string, name: string, pattern: Node,
     local dropped = dropped_comments(parsed.tokens, starts, a, b, kept)
     if #dropped > 0 then
       refused[#refused + 1] = {
-        node = h.node, comments = dropped, reason = "replacement would drop comments",
+        node = h.node, comments = dropped,
       }
     else
       proposed[#proposed + 1] = {a = a, b = b, text = text, hit = h}
@@ -381,7 +379,7 @@ local function rewrite(source: string, name: string, pattern: Node,
     for _, edit in ipairs(proposed) do
       if conflicted[edit] then
         refused[#refused + 1] = {
-          node = edit.hit.node, comments = {}, reason = "overlapping rewrite hits",
+          node = edit.hit.node, comments = {},
         }
       end
     end
