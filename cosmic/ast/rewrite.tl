@@ -21,7 +21,7 @@
 local node_mod = require("cosmic.ast.node")
 local ast_walk = require("cosmic.ast.walk")
 local ast_match = require("cosmic.ast.match")
-local template = require("cosmic.ast.rewrite_template")
+local template = require("cosmic.edit")
 local format = require("cosmic.format")
 local tl = require("tl")
 
@@ -369,10 +369,14 @@ local function rewrite(source: string, name: string, pattern: Node,
       return p.a < q.a or (p.a == q.a and p.b < q.b)
     end)
   local conflicted: {Proposed: boolean} = {}
+  local covering = proposed[1]
   for i = 2, #proposed do
-    local previous, current = proposed[i - 1], proposed[i]
-    if current.a <= previous.b then
-      conflicted[previous], conflicted[current] = true, true
+    local current = proposed[i]
+    if covering and current.a <= covering.b then
+      conflicted[covering], conflicted[current] = true, true
+      if current.b > covering.b then covering = current end
+    else
+      covering = current
     end
   end
   if next(conflicted) ~= nil then

@@ -166,3 +166,12 @@ local function test_rewrite_refuses_overlapping_hits_atomically()
   check.equal(#result.refused, 2)
   check.equal(result.code, source)
 end
+
+local function test_rewrite_reports_every_hit_nested_in_one_outer_hit()
+  local source = "return f(f(1) + f(2))\n"
+  local result, err = rewrite_mod.rewrite(
+    source, "nested_overlap.tl", pattern_ok("f($X)"), "g($X)")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 3)
+  check.equal(result.code, source)
+end
