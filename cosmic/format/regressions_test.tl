@@ -101,6 +101,26 @@ local function test_bug5_binary_minus_gets_space()
   )
 end
 
+-- Adjacent unary minuses must stay separate. Joining either pair creates
+-- a comment token and used to make the formatter bless broken output.
+local function test_adjacent_unary_minuses_do_not_form_comments()
+  assert_format(
+    "local x = - -1\nlocal y = - - -1\nreturn x, y\n",
+    "local x = - -1\nlocal y = - - -1\nreturn x, y\n",
+    "adjacent unary minuses preserve lexer boundaries"
+  )
+end
+
+-- Comments and literal spellings exercise the preservation validator's
+-- complete stream while minus tokens appear beside both.
+local function test_unary_minus_preserves_comments_and_literal_values()
+  assert_format(
+    "-- keep - -1 as prose\nlocal s = \"- -1\" -- keep tail\nlocal n = - -0x10\nreturn s, n\n",
+    "-- keep - -1 as prose\nlocal s = \"- -1\" -- keep tail\nlocal n = - -0x10\nreturn s, n\n",
+    "minus repair preserves comments and literal values"
+  )
+end
+
 -- Bug 6: multi-line function call args should get continuation indent
 local function test_bug6_multiline_call_continuation_indent()
   assert_format(
