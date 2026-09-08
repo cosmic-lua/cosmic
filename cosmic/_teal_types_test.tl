@@ -10,6 +10,23 @@ local SOURCE < const > = [[local function f(v: string): string | nil, string
   return v
 end
 local maybe: string | nil = f("x")
+local function consume(uncertain: any)
+  print(uncertain)
+end
+local interface Failure
+  message: string
+  metamethod __tostring: function(Failure): string
+end
+local record Problem is Failure
+  message: string
+  metamethod __tostring: function(Problem): string
+end
+local function structured(): boolean, Problem
+  return false, {message = "no"} as Problem
+end
+local ok, problem = structured()
+consume(maybe)
+print(ok, problem)
 ]]
 
 local function checked(): Node, Report
@@ -63,10 +80,16 @@ local function test_structured_function_returns_and_arguments()
   local fn_ref = ref_at(report, fn)
   local args = ttypes.arguments(report, fn_ref)
   local rets = ttypes.returns(report, fn_ref)
-  assert(args.state == "known" and #args.values == 1 and not args.variadic)
-  assert(ttypes.describe(report, args.values[1]) == "string")
-  assert(rets.state == "known" and #rets.values == 2 and not rets.variadic)
-  assert(ttypes.describe(report, rets.values[2]) == "string")
+  local arg_values = args.values
+  local ret_values = rets.values
+  assert(args.state == "known" and not args.variadic)
+  assert(arg_values)
+  assert(#arg_values == 1)
+  assert(ttypes.describe(report, arg_values[1]) == "string")
+  assert(rets.state == "known" and not rets.variadic)
+  assert(ret_values)
+  assert(#ret_values == 2)
+  assert(ttypes.describe(report, ret_values[2]) == "string")
   local fallible = ttypes.is_fallible(report, fn_ref)
   assert(fallible.state == "known" and fallible.value)
 end
@@ -76,7 +99,8 @@ local function test_union_nil_fact_is_structured()
   local maybe = assert(find(ast, "identifier", "maybe"))
   local maybe_ref = ref_at(report, maybe)
   local members = ttypes.members(report, maybe_ref)
-  assert(members.state == "known" and #members.values == 2)
+  local member_values = members.values
+  assert(members.state == "known" and member_values and #member_values == 2)
   local nilable = ttypes.contains_nil(report, maybe_ref)
   assert(nilable.state == "known" and nilable.value)
 end
@@ -92,6 +116,21 @@ local function test_missing_and_stale_facts_are_unknown()
   local stale = ttypes.contains_nil(other_report, maybe_ref)
   assert(stale.state == "unknown",
     "a ref from another report must not become a false nilability fact")
+end
+
+local function test_any_nilability_is_unknown()
+  local ast, report = checked()
+  local uncertain = assert(find(ast, "variable", "uncertain"))
+  local fact = ttypes.contains_nil(report, ref_at(report, uncertain))
+  assert(fact.state == "unknown" and fact.value == nil)
+end
+
+local function test_structured_failure_return_is_fallible()
+  local ast, report = checked()
+  local callee = assert(find(ast, "variable", "structured"))
+  local fact = ttypes.is_fallible(report, ref_at(report, callee))
+  assert(fact.state == "known" and fact.value,
+    "D24 Failure-shaped slot 2 should be recognized structurally")
 end
 
 local function test_unavailable_report_is_explicit()

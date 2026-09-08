@@ -39,32 +39,38 @@ local record TypeRef
   revision: integer
 end
 
+
+local enum QueryState
+  "known"
+  "unknown"
+end
+
 --- Result of asking for one type.
 local record TypeQuery
-  state: string -- "known" or "unknown"
-  value: TypeRef
-  reason: string
+  state: QueryState
+  value: TypeRef | nil
+  reason: string | nil
 end
 
 --- Result of asking for an ordered list of types.
 local record TypesQuery
-  state: string -- "known" or "unknown"
-  values: {TypeRef}
-  reason: string
-  variadic: boolean
+  state: QueryState
+  values: {TypeRef} | nil
+  reason: string | nil
+  variadic: boolean | nil
 end
 
 --- Result of asking for a boolean semantic fact.
 local record BoolQuery
-  state: string -- "known" or "unknown"
-  value: boolean
-  reason: string
+  state: QueryState
+  value: boolean | nil
+  reason: string | nil
 end
 
 local record FieldQuery
-  state: string -- "known" or "unknown"
-  values: {string: TypeRef}
-  reason: string
+  state: QueryState
+  values: {string: TypeRef} | nil
+  reason: string | nil
 end
 
 local record Report
@@ -73,6 +79,7 @@ local record Report
 end
 
 local type Map = {any: any}
+local TYPECODES < const > = require("tl").typecodes
 
 local function unknown_type(reason: string): TypeQuery
   return {state = "unknown", reason = reason}
@@ -186,8 +193,11 @@ local function members(report: Report, tref: TypeRef): TypesQuery
   if not ti then
     return unknown_types(err)
   end
+  if ti.t ~= TYPECODES["UNION"] then
+    return unknown_types("type is not a union")
+  end
   if not ti.types then
-    return unknown_types("type is not a union, poly, or tuple")
+    return unknown_types("union has no reported members")
   end
   return refs_for(report, ti.types)
 end
@@ -273,6 +283,10 @@ local function is_named(report: Report, tref: TypeRef, name: string): BoolQuery
   if not ti then
     return unknown_bool(err)
   end
+  if ti.t == TYPECODES["ANY"] or ti.t == TYPECODES["UNKNOWN"]
+  or ti.t == TYPECODES["INVALID"] or ti.t == TYPECODES["TYPE_VARIABLE"] then
+    return unknown_bool("type name is not concrete")
+  end
   return {state = "known", value = ti.str == name}
 end
 
@@ -282,13 +296,18 @@ local function contains_named_inner(report: Report, tref: TypeRef, name: string,
   if not ti then
     return unknown_bool(err)
   end
-  if ti.str == name then
+  if name == "nil" and ti.t == TYPECODES["NIL"] then
     return {state = "known", value = true}
   end
   if seen[tref._id] then
-    return {state = "known", value = false}
+    return unknown_bool("nominal type cycle has no conclusive nil fact")
   end
   seen[tref._id] = true
+  if ti.t == TYPECODES["ANY"] or ti.t == TYPECODES["UNKNOWN"]
+  or ti.t == TYPECODES["INVALID"] or ti.t == TYPECODES["TYPE_VARIABLE"]
+  or ti.t == TYPECODES["SELF"] then
+    return unknown_bool("type is not concrete enough to prove nilability")
+  end
   if ti.ref then
     local target = ref(report, ti.ref)
     if not target then
@@ -296,17 +315,28 @@ local function contains_named_inner(report: Report, tref: TypeRef, name: string,
     end
     return contains_named_inner(report, target, name, seen)
   end
-  if ti.types then
+  if ti.t == TYPECODES["UNION"] and ti.types then
+    local unresolved: string = nil
     for _, id in ipairs(ti.types) do
       local member = ref(report, id)
       if not member then
         return unknown_bool("aggregate member points to a missing type")
       end
       local has = contains_named_inner(report, member, name, seen)
-      if has.state == "unknown" or has.value then
+      if has.value then
         return has
       end
+      if has.state == "unknown" then
+        unresolved = has.reason
+      end
     end
+    if unresolved then
+      return unknown_bool(unresolved)
+    end
+  elseif ti.t == TYPECODES["UNION"] then
+    return unknown_bool("union has no reported members")
+  elseif ti.t == TYPECODES["TUPLE"] or ti.t == TYPECODES["POLY"] then
+    return unknown_bool("aggregate is not a single value type")
   end
   return {state = "known", value = false}
 end
@@ -321,14 +351,60 @@ local function is_fallible(report: Report, tref: TypeRef): BoolQuery
   if rets.state == "unknown" then
     return unknown_bool(rets.reason)
   end
-  if #rets.values < 2 then
+  local values = rets.values
+  if not values then
+    return unknown_bool("function returns are unavailable")
+  end
+  if #values < 2 then
     return {state = "known", value = false}
   end
-  return is_named(report, rets.values[#rets.values], "string")
+  local last = values[#values]
+  local ti, err = info(report, last)
+  if not ti then
+    return unknown_bool(err)
+  end
+  if ti.t == TYPECODES["STRING"] then
+    return {state = "known", value = true}
+  end
+  if ti.t == TYPECODES["ANY"] or ti.t == TYPECODES["UNKNOWN"]
+  or ti.t == TYPECODES["INVALID"] or ti.t == TYPECODES["TYPE_VARIABLE"] then
+    return unknown_bool("function error return is not concrete")
+  end
+  -- D24 structured failures implement Failure's message field and
+  -- __tostring metafield. Resolve a nominal's concrete definition first.
+  if ti.ref then
+    local target = ref(report, ti.ref)
+    if not target then
+      return unknown_bool("nominal error return points to a missing type")
+    end
+    ti, err = info(report, target)
+    if not ti then
+      return unknown_bool(err)
+    end
+  end
+  if ti.fields and ti.meta_fields then
+    local message_id = ti.fields["message"]
+    local tostring_id = ti.meta_fields["__tostring"]
+    if message_id and tostring_id then
+      local message = ref(report, message_id)
+      local tostring_ref = ref(report, tostring_id)
+      if not message or not tostring_ref then
+        return unknown_bool("structured failure fields point to missing types")
+      end
+      local is_string = is_named(report, message, "string")
+      local signature = arguments(report, tostring_ref)
+      if is_string.state == "unknown" or signature.state == "unknown" then
+        return unknown_bool("structured failure fields are unresolved")
+      end
+      return {state = "known", value = is_string.value == true}
+    end
+  end
+  return {state = "known", value = false}
 end
 
 local record TealTypesModule
   type TypeRef = TypeRef
+  type QueryState = QueryState
   type TypeQuery = TypeQuery
   type TypesQuery = TypesQuery
   type BoolQuery = BoolQuery
