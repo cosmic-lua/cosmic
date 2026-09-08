@@ -15,7 +15,8 @@
 --- tree would break the bootstrap.
 ---
 --- The per-require check above sees one file at a time, so a directory
---- of shards with no public parent at all never trips it: nothing
+--- of shards with no public parent (`cosmic/<name>.tl` or an `init.tl`)
+--- never trips it: nothing
 --- outside ever requires the shard directly, because there is no
 --- `cosmic.<name>` to require instead. `check_shard_dir_init` closes
 --- that gap by looking at the directory a shard lives in rather than
@@ -54,8 +55,9 @@ local function check_shard_require(file: string, lines: {string}): {Diagnostic}
 end
 
 --- Report a top-level `cosmic/<name>/` directory that holds a shard
---- with no `init.tl` beside it — nothing outside `cosmic/` can require
---- ANY name in it, so the module is unreachable by construction.
+--- with no public parent beside it — nothing outside `cosmic/` can require
+--- ANY name in it, so the module is unreachable by construction. A parent
+--- may be either `cosmic/<name>/init.tl` or `cosmic/<name>.tl`.
 --- @param file string The file being linted
 --- @return {Diagnostic} One finding if file is such a shard, else none
 local function check_shard_dir_init(file: string): {Diagnostic}
@@ -63,7 +65,7 @@ local function check_shard_dir_init(file: string): {Diagnostic}
   if not dir or name == "init.tl" or name:match("_test%.tl$") then
     return {}
   end
-  if fs.is_file(dir .. "/init.tl") then
+  if fs.is_file(dir .. "/init.tl") or fs.is_file(dir .. ".tl") then
     return {}
   end
   return {{

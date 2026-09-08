@@ -51,6 +51,16 @@ local function test_shard_dir_with_init_is_not_flagged()
   assert(#diagnostics == 0, "an init.tl beside the shard needs no finding")
 end
 
+-- A sibling module can also be the public parent. This layout lets an
+-- established `cosmic.x` module grow internal shards without changing its
+-- import path or creating the duplicate path `cosmic/x/init.tl`.
+local function test_shard_dir_with_sibling_parent_is_not_flagged()
+  local restore = fixture("vis_with_sibling_parent", {"a.tl", "../x.tl"})
+  local diagnostics = vis.check_shard_dir_init("cosmic/x/a.tl")
+  restore()
+  assert(#diagnostics == 0, "a sibling public parent needs no finding")
+end
+
 -- A directory holding only tests has no shard for anything outside
 -- `cosmic/` to reach, so it needs no `init.tl` and no finding.
 local function test_shard_dir_with_only_tests_is_not_flagged()
