@@ -38,6 +38,7 @@
 local node_mod = require("cosmic.ast.node")
 local ast_walk = require("cosmic.ast.walk")
 local match_cast = require("cosmic.ast.match_cast")
+local ast_equal = require("cosmic.ast.equal")
 
 local type Node = node_mod.Node
 
@@ -65,7 +66,7 @@ end
 --- was added here.
 local IGNORE_KEYS: {string: boolean} = {
   y = true, x = true, yend = true, xend = true, f = true, comments = true,
-  tk = true,
+  tk = true, typeid = true, if_parent = true,
 }
 
 --- Is `tk` a capture-name spelling: leading underscore, then
@@ -212,7 +213,8 @@ local function rest_value(marker: any, elements: {any}): Node
   return out as Node -- cast: synthetic bare-list node for a rest-capture's value
 end
 
-local match_value: function(pv: any, nv: any, caps: {string: Node}, seen: {any: boolean}): boolean
+local match_value: function(pv: any, nv: any, caps: {string: Node},
+seen: {any: {any: boolean}}): boolean
 
 --- Match two arrays positionally. If the pattern's LAST element is a
 --- rest-capture marker (see `rest_capture_name`), it swallows every
@@ -227,7 +229,7 @@ local match_value: function(pv: any, nv: any, caps: {string: Node}, seen: {any: 
 --- @param seen {any: boolean} Identity-keyed cycle guard
 --- @return boolean
 local function match_list(pa: {any}, na: {any}, caps: {string: Node},
-    seen: {any: boolean}): boolean
+    seen: {any: {any: boolean}}): boolean
   if #pa > 0 then
     local last_raw = pa[#pa]
     local rest_name = rest_capture_name(last_raw)
@@ -270,7 +272,8 @@ end
 --- @param caps {string: Node} Capture bindings accumulated so far
 --- @param seen {any: boolean} Identity-keyed cycle guard, own to this matcher
 --- @return boolean
-match_value = function(pv: any, nv: any, caps: {string: Node}, seen: {any: boolean}): boolean
+match_value = function(pv: any, nv: any, caps: {string: Node},
+    seen: {any: {any: boolean}}): boolean
   if pv == nil then
     return nv == nil
   end
@@ -296,9 +299,9 @@ match_value = function(pv: any, nv: any, caps: {string: Node}, seen: {any: boole
     local name = pv["tk"] as string -- cast: narrowed to string by is_capture's own check
     local prev = caps[name]
     if prev then
-      -- linear pattern: a repeated $X must bind the same subtree twice
-      local pt = prev as {any: any} -- cast: generic ast node view of a prior binding
-      return pt["kind"] == nv["kind"] and pt["tk"] == nv["tk"]
+      -- Linear pattern: a repeated $X must bind the same full subtree,
+      -- including nested operands and fields, rather than just its shape.
+      return ast_equal.equal(prev, nv)
     end
     caps[name] = nv as Node -- cast: a matched candidate node is a real Node
     return true
@@ -306,15 +309,18 @@ match_value = function(pv: any, nv: any, caps: {string: Node}, seen: {any: boole
   if not (nv is {any: any}) then
     return false
   end
-  -- cycle guard: an if_block's `if_parent` points back at its own
-  -- "if" statement, a real cycle tl's AST really carries, so
-  -- unguarded field recursion loops forever. Treat a revisit as
-  -- trivially matching -- own to this matcher, never shared with the
-  -- walk module's own cycle guard.
-  if seen[nv] then
+  -- Pairwise cycle guard: a candidate can be reached through several
+  -- fields, and a candidate-only guard would let a later, mismatching
+  -- pattern subtree pass without being checked.
+  local prior = seen[pv]
+  if prior and prior[nv] then
     return true
   end
-  seen[nv] = true
+  if not prior then
+    prior = {}
+    seen[pv] = prior
+  end
+  prior[nv] = true
   local pkind = pv["kind"]
   if pkind and pkind ~= nv["kind"] then
     return false
