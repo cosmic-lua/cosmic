@@ -2,6 +2,7 @@
 -- test cosmic.format module
 
 local fmt = require("cosmic.format")
+local snapshot_fmt = require("cosmic.format_snapshot")
 local check = require("cosmic.check")
 local source = require("cosmic.ast.source")
 local tl = require("tl")
@@ -200,7 +201,7 @@ local function test_format_snapshot_matches_string_entry_point()
   local input = "local function id<T>(x:T):T\nreturn x\nend\n"
   local snapshot, err = source.parse(input, "snapshot.tl")
   assert(snapshot, err)
-  local shared, final = fmt.format_snapshot(snapshot)
+  local shared, final = snapshot_fmt.format_snapshot(snapshot)
   local standalone = fmt.format(input, "snapshot.tl")
   assert(shared.ok and standalone.ok, "both formatter entry points must succeed")
   assert(shared.code == standalone.code, "shared snapshot must retain house style")
@@ -224,7 +225,7 @@ local function test_format_snapshot_reuses_the_input_parse()
 
   local snapshot, err = source.parse("return 1\n", "counts.tl")
   assert(snapshot, err)
-  local result, final = fmt.format_snapshot(snapshot)
+  local result, final = snapshot_fmt.format_snapshot(snapshot)
 
   tl.lex = old_lex
   tl.parse_program = old_parse
