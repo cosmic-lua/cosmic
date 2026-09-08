@@ -223,6 +223,18 @@ local function test_tk_still_compared_on_leaf_kinds()
     "output(1) must NOT match print(1): the literal callee name differs")
 end
 
+--- Boolean literals carry their semantic value in `tk` and have no
+--- separate payload field. They must not be treated like compound nodes,
+--- whose opening `tk` is incidental.
+local function test_boolean_literal_value_is_compared()
+  local pattern = pattern_ok("print(true)")
+  local same = parse_ok("print(true)", "true.tl")[1]
+  local different = parse_ok("print(false)", "false.tl")[1]
+  assert(match.match(pattern, same) ~= nil, "print(true) must match print(true)")
+  assert(match.match(pattern, different) == nil,
+    "print(false) must NOT match print(true)")
+end
+
 --- A capture's `:PATTERN` predicate suffix restricts which candidates
 --- it binds: `$F:^test_()` matches `test_a()` (whose callee's own `tk`
 --- starts with `test_`) but not `run()`.

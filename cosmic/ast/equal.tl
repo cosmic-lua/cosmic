@@ -36,6 +36,7 @@ local function meaningful_key(owner: {any: any}, key: any): boolean
   if key == "tk" then
     local kind = node_kind(owner)
     return kind == "variable" or kind == "identifier" or kind == "string"
+    or kind == "boolean"
   end
   return true
 end

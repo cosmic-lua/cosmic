@@ -325,7 +325,8 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
   if pkind and pkind ~= nv["kind"] then
     return false
   end
-  if pkind == "variable" or pkind == "identifier" or pkind == "string" then
+  if pkind == "variable" or pkind == "identifier" or pkind == "string"
+  or pkind == "boolean" then
     return pv["tk"] == nv["tk"]
   end
   if pkind == "cast" then
