@@ -1,6 +1,29 @@
 # Cosmic checks, fixes, and formatting: review and design
 
-Review date: 2026-09-08. Proposal; no implementation or board changes made.
+Review date: 2026-09-08. The shared analysis foundation is implemented on
+PR #1799; the project-wide cache, adapters, and performance acceptance work
+listed below remain.
+
+## Implementation status
+
+The implementation now has these public modules:
+
+| Module | Implemented contract |
+| --- | --- |
+| `cosmic.ast.source` | Immutable source snapshots; exact lexer tape; 1-based half-open owned ranges; parent/role indexes; distinct type, generic, and attribute syntax; structured parse issues |
+| `cosmic.ast.pattern` | Snapshot-independent owned patterns and structural matching that excludes compiler metadata |
+| `cosmic.ast.bindings`, `.imports`, `.rename` | Lexical binding/reference identity, proven import origins and boundaries, and collision-checked local rename plans |
+| `cosmic.edit` | Revision-bound edits, atomic fix groups, conflict/refusal checks, one-pass application, and candidate parse validation |
+| `cosmic.teal` | Optional snapshot analysis sessions with explicit known/unknown type queries and no reparse of the root snapshot |
+| `cosmic.format` | Snapshot formatting from parser-owned roles, lexical preservation checks, and a validated output snapshot |
+| `cosmic.analysis` | Typed rule definition, declared capabilities, shared traversal, stable diagnostics, explicit incompleteness, and bounded safe-fix rounds |
+
+The remaining work is concrete: cache and invalidate parsed dependencies in the
+Teal session; map D29's derived runner source back to original nodes and mark
+synthetic nodes; expose the expected-type and flow facts required by the
+nil-flow census; migrate the full lint/find/rewrite/check CLI surface; and run
+the cold/warm, edit-impact, memory, and parse/check-count performance acceptance
+matrix before setting regression budgets.
 
 **Recommendation:** make one source snapshot the shared input to `cosmic.ast`, `cosmic.teal`, and `cosmic.format`. Add a small rule runner and a transactional edit layer above them. Keep Teal responsible for parsing and inference. Give checks typed access to syntax, bindings, and inferred types; make formatting consume the same syntax and edit machinery. Pay for semantic analysis only when a rule needs it.
 
@@ -49,15 +72,15 @@ Other inspected gaps: overlapping matches have no explicit conflict policy; each
 
 ## 3. Compose around a source snapshot
 
-Use these responsibilities; new API names here are proposed, not available today.
+The implemented public modules use these responsibilities:
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
 | `cosmic.ast` | Source snapshots, token/trivia tape, syntax/type-syntax nodes, child roles, traversal, structural patterns | Type inference or project policy |
 | `cosmic.teal` | Analysis session, resolver, checking, type facts and semantic diagnostics | Formatting or source mutation |
-| `cosmic.edit` (new) | Expression/type templates, edit plans, conflict/refusal rules, application and diffs | Implicit checking or formatting after each edit |
+| `cosmic.edit` | Expression/type templates, edit plans, conflict/refusal rules, application and diffs | Implicit checking or formatting after each edit |
 | `cosmic.format` | Syntax-directed layout; formatting edits over a snapshot | Inferring types, applying semantic refactors, regenerating source with `tl.generate` |
-| `cosmic.analysis` (new) | Rule registration, required capabilities, shared traversal, diagnostic aggregation, fix pipeline | A second parser or type checker |
+| `cosmic.analysis` | Rule registration, required capabilities, shared traversal, diagnostic aggregation, fix pipeline | A second parser or type checker |
 | `_cli` / `_make` | Project discovery, generated test seam, command behavior, file writes and reporting | Independent implementations of the analysis |
 
 Keep compiler-only implementation shards internal. Public rule authors use public facades; no dependency from `cosmic/**` into `_cli` or `_make`. In particular, formatting must import the low syntax layer, not the present `cosmic.ast` facade while that facade eagerly imports rewrite, which imports formatting. Move orchestration upward and remove that dependency cycle before migration.
@@ -118,33 +141,51 @@ Build the census as syntax-selected sink sites plus actual and expected types an
 
 Use typed Teal records and functions, with a small `define` helper. No string-based type-expression language or general query DSL is needed. Support patterns for convenient syntax selection and visitors for rules whose context is clearer in code.
 
-Illustrative proposed API, not executable on current Cosmic:
+The current public rule API is executable Teal. This example defines a typed
+discarded-error check and runs it over one snapshot:
 
 ```teal
+local check = require("cosmic.check")
+local source = require("cosmic.ast.source")
 local analysis = require("cosmic.analysis")
 
-return analysis.define({
+local rule = check.must(analysis.define({
   id = "fallible-statement",
+  code = "analysis.fallible-statement",
   needs = {"syntax", "types"},
   pattern = "$CALL($$$ARGS)",
   visit = function(ctx: analysis.Context, hit: analysis.Hit)
-    if not ctx.syntax:is_statement(hit.node) then return end
-    local signature = ctx.types:callee_signature(hit.node)
-    if signature == nil then
-      ctx:incomplete(hit.node, "callee signature unavailable")
+    local parent = source.parent(ctx.snapshot, hit.node)
+    if not parent or parent.kind ~= "statements" then return end
+    local types = ctx.analysis
+    if not types then
+      ctx:incomplete("type analysis unavailable", hit.node)
       return
     end
-    if ctx.policy:is_fallible(signature) == "yes" then
-      ctx:report({
-        node = hit.node,
-        message = "capture and handle the error return",
-      })
+    local signature = types:callee_signature(hit.node)
+    local signature_value = signature.value
+    if signature.state ~= "known" or not signature_value then
+      ctx:incomplete(signature.reason or "callee signature unknown", hit.node)
+      return
+    end
+    local fallible = types:is_fallible(signature_value)
+    if fallible.state == "unknown" then
+      ctx:incomplete(fallible.reason or "fallibility unknown", hit.node)
+    elseif fallible.value then
+      ctx:report("capture and handle the error return", hit.node, "error")
     end
   end,
-})
+}))
+
+local snapshot = check.must(source.parse("might_fail()\n", "example.tl"))
+local result = analysis.run(snapshot, {rule})
 ```
 
-The proposed policy helper centralizes Cosmic's fallible-return convention, including structured failures, and reports uncertainty for unsupported types. This rule intentionally has no automatic fix: introducing a guard, throwing, or ignoring the error is a behavior decision. The tool can offer explicit suggestions without silently choosing one.
+The `is_fallible` query centralizes Cosmic's fallible-return convention,
+including structured failures, and reports uncertainty for unsupported types.
+This rule intentionally has no automatic fix: introducing a guard, throwing,
+or ignoring the error is a behavior decision. The tool can offer explicit
+suggestions without silently choosing one.
 
 A simpler policy can be data: a forbidden import edge with a path scope and module origin. Another rule can select cast syntax and consult a structural type predicate. Fix-producing rules return `ctx.edit:replace_expression(node, template, captures)` or `replace_type(...)`; comment-only policies need only the token/comment capability. Rule fixtures contain input, expected diagnostics, expected fix or refusal, and optional semantic preconditions.
 
