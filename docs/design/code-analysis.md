@@ -1,8 +1,8 @@
 # Cosmic checks, fixes, and formatting: review and design
 
-Review date: 2026-09-08. The shared analysis foundation is implemented on
-PR #1799; the project-wide cache, adapters, and performance acceptance work
-listed below remain.
+Review date: 2026-09-08. The shared analysis foundation is implemented in the
+draft branch for PR #1799; publication and integrated gates are tracked in the
+PR. The project-wide cache, adapters, and performance acceptance work below remain.
 
 ## Implementation status
 
@@ -14,8 +14,8 @@ The implementation now has these public modules:
 | `cosmic.ast.pattern` | Snapshot-independent owned patterns and structural matching that excludes compiler metadata |
 | `cosmic.ast.bindings`, `.imports`, `.rename` | Lexical binding/reference identity, proven import origins and boundaries, and collision-checked local rename plans |
 | `cosmic.edit` | Revision-bound edits, atomic fix groups, conflict/refusal checks, one-pass application, and candidate parse validation |
-| `cosmic.teal` | Optional snapshot analysis sessions with explicit known/unknown type queries and no reparse of the root snapshot |
-| `cosmic.format` | Snapshot formatting from parser-owned roles, lexical preservation checks, and a validated output snapshot |
+| `cosmic.teal.analysis` | Optional snapshot analysis sessions with explicit known/unknown type queries and no reparse of the root snapshot |
+| `cosmic.format_snapshot` | Snapshot formatting from parser-owned roles, lexical preservation checks, and a validated output snapshot; `cosmic.format` delegates |
 | `cosmic.analysis` | Typed rule definition, declared capabilities, shared traversal, stable diagnostics, explicit incompleteness, and bounded safe-fix rounds |
 
 The remaining work is concrete: cache and invalidate parsed dependencies in the
