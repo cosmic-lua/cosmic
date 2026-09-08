@@ -23,8 +23,74 @@ and not package.searchpath("tl", package.path) then
 end
 
 local engine = require("cosmic._teal_engine")
-
 local type Issue = engine.Issue
+local node_module = require("cosmic.ast.node")
+local type Node = node_module.Node
+
+local enum QueryState
+  "known"
+  "unknown"
+end
+
+local record TypeRef
+  _owner: any
+  _id: integer
+  revision: integer
+end
+
+local record TypeQuery
+  state: QueryState
+  value: TypeRef | nil
+  reason: string | nil
+end
+
+local record TypesQuery
+  state: QueryState
+  values: {TypeRef} | nil
+  reason: string | nil
+  variadic: boolean | nil
+end
+
+local record BoolQuery
+  state: QueryState
+  value: boolean | nil
+  reason: string | nil
+end
+
+local record FieldQuery
+  state: QueryState
+  values: {string: TypeRef} | nil
+  reason: string | nil
+end
+
+local record AnalysisOptions
+  include_dirs: {string}
+end
+
+local record Analysis
+  snapshot: any -- runtime value is cosmic.ast.source.Snapshot
+  revision: integer
+  complete: boolean
+  reason: string | nil
+  diagnostics: {Issue}
+  type_of: function(self: Analysis, node: Node): TypeQuery
+  declared_type: function(self: Analysis, node: Node): TypeQuery
+  callee_signature: function(self: Analysis, node: Node): TypeQuery
+  members: function(self: Analysis, tref: TypeRef): TypesQuery
+  arguments: function(self: Analysis, tref: TypeRef): TypesQuery
+  returns: function(self: Analysis, tref: TypeRef): TypesQuery
+  fields: function(self: Analysis, tref: TypeRef): FieldQuery
+  elements: function(self: Analysis, tref: TypeRef): TypeQuery
+  contains_nil: function(self: Analysis, tref: TypeRef): BoolQuery
+  is_fallible: function(self: Analysis, tref: TypeRef): BoolQuery
+  describe: function(self: Analysis, tref: TypeRef): string
+end
+
+local record Session
+  analyze: function(self: Session, snapshot: any): Analysis
+  invalidate: function(self: Session)
+end
+
 local type CompileOptions = engine.CompileOptions
 local type CheckOptions = engine.CheckOptions
 local type CompileResult = engine.CompileResult
@@ -149,6 +215,15 @@ local function check_file(input_path: string, opts?: CheckOptions): CheckResult
   return finish_check(proc, input_path, opts)
 end
 
+--- Create an optional semantic-analysis session over immutable source snapshots.
+--- The session owns resolver options and revisioned results; checking occurs only
+--- when analyze is called.
+local function session(opts?: AnalysisOptions): Session
+  local created = require("cosmic._teal_analysis").session(opts)
+  -- cast: helper implements this public interface; kept lazy for cold bootstrap
+  return created as Session
+end
+
 --- Find the source file for a module name using the same search path
 --- the compiler uses (TL_PATH, include dirs, package.path). Used by the
 --- runtime .tl searcher so require() resolves modules exactly like
@@ -237,6 +312,15 @@ local record TealModule
   type CheckResult = CheckResult
   type FormatOptions = FormatOptions
   type CacheOptions = CacheOptions
+  type AnalysisOptions = AnalysisOptions
+  type Analysis = Analysis
+  type Session = Session
+  type QueryState = QueryState
+  type TypeRef = TypeRef
+  type TypeQuery = TypeQuery
+  type TypesQuery = TypesQuery
+  type BoolQuery = BoolQuery
+  type FieldQuery = FieldQuery
 
   DEFAULT_GEN_TARGET: string
   DEFAULT_GEN_COMPAT: string
@@ -246,6 +330,7 @@ local record TealModule
   compile_cached: function(input_path: string, opts?: CacheOptions): string | nil, string
   check: function(source: string, opts?: CheckOptions): CheckResult
   check_file: function(input_path: string, opts?: CheckOptions): CheckResult
+  session: function(opts?: AnalysisOptions): Session
   search_module: function(module_name: string, include_dirs?: {string}): string | nil
   format_issues: function(issues: {Issue}, opts?: FormatOptions): string
   hint_for_message: function(msg: string): string | nil
@@ -261,6 +346,7 @@ local M: TealModule = {
   compile_cached = compile_cached,
   check = check,
   check_file = check_file,
+  session = session,
   search_module = search_module,
   format_issues = format_issues,
   hint_for_message = hint_for_message,
