@@ -67,6 +67,9 @@ end
 local IGNORE_KEYS: {string: boolean} = {
   y = true, x = true, yend = true, xend = true, f = true, comments = true,
   tk = true, typeid = true, if_parent = true,
+  syntax_y = true, syntax_x = true, syntax_yend = true, syntax_xend = true,
+  attribute_y = true, attribute_x = true,
+  attribute_yend = true, attribute_xend = true,
 }
 
 --- Is `tk` a capture-name spelling: leading underscore, then

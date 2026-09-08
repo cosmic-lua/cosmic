@@ -8,6 +8,9 @@
 local META_KEYS: {string: boolean} = {
   f = true, y = true, x = true, yend = true, xend = true,
   comments = true, typeid = true, if_parent = true,
+  syntax_y = true, syntax_x = true, syntax_yend = true, syntax_xend = true,
+  attribute_y = true, attribute_x = true,
+  attribute_yend = true, attribute_xend = true,
 }
 
 local function map_view(value: any): {any: any} | nil

@@ -218,9 +218,12 @@ local function test_tk_still_compared_on_leaf_kinds()
   local pattern = pattern_ok("print(1)")
   local same_name = parse_ok("print(1)", "same_name.tl")[1]
   local other_name = parse_ok("output(1)", "other_name.tl")[1]
+  local other_number = parse_ok("print(2)", "other_number.tl")[1]
   assert(match.match(pattern, same_name) ~= nil, "print(1) must match print(1)")
   assert(match.match(pattern, other_name) == nil,
     "output(1) must NOT match print(1): the literal callee name differs")
+  assert(match.match(pattern, other_number) == nil,
+    "print(2) must NOT match print(1): the literal number differs")
 end
 
 --- Boolean literals carry their semantic value in `tk` and have no
