@@ -165,7 +165,6 @@ place.
 ```text
 -- _fuzz/compress_fuzz_test.tl:76
             {format = format as compress.DecompressFormat})
-            -- cast: CompressFormat's word set nests inside DecompressFormat's
 ```
 
 **What closes it upstream.** The subset half: an enum whose words are a
@@ -306,7 +305,7 @@ hand-written record naming only the part the caller uses. The record is
 a deliberate narrowing rather than a workaround — it documents the seam
 — but it is spelled as a cast.
 
-**Pattern.** `$X as $T` in `_fuzz/driver.tl`, `_types/gentype.tl` and `cosmic/coverage/init.tl`, plus three sites named explicitly.
+**Pattern.** `$X as $T` in `cosmic/fuzz/budget.tl`, `_types/gentype.tl` and `cosmic/coverage/init.tl`, plus three sites named explicitly.
 
 ```text
 -- _types/gentype.tl:19

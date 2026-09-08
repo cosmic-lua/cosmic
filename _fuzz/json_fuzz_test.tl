@@ -1,15 +1,16 @@
 --- Fuzz properties for cosmic.json: decode answers on any bytes at all,
 --- the encode/decode round trip preserves the value, and a corrupted
 --- encoding is still answered rather than thrown on. Every property runs
---- under _fuzz.driver, so a failure names the seed, the iteration and the
+--- under cosmic.fuzz, so a failure names the seed, the iteration and the
 --- failing input in base64, and FUZZ_SEED replays it.
 --- env: FUZZ_SEED FUZZ_ITERS
+--- reads: testdata/fuzz
 
 local check = require("cosmic.check")
 local deep = require("cosmic.deep")
-local driver = require("_fuzz.driver")
+local choices = require("_fuzz.choices")
+local fuzz = require("cosmic.fuzz")
 local json = require("cosmic.json")
-local source = require("_fuzz.source")
 
 --- The deepest nesting the value generator builds.
 local MAX_DEPTH = 4
@@ -29,15 +30,15 @@ local MAX_INPUT_LEN = 512
 local STRING_ALPHABET = "abcXYZ019 _-{}[]:,\0\"\\/\t\n\r\1\31\127"
 
 --- Draw one character from the alphabet.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string A single byte
-local function random_char(src: source.Recorder): string
+local function random_char(src: fuzz.Recorder): string
   local i = src:int(1, #STRING_ALPHABET)
   return STRING_ALPHABET:sub(i, i)
 end
 
 --- Same as `_fuzz/literal_fuzz_test.tl`'s `random_string`.
-local function random_string(src: source.Recorder): string
+local function random_string(src: fuzz.Recorder): string
   local out: {string} = {}
   for i = 1, src:int(0, MAX_STRING_LEN) do
     out[i] = random_char(src)
@@ -53,9 +54,9 @@ end
 --- and infinity stay out of the generator: encode rejects them by
 --- contract, so they belong to the mutation property rather than the
 --- round trip.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return number A finite float
-local function random_float(src: source.Recorder): number
+local function random_float(src: fuzz.Recorder): number
   return (src:float() * 2.0 - 1.0) * 10.0 ^ src:int(-300, 300)
 end
 
@@ -63,10 +64,10 @@ end
 --- built; tables stop being offered at MAX_DEPTH, so nesting stops
 --- there. Nothing drawn is nil, so no array gets a hole and no object
 --- key vanishes — both are encode errors rather than round-trip losses.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param depth integer The nesting level of the value being built
 --- @return any The generated value
-local function random_value(src: source.Recorder, depth: integer): any
+local function random_value(src: fuzz.Recorder, depth: integer): any
   local kind = src:int(1, depth < MAX_DEPTH and 6 or 4)
   if kind == 1 then
     return src:int(0, 1) == 1
@@ -90,17 +91,11 @@ local function random_value(src: source.Recorder, depth: integer): any
   return fields
 end
 
---- The value behind the encoding the generator produced last. The driver
---- hands a property only the generated string, so the round trip reads
---- the value that string was built from here.
-local generated: any
-
---- Generate one valid encoding, recording the value it came from.
---- @param src source.Recorder The source to draw from
+--- Generate encoded input for mutation checks.
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The encoding of a fresh random value
-local function generate_encoding(src: source.Recorder): string
+local function generate_encoding(src: fuzz.Recorder): string
   local value = random_value(src, 1)
-  generated = value
   return check.must(json.encode(value))
 end
 
@@ -125,14 +120,14 @@ local function decodes_or_explains(input: string): boolean, string
 end
 
 local function test_decode_totality()
-  local ok, msg = driver.run({
-      name = "decode_totality",
-      gen = function(src: source.Recorder): string
-        return driver.bytes(src, MAX_INPUT_LEN)
+  local result = fuzz.run({
+      name = "json_decode_totality",
+      gen = function(src: fuzz.Recorder): string
+        return fuzz.bytes(src, MAX_INPUT_LEN)
       end,
       check = decodes_or_explains,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 --- Compare two values for numeric TYPE, which deep.equal cannot see:
@@ -164,12 +159,16 @@ local function number_types_match(decoded: any, expected: any): boolean, string
 end
 
 local function test_round_trip()
-  local ok, msg = driver.run({
-      name = "round_trip",
-      gen = generate_encoding,
+  local result = fuzz.run({
+      name = "json_round_trip",
+      gen = function(src: fuzz.Recorder): string
+        random_value(src, 1)
+        return choices.encode(src.draws)
+      end,
       check = function(input: string): boolean, string
-        local expected = generated
-        local decoded, err = json.decode(input)
+        local expected = random_value(choices.replay(input), 1)
+        local encoded = check.must(json.encode(expected))
+        local decoded, err = json.decode(encoded)
         if err then
           return false, "decode failed: " .. err
         end
@@ -184,16 +183,16 @@ local function test_round_trip()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 local function test_mutation_survival()
-  local ok, msg = driver.run({
-      name = "mutation_survival",
-      gen = function(src: source.Recorder): string
-        return driver.mutate(src, generate_encoding(src), src:int(1, 8))
+  local result = fuzz.run({
+      name = "json_mutation_survival",
+      gen = function(src: fuzz.Recorder): string
+        return fuzz.mutate(src, generate_encoding(src), src:int(1, 8))
       end,
       check = decodes_or_explains,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end

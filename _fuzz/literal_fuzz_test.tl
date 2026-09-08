@@ -2,16 +2,17 @@
 --- all, the format/parse round trip preserves the value in either
 --- layout, format is total over a domain that includes everything it
 --- must refuse, and a corrupted literal is still answered rather than
---- thrown on. Every property runs under _fuzz.driver, so a failure
+--- thrown on. Every property runs under cosmic.fuzz, so a failure
 --- names the seed, the iteration and the failing input in base64, and
 --- FUZZ_SEED replays it.
 --- env: FUZZ_SEED FUZZ_ITERS
+--- reads: testdata/fuzz
 
 local check = require("cosmic.check")
 local deep = require("cosmic.deep")
-local driver = require("_fuzz.driver")
+local choices = require("_fuzz.choices")
+local fuzz = require("cosmic.fuzz")
 local literal = require("cosmic.literal")
-local source = require("_fuzz.source")
 
 --- The deepest nesting the value generators build.
 local MAX_DEPTH = 4
@@ -84,9 +85,9 @@ local FLOAT_EDGES: {number} = {
 --- Draw one character: usually from the alphabet, occasionally any
 --- byte at all, so the concentration on interesting bytes does not
 --- become a ceiling on which bytes are seen.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string A single byte
-local function random_char(src: source.Recorder): string
+local function random_char(src: fuzz.Recorder): string
   if src:int(1, 8) == 1 then
     return string.char(src:int(0, 255))
   end
@@ -95,9 +96,9 @@ local function random_char(src: source.Recorder): string
 end
 
 --- Draw a string of alphabet characters.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string A string of 0 to MAX_STRING_LEN characters
-local function random_string(src: source.Recorder): string
+local function random_string(src: fuzz.Recorder): string
   local out: {string} = {}
   for i = 1, src:int(0, MAX_STRING_LEN) do
     out[i] = random_char(src)
@@ -107,9 +108,9 @@ end
 
 --- Draw an integer: an edge value a third of the time, otherwise
 --- uniform across a band wide enough to spread over magnitudes.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return integer The generated integer
-local function random_integer(src: source.Recorder): integer
+local function random_integer(src: fuzz.Recorder): integer
   if src:int(1, 3) == 1 then
     return INT_EDGES[src:int(1, #INT_EDGES)]
   end
@@ -119,9 +120,9 @@ end
 --- Draw a finite float: an edge value a third of the time, otherwise
 --- a mantissa in [-1, 1) scaled across the exponent range. Nothing
 --- drawn here is NaN or an infinity (see the domain-bounds comment).
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return number The generated float
-local function random_float(src: source.Recorder): number
+local function random_float(src: fuzz.Recorder): number
   if src:int(1, 3) == 1 then
     return FLOAT_EDGES[src:int(1, #FLOAT_EDGES)]
   end
@@ -130,9 +131,9 @@ end
 
 --- Draw a scalar the grammar admits: a string, a boolean, an integer
 --- or a finite float.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return any The generated scalar
-local function random_scalar(src: source.Recorder): any
+local function random_scalar(src: fuzz.Recorder): any
   local kind = src:int(1, 4)
   if kind == 1 then
     return random_string(src)
@@ -147,10 +148,10 @@ end
 --- Draw a table inside the grammar: string keys, scalar or table
 --- values, nesting stopping at MAX_DEPTH. depth is the level being
 --- built, so the root is 1.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param depth integer The nesting level of the table being built
 --- @return {string: any} The generated table
-local function random_table(src: source.Recorder, depth: integer): {string: any}
+local function random_table(src: fuzz.Recorder, depth: integer): {string: any}
   local fields: {string: any} = {}
   for _ = 1, src:int(0, MAX_TABLE_LEN) do
     local key = random_string(src)
@@ -172,9 +173,9 @@ end
 --- would report different bytes in every process. The writer refuses
 --- every non-string key the same way, so nothing is lost by keeping
 --- the report reproducible.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return any The generated key
-local function foreign_key(src: source.Recorder): any
+local function foreign_key(src: fuzz.Recorder): any
   local kind = src:int(1, 3)
   if kind == 1 then
     return random_integer(src)
@@ -188,9 +189,9 @@ end
 --- the last pointing back at the head. One table child per link, so
 --- reaching the depth cap that detects the cycle is linear work (see
 --- the domain-bounds comment).
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return {any: any} The head of the cycle
-local function cyclic_chain(src: source.Recorder): {any: any}
+local function cyclic_chain(src: fuzz.Recorder): {any: any}
   local head: {any: any} = {}
   local last = head
   for _ = 1, src:int(0, MAX_CYCLE_LEN) do
@@ -206,9 +207,9 @@ end
 --- refuse rather than spell. A function and a coroutine are the two
 --- types with no literal form; NaN and the infinities are the numbers
 --- with none.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return any The generated value
-local function foreign_value(src: source.Recorder): any
+local function foreign_value(src: fuzz.Recorder): any
   local kind = src:int(1, 5)
   if kind == 1 then
     return print
@@ -226,10 +227,10 @@ end
 --- with foreign keys, foreign values and cycles mixed in, so `format`
 --- meets the values it exists to refuse as often as the ones it
 --- writes.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param depth integer The nesting level of the table being built
 --- @return {any: any} The generated table
-local function widened_table(src: source.Recorder, depth: integer): {any: any}
+local function widened_table(src: fuzz.Recorder, depth: integer): {any: any}
   local fields: {any: any} = {}
   for _ = 1, src:int(0, MAX_TABLE_LEN) do
     local key: any = random_string(src)
@@ -253,9 +254,9 @@ end
 --- Draw a root value from the widened domain. Usually a table, but
 --- sometimes a scalar or a function, which `format` must refuse
 --- because a literal file returns a table and nothing else.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return any The generated value
-local function widened_root(src: source.Recorder): any
+local function widened_root(src: fuzz.Recorder): any
   local kind = src:int(1, 8)
   if kind == 1 then
     return random_scalar(src)
@@ -265,46 +266,32 @@ local function widened_root(src: source.Recorder): any
   return widened_table(src, 1)
 end
 
---- The value behind the source the generator produced last. The driver
---- hands a property only the generated string, so a property that
---- judges the value reads it from here.
-local generated: any
-
---- Generate one valid literal source, recording the value and the
---- layout it came from.
---- @param src source.Recorder The source to draw from
+--- Generate encoded input for mutation checks.
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The formatted source of a fresh random value
-local function generate_source(src: source.Recorder): string
+local function generate_source(src: fuzz.Recorder): string
   local value = random_table(src, 1)
-  generated = value
   local layout = LAYOUTS[src:int(1, #LAYOUTS)]
   return check.must(literal.format(value, {layout = layout}))
 end
 
---- The widened value behind the source the widened generator produced
---- last, read back by the format-totality property.
-local widened: any
-
---- Generate one widened value, returning what `format` said about it
---- so the reported input describes the case rather than a placeholder.
---- @param src source.Recorder The source to draw from
+--- Encode choices for a structured value, including unformattable values.
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The formatted source, or the refusal that replaced it
-local function generate_widened(src: source.Recorder): string
-  local value = widened_root(src)
-  widened = value
-  local text, err = literal.format(value)
-  return text or ("refused: " .. tostring(err))
+local function generate_widened(src: fuzz.Recorder): string
+  widened_root(src)
+  return choices.encode(src.draws)
 end
 
 --- Splice a run of bytes taken from one source into another, at a
 --- random position. Byte edits alone rarely produce a fragment that
 --- lexes; a spliced run of real literal text does, which is how the
 --- mutation property reaches the parser's deeper refusals.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param base string The source to splice into
 --- @param donor string The source to take a run from
 --- @return string The spliced source
-local function splice(src: source.Recorder, base: string, donor: string): string
+local function splice(src: fuzz.Recorder, base: string, donor: string): string
   if #donor == 0 then
     return base
   end
@@ -335,23 +322,30 @@ local function parses_or_explains(input: string): boolean, string
 end
 
 local function test_parse_totality()
-  local ok, msg = driver.run({
-      name = "parse_totality",
-      gen = function(src: source.Recorder): string
-        return driver.bytes(src, MAX_INPUT_LEN)
+  local result = fuzz.run({
+      name = "literal_parse_totality",
+      gen = function(src: fuzz.Recorder): string
+        return fuzz.bytes(src, MAX_INPUT_LEN)
       end,
       check = parses_or_explains,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 local function test_round_trip()
-  local ok, msg = driver.run({
-      name = "round_trip",
-      gen = generate_source,
+  local result = fuzz.run({
+      name = "literal_round_trip",
+      gen = function(src: fuzz.Recorder): string
+        random_table(src, 1)
+        src:int(1, #LAYOUTS)
+        return choices.encode(src.draws)
+      end,
       check = function(input: string): boolean, string
-        local expected = generated
-        local parsed, err = literal.parse(input)
+        local replayed = choices.replay(input)
+        local expected = random_table(replayed, 1)
+        local layout = LAYOUTS[replayed:int(1, #LAYOUTS)]
+        local text = check.must(literal.format(expected, {layout = layout}))
+        local parsed, err = literal.parse(text)
         if not parsed then
           return false, "parse refused what format wrote: " .. tostring(err)
         end
@@ -361,7 +355,7 @@ local function test_round_trip()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 -- The property that catches a writer emitting what its own reader
@@ -370,11 +364,11 @@ end
 -- refuse with a message or write source that reads back as the value
 -- it was given -- in either layout, which admit the same values.
 local function test_format_totality()
-  local ok, msg = driver.run({
-      name = "format_totality",
+  local result = fuzz.run({
+      name = "literal_format_totality",
       gen = generate_widened,
-      check = function(_input: string): boolean, string
-        local value = widened
+      check = function(input: string): boolean, string
+        local value = widened_root(choices.replay(input))
         for _, layout in ipairs(LAYOUTS) do
           local text, err = literal.format(value, {layout = layout})
           if not text then
@@ -395,29 +389,29 @@ local function test_format_totality()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 --- Generate one edited source: a valid literal, sometimes spliced with
 --- a second one, then byte-edited. Most come out refused and some still
 --- parse, which is the mix a property about refusals wants.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The edited source
-local function generate_mutated(src: source.Recorder): string
+local function generate_mutated(src: fuzz.Recorder): string
   local base = generate_source(src)
   if src:int(1, 4) == 1 then
     base = splice(src, base, generate_source(src))
   end
-  return driver.mutate(src, base, src:int(1, MAX_EDITS))
+  return fuzz.mutate(src, base, src:int(1, MAX_EDITS))
 end
 
 local function test_mutation_survival()
-  local ok, msg = driver.run({
-      name = "mutation_survival",
+  local result = fuzz.run({
+      name = "literal_mutation_survival",
       gen = generate_mutated,
       check = parses_or_explains,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 -- Two readers implement this grammar -- one in C, the lexer in Teal --
@@ -434,8 +428,8 @@ end
 -- C refusal and falls through to the Teal reader, so that divergence
 -- costs a second read and changes no answer.
 local function test_differential()
-  local ok, msg = driver.run({
-      name = "differential",
+  local result = fuzz.run({
+      name = "literal_differential",
       gen = generate_mutated,
       check = function(input: string): boolean, string
         local c_value, c_err = literal.parse(input, {engine = "c"})
@@ -457,5 +451,5 @@ local function test_differential()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end

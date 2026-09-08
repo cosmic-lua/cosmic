@@ -1,9 +1,7 @@
 --- A draw-recording wrapper over cosmic.rand.Source.
 --- Every draw a Recorder makes is appended to `draws` in order, so a
 --- failing run's exact choice sequence can be replayed to reproduce it,
---- or -- a future slice -- shrunk to simplify it before it is reported.
---- Internal to `_fuzz`: no shrinking exists yet, so this is not ready to
---- be `cosmic.fuzz`'s public surface.
+--- or shrunk to simplify it before it is reported.
 
 local rand = require("cosmic.rand")
 
@@ -62,11 +60,13 @@ local function replay(draws: {Draw}): Recorder
     pos = pos + 1
     local d = draws[pos]
     if d == nil then
-      error("_fuzz.source.replay: no recorded draw at position " .. pos, 3)
+      -- throws: recorded-draw protocol violation caught by the shrinker
+      error("cosmic.fuzz.source.replay: no recorded draw at position " .. pos, 3)
     end
     if d.kind ~= kind then
+      -- throws: recorded-draw protocol violation caught by the shrinker
       error(string.format(
-          "_fuzz.source.replay: draw %d is %s, expected %s", pos, d.kind, kind), 3)
+          "cosmic.fuzz.source.replay: draw %d is %s, expected %s", pos, d.kind, kind), 3)
     end
     return d
   end
@@ -76,7 +76,8 @@ local function replay(draws: {Draw}): Recorder
     local d = next_draw("int")
     local v = d.ivalue
     if v == nil then
-      error("_fuzz.source.replay: draw " .. pos .. " has no int value", 2)
+      -- throws: recorded-draw protocol violation caught by the shrinker
+      error("cosmic.fuzz.source.replay: draw " .. pos .. " has no int value", 2)
     end
     consumed[#consumed + 1] = d
     return v
@@ -85,7 +86,8 @@ local function replay(draws: {Draw}): Recorder
     local d = next_draw("float")
     local v = d.fvalue
     if v == nil then
-      error("_fuzz.source.replay: draw " .. pos .. " has no float value", 2)
+      -- throws: recorded-draw protocol violation caught by the shrinker
+      error("cosmic.fuzz.source.replay: draw " .. pos .. " has no float value", 2)
     end
     consumed[#consumed + 1] = d
     return v

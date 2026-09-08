@@ -29,6 +29,8 @@ on:
     paths:
       - '.github/workflows/fuzz.yml'
       - '_fuzz/**'
+      - 'cosmic/fuzz/**'
+      - 'testdata/fuzz/**'
 
 permissions:
   contents: read
@@ -68,7 +70,7 @@ jobs:
       # clock read inside a test, so one line reproduces the whole lane.
       # A `workflow_dispatch` input overrides for replay; otherwise the
       # seed rotates daily. The iteration budget is uniform across every
-      # module for the same reason `_fuzz/driver.tl` reads a single
+      # module for the same reason `cosmic.fuzz` reads a single
       # `FUZZ_ITERS`: per-module values would invalidate the envstamp of
       # modules run under a different value and re-run them for nothing.
       - name: plan
@@ -93,8 +95,7 @@ jobs:
 
       # The seed is recorded three times total: here on stdout and in
       # the step summary (with a copy-pasteable reproduce command), and
-      # a third time inside any driver failure message
-      # (`_fuzz/driver.tl:66-69`). No guard: a red property must fail
+      # a third time inside each structured fuzz result. A red property must fail
       # this step, and this job, loudly.
       - name: deep fuzz
         timeout-minutes: 30
@@ -123,3 +124,4 @@ jobs:
             o/_fuzz/*.test.out
             o/_fuzz/*.test.err
             o/_fuzz/*.test.time
+            o/_fuzz/*.tmp.d/fuzz/**

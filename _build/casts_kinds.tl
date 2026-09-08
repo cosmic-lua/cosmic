@@ -129,7 +129,7 @@ local KINDS: {Kind} = {
   {
     name = "module surface record",
     pattern = "$X as $T",
-    where = {"_fuzz/driver.tl", "_types/gentype.tl", "cosmic/coverage/init.tl"},
+    where = {"cosmic/fuzz/budget.tl", "_types/gentype.tl", "cosmic/coverage/init.tl"},
     explicit = {
       {path = "_types/tlast.tl", text = "local tl = tl_any as {string: any} -- cast: freshly loaded module surface"},
       {path = "_types/tlast.tl", text = "local hooks = tl.ast_hooks as {string: any} -- cast: carried-patch surface"},

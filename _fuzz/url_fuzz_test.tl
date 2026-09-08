@@ -1,5 +1,5 @@
 --- Fuzz properties for cosmic.url.
---- Four laws, each run through _fuzz.driver so a failure reports the seed,
+--- Four laws, each run through cosmic.fuzz so a failure reports the seed,
 --- the iteration and the failing input in base64:
 ---   parse is total over arbitrary bytes,
 ---   format reaches a fixpoint after one parse/format round,
@@ -9,26 +9,25 @@
 --- is what the failure message carries, so the query tables are encoded as
 --- length-prefixed bytes and decoded inside the check.
 --- env: FUZZ_SEED FUZZ_ITERS
+--- reads: testdata/fuzz
 
-local check = require("cosmic.check")
 local deep = require("cosmic.deep")
-local driver = require("_fuzz.driver")
-local source = require("_fuzz.source")
+local fuzz = require("cosmic.fuzz")
 local url = require("cosmic.url")
 
 --- Draw one element of a list uniformly.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param list {string} The choices
 --- @return string The chosen element
-local function pick(src: source.Recorder, list: {string}): string
+local function pick(src: fuzz.Recorder, list: {string}): string
   return list[src:int(1, #list)]
 end
 
 --- Draw a run of lowercase letters, the shape of a scheme or a host label.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param max_len integer The longest run to produce
 --- @return string The letters
-local function letters(src: source.Recorder, max_len: integer): string
+local function letters(src: fuzz.Recorder, max_len: integer): string
   local out: {string} = {}
   for i = 1, src:int(1, max_len) do
     out[i] = string.char(src:int(97, 122))
@@ -45,10 +44,10 @@ local SPECIALS = {
 }
 
 --- Draw a URL component: mostly letters, sometimes a delimiter or escape.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param max_parts integer The most pieces to concatenate
 --- @return string The component
-local function component(src: source.Recorder, max_parts: integer): string
+local function component(src: fuzz.Recorder, max_parts: integer): string
   local out: {string} = {}
   for i = 1, src:int(1, max_parts) do
     if src:int(1, 4) == 1 then
@@ -62,9 +61,9 @@ end
 
 --- Draw a host: a dotted name, an IPv4 literal, or a bracketed IPv6-ish
 --- literal.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The host
-local function host(src: source.Recorder): string
+local function host(src: fuzz.Recorder): string
   local kind = src:int(1, 10)
   if kind == 1 then
     return "[" .. letters(src, 4) .. "::" .. tostring(src:int(0, 9)) .. "]"
@@ -83,9 +82,9 @@ end
 --- Assemble a plausible URL from random parts: an optional
 --- scheme/userinfo/host/port authority, path segments, a query and a
 --- fragment, with unescaped and escaped characters throughout.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The URL
-local function plausible_url(src: source.Recorder): string
+local function plausible_url(src: fuzz.Recorder): string
   local out: {string} = {}
   if src:int(1, 6) > 1 then
     out[#out + 1] = letters(src, 6) .. "://"
@@ -124,7 +123,11 @@ local function encode_params(params: {string: {string}}): string
   local function put(s: string)
     out[#out + 1] = tostring(#s) .. ":" .. s
   end
-  for key, values in pairs(params) do
+  local keys: {string} = {}
+  for key in pairs(params) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local values = params[key]
     put(key)
     put(tostring(#values))
     for _, value in ipairs(values) do
@@ -185,16 +188,16 @@ end
 
 --- Draw a query map: at most eight keys, each with one to three values,
 --- all of them arbitrary bytes.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return {string:{string}} The map
-local function query_map(src: source.Recorder): {string: {string}}
+local function query_map(src: fuzz.Recorder): {string: {string}}
   local params: {string: {string}} = {}
   for _ = 1, src:int(0, 8) do
     local values: {string} = {}
     for i = 1, src:int(1, 3) do
-      values[i] = driver.bytes(src, 12)
+      values[i] = fuzz.bytes(src, 12)
     end
-    params[driver.bytes(src, 12)] = values
+    params[fuzz.bytes(src, 12)] = values
   end
   return params
 end
@@ -202,10 +205,10 @@ end
 -- parse answers every byte string: a Url, or nil with a reason. It never
 -- throws, and it never returns nil without saying why.
 local function test_parse_totality()
-  local ok, message = driver.run({
-      name = "parse_totality",
-      gen = function(src: source.Recorder): string
-        return driver.bytes(src, 256)
+  local result = fuzz.run({
+      name = "url_parse_totality",
+      gen = function(src: fuzz.Recorder): string
+        return fuzz.bytes(src, 256)
       end,
       check = function(input: string): boolean, string
         local parsed, err = url.parse(input)
@@ -218,14 +221,14 @@ local function test_parse_totality()
         return true
       end,
     })
-  check.truthy(ok, message)
+  fuzz.assert_ok(result)
 end
 
 -- format reaches a normal form in one round and then stays there: for any
 -- URL that parses, format(parse(s)) reparses and formats to itself.
 local function test_format_fixpoint()
-  local ok, message = driver.run({
-      name = "format_fixpoint",
+  local result = fuzz.run({
+      name = "url_format_fixpoint",
       gen = plausible_url,
       check = function(input: string): boolean, string
         local parsed = url.parse(input)
@@ -245,15 +248,15 @@ local function test_format_fixpoint()
         return true
       end,
     })
-  check.truthy(ok, message)
+  fuzz.assert_ok(result)
 end
 
 -- unescape_param inverts escape_param over arbitrary bytes.
 local function test_escape_inverse()
-  local ok, message = driver.run({
-      name = "escape_inverse",
-      gen = function(src: source.Recorder): string
-        return driver.bytes(src, 128)
+  local result = fuzz.run({
+      name = "url_escape_inverse",
+      gen = function(src: fuzz.Recorder): string
+        return fuzz.bytes(src, 128)
       end,
       check = function(input: string): boolean, string
         local escaped = url.escape_param(input)
@@ -269,14 +272,14 @@ local function test_escape_inverse()
         return true
       end,
     })
-  check.truthy(ok, message)
+  fuzz.assert_ok(result)
 end
 
 -- parse_query inverts format_query: keys, values and their order survive.
 local function test_query_round_trip()
-  local ok, message = driver.run({
-      name = "query_round_trip",
-      gen = function(src: source.Recorder): string
+  local result = fuzz.run({
+      name = "url_query_round_trip",
+      gen = function(src: fuzz.Recorder): string
         return encode_params(query_map(src))
       end,
       check = function(input: string): boolean, string
@@ -291,5 +294,5 @@ local function test_query_round_trip()
         return true
       end,
     })
-  check.truthy(ok, message)
+  fuzz.assert_ok(result)
 end
