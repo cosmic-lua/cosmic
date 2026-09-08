@@ -214,7 +214,7 @@ local function rest_value(marker: any, elements: {any}): Node
 end
 
 local match_value: function(pv: any, nv: any, caps: {string: Node},
-seen: {any: {any: boolean}}): boolean
+seen: {any: {any: boolean}}, predicates: {any: string}): boolean
 
 --- Match two arrays positionally. If the pattern's LAST element is a
 --- rest-capture marker (see `rest_capture_name`), it swallows every
@@ -229,7 +229,7 @@ seen: {any: {any: boolean}}): boolean
 --- @param seen {any: boolean} Identity-keyed cycle guard
 --- @return boolean
 local function match_list(pa: {any}, na: {any}, caps: {string: Node},
-    seen: {any: {any: boolean}}): boolean
+    seen: {any: {any: boolean}}, predicates: {any: string}): boolean
   if #pa > 0 then
     local last_raw = pa[#pa]
     local rest_name = rest_capture_name(last_raw)
@@ -239,7 +239,7 @@ local function match_list(pa: {any}, na: {any}, caps: {string: Node},
         return false
       end
       for i = 1, prefix_n do
-        if not match_value(pa[i], na[i], caps, seen) then
+        if not match_value(pa[i], na[i], caps, seen, predicates) then
           return false
         end
       end
@@ -255,7 +255,7 @@ local function match_list(pa: {any}, na: {any}, caps: {string: Node},
     return false
   end
   for i = 1, #pa do
-    if not match_value(pa[i], na[i], caps, seen) then
+    if not match_value(pa[i], na[i], caps, seen, predicates) then
       return false
     end
   end
@@ -273,7 +273,7 @@ end
 --- @param seen {any: boolean} Identity-keyed cycle guard, own to this matcher
 --- @return boolean
 match_value = function(pv: any, nv: any, caps: {string: Node},
-    seen: {any: {any: boolean}}): boolean
+    seen: {any: {any: boolean}}, predicates: {any: string}): boolean
   if pv == nil then
     return nv == nil
   end
@@ -291,7 +291,7 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
       return false
     end
     local pnode = pv as Node -- cast: capture leaf is a node from the compiled pattern's own tree
-    local pred = capture_predicates[pnode]
+    local pred = predicates[pnode]
     local nv_tk = nv["tk"]
     if pred and not (nv_tk is string and nv_tk:match(pred) ~= nil) then
       return false
@@ -329,14 +329,14 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
     return pv["tk"] == nv["tk"]
   end
   if pkind == "cast" then
-    return match_cast.match(pv, nv, caps, capture_predicates)
+    return match_cast.match(pv, nv, caps, predicates)
   end
-  if not match_list(arr(pv), arr(nv), caps, seen) then
+  if not match_list(arr(pv), arr(nv), caps, seen, predicates) then
     return false
   end
   for k, sub_pv in pairs(pv) do
     if not (k is integer) and not IGNORE_KEYS[k as string] then -- cast: non-integer key is a field name
-      if not match_value(sub_pv, nv[k], caps, seen) then
+      if not match_value(sub_pv, nv[k], caps, seen, predicates) then
         return false
       end
     end
@@ -390,24 +390,52 @@ end
 --- @param pattern Node A compiled pattern (see `compile_pattern`)
 --- @param node Node A candidate node to test
 --- @return {string: Node}|nil Capture bindings by name, or nil when `pattern` does not match `node`
-local function match(pattern: Node, node: Node): {string: Node} | nil
+local function match_with_predicates(pattern: Node, node: Node,
+    predicates: {any: string}): {string: Node} | nil
   local caps: {string: Node} = {}
-  if match_value(pattern, node, caps, {}) then
+  if match_value(pattern, node, caps, {}, predicates) then
     return caps
   end
   return nil
+end
+
+--- Match with the legacy module-owned predicate table. New callers should
+--- prefer `cosmic.ast.pattern`, which owns its metadata per compiled value.
+local function match(pattern: Node, node: Node): {string: Node} | nil
+  return match_with_predicates(pattern, node, capture_predicates)
+end
+
+--- Snapshot predicates attached to one compiled pattern. The returned map
+--- belongs to the caller and is safe to retain after another pattern is
+--- compiled.
+--- @param root Node A compiled pattern root
+--- @return {any: string} Predicate metadata keyed by pattern node identity
+local function predicates_for(root: Node): {any: string}
+  local out: {any: string} = {}
+  ast_walk.walk(root, function(n: Node)
+      local predicate = capture_predicates[n]
+      if predicate then
+        out[n] = predicate
+      end
+    end)
+  return out
 end
 
 local record MatchModule
   desugar: function(pattern_src: string): string
   compile_pattern: function(pattern_src: string): Node | nil, string
   match: function(pattern: Node, node: Node): {string: Node} | nil
+  match_with_predicates: function(pattern: Node, node: Node,
+  predicates: {any: string}): {string: Node} | nil
+  predicates_for: function(root: Node): {any: string}
 end
 
 local M: MatchModule = {
   desugar = desugar,
   compile_pattern = compile_pattern,
   match = match,
+  match_with_predicates = match_with_predicates,
+  predicates_for = predicates_for,
 }
 
 return M

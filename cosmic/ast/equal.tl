@@ -12,7 +12,7 @@ local META_KEYS: {string: boolean} = {
 
 local function map_view(value: any): {any: any} | nil
   if value is {any: any} then
-    return value as {any: any}
+    return value as {any: any} -- cast: generic map view
   end
   return nil
 end
