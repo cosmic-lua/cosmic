@@ -63,6 +63,25 @@ local function test_walk_descends_into_if_blocks()
     "expected both if_blocks reached, got " .. if_block_count)
 end
 
+--- A branch is a subtree root in its own right. Walking the first branch
+--- must not follow its `if_parent` backlink and thereby reach the else
+--- branch, even though both branches share the same enclosing statement.
+local function test_walk_from_first_if_branch_never_visits_else()
+  local parsed = parse_ok(
+    "if first then first_call() else else_call() end", "branch.tl")
+  local if_stmt = parsed.node[1]
+  assert(if_stmt.if_blocks ~= nil, "expected if blocks")
+  local first_branch = if_stmt.if_blocks[1]
+  local names: {string: boolean} = {}
+  walk_mod.walk(first_branch, function(n: node_mod.Node)
+      if n.kind == "variable" and n.tk then
+        names[n.tk] = true
+      end
+    end)
+  assert(names["first_call"], "first branch call was not visited")
+  assert(not names["else_call"], "walk crossed if_parent into the else branch")
+end
+
 --- `return a --[[ keep this ]] + b`, three source lines above the
 --- enclosing block's `end`: `span_end` on the "return" statement must
 --- land on `b`'s own last character, not on that `end`. The "return"
