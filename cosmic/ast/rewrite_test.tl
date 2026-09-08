@@ -111,3 +111,60 @@ local function test_rewrite_refuses_a_statement_deletion_that_would_drop_a_trail
   check.equal(result.refused[1].comments[1], "-- keep this")
   check.equal(result.code, source)
 end
+
+local function test_rewrite_refuses_to_delete_a_call_inside_a_declaration()
+  local result, err = rewrite_mod.rewrite(
+    "local answer = f(1)\n", "declaration.tl", pattern_ok("f($X)"), "")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 1)
+  check.equal(result.refused[1].reason, "matched call is not a statement")
+  check.equal(result.code, "local answer = f(1)\n")
+end
+
+local function test_rewrite_deletes_only_one_statement_on_a_shared_line()
+  local source = "before(); target(); after()\n"
+  local result, err = rewrite_mod.rewrite(
+    source, "shared_line.tl", pattern_ok("target()"), "")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 0)
+  check.equal(result.code, "before(); after()\n")
+end
+
+local function test_rewrite_groups_a_captured_binary_expression()
+  local result, err = rewrite_mod.rewrite(
+    "return f(a + b)\n", "precedence.tl", pattern_ok("f($X)"), "$X * 2")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 0)
+  check.equal(result.code, "return (a + b) * 2\n")
+end
+
+local function test_rewrite_leaves_placeholders_in_strings_and_comments_literal()
+  local result, err = rewrite_mod.rewrite(
+    "return f(value)\n", "literal.tl", pattern_ok("f($X)"),
+    'g("$X", $X) -- $X')
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 0)
+  check.equal(result.code, 'return g("$X", value) -- $X\n')
+end
+
+local function test_rewrite_preserves_nonempty_and_empty_list_captures()
+  local pattern = pattern_ok("f($$$XS)")
+  local many, many_err = rewrite_mod.rewrite(
+    "return f(a, b)\n", "list.tl", pattern, "g($$$XS)")
+  assert(many, "rewrite failed: " .. tostring(many_err))
+  check.equal(many.code, "return g(a, b)\n")
+  local empty, empty_err = rewrite_mod.rewrite(
+    "return f()\n", "empty_list.tl", pattern, "g($$$XS)")
+  assert(empty, "rewrite failed: " .. tostring(empty_err))
+  check.equal(empty.code, "return g()\n")
+end
+
+local function test_rewrite_refuses_overlapping_hits_atomically()
+  local source = "return f(f(1))\n"
+  local result, err = rewrite_mod.rewrite(
+    source, "overlap.tl", pattern_ok("f($X)"), "g($X)")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 2)
+  check.equal(result.refused[1].reason, "overlapping rewrite hits")
+  check.equal(result.code, source)
+end
