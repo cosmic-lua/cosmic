@@ -223,3 +223,20 @@ local function test_apply_leaves_the_file_untouched_when_the_splice_wont_reparse
   local after = check.must(fs.read(fs.join(root, "n.tl")))
   check.equal(after, before)
 end
+
+local function test_successful_file_cannot_hide_another_files_parse_failure()
+  local broken = "local x = (\n"
+  local root = fixture("mixed-failure", {
+      ["a.tl"] = "os.execute(cmd)\n",
+      ["b.tl"] = broken,
+    })
+  local r = rewrite(root, "os.execute($CMD)", "assert(os.execute($CMD))",
+    "--apply", "a.tl", "b.tl")
+  assert(r.code == 1, "a successful rewrite must not hide another file's failure")
+  assert(r.out:find("1 applied", 1, true), r.out)
+  assert(r.out:find("1 file(s) failed", 1, true), r.out)
+  assert(r.err:find("b.tl", 1, true), r.err)
+  check.equal(check.must(fs.read(fs.join(root, "b.tl"))), broken)
+  check.equal(check.must(fs.read(fs.join(root, "a.tl"))),
+    "assert(os.execute(cmd))\n")
+end

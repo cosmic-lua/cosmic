@@ -220,6 +220,12 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
     end
     return true
   end
+  -- Two adjacent minus tokens start a Lua comment. Unary-minus spacing
+  -- preferences yield to the lexer boundary: `- -1` and `- - -1` must
+  -- remain expressions rather than becoming `--1` or `---1`.
+  if prev.tk == "-" and cur.tk == "-" then
+    return true
+  end
   if prev.tk == "-" and prev.kind == "op" then
     if prev_prev == nil then
       return false

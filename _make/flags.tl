@@ -8,6 +8,8 @@
 --- used to die as `nothing to do under: --fix`), and reserving the
 --- flag namespace here is the same durability move.
 
+local check_scope = require("_make.check_scope")
+
 local record Flags
   --- `fmt --fix`: rewrite rather than report. Valid on `fmt` only.
   fix: boolean
@@ -27,6 +29,9 @@ end
 --- @return Flags | nil The parsed flags, or nil on a refusal
 --- @return string The refusal message, when parsing failed
 local function parse(name: string, words: {string}): Flags | nil, string
+  local remaining, err = check_scope.extract(name, words)
+  if not remaining then return nil, err end
+  words = remaining
   local out: Flags = {fix = false, min = nil, min_file = nil, paths = {}}
   local i = 1
   while i <= #words do

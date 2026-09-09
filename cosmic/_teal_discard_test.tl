@@ -82,16 +82,15 @@ local function test_infallible_statements_pass()
     .. table.concat(msgs, "; "))
 end
 
-local function test_fallible_reads_signatures()
-  local discard = require("cosmic._teal_discard")
-  assert(discard.fallible("function(string): (boolean, string)"),
-    "boolean, string is the fallible-effect shape")
-  assert(discard.fallible("function(string): (string | nil, string)"),
-    "T | nil, string is the fallible-value shape")
-  assert(not discard.fallible("function(string): string"),
-    "a single bare return has no error position")
-  assert(not discard.fallible("function(...: <any type>)"),
-    "no returns, no error position")
-  assert(not discard.fallible("function(): (integer, integer)"),
+local function test_structured_function_shapes()
+  -- These are deliberately source fixtures: the rule must read Teal's
+  -- structured function return report rather than parse rendered strings.
+  local pass = check_fixture([[
+local function pair(): integer, integer
+  return 1, 2
+end
+pair()
+]])
+  assert(not has(pass, "discarded error return"),
     "a non-string final return is not an error position")
 end

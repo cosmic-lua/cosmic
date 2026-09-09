@@ -20,6 +20,10 @@ local function test_generates_from_staged_source()
   local generated, gerr = gentl.generate(source)
   assert(generated, "generation should succeed: " .. tostring(gerr))
   assert(#generated > 0, "generated shim should not be empty")
+  assert(generated:find("check: function", 1, true),
+    "generated shim should expose checked-AST entry point")
+  assert(generated:find("record TypeInfo", 1, true),
+    "generated shim should expose the structured type report shape")
 end
 
 -- The erasure rules are the load-bearing part of extraction; pin them.

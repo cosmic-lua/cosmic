@@ -2,7 +2,10 @@
 -- test cosmic.format module
 
 local fmt = require("cosmic.format")
+local snapshot_fmt = require("cosmic.format_snapshot")
 local check = require("cosmic.check")
+local source = require("cosmic.ast.source")
+local tl = require("tl")
 
 local function assert_format(input: string, expected: string, msg: string, filename?: string)
   filename = filename or "test.lua"
@@ -192,6 +195,44 @@ local function test_determinism()
   local r2 = fmt.format(input, "test.lua")
   assert(r1.ok and r2.ok, "determinism: both should succeed")
   assert(r1.code == r2.code, "determinism: outputs should match")
+end
+
+local function test_format_snapshot_matches_string_entry_point()
+  local input = "local function id<T>(x:T):T\nreturn x\nend\n"
+  local snapshot, err = source.parse(input, "snapshot.tl")
+  assert(snapshot, err)
+  local shared, final = snapshot_fmt.format_snapshot(snapshot)
+  local standalone = fmt.format(input, "snapshot.tl")
+  assert(shared.ok and standalone.ok, "both formatter entry points must succeed")
+  assert(shared.code == standalone.code, "shared snapshot must retain house style")
+  assert(final and final.source == shared.code,
+    "shared formatting must return its validated output snapshot")
+end
+
+local function test_format_snapshot_reuses_the_input_parse()
+  local old_lex = tl.lex
+  local old_parse = tl.parse_program
+  local lexes, parses = 0, 0
+  tl.lex = function(text: string, name: string): {tl.Token}, {tl.Error}
+    lexes = lexes + 1
+    return old_lex(text, name)
+  end
+  tl.parse_program = function(tokens: {tl.Token}, errors: {tl.Error},
+      name?: string, lang?: string): any, {string}
+    parses = parses + 1
+    return old_parse(tokens, errors, name, lang)
+  end
+
+  local snapshot, err = source.parse("return 1\n", "counts.tl")
+  assert(snapshot, err)
+  local result, final = snapshot_fmt.format_snapshot(snapshot)
+
+  tl.lex = old_lex
+  tl.parse_program = old_parse
+  assert(result.ok and final, "shared formatting must validate its output")
+  assert(lexes == 2 and parses == 2,
+    "expected one input and one output pass, got " .. lexes .. " lexes and "
+      .. parses .. " parses")
 end
 
 -- Test format_file with missing file

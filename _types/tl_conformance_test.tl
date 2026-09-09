@@ -80,6 +80,12 @@ local _comments: {tl.Comment} = tokens[1].comments
 local ast, req_mods = tl.parse_program(tokens, {}, "probe")
 local _req_mods: {string} = req_mods
 
+-- check: consume this already parsed AST without a root reparse.
+env.report_types = true
+local checked, check_err = tl.check(ast, "probe", nil, env)
+local _check_err: string = check_err
+local _dependencies: {string: string} = checked.dependencies
+
 -- process_string: exactly one Result; failures land in its fields.
 -- Five args: upstream's types REQUIRE the 5th (_module_name); the shim
 -- declares it optional for cosmic's 4-arg call sites.
@@ -95,6 +101,7 @@ local _gen_err: string = gen_err
 
 -- keep every probe value visibly used for the strict shim check
 print(wk ~= nil, ast ~= nil, _found, _fd, #_tried, _e1, _e2, _e3, _e4)
+print(_check_err, _dependencies)
 ]]
 
 local probe_path = fs.join(tmpdir, "tl_probe.tl")

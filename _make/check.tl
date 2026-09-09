@@ -24,6 +24,9 @@ local records = require("_tool.records")
 local seam = require("_tool.seam")
 local teal = require("cosmic.teal")
 local deps = require("_make.deps")
+local impact = require("_make.impact")
+local check_scope = require("_make.check_scope")
+local check_result = require("_make.check_result")
 local project = require("_make.project")
 local selection = require("_make.select")
 local stamp = require("_make.stamp")
@@ -126,12 +129,16 @@ end
 --- @return string An error naming a selection path that matched nothing
 local function select_files(proj: Project, paths: {string}): {File} | nil, string
   local all: {File} = {}
-  for _, f in ipairs(proj.files) do
+  local candidates = proj.files
+  if check_scope.changed() then
+    candidates = impact.affected(proj, paths).selected
+  end
+  for _, f in ipairs(candidates) do
     if checkable[f.kind] and f.path:sub(-3) == ".tl" then
       all[#all + 1] = f
     end
   end
-  return selection.files(all, paths, proj.root)
+  return selection.files(all, check_scope.changed() and {} or paths, proj.root)
 end
 
 --- Type-check the selected files, writing issues to stderr as they are
@@ -146,7 +153,7 @@ end
 --- exactly when that warning would otherwise surface.
 --- @param files {File} Files to check
 --- @return integer Number of files that failed
-local function check_files(files: {File}): integer
+local function check_files(files: {File}, report: check_result.Result): integer
   -- The project root is the module root, so "." is what makes
   -- require("pkg.db") resolve to pkg/db.tl. It goes first: a project's
   -- own module wins over anything the include path would otherwise
@@ -154,13 +161,21 @@ local function check_files(files: {File}): integer
   local include_dirs = {"."}
   local failed = 0
   for _, f in ipairs(files) do
+    report.checked[#report.checked + 1] = f.path
     local aug, aerr = seam.augment(f.path)
     if aug == nil then
       io.stderr:write("cosmic-lua: " .. aerr .. "\n")
       failed = failed + 1
+      check_result.failure(report, f.path, aerr)
     else
       local result = teal.check(aug.source,
         {include_dirs = include_dirs, chunk_name = f.path})
+      for _, issue in ipairs(result.warnings) do
+        report.diagnostics[#report.diagnostics + 1] = issue
+      end
+      for _, issue in ipairs(result.errors) do
+        report.diagnostics[#report.diagnostics + 1] = issue
+      end
       if #result.warnings > 0 then
         io.stderr:write(teal.format_issues(result.warnings, {hints = true}) .. "\n")
       end
@@ -175,6 +190,27 @@ local function check_files(files: {File}): integer
   return failed
 end
 
+--- An explicit report path must not replace any project input.
+local function finish(proj: Project, report: check_result.Result, code: integer): integer
+  report.ok = code == 0
+  local path = check_scope.report()
+  if not path then return code end
+  for _, f in ipairs(proj.files) do
+    if fs.absolute_path(fs.join(proj.root, f.path)) == path then
+      io.stderr:write("check: report path is a project input: " .. path .. "\n")
+      io.write(records.format_verdict("check", false, "report path is an input") .. "\n")
+      return records.exit_code(false)
+    end
+  end
+  local ok, err = check_result.write(report, path)
+  if not ok then
+    io.stderr:write("check: cannot write report: " .. err .. "\n")
+    io.write(records.format_verdict("check", false, "report write failed") .. "\n")
+    return records.exit_code(false)
+  end
+  return code
+end
+
 --- Run `check` against an already-scanned project.
 ---
 --- The caller has chdir'd to the root, so every path here is relative
@@ -183,22 +219,42 @@ end
 --- @param paths {string} Selection paths (empty for the whole project)
 --- @return integer Exit code: 0 on success, 1 on any failure
 local function run(proj: Project, paths: {string}): integer
+  local report = check_result.new(proj.root)
+  report.changed = check_scope.changed()
   local issues = validate.validate(proj)
   if #issues > 0 then
     io.stderr:write(validate.format_issues(issues) .. "\n")
     io.write(records.format_verdict("check", false,
         records.detail(0, #issues, "validation error")) .. "\n")
-    return records.exit_code(false)
+    check_result.failure(report, "", validate.format_issues(issues))
+    return finish(proj, report, records.exit_code(false))
   end
 
   local files, err = select_files(proj, paths)
   if not files then
     io.stderr:write((err or "make: no such selection") .. "\n")
     io.write(records.format_verdict("check", false, "bad selection") .. "\n")
-    return records.exit_code(false)
+    check_result.failure(report, "", err or "bad selection")
+    return finish(proj, report, records.exit_code(false))
   end
 
   local selected = files
+  report.selected = deps.source_paths(selected)
+  report.roots = report.selected
+  if check_scope.changed() then
+    local scope = impact.affected(proj, paths)
+    report.roots = deps.source_paths(scope.roots)
+    report.dependencies = deps.source_paths(scope.dependencies)
+    report.excluded = deps.source_paths(scope.excluded)
+    report.conservative = scope.conservative
+    report.reason = scope.reason
+    io.write("check: changed impact selects " .. #selected .. " checkable file(s), " ..
+      #scope.dependencies .. " additional dependency input(s), " ..
+      #scope.excluded .. " excluded file(s)\n")
+    if scope.conservative then
+      io.write("check: full selection: " .. scope.reason .. "\n")
+    end
+  end
   -- The graph's half first: a file whose strict compile is up to date
   -- against the same inputs is already checked, so re-deriving the
   -- answer in process is pure duplication — measured at 2m40s of a
@@ -207,11 +263,29 @@ local function run(proj: Project, paths: {string}): integer
   -- kinds the graph never compiles (pins, payload generators) plus
   -- whatever actually changed.
   local by_import = deps.index(proj)
+  if not report.changed and check_scope.report() then
+    local inspected: {string: boolean} = {}
+    for _, f in ipairs(selected) do inspected[f.path] = true end
+    for _, f in ipairs(selected) do
+      for _, dep in ipairs(deps.closure(proj, f, by_import)) do
+        if not inspected[dep.path] then
+          inspected[dep.path] = true
+          report.dependencies[#report.dependencies + 1] = dep.path
+        end
+      end
+    end
+    for _, f in ipairs(proj.files) do
+      if not inspected[f.path] then report.excluded[#report.excluded + 1] = f.path end
+    end
+    table.sort(report.dependencies)
+    table.sort(report.excluded)
+  end
   local to_check: {File} = {}
   local proved = 0
   for _, f in ipairs(selected) do
     if proved_by_graph(proj, f, by_import) then
       proved = proved + 1
+      report.proved[#report.proved + 1] = f.path
     else
       to_check[#to_check + 1] = f
     end
@@ -220,10 +294,10 @@ local function run(proj: Project, paths: {string}): integer
     io.write("check: " .. proved .. " of " .. #selected ..
       " already proved by their strict compile\n")
   end
-  local failed = check_files(to_check)
+  local failed = check_files(to_check, report)
   io.write(records.format_verdict("check", failed == 0,
       records.detail(failed, #selected, "file")) .. "\n")
-  return records.exit_code(failed == 0)
+  return finish(proj, report, records.exit_code(failed == 0))
 end
 
 local record CheckModule

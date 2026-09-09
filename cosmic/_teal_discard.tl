@@ -29,6 +29,9 @@
 --- API's point of view; every node is dispatched through this map
 --- shape (`is` compiles to one type() check).
 local type Node = {any: any}
+local types = require("cosmic._teal_types")
+local type TypeReport = types.Report
+local type TypeQuery = types.TypeQuery
 
 --- One finding, in cosmic.teal's Issue shape (severity always "error").
 local record Diag
@@ -40,7 +43,11 @@ local record Diag
 end
 
 --- Enclosing callees that consume a spilled error rather than
---- rendering it: the sanctioned handling idioms, not the trap.
+--- rendering it: the sanctioned handling idioms, not the trap. These
+--- remain spelling-based until the separate binding service can prove
+--- which declaration each callee names; shadowing therefore preserves
+--- the established exemption rather than pretending name identity is
+--- binding identity.
 local CONSUMES < const >: {string: boolean} = {
   ["assert"] = true,
   ["must"] = true,
@@ -50,63 +57,25 @@ local CONSUMES < const >: {string: boolean} = {
   ["select"] = true,
 }
 
---- Does a type string declare returns ending in the error position?
---- The shape is "the final return is `string`, and it is not the only
---- return" — `(T | nil, string)` and `(boolean, string)` alike.
---- @param ts string A type string from tl's report
---- @return boolean True when the final return is an error-position string
-local function fallible(ts: string): boolean
-  if not string.match(ts, "^function") then
-    return false
-  end
-  local rets = string.match(ts, ":%s*(%b())%s*$")
-  or string.match(ts, ":%s*([^)]*)$")
-  if not rets then
-    return false
-  end
-  rets = string.gsub(rets, "^%(", "")
-  rets = string.gsub(rets, "%)$", "")
-  return string.match(rets, ",%s*string$") ~= nil
-end
-
---- The function-type string recorded at a position, or nil.
-local function type_str_at(by: Node, types: Node, y: any, x: any): string | nil
-  local row = by[y]
-  if row is Node then
-    local tid = row[x]
-    if tid ~= nil then
-      local t = types[tid]
-      if t is Node then
-        local s = t["str"]
-        if s is string then
-          if string.match(s, "^function") then
-            return s
-          end
-        end
-      end
-    end
-  end
-  return nil
-end
-
 --- A call's callee type: the field identifier for `a.f(...)`/`a:f(...)`
 --- (its position carries the function type), else the bare variable.
-local function callee_type(call: Node, by: Node, types: Node): string | nil
+local function callee_type(call: Node, report: TypeReport,
+    path: string): TypeQuery
   local e1 = call["e1"]
   if e1 is Node then
     local e2 = e1["e2"]
     if e2 is Node then
-      local s = type_str_at(by, types, e2["y"], e2["x"])
-      if s then
-        return s
+      local found = types.type_at(report, path, e2["y"], e2["x"])
+      if found.state == "known" then
+        return found
       end
     end
-    local s = type_str_at(by, types, e1["y"], e1["x"])
-    if s then
-      return s
+    local found = types.type_at(report, path, e1["y"], e1["x"])
+    if found.state == "known" then
+      return found
     end
   end
-  return nil
+  return {state = "unknown", reason = "callee has no reported type"}
 end
 
 --- A call's callee NAME (`f` in `f(...)`, `must` in `check.must(...)`),
@@ -169,7 +138,7 @@ end
 
 --- Walk one AST, collecting both shapes. The AST carries parent links,
 --- so the walk keeps a seen-set instead of trusting it to be a tree.
-local function walk(node: any, by: Node, types: Node, path: string,
+local function walk(node: any, report: TypeReport, path: string,
     diags: {Diag}, dedup: {string: boolean}, seen: {any: boolean})
   if node is Node then
     if seen[node] then
@@ -184,10 +153,12 @@ local function walk(node: any, by: Node, types: Node, path: string,
       for i = 1, #arr do
         local st = arr[i]
         if is_funcall(st) and st is Node then
-          local ts = callee_type(st, by, types)
-          if ts and fallible(ts) then
+          local tq = callee_type(st, report, path)
+          local fallible = tq.value and types.is_fallible(report, tq.value)
+          if fallible and fallible.state == "known" and fallible.value then
+            local desc = types.describe(report, tq.value)
             add(diags, dedup, path, st,
-              "discarded error return of " .. ts
+              "discarded error return of " .. desc
               .. " — capture it: `local v, err = f(...)`"
               .. " (or `local _ok, _err = f(...)` for deliberate"
               .. " fire-and-forget; assert/check.must in tests)")
@@ -205,17 +176,21 @@ local function walk(node: any, by: Node, types: Node, path: string,
         local arr = args as {any} -- cast: an expression_list is array-shaped
         local last = arr[#arr]
         if is_funcall(last) and last is Node then
-          local encl = callee_type(node, by, types)
-          local inner = callee_type(last, by, types)
+          local encl = callee_type(node, report, path)
+          local inner = callee_type(last, report, path)
           local ename = callee_name(node)
           local consumes = false
           if ename then
             consumes = CONSUMES[ename] or false
           end
-          if encl and inner and not consumes
-          and string.find(encl, "...", 1, true) and fallible(inner) then
+          local signature_args = encl.value and types.arguments(report, encl.value)
+          local fallible = inner.value and types.is_fallible(report, inner.value)
+          if signature_args and signature_args.state == "known"
+          and signature_args.variadic and not consumes
+          and fallible and fallible.state == "known" and fallible.value then
+            local desc = types.describe(report, inner.value)
             add(diags, dedup, path, last,
-              "error return of " .. inner
+              "error return of " .. desc
               .. " spills into the enclosing call — capture it first"
               .. " (`local v, err = f(...)`), or parenthesize to"
               .. " truncate: `(f(...))`")
@@ -227,7 +202,7 @@ local function walk(node: any, by: Node, types: Node, path: string,
     for k, v in pairs(node) do
       -- `expected`/`decltuple` reach into type-land, not child nodes.
       if k ~= "expected" and k ~= "decltuple" then
-        walk(v, by, types, path, diags, dedup, seen)
+        walk(v, report, path, diags, dedup, seen)
       end
     end
   end
@@ -246,32 +221,11 @@ end
 --- @return {Diag} Findings, in file order
 local function issues(env: any, ast: any, path: string): {Diag}
   local diags: {Diag} = {}
-  if not (env is Node) then
+  local report = types.from_env(env)
+  if not report then
     return diags
   end
-  local reporter = (env)["reporter"]
-  if not (reporter is Node) then
-    return diags
-  end
-  local rep = reporter
-  -- cast: TypeReporter method, outside the narrowed API
-  local get_report = rep["get_report"] as function(any): any
-  local report = get_report(rep)
-  if not (report is Node) then
-    return diags
-  end
-  local by_pos = (report)["by_pos"]
-  local types = (report)["types"]
-  if not (by_pos is Node) or not (types is Node) then
-    return diags
-  end
-  local by = (by_pos)[path]
-  if not (by is Node) then
-    return diags
-  end
-  local by_file = by
-  local type_tab = types
-  walk(ast, by_file, type_tab, path, diags, {}, {})
+  walk(ast, report, path, diags, {}, {})
   table.sort(diags, function(a: Diag, b: Diag): boolean
       if a.line ~= b.line then
         return a.line < b.line
@@ -283,12 +237,10 @@ end
 
 local record TealDiscardModule
   type Diag = Diag
-  fallible: function(ts: string): boolean
   issues: function(env: any, ast: any, path: string): {Diag}
 end
 
 local M: TealDiscardModule = {
-  fallible = fallible,
   issues = issues,
 }
 

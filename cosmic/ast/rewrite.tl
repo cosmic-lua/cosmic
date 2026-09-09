@@ -21,6 +21,7 @@
 local node_mod = require("cosmic.ast.node")
 local ast_walk = require("cosmic.ast.walk")
 local ast_match = require("cosmic.ast.match")
+local template = require("cosmic.edit")
 local format = require("cosmic.format")
 local tl = require("tl")
 
@@ -116,78 +117,30 @@ local function byte_span(node: Node, tokens: {tl.Token}, starts: {integer}): int
   return offset_of(starts, sy, sx), offset_of(starts, ey, ex)
 end
 
---- The byte range `[a, b]` of the next WHOLE-identifier occurrence of
---- `name` in `text` at or after `init`, or nil if there is none.
---- "Whole-identifier" means not immediately preceded or followed by
---- an identifier character (`[%w_]`): a plain substring search would
---- let a capture name that is a literal prefix of another's
---- (`_X`/`_XS`, `_N`/`_NAME`) match INSIDE the longer name's own
---- spelling, corrupting it. Shared by `kept_ranges` and `substitute`
---- so the two can never disagree about what counts as an occurrence.
---- @param text string
---- @param name string A capture's own desugared name (`_X`, `___XS`, ...)
---- @param init integer 1-based byte offset to start searching from
---- @return integer|nil a
---- @return integer|nil b
-local function find_name(text: string, name: string, init: integer): integer | nil, integer | nil
-  local pos = init
-  while pos <= #text + 1 do
-    local a, b = text:find(name, pos, true)
-    if not a then
-      return nil, nil
-    end
-    local before = a > 1 and text:sub(a - 1, a - 1) or ""
-    local after = b < #text and text:sub(b + 1, b + 1) or ""
-    if not before:match("[%w_]") and not after:match("[%w_]") then
-      return a, b
-    end
-    pos = a + 1
-  end
-  return nil, nil
-end
-
---- Every whole-identifier occurrence of `name` in `text` replaced with
---- `value`, verbatim (no pattern-substitution escaping: `value` is
---- spliced in as literal bytes, never reinterpreted as a `gsub`
---- replacement pattern).
---- @param text string
---- @param name string A capture's own desugared name
---- @param value string The literal bytes to splice in for each occurrence
---- @return string
-local function substitute(text: string, name: string, value: string): string
-  local out: {string} = {}
-  local pos = 1
-  while true do
-    local a, b = find_name(text, name, pos)
-    if not a then
-      out[#out + 1] = text:sub(pos)
-      break
-    end
-    out[#out + 1] = text:sub(pos, a - 1)
-    out[#out + 1] = value
-    pos = b + 1
-  end
-  return table.concat(out)
-end
-
 --- Byte ranges `[a, b]` (inclusive) whose capture's OWN span the
---- `replacement` template actually reuses, checked literally
---- (`find_name`, a whole-identifier occurrence) rather than by
---- re-parsing the template -- exactly the source text a rewrite
---- carries forward verbatim, as opposed to a captured span the
---- template discards.
+--- replacement template reuses, based on the lexical template
+--- instantiator's code-only use counts.
 --- @param caps {string: Node} A hit's capture bindings
---- @param replacement string The (already desugared) replacement template
+--- @param uses {string: integer} Template code use count by capture name
 --- @param tokens {tl.Token} The token stream from the SAME parse as `caps`' nodes
 --- @param starts {integer} `line_starts`'s own result, for the same source
 --- @return {{integer, integer}} Kept ranges, unordered
-local function kept_ranges(caps: {string: Node}, replacement: string, tokens: {tl.Token},
+local function kept_ranges(caps: {string: Node}, uses: {string: integer}, tokens: {tl.Token},
     starts: {integer}): {{integer, integer}}
   local kept: {{integer, integer}} = {}
   for name, cap in pairs(caps) do
-    if find_name(replacement, name, 1) then
-      local a, b = byte_span(cap, tokens, starts)
-      kept[#kept + 1] = {a, b}
+    if (uses[name] or 0) > 0 then
+      if cap.kind == "rest_capture" then
+        local elems = cap as {Node} -- cast: synthetic rest_capture array view
+        if #elems > 0 then
+          local a = byte_span(elems[1], tokens, starts)
+          local _, b = byte_span(elems[#elems], tokens, starts)
+          kept[#kept + 1] = {a, b}
+        end
+      else
+        local a, b = byte_span(cap, tokens, starts)
+        kept[#kept + 1] = {a, b}
+      end
     end
   end
   return kept
@@ -240,29 +193,108 @@ end
 --- a different node shape).
 --- @param node Node
 --- @return boolean
-local function is_call_statement(node: Node): boolean
+local function is_call(node: Node): boolean
   local op = node.op
   return node.kind == "op" and op ~= nil and (op.op == "@funcall" or op.op == "@method")
 end
 
---- The byte range `[a, b]` (inclusive) of every WHOLE LINE `node`'s own
---- span touches: `span_start`'s line through `span_end`'s line,
---- including each line's own leading indentation and, except at
---- end-of-file, its trailing newline -- so removing exactly this range
---- leaves no blank line where the statement was.
---- @param node Node
---- @param tokens {tl.Token} The token stream from the SAME parse as `node`
---- @param starts {integer} `line_starts`'s own result, for the same source
---- @param source_len integer The source's own length in bytes
---- @return integer a
---- @return integer b
-local function line_range(node: Node, tokens: {tl.Token}, starts: {integer},
-    source_len: integer): integer, integer
-  local sy, _ = ast_walk.span_start(node)
-  local ey, _ = ast_walk.span_end(node, tokens)
-  local a = starts[sy]
-  local b = ey + 1 <= #starts and starts[ey + 1] - 1 or source_len
-  return a, b
+--- Calls that are direct array elements of a `statements` node. A call
+--- nested in `local x = f()` has the same AST shape, so shape alone is
+--- never enough to authorize statement deletion.
+local function statement_calls(root: Node): {Node: boolean}
+  local found: {Node: boolean} = {}
+  local seen: {any: boolean} = {}
+  local function visit(value: any)
+    if not (value is {any: any}) or seen[value] then
+      return
+    end
+    seen[value] = true
+    local map = value as {any: any} -- cast: generic AST reflection view
+    if map["kind"] == "statements" then
+      for _, child in ipairs(value as {any}) do -- cast: statements array view
+        if child is {any: any} then
+          local child_kind = child["kind"]
+          if child_kind is string then
+            local n = child as Node -- cast: kind field identifies a parsed Node
+            if is_call(n) then
+              found[n] = true
+            end
+          end
+        end
+      end
+    end
+    for k, child in pairs(map) do
+      if k ~= "if_parent" then
+        if child is {any: any} then
+          local child_kind = child["kind"]
+          if child_kind is string then
+            visit(child)
+          else
+            for _, element in ipairs(child as {any}) do -- cast: child-list view
+              visit(element)
+            end
+          end
+        end
+      end
+    end
+  end
+  visit(root)
+  return found
+end
+
+--- Delete one direct statement without consuming its same-line peers.
+--- A statement alone on its line owns the line. Otherwise consume one
+--- adjacent semicolon; absence of one is an unsupported parser shape.
+local function statement_range(node: Node, tokens: {tl.Token}, starts: {integer},
+    source: string): integer | nil, integer | nil
+  local a, b = byte_span(node, tokens, starts)
+  local y = ast_walk.span_start(node)
+  local line_a = starts[y]
+  local line_end = y + 1 <= #starts and starts[y + 1] - 1 or #source
+  local content_end = y + 1 <= #starts and line_end - 1 or line_end
+  local before = source:sub(line_a, a - 1)
+  local after = source:sub(b + 1, content_end)
+  if before:match("^%s*$") and not after:find(";", 1, true) then
+    return line_a, line_end
+  end
+  local _, right = after:find("^%s*;%s*")
+  if right then
+    return a, b + right
+  end
+  local left = before:find(";%s*$")
+  if left then
+    return line_a + left - 1, b
+  end
+  return nil, nil
+end
+
+local record Proposed
+  a: integer
+  b: integer
+  text: string
+  hit: Hit
+end
+
+local function capture_text(source: string, cap: Node, tokens: {tl.Token},
+    starts: {integer}): string
+  if cap.kind == "rest_capture" then
+    local elems = cap as {Node} -- cast: synthetic rest_capture array view
+    if #elems == 0 then
+      return ""
+    end
+    local a = byte_span(elems[1], tokens, starts)
+    local _, b = byte_span(elems[#elems], tokens, starts)
+    return source:sub(a, b)
+  end
+  local a, b = byte_span(cap, tokens, starts)
+  local text = source:sub(a, b)
+  if cap.kind == "op" then
+    local op = cap.op
+    if op and op.op ~= "@funcall" and op.op ~= "@method" and op.op ~= "@index" then
+      return "(" .. text .. ")"
+    end
+  end
+  return text
 end
 
 --- Find every match of `pattern` in `source` and splice `replacement`
@@ -293,32 +325,80 @@ local function rewrite(source: string, name: string, pattern: Node,
   if not parsed then
     return nil, perr
   end
-  local desugared = ast_match.desugar(replacement)
   local hits = find_all(parsed.node, pattern)
   local starts = line_starts(source)
-  local out = source
+  local direct_calls = statement_calls(parsed.node)
   local refused: {Refusal} = {}
-  for i = #hits, 1, -1 do
-    local h = hits[i]
-    local a, b: integer, integer
-    if desugared == "" and is_call_statement(h.node) then
-      a, b = line_range(h.node, parsed.tokens, starts, #source)
-    else
-      a, b = byte_span(h.node, parsed.tokens, starts)
+  local proposed: {Proposed} = {}
+  for _, h in ipairs(hits) do
+    local a, b = byte_span(h.node, parsed.tokens, starts)
+    if replacement == "" and is_call(h.node) then
+      if not direct_calls[h.node] then
+        refused[#refused + 1] = {
+          node = h.node, comments = {},
+        }
+        goto continue
+      end
+      local sa, sb = statement_range(h.node, parsed.tokens, starts, source)
+      if not sa or not sb then
+        refused[#refused + 1] = {
+          node = h.node, comments = {},
+        }
+        goto continue
+      end
+      a, b = sa, sb
     end
-    local kept = kept_ranges(h.caps, desugared, parsed.tokens, starts)
+    local values: {string: string} = {}
+    for cname, cap in pairs(h.caps) do
+      values[cname] = capture_text(source, cap, parsed.tokens, starts)
+    end
+    local text, uses = template.instantiate(replacement, values)
+    local kept = kept_ranges(h.caps, uses, parsed.tokens, starts)
     local dropped = dropped_comments(parsed.tokens, starts, a, b, kept)
     if #dropped > 0 then
-      refused[#refused + 1] = {node = h.node, comments = dropped}
+      refused[#refused + 1] = {
+        node = h.node, comments = dropped,
+      }
     else
-      local text = desugared
-      for cname, cap in pairs(h.caps) do
-        local ca, cb = byte_span(cap, parsed.tokens, starts)
-        text = substitute(text, cname, source:sub(ca, cb))
-      end
-      out = out:sub(1, a - 1) .. text .. out:sub(b + 1)
+      proposed[#proposed + 1] = {a = a, b = b, text = text, hit = h}
+    end
+    ::continue::
+  end
+
+  table.sort(proposed, function(p: Proposed, q: Proposed): boolean
+      return p.a < q.a or (p.a == q.a and p.b < q.b)
+    end)
+  local conflicted: {Proposed: boolean} = {}
+  local covering = proposed[1]
+  for i = 2, #proposed do
+    local current = proposed[i]
+    if covering and current.a <= covering.b then
+      conflicted[covering], conflicted[current] = true, true
+      if current.b > covering.b then covering = current end
+    else
+      covering = current
     end
   end
+  if next(conflicted) ~= nil then
+    for _, edit in ipairs(proposed) do
+      if conflicted[edit] then
+        refused[#refused + 1] = {
+          node = edit.hit.node, comments = {},
+        }
+      end
+    end
+    proposed = {}
+  end
+
+  local pieces: {string} = {}
+  local pos = 1
+  for _, edit in ipairs(proposed) do
+    pieces[#pieces + 1] = source:sub(pos, edit.a - 1)
+    pieces[#pieces + 1] = edit.text
+    pos = edit.b + 1
+  end
+  pieces[#pieces + 1] = source:sub(pos)
+  local out = table.concat(pieces)
   local result = format.format(out, name)
   if not result.ok then
     return nil, format.format_issues(result.errors)

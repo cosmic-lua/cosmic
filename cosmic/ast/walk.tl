@@ -1,98 +1,20 @@
---- Generic, cycle-guarded traversal of a `cosmic.ast.node` `Node` tree,
+--- Grammar-defined traversal of a `cosmic.ast.node` `Node` tree,
 --- plus span computation over it: a node's start and end position as
 --- the whole subtree actually occupies, not just wherever the parser
 --- happened to stamp its own `y`/`x`.
 ---
---- `walk` and the span functions share the same reflection: a Node's
---- CHILD-shaped fields (`e1`, `e2`, `if_blocks`, `exp`, `body`, `exps`,
---- and the array part every "statements"/"expression_list" node
---- carries) are read generically, through the table itself, rather
---- than named one by one -- so a tl node kind this module has never
---- heard of still gets walked correctly, the same way
---- `docs/design/ast-rewrite/tlgrep.tl`'s own generic match does.
----
---- The one place that reflection needs care: a NAMED field can hold
---- either a real node (a `Node`) or a BARE array of nodes with no
---- position of its own (`if_blocks`; a "statements" node's own array
---- part, reached again through a DIFFERENT node's named field).
---- Checking `is {any: any}` cannot tell the two apart -- Teal's generic
---- map type structurally covers an array too, so it matches EITHER
---- shape at runtime. That was exactly the first version of this walk's
---- bug: an `elseif v is {any} then ...` fallback placed after an
---- `is {any: any}` branch never ran, so `if_blocks` was silently never
---- descended into at all. `classify` below checks the actual `kind`
---- field instead -- present as a string on every real `Node`, and on
---- nothing else reachable this way, including the "op" node's own
---- `OpInfo` payload table (`cosmic/ast/node.tl`'s `.op` field), which
---- the live parser also stamps with `y`/`x` (arity and precedence live
---- there too) but never with `kind`. A `y`-field check reads that
---- payload as a real node too -- inert for span computation only
---- because `OpInfo.y`/`.x` duplicate the enclosing "op" node's own
---- position, but it violates `walk`'s "once per node reached" contract
---- and a consumer built on `walk` (a matcher) has no such guarantee to
---- lean on. Confirmed against a real "if" fixture and against
---- `os.execute(cmd)`'s "op" payload rather than assumed from reading
---- tl's grammar alone.
+--- `children`, `walk`, and the span functions share the parser's explicit
+--- node-child schema. It follows only syntax edges and never reflects over
+--- compiler metadata or the `if_parent` backlink. Unknown node kinds are
+--- opaque: adding a parser kind cannot silently make a metadata table part
+--- of the public syntax tree.
 local tl = require("tl")
 local node_mod = require("cosmic.ast.node")
+local children_mod = require("cosmic.ast.children")
 
 local type Node = node_mod.Node
 
---- `node`'s own array part, viewed generically for `ipairs` -- every
---- "statements"/"expression_list" node's own elements, in source
---- order.
---- @param node Node
---- @return {any} The same table, viewed as an array
-local function array_of(node: Node): {any}
-  return node as {any} -- cast: map view of a declared value
-end
-
---- `node`'s own table, viewed generically for `pairs` -- named fields
---- and array part alike, since Lua's `pairs` walks every key
---- regardless of how Teal typed them.
---- @param node Node
---- @return {any: any} The same table, viewed as a generic map
-local function map_of(node: Node): {any: any}
-  return node as {any: any} -- cast: map view of a declared value
-end
-
---- Classify one value found while reflecting over a Node's fields.
---- @param value any A field value, or an array element
---- @return Node|nil The value itself, when it is a real node (its own `kind` is a string)
---- @return {any}|nil Its elements, when it is a bare array of nodes instead
-local function classify(value: any): Node | nil, {any} | nil
-  if not (value is {any: any}) then
-    return nil, nil
-  end
-  local vt = value as {any: any} -- cast: map view of a declared value
-  local vkind = vt["kind"]
-  if vkind is string then
-    return vt as Node, nil -- cast: map view of a declared value
-  end
-  return nil, vt
-end
-
---- Call `consider` once for every child value reachable from `node`'s
---- own fields, in array-part-then-named-field order -- the shared
---- reflection `walk`, `span_start` and `span_end` each fold over.
---- @param node Node
---- @param consider function(any) Called once per array element and per named field's value
-local function each_child(node: Node, consider: function(any))
-  for _, v in ipairs(array_of(node)) do
-    consider(v)
-  end
-  for k, v in pairs(map_of(node)) do
-    if not (k is integer) then
-      consider(v)
-    end
-  end
-end
-
---- Walk `node`'s subtree in depth-first order, calling `visit` once on
---- every node reached, `node` itself first. Cycle-guarded by identity:
---- an "if_block" node's `if_parent` points back at its own enclosing
---- "if" statement, a real cycle rather than a copy, so a plain
---- recursive descent would loop forever without one.
+--- Walk `node`'s subtree in deterministic depth-first order.
 --- @param node Node The subtree root
 --- @param visit function(Node) Called once per node, in depth-first order
 local function walk(node: Node, visit: function(Node))
@@ -103,19 +25,9 @@ local function walk(node: Node, visit: function(Node))
     end
     seen[n] = true
     visit(n)
-    each_child(n, function(value: any)
-        local child, rest = classify(value)
-        if child then
-          go(child)
-        elseif rest then
-          for _, e in ipairs(rest) do
-            local gc = classify(e)
-            if gc then
-              go(gc)
-            end
-          end
-        end
-      end)
+    for _, child in ipairs(children_mod.children(n)) do
+      go(child.node)
+    end
   end
   go(node)
 end
@@ -136,25 +48,12 @@ local function span_start(node: Node): integer, integer
       return by, bx
     end
     seen[n] = true
-    each_child(n, function(value: any)
-        local child, rest = classify(value)
-        if child then
-          local cy, cx = compute(child, seen)
-          if cy < by or (cy == by and cx < bx) then
-            by, bx = cy, cx
-          end
-        elseif rest then
-          for _, e in ipairs(rest) do
-            local gc = classify(e)
-            if gc then
-              local cy, cx = compute(gc, seen)
-              if cy < by or (cy == by and cx < bx) then
-                by, bx = cy, cx
-              end
-            end
-          end
-        end
-      end)
+    for _, child in ipairs(children_mod.children(n)) do
+      local cy, cx = compute(child.node, seen)
+      if cy < by or (cy == by and cx < bx) then
+        by, bx = cy, cx
+      end
+    end
     return by, bx
   end
   return compute(node, {})
@@ -230,25 +129,12 @@ local function span_end(node: Node, tokens: {tl.Token}): integer, integer
       return by, bx
     end
     seen[n] = true
-    each_child(n, function(value: any)
-        local child, rest = classify(value)
-        if child then
-          local cy, cx = compute(child, seen)
-          if cy > by or (cy == by and cx > bx) then
-            by, bx = cy, cx
-          end
-        elseif rest then
-          for _, e in ipairs(rest) do
-            local gc = classify(e)
-            if gc then
-              local cy, cx = compute(gc, seen)
-              if cy > by or (cy == by and cx > bx) then
-                by, bx = cy, cx
-              end
-            end
-          end
-        end
-      end)
+    for _, child in ipairs(children_mod.children(n)) do
+      local cy, cx = compute(child.node, seen)
+      if cy > by or (cy == by and cx > bx) then
+        by, bx = cy, cx
+      end
+    end
     return by, bx
   end
   return compute(node, {})

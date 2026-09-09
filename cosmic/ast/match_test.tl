@@ -104,6 +104,70 @@ local function test_repeated_capture_name_is_linear()
     "f(y, z) must NOT match f($X, $X): $X is bound twice to different names")
 end
 
+--- Repeated captures compare the whole expression subtree. Both binary
+--- operators have the same AST kind and no leaf `tk`, so a kind-only
+--- comparison would incorrectly accept these different operands.
+local function test_repeated_capture_rejects_different_expression_trees()
+  local pattern = pattern_ok("f($X, $X)")
+  local different = parse_ok("f(a + b, c * d)", "different_trees.tl")[1]
+  assert(match.match(pattern, different) == nil,
+    "f(a + b, c * d) must NOT match f($X, $X)")
+end
+
+--- Declaration type payloads carry a fresh `typeid` on every parse. Those
+--- IDs and source locations are parser metadata, so separately parsed
+--- identical typed declarations remain structurally equal.
+local function test_typed_local_declaration_ignores_per_parse_typeid()
+  local pattern = pattern_ok("local x: integer = 1")
+  local candidate = parse_ok("local x: integer = 1", "typed_local.tl")[1]
+  assert(match.match(pattern, candidate) ~= nil,
+    "identical typed local declarations from separate parses must match")
+end
+
+local function test_typed_global_declaration_ignores_per_parse_typeid()
+  local pattern = pattern_ok("global x: function(integer): string = f")
+  local candidate = parse_ok("global x: function(integer): string = f",
+    "typed_global.tl")[1]
+  assert(match.match(pattern, candidate) ~= nil,
+    "identical typed global declarations from separate parses must match")
+end
+
+--- Cast literals compare the complete parsed type payload, including a
+--- function's argument and return tuples. A typename-only comparison would
+--- accept the incompatible string argument here.
+local function test_cast_function_type_matches_structurally()
+  local pattern = pattern_ok("$X as function(integer): string")
+  local same_root = parse_ok("local v = x as function(integer): string",
+    "function_cast_same.tl")
+  local same_exps = check.must(same_root[1].exps, "same cast exps")
+  local same = check.must(same_exps[1], "same cast expression")
+  local different_root = parse_ok("local v = x as function(string): string",
+    "function_cast_different.tl")
+  local different_exps = check.must(different_root[1].exps, "different cast exps")
+  local different = check.must(different_exps[1], "different cast expression")
+  assert(match.match(pattern, same) ~= nil,
+    "matching function cast type must match")
+  assert(match.match(pattern, different) == nil,
+    "different function argument type must not match")
+end
+
+--- Repeated type captures compare the cast type itself, rather than the
+--- cast node's incidental `tk` field. This catches mismatches in nested
+--- function-type structure as well as primitive names.
+local function test_repeated_type_capture_is_structural()
+  local pattern = pattern_ok("f(($A as $T), ($B as $T))")
+  local same_root = parse_ok("f((x as function(integer): string), " ..
+    "(y as function(integer): string))", "repeated_type_same.tl")
+  local same = check.must(same_root[1], "same repeated type call")
+  local different_root = parse_ok("f((x as function(integer): string), " ..
+    "(y as function(string): string))", "repeated_type_different.tl")
+  local different = check.must(different_root[1], "different repeated type call")
+  assert(match.match(pattern, same) ~= nil,
+    "repeated identical function types must match")
+  assert(match.match(pattern, different) == nil,
+    "repeated different function types must not match")
+end
+
 --- A rest-capture in an expression position (call args) swallows
 --- every trailing argument, including zero of them.
 local function test_rest_capture_matches_variable_arity_call_args()
@@ -154,9 +218,24 @@ local function test_tk_still_compared_on_leaf_kinds()
   local pattern = pattern_ok("print(1)")
   local same_name = parse_ok("print(1)", "same_name.tl")[1]
   local other_name = parse_ok("output(1)", "other_name.tl")[1]
+  local other_number = parse_ok("print(2)", "other_number.tl")[1]
   assert(match.match(pattern, same_name) ~= nil, "print(1) must match print(1)")
   assert(match.match(pattern, other_name) == nil,
     "output(1) must NOT match print(1): the literal callee name differs")
+  assert(match.match(pattern, other_number) == nil,
+    "print(2) must NOT match print(1): the literal number differs")
+end
+
+--- Boolean literals carry their semantic value in `tk` and have no
+--- separate payload field. They must not be treated like compound nodes,
+--- whose opening `tk` is incidental.
+local function test_boolean_literal_value_is_compared()
+  local pattern = pattern_ok("print(true)")
+  local same = parse_ok("print(true)", "true.tl")[1]
+  local different = parse_ok("print(false)", "false.tl")[1]
+  assert(match.match(pattern, same) ~= nil, "print(true) must match print(true)")
+  assert(match.match(pattern, different) == nil,
+    "print(false) must NOT match print(true)")
 end
 
 --- A capture's `:PATTERN` predicate suffix restricts which candidates

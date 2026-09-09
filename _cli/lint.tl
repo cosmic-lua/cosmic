@@ -16,6 +16,7 @@
 
 local assert_lint = require("_cli.assert_lint")
 local cast_lint = require("_cli.cast_lint")
+local cast_rule = require("_cli.cast_rule")
 local citations = require("_cli.citations")
 local discover = require("_tool.discover")
 local fs = require("cosmic.fs")
@@ -292,7 +293,10 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     end
   end
   if path:match("%.tl$") then
-    for _, d in ipairs(check_cast_justification(path, content, lines)) do
+    local cast_diagnostics, cast_err = cast_rule.check_cast_justification(
+      path, content, lines)
+    if not cast_diagnostics then return nil, cast_err end
+    for _, d in ipairs(cast_diagnostics) do
       diagnostics[#diagnostics + 1] = d
     end
     for _, d in ipairs(check_cosmo_require(path, lines)) do
