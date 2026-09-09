@@ -6,6 +6,7 @@
 local tl = require("tl")
 
 local rules = require("cosmic.format.rules")
+local preserve = require("cosmic.format.preserve")
 
 --- A formatting issue (syntax error preventing formatting).
 -- One Issue record and one renderer for the whole toolchain: the
@@ -352,7 +353,62 @@ local function format(input: string, filename: string): FormatResult
     prev_y = effective_end_y
   end
 
-  return {ok = true, code = table.concat(out), errors = {}}
+  local code = table.concat(out)
+
+  -- Validate what was emitted, not only what was accepted as input. A
+  -- spacing decision can form a different token (`- -1` used to become
+  -- the comment `--1`) and valid-but-different output can still parse.
+  local output_tokens, output_lex_errs = tl.lex(code, filename)
+  if output_lex_errs and #output_lex_errs > 0 then
+    local errors: {Issue} = {}
+    for _, e in ipairs(output_lex_errs) do
+      if e.msg then
+        errors[#errors + 1] = {
+          file = e.filename or filename,
+          line = e.y or 0,
+          column = e.x or 0,
+          message = "formatter emitted invalid source: " .. e.msg,
+          severity = "error",
+        }
+      end
+    end
+    return {ok = false, code = nil, errors = errors}
+  end
+
+  local same, why = preserve.equivalent(tokens, output_tokens)
+  if not same then
+    return {
+      ok = false,
+      code = nil,
+      errors = {{
+          file = filename,
+          line = 0,
+          column = 0,
+          message = "formatter changed the lexical stream: " .. why,
+          severity = "error",
+        }},
+    }
+  end
+
+  local output_parse_errs: {tl.Error} = {}
+  tl.parse_program(output_tokens, output_parse_errs, filename, lang)
+  if #output_parse_errs > 0 then
+    local errors: {Issue} = {}
+    for _, e in ipairs(output_parse_errs) do
+      if e.msg then
+        errors[#errors + 1] = {
+          file = e.filename or filename,
+          line = e.y or 0,
+          column = e.x or 0,
+          message = "formatter emitted invalid source: " .. e.msg,
+          severity = "error",
+        }
+      end
+    end
+    return {ok = false, code = nil, errors = errors}
+  end
+
+  return {ok = true, code = code, errors = {}}
 end
 
 --- Format a file from disk.
