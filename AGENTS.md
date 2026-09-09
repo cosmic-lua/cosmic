@@ -246,8 +246,8 @@ key concepts:
   artifact (`bin/cosmic.pin`), verifies its sha256 and execs it. Cosmic
   extracts its own build engine from its own zip, so the chain is
   kernel → script → one pin → everything else. It also keeps a
-  pristine copy of the download beside the assimilated one it runs
-  (sandboxed rules need a native ELF, not the fat APE's loader) — a
+  pristine copy of the download beside the one it runs (assimilated to
+  native ELF on Linux for sandboxed rules; still an APE on macOS) — a
   project that declares no runtime of its own falls back to whichever
   cosmic is doing the build, and without that copy the fallback would
   be the assimilated ELF, silently shipping a host-only artifact under

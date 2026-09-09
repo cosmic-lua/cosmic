@@ -16,15 +16,16 @@ set -e
 #     bin/cosmic --make ci        run the gate
 #     bin/cosmic --make build     build the binaries
 #
-# The verified download is assimilated to a native ELF before it is
-# saved as the bootstrap -- sandboxed rules cannot grant the APE
+# On Linux the verified download is assimilated to a native ELF before
+# it is saved as the bootstrap -- sandboxed rules cannot grant the APE
 # loader's extraction step, so an un-assimilated bootstrap fails inside
 # the very build it is provisioning. That trade is one-way (the
 # portable header does not come back), so this script keeps the
 # pristine download too, beside it as `<bootstrap>.ape`: it is the base
 # a downstream project builds onto when it declares no runtime of its
 # own, and an ELF standing in for it would make every such artifact
-# host-only under a fat binary's name. See `_make/artifact.tl`'s
+# host-only under a fat binary's name. Other hosts keep the APE and use
+# its loader (Apple Silicon cannot assimilate it). See `_make/artifact.tl`'s
 # `bases_of` for what reads that sibling back.
 #
 # It prefers the tree's OWN cosmic when one exists, and reaches for the
@@ -79,25 +80,19 @@ download() {
     url="$1"
     dest="$2"
     dest_tmp="${dest}.tmp.$$"
-    attempt=0
-    until curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
-        -o "${dest_tmp}" "${url}"; do
-        attempt=$((attempt + 1))
-        if [ "${attempt}" -ge 3 ]; then
-            echo "Failed to download ${url} after ${attempt} attempts" >&2
-            rm -f "${dest_tmp}"
-            return 1
-        fi
-        echo "Retrying download of ${url} (attempt ${attempt})..." >&2
-        sleep $((attempt * 5))
-    done
+    if ! curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+        -o "${dest_tmp}" "${url}"; then
+        echo "Failed to download ${url}" >&2
+        rm -f "${dest_tmp}"
+        return 1
+    fi
     mv -f "${dest_tmp}" "${dest}"
 }
 
 ensure_bootstrap() {
     # Download, verify against the pin, keep the pristine download as
-    # `${BOOTSTRAP}.ape`, assimilate a COPY to a native ELF at
-    # `${BOOTSTRAP}`, and stamp which pin produced the pair. The stamp
+    # `${BOOTSTRAP}.ape`, prepare a COPY for the host at `${BOOTSTRAP}`,
+    # and stamp which pin produced the pair. The stamp
     # is a string compare on the hot path rather than a hash, and it is
     # what makes a pin bump re-download (and re-assimilate) both files
     # instead of leaving local trees running the previous release.
@@ -123,12 +118,17 @@ ensure_bootstrap() {
     chmod +x "${ape_tmp}"
     boot_tmp="${BOOTSTRAP}.boot.$$"
     cp "${ape_tmp}" "${boot_tmp}"
-    "${boot_tmp}" --assimilate
-    if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
-        echo "assimilation failed: still an APE — sandboxed rules need a native ELF (no loader grants)" >&2
-        rm -f "${ape_tmp}" "${boot_tmp}"
-        exit 1
-    fi
+    case "$(uname -s)" in
+        Linux)
+            # --assimilate belongs to the APE shell stub, not the Lua CLI.
+            sh "${boot_tmp}" --assimilate
+            if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+                echo "assimilation failed: sandboxed Linux rules need a native ELF" >&2
+                rm -f "${ape_tmp}" "${boot_tmp}"
+                exit 1
+            fi
+            ;;
+    esac
     mv -f "${boot_tmp}" "${BOOTSTRAP}"
     mv -f "${ape_tmp}" "${BOOTSTRAP}.ape"
     printf '%s\n' "${sha256}" > "${BOOTSTRAP}.pin"

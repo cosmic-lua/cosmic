@@ -1,0 +1,59 @@
+name: bootstrap
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: refuse a download with the wrong checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture=$(mktemp -d)
+          mkdir "$fixture/bin"
+          cp bin/cosmic "$fixture/bin/cosmic"
+          sed 's/^sha256 *= *.*/sha256 = invalid/' bin/cosmic.pin > "$fixture/bin/cosmic.pin"
+          if "$fixture/bin/cosmic" --version > "$fixture/output" 2>&1; then
+            echo 'bootstrap accepted a checksum mismatch' >&2
+            exit 1
+          fi
+          grep -q 'checksum verification failed' "$fixture/output"
+          test ! -e "$fixture/o/bootstrap/cosmic"
+          test ! -e "$fixture/o/bootstrap/cosmic.pin"
+      - name: cold bootstrap, cached bootstrap, and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin/cosmic --version
+          expected=$(sed -n 's/^sha256 *= *//p' bin/cosmic.pin)
+          actual=$(shasum -a 256 o/bootstrap/cosmic.ape | cut -d' ' -f1)
+          test "$actual" = "$expected"
+          test "$(cat o/bootstrap/cosmic.pin)" = "$expected"
+          case "$(uname -s)" in
+            Linux)
+              test "$(head -c 4 o/bootstrap/cosmic | od -An -tx1 | tr -d ' \n')" = 7f454c46
+              ;;
+            Darwin) cmp o/bootstrap/cosmic o/bootstrap/cosmic.ape ;;
+          esac
+          bin/cosmic --version 2>cached.log
+          if grep -q 'Downloading pinned cosmic' cached.log; then
+            echo 'cached bootstrap downloaded again' >&2
+            exit 1
+          fi
+          bin/cosmic --make fetch
+          bin/cosmic --make build
+          bin/cosmic -e 'print("built-" .. require("cosmic.sys").host_os())'

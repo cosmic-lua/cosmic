@@ -133,8 +133,11 @@ what a full build stages.
 
 Building cosmic needs a cosmic. `bin/cosmic` is the trust root: POSIX sh
 that obtains **one** pinned artifact named in `bin/cosmic.pin`, verifies
-its sha256, assimilates it to a native ELF (sandboxed rules cannot grant
-the APE loader's extraction), and execs it. Everything after runs under
+its sha256, and execs it. On Linux it first assimilates a copy to a
+native ELF through the APE shell stub (sandboxed rules cannot grant the
+loader's extraction). macOS keeps the APE and uses its loader, including
+on Apple Silicon. Both keep the pristine download as `cosmic.ape` for
+building portable downstream artifacts. Everything after runs under
 that pin — cosmic extracts its own build engine from its own zip.
 
     kernel → bin/cosmic → one pin → everything else
