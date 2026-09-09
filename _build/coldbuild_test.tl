@@ -7,32 +7,39 @@
 --- built. A source that needs the tree's OWN checker (a new narrowing
 --- rule, a new patch entry) therefore passes `--make ci` locally and
 --- fails only a cold build: CI's `build` and `repro` lanes, or a fresh
---- clone. This test runs generation 1's type check directly, so that
---- failure lands on the PR that introduces it.
+--- clone. This test uses that pinned checker with a deliberately
+--- conservative sibling-resolution order, so the guard runs on the PR.
 ---
 --- The instrument: the pinned release embeds the exact tree it was cut
---- from at `/zip/.tl/**` (`unzip -l <bootstrap> | grep -c '\.tl/'`), and
---- generation 1 resolves a tree module's requires against THAT copy of
---- its siblings before ever reading them off disk. `--include-dir
---- /zip/.tl` placed FIRST reproduces that resolution order; `.` after
---- it is what lets a module the snapshot has never seen (nothing there
---- to shadow it) still check straight from the tree, and the generated
---- cosmo types come last. The 08-23 release binary run this way
---- refuses the tree at the byte-identical site PR #1416's cold build
---- failed on, and today's bootstrap sweeps it clean.
+--- from at `/zip/.tl/**`. Putting `--include-dir /zip/.tl` FIRST makes
+--- every checked module see the pin's shipped siblings before the tree;
+--- `.` then admits modules absent from the snapshot, and generated
+--- cosmo types come last. This is a pessimistic superset, not the exact
+--- resolution order of every module in a real cold build.
+---
+--- The real snapshot exposure (Path B) is the top-level `--make`
+--- bootstrap chain's bare requires before compilation, such as
+--- `_cli.lint` and `_cli.main_handlers`. Spawned generator children
+--- instead receive `--modules` from `_make.closure`/`_make.generate`:
+--- the built closure and tree-first searcher precede the pin's payload.
+--- A ModuleDoc field used only there can therefore pass a real cold
+--- build while this intentionally conservative sweep refuses it.
+--- The warm-tree reproduction is recorded in
+--- `docs/design/make/log/coldbuild-staleness.md`.
 ---
 --- A second shape lives here too, not only a checker rule: a call
 --- between two modules the pinned release ALREADY SHIPS, widened by
 --- an extra parameter on the caller's side. The tree's own two copies
 --- agree with each other, so `--check types --include-dir .` alone
 --- passes; the pinned release's SNAPSHOT of the callee still has the
---- old arity, so generation 1 does not (PR #1775). The second test
+--- old arity, so a bootstrap-chain load does not (PR #1775). The second test
 --- case below reproduces it on a throwaway fixture instead of waiting
 --- for a real one to land.
 ---
---- When this fails: the named file needs a checker, a patch, or a
---- widened signature between two shipped modules newer than the
---- pinned release. Stage the change behind a release and pin bump
+--- When this fails: the named file needs a newer checker/patch or
+--- disagrees with a shipped sibling's snapshot. The latter is not by
+--- itself proof that a real cold build fails: its load path matters.
+--- To satisfy this conservative guard, stage behind a release and pin bump
 --- (land the checker/patch/signature first, bump bin/cosmic.pin to a
 --- release carrying it, then land the code that needs it), carry a
 --- widened value in a new module instead, or rewrite the site to
@@ -71,7 +78,7 @@ local function tree_sources(): {string}
   return out
 end
 
---- Runs generation 1's exact type check over `files`: the pinned
+--- Runs the conservative generation-1 check over `files`: the pinned
 --- release's shipped snapshot of the tree first, then `tree_dir` — the
 --- resolution root for the tree's own modules, "." for the real repo
 --- or a fixture directory standing in for it — then the generated
@@ -121,10 +128,10 @@ local function test_tree_type_checks_under_the_pinned_checker()
 
   local r = check_generation_1(".", files)
   assert(r.ok, widened_call_message(r.stderr) ..
-    "a tree source needs a checker, a patch, or a widened signature " ..
-    "between two shipped modules newer than the pinned release, so " ..
-    "build generation 1 (and every cold build) fails on it even " ..
-    "though the converged `--make ci` is green. Stage the change " ..
+    "the pinned-checker/shipped-snapshot guard rejects a tree source. " ..
+    "This conservative sibling ordering also checks modules outside " ..
+    "the real bootstrap-chain exposure; a snapshot mismatch alone " ..
+    "does not prove every cold build fails. Stage the change " ..
     "behind a release + pin bump, or satisfy both checkers:\n" .. r.stderr)
 end
 
