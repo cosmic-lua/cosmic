@@ -35,21 +35,7 @@ end
 
 --- Load a script file (.tl or .lua): .tl through Teal (cached), .lua directly.
 local function load_script_file(script_path: string): function(...: any): any ... | nil, string
-  if script_path:match("%.tl$") then
-    package.path = package.path .. ";/zip/.tl/?.tl" -- so teal can find cosmic modules
-    local teal = require("cosmic.teal")
-    local code, cerr = teal.compile_cached(script_path)
-    if not code then
-      return nil, cerr
-    end
-    local src = code
-    if src:sub(1, 2) == "#!" then
-      src = src:sub((src:find("\n") or 0) + 1)
-    end
-    return load(src, "@" .. script_path)
-  else
-    return loadfile(script_path)
-  end
+  return require("_cli.script").load_script_file(script_path)
 end
 
 --- The build-injected version stamps, as the generated `cosmic._version`

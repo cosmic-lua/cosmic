@@ -1,5 +1,12 @@
 # Cold-build ratchet: warm-tree field-widening reproduction
 
+Historical record at the base below. The later make-startup capability
+replaces the all-shipped-siblings overlay with the explicit pre-install
+boundary; it does not change or invalidate this staleness experiment.
+After a capability-bearing release is activated, post-install make loads
+use root-aware source resolution. Old immutable pins retain the behavior
+measured here.
+
 The reported one-run-late failure did **not** reproduce at
 `840963d2a043d5c07d1eb48d0fad38b8d96a7b83`. The first full CI invocation
 after the edit changed the cold-build ratchet's cached PASS to FAIL.

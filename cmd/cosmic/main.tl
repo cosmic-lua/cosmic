@@ -36,15 +36,8 @@ end
 -- modules through cosmic.teal, fails the require() on compile errors,
 -- and caches compiled output. See cosmic.searcher for the details.
 searcher.install()
-if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
-  require("_cli.require_hints").install()
-end
-
 local cli_args = require("_cli.args")
-local handlers = require("_cli.main_handlers")
 local parse = require("_cli.parse")
-
-local run = require("_cli.run")
 
 local function main(): integer, string
   local opts = parse.parse_args()
@@ -68,9 +61,16 @@ local function main(): integer, string
   if extract_env and not opts.extract then
     opts.extract = extract_env
   end
-  if opts.version then return handlers.handle_version() end
+  -- Pinned boundary ends here: parsing and root discovery precede all
+  -- protected require("_cli.main_handlers"). Only effective make gets tree-first source loads.
+  local ready, startup_err = require("_make.startup").prepare(opts, _margs_ok)
+  if not ready then return 1, startup_err end
+  if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
+    require("_cli.require_hints").install()
+  end
+  if opts.version then return require("_cli.main_handlers").handle_version() end
   if opts.help then io.write(require("_cli.help").generate() .. "\n"); return 0 end
-  if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
+  if opts.welcome then io.write(require("_cli.main_handlers").generate_welcome()); return 0 end
 
   -- First-run welcome, tty gate first: the banner only ever prints to a terminal,
   -- so headless boots never load _cli.welcome. Still once, on the first tty.
@@ -79,14 +79,15 @@ local function main(): integer, string
     if tty.is_tty(2) then
       local welcome = require("_cli.welcome")
       if not welcome.was_shown() then
-        io.stderr:write(handlers.generate_welcome())
+        io.stderr:write(require("_cli.main_handlers").generate_welcome())
         welcome.mark_shown()
       end
     end
   end
-  if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
-  if opts.compile_strict then return handlers.handle_compile(opts.compile_strict, opts.output, opts.write_if_changed, opts.include_dirs, true) end
-  if handlers.refuse_combined_file_commands(#opts.format, #opts.fix,
+  if opts.compile then return require("_cli.main_handlers").handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
+  if opts.compile_strict then return require("_cli.main_handlers").handle_compile(opts.compile_strict, opts.output, opts.write_if_changed, opts.include_dirs, true) end
+  if (#opts.format > 0 or #opts.fix > 0 or opts.check_kind ~= nil) and
+  require("_cli.main_handlers").refuse_combined_file_commands(#opts.format, #opts.fix,
     opts.check_kind ~= nil) then
     return 1
   end
@@ -99,12 +100,12 @@ local function main(): integer, string
     return cli_args.over_paths(opts.format, function(path: string): integer
         -- Parenthesized: handle_format returns (code, err) and this
         -- wants the code alone.
-        return (handlers.handle_format(path, opts.output, opts.write_if_changed))
+        return (require("_cli.main_handlers").handle_format(path, opts.output, opts.write_if_changed))
       end)
   end
   if #opts.fix > 0 then
     return cli_args.over_paths(opts.fix, function(path: string): integer
-        return (handlers.handle_format(path, path, true))
+        return (require("_cli.main_handlers").handle_format(path, path, true))
       end)
   end
   if opts.check_kind then
@@ -119,19 +120,19 @@ local function main(): integer, string
     return require("_cli.rewrite").run(opts.rewrite_pattern, opts.rewrite_paths,
       opts.rewrite_apply)
   end
-  if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end
-  if opts.extract then return handlers.handle_extract(opts.extract, opts.exe) end
+  if #opts.embed > 0 then return require("_cli.main_handlers").handle_embed(opts.embed, opts.output, opts.exe) end
+  if opts.extract then return require("_cli.main_handlers").handle_extract(opts.extract, opts.exe) end
 
   if opts.examples ~= nil then
     local module_name = cli_args.resolve_optional_arg("--examples", opts.examples)
-    return handlers.handle_examples(module_name)
+    return require("_cli.main_handlers").handle_examples(module_name)
   end
 
-  if opts.benchmark then return handlers.handle_benchmark(opts.benchmark) end
+  if opts.benchmark then return require("_cli.main_handlers").handle_benchmark(opts.benchmark) end
 
   if opts.docs ~= nil then
     local query = cli_args.resolve_optional_arg("--docs", opts.docs)
-    return handlers.handle_docs(query)
+    return require("_cli.main_handlers").handle_docs(query)
   end
 
   if opts.test_argv then
@@ -168,7 +169,7 @@ local function main(): integer, string
     for _, p in ipairs(opts.make_argv or {}) do
       make_argv[#make_argv + 1] = p
     end
-    return handlers.handle_make(make_argv)
+    return require("_cli.main_handlers").handle_make(make_argv)
   end
 
   -- Handle -W warnings
@@ -196,6 +197,7 @@ local function main(): integer, string
 
   -- Execute script file
   if opts.script then
+    local run = require("_cli.run")
     _G.arg = opts.script_args as {string} -- cast: arg map includes 0/-1 keys
     -- Arm line-coverage collection when COSMIC_COVERAGE names a
     -- directory (guarded so the common path never loads the module)
@@ -203,7 +205,7 @@ local function main(): integer, string
     if os.getenv("COSMIC_COVERAGE") then
       cov_dump = require("cosmic.coverage").enable_from_env()
     end
-    local chunk, err = handlers.load_script_file(opts.script)
+    local chunk, err = require("_cli.script").load_script_file(opts.script)
     if not chunk then
       local msg = err or "error loading script"
       msg = run.augment_module_errors(msg)
@@ -228,7 +230,7 @@ local function main(): integer, string
 
   -- Interactive mode or REPL
   if opts.interactive or (#opts.execute == 0 and #opts.load == 0 and #arg == 0) then
-    handlers.run_repl()
+    require("_cli.main_handlers").run_repl()
     return 0
   end
 
