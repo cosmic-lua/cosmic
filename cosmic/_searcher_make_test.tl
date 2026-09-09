@@ -63,6 +63,9 @@ local tl = require('tl')
 local saved_compile, saved_path, saved_search = teal.compile_file, tl.path, tl.search_module
 context.set_root('outer-context')
 teal.compile_file = function()
+  local nested, nested_path = resolve('caller')
+  assert(nested == nil and nested_path == nil,
+    'resolver must decline tree modules during compilation')
   tl.path = 'changed-during-error'
   tl.search_module = function() error('changed lookup') end
   error('forced-compiler-throw')
