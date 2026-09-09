@@ -56,6 +56,24 @@ local function test_typed_declarations_still_compare_annotation_shape()
   end
 end
 
+--- A source-authored record field named `typeid` is a type value,
+--- not the parser's numeric allocation id on the enclosing type node.
+local function test_record_typeid_field_still_compares_its_declared_type()
+  for _, scope in ipairs({"local", "global"}) do
+    for _, field in ipairs({"typeid", "ordinary"}) do
+      local prefix = scope .. " record Box " .. field .. ": "
+      local source = prefix .. "number end"
+      local pattern = pattern_ok(source)
+      local same = parse_ok(source, "same_record.tl")[1]
+      local different = parse_ok(prefix .. "string end", "different_record.tl")[1]
+      assert(match.match(pattern, same) ~= nil,
+        "separately parsed record must match: " .. source)
+      assert(match.match(pattern, different) == nil,
+        "record field's declared type must be compared: " .. scope .. " " .. field)
+    end
+  end
+end
+
 --- Every node in `root`'s tree that `pattern` matches, own to this
 --- test file: `match()` tests one node at a time by design (a
 --- whole-file walk is the separate walk item's job, out of this
