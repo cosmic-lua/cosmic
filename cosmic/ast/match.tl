@@ -328,8 +328,13 @@ match_value = function(pv: any, nv: any, caps: {string: Node}, seen: {any: boole
   if not match_list(arr(pv), arr(nv), caps, seen) then
     return false
   end
+  local typename = pv["typename"]
   for k, sub_pv in pairs(pv) do
-    if not (k is integer) and not IGNORE_KEYS[k as string] then -- cast: non-integer key is a field name
+    -- Type nodes carry fresh numeric allocation ids, not source shape.
+    -- A record's fields map can also contain `typeid`, whose TYPE value
+    -- is source-authored and must still be compared recursively.
+    local is_typeid = k == "typeid" and sub_pv is integer and typename is string
+    if not (k is integer) and not IGNORE_KEYS[k as string] and not is_typeid then -- cast: non-integer key is a field name
       if not match_value(sub_pv, nv[k], caps, seen) then
         return false
       end
