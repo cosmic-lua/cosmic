@@ -133,8 +133,11 @@ what a full build stages.
 
 Building cosmic needs a cosmic. `bin/cosmic` is the trust root: POSIX sh
 that obtains **one** pinned artifact named in `bin/cosmic.pin`, verifies
-its sha256, assimilates it to a native ELF (sandboxed rules cannot grant
-the APE loader's extraction), and execs it. Everything after runs under
+its sha256, and execs it unchanged through its APE loader on every host.
+The loader is cached after first use; the build driver seeds and grants
+cached loaders before sandboxing nested processes. The bootstrap itself
+remains a portable base for downstream artifacts, so no assimilated copy
+or separate `cosmic.ape` is needed. Everything after runs under
 that pin — cosmic extracts its own build engine from its own zip.
 
     kernel → bin/cosmic → one pin → everything else

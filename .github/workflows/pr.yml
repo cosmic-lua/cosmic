@@ -448,6 +448,24 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: cold and cached bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin/cosmic --version
+          expected=$(sed -n 's/^sha256 *= *//p' bin/cosmic.pin)
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual=$(sha256sum o/bootstrap/cosmic | cut -d' ' -f1)
+          else
+            actual=$(shasum -a 256 o/bootstrap/cosmic | cut -d' ' -f1)
+          fi
+          test "$actual" = "$expected"
+          bin/cosmic --version 2>bootstrap-cache.log
+          if grep -q 'Downloading pinned cosmic' bootstrap-cache.log; then
+            echo 'cached bootstrap downloaded again' >&2
+            exit 1
+          fi
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: cosmic-smoke
