@@ -1,12 +1,6 @@
 --- The cosmic-owned runtime `.tl` package searcher, replacing tl.loader().
 ---
---- Public, and the caller set is what settled it: the generated
---- embed wrapper runs `require("cosmic.searcher").install()` before the
---- entry of EVERY artifact anyone builds, which makes this the module
---- with the widest reach in the tree. Same rule as the pure lint checks
---- in `_tool.lint`: who requires a module decides whether it is
---- internal, and a manifest can hold that contradiction where position
---- cannot.
+--- Public: every generated embed wrapper calls install() before its entry.
 ---
 --- Three guarantees tl's own loader did not make:
 ---
@@ -481,11 +475,18 @@ local function install_argv_manifest(argv: {string}): boolean, string
   return false
 end
 
+--- Install source-only resolution for an absolute top-level make root.
+--- Ordinary scripts and explicit manifests retain their existing semantics.
+local function install_make_root(root: string): boolean, string
+  return require("cosmic._searcher_make").install(root)
+end
+
 local record SearcherModule
   install: function()
   install_zip: function()
   install_argv_manifest: function(argv: {string}): boolean, string
   install_manifest: function(path: string): boolean, string
+  install_make_root: function(root: string): boolean, string
 end
 
 local M: SearcherModule = {
@@ -493,6 +494,7 @@ local M: SearcherModule = {
   install_zip = install_zip,
   install_argv_manifest = install_argv_manifest,
   install_manifest = install_manifest,
+  install_make_root = install_make_root,
 }
 
 return M

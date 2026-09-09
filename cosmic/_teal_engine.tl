@@ -6,6 +6,8 @@
 --- stale flat `teal.lua` shadowing the new init in any cached `o/`
 --- (`?.lua` beats `?/init.lua`). The public surface is cosmic.teal's.
 
+local project_context = require("cosmic._teal_project")
+
 --- A compiler or type checker issue.
 local record Issue
   file: string
@@ -88,23 +90,34 @@ end
 --- Assemble the tl module-search path from TL_PATH + include dirs +
 --- package.path, so tl.search_module finds all required modules
 --- regardless of whether TL_PATH is set. tl.search_module priority:
---- TL_PATH env > tl.path > package.path. By putting include_dirs in
---- tl.path (which takes precedence over package.path), they are always
---- consulted — even when TL_PATH is set. Appending package.path
---- preserves CWD-relative and system search patterns.
+--- TL_PATH env > tl.path > package.path in ordinary mode. Make compilation
+--- uses a scoped lookup over this complete path, so root, generated types,
+--- and includes precede user TL_PATH without changing that environment.
+--- Appending package.path preserves CWD-relative and system fallbacks.
 --- @param include_dirs {string} Directories to search for modules/types
 --- @return string The assembled search path for tl.path
 local function assemble_tl_path(include_dirs: {string}): string
   local path_parts: {string} = {}
-  local tl_path = os.getenv("TL_PATH")
-  if tl_path then
-    path_parts[#path_parts + 1] = tl_path
+  local root = project_context.get_root()
+  local dirs: {string} = {}
+  if root then
+    dirs = {root, root .. "/o/_types/types_gen"}
   end
   for _, dir in ipairs(include_dirs) do
+    dirs[#dirs + 1] = dir
+  end
+  local tl_path = os.getenv("TL_PATH")
+  if tl_path and not root then
+    path_parts[#path_parts + 1] = tl_path
+  end
+  for _, dir in ipairs(dirs) do
     path_parts[#path_parts + 1] = dir .. "/?.d.tl"
     path_parts[#path_parts + 1] = dir .. "/?/init.d.tl"
     path_parts[#path_parts + 1] = dir .. "/?.tl"
     path_parts[#path_parts + 1] = dir .. "/?/init.tl"
+  end
+  if tl_path and root then
+    path_parts[#path_parts + 1] = tl_path
   end
   path_parts[#path_parts + 1] = package.path
   return table.concat(path_parts, ";")
@@ -224,14 +237,18 @@ local function process_source(input: string, name: string, include_dirs: {string
   local use_compat = gen_compat or DEFAULT_GEN_COMPAT
   local cache_key = table.concat(
     {lax and "lax" or "strict", use_target, use_compat, tl_path}, "\0")
-  local env: tl.Env | nil = env_cache[cache_key]
+  -- Make-source loads must observe changed siblings even when this caller
+  -- has not changed. Do not read or write the ordinary shared env cache.
+  local cacheable = project_context.get_root() == nil
+  local env: tl.Env | nil
+  if cacheable then env = env_cache[cache_key] end
   if env == nil then
     local fresh, env_err = build_env(lax, use_target, use_compat)
     if not fresh then
       tl.path = saved_tl_path
       return process_error(name, "tl.new_env: " .. (env_err or "unknown error"))
     end
-    env_cache[cache_key] = fresh
+    if cacheable then env_cache[cache_key] = fresh end
     env = fresh
   else
     -- A reused env remembers results by chunk name (tl.check_string
@@ -241,13 +258,26 @@ local function process_source(input: string, name: string, include_dirs: {string
   end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
+  local saved_search = tl.search_module
+  local root = project_context.get_root()
+  if root then
+    -- Foreign callback protocol: tl owns the filename/file/errors tuple,
+    -- not cosmic's two-slot fallible API. Keep the adapter variadic.
+    tl.search_module = function(module_name: string, all: boolean): any ...
+      local path, f = project_context.search_module(tl_path, module_name, all)
+      if path then return path, f end
+      return nil, nil, {"no source for '" .. module_name .. "' in the make type path"}
+    end as function(string, boolean): string, FILE, {string}
+    -- cast: tl declares a fixed non-nil tuple but uses nil for a search miss.
+  end
   local ok, result_or_err = pcall(tl.process_string, input, false, env, name)
+  tl.search_module = saved_search
 
   tl.path = saved_tl_path
 
   if not ok then
     -- A throw may leave the env half-mutated; rebuild it next call.
-    env_cache[cache_key] = nil
+    if cacheable then env_cache[cache_key] = nil end
     return process_error(name, tostring(result_or_err))
   end
   -- The lazy in-function require keeps tl's own Result record
