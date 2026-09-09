@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-15-intel]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -40,20 +40,23 @@ jobs:
           set -euo pipefail
           bin/cosmic --version
           expected=$(sed -n 's/^sha256 *= *//p' bin/cosmic.pin)
-          actual=$(shasum -a 256 o/bootstrap/cosmic.ape | cut -d' ' -f1)
+          actual=$(shasum -a 256 o/bootstrap/cosmic | cut -d' ' -f1)
           test "$actual" = "$expected"
           test "$(cat o/bootstrap/cosmic.pin)" = "$expected"
-          case "$(uname -s)" in
-            Linux)
-              test "$(head -c 4 o/bootstrap/cosmic | od -An -tx1 | tr -d ' \n')" = 7f454c46
-              ;;
-            Darwin) cmp o/bootstrap/cosmic o/bootstrap/cosmic.ape ;;
-          esac
+          test "$(head -c 2 o/bootstrap/cosmic)" = MZ
+          test ! -e o/bootstrap/cosmic.ape
           bin/cosmic --version 2>cached.log
           if grep -q 'Downloading pinned cosmic' cached.log; then
             echo 'cached bootstrap downloaded again' >&2
             exit 1
           fi
+          # Simulate an old assimilated cache with a matching pin stamp.
+          # It must be replaced without ever executing the old bytes.
+          printf '\177ELFlegacy-cache' > o/bootstrap/cosmic
+          printf 'stale-base' > o/bootstrap/cosmic.ape
+          bin/cosmic --version
+          test "$(shasum -a 256 o/bootstrap/cosmic | cut -d' ' -f1)" = "$expected"
+          test ! -e o/bootstrap/cosmic.ape
           bin/cosmic --make fetch
           bin/cosmic --make build
           bin/cosmic -e 'print("built-" .. require("cosmic.sys").host_os())'

@@ -11,22 +11,16 @@ set -e
 #
 #     kernel -> this script -> one pin -> everything else
 #
-# with POSIX sh, curl, sha256sum and od the whole host surface.
+# with POSIX sh, curl and a SHA-256 tool for the first fetch.
 #
 #     bin/cosmic --make ci        run the gate
 #     bin/cosmic --make build     build the binaries
 #
-# On Linux the verified download is assimilated to a native ELF before
-# it is saved as the bootstrap -- sandboxed rules cannot grant the APE
-# loader's extraction step, so an un-assimilated bootstrap fails inside
-# the very build it is provisioning. That trade is one-way (the
-# portable header does not come back), so this script keeps the
-# pristine download too, beside it as `<bootstrap>.ape`: it is the base
-# a downstream project builds onto when it declares no runtime of its
-# own, and an ELF standing in for it would make every such artifact
-# host-only under a fat binary's name. Other hosts keep the APE and use
-# its loader (Apple Silicon cannot assimilate it). See `_make/artifact.tl`'s
-# `bases_of` for what reads that sibling back.
+# Keep the verified APE unchanged on every host. Its shell stub starts
+# the native loader, which subsequent launches reuse. The build driver
+# seeds and grants cached loaders before fencing nested processes
+# (_cli/driver.tl, _cli/grants.tl). The bootstrap itself is also a
+# portable base for downstream artifacts; no second copy is needed.
 #
 # It prefers the tree's OWN cosmic when one exists, and reaches for the
 # pin only on a cold start. Staleness is not this script's problem: the
@@ -90,12 +84,8 @@ download() {
 }
 
 ensure_bootstrap() {
-    # Download, verify against the pin, keep the pristine download as
-    # `${BOOTSTRAP}.ape`, prepare a COPY for the host at `${BOOTSTRAP}`,
-    # and stamp which pin produced the pair. The stamp
-    # is a string compare on the hot path rather than a hash, and it is
-    # what makes a pin bump re-download (and re-assimilate) both files
-    # instead of leaving local trees running the previous release.
+    # The stamp detects pin bumps; the MZ check migrates old assimilated
+    # caches to the portable download even when the pin has not changed.
     url="$(sed -n 's/^url *= *//p' "${PIN}")"
     sha256="$(sed -n 's/^sha256 *= *//p' "${PIN}")"
     if [ -z "${url}" ] || [ -z "${sha256}" ]; then
@@ -103,34 +93,24 @@ ensure_bootstrap() {
         exit 1
     fi
     if [ -x "${BOOTSTRAP}" ] &&
-        [ "$(cat "${BOOTSTRAP}.pin" 2>/dev/null)" = "${sha256}" ]; then
+        [ "$(cat "${BOOTSTRAP}.pin" 2>/dev/null)" = "${sha256}" ] &&
+        [ "$(head -c 2 "${BOOTSTRAP}")" = MZ ]; then
         return 0
     fi
     echo "Downloading pinned cosmic..." >&2
     mkdir -p "${ROOT}/o/bootstrap"
-    ape_tmp="${BOOTSTRAP}.ape.tmp.$$"
-    download "${url}" "${ape_tmp}" || exit 1
-    if ! verify_sha256 "${ape_tmp}" "${sha256}"; then
+    boot_tmp="${BOOTSTRAP}.boot.$$"
+    download "${url}" "${boot_tmp}" || exit 1
+    if ! verify_sha256 "${boot_tmp}" "${sha256}"; then
         echo "pinned cosmic checksum verification failed; refusing to run" >&2
-        rm -f "${ape_tmp}"
+        rm -f "${boot_tmp}"
         exit 1
     fi
-    chmod +x "${ape_tmp}"
-    boot_tmp="${BOOTSTRAP}.boot.$$"
-    cp "${ape_tmp}" "${boot_tmp}"
-    case "$(uname -s)" in
-        Linux)
-            # --assimilate belongs to the APE shell stub, not the Lua CLI.
-            sh "${boot_tmp}" --assimilate
-            if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
-                echo "assimilation failed: sandboxed Linux rules need a native ELF" >&2
-                rm -f "${ape_tmp}" "${boot_tmp}"
-                exit 1
-            fi
-            ;;
-    esac
+    chmod +x "${boot_tmp}"
     mv -f "${boot_tmp}" "${BOOTSTRAP}"
-    mv -f "${ape_tmp}" "${BOOTSTRAP}.ape"
+    # Older launchers kept a sibling base. Do not leave stale bytes for
+    # their downstream-artifact fallback to prefer after a pin bump.
+    rm -f "${BOOTSTRAP}.ape"
     printf '%s\n' "${sha256}" > "${BOOTSTRAP}.pin"
 }
 

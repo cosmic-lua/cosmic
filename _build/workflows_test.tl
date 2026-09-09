@@ -166,6 +166,8 @@ end
 -- reuses the name `smoke` in another workflow is a fresh decision, not
 -- an inherited exemption.
 local UNCONTAINERISED < const >: {string: string} = {
+  ["bootstrap.yml:bootstrap"] =
+  "cold bootstrap portability: native Linux/macOS on both CPU architectures",
   ["pr.yml:smoke"] =
   "the cross-OS matrix: native macOS/Windows runners are the point",
   ["release.yml:release"] =

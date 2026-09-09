@@ -245,13 +245,11 @@ key concepts:
 - **trust root**: `bin/cosmic` is POSIX sh and obtains exactly one pinned
   artifact (`bin/cosmic.pin`), verifies its sha256 and execs it. Cosmic
   extracts its own build engine from its own zip, so the chain is
-  kernel → script → one pin → everything else. It also keeps a
-  pristine copy of the download beside the one it runs (assimilated to
-  native ELF on Linux for sandboxed rules; still an APE on macOS) — a
-  project that declares no runtime of its own falls back to whichever
-  cosmic is doing the build, and without that copy the fallback would
-  be the assimilated ELF, silently shipping a host-only artifact under
-  a fat binary's name (see `_make/artifact.tl`'s `bases_of`)
+  kernel → script → one pin → everything else. The verified APE stays
+  unchanged on every host and runs through its cached native loader.
+  The driver seeds and grants loaders before fencing nested processes.
+  A project without its own runtime uses this portable bootstrap as its
+  base (see `_make/artifact.tl`'s `bases_of`); no second copy is needed
 - **constant rules, generated facts**: `embed/cosmic.mk` is committed,
   ships at `/zip/cosmic.mk`, and is byte-identical for every project. No
   rule is ever generated. `o/project.mk` holds only variable assignments —
