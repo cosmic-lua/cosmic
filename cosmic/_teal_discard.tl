@@ -25,10 +25,12 @@
 --- limit); wired in by `check` and strict `compile`, so the rule holds
 --- wherever the strict gate runs — this repo and user projects alike.
 
+local teal_types = require("cosmic._teal_types")
+
 --- tl's AST and report values are untyped from the narrowed public
 --- API's point of view; every node is dispatched through this map
 --- shape (`is` compiles to one type() check).
-local type Node = {any: any}
+local type Node = teal_types.Node
 
 --- One finding, in cosmic.teal's Issue shape (severity always "error").
 local record Diag
@@ -69,40 +71,29 @@ local function fallible(ts: string): boolean
   return string.match(rets, ",%s*string$") ~= nil
 end
 
---- The function-type string recorded at a position, or nil.
-local function type_str_at(by: Node, types: Node, y: any, x: any): string | nil
-  local row = by[y]
-  if row is Node then
-    local tid = row[x]
-    if tid ~= nil then
-      local t = types[tid]
-      if t is Node then
-        local s = t["str"]
-        if s is string then
-          if string.match(s, "^function") then
-            return s
-          end
-        end
-      end
-    end
+--- A node's recorded position, defaulting to 0.
+local function pos_of(node: Node, key: string): integer
+  local v = node[key]
+  if v is number then
+    return math.tointeger(v) or 0
   end
-  return nil
+  return 0
 end
 
 --- A call's callee type: the field identifier for `a.f(...)`/`a:f(...)`
 --- (its position carries the function type), else the bare variable.
-local function callee_type(call: Node, by: Node, types: Node): string | nil
+local function callee_type(call: Node, report: Node, path: string): string | nil
   local e1 = call["e1"]
   if e1 is Node then
     local e2 = e1["e2"]
     if e2 is Node then
-      local s = type_str_at(by, types, e2["y"], e2["x"])
-      if s then
+      local s = teal_types.type_str_at(report, path, pos_of(e2, "y"), pos_of(e2, "x"))
+      if s and string.match(s, "^function") then
         return s
       end
     end
-    local s = type_str_at(by, types, e1["y"], e1["x"])
-    if s then
+    local s = teal_types.type_str_at(report, path, pos_of(e1, "y"), pos_of(e1, "x"))
+    if s and string.match(s, "^function") then
       return s
     end
   end
@@ -127,15 +118,6 @@ local function callee_name(call: Node): string | nil
     end
   end
   return nil
-end
-
---- A node's recorded position, defaulting to 0.
-local function pos_of(node: Node, key: string): integer
-  local v = node[key]
-  if v is number then
-    return math.tointeger(v) or 0
-  end
-  return 0
 end
 
 --- Is this node a `@funcall` op?
@@ -169,7 +151,7 @@ end
 
 --- Walk one AST, collecting both shapes. The AST carries parent links,
 --- so the walk keeps a seen-set instead of trusting it to be a tree.
-local function walk(node: any, by: Node, types: Node, path: string,
+local function walk(node: any, report: Node, path: string,
     diags: {Diag}, dedup: {string: boolean}, seen: {any: boolean})
   if node is Node then
     if seen[node] then
@@ -184,7 +166,7 @@ local function walk(node: any, by: Node, types: Node, path: string,
       for i = 1, #arr do
         local st = arr[i]
         if is_funcall(st) and st is Node then
-          local ts = callee_type(st, by, types)
+          local ts = callee_type(st, report, path)
           if ts and fallible(ts) then
             add(diags, dedup, path, st,
               "discarded error return of " .. ts
@@ -205,8 +187,8 @@ local function walk(node: any, by: Node, types: Node, path: string,
         local arr = args as {any} -- cast: an expression_list is array-shaped
         local last = arr[#arr]
         if is_funcall(last) and last is Node then
-          local encl = callee_type(node, by, types)
-          local inner = callee_type(last, by, types)
+          local encl = callee_type(node, report, path)
+          local inner = callee_type(last, report, path)
           local ename = callee_name(node)
           local consumes = false
           if ename then
@@ -227,7 +209,7 @@ local function walk(node: any, by: Node, types: Node, path: string,
     for k, v in pairs(node) do
       -- `expected`/`decltuple` reach into type-land, not child nodes.
       if k ~= "expected" and k ~= "decltuple" then
-        walk(v, by, types, path, diags, dedup, seen)
+        walk(v, report, path, diags, dedup, seen)
       end
     end
   end
@@ -246,32 +228,12 @@ end
 --- @return {Diag} Findings, in file order
 local function issues(env: any, ast: any, path: string): {Diag}
   local diags: {Diag} = {}
-  if not (env is Node) then
+  if not (env is Node) then return diags end
+  local report = teal_types.get_report(env)
+  if report == nil then
     return diags
   end
-  local reporter = (env)["reporter"]
-  if not (reporter is Node) then
-    return diags
-  end
-  local rep = reporter
-  -- cast: TypeReporter method, outside the narrowed API
-  local get_report = rep["get_report"] as function(any): any
-  local report = get_report(rep)
-  if not (report is Node) then
-    return diags
-  end
-  local by_pos = (report)["by_pos"]
-  local types = (report)["types"]
-  if not (by_pos is Node) or not (types is Node) then
-    return diags
-  end
-  local by = (by_pos)[path]
-  if not (by is Node) then
-    return diags
-  end
-  local by_file = by
-  local type_tab = types
-  walk(ast, by_file, type_tab, path, diags, {}, {})
+  walk(ast, report, path, diags, {}, {})
   table.sort(diags, function(a: Diag, b: Diag): boolean
       if a.line ~= b.line then
         return a.line < b.line
