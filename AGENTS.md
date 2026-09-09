@@ -200,20 +200,34 @@ checks against are seeded from the tree's own `3p/cosmos` pin, not the
 pinned binary's bundled types ([D43](docs/decisions/d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md)).
 Such a change stages behind a release and pin bump: land the checker
 first, bump `bin/cosmic.pin` to a release carrying it, then land the
-code that needs it. This is not only a checker rule: an arity widened
-on one side of a call between two modules the pinned release already
-ships stages the same way (carry the new value in a new module
-instead, since the release has never seen it), and so does a
-`--make` flag the tree accepts before a CI workflow file states it
-(name the numbers in a comment until the pin bump lands). Reproduce a
-cold build locally by keeping only what generation 1 needs — `for d in
-$(ls o | grep -vx -e 3p -e bootstrap); do rm -rf o/$d; done`, then
-`bin/cosmic --make build` — a populated `o/` will NOT reproduce it,
-since the pin loads already-compiled `o/_cli/*.lua` without
-type-checking it.
-`_build/coldbuild_test.tl` enforces this — generation 1's exact type
-check, pinned checker with tree module resolution — so the failure
-lands on the PR instead of in CI's `build` lane.
+code that needs it. The same staging applies to signatures inside the
+**pre-install boundary**: command parsing, root discovery, the searcher
+and its pinned compiler capsule (`_build/make_boundary.tl` names the
+modules). A capability-bearing runtime parses the effective command,
+discovers the absolute make root without changing cwd, and installs
+source-only tree resolution BEFORE loading CLI handlers or `_make`.
+Post-install sibling calls therefore see the root's matching signatures;
+ordinary hand-run scripts remain pin-first, and explicit `--modules`
+retains its existing closure/tree contract. The dispatcher imports handlers
+only for commands that use them; generator scripts use `_cli.script`
+without importing the command registry. This removes an unused child
+dependency, not the manifest fallback's existing type/cache constraints.
+This requires a runtime
+release carrying the capability and activation through `bin/cosmic.pin`:
+editing the tree cannot retrofit it into an old immutable pin.
+A `--make` flag the tree accepts before a CI workflow file states it
+also stages behind release/pin activation (name the numbers in a comment
+until then). Reproduce cold builds in a separate full-source fixture
+with only verified `o/3p` dependencies and the selected bootstrap
+runtime, no compiled `o/` outputs. The make source loader does not reuse
+built Lua, code-cache entries, or shared type environments: unchanged
+callers must see sibling and declaration edits. Root siblings precede
+generated types and TL_PATH, without changing the process environment.
+`_build/coldbuild_test.tl` checks the WHOLE tree with the pinned checker,
+overlaying only shipped pre-install-boundary snapshots before the live
+tree. This is a conservative guard for callers of pinned modules, not
+an exact simulation of every cold-build load path; executable startup
+and cold fixtures separately establish the runtime behavior.
 
 key concepts:
 - **conventions, not declarations**: `*_test.tl` is a test, `*_example.tl`

@@ -14,6 +14,7 @@
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local root = require("_make.root")
+local startup = require("_make.startup")
 local binsel = require("_make.binaries")
 local converge = require("_make.converge")
 local coverage_limit = require("_make.coverage_limit")
@@ -49,7 +50,9 @@ local type Verb = types.Verb
 --- @return Project|nil The scanned project, or nil on failure
 --- @return string The error message when discovery or the scan failed
 local function open_project(verb: string): Project | nil, string
-  local dir, derr = root.discover(verb)
+  local dir = startup.get_root()
+  local derr: string
+  if not dir then dir, derr = root.discover(verb) end
   if not dir then
     return nil, derr or "make: cannot determine the project root"
   end

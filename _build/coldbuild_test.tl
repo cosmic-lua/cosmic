@@ -10,16 +10,16 @@
 --- clone. This test uses that pinned checker with a deliberately
 --- conservative sibling-resolution order, so the guard runs on the PR.
 ---
---- The instrument: the pinned release embeds the exact tree it was cut
---- from at `/zip/.tl/**`. Putting `--include-dir /zip/.tl` FIRST makes
---- every checked module see the pin's shipped siblings before the tree;
---- `.` then admits modules absent from the snapshot, and generated
---- cosmo types come last. This is a pessimistic superset, not the exact
---- resolution order of every module in a real cold build.
+--- The instrument overlays ONLY the pinned pre-install boundary named by
+--- make_boundary, ahead of the live tree and generated types. The checker
+--- remains the pin's. The whole tree is checked because post-install callers
+--- can still call pinned boundary modules. This is a conservative diagnostic,
+--- not an assertion that every rejected source runs in every cold build.
 ---
---- The real snapshot exposure (Path B) is the top-level `--make`
---- bootstrap chain's bare requires before compilation, such as
---- `_cli.lint` and `_cli.main_handlers`. Spawned generator children
+--- A capability-bearing runtime installs source resolution before the
+--- top-level `_cli.main_handlers` and `_make` loads: their siblings then
+--- come from the selected root, not the shipped snapshot. The parser, root
+--- discovery and compiler capsule remain pinned. Spawned generator children
 --- instead receive `--modules` from `_make.closure`/`_make.generate`:
 --- the built closure and tree-first searcher precede the pin's payload.
 --- A ModuleDoc field used only there can therefore pass a real cold
@@ -27,14 +27,10 @@
 --- The warm-tree reproduction is recorded in
 --- `docs/design/make/log/coldbuild-staleness.md`.
 ---
---- A second shape lives here too, not only a checker rule: a call
---- between two modules the pinned release ALREADY SHIPS, widened by
---- an extra parameter on the caller's side. The tree's own two copies
---- agree with each other, so `--check types --include-dir .` alone
---- passes; the pinned release's SNAPSHOT of the callee still has the
---- old arity, so a bootstrap-chain load does not (PR #1775). The second test
---- case below reproduces it on a throwaway fixture instead of waiting
---- for a real one to land.
+--- The paired fixtures distinguish a widened post-install lint call (now
+--- allowed) from a widened pinned root-discovery call (still refused).
+--- An OLD immutable pin has no early installation capability; only a release
+--- carrying it plus activation through bin/cosmic.pin changes that runtime.
 ---
 --- When this fails: the named file needs a newer checker/patch or
 --- disagrees with a shipped sibling's snapshot. The latter is not by
@@ -49,10 +45,10 @@ local check = require("cosmic.check")
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
+local boundary = require("_build.make_boundary")
 
 local BOOTSTRAP = fs.join("o", "bootstrap", "cosmic")
 local GENERATED_TYPES = fs.join("o", "_types", "types_gen")
-local SHIPPED_TREE = fs.join("/zip", ".tl")
 
 --- The trees generation 1 compiles; mirrors the `--- reads:` line
 --- above so the dependency set and the sweep cover the same files.
@@ -79,7 +75,7 @@ local function tree_sources(): {string}
 end
 
 --- Runs the conservative generation-1 check over `files`: the pinned
---- release's shipped snapshot of the tree first, then `tree_dir` — the
+--- release's pre-install boundary first, then `tree_dir` — the
 --- resolution root for the tree's own modules, "." for the real repo
 --- or a fixture directory standing in for it — then the generated
 --- cosmo types.
@@ -87,8 +83,20 @@ end
 --- @param files {string} The .tl files to check
 --- @return child.Result The finished check's result (ok, stdout, stderr)
 local function check_generation_1(tree_dir: string, files: {string}): child.Result
+  local overlay = fs.join(env.get_or("TEST_TMPDIR", "/tmp"), "pinned-boundary")
+  local names: {string} = {}
+  for _, name in ipairs(boundary.modules) do names[#names + 1] = string.format("%q", name) end
+  local program = "local fs = require('cosmic.fs'); local root = " .. string.format("%q", overlay) ..
+  "; for _, name in ipairs({" .. table.concat(names, ",") .. "}) do " ..
+  "local stem = name:gsub('%.' , '/'); for _, ext in ipairs({'.tl', '/init.tl'}) do " ..
+  "local src = fs.read('/zip/.tl/' .. stem .. ext); if src then " ..
+  "local dest = root .. '/' .. stem .. ext; assert(fs.make_dirs(fs.dirname(dest))); " ..
+  "assert(fs.write(dest, src)); break end end end"
+  local copied = check.must(child.run({BOOTSTRAP, "-e", program},
+      {env = env.list({set = {COSMIC_COVERAGE = "0"}})}))
+  assert(copied.ok, copied.stderr)
   local argv: {string} = {BOOTSTRAP, "--check", "types",
-    "--include-dir", SHIPPED_TREE, "--include-dir", tree_dir,
+    "--include-dir", overlay, "--include-dir", tree_dir,
     "--include-dir", GENERATED_TYPES}
   for _, f in ipairs(files) do
     argv[#argv + 1] = f
@@ -112,7 +120,7 @@ local function widened_call_message(stderr: string): string
   end
   return "a caller calls a callee with " .. given .. " args; the " ..
   "pinned release's callee takes " .. expects .. " — a signature " ..
-  "change on a shipped module stages behind a release and pin bump, " ..
+  "change on a pinned boundary module stages behind a release and pin bump, " ..
   "or moves into a new module.\n"
 end
 
@@ -128,9 +136,9 @@ local function test_tree_type_checks_under_the_pinned_checker()
 
   local r = check_generation_1(".", files)
   assert(r.ok, widened_call_message(r.stderr) ..
-    "the pinned-checker/shipped-snapshot guard rejects a tree source. " ..
-    "This conservative sibling ordering also checks modules outside " ..
-    "the real bootstrap-chain exposure; a snapshot mismatch alone " ..
+    "the pinned-checker/pre-install-boundary guard rejects a tree source. " ..
+    "The conservative whole-tree sweep includes callers outside " ..
+    "the actual bootstrap chain; a snapshot mismatch alone " ..
     "does not prove every cold build fails. Stage the change " ..
     "behind a release + pin bump, or satisfy both checkers:\n" .. r.stderr)
 end
@@ -157,17 +165,25 @@ local function write_widened_call_fixture(dir: string)
       "local _diags, _err = lint.lint_file(\"x.tl\", 10)\n"))
 end
 
-local function test_widened_call_between_shipped_modules_is_refused()
+local function test_widened_post_install_call_is_allowed()
   local tmpdir = env.get_or("TEST_TMPDIR", "/tmp")
   write_widened_call_fixture(tmpdir)
 
   local r = check_generation_1(tmpdir, {fs.join(tmpdir, "caller.tl")})
-  local message = widened_call_message(r.stderr)
-  assert(not r.ok and message ~= "",
-    "a call widened by an extra optional parameter on the caller's " ..
-    "side only must fail generation 1's type check the same way " ..
-    "#1775 did — the pinned release's shipped snapshot of the callee " ..
-    "still has the old arity even though the fixture's own two copies " ..
-    "agree. Instead: ok=" .. tostring(r.ok) ..
-    "\nstdout: " .. r.stdout .. "\nstderr: " .. r.stderr)
+  assert(r.ok, "post-install siblings must use the live tree: " .. r.stderr)
+end
+
+local function test_widened_pre_install_call_is_refused()
+  local tmpdir = fs.join(env.get_or("TEST_TMPDIR", "/tmp"), "widened-boundary")
+  assert(fs.make_dirs(fs.join(tmpdir, "_make")))
+  local src = check.must(fs.read("_make/root.tl"))
+  local wide, sites = src:gsub("%(verb: string%): string | nil, string",
+    "(verb: string, _extra?: integer): string | nil, string")
+  assert(sites == 2, "root discover's declaration/interface moved")
+  assert(fs.write(fs.join(tmpdir, "_make/root.tl"), wide))
+  local caller = fs.join(tmpdir, "caller.tl")
+  assert(fs.write(caller, "local root = require('_make.root')\n" ..
+      "local _dir, _err = root.discover('build', 10)\n"))
+  local r = check_generation_1(tmpdir, {caller})
+  assert(not r.ok and widened_call_message(r.stderr) ~= "", r.stderr)
 end
