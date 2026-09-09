@@ -63,9 +63,12 @@ end
 --- incidentally between pattern and target even on a genuine match:
 --- an `if $C then $$$BODY() end` pattern matched nothing until `tk`
 --- was added here.
+--- `typeid` is the parser's unique allocation id on every type node,
+--- including a declaration's `decltuple` and nested annotations; it
+--- differs across parses of identical source and is not source shape.
 local IGNORE_KEYS: {string: boolean} = {
   y = true, x = true, yend = true, xend = true, f = true, comments = true,
-  tk = true,
+  tk = true, typeid = true,
 }
 
 --- Is `tk` a capture-name spelling: leading underscore, then

@@ -26,6 +26,36 @@ local function pattern_ok(pattern_src: string): Node
   return check.must(match.compile_pattern(pattern_src))
 end
 
+--- Each parse allocates fresh typeids for the declaration tuple and
+--- its nested annotation types; identical source must still match.
+local function test_typed_declarations_match_across_separate_parses()
+  for _, scope in ipairs({"local", "global"}) do
+    for _, annotation in ipairs({"number", "{string: {number}}",
+        "function(number): string", "Box<string>"}) do
+      local source = scope .. " value: " .. annotation .. " = make_value()"
+      local pattern = pattern_ok(source)
+      local candidate = parse_ok(source, "typed_declaration.tl")[1]
+      assert(match.match(pattern, candidate) ~= nil,
+        "separately parsed declaration must match: " .. source)
+    end
+  end
+end
+
+--- Ignoring parser ids must preserve the annotation's source shape,
+--- including primitive names and types nested inside containers.
+local function test_typed_declarations_still_compare_annotation_shape()
+  for _, scope in ipairs({"local", "global"}) do
+    local prefix = scope .. " value: "
+    local pattern = pattern_ok(prefix .. "{string: {number}} = make_value()")
+    for _, annotation in ipairs({"number", "{string: {string}}", "{number: {number}}"}) do
+      local candidate = parse_ok(prefix .. annotation .. " = make_value()",
+        "different_annotation.tl")[1]
+      assert(match.match(pattern, candidate) == nil,
+        "different annotation must not match: " .. annotation)
+    end
+  end
+end
+
 --- Every node in `root`'s tree that `pattern` matches, own to this
 --- test file: `match()` tests one node at a time by design (a
 --- whole-file walk is the separate walk item's job, out of this
