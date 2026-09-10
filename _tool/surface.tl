@@ -1,4 +1,5 @@
 --- Assemble public-module declarations from an in-memory source map.
+local json = require("cosmic.json")
 local scanner = require("_tool.surface_scan")
 
 local record Surface
@@ -52,10 +53,31 @@ local function source_owner(path: string): string | nil
   return name
 end
 
+--- Encode the distinct canonical types observed for one folded entry key.
+--- A singleton stays byte-identical; multiple values are sorted JSON behind
+--- a prefix Teal's lexer cannot produce at the start of a type.
+local function encode_types(found: {string: boolean}): string | nil, string
+  local types: {string} = {}
+  for canonical_type in pairs(found) do
+    types[#types + 1] = canonical_type
+  end
+  table.sort(types)
+  if #types == 1 then
+    return types[1]
+  end
+  local encoded, err = json.encode(types)
+  if not encoded then
+    return nil, err
+  end
+  return "@types " .. encoded
+end
+
 --- Assemble canonical declaration entries without reading the filesystem.
+--- Every folded key records its distinct canonical type bytes. A singleton
+--- remains the type itself; multiple values use deterministic `@types` JSON.
 --- @param sources Source bytes keyed by repository-relative path
 --- @return Surface|nil Sorted public modules and their declaration entries
---- @return string Diagnostic on scan failure or a conflicting duplicate
+--- @return string Diagnostic on scan or type-set encoding failure
 local function extract(sources: {string: string}): Surface | nil, string
   local paths: {string} = {}
   local owners: {string: boolean} = {}
@@ -69,7 +91,7 @@ local function extract(sources: {string: string}): Surface | nil, string
   table.sort(paths)
 
   local surface: Surface = {entries = {}, modules = {}}
-  local locations: {string: string} = {}
+  local types_by_key: {string: {string: boolean}} = {}
   for owner in pairs(owners) do
     surface.modules[#surface.modules + 1] = "cosmic." .. owner
   end
@@ -85,18 +107,21 @@ local function extract(sources: {string: string}): Surface | nil, string
       for _, member in ipairs(members) do
         local key = "cosmic." .. owner .. "." .. member.declaration ..
         "." .. member.name
-        local location = string.format("%s:%d:%d", path, member.line, member.column)
-        local previous = surface.entries[key]
-        if previous and previous ~= member.canonical_type then
-          return nil, string.format("conflicting surface entry %s: %s and %s",
-            key, locations[key], location)
+        local found = types_by_key[key]
+        if not found then
+          found = {}
+          types_by_key[key] = found
         end
-        if not previous then
-          surface.entries[key] = member.canonical_type
-          locations[key] = location
-        end
+        found[member.canonical_type] = true
       end
     end
+  end
+  for key, found in pairs(types_by_key) do
+    local encoded, err = encode_types(found)
+    if not encoded then
+      return nil, err
+    end
+    surface.entries[key] = encoded
   end
   return surface
 end
