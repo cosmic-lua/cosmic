@@ -59,6 +59,10 @@ local body: function(scanner: Scanner, parent: string): boolean, string
 local function field(scanner: Scanner, owner: string): boolean, string
   local tokens = scanner.tokens
   local i = scanner.next
+  if tokens[i].tk == "metamethod" and tokens[i + 1]
+  and tokens[i + 1].tk ~= ":" then
+    i = i + 1
+  end
   local token = tokens[i]
   local name = token.tk
   if token.tk == "[" and tokens[i + 1] and tokens[i + 1].kind == "string"

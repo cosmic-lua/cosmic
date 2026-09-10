@@ -140,6 +140,26 @@ end]==])
   check.equal(found[2].name, "userdata")
 end
 
+local function test_record_metamethods()
+  local found = members([[local record Handle
+  metamethod __close: function(self: Handle)
+  metamethod ["__tostring"]: function(self: Handle): string
+  metamethod: string
+  pid: integer
+end]])
+  check.equal(#found, 4)
+  check.equal(found[1].kind, "record")
+  check.equal(found[1].declaration, "Handle")
+  check.equal(found[1].name, "__close")
+  check.equal(found[1].canonical_type, "function ( self : Handle )")
+  check.equal(found[1].line, 2)
+  check.equal(found[1].column, 14)
+  check.equal(found[2].name, "__tostring")
+  check.equal(found[2].canonical_type, "function ( self : Handle ) : string")
+  check.equal(found[3].name, "metamethod")
+  check.equal(found[4].name, "pid")
+end
+
 local function test_atomic_failures()
   for _, bad in ipairs({
       "local record R x: string end\n@",
