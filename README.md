@@ -28,6 +28,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](cosmic/format/init.md) |  Code formatter for Teal and Lua files. |
 | [init](cosmic/fs/init.md) |  Unified filesystem module. |
 | [fuzzy](cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
+| [graph](cosmic/graph.md) |  Directed-graph algorithms over a plain adjacency map. |
 | [hash](cosmic/hash.md) |  Cryptographic digests, HMAC, and Argon2 password hashing. |
 | [html](cosmic/html.md) |  HTML utilities. |
 | [init](cosmic/init.md) |  cosmic: a batteries-included Lua/Teal distribution built on |
