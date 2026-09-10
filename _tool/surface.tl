@@ -46,7 +46,7 @@ local function source_owner(path: string): string | nil
   if not name then
     name = path:match("^cosmic/([^/]+)%.tl$")
   end
-  if name == "init" or (name and name:sub(1, 1) == "_") then
+  if path == "cosmic/init.tl" or (name and name:sub(1, 1) == "_") then
     return nil
   end
   return name

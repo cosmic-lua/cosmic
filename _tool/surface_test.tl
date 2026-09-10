@@ -54,6 +54,28 @@ local function test_flat_owner_also_folds_directory_shards()
   check.equal(found.entries["cosmic.net.Request.path"], "string")
 end
 
+local function test_init_directory_is_a_valid_owner()
+  local found = extracted({
+      ["cosmic/init/init.tl"] = "local record Root own: boolean end",
+      ["cosmic/init/part.tl"] = "local record Part value: string end",
+      ["cosmic/init.tl"] = "local record Bare ignored: integer end",
+    })
+  check.equal(found.modules, {"cosmic.init"})
+  check.equal(found.entries, {
+      ["cosmic.init.Root.own"] = "boolean",
+      ["cosmic.init.Part.value"] = "string",
+    })
+end
+
+local function test_init_directory_root_scan_errors_propagate()
+  local found, err = surface.extract({
+      ["cosmic/init/init.tl"] = "local record Broken value: string",
+      ["cosmic/init/part.tl"] = "local record Part value: string end",
+    })
+  check.equal(found, nil)
+  check.truthy(err:find("cosmic/init/init.tl:", 1, true), err)
+end
+
 local function test_every_exclusion()
   local sources: {string: string} = {
     ["cosmic/ok.tl"] = "local record Kept value: string end",
