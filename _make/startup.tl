@@ -10,7 +10,7 @@ local function effective_make(opts: parse.Options): boolean
     opts.compile or opts.compile_strict or #opts.format > 0 or #opts.fix > 0 or
     opts.check_kind or opts.find_pattern or opts.rewrite_pattern or
     #opts.embed > 0 or opts.extract or opts.examples ~= nil or
-    opts.benchmark or opts.docs ~= nil or opts.test_argv or
+    opts.benchmark or opts.docs ~= nil or opts.diff or opts.test_argv or
     opts.report_paths or opts.coverage_report_paths or opts.recipe ~= nil)
 end
 

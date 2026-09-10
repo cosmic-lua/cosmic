@@ -294,7 +294,7 @@ local function parse_args(): Options
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
   or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.find_pattern
   or opts.rewrite_pattern
-  or opts.extract or opts.examples or opts.benchmark or opts.docs
+  or opts.extract or opts.examples or opts.benchmark or opts.docs or opts.diff
   or opts.test_output or opts.report_paths or opts.coverage_report_paths
   or opts.make_verb then
     return opts

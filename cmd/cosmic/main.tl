@@ -135,6 +135,8 @@ local function main(): integer, string
     return require("_cli.main_handlers").handle_docs(query)
   end
 
+  if opts.diff then return require("_cli.diff").run(opts.diff) end
+
   if opts.test_argv then
     if #opts.test_argv == 0 then
       return 1, "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"

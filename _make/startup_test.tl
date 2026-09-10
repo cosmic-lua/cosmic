@@ -16,6 +16,7 @@ local function test_effective_make_follows_dispatcher_precedence()
   for _, argv in ipairs({{"s.lua", "--make", "build"},
       {"--version", "--make", "build"}, {"--make", "help"},
       {"--help", "--make", "build"}, {"--compile", "s.tl", "--make", "build"},
+      {"--diff", "old-cosmic", "--make", "build"},
       {"-c", "true", "--make", "build"}}) do
     _G.arg = argv
     assert(not startup.effective_make(parse.parse_args()), table.concat(argv, " "))
