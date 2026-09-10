@@ -162,7 +162,7 @@ local function observe(path: string): Observation
         if absent(stable.message) then return observation("changed") end
         return observation("error", "", "", stable.message)
       end
-      if #stable.names > 0 then return observation("changed") end
+      if not stable.saw_directory or #stable.names > 0 then return observation("changed") end
     end
     return observation("vacant")
   end

@@ -301,6 +301,26 @@ local function test_terminal_errno_and_turnover_classification()
     "successor visible after an old directory opens is changed")
   assert(lockdir.observe(after_open).token == after_open_token)
 
+  local after_open_gone = fs.join(root, "turnover-after-open-disappears")
+  local after_open_gone_a = lockdir.try_acquire(after_open_gone, "A")
+  assert(after_open_gone_a.state == "owned")
+  local original_after_open_gone = fs.open_dir
+  local gone_opened = false
+  fs.open_dir = function(probe: string): fs.Dir | nil, string
+    local dir, err = original_after_open_gone(probe)
+    if probe == after_open_gone and dir and not gone_opened then
+      gone_opened = true
+      assert(lockdir.retire(after_open_gone, after_open_gone_a.token))
+    end
+    return dir, err
+  end
+  local after_open_gone_seen = lockdir.observe(after_open_gone)
+  fs.open_dir = original_after_open_gone
+  assert(gone_opened and after_open_gone_seen.state == "changed",
+    "an opened directory that disappears during enumeration is changed")
+  assert(lockdir.observe(after_open_gone).state == "vacant",
+    "a subsequently absent path is vacant")
+
   local stable_empty = fs.join(root, "stable-empty")
   assert(fs.make_dir(stable_empty))
   assert(lockdir.observe(stable_empty).state == "vacant", "stable empty directory is vacant")
