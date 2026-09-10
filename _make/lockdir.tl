@@ -16,6 +16,14 @@ local record Observation
   message: string
 end
 
+--- One directory-name scan: errors live in the total result so this helper
+--- never needs a third return merely to preserve an observed-directory bit.
+local record NameScan
+  names: {string}
+  saw_directory: boolean
+  message: string
+end
+
 local function claim(state: string, token?: string, message?: string): Claim
   return {state = state, token = token or "", message = message or ""}
 end
@@ -46,17 +54,19 @@ local function checked_path(path: string): string, string
 end
 
 --- List a real directory's immediate names without following the lock path.
-local function names(path: string): {string} | nil, string, boolean
+local function names(path: string): NameScan
   local st, serr = fs.stat_link(path)
   if not st then
-    if absent(serr) then return {}, "", false end
-    return nil, serr, false
+    if absent(serr) then return {names = {}, saw_directory = false, message = ""} end
+    return {names = {}, saw_directory = false, message = serr}
   end
-  if st:is_link() or not st:is_dir() then return nil, "lock path is not a directory", false end
+  if st:is_link() or not st:is_dir() then
+    return {names = {}, saw_directory = false, message = "lock path is not a directory"}
+  end
   local dir, derr = fs.open_dir(path)
   -- The caller may have observed a real directory just before another
   -- generation retired it. Preserve that fact for observe's first read.
-  if not dir then return nil, derr, true end
+  if not dir then return {names = {}, saw_directory = true, message = derr} end
   local got: {string} = {}
   while true do
     local name = dir:read()
@@ -65,7 +75,7 @@ local function names(path: string): {string} | nil, string, boolean
   end
   dir:close()
   table.sort(got)
-  return got, "", true
+  return {names = got, saw_directory = true, message = ""}
 end
 
 local function same_names(a: {string}, b: {string}): boolean
@@ -77,9 +87,9 @@ end
 --- A failed owner operation can be an ordinary malformed entry or a
 --- generation turnover. Re-read the directory names to tell those apart.
 local function changed_since(path: string, before: {string}): boolean
-  local after, err = names(path)
-  if not after then return absent(err) end
-  return not same_names(before, after)
+  local after = names(path)
+  if after.message ~= "" then return absent(after.message) end
+  return not same_names(before, after.names)
 end
 
 local function sole_owner(list: {string}): string, string
@@ -127,9 +137,9 @@ local function try_acquire(path: string, payload: string): Claim
   local cerr = cleanup(candidate, owner)
   if cerr ~= "" then return claim("error", "", cerr) end
 
-  local existing, eerr = names(lockpath)
-  if existing and #existing > 0 then return claim("busy") end
-  if not existing then return claim("error", "", eerr) end
+  local existing = names(lockpath)
+  if existing.message ~= "" then return claim("error", "", existing.message) end
+  if #existing.names > 0 then return claim("busy") end
   return claim("error", "", move_err)
 end
 
@@ -137,18 +147,18 @@ end
 local function observe(path: string): Observation
   local lockpath, perr = checked_path(path)
   if lockpath == "" then return observation("error", "", "", perr) end
-  local before, berr, saw_directory = names(lockpath)
-  if not before then
-    if saw_directory and absent(berr) then return observation("changed") end
-    return observation("error", "", "", berr)
+  local before = names(lockpath)
+  if before.message ~= "" then
+    if before.saw_directory and absent(before.message) then return observation("changed") end
+    return observation("error", "", "", before.message)
   end
-  local token, terr = sole_owner(before)
+  local token, terr = sole_owner(before.names)
   if terr == "vacant" then return observation("vacant") end
   if terr ~= "" then return observation("error", "", "", terr) end
   local owner = fs.join(lockpath, "owner-" .. token)
   local st, serr = fs.stat_link(owner)
   if not st then
-    if changed_since(lockpath, before) then return observation("changed") end
+    if changed_since(lockpath, before.names) then return observation("changed") end
     return observation("error", "", "", serr)
   end
   if st:is_link() or not st:is_file() then
@@ -156,18 +166,18 @@ local function observe(path: string): Observation
   end
   local payload, rerr = fs.read(owner)
   if not payload then
-    if changed_since(lockpath, before) then return observation("changed") end
+    if changed_since(lockpath, before.names) then return observation("changed") end
     return observation("error", "", "", rerr)
   end
-  local after, aerr = names(lockpath)
-  if not after then
-    if absent(aerr) then return observation("changed") end
-    return observation("error", "", "", aerr)
+  local after = names(lockpath)
+  if after.message ~= "" then
+    if absent(after.message) then return observation("changed") end
+    return observation("error", "", "", after.message)
   end
-  if not same_names(before, after) then return observation("changed") end
+  if not same_names(before.names, after.names) then return observation("changed") end
   local final, ferr = fs.stat_link(owner)
   if not final then
-    if changed_since(lockpath, before) then return observation("changed") end
+    if changed_since(lockpath, before.names) then return observation("changed") end
     return observation("error", "", "", ferr)
   end
   if final:is_link() or not final:is_file() then
