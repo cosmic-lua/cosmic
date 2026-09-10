@@ -17,6 +17,7 @@ local record Options
   script_args: {integer: string}
   compile: string
   compile_strict: string
+  diff: string
   --- The file-taking flags all take a LIST. A path the tool accepted
   --- and then ignored is the one outcome a gate must not have.
   format: {string}
@@ -228,6 +229,7 @@ local function parse_args(): Options
   opts.help = p.help
   opts.compile = p.values["compile"]
   opts.compile_strict = p.values["compile-strict"]
+  opts.diff = p.values["diff"]
   -- The flag's own argument is the first path; the rest are the
   -- positionals the parser left in p.args, so `--fix a.tl b.tl` names
   -- both files. Leftover positionals carry no position, so a run
