@@ -37,6 +37,7 @@ local record Handle
   --  Non-blocking reap: TryWait{finished, result} — result set exactly
   --  when finished — or `nil, err` on a wait failure.
   try_wait: function(self: Handle): TryWait | nil, string
+  _abandon_after_kill: function(self: Handle)
   --  Runs the child to completion (feeding stdin, draining stdout+stderr) and
   --  returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
   --  child has not finished in time (the handle stays usable). Idempotent.
@@ -133,6 +134,12 @@ function handle:wait(timeout_ms?: integer): Result | nil, string
 
 ```teal
 function handle:try_wait(): TryWait | nil, string
+```
+
+### handle:_abandon_after_kill
+
+```teal
+function handle:_abandon_after_kill()
 ```
 
 ### handle:read
