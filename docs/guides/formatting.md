@@ -69,6 +69,45 @@ a project-wide `fmt` verb is part of `cosmic --make` (see
 `cosmic --docs guide.make`); today it is `--check fmt` per file,
 driven by whatever runs your build.
 
+## Structural rewrite
+
+`--rewrite PATTERN PATH...` is the same read-only structural search as
+`--find`. Add a replacement and `--preview` to produce JSON evidence without
+opening any source file for writing:
+
+```bash
+cosmic --rewrite 'os.execute($CMD)' 'assert(os.execute($CMD))' --preview . \
+  > rewrite-preview.jsonl 2> rewrite-preview.err
+status=$?
+```
+
+Preview prints one JSON object for each selected source, followed by a summary.
+Each successful object carries the full formatted `code` that apply would
+write, original-position `proposed` edits, comment-protection `refused` sites,
+the original match count, and whether formatting or rewriting changes bytes.
+This means formatter-only changes can be `changed: true` with no proposed
+sites. Exit 0 means a clean plan with accepted edits; 1 means no accepted edits
+or protected refusals; 2 means invalid input or a file failure. Syntax
+validation checks the replacement template, not its semantic meaning or write
+permission. Refresh preview evidence after source changes.
+
+When a file cannot be planned, its line is a `rewrite-error` record rather
+than a successful plan. It retains the original `matches` count when matching
+succeeded but substitution or formatting failed. In the summary, M/E/R/F/N
+mean original Matches, accepted Edits (called `proposed` in preview), Refusals,
+failed plans, and selected file Number. A failed plan contributes to F and N,
+never E; it makes the exit status 2 even if earlier files were planable.
+
+After reviewing fresh evidence, run the matching partial apply:
+
+```bash
+cosmic --rewrite 'os.execute($CMD)' 'assert(os.execute($CMD))' --apply .
+```
+
+Apply writes each successful file as it is planned; a later file failure does
+not roll back earlier files. Protected comment sites remain untouched in both
+modes.
+
 ## Style Conventions
 
 beyond what the formatter enforces:

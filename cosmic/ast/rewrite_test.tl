@@ -4,6 +4,7 @@
 --- refusal that leaves a hit unmodified rather than silently dropping
 --- a comment sitting in the match's own connective tissue.
 local check = require("cosmic.check")
+local ast = require("cosmic.ast")
 local ast_match = require("cosmic.ast.match")
 local node_mod = require("cosmic.ast.node")
 local rewrite_mod = require("cosmic.ast.rewrite")
@@ -110,4 +111,28 @@ local function test_rewrite_refuses_a_statement_deletion_that_would_drop_a_trail
   check.equal(#result.refused, 1)
   check.equal(result.refused[1].comments[1], "-- keep this")
   check.equal(result.code, source)
+end
+
+local function test_rewrite_reports_only_accepted_original_hits_in_source_order()
+  local pattern = pattern_ok("os.execute($CMD)")
+  local source = "os.execute(a)\nos.execute(b --[[ keep ]] )\nos.execute(c)\n"
+  local result, err = rewrite_mod.rewrite(source, "edits.tl", pattern,
+    "assert(os.execute($CMD))")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.refused, 1)
+  check.equal(#result.edits, 2)
+  local y1, x1 = ast.span_start(result.edits[1].node)
+  local y2, x2 = ast.span_start(result.edits[2].node)
+  assert(y1 == 1 and x1 == 1 and y2 == 3 and x2 == 1,
+    "accepted edit metadata must retain original positions")
+  check.equal(result.code,
+    "assert(os.execute(a))\nos.execute(b --[[ keep ]] )\nassert(os.execute(c))\n")
+end
+
+local function test_rewrite_reports_deletion_as_an_accepted_edit()
+  local pattern = pattern_ok("$F:^test_()")
+  local result, err = rewrite_mod.rewrite("test_a()\n", "delete_edits.tl", pattern, "")
+  assert(result, "rewrite failed: " .. tostring(err))
+  check.equal(#result.edits, 1)
+  check.equal(result.code, "")
 end

@@ -46,6 +46,16 @@ local function main(): integer, string
     return 1, opts.error
   end
 
+  -- Preview's state deliberately lives outside the pinned Options record.
+  -- Check it before startup or any command handler so it can never let an
+  -- earlier writer (for example --fix) win dispatch precedence.
+  local rewrite_preview = false
+  if opts.rewrite_pattern then
+    local mode = require("_cli.rewrite_mode")
+    if mode.error then return 2, mode.error end
+    rewrite_preview = mode.preview
+  end
+
   -- Apply env var fallbacks (CLI args take priority)
   local embed_env = os.getenv("COSMIC_EMBED")
   if embed_env and #opts.embed == 0 then
@@ -118,7 +128,7 @@ local function main(): integer, string
   end
   if opts.rewrite_pattern then
     return require("_cli.rewrite").run(opts.rewrite_pattern, opts.rewrite_paths,
-      opts.rewrite_apply)
+      opts.rewrite_apply, rewrite_preview)
   end
   if #opts.embed > 0 then return require("_cli.main_handlers").handle_embed(opts.embed, opts.output, opts.exe) end
   if opts.extract then return require("_cli.main_handlers").handle_extract(opts.extract, opts.exe) end

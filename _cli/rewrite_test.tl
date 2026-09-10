@@ -190,7 +190,7 @@ local function test_apply_before_rewrite_with_dot_path_as_repl_refuses_loudly()
   local before_b = check.must(fs.read(fs.join(root, "b.tl")))
   local r = run_argv(root, {"--apply", "a.tl", "b.tl",
       "--rewrite", "os.execute($CMD)", "."})
-  assert(r.code == 1, "expected exit 1 (a refusal), got " .. tostring(r.code)
+  assert(r.code == 2, "expected exit 2 (a file failure), got " .. tostring(r.code)
     .. ": out=" .. r.out .. " err=" .. r.err)
   assert(r.out:find("rewrite: 0 applied, 1 refused in 2 file(s)", 1, true),
     "expected the verdict line: " .. r.out)
@@ -214,7 +214,7 @@ local function test_apply_leaves_the_file_untouched_when_the_splice_wont_reparse
     })
   local before = check.must(fs.read(fs.join(root, "n.tl")))
   local r = rewrite(root, "os.execute($CMD)", "$CMD", "--apply", "n.tl")
-  assert(r.code == 1, "expected exit 1 (nothing applied), got " .. tostring(r.code)
+  assert(r.code == 2, "expected exit 2 (a file failure), got " .. tostring(r.code)
     .. ": " .. r.err)
   assert(r.out:find("rewrite: 0 applied, 0 refused in 1 file(s)", 1, true),
     "expected the verdict line: " .. r.out)

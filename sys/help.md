@@ -28,8 +28,8 @@ Cosmic options:
                                 type) to match the Lua pattern, e.g.
                                 $F:^test_;
                                 default: this project's .tl sources)
-  --rewrite <pattern> [path]... like --find; add <repl> --apply <path>...
-                                to apply via cosmic.ast.rewrite in place
+  --rewrite <pattern> [path]... like --find; add <repl> --preview <path>...
+                                to print plans, or --apply <path>... to write
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
   --output <file>               output file for --embed (default: cosmic)
