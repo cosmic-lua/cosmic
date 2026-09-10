@@ -101,6 +101,37 @@ local function test_bug5_binary_minus_gets_space()
   )
 end
 
+-- Bug 5 variant: two adjacent unary minuses must not collapse into a
+-- `--` line comment
+local function test_bug5_variant_double_unary_minus_keeps_space()
+  assert_format(
+    "local z = - -1\nprint(z)\n",
+    "local z = - -1\nprint(z)\n",
+    "double unary minus keeps space"
+  )
+end
+
+-- Bug 5 variant: three adjacent unary minuses, so the fix isn't
+-- special-cased to exactly two
+local function test_bug5_variant_triple_unary_minus_keeps_space()
+  assert_format(
+    "local z = - - -1\nprint(z)\n",
+    "local z = - - -1\nprint(z)\n",
+    "triple unary minus keeps space"
+  )
+end
+
+-- Bug 5 variant: the double-minus fix round-trips through load(), not
+-- just the formatted text shape -- a collapsed `--1` would re-lex as a
+-- comment and evaluate to nil instead of 1
+local function test_bug5_variant_double_unary_minus_round_trips()
+  local result = fmt.format("local z = - -1\nreturn z\n", "test.lua")
+  assert(result.ok, "double unary minus round trip: format failed")
+  local chunk = check.must(load(result.code, "=dblminus"))
+  local value = chunk()
+  assert(value == 1, "double unary minus round trip: expected 1, got " .. tostring(value))
+end
+
 -- Bug 6: multi-line function call args should get continuation indent
 local function test_bug6_multiline_call_continuation_indent()
   assert_format(
