@@ -221,6 +221,12 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
     return true
   end
   if prev.tk == "-" and prev.kind == "op" then
+    if cur.tk == "-" then
+      -- Two adjacent `-` tokens must never touch: concatenating them
+      -- re-lexes as a `--` line comment, silently deleting everything
+      -- after it. This holds whether `prev` is unary or binary.
+      return true
+    end
     if prev_prev == nil then
       return false
     end
