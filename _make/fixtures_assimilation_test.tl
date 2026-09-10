@@ -23,7 +23,7 @@ local function test_hello_is_fat_when_built_under_an_assimilated_copy()
   -- Through /bin/sh, like bin/cosmic: spawning an APE directly bypasses
   -- the shell trampoline that implements --assimilate.
   local h = check.must(child.start({"/bin/sh", "-c",
-    sim_elf .. " --assimilate"}))
+        sim_elf .. " --assimilate"}))
   local r = check.must(h:wait())
   assert((r.code or 128) == 0,
     "assimilate should succeed: " .. (r.stderr or ""))
@@ -41,7 +41,7 @@ local function test_hello_is_fat_when_built_under_an_assimilated_copy()
     "COSMIC_NO_WELCOME=1",
   }
   h = check.must(child.start({sim_elf, "--make", "build"},
-    {cwd = root, env = env}))
+      {cwd = root, env = env}))
   r = check.must(h:wait())
   local out = (r.stdout or "") .. (r.stderr or "")
   assert((r.code or 128) == 0,
