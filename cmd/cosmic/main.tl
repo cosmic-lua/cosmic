@@ -207,6 +207,21 @@ local function main(): integer, string
     end
   end
 
+  -- No script, no -e, no -l, and stdin is not a terminal: a pipe with
+  -- no path is the more obvious-looking guess for "run this as a
+  -- script", but the REPL below reads it one line at a time -- every
+  -- `local` dies at the end of its own line. Route it exactly like an
+  -- explicit `cosmic /dev/stdin` instead, reusing the script-execution
+  -- path below rather than the REPL. `-i` still forces the REPL
+  -- unconditionally: this only fills in the case that flag doesn't
+  -- claim.
+  if not opts.interactive and not opts.script and #opts.execute == 0
+  and #opts.load == 0 and #arg == 0 and not require("cosmic.tty").is_tty(0) then
+    opts.script = "/dev/stdin"
+    opts.script_args[0] = "/dev/stdin"
+    opts.script_args[-1] = arg[-1]
+  end
+
   -- Execute script file
   if opts.script then
     local run = require("_cli.run")
