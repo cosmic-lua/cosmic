@@ -160,6 +160,46 @@ end]])
   check.equal(found[4].name, "pid")
 end
 
+local function test_ignored_record_syntax_preserves_surrounding_fields()
+  local cases: {{string}} = {
+    {[[type Alias = string
+type Result = Result
+type WalkStat = Stat
+type Callback<T> = function(value: T): T
+type Hidden = record hidden: string end]], "before,after"},
+    {[[record Found
+  {string}
+  errors: {string}
+end]], "before,errors,after", "{ string }"},
+    {[[interface Reader
+  read: function(self: Reader, n?: number): string | nil, string
+  enum Hidden "end" end
+end]], "before,after"},
+    {[[f: function(): integer = macroexp(): integer return 1 end
+g: function(): function(): integer = macroexp(): function(): integer
+  return function(): integer
+    if true then return 2 end
+    return 3
+  end
+end]], "before,f,g,after", "function ( ) : integer"},
+  }
+  for _, case in ipairs(cases) do
+    local found = members("local record Outer\nbefore: string\n" .. case[1] ..
+      "\nafter: integer\nend")
+    local names: {string} = {}
+    for _, member in ipairs(found) do
+      check.equal(member.kind, "record")
+      names[#names + 1] = member.name
+    end
+    check.equal(table.concat(names, ","), case[2])
+    check.equal(found[1].canonical_type, "string")
+    check.equal(found[#found].canonical_type, "integer")
+    if case[3] then
+      check.equal(found[2].canonical_type, case[3])
+    end
+  end
+end
+
 local function test_atomic_failures()
   for _, bad in ipairs({
       "local record R x: string end\n@",
@@ -171,7 +211,7 @@ local function test_atomic_failures()
       "local record R x: string | end",
       "local record R x: function(): string, end",
       "local record R x: string y = 1 end",
-      "local record R type Alias = string end",
+      "local record R type Alias = end",
     }) do
     refused(bad)
   end
