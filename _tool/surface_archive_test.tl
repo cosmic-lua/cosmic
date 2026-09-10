@@ -22,7 +22,7 @@ local function make_zip(name: string,
   return path
 end
 
-local function has(text: string, needle: string): boolean
+local function is_in_text(text: string, needle: string): boolean
   return text:find(needle, 1, true) ~= nil
 end
 
@@ -61,9 +61,9 @@ local function test_missing_embedded_sources_names_path_and_selection()
 
   local found, err = archive_surface.surface_of(path)
   check.equal(found, nil)
-  assert(has(err, path), err)
-  assert(has(err, "select sources failed"), err)
-  assert(has(err, ".tl/cosmic/**.tl"), err)
+  assert(is_in_text(err, path), err)
+  assert(is_in_text(err, "select sources failed"), err)
+  assert(is_in_text(err, ".tl/cosmic/**.tl"), err)
 end
 
 local function test_malformed_archive_names_path_and_open()
@@ -73,8 +73,8 @@ local function test_malformed_archive_names_path_and_open()
 
   local found, err = archive_surface.surface_of(path)
   check.equal(found, nil)
-  assert(has(err, path), err)
-  assert(has(err, "open failed"), err)
+  assert(is_in_text(err, path), err)
+  assert(is_in_text(err, "open failed"), err)
 end
 
 local function test_extraction_error_is_propagated()
@@ -85,7 +85,7 @@ local function test_extraction_error_is_propagated()
 
   local found, err = archive_surface.surface_of(path)
   check.equal(found, nil)
-  assert(has(err, path), err)
-  assert(has(err, "extract failed"), err)
-  assert(has(err, "cosmic/broken.tl:"), err)
+  assert(is_in_text(err, path), err)
+  assert(is_in_text(err, "extract failed"), err)
+  assert(is_in_text(err, "cosmic/broken.tl:"), err)
 end
