@@ -39,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      commit: ${{ steps.tag.outputs.commit }}
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
@@ -84,8 +85,11 @@ jobs:
         shell: bash
         run: |
           set -eux
+          commit="$(git rev-parse HEAD)"
+          test "$commit" = "$GITHUB_SHA"
           tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "COSMIC_VERSION=$tag" >> "$GITHUB_ENV"
 
       # Both release binaries come out of one build: the unit declares
@@ -259,8 +263,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [build, peers]
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
     permissions:
       contents: write
+    env:
+      BUILD_COMMIT: ${{ needs.build.outputs.commit }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -269,11 +277,14 @@ jobs:
           path: artifacts/
 
       - name: create release
+        id: publish
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE_FLAG: ${{ (github.event.inputs.prerelease == 'true' || (github.event.inputs.prerelease == '' && env.PRERELEASE == 'true')) && '--prerelease' || '' }}
         run: |
+          set -euo pipefail
           mkdir -p release
           # upload-artifact ships a zip that download-artifact does not
           # extract. Handle both that and the delivered-directly layout,
@@ -302,11 +313,70 @@ jobs:
           chmod +x release/cosmic-lua release/cosmic-lua-debug
           tag="$TAG"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
+          digest="$(sha256sum release/cosmic-lua | awk '{print $1}')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          remote_tag="$(git ls-remote --refs origin "refs/tags/$TAG")"
+          if [ -n "$remote_tag" ]; then
+            git fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+            tag_commit="$(git rev-parse --verify "refs/tags/$TAG^{commit}")"
+            if [ "$tag_commit" != "$BUILD_COMMIT" ]; then
+              echo "existing tag $TAG resolves to $tag_commit, not $BUILD_COMMIT" >&2
+              exit 1
+            fi
+          fi
           notes=$(printf '%s\n%s\n' "$(tail -n1 release/size-compare.txt)" "$(tail -n1 release/peers.md)")
           gh release create "$tag" \
             ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \
+            --target "$BUILD_COMMIT" \
             --title "$tag" \
             --notes "$notes" \
             release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS \
             release/size.json release/size-compare.txt \
             release/peers.json release/peers.md
+
+  verify:
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.build.outputs.tag }}
+      BUILD_COMMIT: ${{ needs.build.outputs.commit }}
+      EXPECTED_DIGEST: ${{ needs.release.outputs.digest }}
+    steps:
+      - name: verify the published release
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_dir="$(mktemp -d "$RUNNER_TEMP/release-verify.XXXXXX")"
+          cd "$verify_dir"
+          git init -q tag
+          git -C tag remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git -C tag fetch --depth=1 origin "refs/tags/$TAG"
+          tag_commit="$(git -C tag rev-parse --verify "FETCH_HEAD^{commit}")"
+          test "$tag_commit" = "$BUILD_COMMIT"
+          curl --fail --location --retry 5 --retry-delay 2 --retry-max-time 180 --max-time 60 \
+            --output cosmic-lua \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/cosmic-lua"
+          curl --fail --location --retry 5 --retry-delay 2 --retry-max-time 180 --max-time 60 \
+            --output SHA256SUMS \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS"
+          primary_rows="$(awk 'NF == 2 && $2 == "cosmic-lua" { print $1 "  " $2 }' SHA256SUMS)"
+          primary_count="$(printf '%s\n' "$primary_rows" | awk 'NF { count = count + 1 } END { print count + 0 }')"
+          test "$primary_count" = 1
+          manifest_digest="$(printf '%s\n' "$primary_rows" | awk '{ print $1 }')"
+          [[ "$manifest_digest" =~ ^[0-9a-f]{64}$ ]]
+          test "$manifest_digest" = "$EXPECTED_DIGEST"
+          printf '%s  cosmic-lua\n' "$manifest_digest" | sha256sum --check --status -
+          version="$(sh ./cosmic-lua --version)"
+          test -n "$version"
+          version_lines="$(printf '%s\n' "$version" | awk 'END { print NR }')"
+          test "$version_lines" = 1
+          read -r program reported_tag _ <<< "$version"
+          test "$program" = cosmic-lua
+          test "$reported_tag" = "$TAG"
+          printf '%s  cosmic-lua\n' "$manifest_digest" | sha256sum --check --status -
+          evidence="release-verify: PASS tag=$TAG commit=$BUILD_COMMIT sha256=$manifest_digest"
+          echo "$evidence"
+          echo "$evidence" >> "$GITHUB_STEP_SUMMARY"
