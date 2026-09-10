@@ -239,6 +239,32 @@ local function test_check_lint_prints_the_offending_line()
     "the offending line prints under the diagnostic: " .. r.err)
 end
 
+-- `--max-lines` reaches `_cli.lint` only through a `_cli.lint_limit.set`
+-- call the dispatcher (cmd/cosmic/main.tl) makes before handing off to
+-- `_cli.check`. The lint unit tests call `lint_limit.set` directly and
+-- the arg-parsing tests read `opts.max_lines` directly; neither drives
+-- the dispatcher line that connects the two, so a dropped `set` call
+-- there leaves both green while the flag silently does nothing. This
+-- runs the flag through the built binary to cover that wiring.
+local function test_check_lint_max_lines_flag_enforced_end_to_end()
+  local twelve = fs.join(tmpdir, "twelve.tl")
+  local lines: {string} = {}
+  for i = 1, 12 do
+    lines[i] = "-- line " .. i
+  end
+  assert(fs.write(twelve, table.concat(lines, "\n") .. "\n"))
+
+  local limited = cli("--check", "lint", "--max-lines", "10", twelve)
+  assert(limited.code ~= 0, "a 12-line file must fail a 10-line cap")
+  assert((limited.out .. limited.err):find("limit: 10", 1, true),
+    "the diagnostic should name the cap, got: " .. limited.out .. limited.err)
+
+  local unlimited = cli("--check", "lint", twelve)
+  assert(unlimited.code == 0,
+    "the same file must pass with no --max-lines, got " ..
+    unlimited.code .. ": " .. unlimited.out .. unlimited.err)
+end
+
 -- `--check types` never executes the file it checks: it reads the source,
 -- augments it, and hands the TEXT to the checker. A `package.loaded["tl"]`
 -- assignment written inside the checked file is therefore inert -- it does
