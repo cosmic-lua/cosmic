@@ -277,6 +277,33 @@ local function test_terminal_errno_and_turnover_classification()
   assert(intercepted and initially_seen.state == "changed",
     "retirement during first directory enumeration is changed")
   assert(lockdir.observe(initial).state == "vacant", "initially absent remains vacant")
+
+  local after_open = fs.join(root, "turnover-after-initial-open")
+  local after_open_a = lockdir.try_acquire(after_open, "A")
+  assert(after_open_a.state == "owned")
+  local original_after_open = fs.open_dir
+  local after_open_token = ""
+  local opened = false
+  fs.open_dir = function(probe: string): fs.Dir | nil, string
+    local dir, err = original_after_open(probe)
+    if probe == after_open and dir and not opened then
+      opened = true
+      assert(lockdir.retire(after_open, after_open_a.token))
+      local b = lockdir.try_acquire(after_open, "B")
+      assert(b.state == "owned")
+      after_open_token = b.token
+    end
+    return dir, err
+  end
+  local after_open_seen = lockdir.observe(after_open)
+  fs.open_dir = original_after_open
+  assert(opened and after_open_seen.state == "changed",
+    "successor visible after an old directory opens is changed")
+  assert(lockdir.observe(after_open).token == after_open_token)
+
+  local stable_empty = fs.join(root, "stable-empty")
+  assert(fs.make_dir(stable_empty))
+  assert(lockdir.observe(stable_empty).state == "vacant", "stable empty directory is vacant")
 end
 
 local function test_cleanup_error_is_not_contention()
@@ -313,7 +340,7 @@ local lockdir = require("_make.lockdir")
 local got = lockdir.try_acquire(arg[1], "dead")
 assert(got.state == "owned")
 ]]))
-  local h <close> = assert(child.start({cosmic, script, dead}, {cwd = root}))
+  local h < close > = assert(child.start({cosmic, script, dead}, {cwd = root}))
   assert(assert(h:wait(5000)).ok)
   -- No PID, age, or process probe is hidden here: an exited claimer's
   -- on-disk generation remains until an authorized retirement.
@@ -347,8 +374,8 @@ if got.state == "owned" then assert(lockdir.retire(path, got.token)) end
 ]]
   local script = fs.join(root, "claimer.lua")
   assert(fs.write(script, program))
-  local a <close> = assert(child.start({cosmic, script, root, path, "a"}, {cwd = root}))
-  local b <close> = assert(child.start({cosmic, script, root, path, "b"}, {cwd = root}))
+  local a < close > = assert(child.start({cosmic, script, root, path, "a"}, {cwd = root}))
+  local b < close > = assert(child.start({cosmic, script, root, path, "b"}, {cwd = root}))
   wait_for(fs.join(root, "ready-a"), "child a ready")
   wait_for(fs.join(root, "ready-b"), "child b ready")
   assert(fs.write(fs.join(root, "go"), "go"))

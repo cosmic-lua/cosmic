@@ -29,7 +29,7 @@ local function claim(state: string, token?: string, message?: string): Claim
 end
 
 local function observation(state: string,
-  token?: string, payload?: string, message?: string): Observation
+    token?: string, payload?: string, message?: string): Observation
   return {state = state, token = token or "", payload = payload or "", message = message or ""}
 end
 
@@ -153,7 +153,19 @@ local function observe(path: string): Observation
     return observation("error", "", "", before.message)
   end
   local token, terr = sole_owner(before.names)
-  if terr == "vacant" then return observation("vacant") end
+  if terr == "vacant" then
+    -- An open handle can name the retired, empty A directory while a B
+    -- successor is already visible at lockpath. Confirm empty at the path.
+    if before.saw_directory then
+      local stable = names(lockpath)
+      if stable.message ~= "" then
+        if absent(stable.message) then return observation("changed") end
+        return observation("error", "", "", stable.message)
+      end
+      if #stable.names > 0 then return observation("changed") end
+    end
+    return observation("vacant")
+  end
   if terr ~= "" then return observation("error", "", "", terr) end
   local owner = fs.join(lockpath, "owner-" .. token)
   local st, serr = fs.stat_link(owner)
