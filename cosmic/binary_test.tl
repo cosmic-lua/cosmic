@@ -69,12 +69,18 @@ local function test_interactive_mode()
   assert(out:find("hello", 1, true), "expected output to contain 'hello'")
 end
 
-local function test_repl_no_args()
-  -- no args should enter REPL
-  local proc = check.must(child.start({cosmic}, {env = clean_env(), stdin = "print('repl test')\nos.exit(0)\n"}))
+local function test_no_args_piped_stdin_runs_as_script()
+  -- no args with piped (non-tty) stdin must run the pipe as ONE script
+  -- -- not drop into the line-by-line REPL, where every `local` dies
+  -- at the end of its own line. (A spawned child's stdin is always a
+  -- pipe, never a tty, so this exercises the same dispatch a real
+  -- `cosmic <<EOF` hits.)
+  local proc = check.must(child.start({cosmic}, {env = clean_env(),
+        stdin = "local x = 21\nlocal y = 21\nprint(x + y)\n"}))
   local __r7 = check.must(proc:wait())
   local ok, out = __r7.ok, __r7.stdout
-  assert(ok, "cosmic with no args should enter REPL")
-  assert(out:find("Lua 5.5", 1, true), "expected output to contain 'Lua 5.5'")
-  assert(out:find("repl test", 1, true), "expected output to contain 'repl test'")
+  assert(ok, "cosmic with no args and piped stdin should run as a script: " .. out)
+  assert(not out:find("Lua 5.5", 1, true),
+    "piped stdin must not show the REPL banner, got: " .. out)
+  assert(out:find("42", 1, true), "expected the script's own output, got: " .. out)
 end
