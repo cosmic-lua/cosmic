@@ -46,15 +46,17 @@ local function checked_path(path: string): string, string
 end
 
 --- List a real directory's immediate names without following the lock path.
-local function names(path: string): {string} | nil, string
+local function names(path: string): {string} | nil, string, boolean
   local st, serr = fs.stat_link(path)
   if not st then
-    if absent(serr) then return {} end
-    return nil, serr
+    if absent(serr) then return {}, "", false end
+    return nil, serr, false
   end
-  if st:is_link() or not st:is_dir() then return nil, "lock path is not a directory" end
+  if st:is_link() or not st:is_dir() then return nil, "lock path is not a directory", false end
   local dir, derr = fs.open_dir(path)
-  if not dir then return nil, derr end
+  -- The caller may have observed a real directory just before another
+  -- generation retired it. Preserve that fact for observe's first read.
+  if not dir then return nil, derr, true end
   local got: {string} = {}
   while true do
     local name = dir:read()
@@ -63,7 +65,7 @@ local function names(path: string): {string} | nil, string
   end
   dir:close()
   table.sort(got)
-  return got
+  return got, "", true
 end
 
 local function same_names(a: {string}, b: {string}): boolean
@@ -135,8 +137,11 @@ end
 local function observe(path: string): Observation
   local lockpath, perr = checked_path(path)
   if lockpath == "" then return observation("error", "", "", perr) end
-  local before, berr = names(lockpath)
-  if not before then return observation("error", "", "", berr) end
+  local before, berr, saw_directory = names(lockpath)
+  if not before then
+    if saw_directory and absent(berr) then return observation("changed") end
+    return observation("error", "", "", berr)
+  end
   local token, terr = sole_owner(before)
   if terr == "vacant" then return observation("vacant") end
   if terr ~= "" then return observation("error", "", "", terr) end

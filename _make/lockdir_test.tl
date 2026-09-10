@@ -259,6 +259,24 @@ local function test_terminal_errno_and_turnover_classification()
   local observed = lockdir.observe(path)
   fs.read, fs.open_dir = original_read, original_open
   assert(observed.state == "changed", "disappearance during turnover recheck is changed")
+
+  local initial = fs.join(root, "turnover-initial-enumeration")
+  local initial_a = lockdir.try_acquire(initial, "A")
+  assert(initial_a.state == "owned")
+  local original_initial_open = fs.open_dir
+  local intercepted = false
+  fs.open_dir = function(probe: string): fs.Dir | nil, string
+    if probe == initial and not intercepted then
+      intercepted = true
+      assert(lockdir.retire(initial, initial_a.token))
+    end
+    return original_initial_open(probe)
+  end
+  local initially_seen = lockdir.observe(initial)
+  fs.open_dir = original_initial_open
+  assert(intercepted and initially_seen.state == "changed",
+    "retirement during first directory enumeration is changed")
+  assert(lockdir.observe(initial).state == "vacant", "initially absent remains vacant")
 end
 
 local function test_cleanup_error_is_not_contention()
