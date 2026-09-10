@@ -1,3 +1,4 @@
+--- reads: cosmic
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local zip = require("cosmic.zip")
@@ -88,4 +89,24 @@ local function test_extraction_error_is_propagated()
   assert(is_in_text(err, path), err)
   assert(is_in_text(err, "extract failed"), err)
   assert(is_in_text(err, "cosmic/broken.tl:"), err)
+end
+
+local function test_repository_sources_extract_with_folded_duplicate_types()
+  local entries: {string: string} = {}
+  local paths, find_err = fs.find("cosmic")
+  assert(paths, find_err)
+  for _, path in ipairs(paths) do
+    if path:sub(-3) == ".tl" then
+      entries[".tl/" .. path] = check.must(fs.read(path))
+    end
+  end
+  local archive = make_zip("surface-repository.zip", entries)
+  local found, err = archive_surface.surface_of(archive)
+  assert(found, err)
+  check.equal(found.entries["cosmic.sqlite.Db.exec"],
+    '@types ["function ( self : Db , sql : string , params ? : any ) : boolean , string",' ..
+    '"function ( self : Db , sql : string , params ? : bind_mod . Params ) : boolean , string"]')
+  check.equal(found.entries["cosmic.quicksand.CapsModule.capabilities"],
+    "function ( ) : types . Capabilities")
+  check.equal(found.entries["cosmic.sandbox.Options.best_effort"], "boolean")
 end

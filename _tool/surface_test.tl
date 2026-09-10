@@ -1,5 +1,6 @@
 local check = require("cosmic.check")
 local surface = require("_tool.surface")
+local surface_diff = require("_tool.surface_diff")
 
 local function extracted(sources: {string: string}): surface.Surface
   return check.must(surface.extract(sources))
@@ -123,14 +124,55 @@ local function test_identical_duplicates_are_deduplicated()
   check.equal(found.entries, {["cosmic.cache.Entry.key"] = "string"})
 end
 
-local function test_conflicting_duplicates_name_sorted_locations()
-  local found, err = surface.extract({
-      ["cosmic/cache/z.tl"] = "local record Entry\n  key: integer\nend",
-      ["cosmic/cache.tl"] = "local record Entry\n  key: string\nend",
+local function duplicate_sources(include_integer: boolean,
+    redundant_string: boolean): {string: string}
+  local sources: {string: string} = {
+    ["cosmic/cache.tl"] =
+    "local record Entry key: string singleton: boolean end",
+  }
+  if include_integer then
+    sources["cosmic/cache/a.tl"] = "local record Entry key: integer end"
+  end
+  if redundant_string then
+    sources["cosmic/cache/z.tl"] = "local record Entry key: string end"
+  end
+  return sources
+end
+
+local function test_distinct_types_are_sorted_and_identical_types_collapse()
+  local found = extracted(duplicate_sources(true, true))
+  check.equal(found.entries, {
+      ["cosmic.cache.Entry.key"] = '@types ["integer","string"]',
+      ["cosmic.cache.Entry.singleton"] = "boolean",
     })
-  check.equal(found, nil)
-  check.equal(err, "conflicting surface entry cosmic.cache.Entry.key: " ..
-    "cosmic/cache.tl:2:3 and cosmic/cache/z.tl:2:3")
+end
+
+local function test_type_sets_ignore_source_and_insertion_order()
+  local first = extracted({
+      ["cosmic/cache.tl"] = "local record Entry key: string end",
+      ["cosmic/cache/a.tl"] = "local record Entry key: integer end",
+    })
+  local reordered = extracted({
+      ["cosmic/cache/z.tl"] = "local record Entry key: string end",
+      ["cosmic/cache.tl"] = "local record Entry key: integer end",
+    })
+  check.equal(first, reordered)
+  check.equal(first.entries["cosmic.cache.Entry.key"],
+    '@types ["integer","string"]')
+end
+
+local function test_distinct_removal_retypes_but_redundant_removal_does_not()
+  local all = extracted(duplicate_sources(true, true))
+  local no_redundant = extracted(duplicate_sources(true, false))
+  check.equal(surface_diff.diff(all, no_redundant), {})
+
+  local singleton = extracted(duplicate_sources(false, true))
+  local deltas = surface_diff.diff(all, singleton)
+  check.equal(#deltas, 1)
+  check.equal(deltas[1].kind, "retyped")
+  check.equal(deltas[1].key, "cosmic.cache.Entry.key")
+  check.equal(deltas[1].old_type, '@types ["integer","string"]')
+  check.equal(deltas[1].new_type, "string")
 end
 
 local function test_scan_errors_include_the_path()
