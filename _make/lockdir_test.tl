@@ -94,7 +94,22 @@ local function test_busy_publish_keeps_everything_else()
   local first = lockdir.try_acquire(path, "first")
   assert(first.state == "owned")
   local before = sibling_names(root)
+  local original_write = fs.write
+  local private_seen = false
+  fs.write = function(candidate_owner: string, data: string, opts?: fs.WriteOptions): boolean, string
+    if candidate_owner:find(".writer.lock.candidate-", 1, true) then
+      private_seen = true
+      assert(fs.is_dir(fs.dirname(candidate_owner)), "candidate directory is private but complete later")
+      assert(not fs.is_present(candidate_owner), "candidate is empty before owner write")
+      local public = lockdir.observe(path)
+      assert(public.state == "present" and public.token == first.token,
+        "the published owner remains the only public generation")
+    end
+    return original_write(candidate_owner, data, opts)
+  end
   local second = lockdir.try_acquire(path, "second")
+  fs.write = original_write
+  assert(private_seen, "second claimant constructs a private empty candidate")
   assert(second.state == "busy" and second.token == "")
   local after = sibling_names(root)
   assert(table.concat(before, "\n") == table.concat(after, "\n"),
@@ -129,6 +144,92 @@ local function test_stale_retirement_and_empty_replacement()
   assert(final.state == "present" and final.token == successor.token and final.payload == "new")
 end
 
+local function test_terminal_errno_and_turnover_classification()
+  local root = scratch("ENOENT-terminal")
+  local token = "550e8400-e29b-41d4-a716-446655440000"
+  local parent_file = fs.join(root, "ENOENT-parent")
+  assert(fs.write(parent_file, "preserved"))
+  local blocked = fs.join(parent_file, "lock")
+  assert(lockdir.observe(blocked).state == "error", "ENOTDIR is not vacancy")
+  assert(not lockdir.retire(blocked, token), "ENOTDIR is not absent retirement")
+
+  local empty = fs.join(root, "empty")
+  assert(fs.make_dir(empty))
+  assert(fs.set_mode(root, fs.octal("500")))
+  local absent_ok = lockdir.retire(empty, token)
+  assert(fs.set_mode(root, fs.octal("700")))
+  assert(absent_ok and fs.is_dir(empty), "absent token must not attempt rmdir")
+
+  local eacces = fs.join(root, "ENOTEMPTY-lock")
+  local owned = lockdir.try_acquire(eacces, "owner")
+  assert(owned.state == "owned")
+  assert(fs.set_mode(root, fs.octal("500")))
+  local retired = lockdir.retire(eacces, owned.token)
+  assert(fs.set_mode(root, fs.octal("700")))
+  assert(not retired, "terminal EACCES is not ENOTEMPTY")
+
+  for _, phase in ipairs({"stat", "read"}) do
+    local path = fs.join(root, "turnover-" .. phase)
+    local a = lockdir.try_acquire(path, "A")
+    assert(a.state == "owned")
+    local owner = fs.join(path, "owner-" .. a.token)
+    local b_token = ""
+    local intercepted = false
+    if phase == "stat" then
+      local original = fs.stat_link
+      fs.stat_link = function(probe: string): fs.Stat | nil, string
+        if probe == owner and not intercepted then
+          intercepted = true
+          assert(lockdir.retire(path, a.token))
+          local b = lockdir.try_acquire(path, "B")
+          assert(b.state == "owned")
+          b_token = b.token
+        end
+        return original(probe)
+      end
+      local observed = lockdir.observe(path)
+      fs.stat_link = original
+      assert(observed.state == "changed", "turnover before owner stat is changed")
+    else
+      local original = fs.read
+      fs.read = function(probe: string): string | nil, string
+        if probe == owner and not intercepted then
+          intercepted = true
+          assert(lockdir.retire(path, a.token))
+          local b = lockdir.try_acquire(path, "B")
+          assert(b.state == "owned")
+          b_token = b.token
+        end
+        return original(probe)
+      end
+      local observed = lockdir.observe(path)
+      fs.read = original
+      assert(observed.state == "changed", "turnover before owner read is changed")
+    end
+    assert(lockdir.observe(path).token == b_token, "successor remains observed generation")
+  end
+end
+
+local function test_cleanup_error_is_not_contention()
+  local root = scratch("ENOENT-cleanup")
+  local path = fs.join(root, "writer.lock")
+  assert(lockdir.try_acquire(path, "A").state == "owned")
+  local original_move = fs.move
+  local candidate = ""
+  fs.move = function(src: string, dst: string): boolean, string
+    local ok, err = original_move(src, dst)
+    assert(not ok, "existing owner makes publication fail")
+    candidate = src
+    assert(fs.set_mode(candidate, fs.octal("500")))
+    return ok, err
+  end
+  local called, got = pcall(lockdir.try_acquire, path, "B")
+  fs.move = original_move
+  assert(called and got.state == "error", "cleanup EACCES is not busy")
+  assert(fs.is_dir(candidate), "reported cleanup error leaves only private candidate")
+  assert(fs.set_mode(candidate, fs.octal("700")))
+end
+
 local function test_independent_claim_and_dead_holder_remain()
   local root = scratch("independent")
   local left, right = fs.join(root, "left.lock"), fs.join(root, "right.lock")
@@ -143,7 +244,7 @@ local lockdir = require("_make.lockdir")
 local got = lockdir.try_acquire(arg[1], "dead")
 assert(got.state == "owned")
 ]]))
-  local h = assert(child.start({cosmic, script, dead}, {cwd = root}))
+  local h <close> = assert(child.start({cosmic, script, dead}, {cwd = root}))
   assert(assert(h:wait(5000)).ok)
   -- No PID, age, or process probe is hidden here: an exited claimer's
   -- on-disk generation remains until an authorized retirement.
@@ -183,8 +284,10 @@ if got.state == "owned" then assert(lockdir.retire(path, got.token)) end
   wait_for(fs.join(root, "result-b"), "child b result")
   local ra = assert(fs.read(fs.join(root, "result-a")))
   local rb = assert(fs.read(fs.join(root, "result-b")))
-  assert((ra:find("owned:", 1, true) ~= nil) ~= (rb:find("owned:", 1, true) ~= nil),
-    "exactly one child owns the claim: " .. ra .. ", " .. rb)
+  local sa = ra:match("^([^:]+):")
+  local sb = rb:match("^([^:]+):")
+  assert((sa == "owned" and sb == "busy") or (sa == "busy" and sb == "owned"),
+    "exactly one child owns and the other is busy: " .. ra .. ", " .. rb)
   assert(fs.write(fs.join(root, "release"), "release"))
   assert(assert(a:wait(5000)).ok, "child a must finish")
   assert(assert(b:wait(5000)).ok, "child b must finish")

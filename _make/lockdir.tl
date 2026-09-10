@@ -25,8 +25,14 @@ local function observation(state: string,
   return {state = state, token = token or "", payload = payload or "", message = message or ""}
 end
 
+--- fs formats failures as `operation: path: ERRNO: detail`. Paths can name
+--- errno strings too, so only the final errno component describes the call.
+local function errno_component(err: string): string
+  return err:match(": (E[%u%d]+): [^:]*$") or ""
+end
+
 local function absent(err: string): boolean
-  return err:find("ENOENT", 1, true) ~= nil
+  return errno_component(err) == "ENOENT"
 end
 
 local function uuid_token(token: string): boolean
@@ -64,6 +70,13 @@ local function same_names(a: {string}, b: {string}): boolean
   if #a ~= #b then return false end
   for i = 1, #a do if a[i] ~= b[i] then return false end end
   return true
+end
+
+--- A failed owner operation can be an ordinary malformed entry or a
+--- generation turnover. Re-read the directory names to tell those apart.
+local function changed_since(path: string, before: {string}): boolean
+  local after = names(path)
+  return after ~= nil and not same_names(before, after)
 end
 
 local function sole_owner(list: {string}): string, string
@@ -128,12 +141,18 @@ local function observe(path: string): Observation
   if terr ~= "" then return observation("error", "", "", terr) end
   local owner = fs.join(lockpath, "owner-" .. token)
   local st, serr = fs.stat_link(owner)
-  if not st or st:is_link() or not st:is_file() then
+  if not st then
+    if changed_since(lockpath, before) then return observation("changed") end
+    return observation("error", "", "", serr)
+  end
+  if st:is_link() or not st:is_file() then
     return observation("error", "", "", serr ~= "" and serr or "owner is not a regular file")
   end
   local payload, rerr = fs.read(owner)
-  if not payload then return observation("error", "", "", rerr) end
-  if #payload > 4096 then return observation("error", "", "", "owner payload exceeds 4096 bytes") end
+  if not payload then
+    if changed_since(lockpath, before) then return observation("changed") end
+    return observation("error", "", "", rerr)
+  end
   local after, aerr = names(lockpath)
   if not after then
     if absent(aerr) then return observation("changed") end
@@ -141,9 +160,14 @@ local function observe(path: string): Observation
   end
   if not same_names(before, after) then return observation("changed") end
   local final, ferr = fs.stat_link(owner)
-  if not final or final:is_link() or not final:is_file() then
-    return observation("changed", "", "", ferr)
+  if not final then
+    if changed_since(lockpath, before) then return observation("changed") end
+    return observation("error", "", "", ferr)
   end
+  if final:is_link() or not final:is_file() then
+    return observation("error", "", "", "owner is not a regular file")
+  end
+  if #payload > 4096 then return observation("error", "", "", "owner payload exceeds 4096 bytes") end
   return observation("present", token, payload)
 end
 
@@ -159,9 +183,12 @@ local function retire(path: string, token: string): boolean, string
   end
   if st:is_link() or not st:is_dir() then return false, "lock path is not a directory" end
   local removed, rerr = fs.remove(fs.join(lockpath, "owner-" .. token))
-  if not removed and not absent(rerr) then return false, rerr end
+  if not removed then
+    if absent(rerr) then return true end
+    return false, rerr
+  end
   local dir_removed, derr = fs.remove_dir(lockpath)
-  if dir_removed or absent(derr) or derr:find("ENOTEMPTY", 1, true) then return true end
+  if dir_removed or absent(derr) or errno_component(derr) == "ENOTEMPTY" then return true end
   return false, derr
 end
 
