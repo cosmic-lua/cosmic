@@ -46,6 +46,9 @@ local record RewriteResult
   --- own byte range.
   code: string
   refused: {Refusal}
+  --- Accepted original hits, in ascending source order. A failed whole-file
+  --- reparse has no result, so it has no tentative edit metadata either.
+  edits: {Hit}
 end
 
 --- Every node in `ast`'s tree that `pattern` matches, sorted by source
@@ -298,6 +301,7 @@ local function rewrite(source: string, name: string, pattern: Node,
   local starts = line_starts(source)
   local out = source
   local refused: {Refusal} = {}
+  local edits: {Hit} = {}
   for i = #hits, 1, -1 do
     local h = hits[i]
     local a, b: integer, integer
@@ -317,13 +321,16 @@ local function rewrite(source: string, name: string, pattern: Node,
         text = substitute(text, cname, source:sub(ca, cb))
       end
       out = out:sub(1, a - 1) .. text .. out:sub(b + 1)
+      -- Splicing walks backwards to preserve byte offsets. Insert at the
+      -- front so public edit metadata retains the original source order.
+      table.insert(edits, 1, h)
     end
   end
   local result = format.format(out, name)
   if not result.ok then
     return nil, format.format_issues(result.errors)
   end
-  return {code = result.code, refused = refused}, nil
+  return {code = result.code, refused = refused, edits = edits}, nil
 end
 
 local record RewriteModule

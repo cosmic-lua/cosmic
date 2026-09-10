@@ -106,6 +106,7 @@ local function parse_args(): Options
     ["find"] = true,
     ["rewrite"] = true,
     ["apply"] = true,
+    ["preview"] = true,
     ["fix"] = true,
     ["format"] = true,
   }
@@ -261,14 +262,37 @@ local function parse_args(): Options
     opts.find_pattern = p.values["find"]
     opts.find_paths = p.args
   end
-  if p.values["rewrite"] then
+  if p.values["rewrite"] or p.switches["preview"] then
     -- Same split as --find: the pattern is the flag's own argument,
     -- the rest is whatever positionals are left in p.args. In apply
     -- mode (--apply set) those positionals are REPL followed by the
     -- target paths -- _cli.rewrite reads rewrite_paths[1] as REPL.
-    opts.rewrite_pattern = p.values["rewrite"]
+    opts.rewrite_pattern = p.values["rewrite"] or ""
     opts.rewrite_paths = p.args
-    opts.rewrite_apply = p.switches["apply"]
+    opts.rewrite_apply = p.switches["apply"] or false
+
+    -- Keep preview state outside Options: `_cli.parse.Options` is in the
+    -- conservative cold-build overlay, so widening it would make a fresh
+    -- make load a record shape its pinned parser cannot construct.
+    -- Requiring only in this path keeps a normal --make boundary unchanged.
+    -- Reset both fields so a previous in-process rewrite conflict cannot leak.
+    local mode = require("_cli.rewrite_mode")
+    mode.preview = p.switches["preview"] or false
+    mode.error = nil
+    if not p.values["rewrite"] then
+      mode.error = "rewrite: refused: --preview requires --rewrite PATTERN REPL PATH..."
+    elseif mode.preview and opts.rewrite_apply then
+      mode.error = "rewrite: refused: --preview and --apply cannot be combined"
+    elseif mode.preview and (p.values["recipe"] or #p.lists["execute"] > 0
+      or p.switches["interactive"] or p.values["compile"]
+      or p.values["compile-strict"] or p.values["format"] or p.values["fix"]
+      or p.values["check"] or p.values["find"] or #p.lists["embed"] > 0
+      or p.values["extract"] or p.values["examples"] or p.values["benchmark"]
+      or p.values["docs"] or p.values["test"] or p.switches["report"]
+      or p.switches["coverage-report"] or p.values["make"]
+      or p.switches["welcome"]) then
+      mode.error = "rewrite: refused: --preview cannot be combined with another command"
+    end
   end
   for _, path in ipairs(p.lists["embed"]) do
     opts.embed[#opts.embed + 1] = path

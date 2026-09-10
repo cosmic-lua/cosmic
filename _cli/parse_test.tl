@@ -76,3 +76,33 @@ local function test_max_lines_flag()
   assert(opts_absent.max_lines == nil,
     "got: " .. tostring(opts_absent.max_lines))
 end
+
+local function test_rewrite_preview_mode_resets_between_in_process_parses()
+  _G.arg = {[0] = "cosmic", [1] = "--rewrite", [2] = "os.execute($X)",
+    [3] = "assert(os.execute($X))", [4] = "--preview", [5] = "a.tl"}
+  local preview_opts = parse.parse_args()
+  local mode = require("_cli.rewrite_mode")
+  assert(preview_opts.rewrite_pattern == "os.execute($X)")
+  assert(mode.preview and mode.error == nil, "preview state was not populated")
+
+  _G.arg = {[0] = "cosmic", [1] = "--rewrite", [2] = "os.execute($X)",
+    [3] = "a.tl"}
+  local search_opts = parse.parse_args()
+  assert(search_opts.rewrite_pattern == "os.execute($X)")
+  assert(not mode.preview and mode.error == nil, "preview state leaked into next parse")
+end
+
+local function test_rewrite_mode_clears_a_conflict_before_a_later_rewrite()
+  _G.arg = {[0] = "cosmic", [1] = "--rewrite", [2] = "os.execute($X)",
+    [3] = "assert(os.execute($X))", [4] = "--preview", [5] = "--apply",
+    [6] = "a.tl"}
+  parse.parse_args()
+  local mode = require("_cli.rewrite_mode")
+  assert(mode.error and mode.error:find("cannot be combined", 1, true))
+
+  _G.arg = {[0] = "cosmic", [1] = "--preview", [2] = "--rewrite",
+    [3] = "os.execute($X)", [4] = "assert(os.execute($X))", [5] = "a.tl"}
+  local opts = parse.parse_args()
+  assert(opts.rewrite_pattern == "os.execute($X)")
+  assert(mode.preview and mode.error == nil, "conflict leaked into later rewrite")
+end

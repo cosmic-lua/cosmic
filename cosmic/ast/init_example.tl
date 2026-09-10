@@ -61,6 +61,10 @@ local function Example_rewrite()
   local pattern = check.must(ast.compile_pattern("os.execute($CMD)"))
   local result = check.must(ast.rewrite(source, "cmd.tl", pattern,
       "assert(os.execute($CMD))"))
+  for _, edit in ipairs(result.edits) do
+    local line, col = ast.span_start(edit.node)
+    print(("rewrite at %d:%d"):format(line, col))
+  end
   print(result.code)
 end
 

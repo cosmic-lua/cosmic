@@ -120,6 +120,16 @@ cosmic enforces formatting via `cosmic --check fmt`:
 
 run `cosmic --format file.tl` to see the formatted output. the check compares original against formatted and reports the first differing line.
 
+`cosmic --rewrite PATTERN REPL --preview PATH...` emits one JSON plan per
+selected file followed by a summary, without opening a write path. A
+`rewrite-error` record means that file could not be planned; its `matches`
+count is still the known count from the original source when substitution or
+formatting fails. The summary uses M/E/R/F/N for original Matches, accepted
+Edits (proposed in preview), Refusals, failed plans, and selected file Number.
+Thus a failed plan contributes to F and N, never E; preview's exit is 2 for F,
+1 for R or zero E, and 0 otherwise. Apply consumes the same plan per file and
+may have written earlier files before a later rewrite-error.
+
 ## Type Checking
 
 cosmic uses Teal's strict mode for type checking:
