@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Retry policy tests: transport errors retry under
 --- the default policy, retryable statuses retry for idempotent methods,
 --- and custom should_retry sees failures too. All against forked

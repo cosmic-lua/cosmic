@@ -453,6 +453,7 @@ part of the contract:
 | `COSMIC_VERSION` | the `--version` stamp, when no `.version` is committed |
 | `COSMIC_INSTRUMENTATION` | `1`/`true` emits timing spans to stderr |
 | `COSMIC_LOG_LEVEL` | `cosmic.log`'s threshold |
+| `COSMIC_TEST_TIMEOUT_MS`, `COSMIC_TEST_PROFILE` | per-file timeout in milliseconds (default: 120000), and capability policy (`local` or `linux-ci`) |
 | `COSMIC_FIXPOINT`, `COSMIC_FAIL_FAST`, `COSMIC_BENCHMARK_MIN_MS` | gate knobs: the two-build fixpoint test, stop a batched compile at its first failure, `--benchmark`'s timing floor |
 | `COSMIC_NO_WELCOME`, `COSMIC_NO_REQUIRE_HINTS`, `COSMIC_FULL_TRACEBACK` | output knobs |
 | `NO_COLOR`, `TERM`, `TMPDIR`, `HOME`, `PATH`, `XDG_*`, `SOURCE_DATE_EPOCH`, `CI` | third-party conventions cosmic honours rather than invents |

@@ -26,7 +26,7 @@ end
 local function test_run_creates_parent_dirs()
   local output_base = fs.join(TEST_TMPDIR, "nested", "dir", "result")
 
-  local exit_code = testrun.run({"/bin/true"}, output_base)
+  local exit_code = testrun.run({"true"}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
 
   -- Check files exist
@@ -258,7 +258,7 @@ local function test_tests_sidecar_stays_names_only_for_legacy()
       "local function test_a()\nend\nlocal function test_b()\nend\n"))
 
   local output_base = src .. ".test"
-  local exit_code = testrun.run({"/bin/true"}, output_base)
+  local exit_code = testrun.run({"true"}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
 
   local tests = fs.read(output_base .. ".tests")

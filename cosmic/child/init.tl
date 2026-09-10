@@ -45,6 +45,9 @@ local record Handle is stream.Reader
   --- Non-blocking reap: TryWait{finished, result} — result set exactly
   --- when finished — or `nil, err` on a wait failure.
   try_wait: function(self: Handle): TryWait | nil, string
+  -- Internal bounded-supervisor escape: disable the finalizer after SIGKILL
+  -- was sent but bounded WNOHANG polling could not reap the child.
+  _abandon_after_kill: function(self: Handle)
   --- Runs the child to completion (feeding stdin, draining stdout+stderr) and
   --- returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
   --- child has not finished in time (the handle stays usable). Idempotent.
@@ -170,6 +173,11 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     -- Reaped: the child is gone, so draining hits EOF promptly.
     childio.pump(self._st, nil)
     return {finished = true, result = finish(self, result.wstatus)}
+  end
+
+  function handle:_abandon_after_kill()
+    self._closed = true
+    close_fds(self)
   end
 
   function handle:read(size?: integer): string | nil, string
@@ -305,7 +313,7 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
   -- caller-provided fds (the child inherits them as-is), wrong for our
   -- CLOEXEC pipe ends, which land on 0-2 only when that std fd was closed;
   -- fall back to fork for those cases.
-  if not exec_fd and not opts.cwd then
+  if not exec_fd and not opts.cwd and not opts.process_group then
     local pipe_on_std = (not stdin_is_fd and stdin_r == 0)
     or (not stdout_is_fd and stdout_w == 1)
     or (not stderr_is_fd and stderr_w == 2)
@@ -333,6 +341,16 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
   local pid, ferr = unix.fork()
   if pid == 0 then
     unix.close(exec_r)
+    -- A group requested by a supervisor must exist before exec. Doing this
+    -- from the parent after start returns races the already-execed child and
+    -- is rejected with EACCES on POSIX hosts.
+    if opts.process_group then
+      local ok, perr = unix.setpgid(0, 0)
+      if not ok then
+        local _ = unix.write(exec_w, tostring(perr or "setpgid failed"))
+        os.exit(127) -- exits: forked child after a pre-exec setup failure
+      end
+    end
     -- Resolve sources before dup2 below can clobber one (childio.pin_source).
     local src0 = childio.pin_source(stdin_is_fd, stdin_fd, stdin_r, 0)
     local src1 = childio.pin_source(stdout_is_fd, stdout_fd, stdout_w, 1)

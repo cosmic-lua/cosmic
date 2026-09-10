@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Verb helpers, request-body building, and download, tested against
 --- forked loopback echo servers (same pattern as init_test.tl): the
 --- server answers with the raw request, so method lines, headers, and

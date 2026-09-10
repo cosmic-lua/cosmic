@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Core fetch tests against forked loopback servers: no external hosts,
 --- no skip scaffolding. allow_private opts out of the SSRF guard so the
 --- success path is exercised hermetically.

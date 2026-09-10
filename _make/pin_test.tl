@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 -- Tests for pins and the `fetch` verb.
 --
 -- The extractor gets adversarial cases rather than happy ones: a pin is

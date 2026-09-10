@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Stream-contract conformance suite: every byte
 --- producer honors the one EOF convention — read returns a chunk, bare
 --- nil (no error) at end of stream, and keeps returning bare nil after

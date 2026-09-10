@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Header normalization tests: repeated response
 --- headers must surface as a joined string in result.headers and as an
 --- ordered list in result.raw_headers, with lowercase names in both.
