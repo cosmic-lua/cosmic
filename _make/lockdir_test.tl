@@ -142,6 +142,29 @@ local function test_stale_retirement_and_empty_replacement()
   assert(not fs.remove_dir(path), "a late empty-directory reaper cannot remove successor")
   local final = lockdir.observe(path)
   assert(final.state == "present" and final.token == successor.token and final.payload == "new")
+  assert(lockdir.retire(path, successor.token))
+
+  -- Retire itself must leave a successor that publishes just after its
+  -- owner unlink. Recursive retirement would delete this generation.
+  local interleaved = lockdir.try_acquire(path, "interleaved A")
+  assert(interleaved.state == "owned")
+  local owner = fs.join(path, "owner-" .. interleaved.token)
+  local original_remove = fs.remove
+  local successor_token = ""
+  fs.remove = function(probe: string): boolean, string
+    local ok, err = original_remove(probe)
+    if probe == owner and ok then
+      local raced = lockdir.try_acquire(path, "interleaved B")
+      assert(raced.state == "owned")
+      successor_token = raced.token
+    end
+    return ok, err
+  end
+  assert(lockdir.retire(path, interleaved.token))
+  fs.remove = original_remove
+  local survived = lockdir.observe(path)
+  assert(survived.state == "present" and survived.token == successor_token
+    and survived.payload == "interleaved B", "retire must not recursively remove successor")
 end
 
 local function test_terminal_errno_and_turnover_classification()
@@ -208,6 +231,34 @@ local function test_terminal_errno_and_turnover_classification()
     end
     assert(lockdir.observe(path).token == b_token, "successor remains observed generation")
   end
+
+  local path = fs.join(root, "turnover-recheck-disappears")
+  local a = lockdir.try_acquire(path, "A")
+  assert(a.state == "owned")
+  local owner = fs.join(path, "owner-" .. a.token)
+  local original_read, original_open = fs.read, fs.open_dir
+  local b_token = ""
+  local turnover = false
+  fs.read = function(probe: string): string | nil, string
+    if probe == owner then
+      assert(lockdir.retire(path, a.token))
+      local b = lockdir.try_acquire(path, "B")
+      assert(b.state == "owned")
+      b_token = b.token
+      turnover = true
+    end
+    return original_read(probe)
+  end
+  fs.open_dir = function(probe: string): fs.Dir | nil, string
+    if probe == path and turnover then
+      turnover = false
+      assert(lockdir.retire(path, b_token))
+    end
+    return original_open(probe)
+  end
+  local observed = lockdir.observe(path)
+  fs.read, fs.open_dir = original_read, original_open
+  assert(observed.state == "changed", "disappearance during turnover recheck is changed")
 end
 
 local function test_cleanup_error_is_not_contention()
@@ -269,7 +320,10 @@ end
 assert(fs.write(fs.join(root, "ready-" .. name), "ready"))
 await(fs.join(root, "go"))
 local got = lockdir.try_acquire(path, name)
-assert(fs.write(fs.join(root, "result-" .. name), got.state .. ":" .. got.token))
+local result = fs.join(root, "result-" .. name)
+local complete = fs.join(root, ".result-" .. name .. ".complete")
+assert(fs.write(complete, got.state .. ":" .. got.token))
+assert(fs.move(complete, result))
 await(fs.join(root, "release"))
 if got.state == "owned" then assert(lockdir.retire(path, got.token)) end
 ]]

@@ -75,8 +75,9 @@ end
 --- A failed owner operation can be an ordinary malformed entry or a
 --- generation turnover. Re-read the directory names to tell those apart.
 local function changed_since(path: string, before: {string}): boolean
-  local after = names(path)
-  return after ~= nil and not same_names(before, after)
+  local after, err = names(path)
+  if not after then return absent(err) end
+  return not same_names(before, after)
 end
 
 local function sole_owner(list: {string}): string, string
