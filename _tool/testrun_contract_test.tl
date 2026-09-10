@@ -25,19 +25,34 @@ local function capability_source(name: string): string
   return path
 end
 
--- The deadline owns the direct child and its process group. A TERM-ignoring
--- shell and its TERM-ignoring descendant must both be gone when run returns.
+-- The deadline owns the direct child and its process group. The leader must be
+-- reaped, and a TERM-ignoring descendant must be unable to run after return.
 local function test_timeout_escalates_and_reaps()
   local script = fs.join(tmpdir, "hang.lua")
+  local descendant_script = fs.join(tmpdir, "hang_descendant.lua")
+  local ready = fs.join(tmpdir, "hang_descendant.ready")
+  local release = fs.join(tmpdir, "hang_descendant.release")
+  local side_effect = fs.join(tmpdir, "hang_descendant.survived")
+  assert(fs.write(descendant_script, [[
+local fs = require("cosmic.fs")
+local signal = require("cosmic.signal")
+local time = require("cosmic.time")
+assert(signal.sigaction(signal.SIGTERM, signal.SIG_IGN))
+assert(fs.write(arg[1], "ready"))
+while not fs.is_file(arg[2]) do time.sleep_ms(10) end
+assert(fs.write(arg[3], "survived"))
+]]))
   assert(fs.write(script, [[
 local child = require("cosmic.child")
+local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
 local time = require("cosmic.time")
 assert(signal.sigaction(signal.SIGTERM, signal.SIG_IGN))
-local sleeper = assert(child.start({"sleep", "60"}, {
+local sleeper = assert(child.start({arg[1], arg[2], arg[3], arg[4], arg[5]}, {
   stdout = "inherit", stderr = "inherit",
 }))
+while not fs.is_file(arg[3]) do time.sleep_ms(10) end
 print("parent " .. proc.getpid() .. " descendant " .. sleeper.pid)
 io.flush()
 while true do time.sleep_ms(1000) end
@@ -45,7 +60,8 @@ while true do time.sleep_ms(1000) end
   local base = fs.join(tmpdir, "timeout_cleanup")
   assert(fs.make_dirs(base))
   local started = time.monotonic_ms()
-  local result = testprocess.run({cosmic, script}, {
+  local result = testprocess.run({cosmic, script, cosmic, descendant_script,
+      ready, release, side_effect}, {
       env = env.list(), temp_dir = base, timeout_ms = 1000,
     })
   local elapsed = time.monotonic_ms() - started
@@ -54,13 +70,18 @@ while true do time.sleep_ms(1000) end
   assert(result.cleanup_error == "",
     "timeout cleanup reported an error: " .. result.cleanup_error)
   local parent = result.stdout:match("parent (%d+)")
-  local descendant = result.stdout:match("descendant (%d+)")
   parent = check.must(parent, "missing parent in: " .. result.stdout)
-  descendant = check.must(descendant, "missing descendant in: " .. result.stdout)
   local ppid = check.must(math.tointeger(check.must(tonumber(parent))))
-  local dpid = check.must(math.tointeger(check.must(tonumber(descendant))))
   assert(proc.getpgid(ppid) == nil, "timed-out parent survived")
-  assert(proc.getpgid(dpid) == nil, "timed-out descendant survived")
+  assert(fs.is_file(ready), "descendant did not arm its post-timeout action")
+  assert(fs.write(release, "go"))
+  local observation_deadline = time.monotonic_ms() + 1000
+  while time.monotonic_ms() < observation_deadline
+  and not fs.is_present(side_effect) do
+    local _remaining, _sleep_err = time.sleep_ms(10)
+  end
+  assert(not fs.is_present(side_effect),
+    "timed-out descendant executed after the supervisor returned")
 end
 
 -- A descendant may inherit stdout/stderr after the test file itself exits.
