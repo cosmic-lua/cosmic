@@ -366,6 +366,20 @@ exit status through a pipe (`--make ci | tail` returns tail's status) —
 use `set -o pipefail`, or read the verdict line, which survives any
 truncation.
 
+Each spawned test file has a 120-second deadline. A repository may set
+`COSMIC_TEST_TIMEOUT_MS` to another positive millisecond limit. Tests whose
+whole-file contract needs a host facility declare it in the source header,
+for example `--- requires: loopback-listen`; the runner probes that declared
+capability before spawning and reports `UNAVAILABLE` locally. The supported
+Linux lane sets `COSMIC_TEST_PROFILE=linux-ci`, where registered requirements
+(`loopback-listen`, `ape-assimilation`, and `nanosecond-timestamps`) are
+mandatory and absence fails the gate.
+
+A green focused test and local `--make ci` are authoritative product evidence
+for portable behavior. An `UNAVAILABLE` row is authoritative only about the
+local host; completion of a change that exercises a declared capability
+requires the GitHub `pr / ci` Linux lane, whose profile may not skip it.
+
 ```bash
 o/bin/cosmic --make test                # all tests
 o/bin/cosmic --make coverage            # tests + line coverage; report and pass

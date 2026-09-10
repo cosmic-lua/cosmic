@@ -139,4 +139,37 @@ local function test_record_skips_only_a_pass()
     "and it really re-ran rather than standing on the old result")
 end
 
+-- A pass recorded under one runner policy cannot stand in under another:
+-- timeout and strictness affect whether the child is allowed to pass.
+local function test_runner_policy_switches_invalidate_pass()
+  local target = fs.join(tmpdir, "skip-policy.lua")
+  local out = fs.join(tmpdir, "skip-policy-result.test")
+  assert(fs.write(target, "print('ok')\n"))
+  local args = {out, cosmic, target, "--deps"}
+  assert(work.record(args) == 0)
+  local first = check.must(fs.read(out .. ".in"))
+
+  local old_profile = cenv.get("COSMIC_TEST_PROFILE")
+  assert(cenv.set("COSMIC_TEST_PROFILE", "linux-ci"))
+  assert(work.record(args) == 0)
+  local strict = check.must(fs.read(out .. ".in"))
+  assert(strict ~= first, "capability profile must be part of the record key")
+  if old_profile then
+    assert(cenv.set("COSMIC_TEST_PROFILE", old_profile))
+  else
+    assert(cenv.unset("COSMIC_TEST_PROFILE"))
+  end
+
+  local old_timeout = cenv.get("COSMIC_TEST_TIMEOUT_MS")
+  assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", "99999"))
+  assert(work.record(args) == 0)
+  assert(check.must(fs.read(out .. ".in")) ~= strict,
+    "test timeout must be part of the record key")
+  if old_timeout then
+    assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", old_timeout))
+  else
+    assert(cenv.unset("COSMIC_TEST_TIMEOUT_MS"))
+  end
+end
+
 print("all skip tests passed")

@@ -43,6 +43,7 @@ local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local imports = require("_make.imports")
 local project = require("_make.project")
+local testplan = require("_tool.testplan")
 local types = require("_make.types")
 
 local type Project = types.Project
@@ -244,7 +245,18 @@ local function write_all(proj: Project, cosmic: string): boolean, string
   end
   table.sort(pins)
   for _, tool in ipairs(TOOLS) do
-    local ok, err = write_if_changed(path_of(tool), identity(tool, pins, cosmic))
+    local content = identity(tool, pins, cosmic)
+    if tool == "record" then
+      -- Policy and actual probe answers affect whether a test may run or be
+      -- unavailable. Fold them into make's prerequisite as well as D18's
+      -- content key, so a warm PASS cannot hide a changed host.
+      local probe_dir = fs.join(project.BUILD_DIR, ".stamp")
+      local mok, merr = fs.make_dirs(probe_dir)
+      if not mok then return false, merr end
+      content = content .. "policy " ..
+      hash.sha256_hex(testplan.policy_evidence(probe_dir)) .. "\n"
+    end
+    local ok, err = write_if_changed(path_of(tool), content)
     if not ok then
       return false, err
     end

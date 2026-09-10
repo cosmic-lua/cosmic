@@ -202,6 +202,7 @@ jobs:
         timeout-minutes: 8
         shell: bash
         env:
+          COSMIC_TEST_PROFILE: linux-ci
           NETNS: |
             assert(require("cosmic.quicksand.netns").bring_up("lo"))
         run: |
@@ -217,6 +218,7 @@ jobs:
           unshare --net -- bash -euxo pipefail -c '
             o/bootstrap/cosmic -e "$NETNS"
             runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+              COSMIC_TEST_PROFILE="$COSMIC_TEST_PROFILE" \
               bin/cosmic --make ci --min 76 --min-file 0 2>&1 | tee o/gate.log'
 
       - name: dump failing test output
@@ -340,7 +342,8 @@ jobs:
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             o/bin/cosmic -e 'local s = require("cosmic.sandbox")
-              assert(s.availability().fs, "this host cannot enforce; the fenced builds above proved nothing")'
+              assert(s.availability().fs.available,
+                "this host cannot enforce; the fenced builds above proved nothing")'
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:

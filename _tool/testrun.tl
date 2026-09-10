@@ -1,12 +1,13 @@
 --- Test runner for cosmic executables.
 --- Provides functions to run test executables and report on results.
-local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local instrument = require("cosmic.instrument")
 local records = require("_tool.records")
 local str = require("cosmic.string")
-local time = require("cosmic.time")
+local testplan = require("_tool.testplan")
+local testprocess = require("_tool.testprocess")
+local tresult = require("_tool.testrun_result")
 
 --- The output grammar lives in `_tool.records`, which is where every
 --- printer and every asserting test reads it from.
@@ -18,9 +19,11 @@ local time = require("cosmic.time")
 --- on a runner failure.
 --- @param argv {string} Command and arguments
 --- @param output_base string Base path for output files
+--- @param opts testplan.Options? Timeout/profile overrides for hermetic tests
 --- @return integer Exit code (for CLI return)
 --- @return string? What went wrong in the RUNNER itself (not the test), nil when it ran
-local function run(argv: {string}, output_base: string): integer, string
+local function run(argv: {string}, output_base: string,
+    opts?: testplan.Options): integer, string
   -- determine file for instrumentation from argv
   local inst_file = argv[#argv] or output_base
   local span = instrument.begin("test", inst_file)
@@ -77,7 +80,14 @@ local function run(argv: {string}, output_base: string): integer, string
     child_env[#child_env + 1] = "COSMIC_COVERAGE=" .. covdir
   end
 
-  -- Run the process to completion, capturing both streams without deadlock.
+  local plan = testplan.resolve(output_base, tmpdir, opts)
+  local display_name = records.display(output_base)
+  io.write("test: START " .. display_name .. " timeout=" ..
+    tostring(plan.timeout_ms) .. "ms\n")
+
+  -- Run the process under the file-backed supervisor. Capability absence is
+  -- decided before spawn from the source's declaration and probe; child
+  -- output never participates in that classification.
   --
   -- Timed HERE, around the child, and written to `<out>.time` below.
   -- The span opened at the top of this function is a different thing:
@@ -91,25 +101,47 @@ local function run(argv: {string}, output_base: string): integer, string
   -- A duration is a fact about the run, so it is recorded like every
   -- other one (`.got`, `.out`, `.err`, `.tests`) instead of scraped
   -- back out of prose.
-  local started_ms = time.monotonic_ms()
-  local r, rerr = child.run(argv, {env = child_env})
-  local wall_ms = time.monotonic_ms() - started_ms
   local stdout_content = ""
   local stderr_content = ""
   local exit_code: integer = 1
-  if r == nil then
-    -- The executable could not be started (e.g. a missing binary): report the
-    -- conventional 127 "command not found" code and surface the error.
-    exit_code = 127
-    stderr_content = tostring(rerr or "start failed")
+  local wall_ms = 0
+  local structured: tresult.Result
+  if plan.error ~= "" then
+    stderr_content = plan.error
+    structured = {status = "fail", fatal = true, detail = plan.error,
+      timeout_ms = plan.timeout_ms, cleanup_error = ""}
+  elseif plan.unavailable ~= "" then
+    exit_code = plan.fatal and 1 or records.EXIT_SKIP
+    structured = {status = "unavailable", fatal = plan.fatal,
+      detail = plan.unavailable .. ": " .. plan.detail,
+      timeout_ms = plan.timeout_ms, cleanup_error = ""}
   else
-    stdout_content = r.stdout or ""
-    stderr_content = r.stderr or ""
-    if r.code ~= nil then
-      exit_code = r.code
-    elseif r.signal ~= nil then
-      -- Signal death is reported as the conventional 128+signal exit code.
-      exit_code = (128 + r.signal)
+    local outcome = testprocess.run(argv, {
+        env = child_env, temp_dir = tmpdir, timeout_ms = plan.timeout_ms,
+      })
+    stdout_content = outcome.stdout
+    stderr_content = outcome.stderr
+    wall_ms = outcome.elapsed_ms
+    exit_code = outcome.exit_code
+    if outcome.start_error ~= "" then
+      stderr_content = outcome.start_error
+      structured = {status = "fail", fatal = true, detail = outcome.start_error,
+        timeout_ms = plan.timeout_ms, cleanup_error = outcome.cleanup_error}
+    elseif outcome.timed_out then
+      exit_code = 124
+      structured = {status = "timeout", fatal = true,
+        detail = "timed out after " .. tostring(plan.timeout_ms) .. "ms",
+        timeout_ms = plan.timeout_ms, cleanup_error = outcome.cleanup_error}
+    else
+      local status: tresult.Status = "fail"
+      if exit_code == 0 then
+        status = "pass"
+      elseif exit_code == records.EXIT_SKIP then
+        status = "skip"
+      end
+      structured = {status = status,
+        fatal = status == "fail", detail = "", timeout_ms = plan.timeout_ms,
+        cleanup_error = outcome.cleanup_error}
     end
   end
 
@@ -135,6 +167,12 @@ local function run(argv: {string}, output_base: string): integer, string
   if not ok then
     instrument.finish(span, 1)
     return 1, err or "failed to write .err"
+  end
+
+  ok, err = fs.write(output_base .. ".result", tresult.encode(structured))
+  if not ok then
+    instrument.finish(span, 1)
+    return 1, err or "failed to write .result"
   end
 
   -- Best-effort, like `.tests` below: a lost duration costs a column in
@@ -194,6 +232,8 @@ local function run(argv: {string}, output_base: string): integer, string
   end
 
   instrument.finish(span, exit_code)
+  io.write("test: " .. structured.status:upper() .. " " .. display_name ..
+    " " .. tostring(wall_ms) .. "ms\n")
   return exit_code
 end
 
@@ -204,6 +244,9 @@ local record TestResult
   stdout: string
   stderr: string
   status: records.Status
+  fatal: boolean
+  detail: string
+  cleanup_error: string
   test_count: integer -- test_* functions in the file (0 when unknown)
   wall_ms: integer -- how long the test took, -1 when not recorded
   -- The tests the sidecar recorded as failing, in source order; empty
@@ -253,6 +296,9 @@ local function report(paths: {string}): integer
           stdout = "",
           stderr = "cannot read .got file",
           status = "fail",
+          fatal = true,
+          detail = "",
+          cleanup_error = "",
           test_count = 0,
           wall_ms = -1,
           failing_tests = {},
@@ -293,9 +339,24 @@ local function report(paths: {string}): integer
       end
 
       local status = records.status_of(exit_code)
+      local fatal = status == "fail"
+      local detail = ""
+      local cleanup_error = ""
+      local result_content = fs.read(base .. ".result")
+      if result_content then
+        local decoded, derr = tresult.decode(result_content)
+        if not decoded then
+          status, fatal = "fail", true
+          stderr_content = "malformed .result: " .. derr .. "\n" .. stderr_content
+        else
+          status = decoded.status as records.Status -- cast: shared status vocabulary
+          fatal, detail = decoded.fatal, decoded.detail
+          cleanup_error = decoded.cleanup_error
+        end
+      end
       if status == "pass" then
         passed = passed + 1
-      elseif status == "skip" then
+      elseif status == "skip" or (status == "unavailable" and not fatal) then
         skipped = skipped + 1
       else
         failed = failed + 1
@@ -307,6 +368,9 @@ local function report(paths: {string}): integer
           stdout = stdout_content,
           stderr = stderr_content,
           status = status,
+          fatal = fatal,
+          detail = detail,
+          cleanup_error = cleanup_error,
           test_count = test_count,
           wall_ms = wall_ms,
           failing_tests = failing_tests,
@@ -347,27 +411,42 @@ local function report(paths: {string}): integer
   end
   io.write("\n")
 
+  for _, result in ipairs(results) do
+    if result.status == "unavailable" then
+      io.write("unavailable: " .. result.name .. ": " .. result.detail ..
+        (result.fatal and " (required by linux-ci)" or "") .. "\n")
+    end
+  end
+
   -- Print failure details
   if failed > 0 then
     io.write("\nFailures:\n")
     for _, result in ipairs(results) do
-      if result.status == "fail" then
+      if result.fatal then
         io.write("\n" .. result.name .. " (exit " .. result.exit_code .. "):\n")
+        if result.detail ~= "" then io.write("  " .. result.detail .. "\n") end
+        if result.cleanup_error ~= "" then
+          io.write("  cleanup: " .. result.cleanup_error .. "\n")
+        end
         if #result.failing_tests > 0 then
           io.write("  failing tests:\n")
           for _, tname in ipairs(result.failing_tests) do
             io.write("    " .. tname .. "\n")
           end
         end
-        if result.stderr ~= "" then
+        local shown_stdout = result.status == "timeout"
+        and testprocess.tail(result.stdout) or result.stdout
+        local shown_stderr = result.status == "timeout"
+        and testprocess.tail(result.stderr) or result.stderr
+        if shown_stderr ~= "" then
           io.write("  stderr:\n")
-          for line in result.stderr:gmatch("[^\n]+") do
+          for line in shown_stderr:gmatch("[^\n]+") do
             io.write("    " .. line .. "\n")
           end
         end
-        if result.stdout ~= "" then
+        if shown_stdout ~= "" then
           io.write("  stdout:\n")
-          for line in result.stdout:gmatch("[^\n]+") do
+          for line in shown_stdout:gmatch("[^\n]+") do
             io.write("    " .. line .. "\n")
           end
         end
@@ -379,7 +458,8 @@ local function report(paths: {string}): integer
 end
 
 local record TestrunModule
-  run: function(argv: {string}, output_base: string): integer, string
+  run: function(argv: {string}, output_base: string,
+  opts?: testplan.Options): integer, string
   report: function(paths: {string}): integer
 end
 

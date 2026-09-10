@@ -197,7 +197,8 @@ end
 
 --- Names already folded into every step's content key
 --- (`_cli/build/work.tl`'s `ENV_SWITCHES`, D18): `CI`, `COSMIC_COVERAGE`,
---- `COSMIC_FENCE`, `COSMIC_FIXPOINT`, `COSMIC_BENCHMARK_MIN_MS`.
+--- `COSMIC_FENCE`, `COSMIC_FIXPOINT`, `COSMIC_BENCHMARK_MIN_MS`,
+--- `COSMIC_TEST_PROFILE`, `COSMIC_TEST_TIMEOUT_MS`.
 --- Mirrored here rather than imported — this module has no dependency
 --- on `_cli/build`, and the set is small and load-bearing enough that a
 --- drift would show up as a refusal, not a silent gap. An `--- env:`
@@ -213,6 +214,8 @@ local ENV_SWITCHES < const >: {string: boolean} = {
   COSMIC_FENCE = true,
   COSMIC_FIXPOINT = true,
   COSMIC_BENCHMARK_MIN_MS = true,
+  COSMIC_TEST_PROFILE = true,
+  COSMIC_TEST_TIMEOUT_MS = true,
 }
 
 --- Environment variable names a test declares it READS, from

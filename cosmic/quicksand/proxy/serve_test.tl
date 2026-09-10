@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- End-to-end tests for the proxy's request-body limits: a
 --- Content-Length over max_body_bytes is refused with 413 and a
 --- malformed one with 400, in both cases before a single body byte is

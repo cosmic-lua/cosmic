@@ -37,6 +37,8 @@ local enum Status
   "pass"
   "fail"
   "skip"
+  "unavailable"
+  "timeout"
   "ignore"
 end
 
@@ -45,6 +47,8 @@ local ICONS < const >: {Status: string} = {
   pass = "✓",
   fail = "✗",
   skip = "→",
+  unavailable = "◇",
+  timeout = "⌛",
   ignore = "○",
 }
 

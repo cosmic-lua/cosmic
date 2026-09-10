@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: nanosecond-timestamps
 --- Tests for fs.set_times and fs.set_times_fd.
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")

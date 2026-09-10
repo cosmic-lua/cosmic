@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 local check = require("cosmic.check")
 local net = require("cosmic.net")
 local stream = require("cosmic.stream")

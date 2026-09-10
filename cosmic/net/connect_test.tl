@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Network connect and interface tests.
 local net = require("cosmic.net")
 local fs = require("cosmic.fs")

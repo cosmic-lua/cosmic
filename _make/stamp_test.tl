@@ -10,6 +10,7 @@
 -- stamp.
 
 local check = require("cosmic.check")
+local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local graph = require("_make.graph")
 local project = require("_make.project")
@@ -90,6 +91,28 @@ local function test_unmoved_stamps_keep_their_mtime()
       assert(sec == 0, "an unmoved stamp must not be rewritten")
       return true
     end)
+end
+
+-- Runner policy is execution identity, not just an in-process cache key. Its
+-- stamp must move so make schedules every warm test verdict for reconsideration.
+local function test_runner_policy_moves_record_stamp()
+  local before = in_dir(app.root, function(): string
+      assert(check.must(graph.materialize(app, "/bin/cosmic")))
+      return check.must(fs.read(stamp.path_of("record")))
+    end)
+  local old = cenv.get("COSMIC_TEST_TIMEOUT_MS")
+  local changed = old == "4321" and "4322" or "4321"
+  assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", changed))
+  local after = in_dir(app.root, function(): string
+      assert(check.must(graph.materialize(app, "/bin/cosmic")))
+      return check.must(fs.read(stamp.path_of("record")))
+    end)
+  if old then
+    assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", old))
+  else
+    assert(cenv.unset("COSMIC_TEST_TIMEOUT_MS"))
+  end
+  assert(before ~= after, "policy change did not move the record stamp")
 end
 
 -- Identity is a pure function of its inputs: same tool, same pins,

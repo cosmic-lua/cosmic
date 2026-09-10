@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 --- Integration test for cosmic.quicksand.Box:run.
 ---
 --- box:run unshares CLONE_NEWUSER, which is irreversible for the

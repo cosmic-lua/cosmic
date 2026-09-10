@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+--- requires: loopback-listen
 local landlock = require("cosmic.sandbox.landlock")
 local plan = require("cosmic.sandbox.plan")
 local sandbox = require("cosmic.sandbox")
