@@ -8,7 +8,6 @@
 local child = require("cosmic.child")
 local fd = require("cosmic.fd")
 local fs = require("cosmic.fs")
-local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
 local time = require("cosmic.time")
 
@@ -62,19 +61,14 @@ local function poll(handle: child.Handle, deadline_ms: integer): child.Result | 
   end
 end
 
-local function send(handle: child.Handle, grouped: boolean, sig: integer): string
-  if grouped then
-    local ok, err = signal.killpg(handle.pid, sig)
-    if ok then return "" end
-    -- A group may have disappeared between the reap poll and signal. The
-    -- direct stop is still the safe fallback and gives a more useful error.
-    local stopped, serr = handle:stop(sig)
-    if stopped then return "" end
-    return tostring(err or serr or "signal failed")
-  end
-  local ok, err = handle:stop(sig)
+local function send(handle: child.Handle, sig: integer): string
+  local ok, err = signal.killpg(handle.pid, sig)
   if ok then return "" end
-  return tostring(err or "signal failed")
+  -- A group may have disappeared between the reap poll and signal. The
+  -- direct stop is still the safe fallback and gives a more useful error.
+  local stopped, serr = handle:stop(sig)
+  if stopped then return "" end
+  return tostring(err or serr or "signal failed")
 end
 
 local function exit_code(result: child.Result): integer
@@ -109,6 +103,7 @@ local function run(argv: {string}, opts: Options): Result
   local started_ms = time.monotonic_ms()
   local handle, start_err = child.start(argv, {
       env = opts.env, stdin = stdin_h, stdout = stdout_h, stderr = stderr_h,
+      process_group = true,
     })
   local close_errors: {string} = {}
   for _, h in ipairs({stdin_h, stdout_h, stderr_h}) do
@@ -127,20 +122,22 @@ local function run(argv: {string}, opts: Options): Result
     }
   end
 
-  local grouped = proc.setpgid(handle.pid, handle.pid)
   local deadline_ms = started_ms + opts.timeout_ms
   local finished, wait_err = poll(handle, deadline_ms)
   local timed_out = wait_err == "timeout"
   local cleanup_errors = close_errors
 
-  if timed_out then
-    local terr = send(handle, grouped, signal.SIGTERM)
+  if not finished then
+    if not timed_out then
+      cleanup_errors[#cleanup_errors + 1] = tostring(wait_err or "wait failed")
+    end
+    local terr = send(handle, signal.SIGTERM)
     if terr ~= "" then cleanup_errors[#cleanup_errors + 1] = "SIGTERM: " .. terr end
     local term_deadline = time.monotonic_ms() + TERM_GRACE_MS
     finished, wait_err = poll(handle, term_deadline)
     -- Kill the group even when the direct child accepted SIGTERM: descendants
     -- can ignore it and otherwise survive their timed-out test file.
-    local kerr = send(handle, grouped, signal.SIGKILL)
+    local kerr = send(handle, signal.SIGKILL)
     if kerr ~= "" and not finished then
       cleanup_errors[#cleanup_errors + 1] = "SIGKILL: " .. kerr
     end
@@ -148,11 +145,11 @@ local function run(argv: {string}, opts: Options): Result
       finished, wait_err = poll(handle, time.monotonic_ms() + KILL_REAP_MS)
     end
     if not finished then
-      -- SIGKILL cannot be handled. Reap synchronously so the runner never
-      -- abandons a zombie; record that the bounded cleanup poll was exceeded.
+      -- SIGKILL cannot be handled, but kernel I/O can delay its delivery.
+      -- Never trade the runner's declared bound for an unbounded reap.
       cleanup_errors[#cleanup_errors + 1] = "reap exceeded " ..
       tostring(KILL_REAP_MS) .. "ms: " .. tostring(wait_err)
-      finished, wait_err = handle:wait()
+      handle:_abandon_after_kill()
     end
   end
 

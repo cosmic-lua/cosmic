@@ -86,8 +86,14 @@ local function decode(content: string): Result | nil, string
   if fields.fatal ~= "0" and fields.fatal ~= "1" then
     return nil, "fatal must be 0 or 1"
   end
-  local timeout_ms = math.tointeger(tonumber(fields.timeout_ms) or -1)
-  if timeout_ms < 0 then return nil, "timeout_ms must be non-negative" end
+  local timeout_number = tonumber(fields.timeout_ms)
+  if not timeout_number then
+    return nil, "timeout_ms must be a non-negative integer"
+  end
+  local timeout_ms = math.tointeger(timeout_number)
+  if not timeout_ms or timeout_ms < 0 then
+    return nil, "timeout_ms must be a non-negative integer"
+  end
   return {
     status = fields.status as Status, -- cast: validated against the closed enum
     fatal = fields.fatal == "1",

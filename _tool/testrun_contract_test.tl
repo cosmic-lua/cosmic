@@ -26,31 +26,41 @@ local function capability_source(name: string): string
 end
 
 -- The deadline owns the direct child and its process group. A TERM-ignoring
--- shell and its background descendant must both be gone when run returns.
+-- shell and its TERM-ignoring descendant must both be gone when run returns.
 local function test_timeout_escalates_and_reaps()
   local script = fs.join(tmpdir, "hang.lua")
   assert(fs.write(script, [[
+local child = require("cosmic.child")
 local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
+local time = require("cosmic.time")
 assert(signal.sigaction(signal.SIGTERM, signal.SIG_IGN))
-print("parent " .. proc.getpid())
+local sleeper = assert(child.start({"sleep", "60"}, {
+  stdout = "inherit", stderr = "inherit",
+}))
+print("parent " .. proc.getpid() .. " descendant " .. sleeper.pid)
 io.flush()
-while true do require("cosmic.time").sleep_ms(1000) end
+while true do time.sleep_ms(1000) end
 ]]))
   local base = fs.join(tmpdir, "timeout_cleanup")
   assert(fs.make_dirs(base))
   local started = time.monotonic_ms()
   local result = testprocess.run({cosmic, script}, {
-      env = env.list(), temp_dir = base, timeout_ms = 200,
+      env = env.list(), temp_dir = base, timeout_ms = 1000,
     })
   local elapsed = time.monotonic_ms() - started
   assert(result.timed_out, "process did not time out")
-  assert(elapsed < 2000, "timeout was not bounded: " .. tostring(elapsed) .. "ms")
+  assert(elapsed < 3000, "timeout was not bounded: " .. tostring(elapsed) .. "ms")
   assert(result.cleanup_error == "",
     "timeout cleanup reported an error: " .. result.cleanup_error)
-  local parent = check.must(result.stdout:match("parent (%d+)"))
+  local parent = result.stdout:match("parent (%d+)")
+  local descendant = result.stdout:match("descendant (%d+)")
+  parent = check.must(parent, "missing parent in: " .. result.stdout)
+  descendant = check.must(descendant, "missing descendant in: " .. result.stdout)
   local ppid = check.must(math.tointeger(check.must(tonumber(parent))))
+  local dpid = check.must(math.tointeger(check.must(tonumber(descendant))))
   assert(proc.getpgid(ppid) == nil, "timed-out parent survived")
+  assert(proc.getpgid(dpid) == nil, "timed-out descendant survived")
 end
 
 -- A descendant may inherit stdout/stderr after the test file itself exits.
@@ -200,6 +210,19 @@ local function test_malformed_result_sidecar_is_refused()
   local result, err = tresult.decode("testrun-result 1\nstatus timeout\n")
   assert(result == nil and err:find("missing field", 1, true),
     "malformed sidecar was accepted: " .. tostring(err))
+end
+
+local function test_non_integer_timeout_sidecars_are_refused()
+  local function sidecar(value: string): string
+    return "testrun-result 1\nstatus timeout\nfatal 1\ntimeout_ms " .. value ..
+    "\ndetail deadline\ncleanup_error \n"
+  end
+  for _, value in ipairs({"0.5", "1e999", "999999999999999999999999"}) do
+    local ok, result, err = pcall(tresult.decode, sidecar(value))
+    assert(ok, "decoder crashed for timeout_ms " .. value)
+    assert(result == nil and err:find("non%-negative integer"),
+      "decoder accepted timeout_ms " .. value .. ": " .. tostring(err))
+  end
 end
 
 print("testrun contract tests passed")

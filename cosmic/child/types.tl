@@ -46,6 +46,8 @@ local record Options
   --- inherits); build edited copies with env.list({drop=..., set=...})
   env: {string}
   cwd: string
+  --- true creates a child-owned process group before exec
+  process_group: boolean
 end
 
 local record ChildTypes
