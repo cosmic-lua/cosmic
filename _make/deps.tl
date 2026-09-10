@@ -102,15 +102,40 @@ local function direct(root: string, file: File,
   return out
 end
 
+--- The most recently built graph, memoized by IDENTITY of the pair that
+--- produced it, not by any derived string key -- neither `proj` nor
+--- `by_import` has a cheap one. A single slot rather than a table
+--- keyed some other way, because the hot callers (`_make/graph.tl`'s
+--- facts writer, `_make/check.tl`'s graph-skip) each build ONE
+--- `by_import` and pass the SAME `proj` and `by_import` once per file
+--- in the project, so consecutive calls are the same pair over and
+--- over -- one slot catches every one of them. Safe because a scanned
+--- `Project`'s `.files` is never mutated after `project.scan` returns
+--- (`_make/project.tl`), so the same `proj` object always means the
+--- same graph; a fresh scan is a new table, which simply misses, the
+--- same fallback `imports.of_file`'s own cache takes for an unseen
+--- path. A caller deriving its own fresh `by_import` for the same
+--- `proj` (`_make/closure.tl`, `_make/runverb.tl`, each single-file)
+--- also misses rather than risk a stale answer for a differently
+--- filtered index.
+local cached_proj: Project | nil = nil
+local cached_by_import: {string: {File}} | nil = nil
+local cached_graph: graph.Graph | nil = nil
+
 --- The whole project as an adjacency map, path to the paths it directly
 --- imports. `direct` reads each file's imports through
 --- `imports.of_file`, which caches the scan per path for one model
 --- build, so building the full graph here costs one scan per file no
---- matter how many closures are asked for it.
+--- matter how many closures are asked for it -- and the memo above
+--- means CONSTRUCTING the graph itself costs one pass over the project
+--- too, not one pass per closure asked for it.
 --- @param proj Project The scanned project
 --- @param by_import {string: {File}} Index from index()
 --- @return graph.Graph The project's import graph, keyed by path
 local function to_graph(proj: Project, by_import: {string: {File}}): graph.Graph
+  if cached_proj == proj and cached_by_import == by_import and cached_graph then
+    return cached_graph
+  end
   local g: graph.Graph = {}
   for _, f in ipairs(proj.files) do
     local out: {string} = {}
@@ -119,6 +144,9 @@ local function to_graph(proj: Project, by_import: {string: {File}}): graph.Graph
     end
     g[f.path] = out
   end
+  cached_proj = proj
+  cached_by_import = by_import
+  cached_graph = g
   return g
 end
 
