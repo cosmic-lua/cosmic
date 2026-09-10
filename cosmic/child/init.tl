@@ -348,7 +348,7 @@ local function start(argv: {string}, opts?: Options): Handle | nil, string
       local ok, perr = unix.setpgid(0, 0)
       if not ok then
         local _ = unix.write(exec_w, tostring(perr or "setpgid failed"))
-        os.exit(127)
+        os.exit(127) -- exits: forked child after a pre-exec setup failure
       end
     end
     -- Resolve sources before dup2 below can clobber one (childio.pin_source).

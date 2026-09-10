@@ -39,6 +39,28 @@ local function close_handle(h: fd.Handle | nil): string
   return ""
 end
 
+-- Read a fixed snapshot through the descriptor opened before the child ran.
+-- The child may unlink or replace the pathname, but cannot turn this regular
+-- file description into a blocking FIFO. Timeout results need only the tail.
+local function read_capture(h: fd.Handle, tail_only: boolean): string, string
+  local size, serr = h:seek(0, fd.SEEK_END)
+  if not size then return "", tostring(serr or "capture seek failed") end
+  local offset = tail_only and math.max(0, size - TAIL_BYTES) or 0
+  local remaining = size - offset
+  local chunks: {string} = {}
+  while remaining > 0 do
+    local chunk, rerr = h:read(math.min(64 * 1024, remaining), offset)
+    if not chunk then
+      if rerr then return table.concat(chunks), rerr end
+      break
+    end
+    chunks[#chunks + 1] = chunk
+    offset = offset + #chunk
+    remaining = remaining - #chunk
+  end
+  return table.concat(chunks), ""
+end
+
 --- Last at most 16 KiB of a stream.
 --- @param content string Captured bytes
 --- @return string Tail bytes
@@ -89,14 +111,20 @@ local function run(argv: {string}, opts: Options): Result
     fd.O_WRONLY | fd.O_CREAT | fd.O_TRUNC, tonumber("600", 8))
   local stderr_h, stderr_err = fd.open(stderr_path,
     fd.O_WRONLY | fd.O_CREAT | fd.O_TRUNC, tonumber("600", 8))
-  if not stdin_h or not stdout_h or not stderr_h then
+  local stdout_capture, stdout_capture_err = fd.open(stdout_path, fd.O_RDONLY)
+  local stderr_capture, stderr_capture_err = fd.open(stderr_path, fd.O_RDONLY)
+  if not stdin_h or not stdout_h or not stderr_h
+  or not stdout_capture or not stderr_capture then
     local _ = close_handle(stdin_h)
     local _ = close_handle(stdout_h)
     local _ = close_handle(stderr_h)
+    local _ = close_handle(stdout_capture)
+    local _ = close_handle(stderr_capture)
     return {
       exit_code = 127, stdout = "", stderr = "", elapsed_ms = 0,
       timed_out = false, cleanup_error = "",
-      start_error = tostring(stdin_err or stdout_err or stderr_err or "capture open failed"),
+      start_error = tostring(stdin_err or stdout_err or stderr_err
+        or stdout_capture_err or stderr_capture_err or "capture open failed"),
     }
   end
 
@@ -111,10 +139,16 @@ local function run(argv: {string}, opts: Options): Result
     if cerr ~= "" then close_errors[#close_errors + 1] = cerr end
   end
   if not handle then
+    local stdout, stdout_read_err = read_capture(stdout_capture, true)
+    local stderr, stderr_read_err = read_capture(stderr_capture, true)
+    for _, item in ipairs({stdout_read_err, stderr_read_err,
+        close_handle(stdout_capture), close_handle(stderr_capture)}) do
+      if item ~= "" then close_errors[#close_errors + 1] = item end
+    end
     return {
       exit_code = 127,
-      stdout = fs.read(stdout_path) or "",
-      stderr = fs.read(stderr_path) or "",
+      stdout = stdout,
+      stderr = stderr,
       elapsed_ms = time.monotonic_ms() - started_ms,
       timed_out = false,
       cleanup_error = table.concat(close_errors, "; "),
@@ -153,8 +187,12 @@ local function run(argv: {string}, opts: Options): Result
     end
   end
 
-  local stdout = fs.read(stdout_path) or ""
-  local stderr = fs.read(stderr_path) or ""
+  local stdout, stdout_read_err = read_capture(stdout_capture, timed_out or not finished)
+  local stderr, stderr_read_err = read_capture(stderr_capture, timed_out or not finished)
+  for _, item in ipairs({stdout_read_err, stderr_read_err,
+      close_handle(stdout_capture), close_handle(stderr_capture)}) do
+    if item ~= "" then cleanup_errors[#cleanup_errors + 1] = item end
+  end
   if not finished then
     cleanup_errors[#cleanup_errors + 1] = tostring(wait_err or "wait failed")
   end

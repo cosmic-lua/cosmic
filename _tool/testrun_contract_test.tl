@@ -82,6 +82,29 @@ local function test_descendant_held_output_does_not_block()
   assert(result.stdout:find("parent%-exit"), "parent output was not captured")
 end
 
+-- A hostile test can replace its predictable capture pathname with a FIFO.
+-- Finalization reads the already-open regular inode and must still record the
+-- typed timeout result within the supervisor's bounded cleanup window.
+local function test_capture_path_replacement_cannot_block_result()
+  local base = fs.join(tmpdir, "fifo_capture_result.test")
+  local command = [[rm "$TEST_TMPDIR/capture.out"
+mkfifo "$TEST_TMPDIR/capture.out"
+echo marker >&2
+sleep 60]]
+  local started = time.monotonic_ms()
+  local code, err = testrun.run({"/bin/sh", "-c", command}, base, {
+      timeout_ms = 100, profile = "local",
+    })
+  local elapsed = time.monotonic_ms() - started
+  assert(code == 124 and err == nil, "FIFO replacement must remain a timeout")
+  assert(elapsed < 2000, "FIFO capture blocked for " .. tostring(elapsed) .. "ms")
+  assert(fs.is_file(base .. ".result"), "timeout result sidecar was not recorded")
+  local result = decoded(base)
+  assert(result.status == "timeout" and result.fatal, "wrong FIFO timeout result")
+  assert(check.must(fs.read(base .. ".err")):find("marker", 1, true),
+    "stderr from the retained capture inode was lost")
+end
+
 -- Timeout diagnostics retain only the useful tail of large captured output.
 local function test_timeout_report_captures_tail()
   local script = fs.join(tmpdir, "large_output.lua")

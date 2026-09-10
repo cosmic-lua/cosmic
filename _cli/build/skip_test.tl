@@ -146,30 +146,41 @@ local function test_runner_policy_switches_invalidate_pass()
   local out = fs.join(tmpdir, "skip-policy-result.test")
   assert(fs.write(target, "print('ok')\n"))
   local args = {out, cosmic, target, "--deps"}
-  assert(work.record(args) == 0)
+  local old_profile = cenv.get("COSMIC_TEST_PROFILE")
+  local old_timeout = cenv.get("COSMIC_TEST_TIMEOUT_MS")
+
+  assert(cenv.set("COSMIC_TEST_PROFILE", "local"))
+  assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", "120000"))
+  local first_code = work.record(args)
   local first = check.must(fs.read(out .. ".in"))
 
-  local old_profile = cenv.get("COSMIC_TEST_PROFILE")
   assert(cenv.set("COSMIC_TEST_PROFILE", "linux-ci"))
-  assert(work.record(args) == 0)
+  local strict_code = work.record(args)
   local strict = check.must(fs.read(out .. ".in"))
-  assert(strict ~= first, "capability profile must be part of the record key")
+
+  assert(cenv.set("COSMIC_TEST_PROFILE", "local"))
+  assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", "99999"))
+  local timeout_code = work.record(args)
+  local different_timeout = check.must(fs.read(out .. ".in"))
+
   if old_profile then
     assert(cenv.set("COSMIC_TEST_PROFILE", old_profile))
   else
     assert(cenv.unset("COSMIC_TEST_PROFILE"))
   end
-
-  local old_timeout = cenv.get("COSMIC_TEST_TIMEOUT_MS")
-  assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", "99999"))
-  assert(work.record(args) == 0)
-  assert(check.must(fs.read(out .. ".in")) ~= strict,
-    "test timeout must be part of the record key")
   if old_timeout then
     assert(cenv.set("COSMIC_TEST_TIMEOUT_MS", old_timeout))
   else
     assert(cenv.unset("COSMIC_TEST_TIMEOUT_MS"))
   end
+
+  assert(cenv.get("COSMIC_TEST_PROFILE") == old_profile,
+    "caller profile was not restored")
+  assert(cenv.get("COSMIC_TEST_TIMEOUT_MS") == old_timeout,
+    "caller timeout was not restored")
+  assert(first_code == 0 and strict_code == 0 and timeout_code == 0)
+  assert(strict ~= first, "capability profile must be part of the record key")
+  assert(different_timeout ~= first, "test timeout must be part of the record key")
 end
 
 print("all skip tests passed")
