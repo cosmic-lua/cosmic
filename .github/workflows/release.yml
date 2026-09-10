@@ -84,7 +84,9 @@ jobs:
         shell: bash
         run: |
           set -eux
-          echo "tag=$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "COSMIC_VERSION=$tag" >> "$GITHUB_ENV"
 
       # Both release binaries come out of one build: the unit declares
       # `base` and `base-debug`, so `build` embeds one payload twice.
@@ -112,12 +114,6 @@ jobs:
             bin/cosmic --make fetch
             bin/cosmic --make build
             o/bin/cosmic --make build'
-
-      - name: the binary says what it is
-        shell: bash
-        run: |
-          set -euxo pipefail
-          o/bin/cosmic --version | grep -F "${{ steps.tag.outputs.tag }}"
 
       # The gate, run BY the artifact being released.
       #
@@ -175,6 +171,12 @@ jobs:
                 o/perf/prev/size.json o/perf/size.json | tee o/perf/size_compare.txt
             fi
             exit 0'
+
+      - name: the binary says what it is
+        shell: bash
+        run: |
+          set -euxo pipefail
+          o/bin/cosmic --version | grep -F "${{ steps.tag.outputs.tag }}"
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:

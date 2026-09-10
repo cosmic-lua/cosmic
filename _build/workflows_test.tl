@@ -480,4 +480,18 @@ local function test_every_gate_lane_strips_includeif_and_fetches_the_work_ref()
     "expected several lanes running `--make ci`, saw " .. checked)
 end
 
+-- Preserve the stamp through convergence; prove it after builds, before upload.
+local function test_release_version_survives_the_gate_until_upload()
+  local path = WORKFLOWS .. "/release.yml"
+  local body = job_body(path, "build")
+  local stamp = body:find('echo "COSMIC_VERSION=$tag" >> "$GITHUB_ENV"', 1, true)
+  local gate = body:find("o/bin/cosmic --make ci", 1, true)
+  local version = body:find('o/bin/cosmic --version | grep -F "${{ steps.tag.outputs.tag }}"', 1, true)
+  local upload = body:find("actions/upload-artifact@", 1, true)
+  assert(stamp and gate and version and upload and
+    stamp < gate and gate < version and version < upload,
+    path .. ": preserve the computed version through the gate and assert " ..
+    "the post-gate candidate before upload")
+end
+
 print("all workflow ratchet tests passed")
