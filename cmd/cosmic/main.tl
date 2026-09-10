@@ -43,7 +43,7 @@ local function main(): integer, string
   local opts = parse.parse_args()
 
   if opts.error then
-    return 1, opts.error
+    return opts.error_code or 1, opts.error
   end
 
   -- Apply env var fallbacks (CLI args take priority)

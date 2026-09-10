@@ -62,6 +62,7 @@ local record Options
   write_if_changed: boolean
   include_dirs: {string}
   error: string
+  error_code: integer
 end
 
 -- Parse arguments against the _cli.args spec via cosmic.flags.
@@ -197,7 +198,10 @@ local function parse_args(): Options
     }
     local msg = perr or "failed to parse arguments"
     local needs_value = msg:match("^option requires a value: (%-%-%S+)$")
-    if needs_value and hints[needs_value] then
+    if needs_value == "--diff" then
+      opts.error = "cosmic-lua: --diff: usage: --diff <binary>"
+      opts.error_code = 2
+    elseif needs_value and hints[needs_value] then
       opts.error = "cosmic-lua: " .. hints[needs_value]
       .. "\nSee: cosmic-lua --help"
     else
