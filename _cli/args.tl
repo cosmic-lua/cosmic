@@ -50,6 +50,7 @@ local spec: flags.Spec = {
       help = "run examples"},
     {long = "benchmark", arg = "PATH", help = "run benchmarks"},
     {long = "docs", arg = "QUERY", arg_optional = true, help = "query docs"},
+    {long = "diff", arg = "BINARY", help = "compare API surface with an older binary"},
     {long = "welcome", help = "print the welcome banner"},
     {long = "test", arg = "OUTPUT", help = "run a test command"},
     {long = "report", help = "summarize test outputs"},

@@ -43,7 +43,7 @@ local function main(): integer, string
   local opts = parse.parse_args()
 
   if opts.error then
-    return 1, opts.error
+    return opts.diff ~= nil and 2 or 1, opts.error
   end
 
   -- Apply env var fallbacks (CLI args take priority)
@@ -134,6 +134,8 @@ local function main(): integer, string
     local query = cli_args.resolve_optional_arg("--docs", opts.docs)
     return require("_cli.main_handlers").handle_docs(query)
   end
+
+  if opts.diff then return require("_cli.diff").run(opts.diff) end
 
   if opts.test_argv then
     if #opts.test_argv == 0 then

@@ -197,7 +197,12 @@ local function parse_args(): Options
     }
     local msg = perr or "failed to parse arguments"
     local needs_value = msg:match("^option requires a value: (%-%-%S+)$")
-    if needs_value and hints[needs_value] then
+    if needs_value == "--diff" then
+      -- Mark this command-specific usage error through the existing
+      -- field so source main.tl remains compatible with pinned Options.
+      opts.diff = ""
+      opts.error = "cosmic-lua: --diff: usage: --diff <binary>"
+    elseif needs_value and hints[needs_value] then
       opts.error = "cosmic-lua: " .. hints[needs_value]
       .. "\nSee: cosmic-lua --help"
     else
@@ -294,7 +299,7 @@ local function parse_args(): Options
   if opts.recipe or opts.help or opts.compile or opts.compile_strict
   or #opts.format > 0 or #opts.fix > 0 or opts.check_kind or opts.find_pattern
   or opts.rewrite_pattern
-  or opts.extract or opts.examples or opts.benchmark or opts.docs
+  or opts.extract or opts.examples or opts.benchmark or opts.docs or opts.diff
   or opts.test_output or opts.report_paths or opts.coverage_report_paths
   or opts.make_verb then
     return opts

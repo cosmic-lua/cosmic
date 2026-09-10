@@ -37,6 +37,7 @@ Cosmic options:
   --exe <path>                  with --embed/--extract: operate on <path>, not this exe
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
   --docs [query]                show documentation for module, symbol, or guide
+  --diff <binary>               compare its API surface with this executable
   --test <output> <cmd>...      run test, write <output>.{got,out,err}
                                 e.g. cosmic --test o/foo ./cosmic foo_test.tl
   --report <paths>...           report on .got files written by --test

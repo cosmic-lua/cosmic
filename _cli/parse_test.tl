@@ -45,6 +45,21 @@ local function test_optional_arg_flag()
   assert(opts.examples == "", "got: " .. tostring(opts.examples))
 end
 
+local function test_diff_flag()
+  _G.arg = {[0] = "cosmic", [1] = "--diff", [2] = "old-cosmic"}
+  local opts = parse.parse_args()
+  assert(opts.diff == "old-cosmic", "got: " .. tostring(opts.diff))
+  assert(opts.script == nil, "--diff must not leave its binary as a script")
+end
+
+local function test_diff_requires_binary()
+  _G.arg = {[0] = "cosmic", [1] = "--diff"}
+  local opts = parse.parse_args()
+  assert(opts.diff == "", "bare --diff should retain its command marker")
+  assert(opts.error == "cosmic-lua: --diff: usage: --diff <binary>",
+    "got: " .. tostring(opts.error))
+end
+
 local function test_max_lines_flag()
   -- `--max-lines` is an integer option for `--check lint`; absent, it
   -- stays nil so the 500 default lives at the one place that already
