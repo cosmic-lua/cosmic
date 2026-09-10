@@ -14,6 +14,7 @@
 --- invisible there, and the consequence is a denied read rather than
 --- only a missing rule.
 
+local graph = require("cosmic.graph")
 local imports = require("_make.imports")
 local project = require("_make.project")
 local types = require("_make.types")
@@ -101,29 +102,45 @@ local function direct(root: string, file: File,
   return out
 end
 
+--- The whole project as an adjacency map, path to the paths it directly
+--- imports. `direct` reads each file's imports through
+--- `imports.of_file`, which caches the scan per path for one model
+--- build, so building the full graph here costs one scan per file no
+--- matter how many closures are asked for it.
+--- @param proj Project The scanned project
+--- @param by_import {string: {File}} Index from index()
+--- @return graph.Graph The project's import graph, keyed by path
+local function to_graph(proj: Project, by_import: {string: {File}}): graph.Graph
+  local g: graph.Graph = {}
+  for _, f in ipairs(proj.files) do
+    local out: {string} = {}
+    for _, dep in ipairs(direct(proj.root, f, by_import)) do
+      out[#out + 1] = dep.path
+    end
+    g[f.path] = out
+  end
+  return g
+end
+
 --- Every file `file` transitively imports.
 ---
 --- The file itself is excluded: a rule already names its own source and
 --- its own output, and repeating them would only make the recipe line
---- longer. Cycles terminate — the walk is over a visited set, and a
---- cyclic import is the project's problem rather than this function's.
+--- longer — true even when an import cycle would otherwise bring it
+--- back. Cycles terminate — `cosmic.graph.reach` walks a visited set —
+--- and a cyclic import is the project's problem rather than this
+--- function's.
 --- @param proj Project The scanned project
 --- @param file File The file whose closure is wanted
 --- @param by_import {string: File} Index from index()
 --- @return {File} Dependencies, transitively
 local function closure(proj: Project, file: File,
     by_import: {string: {File}}): {File}
-  local seen: {string: boolean} = {[file.path] = true}
-  local queue: {File} = {file}
+  local reached = graph.reach(to_graph(proj, by_import), file.path)
   local out: {File} = {}
-  while #queue > 0 do
-    local cur = table.remove(queue)
-    for _, dep in ipairs(direct(proj.root, cur, by_import)) do
-      if not seen[dep.path] then
-        seen[dep.path] = true
-        queue[#queue + 1] = dep
-        out[#out + 1] = dep
-      end
+  for _, f in ipairs(proj.files) do
+    if f.path ~= file.path and reached[f.path] then
+      out[#out + 1] = f
     end
   end
   return out
