@@ -10,6 +10,7 @@ local root = check.must(fs.cwd())
 local cwd = fs.join(tmpdir, "cli-contract")
 assert(fs.make_dirs(cwd))
 local forbidden = fs.join(cwd, "losing-action.txt")
+local losing_action = string.format("assert(io.open(%q, 'w'))", forbidden)
 
 local function test_literal_entrypoint_contracts()
   local cases: {support.Case} = {
@@ -27,7 +28,7 @@ local function test_literal_entrypoint_contracts()
       stderr = "",
     },
     {
-      argv = {"--welcome", "-e", "assert(io.open('losing-action.txt', 'w'))"},
+      argv = {"--welcome", "-e", losing_action},
       cwd = cwd,
       exit_code = 0,
       stdout = [[
