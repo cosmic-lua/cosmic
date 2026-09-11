@@ -148,3 +148,50 @@ local function test_shadowed_loops_still_compute_the_same_result()
   assert(value == 11, "expected 11 (2+3+4 numeric, +2 for \"a!\"), got " ..
     tostring(value))
 end
+
+-- The unary-minus-double-dash carried patch: `tl.generate` renders unary
+-- `-` tight against its operand, so two nested unary `-` used to render
+-- as `--` -- not two unary minus tokens but a Lua line comment, which
+-- silently discarded the rest of the line and turned the target local
+-- into `nil`. These pin correct arithmetic at increasing nesting depths,
+-- that the fix never lets adjacent `-` characters collide into `--`,
+-- and that a single unary minus (the overwhelmingly common case,
+-- including ordinary negative-number literals) stays byte-identical to
+-- stock tl's tight rendering.
+local function test_single_unary_minus_stays_byte_identical()
+  local code = generate_lua("local d = -1\nreturn d\n", "unary_one.tl")
+  assert(code:find("d = -1", 1, true),
+    "a single unary minus must stay tight (no forced space), got: " .. code)
+  local chunk = load(code, "=unary_one")
+  assert(chunk() == -1, "expected -1, got " .. tostring(chunk()))
+end
+
+local function test_two_level_unary_minus_gets_a_separating_space()
+  local code = generate_lua("local d = - -1\nreturn d\n", "unary_two.tl")
+  assert(not code:find("--", 1, true) and code:find("- -1", 1, true),
+    "two nested unary minus must render with a separating space, never '--', got: "
+    .. code)
+  local chunk = load(code, "=unary_two")
+  assert(chunk() == 1, "expected 1 (double negation), got " .. tostring(chunk()))
+end
+
+local function test_three_level_unary_minus_does_not_become_a_comment()
+  -- The exact repro this patch was written against: `- - -1` used to
+  -- compile to `---1`, which Lua lexes as a comment starting at the
+  -- second `-`, discarding "1" and leaving `d` as `nil`.
+  local code = generate_lua("local d = - - -1\nreturn d\n", "unary_three.tl")
+  assert(not code:find("--", 1, true),
+    "three nested unary minus must never collapse into '--' (a Lua comment), got: "
+    .. code)
+  local chunk, err = load(code, "=unary_three")
+  assert(chunk, "patched output must still load: " .. tostring(err))
+  assert(chunk() == -1, "expected -1 (triple negation), got " .. tostring(chunk()))
+end
+
+local function test_four_level_unary_minus_round_trips()
+  local code = generate_lua("local d = - - - -1\nreturn d\n", "unary_four.tl")
+  assert(not code:find("--", 1, true),
+    "chained unary minus must never contain '--' anywhere, got: " .. code)
+  local chunk = load(code, "=unary_four")
+  assert(chunk() == 1, "expected 1 (quadruple negation), got " .. tostring(chunk()))
+end
