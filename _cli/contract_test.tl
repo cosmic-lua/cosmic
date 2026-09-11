@@ -6,6 +6,7 @@ local fs = require("cosmic.fs")
 local support = require("_cli.test_support")
 
 local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
+local root = check.must(fs.cwd())
 local cwd = fs.join(tmpdir, "cli-contract")
 assert(fs.make_dirs(cwd))
 local forbidden = fs.join(cwd, "losing-action.txt")
@@ -19,10 +20,10 @@ local function test_literal_entrypoint_contracts()
       stderr = "cosmic-lua: --diff: usage: --diff <binary>\n",
     },
     {
-      argv = {"-e", "io.write('cli-ok\\n')"},
+      argv = {"-e", "io.write(assert(require('cosmic.fs').cwd()))"},
       cwd = cwd,
       exit_code = 0,
-      stdout = "cli-ok\n",
+      stdout = root,
       stderr = "",
     },
     {
@@ -46,4 +47,24 @@ Run 'cosmic --welcome' to see this again.
   for _, c in ipairs(cases) do
     support.assert_case(c)
   end
+end
+
+local function test_dangling_symlink_is_a_forbidden_side_effect()
+  local dangling = fs.join(cwd, "dangling")
+  local code = string.format(
+    "local ok, err = require('cosmic.fs').symlink('missing', %q); " ..
+    "assert(ok, err)", dangling)
+  local ok, err = pcall(function()
+      support.assert_case({
+          argv = {"-e", code},
+          exit_code = 0,
+          stdout = "",
+          stderr = "",
+          absent_paths = {dangling},
+        })
+    end)
+  assert(fs.remove(dangling))
+  assert(not ok, "the helper must reject a forbidden dangling symlink")
+  assert(tostring(err):find("forbidden side effect created: " .. dangling,
+      1, true), tostring(err))
 end

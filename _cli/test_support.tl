@@ -14,7 +14,7 @@ local record Case
 end
 
 local function invocation(argv: {string}): string
-  local rendered: {string} = {"cosmic"}
+  local rendered: {string} = {"bin/cosmic"}
   for _, value in ipairs(argv) do
     rendered[#rendered + 1] = string.format("%q", value)
   end
@@ -31,8 +31,8 @@ end
 --- Run one literal CLI case and assert its first observable mismatch.
 --- @param c Case Arguments, expected process result, and forbidden paths
 local function assert_case(c: Case)
-  local binary = fs.absolute_path(fs.join(os.getenv("TEST_BIN"), "cosmic"))
-  local argv: {string} = {binary}
+  local launcher = fs.absolute_path("bin/cosmic")
+  local argv: {string} = {launcher}
   for _, value in ipairs(c.argv) do
     argv[#argv + 1] = value
   end
@@ -50,7 +50,7 @@ local function assert_case(c: Case)
   assert_same("stdout", c.stdout, got.stdout, invoked)
   assert_same("stderr", c.stderr, got.stderr, invoked)
   for _, path in ipairs(c.absent_paths or {}) do
-    assert(not fs.is_present(path),
+    assert(not (fs.is_present(path) or fs.is_link(path)),
       invoked .. ": forbidden side effect created: " .. path)
   end
 end
