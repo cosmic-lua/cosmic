@@ -263,19 +263,37 @@ return {
   },
   ["narrow-record-field-assignment"] = {
     file = "tl.lua",
-    note = "a write to `x` or `x.field` drops the field's narrow, invalidating it the same way a bare variable's own write already does",
-    find = [=====[               local varnode = node.vars[i]
+    note = "a write to `x` or `x.field` drops the field's narrow BEFORE the LHS is type-checked -- invalidating it the same way a bare variable's own write already does, but early enough that the assignment's own expected type never comes from the stale fact: a guarded `T | nil` field reassigned a non-nil `T` was rejected as a type mismatch against the guard's narrowed `nil`, not the field's declared type",
+    find = [=====[      ["assignment"] = {
+         before_exp = set_expected_types_to_decltuple,
+         after = function(self, node, children)
+            local vartuple = children[1]
+            assert(vartuple.typename == "tuple")
+            local vartypes = vartuple.tuple
+            local valtuple = children[3]
+            assert(valtuple.typename == "tuple")
+            local valtypes = get_assignment_values(node, valtuple, #vartypes)
+            for i, vartype in ipairs(vartypes) do
+               local varnode = node.vars[i]
                local varname = varnode.tk
                local valtype = valtypes.tuple[i]
                local rvar, rval, err = self:check_assignment(varnode, vartype, valtype)]=====],
-    replace = [=====[               local varnode = node.vars[i]
+    replace = [=====[      ["assignment"] = {
+         -- cosmic carried patch: drop a written field's narrow before
+         -- the assignment's LHS is visited at all, not after the whole
+         -- statement is checked. `type_check_index` (patched by
+         -- narrow-record-field-dot) substitutes any live narrow fact
+         -- for `x.field` the moment the LHS is visited to derive the
+         -- assignment's own expected type (children[1], read below in
+         -- `after`) -- so invalidating from `after` is too late: the
+         -- mismatch against the stale narrowed type is already raised
+         -- by the time `after` runs. A `before` callback fires ahead of
+         -- every child visit (see recurse_node's walk_vars_exps), which
+         -- is the only hook early enough. `x = ...` drops every "x.*"
+         -- field narrow; `x.field = ...` drops just that one.
+         before = function(self, node)
+            for _, varnode in ipairs(node.vars) do
                local varname = varnode.tk
-               -- cosmic carried patch: do
-               -- not narrow a record field across a write to it, or
-               -- to the variable it is read off of -- a new value
-               -- may not share the old one's fields. `x = ...` drops
-               -- every "x.*" field narrow; `x.field = ...` drops just
-               -- that one.
                if varname then
                   self:drop_field_narrows(varname .. ".")
                else
@@ -284,6 +302,19 @@ return {
                      self:drop_field_narrows(field_key)
                   end
                end
+            end
+         end,
+         before_exp = set_expected_types_to_decltuple,
+         after = function(self, node, children)
+            local vartuple = children[1]
+            assert(vartuple.typename == "tuple")
+            local vartypes = vartuple.tuple
+            local valtuple = children[3]
+            assert(valtuple.typename == "tuple")
+            local valtypes = get_assignment_values(node, valtuple, #vartypes)
+            for i, vartype in ipairs(vartypes) do
+               local varnode = node.vars[i]
+               local varname = varnode.tk
                local valtype = valtypes.tuple[i]
                local rvar, rval, err = self:check_assignment(varnode, vartype, valtype)]=====],
   },
