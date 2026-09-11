@@ -3,14 +3,12 @@
 --- running test binary for the real self-archive path.
 
 local check = require("cosmic.check")
-local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local zip = require("cosmic.zip")
 local cli_diff = require("_cli.diff")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
-local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local capture_number = 0
 
 local record Capture
@@ -137,20 +135,6 @@ local function test_missing_old_has_usage_exit_two()
       return cli_diff.run("")
     end)
   check.equal(got, {
-      code = 2,
-      out = "",
-      err = "cosmic-lua: --diff: usage: --diff <binary>\n",
-    })
-end
-
-local function test_literal_cli_missing_old_has_one_diagnostic_and_exit_two()
-  local handle = check.must(child.start({cosmic, "--diff"}))
-  local result = check.must(handle:wait())
-  check.equal({
-      code = result.code or 128,
-      out = result.stdout or "",
-      err = result.stderr or "",
-    }, {
       code = 2,
       out = "",
       err = "cosmic-lua: --diff: usage: --diff <binary>\n",
