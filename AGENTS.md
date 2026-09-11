@@ -372,8 +372,8 @@ whole-file contract needs a host facility declare it in the source header,
 for example `--- requires: loopback-listen`; the runner probes that declared
 capability before spawning and reports `UNAVAILABLE` locally. The supported
 Linux lane sets `COSMIC_TEST_PROFILE=linux-ci`, where registered requirements
-(`loopback-listen`, `ape-assimilation`, and `nanosecond-timestamps`) are
-mandatory and absence fails the gate.
+(`loopback-listen`, `ape-assimilation`, `nanosecond-timestamps`, and
+`mode-enforcement`) are mandatory and absence fails the gate.
 
 A green focused test and local `--make ci` are authoritative product evidence
 for portable behavior. An `UNAVAILABLE` row is authoritative only about the

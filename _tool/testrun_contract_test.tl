@@ -19,9 +19,9 @@ local function decoded(base: string): tresult.Result
   return check.must(tresult.decode(check.must(fs.read(base .. ".result"))))
 end
 
-local function capability_source(name: string): string
+local function capability_source(name: string, requirement?: string): string
   local path = fs.join(tmpdir, name .. "_test.tl")
-  assert(fs.write(path, "--- requires: loopback-listen\n"))
+  assert(fs.write(path, "--- requires: " .. (requirement or "loopback-listen") .. "\n"))
   return path
 end
 
@@ -225,11 +225,13 @@ local function test_policy_evidence_changes_with_probe_answer()
     ["loopback-listen"] = {available = true, detail = ""},
     ["ape-assimilation"] = {available = true, detail = ""},
     ["nanosecond-timestamps"] = {available = true, detail = ""},
+    ["mode-enforcement"] = {available = true, detail = ""},
   }
   local absent = {
     ["loopback-listen"] = {available = false, detail = "injected"},
     ["ape-assimilation"] = {available = true, detail = ""},
     ["nanosecond-timestamps"] = {available = true, detail = ""},
+    ["mode-enforcement"] = {available = true, detail = ""},
   }
   assert(testplan.policy_evidence(tmpdir, available) ~=
     testplan.policy_evidence(tmpdir, absent),
@@ -248,6 +250,28 @@ local function test_capability_requirement_only_gates_execution()
     })
   assert(plan.error == "" and plan.unavailable == "",
     "static checks must not be classified unavailable")
+end
+
+-- required_linux_ci = true buys exactly two things: nonfatal locally,
+-- fatal under the supported Linux lane.
+local function test_mode_enforcement_requirement_gates_by_profile()
+  local local_plan = testplan.resolve(fs.join(tmpdir, "mode_profile_local.tl.test"),
+    tmpdir, {
+      timeout_ms = 1000, profile = "local",
+      source_path = capability_source("mode_profile_local", "mode-enforcement"),
+      capabilities = {["mode-enforcement"] = {available = false, detail = "injected"}},
+    })
+  assert(local_plan.unavailable == "mode-enforcement" and not local_plan.fatal,
+    "local profile must be nonfatal for mode-enforcement absence")
+
+  local ci_plan = testplan.resolve(fs.join(tmpdir, "mode_profile_ci.tl.test"),
+    tmpdir, {
+      timeout_ms = 1000, profile = "linux-ci",
+      source_path = capability_source("mode_profile_ci", "mode-enforcement"),
+      capabilities = {["mode-enforcement"] = {available = false, detail = "injected"}},
+    })
+  assert(ci_plan.unavailable == "mode-enforcement" and ci_plan.fatal,
+    "linux-ci profile must be fatal for mode-enforcement absence")
 end
 
 local function test_malformed_result_sidecar_is_refused()

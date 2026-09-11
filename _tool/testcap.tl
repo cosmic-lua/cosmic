@@ -60,6 +60,28 @@ local function probe_nanosecond_timestamps(temp_dir: string): Availability
   return {available = true, detail = ""}
 end
 
+local function probe_mode_enforcement(temp_dir: string): Availability
+  local dir = fs.join(temp_dir, "mode-enforcement-probe")
+  local ok, err = fs.make_dirs(dir)
+  if not ok then return {available = false, detail = tostring(err)} end
+  local mode_ok, mode_err = fs.set_mode(dir, fs.octal("500"))
+  if not mode_ok then
+    local _restore_ok, _restore_err = fs.set_mode(dir, fs.octal("700"))
+    local _remove_ok, _remove_err = fs.remove_all(dir)
+    return {available = false, detail = tostring(mode_err)}
+  end
+  local write_ok = fs.write(fs.join(dir, "probe"), "x")
+  local _restore_ok, _restore_err = fs.set_mode(dir, fs.octal("700"))
+  local _remove_ok, _remove_err = fs.remove_all(dir)
+  if write_ok then
+    return {
+      available = false,
+      detail = "directory mode 0500 did not refuse a write — root or CAP_DAC_OVERRIDE",
+    }
+  end
+  return {available = true, detail = ""}
+end
+
 local REQUIREMENTS < const >: {string: Requirement} = {
   ["loopback-listen"] = {
     name = "loopback-listen",
@@ -75,6 +97,11 @@ local REQUIREMENTS < const >: {string: Requirement} = {
     name = "nanosecond-timestamps",
     required_linux_ci = true,
     probe = probe_nanosecond_timestamps,
+  },
+  ["mode-enforcement"] = {
+    name = "mode-enforcement",
+    required_linux_ci = true,
+    probe = probe_mode_enforcement,
   },
 }
 
