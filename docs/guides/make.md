@@ -435,6 +435,8 @@ line.
 `--make coverage` takes an optional `--min PCT` (overall line coverage)
 and `--min-file PCT` (every file's), computed from the same `.cov` data
 the plain report renders; with neither, the stage reports and passes.
+declined file rows include compact uncovered analyzed-code line ranges
+from that same merged coverage data.
 there is no committed floor to merge, hand-edit, or rewrite — the
 numbers live wherever the project's own gate is invoked, which for this
 tree is `.github/workflows/pr.yml`'s `--make ci` line.

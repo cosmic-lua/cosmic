@@ -10,6 +10,7 @@
 --- `gate` is `report.report` verbatim -- instrumented coverage with no
 --- threshold renders the table and passes.
 local rep = require("_tool.coverage.report")
+local gaps = require("_tool.coverage.gaps")
 
 local type FileReport = rep.FileReport
 
@@ -34,9 +35,13 @@ local function violations(reports: {FileReport}, min: number | nil,
     for _, r in ipairs(reports) do
       local have = r.total > 0 and (100.0 * r.covered / r.total) or 100.0
       if have < min_file then
-        problems[#problems + 1] = string.format(
+        local problem = string.format(
           "%s: %.1f%% under --min-file %.1f%% (%d/%d)",
           r.display, have, min_file, r.covered, r.total)
+        if #r.missing > 0 then
+          problem = problem .. "  uncovered: " .. gaps.format_ranges(r.missing, 8)
+        end
+        problems[#problems + 1] = problem
       end
     end
   end
