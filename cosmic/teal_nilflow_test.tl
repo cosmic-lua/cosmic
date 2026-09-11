@@ -213,3 +213,37 @@ print(via_truthy({}) + via_early_return({}) + via_assert({sub = {x = 1}})
   assert(result.ok, "a guard on a record field must narrow it (carried tl patch): "
     .. (result.ok and "" or teal.format_issues(result.errors)))
 end
+
+-- The narrow's own invalidation, on the write that should drop it
+-- (`narrow-record-field-assignment` in the same patch file): a field
+-- guarded to nil on the fall-through branch, then reassigned a non-nil
+-- value of the field's declared type, must type-check — the assignment
+-- itself is what proves the field is no longer nil, so its expected
+-- type must come from the field's DECLARED type, never the guard's
+-- stale narrowed-to-nil fact. Without the fix this fails with "in
+-- assignment: got Cache, expected nil (inferred at the guard)".
+local function test_narrowing_field_survives_own_invalidation()
+  local path = fs.join(tmpdir, "narrow_field_reassign_ok.tl")
+  assert(fs.write(path, [[
+local record Cache
+  x: integer
+end
+local record Store
+  index: Cache | nil
+end
+local function ensure_index(s: Store): Cache | nil, string
+  if s.index ~= nil then
+    return s.index, ""
+  end
+  local c: Cache = {x = 1}
+  s.index = c
+  return c, ""
+end
+print(ensure_index)
+]]))
+  local result = teal.check_file(path)
+  assert(result.ok,
+    "a write of the field's declared type must invalidate its guard's "
+    .. "narrow before, not after, the assignment is checked against it: "
+    .. (result.ok and "" or teal.format_issues(result.errors)))
+end
