@@ -110,6 +110,9 @@ end
 
 local THREE_LINES < const > = "local x = 1\nlocal y = 2\nreturn x + y\n"
 local TWO_LINES < const > = "local x = 1\nreturn x\n"
+local SIX_ANALYZED_LINES < const > = "local a = 1\nlocal b = 2\nlocal c = 3\n" ..
+"-- not executable\nlocal d = 4\nlocal e = 5\n-- not executable\n" ..
+"return a + b + c + d + e\n"
 
 --- Run `minimum.gate` with cwd at `root`, capturing stdout and stderr
 --- to files under it -- restoring cwd and both streams unconditionally,
@@ -178,6 +181,26 @@ local function test_gate_names_the_file_under_min_file()
     "must name the file under the floor: " .. printed)
   assert(not printed:find("lib/full.tl", 1, true),
     "must not name the file that clears the floor: " .. printed)
+end
+
+local function test_gate_names_exact_uncovered_ranges_without_changing_summary()
+  local root, paths = corpus("min-corpus-gaps", {
+      {"declined.tl", SIX_ANALYZED_LINES, 1}, {"full.tl", THREE_LINES, 3},
+    })
+  check.must(fs.write(fs.join(root, "o/.coverage/second.cov"),
+      'return {version=1,hits={["@lib/declined.tl"]={[2]=1}}}'))
+  local code, printed = run_gate(root, paths, nil, 100)
+  assert(code ~= 0, "a 2/6 file must still fail --min-file 100")
+  assert(printed:find(
+      "lib/declined.tl: 33.3% under --min-file 100.0% (2/6)  " ..
+      "uncovered: 3,5-6,8", 1, true),
+    "must append exact compact missing ranges: " .. printed)
+  assert(not printed:find("coverage minimum: lib/full.tl:", 1, true),
+    "a fully covered companion must emit no refusal: " .. printed)
+  assert(printed:sub(-#("coverage minimum: 1 problem(s); " ..
+        "declined: lib/declined.tl\n")) ==
+    "coverage minimum: 1 problem(s); declined: lib/declined.tl\n",
+    "the trailing declined summary must stay unchanged: " .. printed)
 end
 
 local function test_gate_reports_and_passes_with_neither_option()
