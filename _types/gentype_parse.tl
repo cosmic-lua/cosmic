@@ -293,8 +293,9 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
       table.insert(params, {name = pname, param_type = ptype, description = pdesc or "", optional = optional})
     end
 
-    local fname, ftype, fdesc = line:match("^%-%-%-@field%s+([%w_%.%?]+)%s+([^%s]+)%s*(.*)$")
+    local fname, frest = line:match("^%-%-%-@field%s+([%w_%.%?]+)%s+(.+)$")
     if fname then
+      local ftype, fdesc = split_type_desc(frest)
       -- Teal record fields have no optional marker; strip the `?` from
       -- both name and type positions and drop the distinction.
       if fname:match("%?$") then
