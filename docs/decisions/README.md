@@ -80,3 +80,4 @@ build when the committed copy drifts.
 | D43 | generation 1 seeds `cosmo.*` declarations from the tree's own cosmos pin, not the pinned binary | active | [→](d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md) |
 | D44 | the release publishes regardless of the perf compare; perf is a daily non-blocking lane | active | [→](d44-release-publishes-regardless-of-the-perf-compare.md) |
 | D45 | rank is a position in the parent's list at every level, the board included | active | [→](d45-rank-is-a-list-position-at-every-level.md) |
+| D46 | an item's spec declares intent only; measurement and outcome live in its own history | active | [→](d46-spec-declares-intent-only.md) |
