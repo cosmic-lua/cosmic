@@ -48,7 +48,15 @@
     ref, which already carries date, author and subject. the item's
     **outcome** is the body of the commit that resolved it, making the
     deliverable a commit in both cases — a product commit for a diff, a
-    board commit for research.
+    board commit for research. the two do not collapse into one field:
+    which repository the commit lives in is part of the fact, and
+    `_work/brief.tl` and `_work/gitdone.tl` both resolve `handover_head`
+    inside the product checkout. so `handover_head` keeps the product
+    commit and `result` keeps the board one, re-typed from a spec-blob
+    digest. `result` is also the only fact distinguishing "applied,
+    awaiting a verdict" from "builder mid-flight" — `_work/gittake.tl`
+    says so, and both states are otherwise claimed, PR-less, with
+    builders on record.
   - there is no `acceptance` field. done is the repo's gate passing; a
     behaviour worth guaranteeing permanently is a test or ratchet in
     the diff, which outlives the sidecar that asked for it.
@@ -58,8 +66,8 @@
     `depends_on` relation, not a spec field — and a precondition that is
     a release carrying a merged item is itself work, so the pin bump is
     an item like any other.
-  - `key`, `result` and `verdict_spec` leave the schema, and
-    `spec.revision` is deleted with its last caller.
+  - `key` and `verdict_spec` leave the schema, and `spec.revision` is
+    deleted with its last caller.
   - format 5, one cutover over every ref, then the migration module is
     retired — the shape the format-3 to format-4 migration already had.
 - **rejected:**
@@ -110,9 +118,15 @@
     exists to prevent.
 - **consequences:** the divergence goes away by construction — four
   path-parsing functions, `spec.revision`, and three `meta` fields are
-  deleted rather than reconciled — and collision detection stops
-  costing a whole-board spec read, because `touches` is in the `meta`
-  that `store.list` already loads. the costs are real. findings become
+  deleted rather than reconciled — and collision detection reads a
+  declared list instead of parsing every open item's prose. that read is
+  not free, and the mechanism is worth stating because it is a trap: a
+  whole-board read goes through the derived SQLite cache, never git
+  `meta`, and `_work/cachequery.tl` rebuilds an `item.Item` from columns.
+  a field with no column and no hydration is therefore **zeroed** the
+  next time any verb saves an item it read from `store.list`, so each new
+  field lands with its column, its hydration and its migration in one
+  change or not at all. the costs are real. findings become
   **immutable**: a correction is a new entry, not an edit. a reviewer
   wanting the evidence for an item now walks its history rather than
   reading it inline, and 28% of corpus bytes move out of what `show`
