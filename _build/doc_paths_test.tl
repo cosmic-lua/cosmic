@@ -74,8 +74,7 @@ local COSMOPOLITAN < const > = "a path in cosmic-lua/cosmopolitan"
 --- A board item's tree is committed under cosmic-lua/work's item refs,
 --- so an entry in it is a git tree path and never a file in any
 --- checkout — no fetch of any branch resolves one.
-local ITEM_TREE < const > =
-  "an entry in a board item's own git tree, not a file in a checkout"
+local ITEM_TREE < const > = "an entry in a board item's git tree"
 
 --- Spans excused by name.
 local SPANS < const >: {string: string} = {
