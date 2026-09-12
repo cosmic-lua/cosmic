@@ -163,7 +163,7 @@ end
 --- PROCESS. This is NOT a stability guarantee: the algorithm may
 --- change in a future cosmic release, so a recorded seed is only
 --- meaningful for replay within roughly the same build/session
---- (matching _fuzz/driver.tl's own replay promise) — never treat it
+--- (matching cosmic.fuzz's own replay promise) — never treat it
 --- as a byte-stable format to pin across releases.
 --- @param seed integer The seed
 --- @return Source A new pseudo-random source

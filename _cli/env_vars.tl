@@ -63,6 +63,8 @@ local VARS < const >: {Var} = {
   {name = "COSMIC_EXTRACT", public = true,
     desc = "env fallback for --extract"},
   -- Internal: the build sets these for its own children.
+  {name = "COSMIC_FUZZ_WORKER", public = false,
+    desc = "parent-bound request directory for an isolated fuzz property"},
   {name = "COSMIC_MAKE", public = false,
     desc = "the engine a recipe line runs under"},
   {name = "COSMIC_MAKE_GEN", public = false,

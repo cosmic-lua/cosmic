@@ -1,22 +1,20 @@
 --- Shrinks a failing draw sequence toward a smaller one that still
 --- fails, so a fuzz failure reports a minimized input instead of the
---- raw generated one. Internal to `_fuzz`, same as source.tl -- no
---- shrinking guarantee (global minimum, or even "same failure cause")
---- is made, so this is not ready to be `cosmic.fuzz`'s public surface.
+--- raw generated one. The caller decides which failures are eligible;
+--- this search guarantees neither a global minimum nor a common cause.
 
-local source = require("_fuzz.source")
+local source = require("cosmic.fuzz.source")
 
 --- Every still_fails call -- structural or value -- counts one
 --- against this budget, threaded as a single running total through
 --- both shrink passes. Chosen above the costliest generator in the
---- tree today: _fuzz/compress_fuzz_test.tl's round-trip generator
+--- parser tests: a compression round-trip generator
 --- draws up to 4097 values per input (ROUND_TRIP_MAX_LEN = 4096).
 local MAX_SHRINK_ATTEMPTS = 20000
 
 --- The two closures shrink needs from a fuzz property. A narrower
---- type than driver.Options so this module never requires
---- _fuzz.driver -- driver.tl requires shrink.tl, and a require back
---- the other way would be circular.
+--- type than fuzz.Options so the shrinker stays independent of the
+--- runner and its process protocol.
 local record Property
   gen: function(src: source.Recorder): string
   check: function(input: string): boolean, string
@@ -95,7 +93,7 @@ local function shrink_structure(
       if granularity >= #current then
         break
       end
-      granularity = granularity * 2
+      granularity = math.min(#current, granularity * 2)
     end
   end
   return current, attempts

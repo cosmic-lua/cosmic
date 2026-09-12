@@ -3,11 +3,10 @@
 --- neither must matching, finding or substituting against arbitrary
 --- text once a pattern compiles.
 --- env: FUZZ_SEED FUZZ_ITERS
+--- reads: testdata/fuzz
 
-local check = require("cosmic.check")
-local driver = require("_fuzz.driver")
+local fuzz = require("cosmic.fuzz")
 local re = require("cosmic.re")
-local source = require("_fuzz.source")
 
 -- Patterns are capped at MAX_RANDOM_PATTERN_LEN random bytes, or
 -- MAX_FRAGMENTS assembled ERE fragments: pathological patterns are
@@ -35,23 +34,23 @@ local ERE_TOKENS = {
 
 --- Build one `{m,n}` repetition fragment with random, possibly huge,
 --- bounds -- large enough to probe the engine's repetition-count limit.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The fragment
-local function random_repetition_fragment(src: source.Recorder): string
+local function random_repetition_fragment(src: fuzz.Recorder): string
   return string.format("{%d,%d}", src:int(0, 999999), src:int(0, 999999))
 end
 
 --- Build one bracket-expression range fragment over arbitrary bytes.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The fragment
-local function random_range_fragment(src: source.Recorder): string
+local function random_range_fragment(src: fuzz.Recorder): string
   return "[" .. string.char(src:int(0, 255)) .. "-" .. string.char(src:int(0, 255)) .. "]"
 end
 
 --- Assemble a pattern out of ERE syntax fragments.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The generated pattern
-local function structured_pattern(src: source.Recorder): string
+local function structured_pattern(src: fuzz.Recorder): string
   local n = src:int(1, MAX_FRAGMENTS)
   local parts: {string} = {}
   for i = 1, n do
@@ -69,11 +68,11 @@ end
 
 --- Generate one candidate pattern: half the time arbitrary bytes, half
 --- the time assembled ERE fragments.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The generated pattern
-local function gen_pattern(src: source.Recorder): string
+local function gen_pattern(src: fuzz.Recorder): string
   if src:int(1, 2) == 1 then
-    return driver.bytes(src, MAX_RANDOM_PATTERN_LEN)
+    return fuzz.bytes(src, MAX_RANDOM_PATTERN_LEN)
   end
   return structured_pattern(src)
 end
@@ -111,24 +110,24 @@ local function fallible_shape_ok_no_clean_nil(label: string, value: any, err: an
 end
 
 local function test_compile_totality()
-  local ok, msg = driver.run({
-      name = "re_compile_totality",
+  local result = fuzz.run({
+      name = "re_re_compile_totality",
       gen = gen_pattern,
       check = function(input: string): boolean, string
         local rx, err = re.compile(input)
         return fallible_shape_ok_no_clean_nil("compile", rx, err)
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 -- The generated input is self-describing: a decimal pattern length,
 -- one LF, then the pattern bytes immediately followed by the text
 -- bytes. A length prefix (not a delimiter) is required because the
 -- pattern itself is arbitrary bytes and may contain LF.
-local function gen_match_input(src: source.Recorder): string
+local function gen_match_input(src: fuzz.Recorder): string
   local pattern = gen_pattern(src)
-  local text = driver.bytes(src, MATCH_TEXT_LEN)
+  local text = fuzz.bytes(src, MATCH_TEXT_LEN)
   return tostring(#pattern) .. "\n" .. pattern .. text
 end
 
@@ -144,8 +143,8 @@ local function decode_match_input(input: string): string, string
 end
 
 local function test_match_totality()
-  local ok, msg = driver.run({
-      name = "re_match_totality",
+  local result = fuzz.run({
+      name = "re_re_match_totality",
       gen = gen_match_input,
       check = function(input: string): boolean, string
         local pattern, text = decode_match_input(input)
@@ -171,15 +170,15 @@ local function test_match_totality()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 --- Generate a pattern that compiles, retrying a bounded number of
 --- times; falls back to a trivial literal so the property always has
 --- something to gsub against even on an unlucky run of candidates.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string A pattern re.compile accepts
-local function gen_compilable_pattern(src: source.Recorder): string
+local function gen_compilable_pattern(src: fuzz.Recorder): string
   for _ = 1, COMPILABLE_ATTEMPTS do
     local candidate = gen_pattern(src)
     if re.compile(candidate) ~= nil then
@@ -194,10 +193,10 @@ end
 --- a literal (see re.tl's Repl doc comment), so these tokens are not
 --- expected to be interpolated -- the property under test is that their
 --- raw bytes do not upset gsub, not that they expand.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The generated replacement
-local function gen_replacement(src: source.Recorder): string
-  local out = driver.bytes(src, GSUB_REPL_LEN)
+local function gen_replacement(src: fuzz.Recorder): string
+  local out = fuzz.bytes(src, GSUB_REPL_LEN)
   if src:int(1, 2) == 1 then
     out = out .. "\\" .. tostring(src:int(0, 9))
   end
@@ -207,9 +206,9 @@ end
 -- Same length-prefixed encoding as the match input, with a second
 -- header field for the text length so the replacement can be sliced
 -- off the end.
-local function gen_gsub_input(src: source.Recorder): string
+local function gen_gsub_input(src: fuzz.Recorder): string
   local pattern = gen_compilable_pattern(src)
-  local text = driver.bytes(src, GSUB_TEXT_LEN)
+  local text = fuzz.bytes(src, GSUB_TEXT_LEN)
   local repl = gen_replacement(src)
   return string.format("%d,%d\n%s%s%s", #pattern, #text, pattern, text, repl)
 end
@@ -231,8 +230,8 @@ local function decode_gsub_input(input: string): string, string, string
 end
 
 local function test_gsub_totality()
-  local ok, msg = driver.run({
-      name = "re_gsub_totality",
+  local result = fuzz.run({
+      name = "re_re_gsub_totality",
       gen = gen_gsub_input,
       check = function(input: string): boolean, string
         local pattern, text, repl = decode_gsub_input(input)
@@ -247,5 +246,5 @@ local function test_gsub_totality()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end

@@ -2,10 +2,9 @@
 --- network cut the bytes, must terminate on arbitrary input, and must
 --- read back what format wrote.
 --- env: FUZZ_SEED FUZZ_ITERS
+--- reads: testdata/fuzz
 
-local check = require("cosmic.check")
-local driver = require("_fuzz.driver")
-local source = require("_fuzz.source")
+local fuzz = require("cosmic.fuzz")
 local sse = require("cosmic.sse")
 local stream = require("cosmic.stream")
 
@@ -31,13 +30,13 @@ local ROUND_TRIP_BYTES = "abcXY09 \t:;.,-_=+/\\\"'{}[]<>|!@#$%&*()~ data:id:"
 local CHUNKING_BYTES = ROUND_TRIP_BYTES .. "\r\n\r\n"
 
 --- Draw a random string from an alphabet.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param alphabet string The bytes to draw from
 --- @param min_len integer The shortest string to produce
 --- @param max_len integer The longest string to produce
 --- @return string The generated string
 local function random_text(
-    src: source.Recorder, alphabet: string, min_len: integer, max_len: integer
+    src: fuzz.Recorder, alphabet: string, min_len: integer, max_len: integer
   ): string
   local n = src:int(min_len, max_len)
   local out: {string} = {}
@@ -52,10 +51,10 @@ end
 --- data is always non-empty: an event whose data buffer is empty is a
 --- no-op dispatch per spec, so format writes bytes the parser
 --- deliberately drops.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param alphabet string The bytes field values are drawn from
 --- @return sse.Event The generated event
-local function random_event(src: source.Recorder, alphabet: string): sse.Event
+local function random_event(src: fuzz.Recorder, alphabet: string): sse.Event
   local ev: sse.Event = {
     data = random_text(src, alphabet, 1, MAX_FIELD_LEN),
   }
@@ -72,10 +71,10 @@ local function random_event(src: source.Recorder, alphabet: string): sse.Event
 end
 
 --- Partition a byte count into 1..MAX_CHUNKS non-empty pieces.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @param total integer The number of bytes to partition
 --- @return {integer} The chunk lengths, summing to total
-local function random_split(src: source.Recorder, total: integer): {integer}
+local function random_split(src: fuzz.Recorder, total: integer): {integer}
   if total < 1 then
     return {}
   end
@@ -175,7 +174,7 @@ end
 -- lengths, then one LF, then the SSE bytes those lengths partition.
 -- The header is digits and commas only, so the first LF ends it no
 -- matter what the payload holds.
-local function gen_chunked_stream(src: source.Recorder): string
+local function gen_chunked_stream(src: fuzz.Recorder): string
   local parts: {string} = {}
   for i = 1, src:int(1, MAX_EVENTS) do
     parts[i] = sse.format(random_event(src, CHUNKING_BYTES))
@@ -207,8 +206,8 @@ local function decode_chunked_stream(input: string): {string}, string
 end
 
 local function test_chunking_invariance()
-  local ok, msg = driver.run({
-      name = "sse_chunking_invariance",
+  local result = fuzz.run({
+      name = "sse_sse_chunking_invariance",
       gen = gen_chunked_stream,
       check = function(input: string): boolean, string
         local chunks, bytes = decode_chunked_stream(input)
@@ -225,14 +224,14 @@ local function test_chunking_invariance()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 local function test_parser_totality()
-  local ok, msg = driver.run({
-      name = "sse_parser_totality",
-      gen = function(src: source.Recorder): string
-        return driver.bytes(src, TOTALITY_INPUT_LEN)
+  local result = fuzz.run({
+      name = "sse_sse_parser_totality",
+      gen = function(src: fuzz.Recorder): string
+        return fuzz.bytes(src, TOTALITY_INPUT_LEN)
       end,
       check = function(input: string): boolean, string
         -- Totality IS the property: the drain must reach :next()'s
@@ -243,7 +242,7 @@ local function test_parser_totality()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end
 
 -- The round-trip domain is exactly the events format can write back:
@@ -260,16 +259,16 @@ end
 local pending_event: sse.Event = nil
 
 --- Build a round-trippable event and return its wire form.
---- @param src source.Recorder The source to draw from
+--- @param src fuzz.Recorder The source to draw from
 --- @return string The bytes format wrote
-local function gen_round_trip_wire(src: source.Recorder): string
+local function gen_round_trip_wire(src: fuzz.Recorder): string
   pending_event = random_event(src, ROUND_TRIP_BYTES)
   return sse.format(pending_event)
 end
 
 local function test_format_parse_round_trip()
-  local ok, msg = driver.run({
-      name = "sse_format_parse_round_trip",
+  local result = fuzz.run({
+      name = "sse_sse_format_parse_round_trip",
       gen = gen_round_trip_wire,
       check = function(input: string): boolean, string
         local want = pending_event
@@ -290,5 +289,5 @@ local function test_format_parse_round_trip()
         return true
       end,
     })
-  check.truthy(ok, msg)
+  fuzz.assert_ok(result)
 end

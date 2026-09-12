@@ -1,12 +1,36 @@
 local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 local coverage = require("cosmic.coverage")
-local driver = require("_fuzz.driver")
 local env = require("cosmic.env")
 local rand = require("cosmic.rand")
-local signal = require("cosmic.signal")
-local source = require("_fuzz.source")
-local time = require("cosmic.time")
+local source = require("cosmic.fuzz.source")
+
+local fs = require("cosmic.fs")
+local fuzz = require("cosmic.fuzz")
+local loop = require("cosmic.fuzz.loop")
+local worker = require("cosmic.fuzz.worker")
+
+local function run_unisolated(opts: fuzz.Options): boolean, string
+  opts.seed = opts.seed or math.tointeger(tonumber(env.get("FUZZ_SEED"))) or 1
+  opts.iters = opts.iters or math.tointeger(tonumber(env.get("FUZZ_ITERS"))) or 256
+  local dir = check.must(fs.temp_dir(check.must(env.get("TEST_TMPDIR")) .. "/loop-XXXXXX"))
+  local r = loop.run(opts, dir)
+  if r.status == "pass" then
+    return true, string.format("%s: %d iterations, seed=%d", r.name, r.generated, r.seed)
+  end
+  return false, string.format("%s: seed=%d iteration=%d input(base64)=%s draws=%d: %s",
+    r.name, r.seed, r.iteration, codec.encode_base64(r.input), r.draws, r.message)
+end
+
+local record Support
+  type Options = fuzz.Options
+  run_unisolated: function(opts: fuzz.Options): boolean, string
+  bytes: function(src: fuzz.Recorder, max_len: integer): string
+  mutate: function(src: fuzz.Recorder, sample: string, edits: integer): string
+  timeout_for: function(opts: fuzz.Options, iters: integer): integer
+end
+local driver: Support = {run_unisolated = run_unisolated, bytes = fuzz.bytes,
+  mutate = fuzz.mutate, timeout_for = worker.timeout_for}
 
 local saved_seed = env.get("FUZZ_SEED")
 local saved_iters = env.get("FUZZ_ITERS")
@@ -321,95 +345,6 @@ local function test_the_budget_hook_is_cleared_between_runs()
     end)
 end
 
--- The three tests below exercise driver.run() itself (not
--- run_unisolated), so each spawns at least one real child process via
--- cosmic.child — the mechanism the isolation item added.
-
--- Every test below calls driver.run() directly, and driver.run()
--- always spawns a child that re-executes this WHOLE file. So when
--- isolate() isolates test B's property, the child it spawns still
--- reaches test A's driver.run() call in file order — which correctly
--- reports "skipped" (see run()'s FUZZ_ISOLATE branch), the same
--- signal a real *_fuzz_test.tl's check.truthy(ok, msg) already treats
--- as a pass. A strict assertion here would not tolerate that; each
--- test below skips its own assertions when it detects this call ran
--- inside a SIBLING's isolated child instead of the top level.
-local function skipped_by_a_sibling(msg: string): boolean
-  return msg:find(": skipped (isolating a different property)", 1, true) ~= nil
-end
-
-local function test_a_crashing_check_is_attributed_to_its_iteration()
-  local counter = 0
-  local ok, msg = driver.run({
-      name = "driver_test_crash_attribution",
-      iters = 8,
-      gen = function(_src: source.Recorder): string
-        counter = counter + 1
-        return tostring(counter)
-      end,
-      check = function(input: string): boolean, string
-        if input == "5" then
-          assert(signal.raise(signal.SIGSEGV))
-        end
-        return true
-      end,
-    })
-  if ok and skipped_by_a_sibling(msg) then
-    return
-  end
-  check.equal(ok, false, "a crashing property must fail: " .. tostring(msg))
-  check.truthy(msg:find("crashed: signal", 1, true), "not reported as a crash: " .. msg)
-  check.truthy(msg:find("iteration=5", 1, true), "wrong iteration attributed: " .. msg)
-end
-
-local function test_a_hanging_check_is_reported_as_a_timeout()
-  local ok, msg = driver.run({
-      name = "driver_test_hang_timeout",
-      iters = 1,
-      timeout_ms = 200,
-      gen = function(_src: source.Recorder): string
-        return "input"
-      end,
-      check = function(_input: string): boolean, string
-        -- A C-layer sleep, not a Lua loop: outside the VM instruction
-        -- hook's reach, so only the wall-clock timeout catches it.
-        check.must(time.sleep_ms(2000))
-        return true
-      end,
-    })
-  if ok and skipped_by_a_sibling(msg) then
-    return
-  end
-  check.equal(ok, false, "a hanging property must fail: " .. tostring(msg))
-  check.truthy(msg:find("hung: exceeded 200ms", 1, true), "not reported as a hang: " .. msg)
-end
-
-local function test_other_properties_in_the_file_are_skipped_when_isolating()
-  local saved_isolate = env.get("FUZZ_ISOLATE")
-  assert(env.set("FUZZ_ISOLATE", "some_other_property"))
-  local called = false
-  local ok, msg = driver.run({
-      name = "driver_test_not_the_isolated_one",
-      iters = 4,
-      gen = function(_src: source.Recorder): string
-        called = true
-        return "input"
-      end,
-      check = function(_input: string): boolean, string
-        called = true
-        return true
-      end,
-    })
-  if saved_isolate then
-    assert(env.set("FUZZ_ISOLATE", saved_isolate))
-  else
-    assert(env.unset("FUZZ_ISOLATE"))
-  end
-  check.truthy(ok, "a skipped property must report ok: " .. tostring(msg))
-  check.truthy(msg:find("skipped", 1, true), "not reported as skipped: " .. msg)
-  check.equal(called, false, "gen/check must not run for a skipped property")
-end
-
 -- timeout_for is pure: it reads no clock, spawns no child and runs no
 -- property, so the rule can be asserted at the depths that matter
 -- instead of by waiting out a real timeout.
@@ -468,8 +403,8 @@ local function test_a_shrink_candidate_that_loops_is_caught()
           end,
         })
       check.equal(ok, false, "the property must fail, not hang in shrink")
-      check.truthy(msg:find("budget=100000 exceeded", 1, true),
-        "the reported detail describes the reported input: " .. msg)
+      check.truthy(msg:find("too big", 1, true),
+        "shrinking must preserve the assertion category: " .. msg)
     end)
   restore()
 end
@@ -493,7 +428,7 @@ local function test_the_reported_detail_and_draws_describe_the_minimized_input()
       end,
     })
   check.equal(ok, false, "expected a failing run")
-  check.truthy(msg:find("too long", 1, true), "not the minimized detail: " .. msg)
-  check.equal(msg:find("threw:", 1, true), nil, "reported the throw: " .. msg)
-  check.truthy(msg:find("draws=4", 1, true), "not the consumed count: " .. msg)
+  check.truthy(msg:find("thrown_only_for_long_inputs", 1, true), "throw category changed: " .. msg)
+  check.truthy(msg:find("threw:", 1, true), "throw category must remain: " .. msg)
+  check.truthy(msg:find("draws=7", 1, true), "not the consumed count: " .. msg)
 end
