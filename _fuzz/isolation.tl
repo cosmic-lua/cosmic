@@ -1,6 +1,8 @@
 --- Own one fuzz subprocess, its environment, captures and temporary directory.
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
+local checkpoint = require("_fuzz.checkpoint")
+local codec = require("cosmic.codec")
 local testprocess = require("_tool.testprocess")
 
 local record Request
@@ -22,7 +24,7 @@ end
 
 -- signal/exit_code retain observations, including supervisor termination.
 -- Only crash implies a native signal without timeout or infrastructure error.
--- detail is nonempty on failures; checkpoint_bytes is empty until decoding lands.
+-- detail is nonempty on failures. checkpoint belongs only to a diagnostic child.
 local record Outcome
   kind: Kind
   signal: integer | nil
@@ -30,7 +32,7 @@ local record Outcome
   stdout: string
   stderr: string
   detail: string
-  checkpoint_bytes: string
+  checkpoint: checkpoint.Decoded | nil
 end
 
 --- Classify process evidence without spawning or reconstructing inputs.
@@ -63,8 +65,51 @@ local function classify(result: testprocess.Result): Outcome
   return {
     kind = kind, signal = result.signal, exit_code = result.exit_code,
     stdout = result.stdout, stderr = result.stderr,
-    detail = table.concat(details, "; "), checkpoint_bytes = "",
+    detail = table.concat(details, "; "),
   }
+end
+
+local function stage_name(stage: integer): string
+  if stage == 1 then return "primary" end
+  if stage == 2 then return "shrink" end
+  return "verify"
+end
+
+--- Render one diagnostic rerun without changing the original crash evidence.
+--- @param outcome Outcome The diagnostic child's classified evidence
+--- @param original_signal integer The original child's native signal
+--- @return string Frozen diagnostic report fields
+local function diagnostic_report(outcome: Outcome, original_signal: integer): string
+  if outcome.kind ~= "crash" then
+    if outcome.kind == "pass" then return "diagnostic=inconclusive; reason=clean-exit" end
+    if outcome.kind == "failure" then
+      return "diagnostic=inconclusive; reason=ordinary-failure"
+    end
+    if outcome.kind == "timeout" then return "diagnostic=inconclusive; reason=timeout" end
+    return "diagnostic=inconclusive; reason=infrastructure-error: " .. outcome.detail
+  end
+  if outcome.signal ~= original_signal then
+    return ("diagnostic=inconclusive; reason=changed-signal; diagnostic_signal=%s"):
+    format(tostring(outcome.signal))
+  end
+  local decoded = outcome.checkpoint
+  if not decoded then return "diagnostic=inconclusive; reason=missing-checkpoint" end
+  if not decoded.valid then
+    local reason = "malformed-checkpoint: " .. decoded.error
+    if decoded.error:find("ENOENT", 1, true)
+    or decoded.error:find("No such file", 1, true) then reason = "missing-checkpoint" end
+    return "diagnostic=inconclusive; reason=" .. reason
+  end
+  local snapshot = decoded.snapshot
+  if not snapshot then return "diagnostic=inconclusive; reason=malformed-checkpoint" end
+  if snapshot.phase == 4 then return "diagnostic=inconclusive; reason=oversized-input" end
+  if snapshot.phase ~= 2 then
+    return ("diagnostic=inconclusive; reason=non-check-phase-%d"):format(snapshot.phase)
+  end
+  return ("diagnostic=reproduced; checkpoint_iteration=%d; checkpoint_stage=%s; " ..
+    "checkpoint_input(base64)=%s; checkpoint_draws=%d; attribution=last-checkpoint"):
+  format(snapshot.iteration, stage_name(snapshot.stage),
+  codec.encode_base64(snapshot.input), snapshot.draws)
 end
 
 --- Run once in a fresh directory, then remove it after reading captures.
@@ -76,7 +121,6 @@ local function run(request: Request): Outcome
     return {
       kind = "infrastructure", stdout = "", stderr = "",
       detail = "temporary directory: " .. tostring(err or "creation failed"),
-      checkpoint_bytes = "",
     }
   end
   local overrides: {string: string} = {
@@ -90,6 +134,10 @@ local function run(request: Request): Outcome
       temp_dir = dir, timeout_ms = request.timeout_ms,
     })
   local outcome = classify(result)
+  if request.diagnostic then
+    outcome.checkpoint = checkpoint.read(fs.join(dir, "checkpoint"),
+      request.seed, request.iters)
+  end
   local removed, remove_err = fs.remove_all(dir)
   if not removed then
     outcome.kind = "infrastructure"
@@ -105,8 +153,10 @@ local record IsolationModule
   type Outcome = Outcome
   type Kind = Kind
   classify: function(result: testprocess.Result): Outcome
+  diagnostic_report: function(outcome: Outcome, original_signal: integer): string
   run: function(request: Request): Outcome
 end
 
-local M: IsolationModule = {classify = classify, run = run}
+local M: IsolationModule = {classify = classify,
+  diagnostic_report = diagnostic_report, run = run}
 return M
