@@ -100,8 +100,8 @@ local function test_invalid_metadata_is_rejected_by_encode_and_decode()
     function(s: checkpoint.Snapshot) s.iteration = 0 end,
     function(s: checkpoint.Snapshot) s.iteration = s.iters + 1 end,
     function(s: checkpoint.Snapshot) s.draws = -1 end,
-    function(s: checkpoint.Snapshot) s.phase = 0 end,
-    function(s: checkpoint.Snapshot) s.phase = 5 end,
+    function(s: checkpoint.Snapshot) s.phase, s.draws, s.input = 0, 0, "" end,
+    function(s: checkpoint.Snapshot) s.phase, s.draws, s.input = 5, 0, "" end,
     function(s: checkpoint.Snapshot) s.stage = 0 end,
     function(s: checkpoint.Snapshot) s.stage = 4 end,
   }
