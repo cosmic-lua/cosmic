@@ -1,7 +1,7 @@
 # D37 — the board holds two states; quality is two gates, not stages
 
 - **date:** 2026-08
-- **status:** amended 2026-09 (D45 replaced the blocked_by edge)
+- **status:** amended 2026-09 (D47 made dependency its own relation)
 - **context:** the flow system ran a six-phase kanban (`backlog` →
   `plan` → `ready` → `do` → `check` → `land`) with per-phase WIP
   limits in `_work/flow.tl`, a triage bound, a hand-run flow review
@@ -122,3 +122,14 @@
   still waits on the answer and the child's `done` frees it with no
   further verb, exactly as the 2026-08 amendment describes, now with
   no separate edge kind to keep in step with the parent chain.
+- **amended 2026-09 (dependency became a relation of its own —
+  [D47](d47-dependency-is-its-own-relation.md)):** the amendment above
+  is itself superseded, and the shape this record's 2026-08 amendment
+  described is restored with lighter machinery. a prerequisite is no
+  longer a child of its waiter: an item carries `depends_on`, a set of
+  zero or more item ids, and the block-first exit records the question
+  there. the stuck item still waits on the answer and the answer's
+  `done` frees it with no further verb — but the waiter keeps its own
+  rank and stays workable rather than becoming a container, and a
+  prerequisite several items wait on is expressible, which re-parenting
+  could not be.

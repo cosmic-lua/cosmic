@@ -54,10 +54,10 @@
     the diff, which outlives the sidecar that asked for it.
   - there is no `kind` field. what an item is follows from what it
     carries and where it sits, as role already follows from the graph.
-  - dependencies stay [D45](d45-rank-is-a-list-position-at-every-level.md)'s
-    parentage — a prerequisite is a child of its waiter — and a
-    precondition that is a release carrying a done item is itself work,
-    so the pin bump is an item like any other.
+  - dependencies are [D47](d47-dependency-is-its-own-relation.md)'s
+    `depends_on` relation, not a spec field — and a precondition that is
+    a release carrying a merged item is itself work, so the pin bump is
+    an item like any other.
   - `key`, `result` and `verdict_spec` leave the schema, and
     `spec.revision` is deleted with its last caller.
   - format 5, one cutover over every ref, then the migration module is
@@ -95,8 +95,9 @@
     sibling and then writing a shell command to detect it anyway — four
     are a release-and-pin chain that is itself work, and one is a
     calendar fact. nothing needs running.
-  - **reviving `blocked_by` as an edge.** D45 rejected this and its
-    reasoning holds; parentage already expresses the 16 sibling cases.
+  - **carrying dependencies in the spec at all.** a dependency is a
+    relation between items, not something one item's prose declares;
+    [D47](d47-dependency-is-its-own-relation.md) settles its shape.
   - **keeping `evidence` as a spec field** so a builder need not walk
     history for it. a measurement describes a past and belongs on the
     append-only side; 797 items carry one and no code reads any of
