@@ -49,6 +49,8 @@ local function test_real_shrink_crash_reports_the_candidate_and_draw_count()
   if sibling_child(name) then return end
   local oracle = fs.join(os.getenv("TEST_TMPDIR"), "shrink-oracle")
   local calls = 0
+  local saved_seed = env.get("FUZZ_SEED")
+  assert(env.set("FUZZ_SEED", "1"))
   local ok, message = driver.run({name = name, iters = 1,
       gen = function(rec: source.Recorder): string
         calls = calls + 1
@@ -62,6 +64,9 @@ local function test_real_shrink_crash_reports_the_candidate_and_draw_count()
       end,
     })
   if env.get("FUZZ_ISOLATE") then return end
+  if saved_seed then assert(env.set("FUZZ_SEED", saved_seed))
+  else assert(env.unset("FUZZ_SEED")) end
+  check.equal(env.get("FUZZ_SEED"), saved_seed, "restore caller seed")
   check.equal(ok, false)
   for _, field in ipairs({"original_input=unavailable", "diagnostic=reproduced",
       "checkpoint_iteration=1", "checkpoint_stage=shrink",
@@ -116,6 +121,7 @@ local function test_one_rerun_and_inconclusive_diagnostic_outcomes()
     {changed, "reason=changed-signal; diagnostic_signal=11"},
     {fake_outcome("pass"), "reason=clean-exit"},
     {fake_outcome("timeout"), "reason=timeout"},
+    {fake_outcome("infrastructure"), "reason=infrastructure-error"},
   }
   for _, case in ipairs(cases) do
     local message, calls = fake_report(case[1])

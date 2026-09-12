@@ -13,8 +13,12 @@
 --- re-invokes this same process as a child (FUZZ_ISOLATE names the
 --- property so every OTHER property in the file no-ops), so a C-layer
 --- crash inside check() is caught as a signaled child instead of
---- taking down the whole file. Crashes retain the native signal without
---- inventing input bytes. A hang past the child's wall clock —
+--- taking down the whole file. A natural signal gets at most one full-prefix
+--- diagnostic rerun. Only that rerun's last checking checkpoint can report
+--- bytes, and only when it ends with the same signal; it may instead be
+--- inconclusive because timing or process-local state changed. The checkpoint
+--- is execution context, not proof that its check caused the signal. A hang
+--- past the child's wall clock —
 --- Options.timeout_ms, or an allowance scaling with the iteration count —
 --- reports the configured iteration count and unavailable input.
 --- FUZZ_ISOLATE is internal — set by run()
