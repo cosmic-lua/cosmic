@@ -128,17 +128,22 @@ end
 
 local function with_selected(name: string, body: function())
   local saved_selected, saved_dir = env.get("FUZZ_ISOLATE"), env.get("FUZZ_DIAGNOSTIC_DIR")
+  local saved_iters = env.get("FUZZ_ITERS")
   assert(env.set("FUZZ_ISOLATE", name))
   assert(env.set("FUZZ_DIAGNOSTIC_DIR", os.getenv("TEST_TMPDIR")))
+  assert(env.set("FUZZ_ITERS", "1"))
   body()
   if saved_selected then assert(env.set("FUZZ_ISOLATE", saved_selected))
   else assert(env.unset("FUZZ_ISOLATE")) end
   if saved_dir then assert(env.set("FUZZ_DIAGNOSTIC_DIR", saved_dir))
   else assert(env.unset("FUZZ_DIAGNOSTIC_DIR")) end
+  if saved_iters then assert(env.set("FUZZ_ITERS", saved_iters))
+  else assert(env.unset("FUZZ_ITERS")) end
 end
 
 local function test_observer_orders_every_primary_phase_and_unisolated_ignores_ambient()
   if env.get("FUZZ_ISOLATE") then return end
+  local ambient_iters = env.get("FUZZ_ITERS")
   local write = checkpoint.write
   local events: {string} = {}
   checkpoint.write = function(_path: string, snapshot: checkpoint.Snapshot): boolean, string
@@ -154,7 +159,14 @@ local function test_observer_orders_every_primary_phase_and_unisolated_ignores_a
         })
       check.equal(ok, true)
     end)
+  check.equal(env.get("FUZZ_ITERS"), ambient_iters)
   check.equal(table.concat(events, ","), "write1:1,gen,write2:1,check,write3:1")
+  assert(env.unset("FUZZ_ITERS"))
+  with_selected("absent_iters", function()
+      check.equal(env.get("FUZZ_ITERS"), "1")
+    end)
+  check.equal(env.get("FUZZ_ITERS"), nil)
+  if ambient_iters then assert(env.set("FUZZ_ITERS", ambient_iters)) end
   events = {}
   assert(env.set("FUZZ_DIAGNOSTIC_DIR", os.getenv("TEST_TMPDIR")))
   local ok = driver.run_unisolated({name = "ambient", iters = 1,
