@@ -48,7 +48,15 @@
     ref, which already carries date, author and subject. the item's
     **outcome** is the body of the commit that resolved it, making the
     deliverable a commit in both cases — a product commit for a diff, a
-    board commit for research.
+    board commit for research. the two do not collapse into one field:
+    which repository the commit lives in is part of the fact, and
+    `_work/brief.tl` and `_work/gitdone.tl` both resolve `handover_head`
+    inside the product checkout. so `handover_head` keeps the product
+    commit and `result` keeps the board one, re-typed from a spec-blob
+    digest. `result` is also the only fact distinguishing "applied,
+    awaiting a verdict" from "builder mid-flight" — `_work/gittake.tl`
+    says so, and both states are otherwise claimed, PR-less, with
+    builders on record.
   - there is no `acceptance` field. done is the repo's gate passing; a
     behaviour worth guaranteeing permanently is a test or ratchet in
     the diff, which outlives the sidecar that asked for it.
@@ -58,8 +66,8 @@
     `depends_on` relation, not a spec field — and a precondition that is
     a release carrying a merged item is itself work, so the pin bump is
     an item like any other.
-  - `key`, `result` and `verdict_spec` leave the schema, and
-    `spec.revision` is deleted with its last caller.
+  - `key` and `verdict_spec` leave the schema, and `spec.revision` is
+    deleted with its last caller.
   - format 5, one cutover over every ref, then the migration module is
     retired — the shape the format-3 to format-4 migration already had.
 - **rejected:**
