@@ -110,9 +110,15 @@
     exists to prevent.
 - **consequences:** the divergence goes away by construction — four
   path-parsing functions, `spec.revision`, and three `meta` fields are
-  deleted rather than reconciled — and collision detection stops
-  costing a whole-board spec read, because `touches` is in the `meta`
-  that `store.list` already loads. the costs are real. findings become
+  deleted rather than reconciled — and collision detection reads a
+  declared list instead of parsing every open item's prose. that read is
+  not free, and the mechanism is worth stating because it is a trap: a
+  whole-board read goes through the derived SQLite cache, never git
+  `meta`, and `_work/cachequery.tl` rebuilds an `item.Item` from columns.
+  a field with no column and no hydration is therefore **zeroed** the
+  next time any verb saves an item it read from `store.list`, so each new
+  field lands with its column, its hydration and its migration in one
+  change or not at all. the costs are real. findings become
   **immutable**: a correction is a new entry, not an edit. a reviewer
   wanting the evidence for an item now walks its history rather than
   reading it inline, and 28% of corpus bytes move out of what `show`
