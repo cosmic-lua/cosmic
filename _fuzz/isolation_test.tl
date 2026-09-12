@@ -19,7 +19,7 @@ local function test_clean_exit_passes()
   local outcome = isolation.classify(result())
   check.equal(outcome.kind, "pass")
   check.equal(outcome.stdout, "output")
-  check.equal(outcome.checkpoint_bytes, "")
+  check.equal(outcome.checkpoint, nil)
 end
 
 local function test_zero_exit_with_cleanup_error_is_infrastructure()
@@ -107,7 +107,7 @@ print("pinned")
   else assert(env.unset("FUZZ_DIAGNOSTIC_DIR")) end
   check.equal(outcome.kind, "pass", outcome.detail .. outcome.stderr)
   check.equal(outcome.stdout, "pinned\n")
-  check.equal(outcome.checkpoint_bytes, "")
+  check.equal(outcome.checkpoint, nil)
 end
 
 local function test_directory_cleanup_failure_retains_observed_status()
@@ -161,7 +161,7 @@ local function test_driver_reports_only_observed_crash_and_timeout_context()
   local ok, msg = report(r)
   check.equal(ok, false)
   check.truthy(msg:find("configured_iters=8: crashed: signal 15; original_input=unavailable", 1, true), "missing evidence")
-  check.truthy(msg:find("diagnostic=inconclusive; reason=diagnostic-not-enabled", 1, true), "missing evidence")
+  check.truthy(msg:find("diagnostic=inconclusive; reason=missing-checkpoint", 1, true), "missing evidence")
   check.equal(msg:find("iteration=", 1, true), nil)
   check.equal(msg:find("input(base64)=", 1, true), nil)
   r.timed_out = true

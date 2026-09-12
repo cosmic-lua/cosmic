@@ -21,6 +21,7 @@
 --- itself, never by a caller.
 
 local isolation = require("_fuzz.isolation")
+local observe = require("_fuzz.observe")
 local codec = require("cosmic.codec")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
@@ -186,21 +187,35 @@ local function attempt(
   return true, ""
 end
 
---- Wrap a property's check so each call runs under the budget hook.
---- Shrinking reruns check on every candidate, and it must not do so
---- unbudgeted: the candidate that loops is the very input the budget
---- exists to attribute. A throw becomes a false return, which is what
---- shrink's still_fails already makes of one, so a budget-exceeded
---- candidate reads as still failing and is kept.
---- @param check function The property's check
---- @param budget integer VM instructions one call may spend
---- @return function The same contract, budget-capped per call
-local function budgeted(
-    check: function(input: string): boolean, string, budget: integer
-  ): function(input: string): boolean, string
-  return function(input: string): boolean, string
-    return attempt(check, input, budget)
+local function observed_gen(context: observe.Context | nil,
+    gen: function(src: source.Recorder): string
+  ): function(src: source.Recorder): string
+  local ctx = context
+  if not ctx then return gen end
+  return function(rec: source.Recorder): string
+    if ctx.failed or not observe.generating(ctx) then return "" end
+    local input = gen(rec)
+    observe.generated(ctx, rec)
+    return input
   end
+end
+
+local function observed_attempt(context: observe.Context | nil,
+    check: function(input: string): boolean, string,
+    input: string, budget: integer
+  ): boolean, string
+  local ctx = context
+  if not ctx then return attempt(check, input, budget) end
+  if ctx.failed or not observe.checking(ctx, input) then return false, ctx.error end
+  local held, what = attempt(check, input, budget)
+  if not observe.between(ctx) then return false, ctx.error end
+  return held, what
+end
+
+local function journal_failure(opts: Options, seed: integer,
+    context: observe.Context): string
+  return ("%s: seed=%d diagnostic journal failed: %s"):format(
+    opts.name, seed, context.error)
 end
 
 --- Format the one failure message shape every fuzz test reports.
@@ -244,18 +259,31 @@ end
 --- @return boolean True when every iteration held
 --- @return string The failure message, or a summary of the passing run
 local function run_in_process(
-    opts: Options, seed: integer, iters: integer, budget: integer
+    opts: Options, seed: integer, iters: integer, budget: integer,
+    context: observe.Context | nil
   ): boolean, string
   for i = 1, iters do
+    if context then observe.configure(context, i, 1) end
     local rec = source.new(rand.insecure_source(seed + i))
-    local input = opts.gen(rec)
-    local held, what = attempt(opts.check, input, budget)
+    local gen = observed_gen(context, opts.gen)
+    local input = gen(rec)
+    if context and context.failed then return false, journal_failure(opts, seed, context) end
+    local held, what = observed_attempt(context, opts.check, input, budget)
+    if context and context.failed then return false, journal_failure(opts, seed, context) end
     if not held then
+      if context then observe.configure(context, i, 2) end
       local minimized_draws = shrink.shrink(
-        opts.gen, budgeted(opts.check, budget), rec.draws)
+        gen, function(candidate: string): boolean, string
+          return observed_attempt(context, opts.check, candidate, budget)
+        end, rec.draws)
+      if context and context.failed then return false, journal_failure(opts, seed, context) end
+      if context then observe.configure(context, i, 3) end
       local replayed = source.replay(minimized_draws)
-      local minimized_input = opts.gen(replayed)
-      local still_held, minimized_what = attempt(opts.check, minimized_input, budget)
+      local minimized_input = gen(replayed)
+      if context and context.failed then return false, journal_failure(opts, seed, context) end
+      local still_held, minimized_what = observed_attempt(
+        context, opts.check, minimized_input, budget)
+      if context and context.failed then return false, journal_failure(opts, seed, context) end
       if not still_held then
         what = minimized_what
       end
@@ -302,7 +330,7 @@ local function isolate(
     -- arg[-1] unresolvable (no known case in this tree's own test
     -- runners): isolation is impossible, so fall back to the
     -- unisolated loop rather than failing every property outright.
-    return run_in_process(opts, seed, iters, budget)
+    return run_in_process(opts, seed, iters, budget, nil)
   end
   local argv = {cosmic_bin, arg[0]}
   local timeout_ms = timeout_for(opts, iters)
@@ -312,8 +340,12 @@ local function isolate(
     })
   local prefix = ("%s: seed=%d configured_iters=%d: "):format(opts.name, seed, iters)
   if r.kind == "crash" then
-    return false, prefix .. ("crashed: signal %d; original_input=unavailable"):format(r.signal) ..
-    "; diagnostic=inconclusive; reason=diagnostic-not-enabled"
+    local diagnostic = isolation.run({
+        argv = argv, name = opts.name, seed = seed, iters = iters,
+        timeout_ms = timeout_ms, diagnostic = true,
+      })
+    return false, prefix .. ("crashed: signal %d; original_input=unavailable; "):
+    format(r.signal) .. isolation.diagnostic_report(diagnostic, r.signal)
   end
   if r.kind == "timeout" then
     return false, prefix .. ("hung: exceeded %dms; input=unavailable"):format(timeout_ms)
@@ -342,7 +374,7 @@ local function run_unisolated(opts: Options): boolean, string
   local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
   local iters = opts.iters or env_integer("FUZZ_ITERS", DEFAULT_ITERS)
   local budget = opts.budget or DEFAULT_BUDGET
-  return run_in_process(opts, seed, iters, budget)
+  return run_in_process(opts, seed, iters, budget, nil)
 end
 
 --- Run a fuzz property over generated inputs.
@@ -368,7 +400,10 @@ local function run(opts: Options): boolean, string
     local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
     local iters = env_integer("FUZZ_ITERS", opts.iters or DEFAULT_ITERS)
     local budget = opts.budget or DEFAULT_BUDGET
-    return run_in_process(opts, seed, iters, budget)
+    local context: observe.Context | nil
+    local diagnostic_dir = env.get("FUZZ_DIAGNOSTIC_DIR")
+    if diagnostic_dir then context = observe.new(diagnostic_dir, seed, iters) end
+    return run_in_process(opts, seed, iters, budget, context)
   end
   local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
   local iters = opts.iters or env_integer("FUZZ_ITERS", DEFAULT_ITERS)
