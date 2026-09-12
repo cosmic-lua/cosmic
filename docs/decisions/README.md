@@ -43,7 +43,7 @@ build when the committed copy drifts.
 | D6 | the promise transfers via runtime defaults plus ratchets | amended 2026-09 (coverage ratchet replaced by a command-line floor) | [→](d06-defaults-plus-ratchets.md) |
 | D7 | contained by default where the OS can enforce it | amended 2026-08 (rescoped by D25) | [→](d07-contained-where-enforceable.md) |
 | D8 | eval win condition: correctness gates, then efficiency | active | [→](d08-eval-win-condition.md) |
-| D9 | batteries include serving; not urgently | active | [→](d09-batteries-include-serving.md) |
+| D9 | batteries include serving; not urgently | amended 2026-09 (D46 started the server story) | [→](d09-batteries-include-serving.md) |
 | D10 | perpetual right to break | active | [→](d10-right-to-break.md) |
 | D11 | sequencing: harness first | amended 2026-08 (the ordering is retired; ranking lives in D25) | [→](d11-harness-first.md) |
 | D12 | goals and decisions are separate documents | amended 2026-08 (one record per file; the process is D26) | [→](d12-goals-and-decisions-separate.md) |
@@ -80,3 +80,4 @@ build when the committed copy drifts.
 | D43 | generation 1 seeds `cosmo.*` declarations from the tree's own cosmos pin, not the pinned binary | active | [→](d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md) |
 | D44 | the release publishes regardless of the perf compare; perf is a daily non-blocking lane | active | [→](d44-release-publishes-regardless-of-the-perf-compare.md) |
 | D45 | rank is a position in the parent's list at every level, the board included | active | [→](d45-rank-is-a-list-position-at-every-level.md) |
+| D46 | the HTTP server engine is a cosmo.http binding over net/http; the surface is cosmic.http; htmx is a guide, not a coupling | active | [→](d46-http-engine-is-a-cosmo-binding.md) |
