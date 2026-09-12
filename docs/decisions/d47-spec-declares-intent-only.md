@@ -1,4 +1,4 @@
-# D46 — an item's spec declares intent only; measurement and outcome live in its own history
+# D47 — an item's spec declares intent only; measurement and outcome live in its own history
 
 - **date:** 2026-09
 - **status:** active
@@ -54,7 +54,7 @@
     the diff, which outlives the sidecar that asked for it.
   - there is no `kind` field. what an item is follows from what it
     carries and where it sits, as role already follows from the graph.
-  - dependencies are [D47](d47-dependency-is-its-own-relation.md)'s
+  - dependencies are [D48](d48-dependency-is-its-own-relation.md)'s
     `depends_on` relation, not a spec field — and a precondition that is
     a release carrying a merged item is itself work, so the pin bump is
     an item like any other.
@@ -97,7 +97,7 @@
     calendar fact. nothing needs running.
   - **carrying dependencies in the spec at all.** a dependency is a
     relation between items, not something one item's prose declares;
-    [D47](d47-dependency-is-its-own-relation.md) settles its shape.
+    [D48](d48-dependency-is-its-own-relation.md) settles its shape.
   - **keeping `evidence` as a spec field** so a builder need not walk
     history for it. a measurement describes a past and belongs on the
     append-only side; 797 items carry one and no code reads any of

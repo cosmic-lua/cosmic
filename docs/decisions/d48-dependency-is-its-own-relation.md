@@ -1,4 +1,4 @@
-# D47 — an item depends on zero or more items, as a relation of its own rather than a position in the tree
+# D48 — an item depends on zero or more items, as a relation of its own rather than a position in the tree
 
 - **date:** 2026-09
 - **status:** active

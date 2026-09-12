@@ -23,6 +23,7 @@ local record Options
 end
 
 local record Result
+  signal: integer | nil
   exit_code: integer
   stdout: string
   stderr: string
@@ -197,6 +198,7 @@ local function run(argv: {string}, opts: Options): Result
     cleanup_errors[#cleanup_errors + 1] = tostring(wait_err or "wait failed")
   end
   return {
+    signal = finished and finished.signal or nil,
     exit_code = finished and exit_code(finished) or 1,
     stdout = stdout,
     stderr = stderr,

@@ -1,7 +1,7 @@
 # D45 — rank is a position in the parent's list at every level, the board included
 
 - **date:** 2026-09
-- **status:** amended 2026-09 (dependency became a relation of its own — D47)
+- **status:** amended 2026-09 (dependency became a relation of its own — D48)
 - **context:** gitboard ordered a board by three separate mechanisms —
   the parent chain that gave an item its context, a `beats` relation
   that ranked whatever pair a session compared, and a `blocked_by`
@@ -101,7 +101,7 @@
   tree restating the ordering rule in its own words rather than citing
   the page it lives on.
 - **amended 2026-09 (dependency became a relation of its own —
-  [D47](d47-dependency-is-its-own-relation.md)):** the ordering decision
+  [D48](d48-dependency-is-its-own-relation.md)):** the ordering decision
   stands entirely — rank is a position in the parent's list, at every
   level. what moved is the bullet routing a prerequisite through
   parentage, and the rejection of `blocked_by` that justified it. the

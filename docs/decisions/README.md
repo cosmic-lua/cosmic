@@ -43,7 +43,7 @@ build when the committed copy drifts.
 | D6 | the promise transfers via runtime defaults plus ratchets | amended 2026-09 (coverage ratchet replaced by a command-line floor) | [→](d06-defaults-plus-ratchets.md) |
 | D7 | contained by default where the OS can enforce it | amended 2026-08 (rescoped by D25) | [→](d07-contained-where-enforceable.md) |
 | D8 | eval win condition: correctness gates, then efficiency | active | [→](d08-eval-win-condition.md) |
-| D9 | batteries include serving; not urgently | active | [→](d09-batteries-include-serving.md) |
+| D9 | batteries include serving; not urgently | amended 2026-09 (D46 started the server story) | [→](d09-batteries-include-serving.md) |
 | D10 | perpetual right to break | active | [→](d10-right-to-break.md) |
 | D11 | sequencing: harness first | amended 2026-08 (the ordering is retired; ranking lives in D25) | [→](d11-harness-first.md) |
 | D12 | goals and decisions are separate documents | amended 2026-08 (one record per file; the process is D26) | [→](d12-goals-and-decisions-separate.md) |
@@ -71,7 +71,7 @@ build when the committed copy drifts.
 | D34 | the perf gate judges reproduction against the re-measured baseline | superseded by D36 | [→](d34-reproduction-against-remeasured-baseline.md) |
 | D35 | a dismissed perf regression owes the same evidence a credited one does | amended 2026-08 (D36 disproved the baseline-pair credit) | [→](d35-dismissal-owes-evidence.md) |
 | D36 | a disagreeing baseline pair earns a third reading and is judged by the median | active | [→](d36-baseline-tiebreak-third-reading.md) |
-| D37 | the board holds two states; quality is two gates, not stages | amended 2026-09 (D47 made dependency its own relation) | [→](d37-two-states-two-gates.md) |
+| D37 | the board holds two states; quality is two gates, not stages | amended 2026-09 (D48 made dependency its own relation) | [→](d37-two-states-two-gates.md) |
 | D38 | main lands through a GitHub merge queue; board keeps merge-at-accept | amended 2026-08 (gate/* mirror retired) | [→](d38-merge-queue-on-main.md) |
 | D39 | no prose exemption from the file cap; reclaim before you split | amended 2026-09 (the cap became an option) | [→](d39-no-prose-exemption-from-the-file-cap.md) |
 | D40 | sandbox.apply reports full/degraded/skipped per section, and refuses when nothing enforced | active | [→](d40-sandbox-enforcement-report.md) |
@@ -79,6 +79,7 @@ build when the committed copy drifts.
 | D42 | a verified outcome is held by a marker, not ended; a child filed under it clears the hold | superseded by D45 | [→](d42-held-outcome-is-a-marker-not-an-ending.md) |
 | D43 | generation 1 seeds `cosmo.*` declarations from the tree's own cosmos pin, not the pinned binary | active | [→](d43-generation-1-seeds-cosmo-declarations-from-the-cosmos-pin.md) |
 | D44 | the release publishes regardless of the perf compare; perf is a daily non-blocking lane | active | [→](d44-release-publishes-regardless-of-the-perf-compare.md) |
-| D45 | rank is a position in the parent's list at every level, the board included | amended 2026-09 (dependency became a relation of its own — D47) | [→](d45-rank-is-a-list-position-at-every-level.md) |
-| D46 | an item's spec declares intent only; measurement and outcome live in its own history | active | [→](d46-spec-declares-intent-only.md) |
-| D47 | an item depends on zero or more items, as a relation of its own rather than a position in the tree | active | [→](d47-dependency-is-its-own-relation.md) |
+| D45 | rank is a position in the parent's list at every level, the board included | amended 2026-09 (dependency became a relation of its own — D48) | [→](d45-rank-is-a-list-position-at-every-level.md) |
+| D46 | the HTTP server engine is a cosmo.http binding over net/http; the surface is cosmic.http; htmx is a guide, not a coupling | active | [→](d46-http-engine-is-a-cosmo-binding.md) |
+| D47 | an item's spec declares intent only; measurement and outcome live in its own history | active | [→](d47-spec-declares-intent-only.md) |
+| D48 | an item depends on zero or more items, as a relation of its own rather than a position in the tree | active | [→](d48-dependency-is-its-own-relation.md) |

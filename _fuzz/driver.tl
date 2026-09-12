@@ -2,10 +2,9 @@
 --- run() draws one Recorder per iteration from a seeded rand.Source,
 --- generates an input from it, and asserts a property on that input.
 --- Every fuzz test in the tree shares it, so failures are reported the
---- same way and every failure is replayable: the message names the
---- seed, the iteration, the failing input in base64 and its draw
---- count, and rerunning with FUZZ_SEED=<seed> reaches the same input
---- at the same iteration.
+--- same way. Ordinary property failures name the seed, iteration, input
+--- in base64 and draw count. Crashes report unavailable original input;
+--- seeded reruns cannot reconstruct arbitrary process-local state.
 ---
 --- Environment: FUZZ_SEED sets the seed (default 1), FUZZ_ITERS the
 --- iteration count (default 256). Options.iters overrides FUZZ_ITERS.
@@ -14,14 +13,14 @@
 --- re-invokes this same process as a child (FUZZ_ISOLATE names the
 --- property so every OTHER property in the file no-ops), so a C-layer
 --- crash inside check() is caught as a signaled child instead of
---- taking down the whole file. On a crash, the failing iteration is
---- found by re-spawning the child with a bisected FUZZ_ITERS. A hang
---- past the child's wall clock — Options.timeout_ms when a caller names
---- one, otherwise an allowance that scales with the iteration count —
---- is reported the same way. FUZZ_ISOLATE is internal — set by run()
+--- taking down the whole file. Crashes retain the native signal without
+--- inventing input bytes. A hang past the child's wall clock —
+--- Options.timeout_ms, or an allowance scaling with the iteration count —
+--- reports the configured iteration count and unavailable input.
+--- FUZZ_ISOLATE is internal — set by run()
 --- itself, never by a caller.
 
-local child = require("cosmic.child")
+local isolation = require("_fuzz.isolation")
 local codec = require("cosmic.codec")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
@@ -267,59 +266,6 @@ local function run_in_process(
   return true, string.format("%s: %d iterations, seed=%d", opts.name, iters, seed)
 end
 
---- Re-invoke this same process as a child, isolated to one property.
---- The child sees FUZZ_ISOLATE=name (so every other property in the
---- file no-ops in run(), see below) and FUZZ_SEED/FUZZ_ITERS pinned to
---- the values this run uses, overriding whatever the parent's own
---- environment set.
---- @param argv {string} {interpreter path, this script's path}
---- @param name string The property to isolate
---- @param seed integer The seed to pin
---- @param iters integer The iteration count to pin
---- @param timeout_ms integer Milliseconds before the child counts as hung
---- @return child.Result | nil The child's result, or nil on a timeout or a
---- failure to start
---- @return string? Why there is no Result
-local function spawn_isolated(
-    argv: {string}, name: string, seed: integer, iters: integer, timeout_ms: integer
-  ): child.Result | nil, string
-  local child_env = env.list({set = {
-        FUZZ_ISOLATE = name,
-        FUZZ_SEED = tostring(seed),
-        FUZZ_ITERS = tostring(iters),
-      }})
-  local h, err = child.start(argv, {env = child_env})
-  if not h then
-    return nil, err or "start failed"
-  end
-  return h:wait(timeout_ms)
-end
-
---- Find the smallest iteration count that still reproduces a crash.
---- `hi` is known to crash (the caller just observed it); binary search
---- narrows to the least such count, which is the failing iteration.
---- @param argv {string} {interpreter path, this script's path}
---- @param name string The property to isolate
---- @param seed integer The seed to pin
---- @param timeout_ms integer Milliseconds before a respawn counts as hung
---- @param hi integer An iteration count already known to crash
---- @return integer The smallest iteration count that still crashes
-local function bisect_crash(
-    argv: {string}, name: string, seed: integer, timeout_ms: integer, hi: integer
-  ): integer
-  local lo = 1
-  while lo < hi do
-    local mid = (lo + hi) // 2
-    local r = spawn_isolated(argv, name, seed, mid, timeout_ms)
-    if r and r.signal then
-      hi = mid
-    else
-      lo = mid + 1
-    end
-  end
-  return lo
-end
-
 --- How long the isolated child gets, in milliseconds.
 --- An explicit Options.timeout_ms is absolute: a caller who names a
 --- wall clock means it, whatever the depth. Otherwise the allowance
@@ -340,10 +286,8 @@ end
 --- Result into the same true/false, message shape run_in_process
 --- reports: a clean exit passes through, an ordinary property failure
 --- forwards the child's captured stderr (the standard failure()
---- message it already printed via check.truthy), a crash bisects the
---- failing iteration and reports it "crashed: signal N", and a timeout
---- reports "hung: exceeded <timeout_ms>ms" against the full iteration
---- count (not bisected — see Non-goals in the item that added this).
+--- message it already printed via check.truthy). Crashes and timeouts
+--- report process evidence with unavailable original input.
 --- @param opts Options The property to run
 --- @param seed integer The seed to draw from
 --- @param iters integer How many iterations to run
@@ -362,26 +306,26 @@ local function isolate(
   end
   local argv = {cosmic_bin, arg[0]}
   local timeout_ms = timeout_for(opts, iters)
-  local r, err = spawn_isolated(argv, opts.name, seed, iters, timeout_ms)
-  if not r then
-    if err == "timeout" then
-      return false, failure(opts.name, seed, iters, "", 0,
-        ("hung: exceeded %dms"):format(timeout_ms))
-    end
-    return false, failure(opts.name, seed, iters, "", 0,
-      "isolation failed: " .. (err or "unknown error"))
+  local r = isolation.run({
+      argv = argv, name = opts.name, seed = seed, iters = iters,
+      timeout_ms = timeout_ms, diagnostic = false,
+    })
+  local prefix = ("%s: seed=%d configured_iters=%d: "):format(opts.name, seed, iters)
+  if r.kind == "crash" then
+    return false, prefix .. ("crashed: signal %d; original_input=unavailable"):format(r.signal) ..
+    "; diagnostic=inconclusive; reason=diagnostic-not-enabled"
   end
-  if r.signal then
-    local crash_iteration = bisect_crash(argv, opts.name, seed, timeout_ms, iters)
-    local rec = source.new(rand.insecure_source(seed + crash_iteration))
-    local input = opts.gen(rec)
-    return false, failure(opts.name, seed, crash_iteration, input, #rec.draws,
-      ("crashed: signal %d"):format(r.signal))
+  if r.kind == "timeout" then
+    return false, prefix .. ("hung: exceeded %dms; input=unavailable"):format(timeout_ms)
   end
-  if r.code == 0 then
+  if r.kind == "pass" then
     return true, string.format("%s: %d iterations, seed=%d", opts.name, iters, seed)
   end
-  return false, ((r.stderr or ""):gsub("%s+$", ""))
+  if r.kind == "failure" and r.stderr ~= "" then
+    local detail = r.stderr:gsub("%s+$", "")
+    if detail ~= "" then return false, detail end
+  end
+  return false, prefix .. "isolation failed: " .. r.detail
 end
 
 --- Run a property in this process, without isolation: resolves
@@ -418,7 +362,7 @@ local function run(opts: Options): boolean, string
       return true, opts.name .. ": skipped (isolating a different property)"
     end
     -- Inside the isolated child, FUZZ_ITERS is the parent's pin — a
-    -- bisection probe narrowing toward a crash — so it outranks
+    -- configured iteration count — so it outranks
     -- opts.iters here, the one place that priority differs from
     -- everywhere else opts.iters is read.
     local seed = env_integer("FUZZ_SEED", DEFAULT_SEED)
