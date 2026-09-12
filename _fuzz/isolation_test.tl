@@ -117,7 +117,9 @@ local function test_directory_cleanup_failure_retains_observed_status()
     removed_dir = path
     return false, "injected removal failure"
   end
-  local outcome = isolation.run(request({check.must(proc.interpreter()), "-e", "os.exit(0)"}))
+  local script = fs.join(os.getenv("TEST_TMPDIR"), "clean_exit.lua")
+  assert(fs.write(script, "os.exit(0)"))
+  local outcome = isolation.run(request({check.must(proc.interpreter()), script}))
   fs.remove_all = remove_all
   assert(remove_all(removed_dir))
   check.equal(outcome.kind, "infrastructure")
