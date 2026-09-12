@@ -1,7 +1,7 @@
 # D45 — rank is a position in the parent's list at every level, the board included
 
 - **date:** 2026-09
-- **status:** active
+- **status:** amended 2026-09 (dependency became a relation of its own — D48)
 - **context:** gitboard ordered a board by three separate mechanisms —
   the parent chain that gave an item its context, a `beats` relation
   that ranked whatever pair a session compared, and a `blocked_by`
@@ -100,3 +100,14 @@
   list rather than the tournament. what this forbids: any doc in this
   tree restating the ordering rule in its own words rather than citing
   the page it lives on.
+- **amended 2026-09 (dependency became a relation of its own —
+  [D48](d48-dependency-is-its-own-relation.md)):** the ordering decision
+  stands entirely — rank is a position in the parent's list, at every
+  level. what moved is the bullet routing a prerequisite through
+  parentage, and the rejection of `blocked_by` that justified it. the
+  evidence here measured whether the edge added ORDERING information and
+  found it did not; readiness is a different question, and two siblings
+  that both wait on a third cannot both re-parent it. an item now carries
+  `depends_on`, a set of zero or more item ids, gating whether it is
+  pullable and having no effect on rank. the objection to the machinery
+  survives: it is a set of ids on the item, not an `edges/` namespace.
