@@ -123,58 +123,43 @@ see `cosmic --examples net` for a runnable single-process echo exchange:
 `accept`, then `send`/`recv`. `recv` returns bare nil on peer close
 (end of stream); `""` only ever means a zero-byte datagram.
 
-## HTTP without a framework (net + fetch)
+## HTTP server (http + fetch)
 
-there is no HTTP server module, on purpose: at this scale HTTP/1.1 is a
-request line, a header drain, and a `Content-Length` you compute — serve
-it by hand over a `net` socket, and let `cosmic.fetch` (a full HTTP
-client: retries, redirects, streaming) be the client side. this is the
-sanctioned shape; `cosmic --examples fetch` runs exactly this pair.
+`cosmic.http` owns the socket and the loop: `listen`, then one handler
+function per request. `serve` accepts and answers until the listener
+closes; `serve_one` does a single connection, keep-alive included, which
+is what a test or a caller with its own accept loop wants.
 
 ```teal
 local check = require("cosmic.check")
-local net = require("cosmic.net")
-local stream = require("cosmic.stream")
+local http = require("cosmic.http")
 
--- serve one request: read the request line, drain headers, answer
--- with a computed Content-Length. loop it for a real server.
-local function serve_one(srv: net.Socket): boolean, string
-  local accepted, accept_err = srv:accept()
-  if not accepted then
-    return false, accept_err
-  end
-  local conn = accepted as net.Socket -- cast: record union after guard
-  -- a Socket is a stream.Reader, so stream.lines is the line reader.
-  -- it splits on "\n" and leaves HTTP's "\r" on the end, which the
-  -- framing here strips explicitly rather than assuming.
-  local next_line = stream.lines(conn)
-  local function crlf_line(): string | nil
-    local line = next_line()
-    if line == nil then return nil end
-    return (line:gsub("\r$", ""))
-  end
-  local request_line = crlf_line()
-  local path = "/"
-  if request_line is string then
-    path = request_line:match("^%u+%s+(%S+)") or "/"
-  end
-  while true do
-    local header = crlf_line()
-    if not header or header == "" then break end -- blank line ends headers
-  end
-  local body = "hello from " .. path .. "\n"
-  local ok, send_err = conn:send_all("HTTP/1.1 200 OK\r\n"
-    .. "Content-Length: " .. #body .. "\r\n"
-    .. "Connection: close\r\n\r\n" .. body)
-  local _ok, _err = conn:close() -- the send result is the verdict, not the close
-  return ok, send_err
-end
-
-local srv = check.must(net.listen_tcp("127.0.0.1", 0))
-print("READY " .. check.must(srv:local_endpoint()).port) -- a test blocks on this line
-assert(serve_one(srv))
-assert(srv:close())
+local srv = check.must(http.listen("127.0.0.1", 0))
+print("READY " .. srv:port()) -- a test blocks on this line
+local _ok, err = srv:serve(function(req: http.Request, res: http.Response)
+    if req.path == "/health" then
+      local _sent, _serr = res:json({ok = true})
+    else
+      local _sent, _serr = res:text("hello " .. req.path .. "\n")
+    end
+  end)
+print("stopped: " .. err)
 ```
+
+the handler gets a typed `Request` — `method`, `path`, `query`,
+`version`, `headers`, `req:header(name)`, `req:body()` — and a
+`Response` that computes the framing for it: `Date`, `Content-Length`
+and the keep-alive decision are the server's, never the handler's. the
+send verbs are `send`, `text`, `json`, `redirect`, and `html`, which
+takes `cosmic.html.SafeHtml` rather than a string, so a
+`cosmic.template` render reaches the wire already escaped and a raw
+string does not compile. a handler that returns without sending, or one
+that throws, gets a 500 and the connection carries on.
+
+`listen` takes the limits: `read_timeout_ms` (default 30000),
+`max_body_bytes` (413 above it, refused on the declared
+`Content-Length` before a byte is read), `max_head_bytes` (431 above
+it). a chunked request body is refused with 411 for now.
 
 client side, one call: `fetch.fetch("http://127.0.0.1:" .. port ..
 "/status", {allow_private = true})` — `allow_private` opts out of the
@@ -183,7 +168,3 @@ returned record carries `status`, `body`, and `headers`. to test the
 pair end to end, spawn the built server binary from a test, block on
 the `READY <port>` line (the readiness pattern above), then point the
 real client at it — the sandbox grants loopback TCP.
-
-note `--docs http` will not find this page's shape: the matches it
-returns (proxy internals, `time.format_http`) are not an HTTP server.
-this recipe is the answer.
