@@ -338,7 +338,7 @@ local function skipped_by_a_sibling(msg: string): boolean
   return msg:find(": skipped (isolating a different property)", 1, true) ~= nil
 end
 
-local function test_a_crashing_check_is_attributed_to_its_iteration()
+local function test_a_crashing_check_reports_unavailable_input()
   local counter = 0
   local ok, msg = driver.run({
       name = "driver_test_crash_attribution",
@@ -359,7 +359,8 @@ local function test_a_crashing_check_is_attributed_to_its_iteration()
   end
   check.equal(ok, false, "a crashing property must fail: " .. tostring(msg))
   check.truthy(msg:find("crashed: signal", 1, true), "not reported as a crash: " .. msg)
-  check.truthy(msg:find("iteration=5", 1, true), "wrong iteration attributed: " .. msg)
+  check.truthy(msg:find("original_input=unavailable", 1, true), "invented input: " .. msg)
+  check.equal(counter, 0, "the parent must never reconstruct crash input")
 end
 
 local function test_a_hanging_check_is_reported_as_a_timeout()
