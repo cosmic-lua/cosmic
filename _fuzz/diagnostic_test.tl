@@ -116,6 +116,7 @@ local function test_one_rerun_and_inconclusive_diagnostic_outcomes()
     {changed, "reason=changed-signal; diagnostic_signal=11"},
     {fake_outcome("pass"), "reason=clean-exit"},
     {fake_outcome("timeout"), "reason=timeout"},
+    {fake_outcome("infrastructure"), "reason=infrastructure-error"},
   }
   for _, case in ipairs(cases) do
     local message, calls = fake_report(case[1])
