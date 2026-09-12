@@ -71,6 +71,12 @@ local HISTORY < const >: {string: string} = {
 local EXAMPLE < const > = "the guides' example project: the reader's tree, not this one"
 local COSMOPOLITAN < const > = "a path in cosmic-lua/cosmopolitan"
 
+--- A board item's tree is committed under cosmic-lua/work's item refs,
+--- so an entry in it is a git tree path and never a file in any
+--- checkout — no fetch of any branch resolves one.
+local ITEM_TREE < const > =
+  "an entry in a board item's own git tree, not a file in a checkout"
+
 --- Spans excused by name.
 local SPANS < const >: {string: string} = {
   ["greet/init.tl"] = EXAMPLE,
@@ -86,6 +92,8 @@ local SPANS < const >: {string: string} = {
   ["cosmic/mymod.tl"] = EXAMPLE,
   ["cosmic/mymod_example.tl"] = EXAMPLE,
   ["cosmic/mymod_test.tl"] = EXAMPLE,
+  ["spec/change.md"] = ITEM_TREE,
+  ["spec/non-goals.md"] = ITEM_TREE,
   ["tool/net/definitions.lua"] = COSMOPOLITAN,
   ["build/config.mk"] = COSMOPOLITAN,
   ["doc/gendoc.tl"] = "a deletion, recorded by the name it had",
