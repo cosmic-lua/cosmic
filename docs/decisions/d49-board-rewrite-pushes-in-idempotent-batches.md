@@ -7,19 +7,24 @@
   over every item ref plus `refs/heads/board/format` — the shape the
   format-4 migration had used, and the one its spec named as a non-goal
   to violate ("never applied halfway"). run on 2026-09-13 from a claude
-  session, the push — 1425 ref updates (701 `items/*`, 723 `ended/*`,
-  the marker), a 4.1 MB pack — was refused by the session's egress
+  session, the push — 1425 ref updates (702 `items/*`, 723 `ended/*`,
+  the marker), a 4.29 MB body — was refused by the session's egress
   proxy: an immediate `403` on the `git-receive-pack` POST with no
   GitHub request id and no body, while the 4-byte probe POST on the
-  same connection got a `200` carrying one. throwaway pushes measured
+  same connection got a `200` carrying one (the session's
+  `GIT_CURL_VERBOSE` trace, quoted on work#163). throwaway pushes measured
   the cap: a 6 MB body passes; a single `ended/*` ref passes; 1, 10 and
   50 ref updates pass, 100 fail; a ref deletion is refused identically.
   so a session credential pushes at most some number between 50 and
-  100 ref updates per transaction and cannot delete a ref. no earlier
-  migration met this: formats 1→2 and 2→3 moved only the marker, and
-  the one prior mass rewrite (format 4, 1244 refs, 2026-09-09) was
-  pushed by a person from a personal credential, which #91 had made
-  the transport's default. a second fact made batching unsafe as
+  100 ref updates per transaction and cannot delete a ref. the board's
+  history does not show this cap before: two earlier rewrites went
+  through in one push — 323 refs at 1→2 on 2026-09-05 (work#40,
+  authored from a session) and 1244 at 3→4 on 2026-09-09 (work#91) —
+  and 2→3 moved only the marker (work#90). git records no push
+  identity, so which credential and which proxy carried each is not
+  known; work#90 made the caller's own git the transport, and this run
+  is the first mass push known to have gone through a session's egress
+  proxy since. a second fact made batching unsafe as
   shipped: `_work/gitmigrate.tl` read an already-migrated tip's absent
   `spec.md` as an empty spec and would have rewritten the item with an
   empty Change, so a partial push followed by a rerun destroyed data.
@@ -39,15 +44,24 @@
   - the tool does not retry or split on its own: the cap belongs to
     the caller's transport, not the board, and a caller whose transport
     allows one push still makes one (`--limit 0`).
-  - nothing in a rewrite may depend on deleting a ref: a resolved item
-    stays on `refs/heads/ended/<id>`, and the tool creates no scratch
-    refs.
+  - nothing in a rewrite may depend on deleting a ref — a rule the
+    migration's spec already carried (a resolved item stays on
+    `refs/heads/ended/<id>`), now measured rather than assumed — and the
+    tool creates no scratch refs.
   - a batch derives every field from the whole board's text, migrated
-    tips included (their `spec/` blobs and commit bodies stand in for
-    the `spec.md` they no longer carry), so batches and the single push
-    write the same trees. the first cut fed only the unmigrated blobs
-    to `known_owners`; the fresh-context review of cosmic-lua/work#164
-    caught the order dependence with a two-item fixture.
+    tips included: for a tip already carrying its migration commit, the
+    `spec.md` its parent still holds — the exact text one push would
+    have read, dropped Acceptance sections included, which the migrated
+    `spec/` blobs and commit body would not reconstruct. so batches and
+    the single push write the same trees. the first cut fed only the
+    unmigrated blobs to `known_owners`; the fresh-context review of
+    work#164 found the order dependence, and the rework pinned it with
+    a two-item fixture.
+  - [D47](d47-spec-declares-intent-only.md)'s "one cutover over every
+    ref" stands as the reader's view: the marker moves once and no
+    gitboard reader ever sees two shapes. the number of pushes behind
+    it is a transport fact D47 did not address, and this record is the
+    one that does.
 - **rejected:**
   - one atomic push, as designed. the all-or-nothing property is what
     fenced stale prepared writes at the format-4 cutover, and it is
@@ -56,8 +70,11 @@
   - a person runs the push, as format 4 was run. it works, and it
     remains the fallback, but it makes the board's own migration the
     one operation a session cannot perform and leaves the board dark
-    until a person is free — the very window the pin-then-migrate
-    ordering was reworked to shrink.
+    until a person is free. that window is the one the migration's
+    ordering was reworked to shrink: the code merges first, then the
+    pin, then the run in the same sitting, so every clone's
+    `bin/gitboard` refuses the board only between the bump and the
+    push.
   - splitting automatically inside `--execute` on a `403`. the tool
     cannot tell a policy cap from a transient failure, and a retry loop
     against a policy proxy is what that proxy's own guidance forbids;
@@ -70,9 +87,9 @@
     survives in cosmic-lua/work from the diagnosis; the idempotent
     batches themselves are the probe.
 - **consequences:**
-  - the format-5 cutover ran as 29 atomic batches of at most 50 refs
-    (1, 10, 50, then 50s, the last 14 with the marker), about twenty
-    minutes dark; `fsck: ok (1425 items)`, zero `spec.md` blobs, every
+  - the format-5 cutover ran as 31 atomic batches over 1425 refs
+    (1, 10, 50, then twenty-seven of 50, the last 14 with the marker),
+    about twenty minutes dark; `fsck: ok (1425 items)`, zero `spec.md` blobs, every
     tip on a `to format 5` commit. the code is cosmic-lua/work#164; the
     retire item («yXSL_x14T») deletes it with the rest of the
     migration, and the next migration copies from that retire commit's
