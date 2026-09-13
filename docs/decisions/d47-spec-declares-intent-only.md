@@ -1,7 +1,7 @@
 # D47 — an item's spec declares intent only; measurement and outcome live in its own history
 
 - **date:** 2026-09
-- **status:** active
+- **status:** amended 2026-09 (the one cutover is pushed in batches — D49)
 - **context:** a gitboard item carried its typed fields in a `meta`
   blob and everything else in a free-markdown `spec.md` sidecar, and
   the system recovered what it needed from that markdown by regex at
@@ -141,3 +141,16 @@
   reappearing as authors put prospective content somewhere it does not
   belong, or findings-by-reference turning out to matter enough that
   they need addressable identity rather than living in a commit body.
+- **amended 2026-09 (the one cutover is pushed in batches —
+  [D49](d49-board-rewrite-pushes-in-idempotent-batches.md)):**
+  the decision stands: format 5, every ref rewritten, the migration
+  module retired afterwards, and no reader ever meets two shapes. what
+  moved is "one cutover over every ref" as a statement about the PUSH:
+  the session that ran it could not send 1425 ref updates through its
+  egress proxy — 1425 item refs and the marker — so the rewrite went
+  in 31 atomic batches with the
+  marker on the last, the board refusing every gitboard reader until
+  then. the rejection of lazy per-item migration survives untouched —
+  a batch is not lazy, and nothing reads a half-migrated board — and
+  the rewrite is now idempotent and batchable by design, which the
+  next migration inherits.

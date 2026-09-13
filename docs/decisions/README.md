@@ -81,5 +81,6 @@ build when the committed copy drifts.
 | D44 | the release publishes regardless of the perf compare; perf is a daily non-blocking lane | active | [→](d44-release-publishes-regardless-of-the-perf-compare.md) |
 | D45 | rank is a position in the parent's list at every level, the board included | amended 2026-09 (dependency became a relation of its own — D48) | [→](d45-rank-is-a-list-position-at-every-level.md) |
 | D46 | the HTTP server engine is a cosmo.http binding over net/http; the surface is cosmic.http; htmx is a guide, not a coupling | active | [→](d46-http-engine-is-a-cosmo-binding.md) |
-| D47 | an item's spec declares intent only; measurement and outcome live in its own history | active | [→](d47-spec-declares-intent-only.md) |
+| D47 | an item's spec declares intent only; measurement and outcome live in its own history | amended 2026-09 (the one cutover is pushed in batches — D49) | [→](d47-spec-declares-intent-only.md) |
 | D48 | an item depends on zero or more items, as a relation of its own rather than a position in the tree | active | [→](d48-dependency-is-its-own-relation.md) |
+| D49 | a whole-board rewrite pushes in idempotent batches, the marker riding the last one | active | [→](d49-board-rewrite-pushes-in-idempotent-batches.md) |
