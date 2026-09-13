@@ -7,8 +7,9 @@
   over every item ref plus `refs/heads/board/format` — the shape the
   format-4 migration had used, and the one its spec named as a non-goal
   to violate ("never applied halfway"). run on 2026-09-13 from a claude
-  session, the push — 1425 ref updates (702 `items/*`, 723 `ended/*`,
-  the marker), a 4.29 MB body — was refused by the session's egress
+  session, the push — every item ref (702 `items/*`, 723 `ended/*`,
+  1425 in all) plus the marker, a 4.29 MB body — was refused by the
+  session's egress
   proxy: an immediate `403` on the `git-receive-pack` POST with no
   GitHub request id and no body, while the 4-byte probe POST on the
   same connection got a `200` carrying one (the session's
