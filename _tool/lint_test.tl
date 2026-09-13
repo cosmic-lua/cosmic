@@ -83,4 +83,31 @@ local function test_is_justified_demands_a_reason()
     "a bare marker with nothing after it justifies nothing")
 end
 
+-- A site that spans lines takes its reason beside the token the rule
+-- is about, which on a wrapped cast is below the first line. The
+-- single-line form must not see it; the span form must.
+local function test_is_justified_span_reads_the_whole_extent()
+  local lines: {string} = {
+    "local o = {a = 1,",
+    "  b = 2}",
+    "  as Rec -- cast: the shape is checked one field at a time",
+  }
+  check.truthy(not style.is_justified(lines, 1, "cast"),
+    "the first line alone carries no reason")
+  check.truthy(style.is_justified_span(lines, 1, 3, "cast"),
+    "the reason on the site's last line counts")
+  check.truthy(not style.is_justified_span(lines, 1, 2, "cast"),
+    "a span that stops short of the reason does not reach it")
+end
+
+local function test_is_justified_span_still_reads_the_line_above()
+  local lines: {string} = {
+    "-- cast: 90 columns will not fit this one",
+    "local o = {a = 1,",
+    "  b = 2} as Rec",
+  }
+  check.truthy(style.is_justified_span(lines, 2, 3, "cast"),
+    "the line above the span's first line counts")
+end
+
 print("All style tests passed!")

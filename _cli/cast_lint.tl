@@ -3,8 +3,9 @@
 --- structurally matches an allowlisted kind in this repo's own
 --- `_build/casts_kinds.tl` (no comment needed) or because it carries a
 --- trailing `-- cast: <reason>` justification (checked by
---- `_tool.lint.is_justified`, the same helper `assert-justify` and
---- `throw-justify` use).
+--- `_tool.lint.is_justified_span`, the span form of the same reader
+--- `assert-justify` and `throw-justify` use on their single-line
+--- sites).
 ---
 --- The allowlist is read opportunistically off disk rather than
 --- required as a module: `_build/casts_kinds.tl` is this repo's own
@@ -146,6 +147,12 @@ end
 --- kind in `_build/casts_kinds.tl` (no comment needed), or it says why
 --- with a trailing `-- cast: <reason>` (or one on the line directly
 --- above, when 90 columns will not fit it).
+---
+--- The justification is looked for across the cast's own extent, from
+--- the line `span_start` anchors the diagnostic at through the line
+--- `span_end` reaches. A cast whose expression wraps carries its
+--- `as` — and so its reason — on a LATER line than the anchor, and
+--- the convention is stated relative to the `as`.
 --- @param file string Path, for the diagnostic and for scoping kinds
 --- @param content string The file's bytes
 --- @param lines {string} The file's lines
@@ -160,6 +167,7 @@ local function check_cast_justification(file: string, content: string,
   local compiled = loaded_kinds()
   for _, hit in ipairs(ast.find_all(parsed.node, ANY_CAST)) do
     local y = ast.span_start(hit.node)
+    local yend = ast.span_end(hit.node, parsed.tokens)
     local site: Site = {path = file, y = y,
       text = str.trim(lines[y] or ""), node = hit.node}
     local allowlisted = false
@@ -169,7 +177,8 @@ local function check_cast_justification(file: string, content: string,
         break
       end
     end
-    if not allowlisted and not style.is_justified(lines, y, "cast") then
+    if not allowlisted
+    and not style.is_justified_span(lines, y, yend, "cast") then
       diagnostics[#diagnostics + 1] = {
         file = file, line = y, col = 1, rule = "cast-justify",
         message = string.format(
