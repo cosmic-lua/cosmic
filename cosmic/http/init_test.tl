@@ -65,6 +65,22 @@ local function read_response(conn: net.Socket, pending: string): string, string
   return buf:sub(1, total), buf:sub(total + 1)
 end
 
+--- Read every byte the server sends until it closes. The framing tests
+--- that assert about what is NOT on the wire need the raw stream rather
+--- than a reader that already believes the server's `Content-Length`.
+--- @param conn net.Socket The client socket
+--- @return string Everything the server wrote before closing
+local function drain(conn: net.Socket): string
+  local buf = ""
+  while true do
+    local chunk = conn:recv(4096)
+    if chunk == nil then
+      return buf
+    end
+    buf = buf .. chunk
+  end
+end
+
 --- Whether text ends with suffix — the shape most of these assertions
 --- want, since a response body is the tail of the bytes read.
 --- @param text string The bytes to look at
@@ -186,8 +202,11 @@ local function test_post_body_is_read_exactly()
     end)
   -- The second request is pipelined behind the first body: answering it
   -- proves the server consumed exactly Content-Length bytes and no more.
+  -- The length is written with the optional whitespace a field value may
+  -- carry, which the parser strips: reading the body at all proves the
+  -- 1*DIGIT guard refuses spellings of a length, not a padded legal one.
   local conn = say(port,
-    "POST /p HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhello" ..
+    "POST /p HTTP/1.1\r\nHost: h\r\nContent-Length:  5 \r\n\r\nhello" ..
     "GET /after HTTP/1.1\r\nHost: h\r\n\r\n")
   local first, rest = read_response(conn, "")
   local second = read_response(conn, rest)
@@ -372,4 +391,95 @@ local function test_status_and_custom_headers()
   assert(resp:find("X-One: second\r\n", 1, true), resp)
   assert(resp:find("X-Many: a\r\n", 1, true), resp)
   assert(resp:find("X-Many: b\r\n", 1, true), resp)
+end
+
+local function test_crlf_in_a_redirect_target_never_splits_the_response()
+  local port, pid = fork_serve(function(req: http.Request, res: http.Response)
+      local _ok, _err = res:redirect((req.query["next"] or {"/"})[1])
+    end)
+  -- The query decodes to a real CRLF: a server that wrote it would hand
+  -- the client a header line, a blank line and a body of its choosing.
+  local conn = say(port,
+    "GET /r?next=%2Fhome%0d%0aX-Evil%3A%20injected%0d%0a%0d%0aPWNED HTTP/1.1\r\n"
+    .. "Host: h\r\n\r\n")
+  local stream = drain(conn)
+  assert(conn:close())
+  assert(proc.wait(pid))
+
+  assert(stream:find("^HTTP/1.1 500 "), stream)
+  assert(not stream:find("X-Evil", 1, true), stream)
+  assert(not stream:find("PWNED", 1, true), stream)
+  assert(not stream:find("Location", 1, true), stream)
+  -- A refused header sends nothing, so the only bytes here are the
+  -- server's own head: the blank line that ends it ends the stream.
+  assert(stream:find("\r\n\r\n", 1, true) == #stream - 3, stream)
+end
+
+local function test_crlf_in_a_header_name_or_value_is_refused_not_stripped()
+  local port, pid = fork_serve(function(_req: http.Request, res: http.Response)
+      -- Both entry points, and both halves of a header: a CRLF in the
+      -- NAME splits a response exactly as one in the value does.
+      res:add_header("X-Nope\r\nX-Evil-Name: one", "v")
+      res:set_header("X-Try", "ok\r\nX-Evil-Value: two")
+      local _ok, _err = res:text("body-bytes")
+    end)
+  local conn = say(port, "GET /s HTTP/1.1\r\nHost: h\r\n\r\n")
+  local stream = drain(conn)
+  assert(conn:close())
+  assert(proc.wait(pid))
+
+  assert(stream:find("^HTTP/1.1 500 "), stream)
+  assert(not stream:find("X-Evil", 1, true), stream)
+  -- Refused, not sanitized: no part of any refused header appears, and
+  -- the send they poisoned put none of its body on the wire either.
+  assert(not stream:find("X-Nope", 1, true), stream)
+  assert(not stream:find("X-Try", 1, true), stream)
+  assert(not stream:find("body-bytes", 1, true), stream)
+end
+
+local function test_non_decimal_content_length_is_refused_with_400()
+  -- RFC 9110 §8.6 makes Content-Length 1*DIGIT; every one of these is a
+  -- length Lua's tonumber would read and an intermediary might not.
+  for _, declared in ipairs({"0x5", "0x1p4", "1e2", "10.0", "+5"}) do
+    local port, pid = fork_serve(function(req: http.Request, res: http.Response)
+        local _ok, _err = res:text("[" .. tostring((req:body())) .. "]")
+      end)
+    -- A whole second request pipelined behind the five body bytes: a
+    -- server that accepted the length would answer it too, which is the
+    -- framing disagreement this refuses.
+    local conn = ask(port,
+      "POST /a HTTP/1.1\r\nHost: h\r\nContent-Length: " .. declared .. "\r\n\r\n"
+      .. "AAAAAGET /second HTTP/1.1\r\nHost: h\r\n\r\n")
+    local resp, rest = read_response(conn, "")
+    assert_closed(conn)
+    assert(conn:close())
+    assert(proc.wait(pid))
+
+    assert(resp:find("^HTTP/1.1 400 "), declared .. ": " .. resp)
+    assert(rest == "", declared .. ": bytes past the 400: " .. rest)
+  end
+end
+
+local function test_head_sends_no_body_and_the_next_request_is_answered()
+  local port, pid = fork_serve(function(_req: http.Request, res: http.Response)
+      local _ok, _err = res:text("hi")
+    end)
+  local conn = say(port,
+    "HEAD /h HTTP/1.1\r\nHost: h\r\n\r\n" ..
+    "GET /g HTTP/1.1\r\nHost: h\r\n\r\n")
+  local stream = drain(conn)
+  assert(conn:close())
+  assert(proc.wait(pid))
+
+  local at = stream:find("\r\n\r\n", 1, true)
+  assert(at, stream)
+  local head, rest = stream:sub(1, at + 3), stream:sub(at + 4)
+  assert(head:find("^HTTP/1.1 200 OK\r\n"), head)
+  -- Content-Length reports what a GET would have sent...
+  assert(head:find("Content-Length: 2\r\n", 1, true), head)
+  assert(head:find("Connection: keep-alive\r\n", 1, true), head)
+  -- ...and the byte after the head is the NEXT response's status line,
+  -- not the body a conforming client would never read.
+  assert(rest:find("^HTTP/1.1 200 OK\r\n"), "HEAD leaked a body: " .. rest)
+  assert(ends_with(rest, "hi"), rest)
 end

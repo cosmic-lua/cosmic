@@ -57,14 +57,18 @@ local record ListenOptions
   --- `Content-Length`, before a byte of the body is read.
   max_body_bytes: integer
   --- Refuse a request head larger than this many bytes with 431
-  --- (default 32768, `ParseHttpMessage`'s own SHRT_MAX ceiling).
+  --- (default 32767, which is as large as a head can be at all:
+  --- `ParseHttpMessage` refuses anything longer itself). Raising this
+  --- past the default buys nothing — the parser gets the bytes first
+  --- and answers a longer head with 400 — so 431 is what a caller who
+  --- LOWERS the limit gets, and lowering it is the only useful move.
   max_head_bytes: integer
 end
 
 local DEFAULTS: ListenOptions = {
   read_timeout_ms = 30000,
   max_body_bytes = 1048576,
-  max_head_bytes = 32768,
+  max_head_bytes = 32767,
 }
 
 --- A listening HTTP server.
@@ -97,10 +101,12 @@ end
 --- Answer with a bare status and no body, on a connection about to close.
 --- Every refusal the loop makes before a handler runs goes out this way,
 --- so the head is built by the one place that knows how to build a head.
+--- The body is empty either way, so there is nothing here for HEAD's
+--- body suppression to suppress.
 --- @param conn net.Socket The connection to answer on
 --- @param status integer The status code to send
 local function refuse(conn: net.Socket, status: integer)
-  local ex = response.new(conn, true)
+  local ex = response.new(conn, true, false)
   ex.response.status = status
   local _ok, _err = ex.response:send("")
 end
@@ -213,6 +219,18 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
     end
     local declared = req:header("content-length")
     if declared ~= nil then
+      -- RFC 9110 §8.6: Content-Length is 1*DIGIT and nothing else, and a
+      -- recipient must treat any other spelling as invalid. `tonumber`
+      -- alone would accept "0x5", "0x1p4", "1e2", "10.0" and "+5", and a
+      -- proxy that reads one of those differently disagrees with this
+      -- server about where the request ends — the request-smuggling
+      -- shape. The optional whitespace around a field value is the
+      -- parser's to strip and is already gone by here, so a legal
+      -- `Content-Length:  5` still reads as "5".
+      if declared:match("^%d+$") == nil then
+        refuse(conn, 400)
+        return
+      end
       local length = math.tointeger(tonumber(declared))
       if length == nil or length < 0 then
         refuse(conn, 400)
@@ -225,7 +243,10 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
       want_body = length
     end
 
-    local ex = response.new(conn, closes_connection(req))
+    -- A HEAD answer reports everything a GET would and sends none of
+    -- the body; the Response needs to know which it is being written to.
+    local head_only = req.method == "HEAD"
+    local ex = response.new(conn, closes_connection(req), head_only)
     -- D30's first boundary: a handler is a Lua protocol whose error
     -- channel IS the throw, so a throwing handler is caught here,
     -- answered with 500, and the connection carries on.
@@ -234,12 +255,19 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
       log.error("http: handler threw",
         {method = req.method, path = req.path, error = tostring(thrown)})
     elseif not ex:is_finished() then
-      log.error("http: handler sent no response",
-        {method = req.method, path = req.path})
+      -- A refused header is a different bug from a forgotten send, and
+      -- the one the handler cannot see unless it checked its send verb.
+      log.error(ex:refusal() ~= nil and "http: response header refused"
+        or "http: handler sent no response",
+        {method = req.method, path = req.path, error = ex:refusal()})
     end
     if not ex:is_finished() then
-      ex.response.status = 500
-      local _sok, _serr = ex.response:send("")
+      -- On a FRESH exchange, not the handler's: the handler's may be
+      -- unsendable because a header it set was refused, and its headers
+      -- have no business riding the server's own answer in any case.
+      local fallback = response.new(conn, ex:will_close(), head_only)
+      fallback.response.status = 500
+      local _sok, _serr = fallback.response:send("")
     end
 
     -- Drain whatever the handler did not read: the next request starts

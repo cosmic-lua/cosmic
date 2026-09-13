@@ -154,12 +154,19 @@ send verbs are `send`, `text`, `json`, `redirect`, and `html`, which
 takes `cosmic.html.SafeHtml` rather than a string, so a
 `cosmic.template` render reaches the wire already escaped and a raw
 string does not compile. a handler that returns without sending, or one
-that throws, gets a 500 and the connection carries on.
+that throws, gets a 500 and the connection carries on. a header whose
+name or value carries a CR or LF — the shape of a response-splitting
+payload, which is what echoing a query parameter into `redirect` or
+`set_header` would hand a client — is refused rather than stripped, and
+the send verb then puts nothing at all on the wire.
 
 `listen` takes the limits: `read_timeout_ms` (default 30000),
 `max_body_bytes` (413 above it, refused on the declared
 `Content-Length` before a byte is read), `max_head_bytes` (431 above
-it). a chunked request body is refused with 411 for now.
+it; the default 32767 is already as large as a head can be, so this one
+is only worth lowering). a chunked request body is refused with 411 for
+now, and a `Content-Length` written as anything but decimal digits is a
+400 rather than a framing guess.
 
 client side, one call: `fetch.fetch("http://127.0.0.1:" .. port ..
 "/status", {allow_private = true})` — `allow_private` opts out of the
