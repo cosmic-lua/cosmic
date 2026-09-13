@@ -1,7 +1,7 @@
 # D49 — a whole-board rewrite pushes in idempotent batches, the marker riding the last one
 
 - **date:** 2026-09
-- **status:** active
+- **status:** amended 2026-09 (one branch — D50)
 - **context:** the format-5 migration of the work board
   (cosmic-lua/work#163, item «SS6S_2U9z») shipped as one atomic push
   over every item ref plus `refs/heads/board/format` — the shape the
@@ -108,3 +108,12 @@
     becomes optional, the one-push shape returns as the default run),
     or when a rewrite needs an ordering across items that independent
     batches cannot honour.
+- **amended 2026-09 (one branch — [D50](d50-one-branch-is-the-board.md)):**
+  the multi-ref push these batches were for stops existing once D50's
+  cutover lands. a board that is one branch writes one ref per
+  mutation, so there is no whole-board rewrite over 1425 refs left to
+  batch, and no mutation can reach the cap measured above. the
+  discipline survives in the migration itself: the replayed tip is
+  pushed as size-bounded ancestors, `--limit N` commits apart, each a
+  fast-forward, each idempotent on rerun, with the format marker
+  riding the last one.
