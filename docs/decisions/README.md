@@ -83,3 +83,4 @@ build when the committed copy drifts.
 | D46 | the HTTP server engine is a cosmo.http binding over net/http; the surface is cosmic.http; htmx is a guide, not a coupling | active | [→](d46-http-engine-is-a-cosmo-binding.md) |
 | D47 | an item's spec declares intent only; measurement and outcome live in its own history | active | [→](d47-spec-declares-intent-only.md) |
 | D48 | an item depends on zero or more items, as a relation of its own rather than a position in the tree | active | [→](d48-dependency-is-its-own-relation.md) |
+| D49 | a whole-board rewrite pushes in idempotent batches, the marker riding the last one | active | [→](d49-board-rewrite-pushes-in-idempotent-batches.md) |
