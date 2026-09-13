@@ -26,7 +26,8 @@
   known; work#90 made the caller's own git the transport, and this run
   is the first mass push known to have gone through a session's egress
   proxy since. a second fact made batching unsafe as
-  shipped: `_work/gitmigrate.tl` read an already-migrated tip's absent
+  shipped: the migration module (`80209ab05:_work/gitmigrate.tl` — the
+  retire deleted it) read an already-migrated tip's absent
   `spec.md` as an empty spec and would have rewritten the item with an
   empty Change, so a partial push followed by a rerun destroyed data.
 - **decision:** a whole-board rewrite is written to run in batches,
