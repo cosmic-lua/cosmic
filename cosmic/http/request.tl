@@ -121,6 +121,9 @@ local record Request
   raw_headers: {string: {string}}
   --- The client's address.
   peer: ip.Addr
+  --- Path parameters a router matched, by name. Empty for a request
+  --- that never went through a router (`cosmic.http.router`).
+  params: {string: string}
   --- Look up one header by name, case-insensitively.
   --- @param name string The header name, in any case
   --- @return string | nil The value, repeats joined ", "; nil when absent
@@ -163,6 +166,7 @@ local function new(message: http.Message, peer: ip.Addr,
     headers = headers,
     raw_headers = raw_headers,
     peer = peer,
+    params = {},
   }
 
   function req:header(name: string): string | nil
