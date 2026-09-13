@@ -231,9 +231,12 @@ local function test_oversize_body_is_refused_with_413()
   assert(resp:find("Connection: close\r\n", 1, true), resp)
 end
 
-local function test_chunked_request_is_refused_with_411()
-  local port, pid = fork_serve(function(_req: http.Request, res: http.Response)
-      local _ok, _err = res:text("never")
+local function test_empty_chunked_request_body_reads_as_empty()
+  -- A chunked request that frames no payload at all is a body of zero
+  -- bytes, not a missing one; the handler runs and reads "".
+  local port, pid = fork_serve(function(req: http.Request, res: http.Response)
+      local body = req:body()
+      local _ok, _err = res:text("len=" .. #tostring(body))
     end)
   local conn = say(port,
     "POST /c HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
@@ -241,7 +244,8 @@ local function test_chunked_request_is_refused_with_411()
   assert(conn:close())
   assert(proc.wait(pid))
 
-  assert(resp:find("^HTTP/1.1 411 "), resp)
+  assert(resp:find("^HTTP/1.1 200 OK\r\n"), resp)
+  assert(ends_with(resp, "len=0"), resp)
 end
 
 local function test_oversize_head_is_refused_with_431()
