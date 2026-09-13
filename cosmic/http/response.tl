@@ -1,8 +1,18 @@
 --- The response half of cosmic.http: the Response a handler writes to.
 --- A handler sets `status`, adds headers, and calls exactly one of the
 --- send verbs; the head is assembled at that moment, so `Date`,
---- `Content-Length` and `Connection` are always the server's to compute
---- and never a handler's to get wrong.
+--- `Content-Length`, `Transfer-Encoding` and `Connection` are always the
+--- server's to compute and never a handler's to get wrong.
+---
+--- A response is written one of two ways, and the choice is made by the
+--- first verb called. `send` and its typed wrappers write head and body
+--- as one write, with a `Content-Length` the server counted. `start`,
+--- `write` and `finish` stream: the head goes out first, then each
+--- chunk as the handler produces it, which is what an SSE endpoint or
+--- any long-lived push needs. The two are exclusive — `send` after
+--- `start` writes nothing and fails — because a response has exactly
+--- one framing and mixing them is what a client reads as the next
+--- response starting early.
 ---
 --- `html` is the typed verb: it takes `cosmic.html.SafeHtml`, so a raw
 --- `string` is a compile error rather than an injection, which is how
@@ -27,14 +37,24 @@ local cosmo = require("cosmo")
 local html_mod = require("cosmic.html")
 local json_mod = require("cosmic.json")
 local net = require("cosmic.net")
+local sse = require("cosmic.sse")
 local time = require("cosmic.time")
 
 --- Headers the server computes; a handler that sets one of these by
---- hand is overridden, because only the server knows the framing.
+--- hand is dropped from the head, because only the server knows the
+--- framing. `transfer-encoding` is here for the same reason the other
+--- three are: a handler that declared `chunked` on a `send` response
+--- would put it on the wire beside the `Content-Length` the server
+--- counted, and RFC 9112 §6.1 leaves a recipient reading two framings
+--- free to pick either one — the request-smuggling shape, written from
+--- the server's end. A response that really is chunked gets the header
+--- from `start`, which is the only place that also writes the framing
+--- to match it.
 local COMPUTED: {string: boolean} = {
   ["date"] = true,
   ["content-length"] = true,
   ["connection"] = true,
+  ["transfer-encoding"] = true,
 }
 
 --- True when s carries a CR, LF, or NUL — the bytes that would end a
@@ -113,6 +133,41 @@ local record Response
   --- @return boolean True when the whole response reached the socket
   --- @return string Error message on failure
   redirect: function(self: Response, location: string, status?: integer): boolean, string
+  --- Write the head and begin a streamed body, leaving the response
+  --- open for `write`. An HTTP/1.1 response is framed
+  --- `Transfer-Encoding: chunked` and the connection survives it; an
+  --- HTTP/1.0 one has no chunked encoding to use, so it is framed by
+  --- the connection closing and the head says `Connection: close`.
+  --- Either way there is no `Content-Length`, because the server does
+  --- not know one yet. A second `start`, a `start` after a send, or a
+  --- `start` after a refused header all fail and write nothing.
+  --- @return boolean True when the head reached the socket
+  --- @return string Error message on failure
+  start: function(self: Response): boolean, string
+  --- Write one chunk of a started response's body.
+  --- A zero-length chunk is a no-op rather than the terminating chunk,
+  --- so a handler that produces nothing this round cannot end the
+  --- response by accident; `finish` is the only terminator. Answering
+  --- HEAD drops the bytes and reports success, exactly as `send` does.
+  --- @param chunk string The body bytes to write
+  --- @return boolean True when the chunk reached the socket
+  --- @return string Error message on failure
+  write: function(self: Response, chunk: string): boolean, string
+  --- End a started response: the terminating chunk, and nothing after.
+  --- A chunked HTTP/1.1 connection is reusable from here; an HTTP/1.0
+  --- one is closed by the server, since closing is its framing.
+  --- @return boolean True when the terminator reached the socket
+  --- @return string Error message on failure
+  finish: function(self: Response): boolean, string
+  --- Write one Server-Sent Event, starting the stream on first call.
+  --- The first call sets `Content-Type: text/event-stream` and
+  --- `Cache-Control: no-cache` and calls `start`; every call writes
+  --- `cosmic.sse.format(ev)`, so the wire framing is the one
+  --- `cosmic.sse.parse` reads back. Call `finish` when the stream ends.
+  --- @param ev sse.Event The event to serialize and write
+  --- @return boolean True when the event reached the socket
+  --- @return string Error message on failure
+  event: function(self: Response, ev: sse.Event): boolean, string
 end
 
 --- One request/response exchange: the Response a handler writes, plus
@@ -124,7 +179,11 @@ local record Exchange
   --- @return boolean True once a send verb wrote a head
   is_finished: function(self: Exchange): boolean
   --- Whether the connection must close after this response.
-  --- @return boolean True when the answer carried `Connection: close`
+  --- True when the answer carried `Connection: close`, and also when a
+  --- handler started a streamed response and never finished it: the
+  --- chunked body it left open has no terminator, so anything written
+  --- next would be read as more of it.
+  --- @return boolean True when this must be the connection's last exchange
   will_close: function(self: Exchange): boolean
   --- Why no send verb on this response can succeed, if a header was
   --- refused. The loop logs it; a handler that checks its send verb's
@@ -147,12 +206,18 @@ end
 --- `Content-Length` reports what a GET would have returned — and only
 --- the body bytes are dropped, which is what makes the two responses
 --- agree on everything a HEAD is asked to report.
+---
+--- `version` is the request's, and it picks the streaming framing:
+--- chunked from 1.1, connection-close from anything older. It does not
+--- change the status line, which is HTTP/1.1 either way — a 1.1 server
+--- answering a 1.0 client says so.
 --- @param conn net.Socket The connection to write the response to
+--- @param version integer The request's version: 9, 10 or 11
 --- @param close_requested boolean Whether the request ruled out reuse
 --- @param suppress_body boolean Whether to send the head only (HEAD)
 --- @return Exchange The response and the loop's view of it
-local function new(conn: net.Socket, close_requested: boolean,
-    suppress_body: boolean): Exchange
+local function new(conn: net.Socket, version: integer,
+    close_requested: boolean, suppress_body: boolean): Exchange
   -- Header state is three parallel pieces: the lowercase names in
   -- insertion order, the spelling each was written with, and the values.
   -- Lowercase is the identity (HTTP header names are case-insensitive,
@@ -162,7 +227,16 @@ local function new(conn: net.Socket, close_requested: boolean,
   local spelling: {string: string} = {}
   local values: {string: {string}} = {}
   local finished = false
+  -- Streaming is its own two bits: `streaming` says a head went out
+  -- with no length behind it, `stream_done` that the terminator
+  -- followed. `finished` covers both shapes, because what the loop
+  -- asks is only whether this response already owns the connection.
+  local streaming = false
+  local stream_done = false
   local must_close = close_requested
+  -- Chunked needs HTTP/1.1; an older client gets the one framing it
+  -- does understand, which is the server closing the connection.
+  local can_chunk = version >= 11
   -- The FIRST refusal is the one reported: a handler that set two bad
   -- headers has one bug, and the first one names where it started.
   local refused: string = nil
@@ -220,17 +294,13 @@ local function new(conn: net.Socket, close_requested: boolean,
     note_close(key, value)
   end
 
-  function res:send(body: string): boolean, string
-    if refused ~= nil then
-      -- Not marked finished: the loop's fallback answer is what this
-      -- client gets, built on a response with none of these headers.
-      return false, refused
-    end
-    if finished then
-      return false, "http: response already sent"
-    end
-    finished = true
-    local status = self.status or 200
+  --- The status line, the Date, and every header the handler set that
+  --- the server does not compute itself. The framing headers are the
+  --- caller's to append, because they are the only thing `send` and
+  --- `start` disagree about.
+  --- @param status integer The status code to write
+  --- @return {string} The head so far, one line per entry
+  local function head_lines(status: integer): {string}
     local out: {string} = {
       "HTTP/1.1 " .. status .. " " .. cosmo.GetHttpReason(status) .. "\r\n",
       "Date: " .. time.format_http(os.time()) .. "\r\n",
@@ -242,6 +312,27 @@ local function new(conn: net.Socket, close_requested: boolean,
         end
       end
     end
+    return out
+  end
+
+  function res:send(body: string): boolean, string
+    if refused ~= nil then
+      -- Not marked finished: the loop's fallback answer is what this
+      -- client gets, built on a response with none of these headers.
+      return false, refused
+    end
+    if streaming then
+      -- The head on the wire says chunked, or says nothing about length
+      -- at all; a Content-Length now would contradict it, and the body
+      -- would land inside the stream as one more piece of it.
+      return false, "http: response already started"
+    end
+    if finished then
+      return false, "http: response already sent"
+    end
+    finished = true
+    local status = self.status or 200
+    local out = head_lines(status)
     out[#out + 1] = "Content-Length: " .. #body .. "\r\n"
     out[#out + 1] = "Connection: " .. (must_close and "close" or "keep-alive") .. "\r\n"
     out[#out + 1] = "\r\n"
@@ -281,6 +372,86 @@ local function new(conn: net.Socket, close_requested: boolean,
     return self:send("")
   end
 
+  function res:start(): boolean, string
+    if refused ~= nil then
+      return false, refused
+    end
+    if streaming then
+      return false, "http: response already started"
+    end
+    if finished then
+      return false, "http: response already sent"
+    end
+    streaming = true
+    -- Finished from the loop's side the moment the head is out: the
+    -- connection is this response's now, so no fallback 500 may be
+    -- written behind it even if the handler never calls `finish`.
+    finished = true
+    local out = head_lines(self.status or 200)
+    if can_chunk then
+      out[#out + 1] = "Transfer-Encoding: chunked\r\n"
+      out[#out + 1] = "Connection: " .. (must_close and "close" or "keep-alive") .. "\r\n"
+    else
+      -- Without chunked there is no in-band end of body, so the close
+      -- IS the framing and the client must be told to expect it.
+      must_close = true
+      out[#out + 1] = "Connection: close\r\n"
+    end
+    out[#out + 1] = "\r\n"
+    return conn:send_all(table.concat(out))
+  end
+
+  function res:write(chunk: string): boolean, string
+    if not streaming then
+      return false, "http: response not started"
+    end
+    if stream_done then
+      return false, "http: response already finished"
+    end
+    -- `0\r\n\r\n` is the terminator, so an empty chunk written as one
+    -- would end the body; a handler with nothing to say writes nothing.
+    if #chunk == 0 then
+      return true
+    end
+    -- RFC 9112 §6.3: a HEAD response carries no content, and the head
+    -- already said what a GET would have framed.
+    if suppress_body then
+      return true
+    end
+    if not can_chunk then
+      return conn:send_all(chunk)
+    end
+    return conn:send_all(string.format("%x\r\n", #chunk) .. chunk .. "\r\n")
+  end
+
+  function res:finish(): boolean, string
+    if not streaming then
+      return false, "http: response not started"
+    end
+    if stream_done then
+      return false, "http: response already finished"
+    end
+    stream_done = true
+    if not can_chunk or suppress_body then
+      -- Nothing to terminate: an HTTP/1.0 body ends when the loop
+      -- closes the connection, and a HEAD response has no body at all.
+      return true
+    end
+    return conn:send_all("0\r\n\r\n")
+  end
+
+  function res:event(ev: sse.Event): boolean, string
+    if not streaming then
+      self:set_header("Content-Type", "text/event-stream")
+      self:set_header("Cache-Control", "no-cache")
+      local ok, err = self:start()
+      if not ok then
+        return false, err
+      end
+    end
+    return self:write(sse.format(ev))
+  end
+
   local ex: Exchange = {response = res}
 
   function ex:is_finished(): boolean
@@ -288,7 +459,10 @@ local function new(conn: net.Socket, close_requested: boolean,
   end
 
   function ex:will_close(): boolean
-    return must_close
+    -- A stream the handler opened and never terminated leaves the
+    -- connection mid-body; the next response would be read as the rest
+    -- of it, so the close is the only honest way out.
+    return must_close or (streaming and not stream_done)
   end
 
   function ex:refusal(): string | nil
@@ -301,8 +475,8 @@ end
 local record HttpResponseModule
   type Response = Response
   type Exchange = Exchange
-  new: function(conn: net.Socket, close_requested: boolean,
-  suppress_body: boolean): Exchange
+  new: function(conn: net.Socket, version: integer,
+  close_requested: boolean, suppress_body: boolean): Exchange
 end
 
 local M: HttpResponseModule = {

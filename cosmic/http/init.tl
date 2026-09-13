@@ -53,8 +53,14 @@ local record ListenOptions
   --- than allowed to occupy the one connection the server serves.
   read_timeout_ms: integer
   --- Refuse a request body larger than this many bytes with 413
-  --- (default 1048576). The refusal happens on the declared
-  --- `Content-Length`, before a byte of the body is read.
+  --- (default 1048576). A declared `Content-Length` is refused before a
+  --- byte of the body is read; a `Transfer-Encoding: chunked` body
+  --- declares no length, so it is decoded up to this bound and refused
+  --- the moment the payload passes it, still before the handler runs.
+  --- A chunked body's framing overhead is bounded the same way while it
+  --- arrives gradually, but a fast client that lands its whole body,
+  --- terminator included, in one read is checked against the decoded
+  --- payload only (`cosmic.http.request` has the detail).
   max_body_bytes: integer
   --- Refuse a request head larger than this many bytes with 431
   --- (default 32767, which is as large as a head can be at all:
@@ -106,7 +112,10 @@ end
 --- @param conn net.Socket The connection to answer on
 --- @param status integer The status code to send
 local function refuse(conn: net.Socket, status: integer)
-  local ex = response.new(conn, true, false)
+  -- 11 because the answer's status line says HTTP/1.1 in every case;
+  -- a refusal carries a length and never streams, so the version this
+  -- Response would pick a streaming framing from is never consulted.
+  local ex = response.new(conn, 11, true, false)
   ex.response.status = status
   local _ok, _err = ex.response:send("")
 end
@@ -140,8 +149,15 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
   local buf = ""
   local want_body = 0
   local first = true
+  -- A chunked body is decoded before the handler runs, because 413 is
+  -- the server's answer and there is no sending one once a handler has
+  -- written its own. What `body()` hands back is what was decoded then.
+  local decoded_body: string = nil
 
   local function read_body(): string | nil, string
+    if decoded_body ~= nil then
+      return decoded_body
+    end
     if want_body <= 0 then
       return ""
     end
@@ -159,6 +175,7 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
   end
 
   while true do
+    decoded_body = nil
     if not first then
       -- One parser reads one head; reset is what makes it the
       -- connection's parser rather than the request's.
@@ -213,12 +230,32 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
     -- a refusal, and a connection whose framing is undecidable is one
     -- there is no safe next request on.
     local encoding = (req:header("transfer-encoding") or ""):lower()
-    if encoding:find("chunked", 1, true) then
-      refuse(conn, 411)
-      return
-    end
     local declared = req:header("content-length")
-    if declared ~= nil then
+    if encoding:find("chunked", 1, true) then
+      if declared ~= nil then
+        -- RFC 9112 §6.1: a request framed twice is a request two
+        -- recipients may disagree about the length of, which is the
+        -- smuggling shape. The server must not pick one of them.
+        refuse(conn, 400)
+        return
+      end
+      -- The bytes already buffered are the body's first bytes; anything
+      -- past the terminating chunk comes back as the next head.
+      local decoded, cerr = request.read_chunked(function(): (string | nil, string)
+          return conn:recv()
+        end, buf, limits.max_body_bytes)
+      if decoded == nil then
+        log.error("http: chunked request body", {path = req.path, error = cerr})
+        refuse(conn, 400)
+        return
+      end
+      if decoded.oversize then
+        refuse(conn, 413)
+        return
+      end
+      buf = decoded.carry
+      decoded_body = decoded.body
+    elseif declared ~= nil then
       -- RFC 9110 §8.6: Content-Length is 1*DIGIT and nothing else, and a
       -- recipient must treat any other spelling as invalid. `tonumber`
       -- alone would accept "0x5", "0x1p4", "1e2", "10.0" and "+5", and a
@@ -246,7 +283,7 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
     -- A HEAD answer reports everything a GET would and sends none of
     -- the body; the Response needs to know which it is being written to.
     local head_only = req.method == "HEAD"
-    local ex = response.new(conn, closes_connection(req), head_only)
+    local ex = response.new(conn, req.version, closes_connection(req), head_only)
     -- D30's first boundary: a handler is a Lua protocol whose error
     -- channel IS the throw, so a throwing handler is caught here,
     -- answered with 500, and the connection carries on.
@@ -265,7 +302,7 @@ local function serve_conn(conn: net.Socket, peer: ip.Addr, handler: Handler,
       -- On a FRESH exchange, not the handler's: the handler's may be
       -- unsendable because a header it set was refused, and its headers
       -- have no business riding the server's own answer in any case.
-      local fallback = response.new(conn, ex:will_close(), head_only)
+      local fallback = response.new(conn, req.version, ex:will_close(), head_only)
       fallback.response.status = 500
       local _sok, _serr = fallback.response:send("")
     end
