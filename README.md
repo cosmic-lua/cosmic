@@ -31,6 +31,7 @@ High-level utilities and tools built on top of cosmo.
 | [graph](cosmic/graph.md) |  Directed-graph algorithms over a plain adjacency map. |
 | [hash](cosmic/hash.md) |  Cryptographic digests, HMAC, and Argon2 password hashing. |
 | [html](cosmic/html.md) |  HTML utilities. |
+| [init](cosmic/http/init.md) |  HTTP/1.1 server: listen, serve, and the Request/Response a handler sees. |
 | [init](cosmic/init.md) |  cosmic: a batteries-included Lua/Teal distribution built on |
 | [instrument](cosmic/instrument.md) |  Timing and resource-usage spans, one `key=value` line each. |
 | [ip](cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
