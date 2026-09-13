@@ -124,6 +124,31 @@ local function test_oversize_chunked_body_is_refused_with_413()
   assert(resp:find("handler should not have run", 1, true) == nil, resp)
 end
 
+local function test_pathological_tiny_chunks_trip_the_raw_byte_bound()
+  -- The DECODED payload can stay tiny while the RAW framing balloons: a
+  -- stream of one-byte chunks is almost entirely "1\r\nX\r\n" overhead. The
+  -- raw-byte bound only re-checks on a feed that does not finish the
+  -- body, so the chunks are drip-fed one at a time — never sending the
+  -- terminating "0\r\n\r\n" — rather than as one write that would let the
+  -- decoded-payload check alone decide the outcome.
+  local port, pid = fork_serve(function(_req: http.Request, res: http.Response)
+      local _ok, _err = res:text("handler should not have run")
+    end, {max_body_bytes = 64})
+  local parts: {string} = {CHUNKED_HEAD}
+  for _ = 1, 13 do
+    table.insert(parts, "1\r\nX\r\n")
+  end
+  local conn = say_parts(port, parts)
+  local resp = drain(conn)
+  assert(conn:close())
+  assert(proc.wait(pid))
+
+  -- 13 chunks decode to 13 payload bytes — well under the 64-byte bound
+  -- — but cost 78 raw bytes of framing, which is what trips the refusal.
+  assert(resp:find("^HTTP/1.1 413 "), resp)
+  assert(resp:find("handler should not have run", 1, true) == nil, resp)
+end
+
 local function test_chunked_body_beside_content_length_is_refused()
   local port, pid = fork_serve(function(_req: http.Request, res: http.Response)
       local _ok, _err = res:text("handler should not have run")
@@ -279,7 +304,7 @@ local function test_http_10_stream_is_framed_by_the_close()
   assert(resp:find("Connection: close\r\n", 1, true), resp)
   assert(resp:lower():find("transfer%-encoding") == nil,
     "HTTP/1.0 has no chunked encoding to announce: " .. resp)
-  assert(resp:find("content%-length") == nil, resp)
+  assert(resp:lower():find("content%-length") == nil, resp)
   -- The raw bytes, with no chunk headers between them and no terminator.
   assert(resp:sub(-4) == "aabb", resp)
 end
@@ -305,6 +330,15 @@ local function test_chunked_stream_keeps_the_connection_alive()
 end
 
 local function test_unfinished_stream_closes_the_connection()
+  -- Both requests arrive pipelined in one write, so the second request's
+  -- bytes are already sitting in the connection's buffer when the first
+  -- handler returns without finishing its stream. If the guard that
+  -- closes the connection on an unfinished stream were gone, the loop
+  -- would go on to parse and answer that second request too, writing a
+  -- second status line into the still-open first response's body — the
+  -- assertion below counts status lines rather than looking for "/two"
+  -- in the body, because the corrupted framing would still not contain
+  -- literal "/two" text (the handler never writes the path).
   local port, pid = fork_serve(function(_req: http.Request, res: http.Response)
       assert(res:start())
       assert(res:write("partial"))
@@ -319,8 +353,19 @@ local function test_unfinished_stream_closes_the_connection()
   -- No terminator was written, so nothing may follow the open body: a
   -- second response here would be read as more of the first one.
   assert(resp:find("7\r\npartial\r\n", 1, true), resp)
-  assert(resp:find("/two", 1, true) == nil,
-    "an unterminated stream must not be followed by another response: " .. resp)
+  local status_lines = 0
+  local at = 1
+  while true do
+    local found = resp:find("HTTP/1.1 200 OK", at, true)
+    if not found then
+      break
+    end
+    status_lines = status_lines + 1
+    at = found + 1
+  end
+  assert(status_lines == 1,
+    "an unterminated stream must not be followed by another response, "
+    .. "got " .. status_lines .. " status lines: " .. resp)
 end
 
 local function test_head_request_streams_no_body()

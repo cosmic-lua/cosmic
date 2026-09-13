@@ -46,12 +46,19 @@ end
 --- The bound is on the DECODED payload, which is the size a handler
 --- would see. A chunked body also carries framing the payload bound
 --- says nothing about — a stream of one-byte chunks is mostly chunk
---- headers — and the decoder keeps every raw byte, so that framing gets
---- the same budget as the payload: past it the request is refused too,
---- which is what holds the decoder to roughly twice the bound however
---- the client spends its bytes. Neither check can fire while the raw
---- count is still under the bound, so the body — a buffer copy — is
---- only asked for after it passes.
+--- headers — so the raw byte count fed to the decoder is bounded too,
+--- but only on a feed that does not finish the body: the check runs
+--- each time round the loop, before the next `recv`, so a body whose
+--- framing overhead crosses the bound while still arriving is caught
+--- there. This holds the decoder's memory to roughly twice the bound
+--- while a body is arriving gradually; it is not a guarantee that every
+--- oversized-framing body is refused regardless of how the client sends
+--- it — one whose bytes, terminating chunk included, land in a single
+--- feed is decided by the decoded-payload check alone, since the raw
+--- count is never re-examined once `consumed` comes back nonzero.
+--- Neither check can fire while the raw count is still under the
+--- bound, so the body — a buffer copy — is only asked for after it
+--- passes.
 --- @param recv Receiver Reads more bytes from the connection
 --- @param initial string Bytes already received past the head
 --- @param max_bytes integer The largest decoded body to accept

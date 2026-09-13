@@ -57,6 +57,10 @@ local record ListenOptions
   --- byte of the body is read; a `Transfer-Encoding: chunked` body
   --- declares no length, so it is decoded up to this bound and refused
   --- the moment the payload passes it, still before the handler runs.
+  --- A chunked body's framing overhead is bounded the same way while it
+  --- arrives gradually, but a fast client that lands its whole body,
+  --- terminator included, in one read is checked against the decoded
+  --- payload only (`cosmic.http.request` has the detail).
   max_body_bytes: integer
   --- Refuse a request head larger than this many bytes with 431
   --- (default 32767, which is as large as a head can be at all:
