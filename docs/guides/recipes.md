@@ -164,9 +164,10 @@ the send verb then puts nothing at all on the wire.
 `max_body_bytes` (413 above it, refused on the declared
 `Content-Length` before a byte is read), `max_head_bytes` (431 above
 it; the default 32767 is already as large as a head can be, so this one
-is only worth lowering). a chunked request body is refused with 411 for
-now, and a `Content-Length` written as anything but decimal digits is a
-400 rather than a framing guess.
+is only worth lowering). a chunked request body is decoded, bounded by
+the same `max_body_bytes` (413 if it grows past it), and a
+`Content-Length` written as anything but decimal digits is a 400
+rather than a framing guess.
 
 client side, one call: `fetch.fetch("http://127.0.0.1:" .. port ..
 "/status", {allow_private = true})` — `allow_private` opts out of the
