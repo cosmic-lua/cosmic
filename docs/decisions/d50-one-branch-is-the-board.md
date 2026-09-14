@@ -19,7 +19,7 @@
   and advance one branch, with no credential for shell git — by
   archiving the whole ref layout as base64 packs inside one branch,
   which every reader must import and project back
-  (`_work/singlehead_hydrate.tl`) and which GitHub can show nothing of.
+  and which GitHub can show nothing of.
   two transports for one board, because a multi-ref push cannot be
   expressed as connector calls. the measurements above and the
   mechanisms below are [cosmic-lua/work's
@@ -56,7 +56,7 @@
     `create_tree`, `create_commit`, `update_ref(force = false)` — under
     the single-head proof of concept's protocol invariants: one
     immutable attempt rendered from a saved plan bound to one
-    destination (`_work/singlehead_calls.tl`), the deadline checked at
+    destination (`_work/stateplan_calls.tl`), the deadline checked at
     the final call, and publication that is not authority. both
     executors write the same tree on the same branch, so there is one
     transport.
