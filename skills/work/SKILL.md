@@ -34,8 +34,30 @@ sibling exists:
 
 ```bash
 git clone https://github.com/cosmic-lua/work o/board   # only when no sibling
-bin/gitboard sync                                       # every session
 ```
+
+a sibling `../work` supplied by a session harness carries only the
+default branch, so the board's own refs are fetched once. this runs in
+the BOARD checkout, not in this repo — `git -C` names whichever one
+bin/gitboard found, so run it from wherever you are:
+
+```bash
+BOARD=../work          # or o/board, whichever bin/gitboard resolved
+git -C "$BOARD" fetch --atomic origin \
+  '+refs/heads/state:refs/remotes/origin/state' \
+  '+refs/heads/board/format:refs/remotes/origin/board/format'
+```
+
+then, every session:
+
+```bash
+bin/gitboard refresh --execute
+```
+
+`sync` is a deprecated alias that never fetches, and `refresh
+--execute` cannot do the one-time fetch above either — it refuses on
+the absent format marker before reaching its own fetch — so a checkout
+without those two refs starts with the `git fetch`.
 
 where a proxy re-terminates TLS, export `SSL_USE_SYSTEM_CERTS=1` in the
 session (never in a committed file), or the verbs that reach GitHub
@@ -43,7 +65,7 @@ fail every call with `badcert_not_trusted`.
 
 ## then let the tool teach
 
-start every session with `sync`. every verb ends with a
+start every session with `refresh --execute`. every verb ends with a
 `gitboard-<verb>:` verdict line — read that, never a piped exit
 status. `gitboard help` lists the verbs and the doctrine topics;
 `gitboard help <verb>` and `gitboard help <topic>` serve everything
