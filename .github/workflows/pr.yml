@@ -271,13 +271,19 @@ jobs:
 
   # The first build, and what only it can prove: the fixpoint. The
   # gate lane deliberately lacks a network after fetch; this lane has
-  # one, builds the artifact every other job consumes, and asserts the
-  # two properties that need exactly one tree: convergence, and that
-  # the host can enforce the fence at all. Reproducibility moved to its
-  # own job (`repro`, below), which doubles as the real-pins fetch
-  # check -- a fresh job IS a cold tree, so nothing has to be cleaned
-  # to prove a cold build works. Splitting also unblocks `smoke` ~2min
-  # earlier: it needs only this job's artifact, not the repro rebuild.
+  # one, builds the artifact `smoke` and `compare` consume, and asserts
+  # the two properties that need exactly one tree: convergence, and
+  # that the host can enforce the fence at all. Reproducibility lives
+  # in its own job (`repro`, below), which doubles as the real-pins
+  # fetch check -- a fresh job IS a cold tree, so nothing has to be
+  # cleaned to prove a cold build works.
+  #
+  # `repro` declares no `needs` on this job: it wants nothing from it
+  # but a byte-compare, and that compare happens later, in `compare`,
+  # once both cold builds have landed -- so the two builds run
+  # CONCURRENTLY instead of `repro` idling behind this one. `smoke`
+  # still needs only this job's artifact, so it starts the moment this
+  # job finishes, exactly as before.
   build:
     runs-on: ubuntu-latest
     # A green run takes ~2 minutes; anything near this ceiling is a hang.
@@ -344,6 +350,8 @@ jobs:
             o/bin/cosmic -e 'local s = require("cosmic.sandbox")
               assert(s.availability().fs, "this host cannot enforce; the fenced builds above proved nothing")'
 
+      # Consumed by `smoke` (needs only this) and by `compare` (needs
+      # this and `repro`'s own upload, below).
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-smoke
@@ -354,10 +362,12 @@ jobs:
   # so the cold-build claim needs no `clean` to set up -- and it builds
   # at a different absolute path than the `build` job's artifact
   # ($HOME/repro), because an absolute path leaking into the artifact
-  # only shows up when the root moves. Byte-compare against the
-  # artifact `build` uploaded: any nondeterminism -- a timestamp, an
-  # iteration order, an embedded path -- fails here instead of
-  # shipping.
+  # only shows up when the root moves. It uploads its own converged
+  # binary; the byte-compare against `build`'s artifact happens in
+  # `compare`, below, not here. This job declares no `needs` on `build`
+  # -- nothing about being a cold tree depends on when `build` runs, so
+  # the two cold builds run CONCURRENTLY and only the short compare at
+  # the end waits on both.
   #
   # Its fetch doubles as the real-pins check. Pin RESOLUTION is checked
   # offline on every commit by _make/pins_test.tl; what only a network
@@ -368,7 +378,6 @@ jobs:
   # something else would otherwise surface as a build failure whose
   # cause is two layers away.
   repro:
-    needs: build
     runs-on: ubuntu-latest
     # A green run takes ~2 minutes; anything near this ceiling is a hang.
     timeout-minutes: 12
@@ -379,11 +388,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: cosmic-smoke
-          path: dl/
-
       - name: prepare non-root builder
         shell: bash
         run: |
@@ -392,7 +396,7 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: rebuild cold at another path, and compare
+      - name: rebuild cold at another path
         shell: bash
         run: |
           # pipefail, because the idempotence fetch below ends in a
@@ -401,14 +405,6 @@ jobs:
           # exit, and the grep that follows would find no `fetch https`
           # in the error output and call that idempotence.
           set -euxo pipefail
-          # The artifact arrives as upload-artifact packed it; unpack
-          # the same way smoke does, handling both delivered layouts.
-          for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" dl/
-          done
-          first=$(find dl -type f -name cosmic | head -1)
-          test -n "$first"
-          cp "$first" /cosmic-first
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
             # pipefail HERE too: the tee pipeline below runs in THIS
             # shell, and the outer set cannot reach it.
@@ -421,8 +417,6 @@ jobs:
             test -x o/3p/cosmos/lua
             bin/cosmic --make build
             o/bin/cosmic --make build
-            cmp /cosmic-first o/bin/cosmic
-            echo "reproducible: PASS -- double build is byte-identical"
             # And again, to prove a satisfied pin re-fetches nothing:
             # the manifest that decides records one unpack product per
             # line, so a product whose name contains a newline would
@@ -432,6 +426,82 @@ jobs:
               echo "a satisfied pin fetched again" >&2
               exit 1
             fi'
+          # Named `cosmic` inside the artifact, matching `build`'s own
+          # upload, so `compare` can find both binaries the same way.
+          mkdir -p out
+          cp "$HOME/repro/o/bin/cosmic" out/cosmic
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: cosmic-repro
+          path: out/cosmic
+
+  # The byte-compare that makes `repro` mean anything. `build` and
+  # `repro` each cold-build the same tree from a different starting
+  # point (a warm checkout vs. a fresh container, `$GITHUB_WORKSPACE`
+  # vs. `$HOME/repro`) and upload what they produced; this job's only
+  # reason to exist is diffing those two artifacts. Any nondeterminism
+  # -- a timestamp, an iteration order, an embedded absolute path --
+  # fails here instead of shipping.
+  #
+  # It runs in the same pinned container as the lanes that produced the
+  # two artifacts, on the same non-root builder. Nothing here compiles,
+  # but the environment a comparison runs in is still a choice, and the
+  # one already chosen for every Linux lane is the one to make: `cmp`
+  # and the unpacking around it then behave identically here and in the
+  # jobs being compared.
+  #
+  # Splitting this out of `repro` is what lets `repro` start at the
+  # same time as `build` instead of waiting for it: the two cold builds
+  # now run CONCURRENTLY, and only this short diff waits on both, so
+  # the workflow's critical path becomes max(build, repro) plus one
+  # small job instead of build-then-repro in series.
+  compare:
+    needs: [build, repro]
+    runs-on: ubuntu-latest
+    # A green run is two downloads and a byte-compare, done in seconds;
+    # this ceiling only catches a stuck download.
+    timeout-minutes: 5
+    # Pinned container, identical to the gate lane's; see there.
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cosmic-smoke
+          path: dl/build/
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cosmic-repro
+          path: dl/repro/
+
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: byte-compare build and repro
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Each artifact arrives as upload-artifact packed it; unpack
+          # the same way smoke does, handling both delivered layouts.
+          # Separate download dirs keep the two same-named `cosmic`
+          # files from colliding.
+          for z in $(find dl -type f -name '*.zip'); do
+            python3 -m zipfile -e "$z" "$(dirname "$z")"
+          done
+          build_bin=$(find dl/build -type f -name cosmic | head -1)
+          repro_bin=$(find dl/repro -type f -name cosmic | head -1)
+          test -n "$build_bin"
+          test -n "$repro_bin"
+          runuser -u builder -- cmp "$build_bin" "$repro_bin"
+          echo "reproducible: PASS -- build and repro are byte-identical"
 
   # The artifact is a fat APE shipped for six operating systems, and the
   # gate is Linux-only. This runs the built binary on real macOS and
