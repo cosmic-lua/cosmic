@@ -37,11 +37,13 @@ git clone https://github.com/cosmic-lua/work o/board   # only when no sibling
 ```
 
 a sibling `../work` supplied by a session harness carries only the
-default branch, so the board's own refs are fetched once, in that
-checkout:
+default branch, so the board's own refs are fetched once. this runs in
+the BOARD checkout, not in this repo — `git -C` names whichever one
+bin/gitboard found, so run it from wherever you are:
 
 ```bash
-git fetch --atomic origin \
+BOARD=../work          # or o/board, whichever bin/gitboard resolved
+git -C "$BOARD" fetch --atomic origin \
   '+refs/heads/state:refs/remotes/origin/state' \
   '+refs/heads/board/format:refs/remotes/origin/board/format'
 ```
