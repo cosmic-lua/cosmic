@@ -4,5 +4,5 @@
 # bin/cosmic.pin. Every push to main of cosmic-lua/work publishes a
 # release; bump both fields together, the sha is what is verified
 # before anything is executed.
-url = https://github.com/cosmic-lua/work/releases/download/2026-09-14-7f88ef3/gitboard
-sha256 = c4ae92bf163b78a7dbd65921ee70a163970b8208307cf5d12f1ef5e6b19da4a2
+url = https://github.com/cosmic-lua/work/releases/download/2026-09-15-0e69708/gitboard
+sha256 = 18cee047914803fc41bcef9ea3de14fa637c2cdde4f852b872c6b1595f4a8680
