@@ -323,3 +323,13 @@ carries a tradeoff, a decision record later.
    fails the build by name. no network anywhere in a build; the one
    external tool is the pinned zig. repo size is a one-time clone
    cost, the cheap kind under principle 4.
+8. **the Teal layer is rewritten from scratch; the old tree is
+   reference, never source.** every module is written fresh under
+   the new rules, against the new binding table, from the first line
+   cast-free. the first cosmic's docs, tests, and examples are read
+   for the behavior they verified and the traps they caught, and
+   nothing is copied. surface parity is not a goal: a module exists
+   in the rewrite when the tier order pulls it and it earns its place
+   under the least-tree rule, so the rewrite is also the pruning the
+   first tree never got. the internal trees (`_cli`, `_make`,
+   `_build`, `_tool`) have no successor by port; the build is new.
