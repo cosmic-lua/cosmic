@@ -351,3 +351,9 @@ carries a tradeoff, a decision record later.
     is renamed to a `v1` branch and this branch is renamed `main`.
     issues, the board, org access, and history stay in one place
     throughout.
+11. **verbs, with a bare path meaning run.** `cosmic build`, `cosmic
+    test`, `cosmic check`, `cosmic fmt`, `cosmic docs`, `cosmic embed`;
+    `cosmic file.tl` runs a file; `-e` stays as Lua's one-liner idiom.
+    every verb takes paths to narrow it, ends in a verdict line and an
+    exit code, and `cosmic help <verb>` is the whole discovery
+    surface. no other stock-interpreter flags, no argv[0] personality.
