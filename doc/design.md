@@ -281,3 +281,24 @@ carries a tradeoff, a decision record later.
    by OS, or a hot path left slow to save bytes, is paid on every
    run. the per-release size report still carries a per-component
    line for the core, so growth is named, never silent.
+5. **no escape hatch: casts are foreclosed in the checker from the
+   first line.** `x as T` type-checks only from `any`, from a
+   userdata record declared in a `.d.tl`, or from the enclosing
+   generic's type variable. `any` is legal only where untrusted data
+   enters and a shape validator turns it into a record by
+   construction. no justification comments, no ledger. the spirit is
+   consistent, strong, explicit typing, and it was checked against
+   the languages that hold it: the top type inert until narrowed (Go,
+   Luau's `unknown`, TypeScript's late `unknown`), casts confined to
+   subtype moves or runtime-checked (Luau, Kotlin), the escape hatch
+   in one greppable region (Rust's `unsafe`, Go's `unsafe`), and
+   boundaries decoded through declared shapes (serde, `json.Unmarshal`,
+   Elm's decoders). Kotlin's runtime-checked cast is closed to Teal
+   because Lua erases record types, so shapes construct their records
+   rather than asserting them. two tightenings follow, each to verify
+   against tl's actual semantics and to carry as a patch if needed:
+   `any` narrows only through `is`, a shape, or an explicit `as`,
+   never by assignment into a typed slot; and an unannotated parameter
+   or return is an error, never an implicit `any`. the per-release
+   report names the modules that cast from `any`; the expected list is
+   the shape module, the codec decoders, and the C declaration layer.
