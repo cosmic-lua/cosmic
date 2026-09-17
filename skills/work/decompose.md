@@ -52,11 +52,8 @@ reasoning; the board is the order.
 ## the VERIFICATION item
 
 a claim that an outcome's win condition holds is itself a slice of
-work, filed under the root like any other:
-
-```bash
-gitboard new "<title>" --parent <root-id> --spec-file <spec.md>
-```
+work, filed with `new` under the root like any other, its spec
+supplied from a file (`gitboard help new` has the flags).
 
 its spec has the ordinary sections, with the content fixed by the
 outcome it verifies:
@@ -80,11 +77,8 @@ rejects any PR that misses its acceptance.
 ## a verified outcome
 
 once the VERIFICATION item is accepted and merged, a session ends the
-outcome by that evidence:
-
-```bash
-gitboard done <outcome-id> --reason completed --by <verification-id>
-```
+outcome by that evidence: `done` on the outcome, completed by the
+verification item (`gitboard help done` has the flags).
 
 `done` refuses this on an outcome with an open child (nothing may
 still be in flight), a `--by` that is not the outcome's own completed
