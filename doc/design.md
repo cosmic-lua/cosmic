@@ -103,8 +103,8 @@ whatever the stack, and things that existed only because of the stack.
 ## the stack
 
 ```
-kernel (Linux)
-  musl, static                         the C stdlib, vendored pristine
+kernel (Linux; macOS on libSystem)
+  musl, static                         the C stdlib on Linux; libSystem on macOS
     lua 5.5 core                       vendored pristine
     sqlite3 amalgamation               vendored pristine
     small C libs                       argon2, a regex engine, zlib/miniz,
@@ -194,4 +194,29 @@ target; G9 says the least tree that keeps its promises.
 answered one at a time; each answer becomes a line here and, when it
 carries a tradeoff, a decision record later.
 
-1. **platform scope.** open.
+1. **platform scope: Linux and macOS, no Windows.** Linux is
+   x86_64 and aarch64 on static musl. macOS is aarch64 and x86_64 on
+   libSystem, which cannot be linked statically but is always present,
+   so the one-file property holds. Windows is dropped, and with it
+   every emulated fork, signal, and console quirk. two costs macOS
+   carries regardless of toolchain: embedding is format-aware (an ELF
+   takes appended bytes; a Mach-O needs a section added and an ad-hoc
+   re-sign, or arm64 macOS kills it), and enforcement is honest, not
+   equal (Landlock and seccomp are Linux; macOS reports `skipped` or
+   uses sandbox_init). the C layer is written to POSIX plus a declared
+   platform seam: no signalfd, inotify, epoll, or procfs outside
+   modules guarded as Linux-only.
+2. **host language C, zig as the toolchain only.** the binary is a C
+   program; Lua, SQLite, and the small libraries are the C they ship
+   as. one pinned zig replaces cc, make, and the macOS runner on the
+   build path: `zig cc` cross-compiles all four targets from a Linux
+   lane and `build.zig` compiles the vendored C. zig's churn touches
+   build flags, not code, and the fallback is native toolchains on
+   the same source (Linux clang against in-tree musl, Apple clang on a
+   macOS runner) if its bundled musl or a release ever bites. Rust as
+   the host was weighed and deferred: memory-safe glue and rustls
+   against cargo, a crate tree in the hundreds, minute-long builds,
+   unverified Lua 5.5 support in mlua, and no macOS cross-build
+   without zig anyway. zig as the language was set aside for being
+   pre-1.0 and the option agents know least. **revisit both after the
+   first revision of this design.**
