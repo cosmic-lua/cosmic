@@ -141,13 +141,13 @@ the verdict line or refusal text quoted.
 
 the friction log closes with the ledger, in this order:
 
-1. every countermeasure that passes the spec bar is filed now —
-   `gitboard new "<title>" --parent <goal> --spec-file <spec>` —
-   with the log's entry as its Evidence; the candidates list names
-   the handle.
-2. the whole log is filed as one unparented item, title
-   `friction: <date> <label>`, `gitboard new ... --spec-file <log>`,
-   so it enters triage and the next refiner can attach, compare, or
-   end it. a log with nothing in it is still filed: an empty log is
-   a measurement.
+1. every countermeasure that passes the spec bar is filed now with
+   `new`, parented under the goal it serves and its spec supplied
+   from a file (`gitboard help new` has the flags), with the log's
+   entry as its Evidence; the candidates list names the handle.
+2. the whole log is filed with `new` as one unparented item, title
+   `friction: <date> <label>`, the log itself as the spec file, so it
+   enters triage and the next refiner can attach, compare, or end
+   it. a log with nothing in it is still filed: an empty log is a
+   measurement.
 3. the pass report names the log's handle and the handles it filed.

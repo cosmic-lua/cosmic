@@ -37,13 +37,17 @@ git clone https://github.com/cosmic-lua/work o/board   # only when no sibling
 ```
 
 a sibling `../work` supplied by a session harness carries only the
-default branch, so the board's own refs are fetched once. this runs in
-the BOARD checkout, not in this repo — `git -C` names whichever one
-bin/gitboard found, so run it from wherever you are:
+default branch, so the board's own refs are fetched once, and the
+default branch with them: a harness clone's `main` and `origin/main`
+can both be stale, and `claim` compares against the tracking ref as
+last fetched. this runs in the BOARD checkout, not in this repo —
+`git -C` names whichever one bin/gitboard found, so run it from
+wherever you are:
 
 ```bash
 BOARD=../work          # or o/board, whichever bin/gitboard resolved
 git -C "$BOARD" fetch --atomic origin \
+  '+refs/heads/main:refs/remotes/origin/main' \
   '+refs/heads/state:refs/remotes/origin/state' \
   '+refs/heads/board/format:refs/remotes/origin/board/format'
 ```
@@ -57,7 +61,7 @@ bin/gitboard refresh --execute
 `sync` is a deprecated alias that never fetches, and `refresh
 --execute` cannot do the one-time fetch above either — it refuses on
 the absent format marker before reaching its own fetch — so a checkout
-without those two refs starts with the `git fetch`.
+without those refs starts with the `git fetch`.
 
 where a proxy re-terminates TLS, export `SSL_USE_SYSTEM_CERTS=1` in the
 session (never in a committed file), or the verbs that reach GitHub
@@ -110,9 +114,10 @@ ask, and it observes itself while it runs:
   `skills/work/friction.md`; the steps are these, and a pass that
   skipped one has not run:
   1. open the log before the first board verb;
-  2. every spawned agent's prompt ends with the friction ask
-     (`friction.md`, "what the agent reports") — until `gitboard
-     brief` carries it, append it by hand, every time;
+  2. every spawned agent's prompt is the brief `gitboard brief`
+     emits, and that brief already ends with the friction ask
+     (`friction.md`, "what the agent reports") for every kind; the
+     orchestrator adds nothing;
   3. when an agent reports, run `cosmic _tool/friction.tl
      <transcript>` on its `.output` file and write its section from
      the numbers plus its own `## Friction` account — one section per
