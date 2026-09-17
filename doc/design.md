@@ -302,3 +302,14 @@ carries a tradeoff, a decision record later.
    or return is an error, never an implicit `any`. the per-release
    report names the modules that cast from `any`; the expected list is
    the shape module, the codec decoders, and the C declaration layer.
+6. **one Lua state, one thread, coroutines over `poll`; the C layer
+   re-entrant from day one.** every blocking binding takes a timeout
+   and can be driven from one event loop, which is Teal over the
+   `poll` binding; `http.serve` and `fetch` are coroutine-driven; CPU
+   parallelism is by process through `child`. the re-entrancy rule
+   costs discipline, not code: no static buffers, no process-global
+   state outside the entry, every binding takes its context
+   explicitly, SQLite opened per connection and never shared across a
+   boundary that could later be a thread. one state per OS thread
+   with message passing stays open as a later addition that rewrites
+   no bindings.
