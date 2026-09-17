@@ -341,3 +341,13 @@ carries a tradeoff, a decision record later.
    case without making per-machine trust the default. the OS stacks
    were rejected for behaving differently per target, BearSSL for
    1.2-only, LibreSSL for its tree and build.
+10. **this branch, in cosmic-lua/cosmic, becomes `main` at a named
+    cutover.** the rewrite develops here with its own CI while the
+    old `main` keeps releasing. the cutover bar, stated now: the new
+    binary builds and tests gitboard from its own tree; the agent-eval
+    suite scores at or above the last recorded round on the old
+    binary; the release job produces all four targets and the repro
+    lane proves them byte-identical. when all three hold, old `main`
+    is renamed to a `v1` branch and this branch is renamed `main`.
+    issues, the board, org access, and history stay in one place
+    throughout.
