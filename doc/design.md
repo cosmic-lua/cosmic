@@ -313,3 +313,13 @@ carries a tradeoff, a decision record later.
    boundary that could later be a thread. one state per OS thread
    with message passing stays open as a later addition that rewrites
    no bindings.
+7. **pristine sources committed, patches as exact find-and-replace
+   records, applied by a tiny in-tree applier.** `vendor/<name>/` is
+   the extracted upstream tarball, never edited, with a `PIN` file
+   naming version and hash. `patches/<name>/` holds records, each an
+   exact `find`, a `replace`, and a `note` saying why it exists; a
+   ~200-line C applier that zig builds first writes the patched copy
+   to `o/vendor/<name>`, and a record whose anchor no longer matches
+   fails the build by name. no network anywhere in a build; the one
+   external tool is the pinned zig. repo size is a one-time clone
+   cost, the cheap kind under principle 4.
