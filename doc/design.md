@@ -124,6 +124,40 @@ edited in place; a patch tree beside it, applied by the build; the C
 binding layer; the Teal stdlib; the tooling. a `cosmo.*` contract
 change and its type declaration land in one commit.
 
+### the line between C and Teal
+
+size yields to two things: **identical behavior on every target** and
+**performance**. within that, the core is a syscall table plus a few
+vendored libraries, and anything with a policy in it is Teal, stored
+once in the database and shared by every target.
+
+native, per target: the Lua VM; SQLite; one TLS library that also
+serves hashing and HMAC; deflate; argon2; a vendored regex engine;
+the syscall table; the database-at-offset VFS and the entry. the
+syscall table is one C function per syscall with the same signature
+on Linux and macOS, generated with its Teal declaration and its doc
+row from one declaration file, so a binding cannot exist without its
+type and the C surface cannot grow without a diff in that file.
+
+never borrowed from the libc where semantics are observable: regex,
+DNS resolution, anything locale-shaped. musl and libSystem agree on
+`open`; they do not agree on `regcomp`'s corners or `getaddrinfo`'s
+ordering, and a difference a test on one OS cannot see is the class
+of bug the rewrite exists to remove.
+
+Teal by default: filesystem policy (walk, find, atomic write), child
+processes above spawn and wait, sandbox policy over raw enforcement
+syscalls, URL, SSE, tar, the zip directory, the whole build including
+the Mach-O section writer and ad-hoc signer. C when a benchmark on a
+real scenario says the Teal is too slow and a fuzzed, vendorable C
+implementation exists: JSON both directions and HTTP/1.1 framing
+start in C on that rule. the benchmark harness, not taste, moves a
+module across the line in either direction.
+
+the compiled payload is shared: all four targets are little-endian
+64-bit, so one bytecode column serves them all, verified by a test
+that each image loads it. the core image column is the only
+per-target data in the database.
 ### sqlite as the store
 
 today derived state is file-per-record under `o/` and inside the zip:
@@ -239,3 +273,11 @@ carries a tradeoff, a decision record later.
      `VACUUM INTO` so freelist and page order never depend on the
      history of the build directory. a second build of the same tree
      is byte-identical, and CI's repro lane asserts it.
+4. **every cosmic binary carries all four core images**, so any host
+   builds any target offline with nothing fetched. the principle
+   behind it, stated once and applied everywhere: **size yields to
+   consistent behavior across targets and to performance.** a bigger
+   binary is a cost paid once per download; a behavior that differs
+   by OS, or a hot path left slow to save bytes, is paid on every
+   run. the per-release size report still carries a per-component
+   line for the core, so growth is named, never silent.
