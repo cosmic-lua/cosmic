@@ -333,3 +333,11 @@ carries a tradeoff, a decision record later.
    under the least-tree rule, so the rewrite is also the pruning the
    first tree never got. the internal trees (`_cli`, `_make`,
    `_build`, `_tool`) have no successor by port; the build is new.
+9. **mbedtls 3.x, with Mozilla's root bundle stored in the
+   database.** TLS 1.2 and 1.3, one configuration, hashes and HMAC
+   from the same library. roots are identical on every machine and
+   move only by a pinned bump like any vendored source; an
+   environment variable adds a certificate for the corporate-proxy
+   case without making per-machine trust the default. the OS stacks
+   were rejected for behaving differently per target, BearSSL for
+   1.2-only, LibreSSL for its tree and build.
