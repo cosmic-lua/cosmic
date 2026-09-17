@@ -220,3 +220,22 @@ carries a tradeoff, a decision record later.
    without zig anyway. zig as the language was set aside for being
    pre-1.0 and the option agents know least. **revisit both after the
    first revision of this design.**
+3. **the database is the only module source, always.** `require`
+   reads the database and nothing else; a `.tl` on disk is input to
+   the build, never to the runtime. the price is that every edit
+   needs the build, so the build must be **fast, incremental, and
+   fully reproducible**, all three at once:
+   - *incremental*: a module row is keyed by the content hash of its
+     source plus the hashes of its import closure; an unchanged key
+     is a stat, a changed one recompiles and re-records only what
+     depended on it. tests, coverage, and docs share the keys.
+   - *fast*: the importer is one process, one transaction, no
+     subprocess per file; the checker and compiler run in-process
+     against declarations already in the database.
+   - *reproducible*: the database bytes are a pure function of the
+     tree. that is not automatic in SQLite: rows are written in a
+     fixed order (path, then kind), no row carries a timestamp or an
+     autoincrement counter, and the shipped file is produced by
+     `VACUUM INTO` so freelist and page order never depend on the
+     history of the build directory. a second build of the same tree
+     is byte-identical, and CI's repro lane asserts it.
