@@ -41,14 +41,14 @@ that runs both, coverage reported the same way for either.
 - **`cosmic check`**: the foreclosed-cast checker gate over a
   project, which needs the binary's own declarations reachable on
   disk or in a form the checker can read, since a real project
-  imports more than `hello.tl` does today.
+  imports more than a trivial one-file script does today.
 - **`cosmic format`**: the formatter, renamed to match the module.
 - **the visibility lint**, part of what "checking" means: no import
   of a private module from outside its tree, no two names in a
   directory differing only in case.
 - **the remaining tl narrowing patches**, record-field narrowing and
   container covariance, so cast-foreclosure holds against real code,
-  not only `hello.tl`.
+  not only a trivial one-file script.
 
 **alongside, not gating the above:**
 

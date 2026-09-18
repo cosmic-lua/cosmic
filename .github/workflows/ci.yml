@@ -116,6 +116,43 @@ jobs:
         shell: bash
         run: .github/run-binary.sh dl aarch64-macos "macos aarch64"
 
+  # Each shipped target proves it can build AND test itself, not only
+  # that a Linux-cross-compiled artifact happens to boot elsewhere: the
+  # same tree, built fresh with that platform's own C toolchain, must
+  # pass every test the tree defines. This is the one thing a bare
+  # downloaded binary cannot do on its own -- o/types/'s generated
+  # declarations only exist once this same build has produced them, so
+  # `run-binary.sh`'s lighter check never attempts it.
+  native-test-linux-aarch64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: cache the pinned zig
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - name: build every core, then the database and the binaries
+        run: bin/zig build cores boot
+      - name: run every test the tree defines, including doctests
+        run: o/bin/cosmic test
+
+  native-test-macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: cache the pinned zig
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - name: build every core, then the database and the binaries
+        run: bin/zig build cores boot
+      - name: run every test the tree defines, including doctests
+        run: o/bin/cosmic test
+
   # The artifact is a pure function of the tree. A fresh container is a
   # cold tree by construction; building at another path is what catches
   # an absolute path that leaked into the bytes.

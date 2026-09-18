@@ -1,6 +1,10 @@
 #!/bin/bash
-# Runs a downloaded cosmic binary: the help surface, then a project of
-# one file built and run from its own database.
+# Runs a downloaded cosmic binary on its own real target: the help
+# surface, then a trivial one-file script with no project of its own,
+# proving cross-compilation produced something that actually boots and
+# runs on this hardware. It never builds anything -- the native-build
+# lanes prove the whole tree, including o/types/'s generated
+# declarations, compiles and every test passes on that real platform.
 #
 #   run-binary.sh <download dir> <target> <lane name>
 set -euo pipefail
@@ -28,15 +32,21 @@ chmod +x "$cosmic"
 project=${RUNNER_TEMP:-/tmp}/cosmic-project
 rm -rf "$project"
 mkdir -p "$project"
-cp hello.tl "$project/"
+cat > "$project/smoke.tl" <<'EOF'
+local function hi(_argv: {integer:string}): integer
+  print("hello from the database")
+  return 0
+end
+return hi
+EOF
 cd "$project"
 
-got=$("$cosmic" hello.tl)
+got=$("$cosmic" smoke.tl)
 test "$got" = "hello from the database"
 
 # Again, with the database already built: the second run must not
 # rebuild what has not changed, and must still print the same line.
-got=$("$cosmic" hello.tl)
+got=$("$cosmic" smoke.tl)
 test "$got" = "hello from the database"
 
 echo "ci: PASS ($lane)"

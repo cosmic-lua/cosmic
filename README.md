@@ -14,6 +14,7 @@ bin/zig build cores boot
 ## run a file
 
 ```sh
+echo 'print("hello from the database")' > hello.tl
 cosmic hello.tl
 ```
 
