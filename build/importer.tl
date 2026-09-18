@@ -39,6 +39,21 @@ local record importer
   end
 end
 
+--- The bytecode header every target must agree on. One column of
+--- bytecode serves all three because they are all little-endian and
+--- 64-bit; this is what says so out loud, so a target whose sizes or
+--- byte order differ fails the build rather than a launch.
+---
+--- The bytes are the signature, the version and format, the data check,
+--- and the size and value of an int, an instruction, an integer and a
+--- number.
+local bytecode_header =
+  "\27LuaU\0\25\147\13\10\26\10" ..
+  "\4\136\169\255\255" ..
+  "\4\120\86\52\18" ..
+  "\8\136\169\255\255\255\255\255\255" ..
+  "\8\0\0\0\0\0\40\119\192"
+
 --- What is never a module: the build's own output, the upstream
 --- sources and the records that patch them, prose, and anything
 --- hidden.
@@ -244,6 +259,10 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
       return nil, m.file .. ": " .. tostring(load_trouble)
     end
     m.bytecode = string.dump(chunk, true)
+    if m.bytecode:sub(1, #bytecode_header) ~= bytecode_header then
+      return nil, m.file .. ": this host dumps bytecode the three targets " ..
+        "do not share"
+    end
 
     if m.kind == "entry" then
       entry = m.path
