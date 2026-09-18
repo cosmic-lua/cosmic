@@ -17,27 +17,36 @@ run when it says what it prints. there is no third kind, other than
 an explicit skip with a reason.
 
 an example is the shape Go gave it: a function-sized unit with its
-own scope, compiled every time, run when it declares its output. in
-a doc, an example is one or more fenced blocks, and the build turns
-each example into its own Teal chunk; nothing leaks from one example
-to the next.
+own scope, compiled every time, run when it declares its output. a
+doc compiles to one Teal file, the same shape as a hand-written test
+file and discovered the same way; each example inside it becomes its
+own function, never a chunk shared with the others, so a `return` at
+an example's end is an ordinary function return and two examples
+declaring the same local name never collide. nothing else is
+different: the compiled file is a test file, run by the same runner,
+under the same assertion and the same eventual isolation, with no
+doctest machinery of its own.
 
-- a fenced block tagged `teal` or `lua` opens an example, or joins
-  the one before it when tagged `teal continue`. it compiles under
-  the checker.
+- a fenced block tagged `teal` or `lua` opens an example, becoming a
+  function's first statements, or joins the one before it when
+  tagged `teal continue`, adding more statements to that same
+  function. it compiles under the checker.
 - a block tagged `teal file=<path>` is a file in that example's
-  project rather than its entry; a multi-file guide is one example
-  with several files and one entry. the entry is the block without
-  a `file=`.
+  project rather than a statement in its function; a multi-file
+  guide is one example with several files and one entry, the block
+  without a `file=`.
 - a block tagged `output` that follows an example is what the entry
-  prints, asserted line by line. an example with no `output` block
-  compiles and does not run.
+  prints, captured and asserted line by line as that function's own
+  assertion. an example with no `output` block compiles and does
+  not run.
 - a block tagged `sh` is a command line. it runs under the fence and
   its verdict line is asserted by the `output` block after it.
-- a block tagged `teal skip=<reason>` is compiled by nothing, and
-  the reason is visible to the reader. `skip=intended` marks an
+- a block tagged `teal skip=<reason>` produces no function at all,
+  only a comment carrying the reason. `skip=intended` marks an
   example that waits on work not yet done; `skip=network` marks one
-  that needs a host the build does not have.
+  that needs a host the build does not have. a shebang line, real
+  only as a file's first line, is always a skip, shown for reading,
+  never run.
 - a block tagged `text` is prose in a box. nothing runs.
 
 the build keys each example by content hash like any test and
