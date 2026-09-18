@@ -63,6 +63,12 @@ these argues with the principle, not with the reviewer.
    fixed in the code, and every example runs or says why not. tests
    run because they are defined. gates end in a verdict line. an
    error-site hint beats a gotcha doc beats guide prose.
+9. **obviously simple, correct, and essential.** a reader sees it,
+   never derives it: a line of code proves itself on sight and a
+   sentence of prose is believed on the first read. something that
+   is merely true but needs tracing to trust has not met the bar,
+   in code or in prose, and is a thing to rewrite, not to comment
+   further.
 
 ## targets
 
