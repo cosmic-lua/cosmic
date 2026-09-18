@@ -84,7 +84,7 @@ kernel                               Linux; macOS
                                      libSystem (macOS)
     lua 5.5                          vendored pristine
     sqlite3                          vendored pristine
-    mbedtls 3, miniz, argon2,        vendored pristine
+    mbedtls, miniz, argon2,          vendored pristine
     a regex engine
     syscall table                    C, one function per syscall
   cosmic binary
