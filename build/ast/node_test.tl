@@ -105,7 +105,7 @@ end
 
 --- `local function test_foo() end`, reached as `root[1]`: a
 --- "local_function" whose own `name` is an "identifier" node carrying
---- the declared name -- what `build.positions.discover_tests` reads to
+--- the declared name -- what `build.positions.analyze` reads to
 --- find a file's own top-level tests without a text pattern.
 local function test_local_function_name()
   local root = parse_ok("local function test_foo()\nend\n", "local_function.tl")

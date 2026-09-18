@@ -18,6 +18,18 @@ local type compiler = require("build.compiler")
 local ast = require("build.ast")
 
 local record positions
+  --- What a single parse of a `kind = "test"` module's source tells the
+  --- importer: its own test names and whether it also returns its own
+  --- value at the top level. Bundled into one record rather than
+  --- returned as separate slots: `analyze`'s first return admits nil
+  --- (source that fails to lex or parse), and a fallible return may
+  --- declare at most two slots -- the extras ride on the value's
+  --- record instead.
+  record Analysis
+    tests: {string}
+    has_top_level_return: boolean
+  end
+
   record Module
     path: string
     file: string
@@ -26,52 +38,35 @@ local record positions
     source_hash: string
     requires: {string}
     tests: {string}
+    has_top_level_return: boolean
     key: string
     lua: string
     bytecode: string
   end
 end
 
---- The name of every top-level `local function test_*` in `source`, in
---- the order they appear: every direct element of the parsed chunk's
---- own top-level statement array (never a recursive walk) whose kind
---- is `"local_function"` and whose declared name matches `^test_`. An
---- indented one lives inside some OTHER statement's own body, not the
---- chunk's own array part, so it is never reached here; a source
---- SAMPLE held as a string literal is never parsed as a statement at
---- all, so there is no bracket-tracking left to get wrong.
---- @param built compiler The loaded compiler capsule (`build.teal.load()`)
---- @param source string
---- @param name string Filename for parse diagnostics
---- @return {string} | nil Every top-level test name, in source order
---- @return string Error message when `source` fails to lex or parse
-function positions.discover_tests(built: compiler, source: string,
-                                  name: string): {string} | nil, string
-  local parsed, trouble = ast.parse(built, source, name)
-  if parsed == nil then
-    return nil, trouble
-  end
-  local names: {string} = {}
-  for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "local_function" then
-      local fn_name = stmt.name
-      local tk = fn_name ~= nil and fn_name.tk or nil
-      if tk ~= nil and tk:match("^test_") ~= nil then
-        names[#names + 1] = tk
-      end
-    end
-  end
-  return names, ""
-end
-
---- Whether `source` has a genuine top-level (chunk-level) `return`
---- statement: any direct element of the parsed chunk's own top-level
---- statement array whose kind is `"return"`. Lua requires a `return`
---- to be the last statement of the block it sits in, so a module that
---- type-checks at all can only have one as its own chunk's final
---- statement -- never one a nested `if`, loop, or function body left
---- behind, since those parse as children of that inner block's own
---- "statements" node, never as an element of the chunk's own array.
+--- Both facts an importer needs from a `kind = "test"` module's source,
+--- from one parse: the name of every top-level `local function test_*`,
+--- in the order they appear, and whether the chunk also has a genuine
+--- top-level (chunk-level) `return` statement -- the two are read
+--- together off the same parsed chunk's own top-level statement array
+--- so the source is never parsed twice for the two questions.
+---
+--- A test name is any direct element of that array (never a recursive
+--- walk) whose kind is `"local_function"` and whose declared name
+--- matches `^test_`. An indented one lives inside some OTHER
+--- statement's own body, not the chunk's own array part, so it is
+--- never reached here; a source SAMPLE held as a string literal is
+--- never parsed as a statement at all, so there is no bracket-tracking
+--- left to get wrong.
+---
+--- A genuine top-level return is any direct element of that same array
+--- whose kind is `"return"`. Lua requires a `return` to be the last
+--- statement of the block it sits in, so a module that type-checks at
+--- all can only have one as its own chunk's final statement -- never
+--- one a nested `if`, loop, or function body left behind, since those
+--- parse as children of that inner block's own "statements" node,
+--- never as an element of the chunk's own array.
 ---
 --- An ordinary snake_case identifier or call starting with the six
 --- letters `return` (`return_code = 1`, `return_value(x)`) parses to
@@ -81,20 +76,28 @@ end
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string
 --- @param name string Filename for parse diagnostics
---- @return boolean | nil Whether the chunk's own last statement is a return
+--- @return Analysis | nil Every top-level test name plus the top-level-return fact
 --- @return string Error message when `source` fails to lex or parse
-function positions.has_top_level_return(built: compiler, source: string,
-                                        name: string): boolean | nil, string
+function positions.analyze(built: compiler, source: string,
+                           name: string): positions.Analysis | nil, string
   local parsed, trouble = ast.parse(built, source, name)
   if parsed == nil then
     return nil, trouble
   end
+  local names: {string} = {}
+  local has_return = false
   for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "return" then
-      return true, ""
+    if stmt.kind == "local_function" then
+      local fn_name = stmt.name
+      local tk = fn_name ~= nil and fn_name.tk or nil
+      if tk ~= nil and tk:match("^test_") ~= nil then
+        names[#names + 1] = tk
+      end
+    elseif stmt.kind == "return" then
+      has_return = true
     end
   end
-  return false, ""
+  return { tests = names, has_top_level_return = has_return }, ""
 end
 
 --- The file's own name, with no directory in front of it.

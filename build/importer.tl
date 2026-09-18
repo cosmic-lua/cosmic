@@ -144,12 +144,14 @@ local function collect(root: string, self_tree: boolean,
       end
       local kind = kind_of(file)
       local tests: {string} = {}
+      local has_top_level_return = false
       if kind == "test" then
-        local found, test_trouble = positions.discover_tests(built, source, file)
+        local found, analyze_trouble = positions.analyze(built, source, file)
         if found == nil then
-          return nil, file .. ": " .. test_trouble
+          return nil, file .. ": " .. analyze_trouble
         end
-        tests = found
+        tests = found.tests
+        has_top_level_return = found.has_top_level_return
       end
       out[#out + 1] = {
         path = import_path(file),
@@ -159,6 +161,7 @@ local function collect(root: string, self_tree: boolean,
         source_hash = Hash.hex_sha256(source),
         requires = requires_of(source),
         tests = tests,
+        has_top_level_return = has_top_level_return,
         key = "",
         lua = "",
         bytecode = "",
@@ -287,14 +290,11 @@ end
 --- its own value at the top level. `with_test_tail` appends a generated
 --- `return` after the module's compiled Lua, and Lua allows only one
 --- `return` as a block's last statement, so the two together always
---- produce a parse error the moment both are true -- this is checked
---- before that ever happens.
---- @param built the compiler, loaded and ready
-local function collides_with_test_tail(built: compiler, m: Module): boolean | nil, string
-  if #m.tests == 0 then
-    return false, ""
-  end
-  return positions.has_top_level_return(built, m.source, m.file)
+--- produce a parse error the moment both are true. `collect` already
+--- read both facts off one parse of `m.source`, so this only reads
+--- what `m` itself carries -- never a second parse of the same source.
+local function collides_with_test_tail(m: Module): boolean
+  return #m.tests > 0 and m.has_top_level_return
 end
 
 local function complain(file: string, result: compiler.Result): string
@@ -344,14 +344,7 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
       m.source_hash .. "\n" .. table.concat(closure, "\n") .. "\n" .. boot_hash)
     keys[m.path] = m.key
 
-    local colliding = false
-    if m.kind == "test" then
-      local collides, collide_trouble = collides_with_test_tail(built, m)
-      if collides == nil then
-        return nil, m.file .. ": " .. collide_trouble
-      end
-      colliding = collides
-    end
+    local colliding = m.kind == "test" and collides_with_test_tail(m)
     if colliding then
       -- Refused on its own, narrowly: every other module still
       -- compiles below, unaffected. Compiling this one anyway would

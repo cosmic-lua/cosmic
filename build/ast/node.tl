@@ -99,9 +99,9 @@ local record Node is {Node}
   exps: Node | nil
 
   --- "local_function": the declared name, an "identifier" node whose
-  --- own `tk` is the function's name -- `build.positions`' test
-  --- discovery reads this to find every top-level `test_*` function
-  --- without falling back to a text pattern over the raw source.
+  --- own `tk` is the function's name -- `build.positions.analyze` reads
+  --- this to find every top-level `test_*` function without falling
+  --- back to a text pattern over the raw source.
   name: Node | nil
 end
 

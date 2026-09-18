@@ -13,7 +13,7 @@ end
 --- importer discovers and parses, and a fixture string embedded here
 --- as literal `[[...]]` text would put its own `local function
 --- test_*` sample right into this file's real AST for the discovery
---- pass under test to find -- exactly the ambiguity `discover_tests`
+--- pass under test to find -- exactly the ambiguity `analyze`
 --- no longer has to resolve, since a string built this way is never
 --- anything but a "string" node's `conststr`, whichever implementation
 --- reads it.
@@ -21,18 +21,20 @@ local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end
 
---- `discover_tests` on `source`, asserting the parse itself succeeded.
+--- `analyze` on `source`, asserting the parse itself succeeded, and
+--- returning just its test names.
 local function discover(source: string): {string}
-  local found, err = positions.discover_tests(built, source, "fixture.tl")
-  assert(found ~= nil, "discover_tests failed: " .. tostring(err))
-  return found
+  local found, err = positions.analyze(built, source, "fixture.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  return found.tests
 end
 
---- `has_top_level_return` on `source`, asserting the parse succeeded.
+--- `analyze` on `source`, asserting the parse succeeded, and returning
+--- just its top-level-return fact.
 local function has_return(source: string): boolean
-  local found, err = positions.has_top_level_return(built, source, "fixture.tl")
-  assert(found ~= nil, "has_top_level_return failed: " .. tostring(err))
-  return found
+  local found, err = positions.analyze(built, source, "fixture.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  return found.has_top_level_return
 end
 
 --- A `local function test_*` at the chunk's own top level is
@@ -95,7 +97,7 @@ end
 --- A source SAMPLE held as a `[[...]]` long-bracket string parses to a
 --- single "string" node, never a chunk-level statement of its own kind
 --- -- its own `local function test_something()` text is never a
---- candidate for `discover_tests` to find at all, structurally, rather
+--- candidate for `analyze` to find at all, structurally, rather
 --- than excluded by tracking where the bracket opens and closes.
 local function test_ignores_a_fake_test_inside_a_plain_long_bracket()
   local source = lines({
