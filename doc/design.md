@@ -431,3 +431,9 @@ target:
     vendored musl with `zig cc` as a plain compiler is the door if a
     patch is ever needed. `build.zig` is the build for the C core,
     kept to a source list and flags so a zig bump costs an hour.
+15. **zig is pinned by a file and fetched by a tiny POSIX sh
+    `bin/zig`.** the pin names the version and the sha256 of each
+    host's tarball; the script fetches into a cache, verifies, and
+    execs; `build.zig` refuses any other version by name. CI runs the
+    same script, so the pinned bytes are the only zig anything runs.
+    a clone plus one verified download is the whole developer chain.
