@@ -76,6 +76,7 @@ its full suite on it, and the sandbox conformance matrix passes or
 reports on it. nothing ships that nothing has run. a BSD that meets
 the three is a target; the syscall table is POSIX and the attach is
 plain ELF, so the work is the lane, not the code.
+
 ## the stack
 
 ```
@@ -177,6 +178,7 @@ with the module that replaces it.
 the vendored `tl.lua` uses six `io` and `os` functions. the importer
 loads it in an environment that supplies those six over the syscall
 table; the compiler is not patched for it.
+
 ### the database
 
 `require` reads the database and nothing else; a `.tl` on disk is
@@ -322,8 +324,8 @@ and the C declaration layer.
 
 one Lua state, one thread, coroutines over `poll`. every blocking
 binding takes a timeout and can be driven from one event loop, which
-is Teal over the `poll` binding; `http.serve` and `fetch` are
-coroutine-driven; CPU parallelism is by process through `child`.
+is Teal over the `poll` binding; `Http.serve` and `Fetch` are
+coroutine-driven; CPU parallelism is by process through `Child`.
 
 the C layer is re-entrant, which costs discipline, not code: no
 static buffers, no process-global state outside the entry, every
@@ -344,6 +346,7 @@ root bundle is stored in the database, identical on every machine,
 moved only by a pinned bump; an environment variable adds a
 certificate for the corporate-proxy case without making per-machine
 trust the default.
+
 ### the sandbox
 
 an opt-in library and the toolchain's own fence. default-deny for
@@ -368,7 +371,7 @@ has no Landlock at all, and neither is an error.
 one conformance matrix (read inside and outside, create, unlink,
 rename across the boundary, symlink escape, truncate, allowed and
 denied ports, bind, spawn) runs under the same declared policy on
-both CI lanes and fails on any cell that differs. equivalence is a
+every CI lane and fails on any cell that differs. equivalence is a
 test, not a claim.
 
 ### the command line
@@ -405,8 +408,9 @@ convention. one lint follows: no two names in a directory may differ
 only in case, because macOS's default filesystem cannot tell them
 apart. private by default is settled; the capital letter is the
 current export marker and another explicit form may replace it.
-whether the public modules live under `cosmic/` or at the
-root is open.
+whether the public modules live under `cosmic/` or at the root is
+open.
+
 ### the surface
 
 the tier order is a reading order for what to write, not a size
