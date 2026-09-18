@@ -62,13 +62,20 @@ these argues with the principle, not with the reviewer.
 ## targets
 
 Linux on x86_64 and aarch64, statically linked against musl. macOS
-on aarch64 and x86_64 against libSystem, which cannot be linked
-statically but is always present, so the one-file property holds on
-both. Windows runs the Linux binary under WSL2.
+on aarch64 against libSystem, which cannot be linked statically but
+is always present, so the one-file property holds on both. Windows
+runs the Linux binary under WSL2. Intel Macs are not a target: Apple
+has named macOS 26 the last release for them, and no runner can test
+them without Rosetta.
 
-every cosmic binary carries the core image for all four targets, so
+every cosmic binary carries the core image for all three targets, so
 any host builds any target offline with nothing fetched.
 
+a target exists when three things hold: zig links it, a CI lane runs
+its full suite on it, and the sandbox conformance matrix passes or
+reports on it. nothing ships that nothing has run. a BSD that meets
+the three is a target; the syscall table is POSIX and the attach is
+plain ELF, so the work is the lane, not the code.
 ## the stack
 
 ```
@@ -85,14 +92,14 @@ kernel                               Linux; macOS
     teal compiler + checker          vendored tl, carried patches
     cosmic.* stdlib in teal          typed wrappers, honest returns
     docs, records, coverage,         rows in the same database
-    the four core images, CA roots
+    the three core images, CA roots
 ```
 
 ### toolchain
 
 the host language is C: Lua, SQLite, and the small libraries are the
 C they ship as. one pinned zig is the compiler and the build for the
-C core: `zig cc` cross-compiles all four targets from a Linux lane,
+C core: `zig cc` cross-compiles all three targets from a Linux lane,
 and `build.zig` compiles the vendored C. `build.zig` is a source list
 and flags, nothing more, so a zig bump costs an hour.
 
@@ -103,8 +110,8 @@ tiny POSIX sh `bin/zig` fetches into a cache, verifies, and execs;
 `build.zig` refuses any other version by name. CI runs the same
 script, so the pinned bytes are the only zig anything runs.
 
-the four shipped images are built ReleaseFast. the Linux lane builds
-a fifth core in ReleaseSafe with ASan and UBSan and runs the whole
+the three shipped images are built ReleaseFast. the Linux lane builds
+a fourth core in ReleaseSafe with ASan and UBSan and runs the whole
 test suite and the fuzzers under it on every push, so undefined
 behavior in C is caught before it ships and nothing sanitized ships.
 a `cosmic-debug` asset, the same sanitized build published beside
@@ -184,7 +191,7 @@ input to the build, never to the runtime. one database holds:
 - **images**: the core executable for every target.
 - **roots**: Mozilla's CA bundle.
 
-all four targets are little-endian 64-bit, so one bytecode column
+all three targets are little-endian 64-bit, so one bytecode column
 serves them all, verified by a test that each image loads it. the
 core image column is the only per-target data.
 
