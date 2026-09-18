@@ -53,7 +53,9 @@ these argues with the principle, not with the reviewer.
 7. **no network in a build; one external tool.** every input is in
    the repository. the one thing a fresh clone needs is the pinned
    zig.
-8. **tests run because they are defined, gates end in a verdict
+8. **docs are always right**: a disagreement between doc and code is
+   fixed in the code, and every snippet runs or says why not
+   ([meta.md](meta.md)). **tests run because they are defined, gates end in a verdict
    line,** and an error-site hint beats a gotcha doc beats guide
    prose.
 
