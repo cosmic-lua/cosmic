@@ -29,19 +29,78 @@ local record positions
   end
 end
 
+--- Every line of `source`, in order, but only the ones that sit
+--- outside a long-bracket string or a long comment AT THEIR OWN START.
+--- A long bracket can open and close entirely within one line, any
+--- number of times, and none of that changes whether the NEXT line's
+--- column 0 sits inside one, which is the only thing a column-0
+--- anchored scan for a real declaration ever needs to know. Lua itself
+--- guarantees a bracket's content can never contain its own closing
+--- delimiter (a sample needing `]]` in its text has to use `[=[...]=]`
+--- instead), so the first closing delimiter found at a level really is
+--- the one that ends it -- no lexer is needed to tell a false close
+--- from a real one.
+local function top_level_lines(source: string): {string}
+  local out: {string} = {}
+  local level: integer | nil = nil
+  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+    if level == nil then
+      out[#out + 1] = line
+    end
+    local pos = 1
+    while true do
+      if level == nil then
+        local _start, stop, equals = line:find("%[(=*)%[", pos)
+        if stop == nil then
+          break
+        end
+        level = #equals
+        pos = stop + 1
+      else
+        local _start, stop = line:find("%]" .. ("="):rep(level) .. "%]", pos)
+        if stop == nil then
+          break
+        end
+        level = nil
+        pos = stop + 1
+      end
+    end
+  end
+  return out
+end
+
 --- The name of every top-level `local function test_*` in `source`, in
 --- the order they appear. A name only counts when `local function
---- test_` starts at column 0: an indented one is a helper some other
---- function declares for itself, not a test the runner should call.
+--- test_` starts at column 0 of a line outside any long-bracket string
+--- or long comment: an indented one is a helper some other function
+--- declares for itself, not a test the runner should call, and one
+--- inside a bracket is a source SAMPLE a test embeds as fixture text,
+--- not a test of this file's own.
 function positions.discover_tests(source: string): {string}
   local names: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+  for _, line in ipairs(top_level_lines(source)) do
     local name = line:match("^local%s+function%s+(test_[%w_]*)%s*%(")
     if name ~= nil then
       names[#names + 1] = name
     end
   end
   return names
+end
+
+--- Whether `source` has a genuine top-level (chunk-level) `return`
+--- statement: a `return` at column 0 of a line outside any long-bracket
+--- string or long comment. Lua requires a `return` to be the last
+--- statement of the block it sits in, so a module that type-checks at
+--- all can only have a `return` at column 0 as its own chunk's final
+--- statement -- never one a nested `if`, loop, or function body left
+--- behind, since those sit indented under the block that owns them.
+function positions.has_top_level_return(source: string): boolean
+  for _, line in ipairs(top_level_lines(source)) do
+    if line:match("^return%f[%W]") ~= nil then
+      return true
+    end
+  end
+  return false
 end
 
 --- The file's own name, with no directory in front of it.
