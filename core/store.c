@@ -26,8 +26,9 @@ static void die_unreadable(sqlite3 *db) {
  * a value that must be re-checked on every access can never be that
  * cached value -- `cosmic.Store` and `cosmic.Sqlite` (the wrappers, one
  * per raw module) get theirs handed straight to their own loader
- * instead, as the `extra` argument `require` passes it, which reaches
- * only the one chunk being loaded and is never itself nameable. */
+ * instead, as the `extra` argument `require` passes it. calling the
+ * searcher by hand yields the same value, and that is no escalation:
+ * the raw table holds nothing the wrapper does not already hand out. */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* True when `name` is a path the binary's own tree owns and the kind is

@@ -50,7 +50,9 @@ function Sqlite.memory(): raw_sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
-local function bind(statement: raw_sqlite.Statement, values: {Sqlite.Value}): boolean, string
+local function bind(
+  statement: raw_sqlite.Statement, values: {Sqlite.Value}
+): boolean, string
   for index, value in ipairs(values) do
     local ok: boolean
     local trouble: string
