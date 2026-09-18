@@ -6,9 +6,8 @@
 --- and building a project are one path.
 
 local Fs = require("cosmic.Fs")
+local Store = require("cosmic.Store")
 local importer = require("build.importer")
-local store = require("cosmic.store")
-local sys = require("cosmic.syscalls")
 local teal = require("build.teal")
 
 local help = [[
@@ -30,9 +29,9 @@ end
 
 --- The directory a path sits in, absolute.
 local function directory_of(path: string): string | nil, string
-  local resolved, trouble = sys.realpath(path)
+  local resolved, trouble = Fs.absolute(path)
   if resolved == nil then
-    return nil, path .. ": " .. trouble
+    return nil, trouble
   end
   local parent = resolved:match("^(.*)/[^/]+$")
   if parent == nil or parent == "" then
@@ -43,9 +42,9 @@ end
 
 --- The module a file is, as its path relative to the root says.
 local function module_of(root: string, file: string): string | nil, string
-  local resolved, trouble = sys.realpath(file)
+  local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
-    return nil, file .. ": " .. trouble
+    return nil, trouble
   end
   if resolved:sub(1, #root + 1) ~= root .. "/" then
     return nil, file .. " is not inside " .. root
@@ -88,7 +87,7 @@ local function run(file: string, argv: {integer:string}): integer
 
   -- The tool's own hash, which the build that made this binary recorded.
   -- A project's rows are keyed by it, so a new cosmic recompiles them.
-  local boot_hash = store.meta("boot_hash") or ""
+  local boot_hash = Store.meta("boot_hash") or ""
 
   local database = root .. "/o/cosmic.db"
   local written, write_trouble =
@@ -98,7 +97,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  local attached, attach_trouble = store.attach(database)
+  local attached, attach_trouble = Store.attach(database)
   if not attached then
     complain("cosmic: " .. attach_trouble)
     return 1

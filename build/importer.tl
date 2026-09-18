@@ -10,12 +10,11 @@
 --- unchanged key is a stat; a changed one recompiles what depended on
 --- it.
 
+local Compress = require("cosmic.Compress")
 local Fs = require("cosmic.Fs")
 local Hash = require("cosmic.Hash")
 local Sqlite = require("cosmic.Sqlite")
 local schema = require("build.schema")
-local sqlite = require("cosmic.sqlite")
-local sys = require("cosmic.syscalls")
 local type compiler = require("build.compiler")
 
 local record Module
@@ -262,7 +261,7 @@ local function blob(value: string): Sqlite.Value
   return { blob = value }
 end
 
-local function insert_modules(handle: sqlite.Handle, modules: {Module}): boolean, string
+local function insert_modules(handle: Sqlite.Handle, modules: {Module}): boolean, string
   local statement, trouble = handle:prepare(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, lua, " ..
     "bytecode, decl) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)")
@@ -289,7 +288,7 @@ local function insert_modules(handle: sqlite.Handle, modules: {Module}): boolean
   return true, ""
 end
 
-local function insert_imports(handle: sqlite.Handle, modules: {Module}): boolean, string
+local function insert_imports(handle: Sqlite.Handle, modules: {Module}): boolean, string
   local known: {string:boolean} = {}
   for _, m in ipairs(modules) do
     known[m.path] = true
@@ -381,7 +380,7 @@ function importer.write(root: string, out: string, built: compiler,
     table.sort(targets)
     for _, target in ipairs(targets) do
       local image = images[target]
-      local packed, deflate_trouble = sys.deflate(image)
+      local packed, deflate_trouble = Compress.deflate(image)
       if packed == nil then
         return false, target .. ": " .. deflate_trouble
       end
@@ -422,11 +421,7 @@ function importer.write(root: string, out: string, built: compiler,
     return false, vacuum_trouble
   end
 
-  local moved, move_trouble = sys.rename(out .. ".building", out)
-  if not moved then
-    return false, out .. ": " .. move_trouble
-  end
-  return true, ""
+  return Fs.rename(out .. ".building", out)
 end
 
 return importer

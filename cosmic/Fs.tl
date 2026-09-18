@@ -168,6 +168,63 @@ function Fs.walk(root: string, skip?: function(string): boolean): {string} | nil
   return found
 end
 
+--- A path with no link and no `..` left in it.
+function Fs.absolute(path: string): string | nil, string
+  local resolved, trouble = sys.realpath(path)
+  if resolved == nil then
+    return nil, path .. ": " .. trouble
+  end
+  return resolved
+end
+
+--- Moves a name, replacing the destination if it is there.
+function Fs.rename(from: string, to: string): boolean, string
+  local moved, trouble = sys.rename(from, to)
+  if not moved then
+    return false, from .. ": " .. trouble
+  end
+  return true, ""
+end
+
+--- Opens a file for reading and returns its descriptor. Most callers
+--- want `read` instead; this is for one that reads in pieces.
+function Fs.open_read(path: string): integer | nil, string
+  local fd, trouble = sys.open(path, sys.O_RDONLY)
+  if fd == nil then
+    return nil, path .. ": " .. trouble
+  end
+  return fd
+end
+
+--- Opens a file for writing, creating it and emptying it.
+function Fs.open_write(path: string, mode?: integer): integer | nil, string
+  local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
+  local fd, trouble = sys.open(path, flags, mode or 0x1a4)
+  if fd == nil then
+    return nil, path .. ": " .. trouble
+  end
+  return fd
+end
+
+--- Reads up to `count` bytes from a descriptor. An empty string is the
+--- end of the file.
+function Fs.take(fd: integer, count: integer): string | nil, string
+  local data, trouble = sys.read(fd, count)
+  if data == nil then
+    return nil, trouble
+  end
+  return data
+end
+
+--- Closes a descriptor.
+function Fs.close(fd: integer): boolean, string
+  local ok, trouble = sys.close(fd)
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
 --- Writes bytes to a stream, without a newline.
 function Fs.put(fd: integer, data: string): boolean, string
   return write_all(fd, data)

@@ -8,9 +8,10 @@
 --- The compiler itself is unpatched and never observes that the names
 --- are gone.
 
+local Env = require("cosmic.Env")
+local Fs = require("cosmic.Fs")
+local Store = require("cosmic.Store")
 local type compiler = require("build.compiler")
-local store = require("cosmic.store")
-local sys = require("cosmic.syscalls")
 
 local record teal
   --- What `io.open` gives back. It reads whole files and writes
@@ -41,7 +42,7 @@ local function make_handle(fd: integer): teal.Handle
     end
     local parts: {string} = {}
     while true do
-      local chunk, trouble = sys.read(self.fd, chunk_size)
+      local chunk, trouble = Fs.take(self.fd, chunk_size)
       if chunk == nil then
         return nil, trouble
       end
@@ -58,11 +59,11 @@ local function make_handle(fd: integer): teal.Handle
       local piece = tostring((select(index, ...)))
       local at = 1
       while at <= #piece do
-        local put, trouble = sys.write(self.fd, piece:sub(at))
-        if put == nil then
+        local put, trouble = Fs.put(self.fd, piece:sub(at))
+        if not put then
           return nil, trouble
         end
-        at = at + put
+        at = #piece + 1
       end
     end
     return self
@@ -73,7 +74,7 @@ local function make_handle(fd: integer): teal.Handle
   end
 
   handle.close = function(self: teal.Handle): boolean
-    local ok = sys.close(self.fd)
+    local ok = Fs.close(self.fd)
     return ok
   end
 
@@ -81,11 +82,13 @@ local function make_handle(fd: integer): teal.Handle
 end
 
 local function open_file(path: string, mode: string): teal.Handle | nil, string
-  local flags = sys.O_RDONLY
+  local fd: integer | nil
+  local trouble: string
   if mode ~= nil and mode:find("w") ~= nil then
-    flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
+    fd, trouble = Fs.open_write(path)
+  else
+    fd, trouble = Fs.open_read(path)
   end
-  local fd, trouble = sys.open(path, flags)
   if fd == nil then
     return nil, trouble
   end
@@ -104,7 +107,7 @@ function teal.environment(): {string:any}
       stderr = make_handle(2),
       open = open_file,
     },
-    os = { getenv = sys.getenv },
+    os = { getenv = Env.get },
     package = { path = "", searchers = {}, loaded = {} },
 
     _VERSION = _VERSION,
@@ -141,7 +144,7 @@ end
 
 --- Loads the compiler out of the store.
 function teal.load(): compiler | nil, string
-  local bytes, trouble = store.bytecode("vendor.tl")
+  local bytes, trouble = Store.bytecode("vendor.tl")
   if bytes == nil then
     return nil, "the compiler is not in this binary: " .. trouble
   end
