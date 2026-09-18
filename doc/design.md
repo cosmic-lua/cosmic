@@ -437,3 +437,11 @@ target:
     execs; `build.zig` refuses any other version by name. CI runs the
     same script, so the pinned bytes are the only zig anything runs.
     a clone plus one verified download is the whole developer chain.
+16. **`build.zig` owns the C; `zig build boot` bridges once.** `zig
+    build` produces the patch applier, the patched vendor tree under
+    `o/vendor/`, and the core for each target. `zig build boot` runs
+    the fresh host core over `_build/` to compile the importer with
+    the vendored `tl.lua`, writes `o/cosmic.db`, and attaches it as
+    `o/bin/cosmic`. a fresh clone and CI run `boot`; a developer runs
+    `o/bin/cosmic build` the other hundred times a day, and touches
+    `build.zig` only when C changes.
