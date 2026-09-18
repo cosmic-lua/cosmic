@@ -160,7 +160,8 @@ end
 --- A checker environment pointed at a tree, with the strictness this
 --- project holds itself to.
 function teal.environment_for(built: compiler, root: string): compiler.Env | nil, string
-  built.path = root .. "/?.lua;" .. root .. "/o/types/?.lua"
+  built.path = root .. "/?.lua;" .. root .. "/?/init.lua;" ..
+    root .. "/o/types/?.lua;" .. root .. "/o/types/?/init.lua"
   local env, trouble = built.new_env({
     defaults = {
       feat_lax = "off",

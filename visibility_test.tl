@@ -1,7 +1,10 @@
 --- Proves the sibling-privacy rule `build.positions` enforces on every
 --- directory in the tree, not only cosmic's own: a directory with its
 --- own `init.tl` is private, and only a file inside it may require a
---- sibling that sits beside that entry.
+--- sibling that sits beside that entry. Also proves the entry itself,
+--- `case/init.tl`, resolves under its own bare name, `require("case")`
+--- -- the ordinary Lua `?/init.lua` convention -- from outside `case/`,
+--- which the sibling-privacy checks above never exercise.
 ---
 --- The fixture is written to a temp directory at run time rather than
 --- checked into the tree: a version of it that violates the rule would
@@ -23,6 +26,7 @@ end
 local entry_source = "local record entry\nend\nreturn entry\n"
 local sibling_source = "local record sibling\nend\nreturn sibling\n"
 local user_source = "local sibling = require(\"case.sibling\")\nreturn sibling\n"
+local entry_user_source = "local case = require(\"case\")\nreturn case\n"
 
 --- Writes a directory-shaped module, `case/`, with its own `init.tl`
 --- and a sibling beside it, plus one file that requires the sibling --
@@ -44,6 +48,26 @@ local function write_fixture(root: string, outside: boolean): boolean, string
   local user_path = outside and (root .. "/outsider.tl") or
     (root .. "/case/insider.tl")
   ok, trouble = Fs.write(user_path, user_source)
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
+--- Writes the same directory-shaped module, `case/`, with a file
+--- outside it that requires the entry by its own bare name, `case`,
+--- rather than a sibling inside it.
+local function write_entry_fixture(root: string): boolean, string
+  local made, trouble = Fs.mkdirs(root .. "/case")
+  if not made then
+    return false, trouble
+  end
+  local ok: boolean
+  ok, trouble = Fs.write(root .. "/case/init.tl", entry_source)
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = Fs.write(root .. "/outsider.tl", entry_user_source)
   if not ok then
     return false, trouble
   end
@@ -104,8 +128,23 @@ local function run(_argv: {integer:string}): integer
     return 1
   end
 
+  local entry_root = base .. "/entry"
+  local wrote_entry, entry_write_trouble = write_entry_fixture(entry_root)
+  if not wrote_entry then
+    say("visibility: FAIL (could not write the entry fixture: " ..
+      entry_write_trouble .. ")")
+    return 1
+  end
+  local entry_ok, entry_trouble = try_build(entry_root)
+  if not entry_ok then
+    say("visibility: FAIL (require(\"case\") from outside case/ should " ..
+      "resolve to case/init.tl, but: " .. entry_trouble .. ")")
+    return 1
+  end
+
   say("visibility: PASS (case.sibling reachable from within case/, " ..
-    "refused from outside it: " .. outside_trouble .. ")")
+    "refused from outside it: " .. outside_trouble .. "; case itself " ..
+    "reachable from outside case/ by its own bare name)")
   return 0
 end
 

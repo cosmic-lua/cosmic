@@ -78,6 +78,10 @@ local function skip(entry: string): boolean
 end
 
 local function import_path(file: string): string
+  local dir = file:match("^(.+)/init%.tl$")
+  if dir ~= nil then
+    return (dir:gsub("/", "."))
+  end
   return (file:gsub("%.tl$", ""):gsub("/", "."))
 end
 
