@@ -168,6 +168,14 @@ errno`, plain values, the convention the fork already uses at over a
 hundred sites. one trace point at the table's dispatch gives a
 syscall log for every call uniformly when asked.
 
+`posix` is a reserved name of a different kind: not privacy, but
+scope. a module lives under `cosmic.posix.` when its whole job is
+exposing a POSIX standard's own vocabulary directly, names and
+numeric codes, rather than presenting cosmic's own abstraction over
+it. `posix.errno` and `posix.signal` are the first two; a module
+that instead builds an abstraction on top of a standard call, `fs`
+over `open`, `poll` over `poll(2)`, stays where it is.
+
 never borrowed from the libc where semantics are observable: regex,
 DNS resolution, anything locale-shaped. musl and libSystem agree on
 `open`; they do not agree on `regcomp`'s corners or `getaddrinfo`'s
@@ -244,7 +252,8 @@ input to the build, never to the runtime. one database holds:
 - **modules**: import path, source hash, Teal source, compiled Lua
   and bytecode, declaration, kind (module, test, example, binary
   entry), and the test names the compile step found.
-- **docs**: extracted per symbol, queried by `cosmic docs`.
+- **docs**: extracted per symbol, queried by `cosmic docs`, from a
+  module named `cosmic.docs`.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.
@@ -492,7 +501,7 @@ a claim.
 ### the command line
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
-`cosmic check`, `cosmic fmt`, `cosmic docs`, `cosmic embed`; `cosmic
+`cosmic check`, `cosmic format`, `cosmic docs`, `cosmic embed`; `cosmic
 file.tl` runs a file; `-e` stays as Lua's one-liner idiom. every verb
 takes paths to narrow it, ends in a verdict line and an exit code,
 and `cosmic help <verb>` is the whole discovery surface. no other
@@ -550,12 +559,12 @@ the tier order is a reading order for what to write, not a size
 target:
 
 - **core**: `check`, `fs`, `child`, `env`, `proc`, `hash`, `sqlite`,
-  `json`, `time`, `rand`, `flags`, `string`, `errno`, `errors`,
-  `log`, `teal`, `format`, `test`, `coverage`, `doc`, `embed`,
+  `json`, `time`, `rand`, `flags`, `string`, `posix.errno`, `errors`,
+  `log`, `teal`, `format`, `test`, `coverage`, `docs`, `embed`,
   `shape`.
 - **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
   `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
-  `sandbox`, `signal`, `poll`, `fd`, `tty`, `ansi`, `user`, `sys`,
+  `sandbox`, `posix.signal`, `poll`, `fd`, `tty`, `ansi`, `user`, `host`,
   `stream`, `deep`, `graph`, `fuzzy`, `literal`, `ast`, `template`.
 - **later, if pulled**: namespaces and egress proxying beyond what
   the sandbox core needs, `shm`, `instrument`, `html`, `css`, `js`.
