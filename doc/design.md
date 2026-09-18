@@ -413,8 +413,8 @@ enters and a shape validator turns it into a record by construction.
 no justification comments, no ledger. the rule is switched on from
 the first line, which is possible only because the narrowing gaps
 that forced casts before it, record-field narrowing and container
-covariance chiefly, land as carried patches before the second
-milestone; the milestone gates on them.
+covariance chiefly, land as carried patches before `cosmic check`
+and `cosmic format` do; both gate on them.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -582,5 +582,5 @@ target:
 - **later, if pulled**: namespaces and egress proxying beyond what
   the sandbox core needs, `shm`, `instrument`, `html`, `css`, `js`.
 
-what comes after milestone 1, and the open questions that stand in
-the way, are in [roadmap.md](roadmap.md).
+what comes next, and the open questions that stand in the way, are
+in [roadmap.md](roadmap.md).

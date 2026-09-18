@@ -10,14 +10,13 @@
 ---
 --- cosmic's own version pipes the final splice through `cosmic.format`
 --- before returning it, both to reflow whitespace and as a cheap
---- resplice validity check. v2 has no `cosmic.format` yet -- design.md's
---- roadmap places the formatter in milestone 2's "second: ast,
---- checking, formatting" phase, alongside this very module -- so
---- `rewrite` here returns the raw spliced source unformatted; every
---- splice below is still byte-exact over the original source, just
---- without a reflow pass. Once `cosmic.format` exists, piping `out`
---- through it here is the one change this module needs to regain that
---- behavior.
+--- resplice validity check. v2 has no `cosmic.format` yet -- it is
+--- still pending in roadmap.md's self-check section, alongside this
+--- very module -- so `rewrite` here returns the raw spliced source
+--- unformatted; every splice below is still byte-exact over the
+--- original source, just without a reflow pass. Once `cosmic.format`
+--- exists, piping `out` through it here is the one change this module
+--- needs to regain that behavior.
 ---
 --- Single-pass, single-file: no fixpoint (a rewrite creating a new
 --- match of itself or another rule), no project-wide loop. A rewrite
