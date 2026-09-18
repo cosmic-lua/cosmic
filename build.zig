@@ -11,15 +11,33 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// The one zig this tree builds with. `bin/zig.pin` names the same version
-/// and the sha256 of each host's tarball; this check is what makes a zig
-/// from anywhere else fail at the first line rather than somewhere in the
-/// middle of a C file.
-const pinned_zig = std.SemanticVersion{ .major = 0, .minor = 16, .patch = 0 };
+/// `bin/zig.pin`, read at comptime so there is exactly one place that
+/// names the pinned version: this file no longer carries a second,
+/// separately-maintained literal that could drift from it.
+const zig_pin = @embedFile("bin/zig.pin");
 
+/// The version line out of `bin/zig.pin` ("version X.Y.Z"), parsed at
+/// comptime. A missing or malformed line fails the build by name rather
+/// than falling back to some default.
+fn pinnedZigVersion() std.SemanticVersion {
+    var lines = std.mem.splitScalar(u8, zig_pin, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "version ")) {
+            const text = std.mem.trim(u8, line["version ".len..], " \t\r");
+            return std.SemanticVersion.parse(text) catch
+                @compileError("bin/zig.pin: version line does not parse: " ++ text);
+        }
+    }
+    @compileError("bin/zig.pin: no version line");
+}
+
+// The one zig this tree builds with. This check is what makes a zig
+// from anywhere else fail at the first line rather than somewhere in the
+// middle of a C file.
 comptime {
+    const pinned_zig = pinnedZigVersion();
     if (builtin.zig_version.order(pinned_zig) != .eq) {
-        @compileError("cosmic pins zig 0.16.0; run bin/zig");
+        @compileError("cosmic pins the zig version named in bin/zig.pin; run bin/zig");
     }
 }
 
@@ -203,8 +221,6 @@ fn core(
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
 ) *std.Build.Step.Compile {
-    const macos = target.result.os.tag == .macos;
-
     const mod = b.createModule(.{
         .target = target,
         .optimize = if (sanitize) .ReleaseSafe else .ReleaseFast,
@@ -215,12 +231,19 @@ fn core(
         .sanitize_c = if (sanitize) .full else .off,
     });
 
-    // LUA_USE_MACOSX drags in readline; POSIX is the whole of what the
-    // core needs, and dynamic loading is never wanted.
-    const lua_flags: []const []const u8 = if (macos)
-        &.{ "-std=c11", "-DLUA_USE_POSIX" }
-    else
-        &.{ "-std=c11", "-DLUA_USE_LINUX", "-DLUA_USE_READLINE=0" };
+    // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
+    // macOS's also readline); POSIX is the whole of what the core needs
+    // on either OS, and dynamic loading is never wanted -- the module
+    // store is the only door. Same flag on both, so `nm`/`strings` finds
+    // no dlopen symbol in either core.
+    // LUA_COMPAT_GLOBAL off: assigning to an undeclared global (no
+    // `global` statement) is a compile error rather than silently
+    // creating one, catching the classic Lua typo bug. The vendored
+    // compiler and every Teal-generated chunk run unchanged under it --
+    // neither ever assigns an undeclared global -- so there is nothing
+    // to trade for the safety.
+    const lua_flags: []const []const u8 =
+        &.{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
     mod.addCSourceFiles(.{
         .root = lua.path(b, "src"),
         .files = &lua_sources,
