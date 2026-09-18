@@ -24,16 +24,19 @@
 --- control always comes back here -- pass, fail, or an unrelated Lua
 --- error -- so the original is always put back before the next test.
 
+local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
 local payload = require("build.payload")
 local records_schema = require("build.records_schema")
 local teal = require("build.teal")
 local writer = require("build.writer")
+local type compiler = require("build.compiler")
 
 local record test
 end
@@ -77,6 +80,51 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
     "reads) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
       { integer = ran_at_ns }, text(table.concat(reads, "\n")) })
+end
+
+--- Every line `build.coverage.report` found for every non-vendor module
+--- `modules` holds, written fresh: the whole table is cleared first, so
+--- a line the tree no longer has never lingers as a row nothing else
+--- overwrites. Returns the overall hit and executable-line counts, over
+--- every module written, for the run's own verdict line.
+local function write_coverage(handle: Sqlite.Handle, built: compiler,
+                              modules: {importer.Module},
+                              hits: Coverage.Hits): integer, integer, string
+  local total_hit = 0
+  local total_lines = 0
+  local made, trouble = Sqlite.transact(handle, function(): boolean, string
+    local cleared, clear_trouble = handle:exec("DELETE FROM coverage")
+    if not cleared then
+      return false, clear_trouble
+    end
+    for _, m in ipairs(modules) do
+      if m.kind ~= "vendor" then
+        local per_line, line_trouble = coverage_report.lines_of(built, m, hits)
+        if per_line == nil then
+          return false, m.file .. ": " .. line_trouble
+        end
+        for line, was_hit in pairs(per_line) do
+          local ok, write_trouble = Sqlite.run(handle,
+            "INSERT OR REPLACE INTO coverage (path, line, hit) " ..
+            "VALUES (?1, ?2, ?3)",
+            { text(m.path), { integer = line },
+              { integer = was_hit and 1 or 0 } })
+          if not ok then
+            return false, write_trouble
+          end
+          total_lines = total_lines + 1
+          if was_hit then
+            total_hit = total_hit + 1
+          end
+        end
+      end
+    end
+    return true, ""
+  end)
+  if not made then
+    return 0, 0, trouble
+  end
+  return total_hit, total_lines, ""
 end
 
 --- Calls one test function with a fresh temporary directory as its one
@@ -206,11 +254,23 @@ function test.run(): integer
   local total = 0
   local modules_run = 0
   local failures: {string} = {}
+  -- One hook install for the whole run, not one per test: a first cut
+  -- of coverage only has to answer how much of the tree the suite as a
+  -- whole touched, and every test already runs in this same process,
+  -- so nothing is lost by not resetting collection between them.
+  Coverage.start()
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
       total = total + run_module(records, m, failures)
     end
+  end
+  local hits = Coverage.stop()
+
+  local cov_hit, cov_total, cov_trouble =
+    write_coverage(records, built, result.modules, hits)
+  if cov_trouble ~= "" then
+    complain("coverage: " .. cov_trouble)
   end
   records:close()
 
@@ -222,8 +282,13 @@ function test.run(): integer
     failures[#failures + 1] = line
   end
 
+  local cov_pct = cov_total > 0 and (cov_hit * 100.0 / cov_total) or 0.0
+  local cov_line = string.format("test: coverage %.1f%% (%d/%d lines)",
+    cov_pct, cov_hit, cov_total)
+
   if #failures == 0 then
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules)")
+    report(cov_line)
     return 0
   end
   for _, line in ipairs(failures) do
@@ -231,6 +296,7 @@ function test.run(): integer
   end
   report("test: FAIL (" .. #failures .. " of " ..
     (total + #result.refused) .. " failed)")
+  report(cov_line)
   return 1
 end
 

@@ -117,17 +117,19 @@ int main(int argc, char **argv) {
     /* No database: the tree is the only source, so this is a build
      * machine bridging into Teal. A shipped binary never gets here, and
      * everything reachable here is the tree's own trusted source, so
-     * both raw modules go straight in package.preload for the bridge's
-     * searcher, which does not go through the store's trust check --
-     * `cosmic.store` and `cosmic.sqlite` are ordinary tree modules the
-     * bridge compiles from source, and each still `require`s its raw
-     * half, under `cosmic.internal.`, by the same name a shipped binary
-     * resolves through the trust-gated searcher instead. */
+     * every raw module goes straight in package.preload for the
+     * bridge's searcher, which does not go through the store's trust
+     * check -- `cosmic.store`, `cosmic.sqlite`, and `cosmic.coverage`
+     * are ordinary tree modules the bridge compiles from source, and
+     * each still `require`s its raw half, under `cosmic.internal.`, by
+     * the same name a shipped binary resolves through the trust-gated
+     * searcher instead. */
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
     lua_pushcfunction(L, cosmic_open_sqlite);
     lua_setfield(L, -2, "cosmic.internal.sqlite");
     lua_pop(L, 1);
     cosmic_store_preload_raw(L, "cosmic.internal.store");
+    cosmic_store_preload_raw(L, "cosmic.internal.debug");
 
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);

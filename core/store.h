@@ -22,8 +22,8 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary);
 
 /* Registers the value on top of the stack (popped) as the raw module a
  * trusted caller's `require(name)` resolves to. `name` is
- * "cosmic.internal.store" or "cosmic.internal.sqlite"; nothing else is
- * ever looked up this way. */
+ * "cosmic.internal.store", "cosmic.internal.sqlite", or
+ * "cosmic.internal.debug"; nothing else is ever looked up this way. */
 void cosmic_store_set_raw(lua_State *L, const char *name);
 
 /* Puts the raw value already registered under `name` (see

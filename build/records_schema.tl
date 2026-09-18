@@ -19,6 +19,14 @@ end
 --- because, unlike `build.schema`'s tables, this file is meant to be
 --- opened again and again across runs rather than built fresh every
 --- time.
+---
+--- `coverage` holds one row per executable line of one module, not one
+--- row per module: a module's total is `COUNT(*) GROUP BY path` and its
+--- hit count is the same query with `WHERE hit = 1`, and a specific
+--- never-hit line can be pointed at directly rather than only counted.
+--- Rewritten whole on every run (`build.test` deletes every row before
+--- writing the current run's), since a line the tree no longer has
+--- would otherwise linger as a row nothing ever overwrites.
 records_schema.tables = {
   [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
                                      test TEXT NOT NULL,
@@ -27,6 +35,10 @@ records_schema.tables = {
                                      ran_at_ns INTEGER NOT NULL,
                                      reads TEXT NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS coverage (path TEXT NOT NULL,
+                                         line INTEGER NOT NULL,
+                                         hit INTEGER NOT NULL,
+                                         PRIMARY KEY (path, line)) WITHOUT ROWID]],
 }
 
 --- The same settings `o/cosmic.db` states outright, so the two files

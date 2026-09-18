@@ -6,6 +6,7 @@
 
 #include "lauxlib.h"
 #include "lualib.h"
+#include "store.h"
 #include "syscalls.h"
 
 /* A name that was removed says what took its place, at the site that
@@ -145,6 +146,19 @@ lua_State *cosmic_surface_open(void) {
   make_private(L, LUA_IOLIBNAME);
   make_private(L, LUA_OSLIBNAME);
   make_private(L, LUA_DBLIBNAME);
+
+  /* `debug` was just taken out of reach above; the coverage collector
+   * still needs the real table, so it is fetched back out of the
+   * private binding and registered as the raw value behind
+   * `cosmic.internal.debug` -- the same handoff `cosmic.store` and
+   * `cosmic.sqlite` already get through the store searcher's trust
+   * check (core/store.c's store_searcher). This runs on every open,
+   * boot and normal alike, since cosmic_surface_open runs before
+   * either path branches. */
+  lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
+  lua_getfield(L, -1, LUA_DBLIBNAME);
+  lua_remove(L, -2);
+  cosmic_store_set_raw(L, "cosmic.internal.debug");
 
   lua_pushnil(L);
   lua_setglobal(L, "dofile");
