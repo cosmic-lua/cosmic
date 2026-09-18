@@ -2,17 +2,13 @@
 
 ## docs are always right
 
-a doc describes either the current state or an aspirational one. it
-says which. either way, when the code and the doc disagree, the code
-is wrong and the code changes. a doc is never edited to match a bug.
+a doc describes either the current state or an intended one. either
+way, when the code and the doc disagree, the code is wrong and the
+code changes. a doc is never edited to match a bug.
 
-an aspirational doc carries a marker at the top, one of:
-
-- `state: current` — this is how it works today.
-- `state: intended` — this is how it will work; the gap is known work.
-
-when the gap closes, the marker changes. a doc without a marker is
-`current`.
+what is intended and not yet built shows in the doc's snippets: a
+snippet that cannot run yet is skipped, and the skip says so. a doc
+with no skipped snippets describes what works today.
 
 ## every snippet runs
 
@@ -23,15 +19,16 @@ or is explicitly skipped with a reason. there is no third kind.
   the checker and runs. output shown after it is asserted.
 - a block tagged `teal skip=<reason>` is not run, and the reason is
   visible to the reader. `skip=intended` marks a snippet that waits
-  on an `intended` doc's gap; `skip=network` marks one that needs a
-  host the build does not have.
+  on work not yet done; `skip=network` marks one that needs a host
+  the build does not have.
 - a block tagged `sh` is a command line. it runs under the fence and
   its verdict line is asserted.
 - a block tagged `text` is prose in a box. nothing runs.
 
 the build extracts snippets by position, keys them by content hash
 like any test, and records verdicts in the same database. a doc
-whose snippet fails is a failing gate.
+whose snippet fails is a failing gate. a skip that no longer needs
+to be one is a lint finding.
 
 ## docs are short and stand alone
 
@@ -54,9 +51,3 @@ under its rules. concretely:
   to`, `if` over `in the event that`.
 - state facts. "the build fails" not "the build should fail".
 - an example is worth a paragraph of description, and it runs.
-
-## this doc
-
-`state: intended`. the snippet extractor and the state markers exist
-when milestone 2 of the design lands. until then this doc describes
-the rule the tree is written to, and the code changes to meet it.
