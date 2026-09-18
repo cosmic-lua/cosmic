@@ -73,7 +73,7 @@ local function boot(root: string, argv: {integer:string}): integer
   local database_path = root .. "/o/cosmic.db"
   local written, write_trouble =
     importer.write(root, database_path, compiler, env, boot_hash, images,
-                   teal_source)
+                    teal_source)
   if not written then
     report("boot: FAIL\n" .. write_trouble)
     return 1

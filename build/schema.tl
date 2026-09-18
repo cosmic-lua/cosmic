@@ -27,10 +27,10 @@ schema.tables = {
                           PRIMARY KEY (path, requires)) WITHOUT ROWID]],
 
   [[CREATE TABLE images (target TEXT PRIMARY KEY,
-                         sha256 BLOB NOT NULL,
-                         size INTEGER NOT NULL,
-                         encoding TEXT NOT NULL,
-                         data BLOB NOT NULL) WITHOUT ROWID]],
+                          sha256 BLOB NOT NULL,
+                          size INTEGER NOT NULL,
+                          encoding TEXT NOT NULL,
+                          data BLOB NOT NULL) WITHOUT ROWID]],
 
   [[CREATE TABLE payload (path TEXT PRIMARY KEY,
                           data BLOB NOT NULL) WITHOUT ROWID]],

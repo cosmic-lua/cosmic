@@ -117,7 +117,7 @@ end
 
 --- Writes the signature's offset and size back into its load command.
 function macho.set_signature(bytes: string, signature: macho.Signature,
-                             dataoff: integer, datasize: integer): string
+                              dataoff: integer, datasize: integer): string
   return splice(bytes, signature.at + 9,
                 string.pack("<I4I4", dataoff, datasize))
 end

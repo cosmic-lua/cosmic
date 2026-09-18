@@ -76,7 +76,7 @@ end
 
 --- The whole signature for an image, ready to append.
 function codesign.sign(image: string, identifier: string,
-                       text_offset: integer, text_size: integer): string
+                        text_offset: integer, text_size: integer): string
   return codesign.superblob(
     codesign.directory(image, identifier, text_offset, text_size))
 end
