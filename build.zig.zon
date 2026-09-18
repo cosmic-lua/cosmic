@@ -1,0 +1,12 @@
+.{
+    .name = .cosmic,
+    .version = "0.0.0",
+    .fingerprint = 0x7dc18bc63c9015c4,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "core",
+        "vendor",
+        "patches",
+    },
+}
