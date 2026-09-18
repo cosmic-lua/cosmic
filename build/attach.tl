@@ -42,12 +42,12 @@ function attach.macho(image: string, database: string): string | nil, string
     return nil, "the image is missing a part the attach needs"
   end
 
-  -- The linker's ad-hoc signature is discarded, not appended to.
+  -- The linker's ad-hoc signature is discarded, not appended to. The
+  -- padding goes before the trailer, so the trailer still ends exactly
+  -- where the signature begins and the locator finds it there.
   local body = image:sub(1, signature.dataoff) .. database
-  body = body .. trailer(signature.dataoff)
-  while #body % 16 ~= 0 do
-    body = body .. "\0"
-  end
+  local padding = (16 - (#body + #marker + 8) % 16) % 16
+  body = body .. string.rep("\0", padding) .. trailer(signature.dataoff)
 
   local signature_offset = #body
   local signed_size = #codesign.sign(
