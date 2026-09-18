@@ -4,23 +4,34 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  # One Linux lane builds every image, and the database they all share.
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # The pinned compiler is the one thing a fresh clone fetches, and
+      # the pin is the cache key: a bump starts cold.
       - name: cache the pinned zig
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ hashFiles('bin/zig.pin') }}
+          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
+
       - name: what the build produced
         run: |
           ls -l o/bin o/cosmic.db
           file o/bin/cosmic-*
-      - uses: actions/upload-artifact@v4
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: binaries
           path: |
@@ -30,114 +41,112 @@ jobs:
             o/cosmic.db
           if-no-files-found: error
 
+  # A fourth core, built with undefined-behavior checking on, running the
+  # whole build. It is not the artifact anything ships; it is the run
+  # that would report what the release build would only do quietly.
   sanitized:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: cache the pinned zig
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ hashFiles('bin/zig.pin') }}
-      - name: build the whole tree with the core that checks for undefined behavior
+          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+      - name: build the tree with the checked core
         run: bin/zig build sanitized
 
   test-linux-x86_64:
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: binaries
-          path: downloaded
+          path: dl
       - name: run it
-        run: |
-          set -eu
-          cosmic=$PWD/downloaded/o/bin/cosmic-x86_64-linux-musl
-          chmod +x "$cosmic"
-          "$cosmic" help
-          mkdir -p "$RUNNER_TEMP/project"
-          cp hello.tl "$RUNNER_TEMP/project/"
-          cd "$RUNNER_TEMP/project"
-          test "$("$cosmic" hello.tl)" = "hello from the database"
-          echo "ci: PASS (linux x86_64)"
+        shell: bash
+        run: .github/run-binary.sh dl x86_64-linux-musl "linux x86_64"
 
   test-linux-aarch64:
     needs: build
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: binaries
-          path: downloaded
+          path: dl
       - name: run it
-        run: |
-          set -eu
-          cosmic=$PWD/downloaded/o/bin/cosmic-aarch64-linux-musl
-          chmod +x "$cosmic"
-          "$cosmic" help
-          mkdir -p "$RUNNER_TEMP/project"
-          cp hello.tl "$RUNNER_TEMP/project/"
-          cd "$RUNNER_TEMP/project"
-          test "$("$cosmic" hello.tl)" = "hello from the database"
-          echo "ci: PASS (linux aarch64)"
+        shell: bash
+        run: .github/run-binary.sh dl aarch64-linux-musl "linux aarch64"
 
   test-macos:
     needs: build
     runs-on: macos-15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: binaries
-          path: downloaded
-      - name: the signature the attach wrote
+          path: dl
+      # The only place the signature the attach wrote is judged by the
+      # system that has to accept it.
+      - name: the signature
+        shell: bash
         run: |
-          set -eu
-          cosmic=$PWD/downloaded/o/bin/cosmic-aarch64-macos
+          set -euo pipefail
+          for z in $(find dl -type f -name '*.zip'); do
+            python3 -m zipfile -e "$z" dl/
+          done
+          cosmic=$(find dl -type f -name 'cosmic-aarch64-macos' | head -1)
           chmod +x "$cosmic"
           codesign --verify --strict --verbose=2 "$cosmic"
           codesign --display --verbose=4 "$cosmic"
+          echo "signature: PASS"
       - name: run it
-        run: |
-          set -eu
-          cosmic=$PWD/downloaded/o/bin/cosmic-aarch64-macos
-          "$cosmic" help
-          mkdir -p "$RUNNER_TEMP/project"
-          cp hello.tl "$RUNNER_TEMP/project/"
-          cd "$RUNNER_TEMP/project"
-          test "$("$cosmic" hello.tl)" = "hello from the database"
-          echo "ci: PASS (macos aarch64)"
+        shell: bash
+        run: .github/run-binary.sh dl aarch64-macos "macos aarch64"
 
+  # The artifact is a pure function of the tree. A fresh container is a
+  # cold tree by construction; building at another path is what catches
+  # an absolute path that leaked into the bytes.
   repro:
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      # A second checkout, at another path, in a container of its own: a
-      # cold tree by construction.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          path: a-second-and-longer-checkout-path
+          path: a-second-and-rather-longer-checkout-path
       - name: cache the pinned zig
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ hashFiles('a-second-and-longer-checkout-path/bin/zig.pin') }}
+          key: zig-${{ runner.os }}-${{ hashFiles('a-second-and-rather-longer-checkout-path/bin/zig.pin') }}
       - name: build it again
-        working-directory: a-second-and-longer-checkout-path
+        working-directory: a-second-and-rather-longer-checkout-path
         run: bin/zig build cores boot
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: binaries
-          path: first
+          path: dl
       - name: compare every byte
+        shell: bash
         run: |
-          set -eu
-          again=a-second-and-longer-checkout-path/o
-          cmp first/o/cosmic.db "$again/cosmic.db"
+          set -euo pipefail
+          for z in $(find dl -type f -name '*.zip'); do
+            python3 -m zipfile -e "$z" dl/
+          done
+          again=a-second-and-rather-longer-checkout-path/o
+          cmp "$(find dl -type f -name cosmic.db | head -1)" "$again/cosmic.db"
           for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-            cmp "first/o/bin/cosmic-$target" "$again/bin/cosmic-$target"
+            cmp "$(find dl -type f -name "cosmic-$target" | head -1)" \
+                "$again/bin/cosmic-$target"
           done
           echo "repro: PASS (the database and all three images are byte-identical)"
