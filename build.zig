@@ -161,7 +161,11 @@ pub fn build(b: *std.Build) void {
 /// The patched copy of one vendored library, as a directory the core's
 /// sources are read from. The dependency on the applier is expressed by
 /// consuming its output, so nothing declares an order by hand.
-fn patched(b: *std.Build, applier: *std.Build.Step.Compile, name: []const u8) std.Build.LazyPath {
+fn patched(
+    b: *std.Build,
+    applier: *std.Build.Step.Compile,
+    name: []const u8,
+) std.Build.LazyPath {
     const vendor = b.fmt("vendor/{s}", .{name});
     const patches = b.fmt("patches/{s}", .{name});
 

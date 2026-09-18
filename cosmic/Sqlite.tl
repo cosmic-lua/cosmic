@@ -59,7 +59,8 @@ local function bind(statement: sqlite.Statement, values: {Sqlite.Value}): boolea
 end
 
 --- Runs a statement that yields no rows.
-function Sqlite.run(handle: sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string
+function Sqlite.run(handle: sqlite.Handle, sql: string,
+                    values?: {Sqlite.Value}): boolean, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
     return false, trouble
@@ -80,7 +81,8 @@ end
 --- Every row a query yields, each row a list of column values in order.
 --- A text column and a blob column both arrive as strings; `kinds` says
 --- which each one was.
-function Sqlite.rows(handle: sqlite.Handle, sql: string, values?: {Sqlite.Value}): {{string}} | nil, string
+function Sqlite.rows(handle: sqlite.Handle, sql: string,
+                     values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
     return nil, trouble
@@ -112,7 +114,8 @@ function Sqlite.rows(handle: sqlite.Handle, sql: string, values?: {Sqlite.Value}
 end
 
 --- Runs `work` inside a transaction, rolling back when it fails.
-function Sqlite.transact(handle: sqlite.Handle, work: function(): boolean, string): boolean, string
+function Sqlite.transact(handle: sqlite.Handle,
+                         work: function(): boolean, string): boolean, string
   local started, trouble = handle:exec("BEGIN")
   if not started then
     return false, trouble

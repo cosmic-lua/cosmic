@@ -43,7 +43,8 @@ local record compiler
   new_env: function(Options): Env | nil, string
   -- The Lua source for a Teal source, and what the checker found. The
   -- code is nil when the input did not parse.
-  gen: function(input: string, env: Env, options: any, language: string): string | nil, Result
+  gen: function(input: string, env: Env, options: any,
+                language: string): string | nil, Result
   version: function(): string
 end
 
