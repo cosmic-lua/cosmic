@@ -78,9 +78,9 @@ COSMIC_SYSCALL(clock_gettime) {
   if (clock_gettime((clockid_t)which, &now) != 0) {
     return cosmic_fail(L, errno);
   }
-  lua_pushinteger(L, (lua_Integer)now.tv_sec);
-  lua_pushinteger(L, (lua_Integer)now.tv_nsec);
-  return 2;
+  lua_pushinteger(L, (lua_Integer)now.tv_sec * 1000000000 +
+                         (lua_Integer)now.tv_nsec);
+  return 1;
 }
 
 COSMIC_SYSCALL(nanosleep) {

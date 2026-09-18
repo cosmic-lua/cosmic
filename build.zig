@@ -126,6 +126,7 @@ pub fn build(b: *std.Build) void {
             bridge.addArg("--boot");
             bridge.addDirectoryArg(b.path("."));
             bridge.addDirectoryArg(tl);
+            bridge.addArg(t.name);
             // The bridge reads every core image and writes the database
             // beside them, so it runs after both.
             bridge.step.dependOn(cores);

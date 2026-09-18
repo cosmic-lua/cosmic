@@ -45,20 +45,39 @@ static sqlite3 *open_attached(const char *path,
   return db;
 }
 
-/* Runs the `main` module with the command line as a table. */
+static int failed(lua_State *L) {
+  const char *message = lua_tostring(L, -1);
+  fprintf(stderr, "cosmic: %s\n", message == NULL ? "failed" : message);
+  return 1;
+}
+
+/* Runs the entry module the build recorded. The module is required like
+ * any other, and what it returns is called with the command line as a
+ * table whose slot 0 is the program's own name. */
 static int run_main(lua_State *L, int argc, char **argv) {
-  if (!cosmic_store_load(L, "main")) {
-    return complain("the database holds no entry", lua_tostring(L, -1));
+  char entry[256];
+  const char *named = cosmic_store_meta(L, "entry");
+  if (named == NULL || named[0] == '\0') {
+    return complain("the database names no entry module", NULL);
   }
+  snprintf(entry, sizeof entry, "%s", named);
+
+  lua_getglobal(L, "require");
+  lua_pushstring(L, entry);
+  if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+    return failed(L);
+  }
+  if (!lua_isfunction(L, -1)) {
+    return complain("the entry module is not a function", entry);
+  }
+
   lua_newtable(L);
   for (int i = 0; i < argc; i++) {
     lua_pushstring(L, argv[i]);
     lua_seti(L, -2, i);
   }
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-    const char *message = lua_tostring(L, -1);
-    fprintf(stderr, "cosmic: %s\n", message == NULL ? "failed" : message);
-    return 1;
+    return failed(L);
   }
   return (int)luaL_optinteger(L, -1, 0);
 }
@@ -86,10 +105,20 @@ int main(int argc, char **argv) {
   lua_setfield(L, -2, "cosmic.sqlite");
   lua_pop(L, 1);
 
-  if (found == 0) {
+  sqlite3 *db = NULL;
+  if (found == 1) {
+    db = open_attached(self, &attached);
+    if (db == NULL) {
+      lua_close(L);
+      return complain("cannot open my own database", self);
+    }
+  }
+  cosmic_store_install(L, db);
+
+  if (db == NULL) {
     /* No database: the tree is the only source, so this is a build
      * machine bridging into Teal. A shipped binary never gets here. */
-    if (argc >= 4 && strcmp(argv[1], "--boot") == 0) {
+    if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);
       lua_close(L);
       return status;
@@ -97,13 +126,6 @@ int main(int argc, char **argv) {
     lua_close(L);
     return complain("no database attached, and no tree to boot from", self);
   }
-
-  sqlite3 *db = open_attached(self, &attached);
-  if (db == NULL) {
-    lua_close(L);
-    return complain("cannot open my own database", self);
-  }
-  cosmic_store_install(L, db);
 
   int status = run_main(L, argc, argv);
   lua_close(L);

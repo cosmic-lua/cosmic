@@ -102,12 +102,80 @@ static int store_attach(lua_State *L) {
   return 1;
 }
 
+/* One module's compiled bytes, for a caller that must load a chunk in
+ * an environment of its own -- which is how the vendored compiler runs
+ * without the names the surface removed. */
+static int store_bytecode(lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  int list = lua_upvalueindex(1);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+
+  static const char *query = "SELECT bytecode FROM modules WHERE path = ?1";
+  for (lua_Integer i = 1; i <= count; i++) {
+    sqlite3 *db = database_at(L, list, i);
+    if (db == NULL) {
+      continue;
+    }
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
+      continue;
+    }
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      lua_pushlstring(L, sqlite3_column_blob(stmt, 0),
+                      (size_t)sqlite3_column_bytes(stmt, 0));
+      sqlite3_finalize(stmt);
+      return 1;
+    }
+    sqlite3_finalize(stmt);
+  }
+  lua_pushnil(L);
+  lua_pushfstring(L, "no module '%s' in the store", name);
+  return 2;
+}
+
+/* One entry of the meta table, which is where the build records what it
+ * decided: the entry module's name, the hash of the tool. */
+static int store_meta(lua_State *L) {
+  const char *key = luaL_checkstring(L, 1);
+  int list = lua_upvalueindex(1);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+
+  static const char *query = "SELECT value FROM meta WHERE key = ?1";
+  for (lua_Integer i = 1; i <= count; i++) {
+    sqlite3 *db = database_at(L, list, i);
+    if (db == NULL) {
+      continue;
+    }
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
+      continue;
+    }
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
+                      (size_t)sqlite3_column_bytes(stmt, 0));
+      sqlite3_finalize(stmt);
+      return 1;
+    }
+    sqlite3_finalize(stmt);
+  }
+  lua_pushnil(L);
+  return 1;
+}
+
 static int open_store_module(lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   lua_newtable(L);
   lua_pushvalue(L, -2);
   lua_pushcclosure(L, store_attach, 1);
   lua_setfield(L, -2, "attach");
+  lua_pushvalue(L, -2);
+  lua_pushcclosure(L, store_bytecode, 1);
+  lua_setfield(L, -2, "bytecode");
+  lua_pushvalue(L, -2);
+  lua_pushcclosure(L, store_meta, 1);
+  lua_setfield(L, -2, "meta");
   lua_remove(L, -2);
   return 1;
 }
@@ -141,27 +209,15 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary) {
   return 0;
 }
 
-int cosmic_store_load(lua_State *L, const char *name) {
+const char *cosmic_store_meta(lua_State *L, const char *key) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
-  int list = lua_gettop(L);
-  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-
-  for (lua_Integer i = 1; i <= count; i++) {
-    sqlite3 *db = database_at(L, list, i);
-    if (db == NULL) {
-      continue;
-    }
-    int found = load_from(L, db, name);
-    if (found == 1) {
-      lua_remove(L, list);
-      return 1;
-    }
-    if (found < 0) {
-      lua_remove(L, list);
-      return 0;
-    }
+  lua_pushcclosure(L, store_meta, 1);
+  lua_pushstring(L, key);
+  if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+    lua_pop(L, 1);
+    return NULL;
   }
-  lua_remove(L, list);
-  lua_pushfstring(L, "no module '%s' in the store", name);
-  return 0;
+  const char *value = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  return value;
 }

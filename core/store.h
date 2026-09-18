@@ -18,8 +18,8 @@
  * attached. Also registers `cosmic.store` in package.preload. */
 int cosmic_store_install(lua_State *L, sqlite3 *binary);
 
-/* Loads one module onto the stack as a function. Returns 0 and pushes a
- * message when no database holds it. */
-int cosmic_store_load(lua_State *L, const char *name);
+/* One entry of the meta table, or NULL. The string belongs to Lua and
+ * stays valid until the next call that touches the stack. */
+const char *cosmic_store_meta(lua_State *L, const char *key);
 
 #endif

@@ -42,7 +42,7 @@
  * --- Opens a path and returns a descriptor.
  * ---@param path string the path to open
  * ---@param flags integer the O_* flags, from `syscalls.O`
- * ---@param mode integer the mode for a newly created file, default 0o644
+ * ---@param mode? integer the mode for a newly created file, default 0o644
  * ---@return integer|nil fd the descriptor, or nil on failure
  * ---@return string error what went wrong, when fd is nil
  * ---@return integer errno the error number, when fd is nil
@@ -130,7 +130,7 @@ COSMIC_SYSCALL(lstat);
 /*
  * --- Creates a directory.
  * ---@param path string the directory to create
- * ---@param mode integer the mode to create it with, default 0o755
+ * ---@param mode? integer the mode to create it with, default 0o755
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
@@ -233,7 +233,7 @@ COSMIC_SYSCALL(environ);
 
 /*
  * --- Ends the process. It does not return.
- * ---@param status integer the exit status
+ * ---@param status? integer the exit status, default 0
  */
 COSMIC_SYSCALL(exit);
 
@@ -244,11 +244,11 @@ COSMIC_SYSCALL(exit);
 COSMIC_SYSCALL(getpid);
 
 /*
- * --- Reads a clock, in seconds and nanoseconds.
+ * --- Reads a clock, in nanoseconds.
  * ---@param clock integer one of `syscalls.CLOCK_REALTIME`, `_MONOTONIC`
- * ---@return integer|nil seconds whole seconds, or nil on failure
- * ---@return string error what went wrong, when seconds is nil
- * ---@return integer errno the error number, when seconds is nil
+ * ---@return integer|nil nanoseconds the reading, or nil on failure
+ * ---@return string error what went wrong, when nanoseconds is nil
+ * ---@return integer errno the error number, when nanoseconds is nil
  */
 COSMIC_SYSCALL(clock_gettime);
 
@@ -291,6 +291,34 @@ COSMIC_SYSCALL(deflate);
  * ---@return string error what went wrong, when data is nil
  */
 COSMIC_SYSCALL(inflate);
+
+/*
+ * --- The numbers the calls above take and give back. They come from
+ * --- this libc, so nothing above the table carries a platform's own.
+ * ---@class Constants
+ * ---@field O_RDONLY integer open for reading
+ * ---@field O_WRONLY integer open for writing
+ * ---@field O_RDWR integer open for both
+ * ---@field O_CREAT integer create the file when it is missing
+ * ---@field O_EXCL integer with O_CREAT, refuse an existing file
+ * ---@field O_TRUNC integer empty the file on open
+ * ---@field O_APPEND integer every write goes to the end
+ * ---@field SEEK_SET integer seek from the start
+ * ---@field SEEK_CUR integer seek from where the descriptor is
+ * ---@field SEEK_END integer seek from the end
+ * ---@field CLOCK_REALTIME integer the wall clock, which can step
+ * ---@field CLOCK_MONOTONIC integer a clock that only moves forward
+ * ---@field ENOENT integer there is no such file
+ * ---@field EEXIST integer the name is already taken
+ * ---@field EACCES integer permission was refused
+ * ---@field EINTR integer a signal arrived first
+ * ---@field EISDIR integer it is a directory
+ * ---@field ENOTDIR integer it is not a directory
+ * ---@field ENOTEMPTY integer the directory still holds entries
+ * ---@field EAGAIN integer nothing is ready yet
+ * ---@field EPIPE integer the other end is gone
+ * ---@field EXDEV integer the two paths are on different filesystems
+ */
 
 /* Opens the table as the `cosmic.syscalls` module. */
 int cosmic_open_syscalls(lua_State *L);
