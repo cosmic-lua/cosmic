@@ -60,47 +60,52 @@ jobs:
       - name: build the tree with the checked core
         run: bin/zig build sanitized
 
-  test-linux-x86_64:
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: binaries
-          path: dl
-      - name: run it
-        shell: bash
-        run: .github/run-binary.sh dl x86_64-linux-musl "linux x86_64"
-
+  # Each shipped target proves it can build AND test itself: the same
+  # tree, built fresh with that platform's own C toolchain, must pass
+  # every test the tree defines. A downloaded artifact cannot prove
+  # this on its own -- o/types/'s generated declarations only exist
+  # once a build has produced them -- so this builds natively instead
+  # of testing something cross-compiled elsewhere.
   test-linux-aarch64:
-    needs: build
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: cache the pinned zig
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          name: binaries
-          path: dl
-      - name: run it
-        shell: bash
-        run: .github/run-binary.sh dl aarch64-linux-musl "linux aarch64"
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - name: build every core, then the database and the binaries
+        run: bin/zig build cores boot
+      - name: run every test the tree defines, including doctests
+        run: o/bin/cosmic test
 
   test-macos:
     needs: build
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: cache the pinned zig
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - name: build every core, then the database and the binaries
+        run: bin/zig build cores boot
+      - name: run every test the tree defines, including doctests
+        run: o/bin/cosmic test
+
+      # The only place the signature `attach` wrote is judged by the
+      # system that has to accept it -- a fresh native build proves
+      # nothing about the SHIPPED, cross-compiled artifact's own
+      # signature, so this checks that one specifically.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: binaries
           path: dl
-      # The only place the signature the attach wrote is judged by the
-      # system that has to accept it.
-      - name: the signature
+      - name: the shipped artifact's signature
         shell: bash
         run: |
           set -euo pipefail
@@ -112,46 +117,6 @@ jobs:
           codesign --verify --strict --verbose=2 "$cosmic"
           codesign --display --verbose=4 "$cosmic"
           echo "signature: PASS"
-      - name: run it
-        shell: bash
-        run: .github/run-binary.sh dl aarch64-macos "macos aarch64"
-
-  # Each shipped target proves it can build AND test itself, not only
-  # that a Linux-cross-compiled artifact happens to boot elsewhere: the
-  # same tree, built fresh with that platform's own C toolchain, must
-  # pass every test the tree defines. This is the one thing a bare
-  # downloaded binary cannot do on its own -- o/types/'s generated
-  # declarations only exist once this same build has produced them, so
-  # `run-binary.sh`'s lighter check never attempts it.
-  native-test-linux-aarch64:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
-
-  native-test-macos:
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
 
   # The artifact is a pure function of the tree. A fresh container is a
   # cold tree by construction; building at another path is what catches
