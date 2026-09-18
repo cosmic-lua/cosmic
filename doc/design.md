@@ -36,9 +36,12 @@ these argues with the principle, not with the reviewer.
    bytes, is paid on every run. growth is named in the size report,
    never silent.
 2. **position is the manifest.** `*_test.tl` is a test, `cmd/<name>/`
-   is a binary, a name that starts with a capital letter is public
-   and every other name is private to its tree, the root is the
-   module root. no list to maintain, none to go stale.
+   is a binary, the root is the module root, and whether a file can
+   be reached from outside its own directory is a question of
+   position, not of its name: a directory's own entry file is the
+   one path outside code may import, and every sibling beside it is
+   reachable only from within that directory. no list to maintain,
+   none to go stale.
 3. **honest returns.** `T | nil, string` for a value, `boolean,
    string` for an effect, two slots and nothing in a third, a
    structured error record when the failure has shape. a throw or
@@ -194,11 +197,11 @@ reaches outside the process: `string`, `table`, `math`, `utf8`,
 searcher reads the database; `path`, `cpath`, `loadlib`, and
 `searchpath` do not exist. `io`, `os`, and `debug` are not globals.
 files, standard streams, environment, time, and processes are
-`cosmic.Fs`, `cosmic.Env`, `cosmic.Time`, and `cosmic.Proc`, all
+`cosmic.fs`, `cosmic.env`, `cosmic.time`, and `cosmic.proc`, all
 over the syscall table, so the same call behaves the same on both
 OSes and the sandbox has one door. `print` writes through the
-syscall table, and `Fs` writes to a stream without a newline.
-`cosmic.Errors` exposes a traceback for error reporting; the test
+syscall table, and `fs` writes to a stream without a newline.
+`cosmic.errors` exposes a traceback for error reporting; the test
 runner and the coverage collector reach the rest of `debug` through
 a private binding. a name that is missing errors with the module
 that replaces it.
@@ -219,10 +222,19 @@ Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
 nothing can `dlopen`.
 
-the raw C modules behind `cosmic.Store` and `cosmic.Sqlite` have no
+the raw C modules behind `cosmic.store` and `cosmic.sqlite` have no
 requireable name. the searcher hands each to its Teal wrapper as
 the loader's second argument, and only when the wrapper is loaded
 from the binary's own database; a project module never sees them.
+`cosmic.errors` is the same shape, unconditionally preloaded rather
+than argument-passed, since a traceback carries less risk than a
+raw database handle. because every module path is now lowercase,
+these three raw names would collide with the wrapper paths they sit
+behind; each is prefixed with a leading dot, `.cosmic.sqlite`,
+`.cosmic.store`, `.cosmic.errors`, the same idiom a payload once
+used to stay out of the module root, so a protocol name can never be
+mistaken for one a project or the standard library would legitimately
+import.
 
 ### the database
 
@@ -413,8 +425,8 @@ build step that loads the compiler chunk.
 
 one Lua state, one thread, coroutines over `poll`. every blocking
 binding takes a timeout and can be driven from one event loop, which
-is Teal over the `poll` binding; `Http.serve` and `Fetch` are
-coroutine-driven; CPU parallelism is by process through `Child`.
+is Teal over the `poll` binding; `http.serve` and `fetch` are
+coroutine-driven; CPU parallelism is by process through `child`.
 
 the C layer is re-entrant, which costs discipline, not code: no
 static buffers, no process-global state outside the entry, every
@@ -426,7 +438,7 @@ addition that rewrites no bindings.
 ### tls
 
 mbedtls: TLS 1.2 and 1.3, one configuration, hashes and HMAC from
-the same library. the branch is chosen when the `Fetch` module is
+the same library. the branch is chosen when the `fetch` module is
 pulled; 4.x is the expectation, since 3.6's support ends in March
 2027 and 4.1's runs to 2029 as one tarball with its crypto subtree
 included. nothing before that needs mbedtls: SHA-256 for records and
@@ -498,40 +510,55 @@ patches/<name>/     exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
-cosmic/             the standard library; its public modules are capitalized
+cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's entry
 build/              the importer, checker driver, embed (Teal, private)
 doc/                prose
 o/                  output; o/cosmic.db, o/records.db; never committed
 ```
 
-a name that starts with a capital letter is public: `cosmic/Fs.tl`
-is `require("cosmic.Fs")` and anyone may import it; `cosmic/fs/walk.tl`
-is private to `cosmic/` and the checker refuses an import from
-outside. a capitalized directory is public as a whole. everything is
-private unless it says otherwise, and there is no underscore
-convention. one lint follows: no two names in a directory may differ
-only in case, because macOS's default filesystem cannot tell them
-apart, and a case-only rename is a two-step commit there. private by
-default is settled; the capital letter is the current export marker
-and another explicit form may replace it. whether the public modules
-live under `cosmic/` or at the root is open.
+every module path is lowercase; no name is spelled differently
+because of what it is. reachability is a question of position
+instead: a directory's own entry file is the one path outside code
+may import, and every sibling beside it is reachable only from
+within that directory. `cosmic/fs.tl` is `require("cosmic.fs")`,
+public. a module too large for one file becomes a directory of the
+same name with an `init.tl` as its entry, the ordinary way Lua
+already resolves `require("cosmic.fs")` to `cosmic/fs/init.tl`; a
+sibling beside it, `cosmic/fs/walk.tl`, compiles as `cosmic.fs.walk`
+and the checker refuses an import of it from any file outside
+`cosmic/fs/`. the same rule applies everywhere in the tree, not only
+under `cosmic/`. a project tree may hold no `cosmic`-prefixed path
+at all unless it is cosmic's own tree, so a project can never place
+itself as a false sibling to claim another module's private surface.
+one lint follows: no two names in a directory may differ only in
+case, because macOS's default filesystem cannot tell them apart, and
+a case-only rename is a two-step commit there. entry-point
+reachability is settled; whether an exported function's own name is
+capitalized by convention, `fs.Read` rather than `fs.read`, is a
+readability question and not yet decided, and the checker does not
+enforce it either way. positional reachability is a compile-time
+check over statically written imports; it says nothing about a value
+already held by a script that walks a table's fields at runtime,
+which is why `cosmic.sqlite` and `cosmic.store` keep their own
+stronger mechanism, no requireable name at all, on top of this rule
+rather than instead of it.
 
 ### the surface
 
 the tier order is a reading order for what to write, not a size
 target:
 
-- **core**: `Check`, `Fs`, `Child`, `Env`, `Proc`, `Hash`, `Sqlite`,
-  `Json`, `Time`, `Rand`, `Flags`, `String`, `Errno`, `Errors`,
-  `Log`, `Teal`, `Format`, `Test`, `Coverage`, `Doc`, `Embed`,
-  `Shape`.
-- **second**: `Http`, `Fetch`, `Net`, `Dns`, `Re`, `Zip`, `Tar`,
-  `Compress`, `Codec`, `Url`, `Ip`, `Uuid`, `Ksuid`, `Sse`,
-  `Sandbox`, `Signal`, `Poll`, `Fd`, `Tty`, `Ansi`, `User`, `Sys`,
-  `Stream`, `Deep`, `Graph`, `Fuzzy`, `Literal`, `Ast`, `Template`.
+- **core**: `check`, `fs`, `child`, `env`, `proc`, `hash`, `sqlite`,
+  `json`, `time`, `rand`, `flags`, `string`, `errno`, `errors`,
+  `log`, `teal`, `format`, `test`, `coverage`, `doc`, `embed`,
+  `shape`.
+- **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
+  `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
+  `sandbox`, `signal`, `poll`, `fd`, `tty`, `ansi`, `user`, `sys`,
+  `stream`, `deep`, `graph`, `fuzzy`, `literal`, `ast`, `template`.
 - **later, if pulled**: namespaces and egress proxying beyond what
-  the sandbox core needs, `Shm`, `Instrument`, `Html`, `Css`, `Js`.
+  the sandbox core needs, `shm`, `instrument`, `html`, `css`, `js`.
 
 what comes after milestone 1, and the open questions that stand in
 the way, are in [roadmap.md](roadmap.md).
