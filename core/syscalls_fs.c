@@ -53,13 +53,16 @@ static void push_stat(lua_State *L, const struct stat *st) {
   lua_setfield(L, -2, "kind");
 }
 
-COSMIC_SYSCALL(open) {
+COSMIC_SYSCALL(open, 3) {
   const char *path = luaL_checkstring(L, 1);
   int flags = (int)luaL_checkinteger(L, 2);
   int mode = (int)luaL_optinteger(L, 3, 0644);
   int fd;
   do {
-    fd = open(path, flags, (mode_t)mode);
+    /* Every descriptor this table opens is close-on-exec: there is no
+     * spawn in M1, but a child process is never handed a file it was
+     * not given on purpose. */
+    fd = open(path, flags | O_CLOEXEC, (mode_t)mode);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
     return cosmic_fail(L, errno);
@@ -68,7 +71,7 @@ COSMIC_SYSCALL(open) {
   return 1;
 }
 
-COSMIC_SYSCALL(close) {
+COSMIC_SYSCALL(close, 1) {
   int fd = (int)luaL_checkinteger(L, 1);
   if (close(fd) != 0) {
     return cosmic_fail_effect(L, errno);
@@ -76,7 +79,7 @@ COSMIC_SYSCALL(close) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(read) {
+COSMIC_SYSCALL(read, 2) {
   int fd = (int)luaL_checkinteger(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   if (count < 0) {
@@ -98,7 +101,7 @@ COSMIC_SYSCALL(read) {
   return 1;
 }
 
-COSMIC_SYSCALL(pread) {
+COSMIC_SYSCALL(pread, 3) {
   int fd = (int)luaL_checkinteger(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   lua_Integer offset = luaL_checkinteger(L, 3);
@@ -124,7 +127,7 @@ COSMIC_SYSCALL(pread) {
   return 1;
 }
 
-COSMIC_SYSCALL(write) {
+COSMIC_SYSCALL(write, 2) {
   int fd = (int)luaL_checkinteger(L, 1);
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
@@ -139,7 +142,7 @@ COSMIC_SYSCALL(write) {
   return 1;
 }
 
-COSMIC_SYSCALL(lseek) {
+COSMIC_SYSCALL(lseek, 3) {
   int fd = (int)luaL_checkinteger(L, 1);
   lua_Integer offset = luaL_checkinteger(L, 2);
   int whence = (int)luaL_checkinteger(L, 3);
@@ -151,7 +154,7 @@ COSMIC_SYSCALL(lseek) {
   return 1;
 }
 
-COSMIC_SYSCALL(fstat) {
+COSMIC_SYSCALL(fstat, 1) {
   int fd = (int)luaL_checkinteger(L, 1);
   struct stat st;
   if (fstat(fd, &st) != 0) {
@@ -161,7 +164,7 @@ COSMIC_SYSCALL(fstat) {
   return 1;
 }
 
-COSMIC_SYSCALL(stat) {
+COSMIC_SYSCALL(stat, 1) {
   const char *path = luaL_checkstring(L, 1);
   struct stat st;
   if (stat(path, &st) != 0) {
@@ -171,7 +174,7 @@ COSMIC_SYSCALL(stat) {
   return 1;
 }
 
-COSMIC_SYSCALL(lstat) {
+COSMIC_SYSCALL(lstat, 1) {
   const char *path = luaL_checkstring(L, 1);
   struct stat st;
   if (lstat(path, &st) != 0) {
@@ -181,7 +184,7 @@ COSMIC_SYSCALL(lstat) {
   return 1;
 }
 
-COSMIC_SYSCALL(mkdir) {
+COSMIC_SYSCALL(mkdir, 2) {
   const char *path = luaL_checkstring(L, 1);
   int mode = (int)luaL_optinteger(L, 2, 0755);
   if (mkdir(path, (mode_t)mode) != 0) {
@@ -190,7 +193,7 @@ COSMIC_SYSCALL(mkdir) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(rmdir) {
+COSMIC_SYSCALL(rmdir, 1) {
   const char *path = luaL_checkstring(L, 1);
   if (rmdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
@@ -198,7 +201,7 @@ COSMIC_SYSCALL(rmdir) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(unlink) {
+COSMIC_SYSCALL(unlink, 1) {
   const char *path = luaL_checkstring(L, 1);
   if (unlink(path) != 0) {
     return cosmic_fail_effect(L, errno);
@@ -206,7 +209,7 @@ COSMIC_SYSCALL(unlink) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(rename) {
+COSMIC_SYSCALL(rename, 2) {
   const char *from = luaL_checkstring(L, 1);
   const char *to = luaL_checkstring(L, 2);
   if (rename(from, to) != 0) {
@@ -215,7 +218,7 @@ COSMIC_SYSCALL(rename) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(chmod) {
+COSMIC_SYSCALL(chmod, 2) {
   const char *path = luaL_checkstring(L, 1);
   int mode = (int)luaL_checkinteger(L, 2);
   if (chmod(path, (mode_t)mode) != 0) {
@@ -224,12 +227,16 @@ COSMIC_SYSCALL(chmod) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(readdir) {
+COSMIC_SYSCALL(readdir, 1) {
   const char *path = luaL_checkstring(L, 1);
   DIR *dir = opendir(path);
   if (dir == NULL) {
     return cosmic_fail(L, errno);
   }
+  /* opendir's close-on-exec default is not guaranteed across the libc
+   * this core links; asking outright costs one call and leaves nothing
+   * to a platform's discretion. */
+  fcntl(dirfd(dir), F_SETFD, FD_CLOEXEC);
   lua_newtable(L);
   lua_Integer n = 0;
   for (;;) {
@@ -256,7 +263,7 @@ COSMIC_SYSCALL(readdir) {
   return 1;
 }
 
-COSMIC_SYSCALL(getcwd) {
+COSMIC_SYSCALL(getcwd, 0) {
   char room[PATH_MAX];
   if (getcwd(room, sizeof room) == NULL) {
     return cosmic_fail(L, errno);
@@ -265,7 +272,7 @@ COSMIC_SYSCALL(getcwd) {
   return 1;
 }
 
-COSMIC_SYSCALL(chdir) {
+COSMIC_SYSCALL(chdir, 1) {
   const char *path = luaL_checkstring(L, 1);
   if (chdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
@@ -273,7 +280,7 @@ COSMIC_SYSCALL(chdir) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(realpath) {
+COSMIC_SYSCALL(realpath, 1) {
   const char *path = luaL_checkstring(L, 1);
   char room[PATH_MAX];
   if (realpath(path, room) == NULL) {
