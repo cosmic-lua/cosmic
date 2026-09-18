@@ -250,8 +250,8 @@ itself the public surface belongs, not only these three.
 input to the build, never to the runtime. one database holds:
 
 - **modules**: import path, source hash, Teal source, compiled Lua
-  and bytecode, declaration, kind (module, test, example, binary
-  entry), and the test names the compile step found.
+  and bytecode, declaration, kind (module, test, example, main),
+  and the test names the compile step found.
 - **docs**: extracted per symbol, queried by `cosmic docs`, from a
   module named `cosmic.docs`.
 - **payload**: for an embed-built executable, the user's files.
@@ -520,7 +520,7 @@ core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
-cmd/cosmic/         the binary's entry
+cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal, private)
 doc/                prose
 o/                  output; o/cosmic.db, o/records.db; never committed
