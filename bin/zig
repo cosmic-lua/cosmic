@@ -37,52 +37,55 @@ want=$(awk -v h="$host" '$1 == h { print $2; exit }' "$pin")
 [ -n "$want" ] || die "$pin names no sha256 for $host"
 
 if [ -n "${COSMIC_ZIG:-}" ]; then
-  exec "$COSMIC_ZIG" "$@"
+  zig=$COSMIC_ZIG
+else
+  cache=${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig
+  install=$cache/$version-$host
+  zig=$install/zig
+
+  if [ ! -x "$zig" ]; then
+    name=zig-$host-$version.tar.xz
+    url=https://ziglang.org/download/$version/$name
+    mkdir -p "$cache"
+    work=$cache/.work.$$
+    rm -rf "$work"
+    mkdir -p "$work"
+    trap 'rm -rf "$work"' EXIT INT TERM
+
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$work/$name" "$url" || die "download failed: $url"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO "$work/$name" "$url" || die "download failed: $url"
+    else
+      die "need curl or wget to fetch $url"
+    fi
+
+    if command -v sha256sum >/dev/null 2>&1; then
+      got=$(sha256sum "$work/$name" | cut -d' ' -f1)
+    elif command -v shasum >/dev/null 2>&1; then
+      got=$(shasum -a 256 "$work/$name" | cut -d' ' -f1)
+    else
+      die "need sha256sum or shasum to verify $name"
+    fi
+
+    if [ "$got" != "$want" ]; then
+      die "$name has sha256 $got; the pin says $want"
+    fi
+
+    tar -xJf "$work/$name" -C "$work"
+    [ -x "$work/zig-$host-$version/zig" ] || die "$name holds no zig binary"
+    # Another process may have won the race; its copy is the same bytes.
+    mv "$work/zig-$host-$version" "$install" 2>/dev/null || true
+    [ -x "$zig" ] || die "could not install zig into $install"
+    rm -rf "$work"
+    trap - EXIT INT TERM
+  fi
 fi
 
-cache=${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig
-install=$cache/$version-$host
-zig=$install/zig
-
-if [ ! -x "$zig" ]; then
-  name=zig-$host-$version.tar.xz
-  url=https://ziglang.org/download/$version/$name
-  mkdir -p "$cache"
-  work=$cache/.work.$$
-  rm -rf "$work"
-  mkdir -p "$work"
-  trap 'rm -rf "$work"' EXIT INT TERM
-
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$work/$name" "$url" || die "download failed: $url"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$work/$name" "$url" || die "download failed: $url"
-  else
-    die "need curl or wget to fetch $url"
-  fi
-
-  if command -v sha256sum >/dev/null 2>&1; then
-    got=$(sha256sum "$work/$name" | cut -d' ' -f1)
-  elif command -v shasum >/dev/null 2>&1; then
-    got=$(shasum -a 256 "$work/$name" | cut -d' ' -f1)
-  else
-    die "need sha256sum or shasum to verify $name"
-  fi
-
-  if [ "$got" != "$want" ]; then
-    die "$name has sha256 $got; the pin says $want"
-  fi
-
-  tar -xJf "$work/$name" -C "$work"
-  [ -x "$work/zig-$host-$version/zig" ] || die "$name holds no zig binary"
-  # Another process may have won the race; its copy is the same bytes.
-  mv "$work/zig-$host-$version" "$install" 2>/dev/null || true
-  [ -x "$zig" ] || die "could not install zig into $install"
-  rm -rf "$work"
-  trap - EXIT INT TERM
-fi
-
-# Keep both zig caches under o/ so the tree has one thing to delete.
+# Keep both zig caches under o/ so the tree has one thing to delete. This
+# applies whether `zig` came from COSMIC_ZIG or from the cache above: a
+# `build` invocation always gets these flags, so a scratch zig used for
+# testing never leaves `.zig-cache/` or `zig-out/` behind either.
 if [ "${1:-}" = "build" ]; then
   shift
   exec "$zig" build \
