@@ -257,15 +257,29 @@ function test.run(): integer
   -- One hook install for the whole run, not one per test: a first cut
   -- of coverage only has to answer how much of the tree the suite as a
   -- whole touched, and every test already runs in this same process,
-  -- so nothing is lost by not resetting collection between them.
-  Coverage.start()
+  -- so nothing is lost by not resetting collection between them. The
+  -- session `start` hands back is what keeps this window this run's own:
+  -- an ordinary test elsewhere in the tree that also calls `start`/`stop`
+  -- cannot reset or end it, since it never has this same session value.
+  local session, start_trouble = Coverage.start()
+  if session == nil then
+    complain("coverage: " .. start_trouble)
+  end
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
       total = total + run_module(records, m, failures)
     end
   end
-  local hits = Coverage.stop()
+  local hits: Coverage.Hits = {}
+  if session ~= nil then
+    local collected, stop_trouble = Coverage.stop(session)
+    if collected == nil then
+      complain("coverage: " .. stop_trouble)
+    else
+      hits = collected
+    end
+  end
 
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits)

@@ -11,14 +11,45 @@ local type Node = ast.Node
 local record lines
 end
 
---- Statement kinds a "statements" node's array part can hold that
---- generate no Lua code at all: a standalone `record`/`type` statement
---- (`local_type`, `global_type`) is erased entirely at compile time --
---- vendor/tl/tl.tl's own codegen comment at the site that discards a
---- `local_type` node says so outright. A phantom line like this can
---- never be hit no matter how thoroughly a suite exercises the module,
---- so counting it as executable would only ever deflate a percentage,
---- never reflect one.
+--- Statement kinds a "statements" node's array part can hold that this
+--- module excludes from the executable count -- NOT because a
+--- `local_type`/`global_type` statement always generates no Lua code,
+--- but because tl's own codegen only sometimes elides it, and telling
+--- the two cases apart needs information this module does not have.
+---
+--- The true rule, read from vendor/tl/tl.lua's `check_var_usage`
+--- and its `local_type`/`global_type` codegen (the `elide_type` flag
+--- codegen checks before emitting a line at all): a bare type-only
+--- declaration whose name is never used as a real value anywhere else
+--- in the module -- referenced only in type position, or not referenced
+--- again at all -- is erased entirely, exactly a standalone `local
+--- record Foo x: integer end` with nothing else naming `Foo`. But a
+--- record or enum whose name IS used as a value elsewhere -- the
+--- dominant idiom across this whole codebase, `local record Foo end`
+--- with a `function Foo.bar() ... end` attached later in the same
+--- module (cosmic/coverage.tl's own `Coverage` is one) -- generates a
+--- real, always-executed initializer line (`local Foo = {}`) that a
+--- correct executable-line count would include and that this
+--- implementation still excludes, along with the rarer non-function
+--- value uses (a plain assignment, a call argument, a field write)
+--- that keep codegen from eliding it for the same reason.
+---
+--- `elide_type` is computed by tl's real type-checker, over the whole
+--- module's variable-usage analysis (`has_been_read_from`/
+--- `has_been_written_to`/`used_as_type`, tracked across every
+--- statement, not only the declaration site) -- and `build.ast.parse`,
+--- the only AST this module ever walks, only lexes and parses; it never
+--- runs that checker, so the flag tl itself would set is simply absent
+--- here. Recovering an equivalent signal from the bare parse tree alone
+--- would mean re-deriving that same whole-module usage analysis by
+--- hand -- scanning for every place the name is read, not only the
+--- common dot-function-attachment pattern -- which is fragile in a way
+--- that would make a false NEGATIVE (a name used through a shape this
+--- scan does not recognize, wrongly still counted as elided) at least
+--- as likely as the false positive documented above. Left as a known,
+--- conservative gap: this only ever deflates a percentage, never
+--- inflates one, until this module reads a fully checked AST instead of
+--- a merely parsed one.
 local not_executable: {string: boolean} = {
   ["local_type"] = true,
   ["global_type"] = true,
