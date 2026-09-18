@@ -39,7 +39,7 @@ static int names_trusted_kind(const char *name, const char *kind) {
   int reserved = strncmp(name, "cosmic.", 7) == 0 ||
                 strncmp(name, "build.", 6) == 0;
   int runnable = kind != NULL &&
-                (strcmp(kind, "module") == 0 || strcmp(kind, "entry") == 0);
+                (strcmp(kind, "module") == 0 || strcmp(kind, "main") == 0);
   return reserved && runnable;
 }
 
@@ -77,7 +77,7 @@ static int return_upvalue(lua_State *L) {
  * executable, as opposed to a project's own build database. `*trusted`
  * is set to whether this load earns the raw store: compiled into the
  * binary's own tree, under `cosmic.*` or `build.*`, kind "module" or
- * "entry". */
+ * "main". */
 static int load_from(lua_State *L, sqlite3 *db, const char *name,
                      int is_binary, int *trusted) {
   static const char *query =

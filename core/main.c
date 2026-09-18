@@ -56,7 +56,7 @@ static int failed(lua_State *L) {
  * table whose slot 0 is the program's own name. */
 static int run_main(lua_State *L, int argc, char **argv) {
   char entry[256];
-  const char *named = cosmic_store_meta(L, "entry");
+  const char *named = cosmic_store_meta(L, "main");
   if (named == NULL || named[0] == '\0') {
     return complain("the database names no entry module", NULL);
   }

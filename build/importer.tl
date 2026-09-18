@@ -26,7 +26,7 @@ local record importer
   record Result
     modules: {Module}
     boot_hash: string
-    entry: string | nil
+    main: string | nil
   end
 end
 
@@ -97,7 +97,7 @@ local function kind_of(file: string): string
     return "example"
   end
   if file:match("^cmd/[^/]+/main%.tl$") ~= nil then
-    return "entry"
+    return "main"
   end
   return "module"
 end
@@ -253,7 +253,7 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
     return nil, why
   end
   local keys: {string:string} = {}
-  local entry: string | nil = nil
+  local main: string | nil = nil
 
   for _, m in ipairs(order) do
     local closure: {string} = {}
@@ -284,12 +284,12 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
         "do not share"
     end
 
-    if m.kind == "entry" then
-      entry = m.path
+    if m.kind == "main" then
+      main = m.path
     end
   end
 
-  return { modules = order, boot_hash = boot_hash, entry = entry }
+  return { modules = order, boot_hash = boot_hash, main = main }
 end
 
 local function text(value: string): Sqlite.Value
@@ -435,7 +435,7 @@ function importer.write(root: string, out: string, built: compiler,
 
     local meta: {{string}} = {
       { "boot_hash", result.boot_hash },
-      { "entry", result.entry or "" },
+      { "main", result.main or "" },
     }
     for _, pair in ipairs(meta) do
       local ok, failure = Sqlite.run(handle,
