@@ -101,9 +101,22 @@ local function to_items(blocks: {Block}): {Item} | nil, string
         pending_files = {}
         current = nil
       elseif b.modifiers.file ~= nil then
-        pending_files[#pending_files + 1] =
-          { path = b.modifiers.file, content = b.content, line = b.line }
-        current = nil
+        -- A `file=` block attaches to whichever example is open,
+        -- whether it was written before the entry (queued in
+        -- `pending_files` until an entry claims them) or after it
+        -- (attached to `current` directly, in place, so a later
+        -- `continue` or `output` still finds the same example open).
+        -- Only a `file=` with nothing open at all -- before any entry
+        -- in its run, or after the run already closed -- falls back
+        -- to `pending_files`, and is refused below if no entry ever
+        -- follows to claim it.
+        local write: FileWrite = { path = b.modifiers.file, content = b.content,
+                                    line = b.line }
+        if current ~= nil then
+          current.files[#current.files + 1] = write
+        else
+          pending_files[#pending_files + 1] = write
+        end
       elseif b.modifiers.continue then
         if current == nil then
           return nil, "line " .. b.line ..

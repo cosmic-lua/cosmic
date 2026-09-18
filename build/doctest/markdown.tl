@@ -7,6 +7,10 @@
 ---
 --- Prose outside a fence is not read at all: a line only matters here
 --- once it opens or closes a fence.
+---
+--- A fence opens with either a backtick or a tilde run of three,
+--- CommonMark's own two marker styles, and closes only with the same
+--- marker it opened with.
 
 local record Modifiers
   continue: boolean
@@ -85,9 +89,62 @@ local function parse_tag(info: string): Tag | nil, string
   return { lang = lang, modifiers = modifiers }, ""
 end
 
+--- Whether `line` opens a fence, and with which marker character.
+--- CommonMark allows either a backtick or a tilde run of three or more
+--- as a fence marker; the two are not interchangeable for one fence
+--- -- a fence opened with `` ``` `` closes only with `` ``` ``, and one
+--- opened with `~~~` closes only with `~~~`. This lets a `~~~`-fenced
+--- block hold literal `` ``` `` content, which is the main reason
+--- CommonMark gives docs two marker styles at all.
+--- @return string | nil the marker character (`` ` `` or `~`), or nil
+---   when `line` opens neither
+--- @return string the info string after the marker run, when one was found
+local function open_marker(line: string): string | nil, string
+  local backtick_info = line:match("^```(.*)$")
+  if backtick_info ~= nil then
+    return "`", backtick_info
+  end
+  local tilde_info = line:match("^~~~(.*)$")
+  if tilde_info ~= nil then
+    return "~", tilde_info
+  end
+  return nil, ""
+end
+
+--- Whether `line` closes a fence opened with `marker`: the same
+--- character, alone on the line but for surrounding whitespace. This
+--- grammar does not check the closing run is at least as long as the
+--- opening one (CommonMark's full rule) -- every fence here is authored
+--- by hand at exactly three characters, so the extra check buys nothing
+--- a real doc would ever trip.
+local function closes_fence(line: string, marker: string): boolean
+  if marker == "`" then
+    return line:match("^%s*```%s*$") ~= nil
+  end
+  return line:match("^%s*~~~%s*$") ~= nil
+end
+
+--- Whether `line`, already ruled out as a column-0 fence opener, still
+--- looks like one that was meant to be: an indented run of three or
+--- more backticks or tildes. CommonMark allows a fence indented up to
+--- three spaces (stripping that indentation from its content); this
+--- grammar does not, and silently treating such a line as prose would
+--- reproduce the exact silent-gap shape `~~~` support just closed for
+--- unindented fences -- a doc author's example quietly never compiled
+--- or ran, with nothing to say so. Loud refusal here stands in for that
+--- support until indentation is worth handling for real.
+local function looks_like_an_indented_fence(line: string): boolean
+  local indented = line:match("^%s+(.*)$")
+  if indented == nil then
+    return false
+  end
+  return indented:match("^```") ~= nil or indented:match("^~~~") ~= nil
+end
+
 --- Every fenced code block in `source`, in document order.
---- @return {Block} | nil nil when a fence never closes or a tag is
----   not one this grammar knows
+--- @return {Block} | nil nil when a fence never closes, a tag is not
+---   one this grammar knows, or a line looks like an indented fence
+---   this grammar does not support
 --- @return string why, naming the source line
 function markdown.parse_blocks(source: string): {Block} | nil, string
   local lines: {string} = {}
@@ -97,8 +154,13 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
   local blocks: {Block} = {}
   local i = 1
   while i <= #lines do
-    local info = lines[i]:match("^```(.*)$")
-    if info == nil then
+    local marker, info = open_marker(lines[i])
+    if marker == nil then
+      if looks_like_an_indented_fence(lines[i]) then
+        return nil, "line " .. i .. ": this line looks like a fenced code " ..
+          "block opener but is indented; indented fences are not " ..
+          "supported here -- start it at column 1"
+      end
       i = i + 1
     else
       local open_line = i
@@ -106,7 +168,7 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       local j = i + 1
       local closed = false
       while j <= #lines do
-        if lines[j]:match("^%s*```%s*$") ~= nil then
+        if closes_fence(lines[j], marker) then
           closed = true
           break
         end

@@ -34,7 +34,9 @@ doctest machinery of its own.
 - a block tagged `teal file=<path>` is a file in that example's
   project rather than a statement in its function; a multi-file
   guide is one example with several files and one entry, the block
-  without a `file=`.
+  without a `file=`. the entry's own code runs with a `tmp` variable
+  in scope, naming the fresh directory holding those files, so it
+  reads one back with a path like `tmp .. "/<path>"`.
 - a block tagged `output` that follows an example is what the entry
   prints, captured and asserted line by line as that function's own
   assertion. an example with no `output` block compiles and does

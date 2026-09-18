@@ -127,6 +127,33 @@ local function test_a_dangling_file_block_is_refused()
     "got: " .. trouble)
 end
 
+local function test_a_file_block_after_the_entry_still_attaches_to_it()
+  local blocks: {Block} = {
+    block("teal", 'print("entry")', no_mods),
+    block("teal", "return 1", mods(false, "a.tl", nil)),
+  }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  local at_write = code:find("__doctest_write(tmp, \"a.tl\"", 1, true)
+  local at_entry = code:find('print("entry")', 1, true)
+  assert(at_write ~= nil and at_entry ~= nil, "got:\n" .. code)
+  assert(at_write < at_entry,
+    "expected the file to still be written before the entry runs:\n" .. code)
+end
+
+local function test_a_file_block_after_the_entry_still_reaches_output()
+  local blocks: {Block} = {
+    block("teal", 'print("entry")', no_mods),
+    block("teal", "return 1", mods(false, "a.tl", nil)),
+    block("output", "entry", no_mods),
+  }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  assert(code:find("local function test_1(tmp: string)", 1, true) ~= nil,
+    "expected a file= block after the entry to still let 'output' attach " ..
+    "to the same example:\n" .. tostring(code))
+end
+
 local function test_a_multi_file_example_writes_every_file_before_the_entry()
   local blocks: {Block} = {
     block("teal", "return 1", mods(false, "a.tl", nil)),

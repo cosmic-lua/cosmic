@@ -37,6 +37,18 @@ local matching_doc = doc({
   "```",
 })
 
+local tilde_matching_doc = doc({
+  "# Fixture",
+  "",
+  "~~~teal",
+  'print("hello")',
+  "~~~",
+  "",
+  "~~~output",
+  "hello",
+  "~~~",
+})
+
 local mismatching_doc = doc({
   "# Fixture",
   "",
@@ -138,6 +150,22 @@ local function test_an_output_matching_example_actually_passes()
   local fn = mod.test_1 as function(any...): (any...)
   local ok, err = pcall(fn, fresh_tmp())
   assert(ok, "expected the matching example to pass, got: " .. tostring(err))
+end
+
+local function test_a_tilde_fenced_example_actually_passes()
+  local root, write_trouble = write_fixture("tilde", tilde_matching_doc)
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "compile failed: " .. tostring(trouble))
+  local m = find_module(result, "doc.guides.fixture")
+  assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
+  assert(#m.tests == 1 and m.tests[1] == "test_1",
+    "expected a ~~~-fenced example to be extracted as test_1, got " ..
+    table.concat(m.tests, ","))
+  local mod = load_module(m)
+  local fn = mod.test_1 as function(any...): (any...)
+  local ok, err = pcall(fn, fresh_tmp())
+  assert(ok, "expected the tilde-fenced example to pass, got: " .. tostring(err))
 end
 
 local function test_an_output_mismatching_example_fails_clearly()

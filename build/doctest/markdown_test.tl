@@ -146,6 +146,96 @@ local function test_reads_a_bare_lua_block()
   assert(blocks[1].lang == "lua")
 end
 
+local function test_finds_a_bare_tilde_teal_block()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "~~~teal",
+    'print("hi")',
+    "~~~",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(blocks[1].lang == "teal")
+  assert(blocks[1].content == 'print("hi")')
+  assert(blocks[1].line == 1)
+end
+
+local function test_reads_the_file_modifier_with_a_tilde_fence()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "~~~teal file=helper.tl",
+    "local record helper",
+    "end",
+    "return helper",
+    "~~~",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(blocks[1].modifiers.file == "helper.tl",
+    "got: " .. tostring(blocks[1].modifiers.file))
+end
+
+local function test_reads_the_skip_modifier_with_a_tilde_fence()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "~~~teal skip=network",
+    'fetch("https://example.com")',
+    "~~~",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(blocks[1].modifiers.skip == "network",
+    "got: " .. tostring(blocks[1].modifiers.skip))
+end
+
+--- A backtick fence's content passes a bare `~~~` line straight through
+--- as content rather than treating it as a close: the two marker
+--- styles are not interchangeable for one fence.
+local function test_a_backtick_fence_is_not_closed_by_a_tilde_line()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "```teal",
+    "~~~",
+    "```",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(blocks[1].content == "~~~", "got: " .. blocks[1].content)
+end
+
+--- The reverse of the above, and the main reason CommonMark gives docs
+--- two marker styles: a tilde fence can hold literal backtick content.
+local function test_a_tilde_fence_holds_backtick_content()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "~~~teal",
+    "-- ```",
+    "print(1)",
+    "~~~",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(#blocks == 1, "expected 1 block, got " .. #blocks)
+  assert(blocks[1].content == "-- ```\nprint(1)", "got: " .. blocks[1].content)
+end
+
+local function test_refuses_an_indented_backtick_fence()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "prose",
+    "  ```teal",
+    'print("hi")',
+    "  ```",
+  }))
+  assert(blocks == nil, "expected an indented fence to be refused")
+  assert(trouble:find("indented fences are not supported", 1, true) ~= nil,
+    "got: " .. trouble)
+  assert(trouble:find("line 2", 1, true) ~= nil, "got: " .. trouble)
+end
+
+local function test_refuses_an_indented_tilde_fence()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "prose",
+    "  ~~~teal",
+    'print("hi")',
+    "  ~~~",
+  }))
+  assert(blocks == nil, "expected an indented fence to be refused")
+  assert(trouble:find("indented fences are not supported", 1, true) ~= nil,
+    "got: " .. trouble)
+end
+
 local function test_reads_a_sh_block()
   local blocks, trouble = markdown.parse_blocks(doc({
     "```sh",
