@@ -10,12 +10,9 @@
 --- unchanged key is a stat; a changed one recompiles what depended on
 --- it.
 
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Sqlite = require("cosmic.sqlite")
 local positions = require("build.positions")
-local schema = require("build.schema")
 local type compiler = require("build.compiler")
 
 local type Module = positions.Module
@@ -138,13 +135,15 @@ local function collect(root: string, self_tree: boolean): {Module} | nil, string
       if source == nil then
         return nil, failure
       end
+      local kind = kind_of(file)
       out[#out + 1] = {
         path = import_path(file),
         file = file,
-        kind = kind_of(file),
+        kind = kind,
         source = source,
         source_hash = Hash.hex_sha256(source),
         requires = requires_of(source),
+        tests = kind == "test" and positions.discover_tests(source) or {},
         key = "",
         lua = "",
         bytecode = "",
@@ -231,6 +230,44 @@ function importer.boot_hash(root: string): string | nil, string
   return Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
+--- Appends a generated `return` to compiled Lua for a test module, so a
+--- `local function test_*` -- otherwise unreachable from outside the
+--- file it is declared in -- comes back on the table `require` gives
+--- the runner. The Teal source the test's author wrote is never
+--- touched; only the compiled Lua this module already owns is.
+local function with_test_tail(code: string, tests: {string}): string
+  if #tests == 0 then
+    return code
+  end
+  local fields: {string} = {}
+  for _, name in ipairs(tests) do
+    fields[#fields + 1] = name .. " = " .. name
+  end
+  return code .. "\nreturn { " .. table.concat(fields, ", ") .. " }\n"
+end
+
+--- A `local function test_*` at a test module's top level is only ever
+--- called by the runner, from outside the file, so the checker's
+--- "unused function" warning about it is a false positive: it is
+--- narrow enough to name the exact function discovery already found,
+--- rather than turning the warning off for the whole file.
+local function discount_test_warnings(result: compiler.Result,
+                                      tests: {string}): compiler.Result
+  local names: {string:boolean} = {}
+  for _, name in ipairs(tests) do
+    names[name] = true
+  end
+  local kept: {compiler.Error} = {}
+  for _, w in ipairs(result.warnings) do
+    local unused = w.msg:match("^unused function ([%w_]+):")
+    if unused == nil or not names[unused] then
+      kept[#kept + 1] = w
+    end
+  end
+  result.warnings = kept
+  return result
+end
+
 local function complain(file: string, result: compiler.Result): string
   local lines: {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
@@ -277,9 +314,15 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
     keys[m.path] = m.key
 
     local code, result = built.gen(m.source, env, nil, "tl")
+    if m.kind == "test" and result ~= nil then
+      result = discount_test_warnings(result, m.tests)
+    end
     local refused = result ~= nil and complain(m.file, result) or ""
     if code == nil or refused ~= "" then
       return nil, m.file .. ": the compiler refused it\n" .. refused
+    end
+    if m.kind == "test" then
+      code = with_test_tail(code, m.tests)
     end
     m.lua = code
 
@@ -299,177 +342,6 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
   end
 
   return { modules = order, boot_hash = boot_hash, main = main }
-end
-
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
-
-local function blob(value: string): Sqlite.Value
-  return { blob = value }
-end
-
-local function insert_modules(handle: Sqlite.Handle, modules: {Module}): boolean, string
-  local statement, trouble = handle:prepare(
-    "INSERT INTO modules (path, file, kind, source_hash, key, source, lua, " ..
-    "bytecode, decl) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)")
-  if statement == nil then
-    return false, trouble
-  end
-  for _, m in ipairs(modules) do
-    statement:bind_text(1, m.path)
-    statement:bind_text(2, m.file)
-    statement:bind_text(3, m.kind)
-    statement:bind_blob(4, m.source_hash)
-    statement:bind_blob(5, m.key)
-    statement:bind_text(6, m.source)
-    statement:bind_text(7, m.lua)
-    statement:bind_blob(8, m.bytecode)
-    local state, failure = statement:step()
-    if state == nil then
-      statement:finalize()
-      return false, m.path .. ": " .. failure
-    end
-    statement:reset()
-  end
-  statement:finalize()
-  return true, ""
-end
-
-local function insert_imports(handle: Sqlite.Handle, modules: {Module}): boolean, string
-  local known: {string:boolean} = {}
-  for _, m in ipairs(modules) do
-    known[m.path] = true
-  end
-  for _, m in ipairs(modules) do
-    for _, name in ipairs(m.requires) do
-      if known[name] then
-        local ok, trouble = Sqlite.run(handle,
-          "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
-          { text(m.path), text(name) })
-        if not ok then
-          return false, trouble
-        end
-      end
-    end
-  end
-  return true, ""
-end
-
---- Writes the whole tree into a fresh database and leaves it at `out`.
---- The database is built in memory in one transaction and the file is
---- produced by VACUUM INTO, so the bytes are a function of the tree.
---- @param images the core image for each target, by target name
---- @param teal_source the vendored compiler, which a binary must carry
----   so it can build a tree of its own; nil when building a project
----   with a binary that already has one
-function importer.write(root: string, out: string, built: compiler,
-                        env: compiler.Env, boot_hash: string,
-                        images: {string:string},
-                        teal_source: string | nil): boolean, string
-  local result, trouble = importer.compile(root, built, env, boot_hash)
-  if result == nil then
-    return false, trouble
-  end
-
-  if teal_source ~= nil then
-    local chunk, load_trouble = load(teal_source, "@vendor.tl", "t")
-    if chunk == nil then
-      return false, "the vendored compiler would not load: " ..
-        tostring(load_trouble)
-    end
-    result.modules[#result.modules + 1] = {
-      path = "vendor.tl",
-      file = "o/vendor/tl/tl.lua",
-      kind = "vendor",
-      source = teal_source,
-      source_hash = Hash.hex_sha256(teal_source),
-      requires = {},
-      key = Hash.hex_sha256(teal_source .. "\n" .. result.boot_hash),
-      lua = teal_source,
-      bytecode = string.dump(chunk, false),
-    }
-  end
-
-  local handle, why = Sqlite.memory()
-  if handle == nil then
-    return false, why
-  end
-
-  for _, statement in ipairs(schema.settings) do
-    local ok, failure = handle:exec(statement)
-    if not ok then
-      handle:close()
-      return false, failure
-    end
-  end
-
-  local made, refused = Sqlite.transact(handle, function(): boolean, string
-    for _, statement in ipairs(schema.tables) do
-      local ok, failure = handle:exec(statement)
-      if not ok then
-        return false, failure
-      end
-    end
-
-    local stored, module_trouble = insert_modules(handle, result.modules)
-    if not stored then
-      return false, module_trouble
-    end
-    local edged, import_trouble = insert_imports(handle, result.modules)
-    if not edged then
-      return false, import_trouble
-    end
-
-    local targets: {string} = {}
-    for target in pairs(images) do
-      targets[#targets + 1] = target
-    end
-    table.sort(targets)
-    for _, target in ipairs(targets) do
-      local image = images[target]
-      local packed, deflate_trouble = Compress.deflate(image)
-      if packed == nil then
-        return false, target .. ": " .. deflate_trouble
-      end
-      local ok, failure = Sqlite.run(handle,
-        "INSERT INTO images (target, sha256, size, encoding, data) " ..
-        "VALUES (?1, ?2, ?3, 'deflate', ?4)",
-        { text(target), blob(Hash.sha256(image)), { integer = #image },
-          blob(packed) })
-      if not ok then
-        return false, failure
-      end
-    end
-
-    local meta: {{string}} = {
-      { "boot_hash", result.boot_hash },
-      { "main", result.main or "" },
-    }
-    for _, pair in ipairs(meta) do
-      local ok, failure = Sqlite.run(handle,
-        "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-        { text(pair[1]), text(pair[2]) })
-      if not ok then
-        return false, failure
-      end
-    end
-    return true, ""
-  end)
-  if not made then
-    handle:close()
-    return false, refused
-  end
-
-  Fs.remove(out .. ".building")
-  local vacuumed, vacuum_trouble = Sqlite.run(handle,
-    "VACUUM INTO ?1", { text(out .. ".building") })
-  handle:close()
-  if not vacuumed then
-    return false, vacuum_trouble
-  end
-
-  return Fs.rename(out .. ".building", out)
 end
 
 return importer
