@@ -55,9 +55,9 @@ these argues with the principle, not with the reviewer.
    zig.
 8. **docs are always right**: a disagreement between doc and code is
    fixed in the code, and every snippet runs or says why not
-   ([meta.md](meta.md)). **tests run because they are defined, gates end in a verdict
-   line,** and an error-site hint beats a gotcha doc beats guide
-   prose.
+   ([meta.md](meta.md)). **tests run because they are defined, gates
+   end in a verdict line,** and an error-site hint beats a gotcha doc
+   beats guide prose.
 
 ## what we learned
 
