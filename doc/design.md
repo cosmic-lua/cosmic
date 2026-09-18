@@ -108,7 +108,7 @@ these argues with the principle, not with the reviewer.
 
 ```
 kernel                               Linux; macOS
-  libc                               musl, static, vendored (Linux)
+  libc                               musl, static, from the zig pin (Linux)
                                      libSystem (macOS)
     lua 5.5                          vendored pristine
     sqlite3                          vendored pristine
@@ -159,9 +159,9 @@ errors raise; runtime failures return `nil, err, errno`.
 never borrowed from the libc where semantics are observable: regex,
 DNS resolution, anything locale-shaped. musl and libSystem agree on
 `open`; they do not agree on `regcomp`'s corners or `getaddrinfo`'s
-ordering. the regex candidate is musl's own TRE-derived engine,
-compiled as a library on both OSes, since it is already in the
-vendored tree. DNS is a resolver in Teal over UDP and TCP, reading
+ordering. the regex engine is the cosmopolitan fork's standalone
+extraction of musl's TRE-derived one, about 4,300 lines, compiled
+the same on both OSes. DNS is a resolver in Teal over UDP and TCP, reading
 `/etc/resolv.conf` and `/etc/hosts`, which both OSes have; this also
 keeps Mach services out of the macOS sandbox profile.
 
@@ -403,8 +403,6 @@ target:
 - **the core budget**: measure the per-target image after milestone
   1 and set the per-component line the size report carries; decide
   FTS5 on that number.
-- **the regex engine**: confirm musl's TRE builds standalone on
-  macOS, else pick one vendored engine for both.
 
 ## decisions, in the order they were made
 
@@ -426,3 +424,10 @@ target:
 12. an equivalent sandbox core on both OSes with a conformance suite;
     no default-deny for scripts.
 13. milestones: hello from the database, then self-check.
+14. **zig's bundled musl is the libc; there is no `vendor/musl`.** the
+    zig pin is the libc pin on both OSes, musl and the libSystem stubs
+    alike, and is the one thing a fresh clone needs. musl cannot be
+    patched by us and its version moves with zig's; building a
+    vendored musl with `zig cc` as a plain compiler is the door if a
+    patch is ever needed. `build.zig` is the build for the C core,
+    kept to a source list and flags so a zig bump costs an hour.
