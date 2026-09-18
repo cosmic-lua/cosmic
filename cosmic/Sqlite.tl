@@ -6,11 +6,25 @@
 --- yields rows, a statement run once, and a transaction that rolls back
 --- when the work inside it fails.
 
-local sqlite = require("cosmic.sqlite")
+--- The raw module behind this one is never itself a name `require`
+--- resolves -- see cosmic/Store.tl for why -- and arrives instead as
+--- the second argument `require` passes this chunk's own loader,
+--- present because this module was itself loaded, trusted, from the
+--- binary's own tree. Boot mode falls back to requiring it by name,
+--- which only boot's own preload answers.
+local type raw_sqlite = require("cosmic.sqlite")
+
+local extra: any = select(2, ...)
+local sqlite: raw_sqlite
+if type(extra) == "table" then
+  sqlite = extra as raw_sqlite
+else
+  sqlite = require("cosmic.sqlite")
+end
 
 local record Sqlite
-  Handle: sqlite.Handle
-  Statement: sqlite.Statement
+  Handle: raw_sqlite.Handle
+  Statement: raw_sqlite.Statement
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident.
@@ -26,17 +40,17 @@ local record Sqlite
 end
 
 --- A database file, read-only unless `writable` says otherwise.
-function Sqlite.open(path: string, writable?: boolean): sqlite.Handle | nil, string
+function Sqlite.open(path: string, writable?: boolean): raw_sqlite.Handle | nil, string
   return sqlite.open(path, writable)
 end
 
 --- A database held in memory, which is where a build assembles one
 --- before writing it out.
-function Sqlite.memory(): sqlite.Handle | nil, string
+function Sqlite.memory(): raw_sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
-local function bind(statement: sqlite.Statement, values: {Sqlite.Value}): boolean, string
+local function bind(statement: raw_sqlite.Statement, values: {Sqlite.Value}): boolean, string
   for index, value in ipairs(values) do
     local ok: boolean
     local trouble: string
@@ -59,7 +73,7 @@ local function bind(statement: sqlite.Statement, values: {Sqlite.Value}): boolea
 end
 
 --- Runs a statement that yields no rows.
-function Sqlite.run(handle: sqlite.Handle, sql: string,
+function Sqlite.run(handle: raw_sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
@@ -81,8 +95,8 @@ end
 --- Every row a query yields, each row a list of column values in order.
 --- A text column and a blob column both arrive as strings; `kinds` says
 --- which each one was.
-function Sqlite.rows(handle: sqlite.Handle, sql: string,
-                     values?: {Sqlite.Value}): {{string}} | nil, string
+function Sqlite.rows(handle: raw_sqlite.Handle, sql: string,
+                      values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
     return nil, trouble
@@ -114,8 +128,8 @@ function Sqlite.rows(handle: sqlite.Handle, sql: string,
 end
 
 --- Runs `work` inside a transaction, rolling back when it fails.
-function Sqlite.transact(handle: sqlite.Handle,
-                         work: function(): boolean, string): boolean, string
+function Sqlite.transact(handle: raw_sqlite.Handle,
+                          work: function(): boolean, string): boolean, string
   local started, trouble = handle:exec("BEGIN")
   if not started then
     return false, trouble

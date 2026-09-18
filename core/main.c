@@ -28,11 +28,11 @@ static int complain(const char *what, const char *detail) {
 
 static sqlite3 *open_attached(const char *path,
                               const struct cosmic_attachment *at) {
-  if (cosmic_vfs_register() != SQLITE_OK) {
+  if (cosmic_vfs_register(path, at->offset, at->length) != SQLITE_OK) {
     return NULL;
   }
   char uri[8192];
-  if (!cosmic_vfs_uri(uri, sizeof uri, path, at->offset, at->length)) {
+  if (!cosmic_vfs_uri(uri, sizeof uri, path)) {
     return NULL;
   }
   sqlite3 *db = NULL;
@@ -100,10 +100,6 @@ int main(int argc, char **argv) {
   if (L == NULL) {
     return complain("no memory for a Lua state", NULL);
   }
-  lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
-  lua_pushcfunction(L, cosmic_open_sqlite);
-  lua_setfield(L, -2, "cosmic.sqlite");
-  lua_pop(L, 1);
 
   sqlite3 *db = NULL;
   if (found == 1) {
@@ -114,10 +110,25 @@ int main(int argc, char **argv) {
     }
   }
   cosmic_store_install(L, db);
+  cosmic_open_sqlite(L); /* leaves the module table on the stack */
+  cosmic_store_set_raw(L, "cosmic.sqlite");
 
   if (db == NULL) {
     /* No database: the tree is the only source, so this is a build
-     * machine bridging into Teal. A shipped binary never gets here. */
+     * machine bridging into Teal. A shipped binary never gets here, and
+     * everything reachable here is the tree's own trusted source, so
+     * both raw modules go straight in package.preload for the bridge's
+     * searcher, which does not go through the store's trust check --
+     * `cosmic.Store` and `cosmic.Sqlite` are ordinary tree modules the
+     * bridge compiles from source, and each still `require`s its raw
+     * half by the same name a shipped binary resolves through the
+     * trust-gated searcher instead. */
+    lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
+    lua_pushcfunction(L, cosmic_open_sqlite);
+    lua_setfield(L, -2, "cosmic.sqlite");
+    lua_pop(L, 1);
+    cosmic_store_preload_raw(L, "cosmic.store");
+
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);
       lua_close(L);

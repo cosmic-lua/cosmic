@@ -15,8 +15,22 @@
 
 /* Installs the searcher, with `binary` as the last database searched.
  * `binary` may be NULL, which leaves the list empty until something is
- * attached. Also registers `cosmic.store` in package.preload. */
+ * attached. The raw `cosmic.store` value goes in the registry, never in
+ * package.preload: only a caller the searcher itself trusts ever gets
+ * it back. */
 int cosmic_store_install(lua_State *L, sqlite3 *binary);
+
+/* Registers the value on top of the stack (popped) as the raw module a
+ * trusted caller's `require(name)` resolves to. `name` is "cosmic.store"
+ * or "cosmic.sqlite"; nothing else is ever looked up this way. */
+void cosmic_store_set_raw(lua_State *L, const char *name);
+
+/* Puts the raw value already registered under `name` (see
+ * cosmic_store_set_raw) into package.preload, unconditionally. Boot mode
+ * is the only caller: before any database is attached, the whole tree is
+ * trusted source, and the bridge's own searcher does not go through the
+ * trust-gated store searcher at all. A shipped binary never calls this. */
+void cosmic_store_preload_raw(lua_State *L, const char *name);
 
 /* One entry of the meta table, or NULL. The string belongs to Lua and
  * stays valid until the next call that touches the stack. */

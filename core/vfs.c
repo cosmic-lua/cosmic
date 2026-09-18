@@ -119,6 +119,14 @@ static const sqlite3_io_methods cosmic_io_methods = {
     .xDeviceCharacteristics = file_characteristics,
 };
 
+/* The one attachment this VFS ever opens, fixed at registration from
+ * `locate()` and never taken from a URI again: a caller's `off=`/`len=`
+ * parameter is refused rather than honored, and a path that is not this
+ * one exact attachment is refused too. There is exactly one door. */
+static char registered_path[4096];
+static sqlite3_int64 registered_offset;
+static sqlite3_int64 registered_length;
+
 static int vfs_open(sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file,
                     int flags, int *out_flags) {
   sqlite3_vfs *lower_vfs = base_vfs(vfs);
@@ -126,15 +134,25 @@ static int vfs_open(sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file,
   memset(f, 0, sizeof *f);
   f->lower = (sqlite3_file *)((char *)file + sizeof(struct cosmic_file));
 
-  const char *offset = name == NULL ? NULL : sqlite3_uri_parameter(name, "off");
-  if (offset == NULL) {
-    /* Anything without an offset -- a temporary file, a journal -- is
-     * the base VFS's business, and the caller sees its methods. */
+  if (name != NULL && (sqlite3_uri_parameter(name, "off") != NULL ||
+                        sqlite3_uri_parameter(name, "len") != NULL)) {
+    return SQLITE_CANTOPEN;
+  }
+
+  if ((flags & SQLITE_OPEN_MAIN_DB) == 0) {
+    /* Anything that is not the main database file -- a temporary file,
+     * a journal -- is the base VFS's business, and the caller sees its
+     * methods. */
     return lower_vfs->xOpen(lower_vfs, name, file, flags, out_flags);
   }
 
-  f->offset = sqlite3_uri_int64(name, "off", 0);
-  f->length = sqlite3_uri_int64(name, "len", 0);
+  if (name == NULL || registered_path[0] == '\0' ||
+      strcmp(name, registered_path) != 0) {
+    return SQLITE_CANTOPEN;
+  }
+
+  f->offset = registered_offset;
+  f->length = registered_length;
   if (f->offset <= 0 || f->length <= 0) {
     return SQLITE_CANTOPEN;
   }
@@ -181,7 +199,14 @@ static int vfs_last_error(sqlite3_vfs *vfs, int room, char *out) {
   return base_vfs(vfs)->xGetLastError(base_vfs(vfs), room, out);
 }
 
-int cosmic_vfs_register(void) {
+int cosmic_vfs_register(const char *path, int64_t offset, int64_t length) {
+  if (strlen(path) >= sizeof registered_path) {
+    return SQLITE_ERROR;
+  }
+  memcpy(registered_path, path, strlen(path) + 1);
+  registered_offset = (sqlite3_int64)offset;
+  registered_length = (sqlite3_int64)length;
+
   if (sqlite3_vfs_find(COSMIC_VFS_NAME) != NULL) {
     return SQLITE_OK;
   }
@@ -238,8 +263,7 @@ static int append_escaped(char *into, size_t room, size_t *at, const char *s) {
   return 1;
 }
 
-int cosmic_vfs_uri(char *into, size_t room, const char *path, int64_t offset,
-                   int64_t length) {
+int cosmic_vfs_uri(char *into, size_t room, const char *path) {
   size_t at = 0;
   const char *scheme = "file:";
   size_t scheme_len = strlen(scheme);
@@ -251,12 +275,10 @@ int cosmic_vfs_uri(char *into, size_t room, const char *path, int64_t offset,
   if (!append_escaped(into, room, &at, path)) {
     return 0;
   }
-  char tail[96];
-  sqlite3_snprintf((int)sizeof tail, tail,
-                   "?vfs=" COSMIC_VFS_NAME "&mode=ro&immutable=1"
-                   "&off=%lld&len=%lld",
-                   (long long)offset, (long long)length);
-  size_t written = strlen(tail);
+  /* No off= or len=: the VFS never trusts a URI for those again. The
+   * one triple it honors was registered directly from `locate()`. */
+  static const char tail[] = "?vfs=" COSMIC_VFS_NAME "&mode=ro&immutable=1";
+  size_t written = sizeof tail - 1;
   if (at + written + 1 > room) {
     return 0;
   }

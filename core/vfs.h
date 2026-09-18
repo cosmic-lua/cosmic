@@ -15,13 +15,15 @@
 
 #define COSMIC_VFS_NAME "cosmic"
 
-/* Registers the VFS. Safe to call more than once; it registers once. */
-int cosmic_vfs_register(void);
+/* Registers the VFS and the one (path, offset, length) triple it will
+ * ever open as the main database: `path` must later match exactly, and
+ * `offset`/`length` come from here, never from a URI. Safe to call more
+ * than once; the triple is replaced and the VFS itself registers once. */
+int cosmic_vfs_register(const char *path, int64_t offset, int64_t length);
 
-/* Writes the `file:` URI that opens `path` at `offset` for `length`
- * bytes through this VFS, read-only and immutable. Returns 0 when the
- * URI does not fit in `room`. */
-int cosmic_vfs_uri(char *into, size_t room, const char *path, int64_t offset,
-                   int64_t length);
+/* Writes the `file:` URI that opens `path` through this VFS, read-only
+ * and immutable. `path` must be the one `cosmic_vfs_register` was given.
+ * Returns 0 when the URI does not fit in `room`. */
+int cosmic_vfs_uri(char *into, size_t room, const char *path);
 
 #endif

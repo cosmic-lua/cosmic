@@ -58,9 +58,11 @@ static struct statement *checked_statement(lua_State *L) {
 static int sqlite_open(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int writable = lua_toboolean(L, 2);
-  int flags = SQLITE_OPEN_URI |
-              (writable ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
-                        : SQLITE_OPEN_READONLY);
+  /* No SQLITE_OPEN_URI: `path` is an ordinary filename, never a `file:`
+   * URI. M1 documents no URI form, so `vfs=`, `off=` and `len=` are
+   * never parsed out of a caller's path at all, not even refused. */
+  int flags = writable ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
+                       : SQLITE_OPEN_READONLY;
 
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = NULL;
