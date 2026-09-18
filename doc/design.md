@@ -151,9 +151,11 @@ native, per target: the Lua VM; SQLite; mbedtls, which also serves
 hashing and HMAC; deflate; argon2; a regex engine; the syscall table;
 the database-at-offset VFS and the entry. the syscall table is one C
 function per syscall with the same signature on Linux and macOS,
-generated with its Teal declaration and its doc row from one
-declaration file, so a binding cannot exist without its type and the
-C surface cannot grow without a diff in that file. argument-shape
+written by hand in one strict shape in one annotated header, from which
+the Teal declaration and the doc row are generated at `boot`; the generator
+refuses any function without a complete annotation, so a binding cannot
+exist without its type and the C surface cannot grow without a diff in
+that header. argument-shape
 errors raise; runtime failures return `nil, err, errno`.
 
 never borrowed from the libc where semantics are observable: regex,
@@ -334,7 +336,7 @@ one repository, this branch, becoming `main` at the cutover below.
 vendor/<name>/      pristine upstream, never edited, with a PIN file
 patches/<name>/     exact find/replace records, each with a note
 core/               C: entry, VFS, the generated syscall table, build.zig
-core/syscalls.decl  the one declaration file: C stub, .d.tl, doc row
+core/syscalls.h     the one declaration file: annotated C stubs; .d.tl and doc rows derive
 cosmic/             the public API: cosmic.<name>, no leading _
 cmd/cosmic/         the binary's entry
 _build/             the importer, checker driver, embed (Teal, internal)
@@ -445,3 +447,9 @@ target:
     `o/bin/cosmic`. a fresh clone and CI run `boot`; a developer runs
     `o/bin/cosmic build` the other hundred times a day, and touches
     `build.zig` only when C changes.
+17. **the syscall table is hand-written C in one annotated header;
+    the types derive from it.** `core/syscalls.h` holds every stub in
+    one strict shape with its doc annotation. at `boot` the core runs
+    the Teal generator over the header to emit `.d.tl` and doc rows,
+    refusing any function whose annotation is incomplete. no
+    generated C, no second-stage core, no generator in zig.
