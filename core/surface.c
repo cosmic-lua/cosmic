@@ -64,6 +64,23 @@ static int surface_print(lua_State *L) {
   return 0;
 }
 
+/* A traceback, which is the one thing `debug` is kept for above the
+ * private binding: a program reporting a failure needs to say where it
+ * happened. */
+static int surface_trace(lua_State *L) {
+  const char *message = luaL_optstring(L, 1, NULL);
+  int level = (int)luaL_optinteger(L, 2, 1);
+  luaL_traceback(L, L, message, level);
+  return 1;
+}
+
+static int open_errors(lua_State *L) {
+  lua_createtable(L, 0, 1);
+  lua_pushcfunction(L, surface_trace);
+  lua_setfield(L, -2, "trace");
+  return 1;
+}
+
 /* Raised when a program reaches for a name this surface removed. */
 static int surface_missing(lua_State *L) {
   const char *name = lua_tostring(L, 2);
@@ -147,6 +164,8 @@ lua_State *cosmic_surface_open(void) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
   lua_pushcfunction(L, cosmic_open_syscalls);
   lua_setfield(L, -2, "cosmic.syscalls");
+  lua_pushcfunction(L, open_errors);
+  lua_setfield(L, -2, "cosmic.errors");
   lua_pop(L, 1);
 
   lua_newtable(L);
