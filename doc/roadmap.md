@@ -52,18 +52,26 @@ not a gate in front:
 - **Lua and Teal coverage**, `debug.sethook` in line mode through
   the private binding already reserved for it, reading the line
   numbers the bytecode already carries.
-- **C coverage** on `core/*.c` only, source-based LLVM
-  instrumentation (`-fprofile-instr-generate -fcoverage-mapping`),
-  with a vendored `compiler-rt` profile runtime built per target,
-  since zig ships the instrumentation but no runtime to act on it,
-  the same shape as the ASan finding. `llvm-profdata` and
-  `llvm-cov`, pinned to zig's bundled LLVM version and re-verified
-  on every zig bump, turn the result into one JSON export.
 - **`o/records.db`**, test verdicts and coverage keyed by source
   hash and by what a test was observed to read (every file access
   already goes through the syscall table, so the runner can record
   what a test touched instead of relying on a hand-written
   declaration), never shipped.
+
+**deferred, not dropped: C testing and coverage.** no C-level unit
+test framework exists yet, and C coverage is researched but not
+built: source-based LLVM instrumentation on `core/*.c` only
+(`-fprofile-instr-generate -fcoverage-mapping`), a vendored
+`compiler-rt` profile runtime per target since zig ships the
+instrumentation but no runtime to act on it, `llvm-profdata` and
+`llvm-cov` pinned to zig's bundled LLVM version and re-verified on
+every bump, `llvm-cov export` as one JSON. both wait until Lua and
+Teal testing exists first, deliberately: `core/*.c` is a handful of
+files today, and the cost of waiting is small next to the cost of
+building two systems that diverge. the requirement once they land:
+the same facilities and the same ergonomics as Lua and Teal testing,
+not a separate system beside it, one discovery convention, one verb
+that runs both, coverage reported the same way for either.
 
 **second: ast, checking, formatting.** `cosmic.ast`, structural Teal
 parsing, matching, and rewriting, is what both of the following read
