@@ -1,0 +1,3 @@
+*.tl linguist-language=Lua
+*.d.tl linguist-language=Lua
+vendor/** linguist-vendored
