@@ -216,5 +216,242 @@ change. mutable state lives in an ordinary file. a program that
 ships a dataset it updates copies it out once with `VACUUM INTO`, or
 attaches the embedded database read-only beside a writable one and
 queries across both.
+
+the build database on disk, `o/cosmic.db`, and the shipped one share
+a schema; shipping is a `VACUUM INTO`.
+
+sqlite is load-bearing at boot, so its sharp edges are the runtime's
+problem and are fixed first: a typo'd or overlong parameter table
+never binds NULL silently, TEXT and BLOB are distinguishable at the
+Lua boundary, and a closed handle fails the same way from every
+method. the build is single-threaded, so SQLite compiles with
+`SQLITE_THREADSAFE=0` and without extension loading, shared cache,
+double-quoted strings, or deprecated interfaces.
+
+### the build
+
+the build is a cosmic program reading the tree by position into the
+database: compile, check, record, embed. the tool that runs the gate
+is not the artifact under gate, so there is no fixpoint to prove.
+
+`build.zig` owns the C. `zig build` produces the patch applier, the
+patched vendor tree under `o/vendor/`, and the core for each target.
+`zig build boot` bridges once: it runs the fresh host core over
+`build/` to compile the importer with the vendored `tl.lua`, writes
+`o/cosmic.db`, and attaches it as `o/bin/cosmic`. a fresh clone and
+CI run `boot`; a developer runs `o/bin/cosmic build` the other
+hundred times a day, and touches `build.zig` only when C changes.
+
+the C stage is hermetic and checked. `build.zig` runs with both of
+zig's caches under `o/`, so a build reads nothing outside the tree
+and the pinned zig, and `o/` is the only thing to delete. a
+provenance gate in CI classifies every file the build read as
+vendored, pinned, or built, and fails on anything else, which also
+catches a step that found a host `cc` or `sh`. the trust chain has
+exactly two seeds that nothing in the repository built, and they are
+named here: the POSIX sh `bin/zig` and the zig tarball its pin
+verifies. everything else is vendored or built from it.
+
+the build is fast, incremental, and reproducible, all three at once:
+
+- *incremental*: a module row is keyed by the content hash of its
+  source plus the hashes of its import closure; an unchanged key is a
+  stat, a changed one recompiles and re-records only what depended on
+  it. tests, coverage, and docs share the keys.
+- *fast*: one process, one transaction, no subprocess per file; the
+  checker and compiler run in-process against declarations already
+  in the database.
+- *reproducible*: the database bytes are a pure function of the
+  tree. rows are written in a fixed order, no row carries a timestamp
+  or an autoincrement counter, the database is built fresh in memory
+  and never in WAL mode, and the shipped file is produced by `VACUUM
+  INTO` with the header's change counter and version fields
+  normalized. a second build of the same tree is byte-identical, and
+  CI's repro lane asserts it.
+
+one Linux lane builds every image; three lanes run the full suite on
+the real thing: Linux x86_64, Linux aarch64 on an arm runner, macOS
+aarch64 on an arm Mac runner. the sandbox conformance matrix runs on
+all three.
+
+`cosmic build` and `cosmic test` fence themselves with the sandbox
+core, so a build cannot read outside its tree and a test cannot reach
+the network by accident. CI's profile requires the fence; a laptop
+reports it.
+
+### vendored sources
+
+`vendor/<name>/` is the extracted upstream tarball, never edited,
+with a `PIN` file naming version and hash. `patches/<name>/` holds
+records, each an exact `find`, a `replace`, and a `note` saying why
+it exists. a ~200-line C applier that zig builds first writes the
+patched copy to `o/vendor/<name>`; a record whose anchor no longer
+matches fails the build by name. repo size is a one-time clone cost,
+the cheap kind under principle 1.
+
+vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz,
+argon2's reference implementation built without threads, the regex
+engine, and tl.
+
+### teal
+
+tl vendored, carried patches, upstream-first and fork-if-blocked.
+casts are foreclosed: `x as T` type-checks only from `any`, from a
+userdata record declared in a `.d.tl`, or from the enclosing
+generic's type variable. `any` is legal only where untrusted data
+enters and a shape validator turns it into a record by construction.
+no justification comments, no ledger.
+
+the spirit is consistent, strong, explicit typing, the same shape the
+languages that hold it converged on: the top type inert until
+narrowed (Go, Luau's `unknown`), casts confined to subtype moves or
+runtime-checked (Luau, Kotlin), the escape hatch in one greppable
+region (Rust's and Go's `unsafe`), boundaries decoded through
+declared shapes (serde, `json.Unmarshal`, Elm's decoders). a
+runtime-checked cast is closed to Teal because Lua erases record
+types, so shapes construct their records rather than asserting them.
+
+two rules follow: `any` narrows only through `is`, a shape, or an
+explicit `as`, never by assignment into a typed slot; and an
+unannotated parameter or return is an error, never an implicit
+`any`. the per-release report names the modules that cast from
+`any`; the expected list is the shape module, the codec decoders,
+and the C declaration layer.
+
+### the runtime
+
+one Lua state, one thread, coroutines over `poll`. every blocking
+binding takes a timeout and can be driven from one event loop, which
+is Teal over the `poll` binding; `http.serve` and `fetch` are
+coroutine-driven; CPU parallelism is by process through `child`.
+
+the C layer is re-entrant, which costs discipline, not code: no
+static buffers, no process-global state outside the entry, every
+binding takes its context explicitly, SQLite opened per connection
+and never shared across a boundary that could later be a thread. one
+state per OS thread with message passing stays open as a later
+addition that rewrites no bindings.
+
+### tls
+
+mbedtls: TLS 1.2 and 1.3, one configuration, hashes and HMAC from
+the same library. the branch is chosen when the `Fetch` module is
+pulled; 4.x is the expectation, since 3.6's support ends in March
+2027 and 4.1's runs to 2029 as one tarball with its crypto subtree
+included. nothing before that needs mbedtls: SHA-256 for records and
+for the Mach-O signer is two hundred lines in the core. Mozilla's
+root bundle is stored in the database, identical on every machine,
+moved only by a pinned bump; an environment variable adds a
+certificate for the corporate-proxy case without making per-machine
+trust the default.
+### the sandbox
+
+an opt-in library and the toolchain's own fence. default-deny for
+user scripts is not promised; hard containment of a script is the
+host's job, and the module makes it one call when a caller wants it
+in-process.
+
+the policy model is the intersection of Landlock plus seccomp and
+Seatbelt: read, write, and exec under paths; network none, loopback,
+or all; TCP connect and bind by port; spawn allowed or denied;
+inherited by children and never liftable. per-host network rules are
+an egress proxy on loopback on both OSes, the process allowed only
+that port.
+
+Linux extensions (seccomp syscall lists, a private network or mount
+namespace, abstract socket scoping) may only deny what the core
+allows, never allow what the core denies; macOS reports them
+`skipped` by name. every section reports `full`, `degraded`, or
+`skipped`: a Landlock ABI below 3 cannot restrict truncate, gVisor
+has no Landlock at all, and neither is an error.
+
+one conformance matrix (read inside and outside, create, unlink,
+rename across the boundary, symlink escape, truncate, allowed and
+denied ports, bind, spawn) runs under the same declared policy on
+both CI lanes and fails on any cell that differs. equivalence is a
+test, not a claim.
+
+### the command line
+
+verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
+`cosmic check`, `cosmic fmt`, `cosmic docs`, `cosmic embed`; `cosmic
+file.tl` runs a file; `-e` stays as Lua's one-liner idiom. every verb
+takes paths to narrow it, ends in a verdict line and an exit code,
+and `cosmic help <verb>` is the whole discovery surface. no other
+stock-interpreter flags, no argv[0] personality.
+
+### the repository
+
+```
+bin/zig             POSIX sh: fetch, verify, exec the pinned zig
+bin/zig.pin         version and per-host sha256
+vendor/<name>/      pristine upstream, never edited, with a PIN file
+patches/<name>/     exact find/replace records, each with a note
+core/               C: entry, VFS, the syscall table, build.zig
+core/syscalls.h     the annotated header the .d.tl and doc rows derive from
+cosmic/             the standard library; its public modules are capitalized
+cmd/cosmic/         the binary's entry
+build/              the importer, checker driver, embed (Teal, private)
+doc/                prose
+o/                  output; o/cosmic.db; never committed
+```
+
+a name that starts with a capital letter is public: `cosmic/Fs.tl`
+is `require("cosmic.Fs")` and anyone may import it; `cosmic/fs/walk.tl`
+is private to `cosmic/` and the checker refuses an import from
+outside. a capitalized directory is public as a whole. everything is
+private unless it says otherwise, and there is no underscore
+convention. one lint follows: no two names in a directory may differ
+only in case, because macOS's default filesystem cannot tell them
+apart. private by default is settled; the capital letter is the
+current export marker and another explicit form may replace it.
+whether the public modules live under `cosmic/` or at the
+root is open.
+### the surface
+
+the tier order is a reading order for what to write, not a size
+target:
+
+- **core**: `Check`, `Fs`, `Child`, `Env`, `Proc`, `Hash`, `Sqlite`,
+  `Json`, `Time`, `Rand`, `Flags`, `String`, `Errno`, `Errors`,
+  `Log`, `Teal`, `Format`, `Test`, `Coverage`, `Doc`, `Embed`,
+  `Shape`.
+- **second**: `Http`, `Fetch`, `Net`, `Dns`, `Re`, `Zip`, `Tar`,
+  `Compress`, `Codec`, `Url`, `Ip`, `Uuid`, `Ksuid`, `Sse`,
+  `Sandbox`, `Signal`, `Poll`, `Fd`, `Tty`, `Ansi`, `User`, `Sys`,
+  `Stream`, `Deep`, `Graph`, `Fuzzy`, `Literal`, `Ast`.
+- **later, if pulled**: namespaces and egress proxying beyond what
+  the sandbox core needs, `Shm`, `Template`, `Instrument`, `Html`,
+  `Css`, `Js`.
+
+## sequencing
+
+1. **hello from the database.** zig builds the applier, patches,
+   builds the core; the core runs `tl.lua` to compile the importer;
+   the importer writes `o/cosmic.db` with one module; the build
+   attaches it; `cosmic hello.tl` runs on all three targets from
+   byte-identical databases. proves boot, store, `require`, attach
+   on ELF and Mach-O, cross-build, reproducibility. review.
+2. **self-check.** `cosmic check` and `cosmic test` gate cosmic's
+   own tree, incrementally, under the foreclosed-cast checker, with
+   records in the database. proves the type layer, the build's
+   incrementality, and that the tree can gate itself. review.
+3. **the core tier**, then the second, each module earning its place.
+4. **release**, when three things hold: cosmic builds and tests the
+   work board, gitboard, from its own tree; the agent evaluation
+   suite scores at or above its recorded baseline; the release job
+   produces all three targets and the repro lane proves them
+   byte-identical.
+
+## open
+
+- **host language and toolchain**: Rust as the host was weighed and
+  deferred; zig as the language was set aside. revisit against the
+  design as a whole.
+- **tl's `any` semantics** and implicit `any`: verify before
+  milestone 2, patch if needed.
+- **the core budget**: measure the per-target image after milestone
+  1 and set the per-component line the size report carries; decide
+  FTS5 on that number.
 - **the public namespace**: whether public modules are
   `cosmic.<Name>` under `cosmic/` or `<Name>` at the root.
