@@ -34,6 +34,22 @@ local record compiler
     defaults: Defaults
   end
 
+  -- One comment tl's lexer attached to the token that follows it.
+  record Comment
+    x: integer
+    y: integer
+    text: string
+  end
+
+  -- One lexed token. Only the fields `build.ast` actually reads: a
+  -- leaf's own text and position, and the comments it carries.
+  record Token
+    tk: string
+    y: integer
+    x: integer
+    comments: {Comment} | nil
+  end
+
   -- Where the checker looks for a module it has not been given. The
   -- entries are package.path-shaped: a `?` stands for the module's
   -- name with its dots turned into slashes, and the `.lua` suffix is
@@ -46,6 +62,17 @@ local record compiler
   gen: function(input: string, env: Env, options: any,
                 language: string): string | nil, Result
   version: function(): string
+  -- Lexes `source` into its token stream plus any lex errors. `lex`
+  -- itself never fails outright: unlexable bytes still come back as
+  -- (possibly partial) tokens, with the trouble recorded in the second
+  -- return.
+  lex: function(source: string, name: string): {Token}, {Error}
+  -- Parses an already-lexed token stream. The AST comes back erased to
+  -- `any` -- `build.ast.node` is what casts it to a real shape, once,
+  -- for every later consumer -- and parse errors are appended to
+  -- `errs`, the same table `lex` populated with its own lex errors.
+  parse_program: function(tokens: {Token}, errs: {Error}, name: string,
+                          lang?: string): any
 end
 
 return compiler
