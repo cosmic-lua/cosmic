@@ -103,6 +103,14 @@ tiny POSIX sh `bin/zig` fetches into a cache, verifies, and execs;
 `build.zig` refuses any other version by name. CI runs the same
 script, so the pinned bytes are the only zig anything runs.
 
+
+the four shipped images are built ReleaseFast. the Linux lane builds
+a fifth core in ReleaseSafe with ASan and UBSan and runs the whole
+test suite and the fuzzers under it on every push, so undefined
+behavior in C is caught before it ships and nothing sanitized ships.
+a `cosmic-debug` asset, the same sanitized build published beside
+the release, is added once the fuzzers exist.
+
 the C layer is POSIX plus a declared platform seam: no signalfd,
 inotify, epoll, or procfs outside modules guarded as Linux-only.
 
