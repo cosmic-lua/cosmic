@@ -14,20 +14,11 @@ local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local positions = require("build.positions")
 local schema = require("build.schema")
 local type compiler = require("build.compiler")
 
-local record Module
-  path: string
-  file: string
-  kind: string
-  source: string
-  source_hash: string
-  requires: {string}
-  key: string
-  lua: string
-  bytecode: string
-end
+local type Module = positions.Module
 
 local record importer
   Module: Module
@@ -248,6 +239,10 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
   local modules, trouble = collect(root, importer.is_own_tree(root))
   if modules == nil then
     return nil, trouble
+  end
+  local positioned, position_trouble = positions.check(modules)
+  if not positioned then
+    return nil, position_trouble
   end
   local order, why = ordered(modules)
   if order == nil then
