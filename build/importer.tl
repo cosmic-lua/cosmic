@@ -13,6 +13,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local ast = require("build.ast")
+local doctest = require("build.doctest")
 local positions = require("build.positions")
 local type compiler = require("build.compiler")
 
@@ -61,17 +62,33 @@ local bytecode_header =
 
 --- What is never a module: the build's own output, the upstream
 --- sources and the records that patch them, prose, and anything
---- hidden.
+--- hidden. `doc` is handled separately by `skip` itself, below: almost
+--- all of it is prose with no examples, but `doc/guides/*.md` is the
+--- one place doc/meta.md's grammar applies, and `collect` needs to see
+--- those files to run `build.doctest` over them.
 local not_source: {string:boolean} = {
   ["o"] = true,
   ["vendor"] = true,
   ["patches"] = true,
-  ["doc"] = true,
   ["bin"] = true,
 }
 
+--- Whether `file` is a doc this tree extracts runnable examples from --
+--- exactly `doc/guides/*.md`, never a markdown file anywhere else in
+--- the tree (`doc/design.md`, `doc/roadmap.md`, and `doc/meta.md` are
+--- prose with no examples, and stay out of scope on purpose).
+local function is_doc_guide(file: string): boolean
+  return file:match("^doc/guides/[^/]+%.md$") ~= nil
+end
+
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
+  if first == "doc" then
+    if entry == "doc" or entry == "doc/guides" then
+      return false
+    end
+    return not is_doc_guide(entry)
+  end
   if not_source[first] then
     return true
   end
@@ -85,6 +102,13 @@ local function import_path(file: string): string
     return (dir:gsub("/", "."))
   end
   return (file:gsub("%.tl$", ""):gsub("/", "."))
+end
+
+--- A doc guide's import path, the same dotted-name convention
+--- `import_path` gives every `.tl` file: `doc/guides/quickstart.md`
+--- compiles as `doc.guides.quickstart`.
+local function import_path_of_doc(file: string): string
+  return (file:gsub("%.md$", ""):gsub("/", "."))
 end
 
 local function is_source(file: string): boolean
@@ -183,6 +207,38 @@ local function collect(root: string, self_tree: boolean,
         requires = requires,
         tests = tests,
         has_top_level_return = has_top_level_return,
+        generated = false,
+        key = "",
+        lua = "",
+        bytecode = "",
+      }
+    elseif is_doc_guide(file) then
+      local doc_source, doc_failure = Fs.read(root .. "/" .. file)
+      if doc_source == nil then
+        return nil, doc_failure
+      end
+      local generated_source, extract_trouble = doctest.extract(doc_source, file)
+      if generated_source == nil then
+        return nil, file .. ": " .. extract_trouble
+      end
+      local found, analyze_trouble = positions.analyze(built, generated_source, file)
+      if found == nil then
+        return nil, file .. ": " .. analyze_trouble
+      end
+      local requires, requires_trouble = requires_of(built, generated_source, file)
+      if requires == nil then
+        return nil, file .. ": " .. requires_trouble
+      end
+      out[#out + 1] = {
+        path = import_path_of_doc(file),
+        file = file,
+        kind = "test",
+        source = generated_source,
+        source_hash = Hash.hex_sha256(generated_source),
+        requires = requires,
+        tests = found.tests,
+        has_top_level_return = found.has_top_level_return,
+        generated = true,
         key = "",
         lua = "",
         bytecode = "",
@@ -307,6 +363,28 @@ local function discount_test_warnings(result: compiler.Result,
   return result
 end
 
+--- The one warning tl's checker always raises over a `build.doctest`
+--- generated module: a generated example that declares an `output`
+--- block shadows the global `print` with a local of the same name, on
+--- purpose, so a doc's own verbatim `print(...)` calls run against the
+--- capturing one instead -- print is declared `<const>` in tl's own
+--- prelude, so reassigning the global outright is a hard type error,
+--- and a local is the only way left to intercept a call the doc's own
+--- source spells as a bare, unqualified `print`. This is narrower than
+--- `discount_test_warnings` above in what it drops, but wider in who it
+--- applies to: any module `m.generated` marks, not only the specific
+--- function names a scan of `m` already found.
+local function discount_doctest_shadow_warnings(result: compiler.Result): compiler.Result
+  local kept: {compiler.Error} = {}
+  for _, w in ipairs(result.warnings) do
+    if w.msg ~= "variable shadows previous declaration of 'print'" then
+      kept[#kept + 1] = w
+    end
+  end
+  result.warnings = kept
+  return result
+end
+
 --- Whether `m`'s own source both defines tests of its own and returns
 --- its own value at the top level. `with_test_tail` appends a generated
 --- `return` after the module's compiled Lua, and Lua allows only one
@@ -381,6 +459,9 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
       local code, result = built.gen(m.source, env, nil, "tl")
       if m.kind == "test" and result ~= nil then
         result = discount_test_warnings(result, m.tests)
+      end
+      if m.generated and result ~= nil then
+        result = discount_doctest_shadow_warnings(result)
       end
       local complaint = result ~= nil and complain(m.file, result) or ""
       if code == nil or complaint ~= "" then

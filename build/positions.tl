@@ -39,6 +39,13 @@ local record positions
     requires: {string}
     tests: {string}
     has_top_level_return: boolean
+    --- True only for a module `build.doctest` produced from a
+    --- `doc/guides/*.md` file rather than read off disk as `.tl`
+    --- source: `build.importer.compile` widens its warning discount for
+    --- exactly this module, and only this one, to cover the one
+    --- `print`-shadowing warning that generated shape always carries --
+    --- see `discount_doctest_shadow_warnings`.
+    generated: boolean
     key: string
     lua: string
     bytecode: string
