@@ -38,12 +38,21 @@ local record Class
   fields: {Field}
 end
 
+--- Everything one read of the header found: two lists, together, so a
+--- fallible read stays two slots -- the pair, and an error -- rather
+--- than smuggling a third.
+local record Declarations
+  calls: {Call}
+  classes: {Class}
+end
+
 local record generator
   Parameter: Parameter
   Result: Result
   Call: Call
   Field: Field
   Class: Class
+  Declarations: Declarations
 end
 
 --- Turns a LuaCATS type into a Teal one. The two agree on everything
@@ -120,6 +129,22 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
   if call.summary == "" then
     return nil, name .. ": the block says nothing about what it does"
   end
+  local n = #call.results
+  if n ~= 0 and n ~= 1 and n ~= 3 then
+    return nil, name .. ": declares " .. n .. " returns; a syscall is " ..
+      "infallible (1), never returns (0), or fallible (exactly 3: " ..
+      "value, string, integer)"
+  end
+  if n == 3 then
+    if call.results[2].kind ~= "string" then
+      return nil, name .. ": a fallible syscall's second return is the " ..
+        "error, which must be string"
+    end
+    if call.results[3].kind ~= "integer" then
+      return nil, name .. ": a fallible syscall's third return is the " ..
+        "error code, which must be integer"
+    end
+  end
   return call
 end
 
@@ -152,9 +177,11 @@ local function parse_class(lines: {string}): Class | nil, string
   return class
 end
 
---- Reads every annotated call and class out of the header.
+--- Reads every annotated call and class out of the header. The two
+--- lists travel together in one record, so a fallible read stays two
+--- slots: the record, or nil and why.
 --- @param header the whole text of core/syscalls.h
-function generator.read(header: string): {Call}, {Class} | nil, string
+function generator.read(header: string): Declarations | nil, string
   local calls: {Call} = {}
   local classes: {Class} = {}
   local at = 1
@@ -167,11 +194,18 @@ function generator.read(header: string): {Call}, {Class} | nil, string
     local lines = annotation_lines(comment)
     if lines ~= nil then
       local tail = header:sub(at, at + 200)
-      local name = tail:match("^%s*COSMIC_SYSCALL%(([%w_]+)%)")
+      local name, arity_text =
+        tail:match("^%s*COSMIC_SYSCALL%(([%w_]+)%s*,%s*(%d+)%s*%)")
       if name ~= nil then
         local call, trouble = parse_call(name, lines)
         if call == nil then
-          return {}, nil, trouble
+          return nil, trouble
+        end
+        local arity = tonumber(arity_text) or -1
+        if #call.parameters ~= arity then
+          return nil, name .. ": the header declares " .. arity ..
+            " parameter(s) in COSMIC_SYSCALL but the annotation has " ..
+            #call.parameters .. " @param line(s)"
         end
         calls[#calls + 1] = call
       else
@@ -184,7 +218,7 @@ function generator.read(header: string): {Call}, {Class} | nil, string
         if has_class then
           local class, trouble = parse_class(lines)
           if class == nil then
-            return {}, nil, trouble
+            return nil, trouble
           end
           classes[#classes + 1] = class
         end
@@ -192,9 +226,9 @@ function generator.read(header: string): {Call}, {Class} | nil, string
     end
   end
   if #calls == 0 then
-    return {}, nil, "the header declares no calls"
+    return nil, "the header declares no calls"
   end
-  return calls, classes
+  return { calls = calls, classes = classes }
 end
 
 local function signature(call: Call): string
@@ -217,10 +251,11 @@ end
 --- The Teal declaration of the module the header describes.
 --- @param header the whole text of core/syscalls.h
 function generator.declaration(header: string): string | nil, string
-  local calls, classes, trouble = generator.read(header)
-  if classes == nil then
+  local found, trouble = generator.read(header)
+  if found == nil then
     return nil, trouble
   end
+  local calls, classes = found.calls, found.classes
 
   local out: {string} = {}
   out[#out + 1] = "-- The syscall table, derived from core/syscalls.h."

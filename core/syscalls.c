@@ -23,7 +23,7 @@ extern char **environ;
 #define COSMIC_ENVIRON environ
 #endif
 
-COSMIC_SYSCALL(executable) {
+COSMIC_SYSCALL(executable, 0) {
   char resolved[PATH_MAX];
   if (!cosmic_executable_path(resolved, sizeof resolved)) {
     return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);
@@ -32,7 +32,7 @@ COSMIC_SYSCALL(executable) {
   return 1;
 }
 
-COSMIC_SYSCALL(getenv) {
+COSMIC_SYSCALL(getenv, 1) {
   const char *name = luaL_checkstring(L, 1);
   const char *value = getenv(name);
   if (value == NULL) {
@@ -43,7 +43,7 @@ COSMIC_SYSCALL(getenv) {
   return 1;
 }
 
-COSMIC_SYSCALL(environ) {
+COSMIC_SYSCALL(environ, 0) {
   lua_newtable(L);
   char **at = COSMIC_ENVIRON;
   for (; at != NULL && *at != NULL; at++) {
@@ -62,17 +62,17 @@ COSMIC_SYSCALL(environ) {
   return 1;
 }
 
-COSMIC_SYSCALL(exit) {
+COSMIC_SYSCALL(exit, 1) {
   int status = (int)luaL_optinteger(L, 1, 0);
   _exit(status); /* exits: the process boundary has no caller to return to */
 }
 
-COSMIC_SYSCALL(getpid) {
+COSMIC_SYSCALL(getpid, 0) {
   lua_pushinteger(L, (lua_Integer)getpid());
   return 1;
 }
 
-COSMIC_SYSCALL(clock_gettime) {
+COSMIC_SYSCALL(clock_gettime, 1) {
   int which = (int)luaL_checkinteger(L, 1);
   struct timespec now;
   if (clock_gettime((clockid_t)which, &now) != 0) {
@@ -83,7 +83,7 @@ COSMIC_SYSCALL(clock_gettime) {
   return 1;
 }
 
-COSMIC_SYSCALL(nanosleep) {
+COSMIC_SYSCALL(nanosleep, 1) {
   lua_Integer nanoseconds = luaL_checkinteger(L, 1);
   if (nanoseconds < 0) {
     return luaL_argerror(L, 1, "the duration is negative");
@@ -102,13 +102,13 @@ COSMIC_SYSCALL(nanosleep) {
   return cosmic_ok(L);
 }
 
-COSMIC_SYSCALL(isatty) {
+COSMIC_SYSCALL(isatty, 1) {
   int fd = (int)luaL_checkinteger(L, 1);
   lua_pushboolean(L, isatty(fd) == 1);
   return 1;
 }
 
-COSMIC_SYSCALL(sha256) {
+COSMIC_SYSCALL(sha256, 1) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
   unsigned char digest[32];
@@ -117,7 +117,7 @@ COSMIC_SYSCALL(sha256) {
   return 1;
 }
 
-COSMIC_SYSCALL(deflate) {
+COSMIC_SYSCALL(deflate, 1) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
   mz_ulong room = mz_compressBound((mz_ulong)len);
@@ -131,13 +131,14 @@ COSMIC_SYSCALL(deflate) {
     lua_pop(L, 1);
     lua_pushnil(L);
     lua_pushstring(L, mz_error(rc));
-    return 2;
+    lua_pushinteger(L, rc);
+    return 3;
   }
   luaL_pushresultsize(&buffer, room);
   return 1;
 }
 
-COSMIC_SYSCALL(inflate) {
+COSMIC_SYSCALL(inflate, 2) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
   lua_Integer size = luaL_checkinteger(L, 2);
@@ -154,7 +155,8 @@ COSMIC_SYSCALL(inflate) {
     lua_pop(L, 1);
     lua_pushnil(L);
     lua_pushstring(L, mz_error(rc));
-    return 2;
+    lua_pushinteger(L, rc);
+    return 3;
   }
   luaL_pushresultsize(&buffer, room);
   return 1;

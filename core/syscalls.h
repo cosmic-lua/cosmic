@@ -21,7 +21,12 @@
 
 #include "lua.h"
 
-#define COSMIC_SYSCALL(name) int cosmic_sys_##name(lua_State *L)
+/* `arity` is the number of parameters the annotation block just above
+ * declares -- the generator cross-checks the two against each other, so
+ * a `@param` line and this count can never drift apart unnoticed. It is
+ * not part of the C signature, which is always `(lua_State *L)`: the
+ * arguments come off the Lua stack, not a C parameter list. */
+#define COSMIC_SYSCALL(name, arity) int cosmic_sys_##name(lua_State *L)
 
 /*
  * --- What `stat`, `lstat` and `fstat` report about a path.
@@ -47,7 +52,7 @@
  * ---@return string error what went wrong, when fd is nil
  * ---@return integer errno the error number, when fd is nil
  */
-COSMIC_SYSCALL(open);
+COSMIC_SYSCALL(open, 3);
 
 /*
  * --- Closes a descriptor.
@@ -56,7 +61,7 @@ COSMIC_SYSCALL(open);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(close);
+COSMIC_SYSCALL(close, 1);
 
 /*
  * --- Reads up to `count` bytes. An empty string means end of file.
@@ -66,7 +71,7 @@ COSMIC_SYSCALL(close);
  * ---@return string error what went wrong, when data is nil
  * ---@return integer errno the error number, when data is nil
  */
-COSMIC_SYSCALL(read);
+COSMIC_SYSCALL(read, 2);
 
 /*
  * --- Reads up to `count` bytes from an explicit offset.
@@ -77,7 +82,7 @@ COSMIC_SYSCALL(read);
  * ---@return string error what went wrong, when data is nil
  * ---@return integer errno the error number, when data is nil
  */
-COSMIC_SYSCALL(pread);
+COSMIC_SYSCALL(pread, 3);
 
 /*
  * --- Writes bytes and returns how many went out.
@@ -87,7 +92,7 @@ COSMIC_SYSCALL(pread);
  * ---@return string error what went wrong, when written is nil
  * ---@return integer errno the error number, when written is nil
  */
-COSMIC_SYSCALL(write);
+COSMIC_SYSCALL(write, 2);
 
 /*
  * --- Moves a descriptor's offset and returns the new one.
@@ -98,7 +103,7 @@ COSMIC_SYSCALL(write);
  * ---@return string error what went wrong, when offset is nil
  * ---@return integer errno the error number, when offset is nil
  */
-COSMIC_SYSCALL(lseek);
+COSMIC_SYSCALL(lseek, 3);
 
 /*
  * --- Describes an open descriptor.
@@ -107,7 +112,7 @@ COSMIC_SYSCALL(lseek);
  * ---@return string error what went wrong, when stat is nil
  * ---@return integer errno the error number, when stat is nil
  */
-COSMIC_SYSCALL(fstat);
+COSMIC_SYSCALL(fstat, 1);
 
 /*
  * --- Describes a path, following a symbolic link at the end of it.
@@ -116,7 +121,7 @@ COSMIC_SYSCALL(fstat);
  * ---@return string error what went wrong, when stat is nil
  * ---@return integer errno the error number, when stat is nil
  */
-COSMIC_SYSCALL(stat);
+COSMIC_SYSCALL(stat, 1);
 
 /*
  * --- Describes a path, describing a symbolic link rather than its target.
@@ -125,7 +130,7 @@ COSMIC_SYSCALL(stat);
  * ---@return string error what went wrong, when stat is nil
  * ---@return integer errno the error number, when stat is nil
  */
-COSMIC_SYSCALL(lstat);
+COSMIC_SYSCALL(lstat, 1);
 
 /*
  * --- Creates a directory.
@@ -135,7 +140,7 @@ COSMIC_SYSCALL(lstat);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(mkdir);
+COSMIC_SYSCALL(mkdir, 2);
 
 /*
  * --- Removes an empty directory.
@@ -144,7 +149,7 @@ COSMIC_SYSCALL(mkdir);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(rmdir);
+COSMIC_SYSCALL(rmdir, 1);
 
 /*
  * --- Removes a name from the filesystem.
@@ -153,7 +158,7 @@ COSMIC_SYSCALL(rmdir);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(unlink);
+COSMIC_SYSCALL(unlink, 1);
 
 /*
  * --- Moves a name, replacing the destination if it exists.
@@ -163,7 +168,7 @@ COSMIC_SYSCALL(unlink);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(rename);
+COSMIC_SYSCALL(rename, 2);
 
 /*
  * --- Sets a path's permission bits.
@@ -173,7 +178,7 @@ COSMIC_SYSCALL(rename);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(chmod);
+COSMIC_SYSCALL(chmod, 2);
 
 /*
  * --- Lists a directory's entries, without `.` and `..`, in no order.
@@ -182,7 +187,7 @@ COSMIC_SYSCALL(chmod);
  * ---@return string error what went wrong, when names is nil
  * ---@return integer errno the error number, when names is nil
  */
-COSMIC_SYSCALL(readdir);
+COSMIC_SYSCALL(readdir, 1);
 
 /*
  * --- Returns the process's current directory.
@@ -190,7 +195,7 @@ COSMIC_SYSCALL(readdir);
  * ---@return string error what went wrong, when path is nil
  * ---@return integer errno the error number, when path is nil
  */
-COSMIC_SYSCALL(getcwd);
+COSMIC_SYSCALL(getcwd, 0);
 
 /*
  * --- Changes the process's current directory.
@@ -199,7 +204,7 @@ COSMIC_SYSCALL(getcwd);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(chdir);
+COSMIC_SYSCALL(chdir, 1);
 
 /*
  * --- Resolves a path to an absolute one with no link and no `..` left.
@@ -208,7 +213,7 @@ COSMIC_SYSCALL(chdir);
  * ---@return string error what went wrong, when path is nil
  * ---@return integer errno the error number, when path is nil
  */
-COSMIC_SYSCALL(realpath);
+COSMIC_SYSCALL(realpath, 1);
 
 /*
  * --- Returns the path of the running executable.
@@ -216,32 +221,32 @@ COSMIC_SYSCALL(realpath);
  * ---@return string error what went wrong, when path is nil
  * ---@return integer errno the error number, when path is nil
  */
-COSMIC_SYSCALL(executable);
+COSMIC_SYSCALL(executable, 0);
 
 /*
  * --- Reads one environment variable.
  * ---@param name string the variable to read
  * ---@return string|nil value the value, or nil when it is not set
  */
-COSMIC_SYSCALL(getenv);
+COSMIC_SYSCALL(getenv, 1);
 
 /*
  * --- Reads the whole environment as a name-to-value map.
  * ---@return {string:string} environment every variable the process has
  */
-COSMIC_SYSCALL(environ);
+COSMIC_SYSCALL(environ, 0);
 
 /*
  * --- Ends the process. It does not return.
  * ---@param status? integer the exit status, default 0
  */
-COSMIC_SYSCALL(exit);
+COSMIC_SYSCALL(exit, 1);
 
 /*
  * --- Returns the process's own identifier.
  * ---@return integer pid the process identifier
  */
-COSMIC_SYSCALL(getpid);
+COSMIC_SYSCALL(getpid, 0);
 
 /*
  * --- Reads a clock, in nanoseconds.
@@ -250,7 +255,7 @@ COSMIC_SYSCALL(getpid);
  * ---@return string error what went wrong, when nanoseconds is nil
  * ---@return integer errno the error number, when nanoseconds is nil
  */
-COSMIC_SYSCALL(clock_gettime);
+COSMIC_SYSCALL(clock_gettime, 1);
 
 /*
  * --- Sleeps for a number of nanoseconds, resuming after a signal.
@@ -259,29 +264,30 @@ COSMIC_SYSCALL(clock_gettime);
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(nanosleep);
+COSMIC_SYSCALL(nanosleep, 1);
 
 /*
  * --- Says whether a descriptor is a terminal.
  * ---@param fd integer the descriptor to ask about
  * ---@return boolean tty true when the descriptor is a terminal
  */
-COSMIC_SYSCALL(isatty);
+COSMIC_SYSCALL(isatty, 1);
 
 /*
  * --- Hashes bytes with SHA-256 and returns the 32 raw bytes.
  * ---@param data string the bytes to hash
  * ---@return string digest the 32-byte digest
  */
-COSMIC_SYSCALL(sha256);
+COSMIC_SYSCALL(sha256, 1);
 
 /*
  * --- Compresses bytes with deflate.
  * ---@param data string the bytes to compress
  * ---@return string|nil packed the compressed bytes, or nil on failure
  * ---@return string error what went wrong, when packed is nil
+ * ---@return integer code miniz's own result code, when packed is nil
  */
-COSMIC_SYSCALL(deflate);
+COSMIC_SYSCALL(deflate, 1);
 
 /*
  * --- Expands bytes that deflate compressed.
@@ -289,8 +295,9 @@ COSMIC_SYSCALL(deflate);
  * ---@param size integer the expanded size, which the caller recorded
  * ---@return string|nil data the expanded bytes, or nil on failure
  * ---@return string error what went wrong, when data is nil
+ * ---@return integer code miniz's own result code, when data is nil
  */
-COSMIC_SYSCALL(inflate);
+COSMIC_SYSCALL(inflate, 2);
 
 /*
  * --- The numbers the calls above take and give back. They come from
