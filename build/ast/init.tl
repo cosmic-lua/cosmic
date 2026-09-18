@@ -55,6 +55,7 @@ local record AstModule
   match: function(pattern: Node, node: Node): {string: Node} | nil
   find_all: function(ast: Node, pattern: Node): {Hit}
   requires: function(built: compiler, parsed: Parsed): {string: string} | nil, string
+  all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(built: compiler, source: string, name: string, pattern: Node,
@@ -71,6 +72,7 @@ local M: AstModule = {
   match = ast_match.match,
   find_all = ast_rewrite.find_all,
   requires = ast_requires.requires,
+  all_requires = ast_requires.all_requires,
   line_starts = ast_rewrite.line_starts,
   offset_of = ast_rewrite.offset_of,
   rewrite = ast_rewrite.rewrite,

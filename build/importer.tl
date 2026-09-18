@@ -12,6 +12,7 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local ast = require("build.ast")
 local positions = require("build.positions")
 local type compiler = require("build.compiler")
 
@@ -104,16 +105,32 @@ local function kind_of(file: string): string
 end
 
 --- The modules another module names, in the order they appear.
-local function requires_of(source: string): {string}
-  local seen: {string:boolean} = {}
-  local found: {string} = {}
-  for name in source:gmatch('require%s*%(?%s*"([%w_%.]+)"') do
-    if not seen[name] then
-      seen[name] = true
-      found[#found + 1] = name
-    end
+---
+--- Structural, over `file`'s real AST (`build.ast.parse` +
+--- `build.ast.all_requires`), not a regex over source text: a
+--- `require("cosmic.foo")` sitting inside a string literal or a
+--- comment is not a real import, and a real parse never mistakes byte
+--- content for syntax the way a text pattern has to. `all_requires`,
+--- not the narrower alias-resolving `requires`, is the right tool
+--- here: this tree's own `local type compiler =
+--- require("build.compiler")` type-only imports and `cosmic/store.tl`
+--- / `cosmic/sqlite.tl`'s conditional re-assignment
+--- (`store = require("cosmic.internal.store")` inside an `if`/`else`)
+--- are both real dependencies this module's `ordered()` and `compile()`
+--- must see, and neither is a top-level `local <alias> = require(...)`
+--- binding -- `requires`'s own stated scope leaves both unresolved.
+--- @param built the compiler, loaded and ready
+--- @param source the file's own source text
+--- @param file the file's path, for parse diagnostics
+--- @return {string} | nil every required module, in source order
+--- @return string error message on a lex or parse failure
+local function requires_of(built: compiler, source: string,
+                           file: string): {string} | nil, string
+  local parsed, parse_trouble = ast.parse(built, source, file)
+  if parsed == nil then
+    return nil, parse_trouble
   end
-  return found
+  return ast.all_requires(built, parsed)
 end
 
 --- Every source the tree holds, read and hashed. The root is the module
@@ -153,13 +170,17 @@ local function collect(root: string, self_tree: boolean,
         tests = found.tests
         has_top_level_return = found.has_top_level_return
       end
+      local requires, requires_trouble = requires_of(built, source, file)
+      if requires == nil then
+        return nil, file .. ": " .. requires_trouble
+      end
       out[#out + 1] = {
         path = import_path(file),
         file = file,
         kind = kind,
         source = source,
         source_hash = Hash.hex_sha256(source),
-        requires = requires_of(source),
+        requires = requires,
         tests = tests,
         has_top_level_return = has_top_level_return,
         key = "",
