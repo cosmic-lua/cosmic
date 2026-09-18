@@ -222,19 +222,19 @@ Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
 nothing can `dlopen`.
 
-the raw C modules behind `cosmic.store` and `cosmic.sqlite` have no
-requireable name. the searcher hands each to its Teal wrapper as
-the loader's second argument, and only when the wrapper is loaded
-from the binary's own database; a project module never sees them.
-`cosmic.errors` is the same shape, unconditionally preloaded rather
-than argument-passed, since a traceback carries less risk than a
-raw database handle. because every module path is now lowercase,
-these three raw names would collide with the wrapper paths they sit
-behind; each is prefixed with a leading dot, `.cosmic.sqlite`,
-`.cosmic.store`, `.cosmic.errors`, the same idiom a payload once
-used to stay out of the module root, so a protocol name can never be
-mistaken for one a project or the standard library would legitimately
-import.
+the raw C modules behind `cosmic.internal.store` and
+`cosmic.internal.sqlite` have no requireable name for anything
+outside them. the searcher hands each to its Teal wrapper,
+`cosmic.store` and `cosmic.sqlite`, as the loader's second argument,
+and only when the wrapper is loaded, trusted, from the binary's own
+database; nothing else ever calls `require` and gets an answer.
+`cosmic.internal.errors` is the same shape behind `cosmic.errors`,
+unconditionally preloaded rather than argument-passed, since a
+traceback carries less risk than a raw database handle. `internal`
+is a reserved name: a path under `cosmic.internal.` never satisfies
+an ordinary `require`, for any caller, which is stronger than
+positional privacy and is where every raw C binding that is not
+itself the public surface belongs, not only these three.
 
 ### the database
 
