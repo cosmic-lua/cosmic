@@ -1,6 +1,6 @@
 --- Content hashes.
 
-local sys = require("cosmic.syscalls")
+local sys = require("cosmic.sys")
 
 local record Hash
 end

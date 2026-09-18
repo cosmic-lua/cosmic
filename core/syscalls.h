@@ -327,7 +327,7 @@ COSMIC_SYSCALL(inflate, 2);
  * ---@field EXDEV integer the two paths are on different filesystems
  */
 
-/* Opens the table as the `cosmic.syscalls` module. */
+/* Opens the table as the `cosmic.sys` module. */
 int cosmic_open_syscalls(lua_State *L);
 
 #endif

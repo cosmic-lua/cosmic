@@ -13,7 +13,7 @@
 
 static const char cosmic_bridge_source[] =
     "local root = ...\n"
-    "local sys = require('cosmic.syscalls')\n"
+    "local sys = require('cosmic.sys')\n"
     "\n"
     "local function read_all(path)\n"
     "  local fd, err = sys.open(path, sys.O_RDONLY)\n"

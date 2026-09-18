@@ -1,7 +1,7 @@
 --- Clocks and sleeping. Every reading is in nanoseconds, so nothing
 --- above this module carries a unit it has to remember.
 
-local sys = require("cosmic.syscalls")
+local sys = require("cosmic.sys")
 
 local record Time
 end

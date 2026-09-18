@@ -1,6 +1,6 @@
 --- The process's environment.
 
-local sys = require("cosmic.syscalls")
+local sys = require("cosmic.sys")
 
 local record Env
 end

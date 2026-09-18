@@ -1,6 +1,6 @@
 --- Deflate, the compression the store uses for the images it carries.
 
-local sys = require("cosmic.syscalls")
+local sys = require("cosmic.sys")
 
 local record Compress
 end

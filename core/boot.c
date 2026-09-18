@@ -118,7 +118,7 @@ static int write_declaration(lua_State *L, const char *root) {
   mkdir(parent, 0755);
   mkdir(path, 0755);
 
-  snprintf(path, sizeof path, "%s/o/types/cosmic/syscalls.d.tl", root);
+  snprintf(path, sizeof path, "%s/o/types/cosmic/sys.d.tl", root);
   if (spit(L, path, -2) != 0) {
     return 1;
   }

@@ -163,7 +163,7 @@ lua_State *cosmic_surface_open(void) {
 
   lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
   lua_pushcfunction(L, cosmic_open_syscalls);
-  lua_setfield(L, -2, "cosmic.syscalls");
+  lua_setfield(L, -2, "cosmic.sys");
   lua_pushcfunction(L, open_errors);
   lua_setfield(L, -2, "cosmic.internal.errors");
   lua_pop(L, 1);
