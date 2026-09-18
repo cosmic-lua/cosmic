@@ -150,18 +150,20 @@ that per component.
 
 the syscall table is one C function per syscall with the same
 signature on Linux and macOS, written by hand in one strict shape in
-one annotated header, `core/syscalls.h`. the annotation grammar is
-LuaCATS, `---@param`, `---@return`, `---@class`, `---@field`, the
-grammar the cosmopolitan fork's `definitions.lua` proved on this
-exact job. the Teal declaration and the doc row for each function
-are generated from that header when the core first runs over the
-tree, and the generator refuses any function whose annotation is
-incomplete, so a binding cannot exist without its type and the C
-surface cannot grow without a diff in that header. argument-shape
-errors raise; runtime failures return `nil, err, errno`, plain
-values, the convention the fork already uses at over a hundred
-sites. one trace point at the table's dispatch gives a syscall log
-for every call uniformly when asked.
+one annotated header, `core/syscalls.h`, each entry naming its
+arity. the annotation grammar is LuaCATS, `---@param`, `---@return`,
+`---@class`, `---@field`, the grammar the cosmopolitan fork's
+`definitions.lua` proved on this exact job. the Teal declaration and
+the doc row for each function are generated from that header when
+the core first runs over the tree, and the generator refuses, by
+name, any function whose annotation is incomplete, whose parameter
+count disagrees with the arity, or whose returns are not one value
+or the fallible three, so a binding cannot exist without its type
+and the C surface cannot grow without a diff in that header.
+argument-shape errors raise; runtime failures return `nil, err,
+errno`, plain values, the convention the fork already uses at over a
+hundred sites. one trace point at the table's dispatch gives a
+syscall log for every call uniformly when asked.
 
 never borrowed from the libc where semantics are observable: regex,
 DNS resolution, anything locale-shaped. musl and libSystem agree on
@@ -203,10 +205,24 @@ that replaces it.
 
 the vendored `tl.lua` reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,
-`package.path`, `package.searchers`, and `load`. the importer loads
-it in an environment that supplies those over the syscall table and
-never calls tl's own module search or loader, so `package.path`'s
-absence is never observed; the compiler is not patched for it.
+`package.path`, `package.searchers`, and `load`. it ships as a row
+in the database and is loaded with its own environment that supplies
+those over the syscall table. the checker resolves the types of a
+`require` through tl's own path search over the tree, which is a
+build reading its inputs; tl's loader, the part that would compile
+and run a module, is never called, and `package.path`'s absence in
+the runtime is never observed. the compiler is not patched for any
+of this. before Teal exists, at boot, a short Lua bridge held as
+text in the C core supplies the same environment.
+
+Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
+defines, so assigning an undeclared global is a compile error and
+nothing can `dlopen`.
+
+the raw C modules behind `cosmic.Store` and `cosmic.Sqlite` have no
+requireable name. the searcher hands each to its Teal wrapper as
+the loader's second argument, and only when the wrapper is loaded
+from the binary's own database; a project module never sees them.
 
 ### the database
 
@@ -221,6 +237,7 @@ input to the build, never to the runtime. one database holds:
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.
 - **roots**: Mozilla's CA bundle.
+- **the compiler**: `tl.lua`, one row, loaded with its own environment.
 
 every table is `WITHOUT ROWID` on a natural key. records, meaning
 test verdicts, coverage, and timings, live in a second database
@@ -228,7 +245,8 @@ beside it, `o/records.db`, and never ship: they move by host, and a
 shipped file must not.
 
 all three targets are little-endian 64-bit, so one bytecode column
-serves them all, verified by a test that each image loads it; the
+serves them all, verified by a test that each image loads it, and
+it keeps line information so a runtime error names its line; the
 bytecode header check is the safety net. the core image column is
 the only per-target data.
 
@@ -240,7 +258,9 @@ binary with bytes after its signature. the runtime opens it through
 its own small VFS, a ~300-line shim that reads the executable at an
 explicit offset; the offset comes from a ten-line locator per
 format, the ELF trailer or the Mach-O signature's data offset, and
-nothing else in the VFS knows which format it is in. the executable
+nothing else in the VFS knows which format it is in. the VFS honors
+exactly that one path, offset, and length, registered once at
+startup, and refuses any other open. the executable
 is opened once, its size taken, and the handle cached. the Mach-O
 writer touches `__LINKEDIT`'s size, the signature's offset, and the
 signature itself, and nothing else in the file. the last partial
@@ -257,10 +277,18 @@ queries across both.
 
 a project's own build database, `o/cosmic.db`, is read ahead of the
 binary's: when cosmic runs or tests a project, `require` answers from
-the project's database first and the binary's second. that is how
-the tool builds and tests a tree other than its own, and how a
-project's modules shadow nothing by accident, since the two never
-share an import path.
+the project's database first and the binary's second, except for
+`cosmic.*`, which the binary answers first. the importer refuses a
+project tree that holds a `cosmic/` directory or an import path
+under `cosmic.`, naming the path, so a project cannot shadow the
+standard library by accident or on purpose. that is how the tool
+builds and tests a tree other than its own.
+
+inside cosmic's own tree, every run first compares the boot hash of
+`build/` and `core/` with the one the running binary carries; on a
+mismatch the tool refuses with `the tool is stale; run bin/zig build
+boot` and exit 3, and a re-import over the boot database carries the
+images and the compiler row forward unchanged.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
 problem and are fixed first: a typo'd or overlong parameter table
@@ -378,7 +406,8 @@ compiles to a table check that cannot tell two records apart; the
 shape module is the way in. the checker's own hint on an `any`
 index points at a shape, not at a cast. the per-release report
 names the modules that cast from `any`; the expected list is the
-shape module, the codec decoders, and the C declaration layer.
+shape module, the codec decoders, the C declaration layer, and the
+build step that loads the compiler chunk.
 
 ### the runtime
 
@@ -460,12 +489,15 @@ stock-interpreter flags, no argv[0] personality.
 ### the repository
 
 ```
+README.md           what cosmic is and the one command to build it
 bin/zig             POSIX sh: fetch, verify, exec the pinned zig
-bin/zig.pin         version and per-host sha256
+bin/zig.pin         version and per-host sha256; build.zig reads it
+build.zig           the C build; build.zig.zon names the package
 vendor/<name>/      pristine upstream, never edited, with a PIN file
 patches/<name>/     exact find/replace records, each with a note
-core/               C: entry, VFS, the syscall table, build.zig
+core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header the .d.tl and doc rows derive from
+core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; its public modules are capitalized
 cmd/cosmic/         the binary's entry
 build/              the importer, checker driver, embed (Teal, private)
