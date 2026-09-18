@@ -5,17 +5,20 @@
 --- database is the only module source at run time, so running a file
 --- and building a project are one path.
 
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
+local payload = require("build.payload")
 local teal = require("build.teal")
+local test = require("build.test")
+local writer = require("build.writer")
 
 local help = [[
 cosmic -- a runtime for self-contained command-line software
 
   cosmic <file.tl>   build the tree the file sits in, then run it
+  cosmic test        build the tree in the working directory, then
+                     run every test it defines
   cosmic help        this
 
 Every verb ends in a verdict line and an exit code.
@@ -56,49 +59,6 @@ local function module_of(root: string, file: string): string | nil, string
     return nil, file .. " is not a Teal source"
   end
   return (relative:gsub("%.tl$", ""):gsub("/", "."))
-end
-
---- The images and vendored compiler an existing database already
---- carries, read back so a re-import over it can carry them forward
---- unchanged instead of dropping them. Empty/nil when `path` does not
---- exist yet or holds neither -- an ordinary project's first run.
-local function carried_payload(path: string): {string:string}, string | nil, string
-  local images: {string:string} = {}
-  if not Fs.exists(path) then
-    return images, nil, ""
-  end
-  local handle, open_trouble = Sqlite.open(path, false)
-  if handle == nil then
-    return images, nil, "cosmic: " .. open_trouble
-  end
-  local rows, rows_trouble = Sqlite.rows(handle,
-    "SELECT target, size, data FROM images")
-  if rows == nil then
-    handle:close()
-    return images, nil, "cosmic: " .. rows_trouble
-  end
-  for _, row in ipairs(rows) do
-    local target, size_text, packed = row[1], row[2], row[3]
-    local size = math.tointeger(tonumber(size_text) or 0) or 0
-    local raw, inflate_trouble = Compress.inflate(packed, size)
-    if raw == nil then
-      handle:close()
-      return images, nil, "cosmic: " .. target .. ": " .. inflate_trouble
-    end
-    images[target] = raw
-  end
-  local vendor_rows, vendor_trouble = Sqlite.rows(handle,
-    "SELECT source FROM modules WHERE kind = 'vendor' AND path = 'vendor.tl'")
-  if vendor_rows == nil then
-    handle:close()
-    return images, nil, "cosmic: " .. vendor_trouble
-  end
-  local teal_source: string | nil = nil
-  if #vendor_rows > 0 then
-    teal_source = vendor_rows[1][1]
-  end
-  handle:close()
-  return images, teal_source, ""
 end
 
 local function run(file: string, argv: {integer:string}): integer
@@ -160,14 +120,14 @@ local function run(file: string, argv: {integer:string}): integer
   -- put there: the three core images and the vendored compiler row.
   -- Read them back first and hand them straight through, so this run
   -- carries them forward unchanged rather than writing an empty set.
-  local images, teal_source, carry_trouble = carried_payload(database)
+  local images, teal_source, carry_trouble = payload.carried(database)
   if carry_trouble ~= "" then
-    complain(carry_trouble)
+    complain("cosmic: " .. carry_trouble)
     return 1
   end
 
   local written, write_trouble =
-    importer.write(root, database, built, env, boot_hash, images, teal_source)
+    writer.write(root, database, built, env, boot_hash, images, teal_source)
   if not written then
     complain("cosmic: " .. write_trouble)
     return 1
@@ -195,6 +155,9 @@ local function main(argv: {integer:string}): integer
   if verb == nil or verb == "help" or verb == "-h" or verb == "--help" then
     say(help)
     return 0
+  end
+  if verb == "test" then
+    return test.run()
   end
   if verb:sub(1, 1) == "-" then
     complain("cosmic: no such option: " .. verb)
