@@ -15,21 +15,24 @@ with no skipped snippets describes what works today.
 a doc includes code snippets. every snippet is tested by the build,
 or is explicitly skipped with a reason. there is no third kind.
 
-- a fenced block tagged `teal` or `lua` is a test. it compiles under
+a doc is a literate program. the build compiles it to one Teal file:
+the prose becomes comments, the fenced blocks become the code, in
+order, sharing one scope. a doc is a test the way a `*_test.tl` is,
+and it passes or fails as one.
+
+- a fenced block tagged `teal` or `lua` is code. it compiles under
   the checker and runs. output shown after it is asserted.
-- a block tagged `teal skip=<reason>` is not run, and the reason is
-  visible to the reader. `skip=intended` marks a snippet that waits
-  on work not yet done; `skip=network` marks one that needs a host
-  the build does not have.
+- a block tagged `teal skip=<reason>` becomes a comment, and the
+  reason is visible to the reader. `skip=intended` marks a snippet
+  that waits on work not yet done; `skip=network` marks one that
+  needs a host the build does not have.
 - a block tagged `sh` is a command line. it runs under the fence and
   its verdict line is asserted.
 - a block tagged `text` is prose in a box. nothing runs.
 
-the build extracts snippets by position, keys them by content hash
-like any test, and records verdicts in the same database. a doc
-whose snippet fails is a failing gate. a skip that no longer needs
-to be one is a lint finding.
-
+the build keys a doc by content hash like any test and records its
+verdict in the same database. a doc whose snippet fails is a failing
+gate. a skip that no longer needs to be one is a lint finding.
 ## docs are short and stand alone
 
 a doc says one thing. a reader gets what they need from that doc
