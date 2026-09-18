@@ -51,24 +51,24 @@ static int failed(lua_State *L) {
   return 1;
 }
 
-/* Runs the entry module the build recorded. The module is required like
+/* Runs the main module the build recorded. The module is required like
  * any other, and what it returns is called with the command line as a
  * table whose slot 0 is the program's own name. */
 static int run_main(lua_State *L, int argc, char **argv) {
-  char entry[256];
+  char main_name[256];
   const char *named = cosmic_store_meta(L, "main");
   if (named == NULL || named[0] == '\0') {
-    return complain("the database names no entry module", NULL);
+    return complain("the database names no main module", NULL);
   }
-  snprintf(entry, sizeof entry, "%s", named);
+  snprintf(main_name, sizeof main_name, "%s", named);
 
   lua_getglobal(L, "require");
-  lua_pushstring(L, entry);
+  lua_pushstring(L, main_name);
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
     return failed(L);
   }
   if (!lua_isfunction(L, -1)) {
-    return complain("the entry module is not a function", entry);
+    return complain("the main module is not a function", main_name);
   }
 
   lua_newtable(L);
