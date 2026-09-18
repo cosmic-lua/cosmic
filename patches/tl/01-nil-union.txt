@@ -1,0 +1,55 @@
+file: tl.lua
+note: the two helpers the nil-union narrowing edits share: one drops a union's nil member, the other says whether a type can hold nil
+--- find
+   function TypeChecker:arraytype_from_tuple(w, tupletype)
+--- replace
+   -- t with its nil member dropped, or nil when t is not a union that
+   -- carries nil. `strict` additionally refuses a union whose other
+   -- members are not known to be truthy -- boolean, any, unknown,
+   -- typevar -- which is what a truthiness guard needs and an `or`
+   -- fallback does not.
+   local function without_nil(self, w, t, strict)
+      local rt = t
+      if rt.typename == "nominal" then
+         rt = self:resolve_nominal(rt)
+      end
+      if not (rt.typename == "union") then
+         return nil
+      end
+      local has_nil, members = false, {}
+      for _, m in ipairs(rt.types) do
+         local rm = m
+         if rm.typename == "nominal" then
+            rm = self:resolve_nominal(rm)
+         end
+         if rm.typename == "nil" then
+            has_nil = true
+         elseif strict and (rm.typename == "boolean" or rm.typename == "any" or
+            rm.typename == "unknown" or rm.typename == "boolean_context" or
+            rm.typename == "typevar") then
+            return nil
+         else
+            table.insert(members, m)
+         end
+      end
+      if not has_nil or #members == 0 then
+         return nil
+      end
+      return #members == 1 and members[1] or unite(w, members)
+   end
+
+   -- Does t hold nil? nil is a subtype of every type, so this stands in
+   -- for is_a wherever a nil member would otherwise pass a target that
+   -- cannot hold one.
+   local function admits_nil(self, w, t)
+      local rt = t
+      if rt.typename == "nominal" then
+         rt = self:resolve_nominal(rt)
+      end
+      return rt.typename == "nil" or rt.typename == "any" or
+      rt.typename == "unknown" or rt.typename == "typevar" or
+      without_nil(self, w, rt, false) ~= nil
+   end
+
+   function TypeChecker:arraytype_from_tuple(w, tupletype)
+--- end

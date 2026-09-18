@@ -94,6 +94,21 @@ pub fn build(b: *std.Build) void {
     const tl = patched(b, applier, "tl");
     const miniz = patched(b, applier, "miniz");
 
+    // The patched copies land under o/vendor, which is where the boot
+    // bridge reads the Teal compiler from.
+    const vendored = b.step("vendor", "write the patched vendor trees");
+    for ([_]struct { []const u8, std.Build.LazyPath }{
+        .{ "lua", lua },   .{ "sqlite", sqlite },
+        .{ "tl", tl },     .{ "miniz", miniz },
+    }) |pair| {
+        const install = b.addInstallDirectory(.{
+            .source_dir = pair[1],
+            .install_dir = .prefix,
+            .install_subdir = b.fmt("vendor/{s}", .{pair[0]}),
+        });
+        vendored.dependOn(&install.step);
+    }
+
     const cores = b.step("cores", "build the core for every target");
     const boot = b.step("boot", "build the host core, then bridge into Teal");
 
@@ -110,10 +125,11 @@ pub fn build(b: *std.Build) void {
             const bridge = b.addRunArtifact(exe);
             bridge.addArg("--boot");
             bridge.addDirectoryArg(b.path("."));
-            // The bridge reads the patched tl beside the tree, and every
-            // core image, so both are its inputs.
             bridge.addDirectoryArg(tl);
+            // The bridge reads every core image and writes the database
+            // beside them, so it runs after both.
             bridge.step.dependOn(cores);
+            bridge.step.dependOn(vendored);
             bridge.has_side_effects = true;
             boot.dependOn(&bridge.step);
         }
@@ -126,10 +142,33 @@ pub fn build(b: *std.Build) void {
 /// sources are read from. The dependency on the applier is expressed by
 /// consuming its output, so nothing declares an order by hand.
 fn patched(b: *std.Build, applier: *std.Build.Step.Compile, name: []const u8) std.Build.LazyPath {
+    const vendor = b.fmt("vendor/{s}", .{name});
+    const patches = b.fmt("patches/{s}", .{name});
+
     const run = b.addRunArtifact(applier);
-    run.addDirectoryArg(b.path(b.fmt("vendor/{s}", .{name})));
-    run.addDirectoryArg(b.path(b.fmt("patches/{s}", .{name})));
+    run.addDirectoryArg(b.path(vendor));
+    run.addDirectoryArg(b.path(patches));
+
+    // A directory argument names a place, not its contents. Every file
+    // under both trees is added as an input in its own right, so editing
+    // one record or one upstream file reruns the applier.
+    watchTree(b, run, vendor);
+    watchTree(b, run, patches);
+
     return run.addOutputDirectoryArg(name);
+}
+
+/// Adds every file under `rel` as an input of `run`.
+fn watchTree(b: *std.Build, run: *std.Build.Step.Run, rel: []const u8) void {
+    const io = b.graph.io;
+    var dir = b.build_root.handle.openDir(io, rel, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+    var walker = dir.walk(b.allocator) catch return;
+    defer walker.deinit();
+    while (walker.next(io) catch null) |entry| {
+        if (entry.kind != .file) continue;
+        run.addFileInput(b.path(b.pathJoin(&.{ rel, entry.path })));
+    }
 }
 
 fn core(

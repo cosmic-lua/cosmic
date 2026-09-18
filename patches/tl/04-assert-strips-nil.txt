@@ -1,0 +1,12 @@
+file: tl.lua
+note: assert's declared argument strips the nil, so assert(f()) yields the value rather than handing the nil union back
+--- find
+      assert: function<A, B>(A, ? B, ...: any): A --[[special_function]]
+
+--- replace
+      -- assert's declared argument strips the nil, so
+      -- `local db = assert(open(p))` yields A rather than handing
+      -- `A | nil` straight back.
+      assert: function<A, B>(A | nil, ? B, ...: any): A --[[special_function]]
+
+--- end

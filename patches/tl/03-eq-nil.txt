@@ -1,0 +1,33 @@
+file: tl.lua
+note: comparing a variable against nil is an exact type test, so its negation narrows
+--- find
+
+               elseif self:is_a(ub, ua) or ua.typename == "typevar" then
+                  if node.op.op == "==" and node.e1.kind == "variable" then
+                     node.known = EqFact({ var = node.e1.tk, typ = ub, w = node })
+                  end
+               elseif self:is_a(ua, ub) or ub.typename == "typevar" then
+                  if node.op.op == "==" and node.e2.kind == "variable" then
+                     node.known = EqFact({ var = node.e2.tk, typ = ua, w = node })
+                  end
+--- replace
+
+               elseif self:is_a(ub, ua) or ua.typename == "typevar" then
+                  -- Comparing a variable against nil is an exact type
+                  -- test: __eq never fires with a nil operand. So it
+                  -- carries an IsFact, whose negation narrows, rather
+                  -- than an EqFact, whose negation says nothing.
+                  if node.e1.kind == "variable" and rb.typename == "nil" then
+                     local f = IsFact({ var = node.e1.tk, typ = rb, w = node })
+                     node.known = node.op.op == "==" and f or NotFact({ f1 = f, w = node })
+                  elseif node.op.op == "==" and node.e1.kind == "variable" then
+                     node.known = EqFact({ var = node.e1.tk, typ = ub, w = node })
+                  end
+               elseif self:is_a(ua, ub) or ub.typename == "typevar" then
+                  if node.e2.kind == "variable" and ra.typename == "nil" then
+                     local f = IsFact({ var = node.e2.tk, typ = ra, w = node })
+                     node.known = node.op.op == "==" and f or NotFact({ f1 = f, w = node })
+                  elseif node.op.op == "==" and node.e2.kind == "variable" then
+                     node.known = EqFact({ var = node.e2.tk, typ = ua, w = node })
+                  end
+--- end
