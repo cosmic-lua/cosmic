@@ -19,16 +19,17 @@ static void die_unreadable(sqlite3 *db) {
               return, honest or otherwise */
 }
 
-/* Where the raw `cosmic.store` and `cosmic.sqlite` values live: never in
- * package.preload and never a name `require` resolves on its own, so
- * nothing a project's own code can `require` reaches them. `require`
- * caches whatever a loader returns under the name it was asked for, so
- * a value that must be re-checked on every access can never be that
- * cached value -- `cosmic.Store` and `cosmic.Sqlite` (the wrappers, one
- * per raw module) get theirs handed straight to their own loader
- * instead, as the `extra` argument `require` passes it. calling the
- * searcher by hand yields the same value, and that is no escalation:
- * the raw table holds nothing the wrapper does not already hand out. */
+/* Where the raw `cosmic.internal.store` and `cosmic.internal.sqlite`
+ * values live: never in package.preload and never a name `require`
+ * resolves on its own, so nothing a project's own code can `require`
+ * reaches them. `require` caches whatever a loader returns under the
+ * name it was asked for, so a value that must be re-checked on every
+ * access can never be that cached value -- `cosmic.store` and
+ * `cosmic.sqlite` (the wrappers, one per raw module) get theirs handed
+ * straight to their own loader instead, as the `extra` argument
+ * `require` passes it. calling the searcher by hand yields the same
+ * value, and that is no escalation: the raw table holds nothing the
+ * wrapper does not already hand out. */
 #define RAW_TABLE "cosmic.store.raw"
 
 /* True when `name` is a path the binary's own tree owns and the kind is
@@ -42,9 +43,9 @@ static int names_trusted_kind(const char *name, const char *kind) {
   return reserved && runnable;
 }
 
-/* The raw `cosmic.store` or `cosmic.sqlite` value, when the registry
- * holds one under `name`. Pushes it and returns 1, or pushes nothing
- * and returns 0. */
+/* The raw `cosmic.internal.store` or `cosmic.internal.sqlite` value,
+ * when the registry holds one under `name`. Pushes it and returns 1,
+ * or pushes nothing and returns 0. */
 static int raw_value(lua_State *L, const char *name) {
   lua_getfield(L, LUA_REGISTRYINDEX, RAW_TABLE);
   if (lua_isnil(L, -1)) {
@@ -126,13 +127,14 @@ static sqlite3 *database_at(lua_State *L, int list, lua_Integer index) {
  * never shadow the binary's own -- everything else stays project
  * first, which is how a project overrides nothing it does not own.
  *
- * `cosmic.store` and `cosmic.sqlite` are never rows in any database:
- * they are the raw C modules. Nothing ever resolves them by name --
- * `require` would cache the result under that name process-wide, which
- * would then answer for an untrusted caller too. Instead, loading
- * `cosmic.Store` or `cosmic.Sqlite` (the typed wrappers) from a trusted
- * position hands the matching raw value straight to that one chunk, as
- * the `extra` argument `require` always passes its loader. */
+ * `cosmic.internal.store` and `cosmic.internal.sqlite` are never rows
+ * in any database: they are the raw C modules. Nothing ever resolves
+ * them by name -- `require` would cache the result under that name
+ * process-wide, which would then answer for an untrusted caller too.
+ * Instead, loading `cosmic.store` or `cosmic.sqlite` (the typed
+ * wrappers) from a trusted position hands the matching raw value
+ * straight to that one chunk, as the `extra` argument `require` always
+ * passes its loader. */
 static int store_searcher(lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -149,10 +151,10 @@ static int store_searcher(lua_State *L) {
     int found = load_from(L, db, name, i == count, &trusted);
     if (found == 1) {
       const char *raw_name = NULL;
-      if (trusted && strcmp(name, "cosmic.Store") == 0) {
-        raw_name = "cosmic.store";
-      } else if (trusted && strcmp(name, "cosmic.Sqlite") == 0) {
-        raw_name = "cosmic.sqlite";
+      if (trusted && strcmp(name, "cosmic.store") == 0) {
+        raw_name = "cosmic.internal.store";
+      } else if (trusted && strcmp(name, "cosmic.sqlite") == 0) {
+        raw_name = "cosmic.internal.sqlite";
       }
       if (raw_name != NULL && raw_value(L, raw_name)) {
         return 2;
@@ -311,7 +313,7 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary) {
    * registry instead, where only a trusted caller through the searcher
    * above can reach it. */
   open_store_module(L);
-  cosmic_store_set_raw(L, "cosmic.store");
+  cosmic_store_set_raw(L, "cosmic.internal.store");
   return 0;
 }
 

@@ -15,14 +15,15 @@
 
 /* Installs the searcher, with `binary` as the last database searched.
  * `binary` may be NULL, which leaves the list empty until something is
- * attached. The raw `cosmic.store` value goes in the registry, never in
- * package.preload: only a caller the searcher itself trusts ever gets
- * it back. */
+ * attached. The raw `cosmic.internal.store` value goes in the registry,
+ * never in package.preload: only a caller the searcher itself trusts
+ * ever gets it back. */
 int cosmic_store_install(lua_State *L, sqlite3 *binary);
 
 /* Registers the value on top of the stack (popped) as the raw module a
- * trusted caller's `require(name)` resolves to. `name` is "cosmic.store"
- * or "cosmic.sqlite"; nothing else is ever looked up this way. */
+ * trusted caller's `require(name)` resolves to. `name` is
+ * "cosmic.internal.store" or "cosmic.internal.sqlite"; nothing else is
+ * ever looked up this way. */
 void cosmic_store_set_raw(lua_State *L, const char *name);
 
 /* Puts the raw value already registered under `name` (see

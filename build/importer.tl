@@ -1,7 +1,7 @@
 --- The tree, read by position into a database.
 ---
 --- A source's path relative to the root is its import path, so nothing
---- lists what a module is: `cosmic/Fs.tl` is `cosmic.Fs`. A `*.d.tl`
+--- lists what a module is: `cosmic/fs.tl` is `cosmic.fs`. A `*.d.tl`
 --- declares a module the core provides and holds no code, so it is read
 --- for its type and never stored.
 ---
@@ -10,10 +10,10 @@
 --- unchanged key is a stat; a changed one recompiles what depended on
 --- it.
 
-local Compress = require("cosmic.Compress")
-local Fs = require("cosmic.Fs")
-local Hash = require("cosmic.Hash")
-local Sqlite = require("cosmic.Sqlite")
+local Compress = require("cosmic.compress")
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
 local type compiler = require("build.compiler")
 

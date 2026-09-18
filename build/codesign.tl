@@ -10,7 +10,7 @@
 --- the signature. The last page is hashed over its real length rather
 --- than zero-padded.
 
-local Hash = require("cosmic.Hash")
+local Hash = require("cosmic.hash")
 
 local record codesign
 end

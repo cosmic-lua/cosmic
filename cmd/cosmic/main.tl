@@ -5,10 +5,10 @@
 --- database is the only module source at run time, so running a file
 --- and building a project are one path.
 
-local Compress = require("cosmic.Compress")
-local Fs = require("cosmic.Fs")
-local Sqlite = require("cosmic.Sqlite")
-local Store = require("cosmic.Store")
+local Compress = require("cosmic.compress")
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local importer = require("build.importer")
 local teal = require("build.teal")
 

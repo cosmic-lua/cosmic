@@ -16,15 +16,15 @@ struct replacement {
 };
 
 static const struct replacement replacements[] = {
-    {"io", "io is not available: files are cosmic.Fs, and the standard "
-           "streams are cosmic.Fs.stdout, .stderr and .stdin"},
-    {"os", "os is not available: time is cosmic.Time, the environment is "
-           "cosmic.Env, and processes are cosmic.Proc"},
-    {"debug", "debug is not available: a traceback is cosmic.Errors.trace"},
+    {"io", "io is not available: files are cosmic.fs, and the standard "
+           "streams are cosmic.fs.stdout, .stderr and .stdin"},
+    {"os", "os is not available: time is cosmic.time, the environment is "
+           "cosmic.env, and processes are cosmic.proc"},
+    {"debug", "debug is not available: a traceback is cosmic.errors.trace"},
     {"dofile", "dofile is not available: a module comes from require, and "
-               "a file's bytes come from cosmic.Fs.read"},
+               "a file's bytes come from cosmic.fs.read"},
     {"loadfile", "loadfile is not available: a module comes from require, "
-                 "and a file's bytes come from cosmic.Fs.read"},
+                 "and a file's bytes come from cosmic.fs.read"},
     {"require", NULL},
     {NULL, NULL},
 };
@@ -165,7 +165,7 @@ lua_State *cosmic_surface_open(void) {
   lua_pushcfunction(L, cosmic_open_syscalls);
   lua_setfield(L, -2, "cosmic.syscalls");
   lua_pushcfunction(L, open_errors);
-  lua_setfield(L, -2, "cosmic.errors");
+  lua_setfield(L, -2, "cosmic.internal.errors");
   lua_pop(L, 1);
 
   lua_newtable(L);

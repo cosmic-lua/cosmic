@@ -6,20 +6,21 @@
 --- yields rows, a statement run once, and a transaction that rolls back
 --- when the work inside it fails.
 
---- The raw module behind this one is never itself a name `require`
---- resolves -- see cosmic/Store.tl for why -- and arrives instead as
---- the second argument `require` passes this chunk's own loader,
---- present because this module was itself loaded, trusted, from the
---- binary's own tree. Boot mode falls back to requiring it by name,
---- which only boot's own preload answers.
-local type raw_sqlite = require("cosmic.sqlite")
+--- The raw module behind this one lives under the reserved
+--- `cosmic.internal.` namespace, which never satisfies an ordinary
+--- `require` for any caller -- see cosmic/store.tl for why -- and
+--- arrives instead as the second argument `require` passes this
+--- chunk's own loader, present because this module was itself loaded,
+--- trusted, from the binary's own tree. Boot mode falls back to
+--- requiring it by name, which only boot's own preload answers.
+local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local extra: any = select(2, ...)
 local sqlite: raw_sqlite
 if type(extra) == "table" then
   sqlite = extra as raw_sqlite
 else
-  sqlite = require("cosmic.sqlite")
+  sqlite = require("cosmic.internal.sqlite")
 end
 
 local record Sqlite

@@ -5,8 +5,8 @@
 --- a searcher that compiles a `.tl` straight from it; everything from
 --- here is ordinary cosmic code.
 
-local Fs = require("cosmic.Fs")
-local Time = require("cosmic.Time")
+local Fs = require("cosmic.fs")
+local Time = require("cosmic.time")
 local attach = require("build.attach")
 local compiler = require("build.compiler")
 local importer = require("build.importer")

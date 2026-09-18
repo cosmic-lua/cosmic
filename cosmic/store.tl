@@ -1,8 +1,9 @@
 --- The module store: the databases `require` reads, and the few ways in
 --- that `require` does not cover.
 ---
---- The raw module behind this one is never itself a name `require`
---- resolves: `require` caches a result under the name it was asked
+--- The raw module behind this one lives under `cosmic.internal.`, a
+--- reserved namespace that never satisfies an ordinary `require` for
+--- any caller: `require` caches a result under the name it was asked
 --- for, and a value that must be checked on every access can never be
 --- that cached value, or the first caller's access would answer for
 --- every caller after it. The searcher hands it here directly instead,
@@ -11,14 +12,14 @@
 --- binary's own tree. Boot mode, before any such check exists, falls
 --- back to requiring it by name, which only boot's own preload answers.
 
-local type raw_store = require("cosmic.store")
+local type raw_store = require("cosmic.internal.store")
 
 local extra: any = select(2, ...)
 local store: raw_store
 if type(extra) == "table" then
   store = extra as raw_store
 else
-  store = require("cosmic.store")
+  store = require("cosmic.internal.store")
 end
 
 local record Store

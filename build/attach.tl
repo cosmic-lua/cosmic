@@ -6,7 +6,7 @@
 --- before the code signature, because arm64 macOS refuses a binary with
 --- bytes after its signature. Nothing else in the file moves.
 
-local Fs = require("cosmic.Fs")
+local Fs = require("cosmic.fs")
 local codesign = require("build.codesign")
 local macho = require("build.macho")
 

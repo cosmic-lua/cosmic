@@ -4,7 +4,7 @@
 --- `boolean, string` for an effect. This is for the place that reports
 --- one to a person, where the message alone is not enough.
 
-local errors = require("cosmic.errors")
+local errors = require("cosmic.internal.errors")
 
 local record Errors
 end

@@ -10,7 +10,8 @@
 
 #include "lua.h"
 
-/* Opens the table as the `cosmic.sqlite` module. */
+/* Opens the table that backs the `cosmic.sqlite` wrapper, registered
+ * under the raw `cosmic.internal.sqlite` name. */
 int cosmic_open_sqlite(lua_State *L);
 
 #endif

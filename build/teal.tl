@@ -8,9 +8,9 @@
 --- The compiler itself is unpatched and never observes that the names
 --- are gone.
 
-local Env = require("cosmic.Env")
-local Fs = require("cosmic.Fs")
-local Store = require("cosmic.Store")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Store = require("cosmic.store")
 local type compiler = require("build.compiler")
 
 local record teal
