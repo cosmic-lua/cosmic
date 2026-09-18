@@ -1,0 +1,95 @@
+#!/bin/sh
+# Fetch, verify and run the one pinned zig. The pin is bin/zig.pin: a
+# version line, then one line per host naming the sha256 of that host's
+# release tarball. Nothing else in the tree comes from the network.
+#
+# The tarball is cached outside the tree, under $XDG_CACHE_HOME/cosmic/zig
+# (default ~/.cache/cosmic/zig), so a clean `o/` never costs a download.
+# COSMIC_ZIG names an already-installed zig binary and skips all of this.
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+pin=$root/bin/zig.pin
+
+die() {
+  printf 'bin/zig: %s\n' "$1" >&2
+  exit 1
+}
+
+[ -f "$pin" ] || die "no pin at $pin"
+
+version=$(awk '$1 == "version" { print $2; exit }' "$pin")
+[ -n "$version" ] || die "$pin names no version"
+
+case $(uname -s) in
+  Linux) os=linux ;;
+  Darwin) os=macos ;;
+  *) die "unsupported host $(uname -s); cosmic builds on Linux and macOS" ;;
+esac
+case $(uname -m) in
+  x86_64 | amd64) arch=x86_64 ;;
+  aarch64 | arm64) arch=aarch64 ;;
+  *) die "unsupported host cpu $(uname -m)" ;;
+esac
+host=$arch-$os
+
+want=$(awk -v h="$host" '$1 == h { print $2; exit }' "$pin")
+[ -n "$want" ] || die "$pin names no sha256 for $host"
+
+if [ -n "${COSMIC_ZIG:-}" ]; then
+  exec "$COSMIC_ZIG" "$@"
+fi
+
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig
+install=$cache/$version-$host
+zig=$install/zig
+
+if [ ! -x "$zig" ]; then
+  name=zig-$host-$version.tar.xz
+  url=https://ziglang.org/download/$version/$name
+  mkdir -p "$cache"
+  work=$cache/.work.$$
+  rm -rf "$work"
+  mkdir -p "$work"
+  trap 'rm -rf "$work"' EXIT INT TERM
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$work/$name" "$url" || die "download failed: $url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$work/$name" "$url" || die "download failed: $url"
+  else
+    die "need curl or wget to fetch $url"
+  fi
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    got=$(sha256sum "$work/$name" | cut -d' ' -f1)
+  elif command -v shasum >/dev/null 2>&1; then
+    got=$(shasum -a 256 "$work/$name" | cut -d' ' -f1)
+  else
+    die "need sha256sum or shasum to verify $name"
+  fi
+
+  if [ "$got" != "$want" ]; then
+    die "$name has sha256 $got; the pin says $want"
+  fi
+
+  tar -xJf "$work/$name" -C "$work"
+  [ -x "$work/zig-$host-$version/zig" ] || die "$name holds no zig binary"
+  # Another process may have won the race; its copy is the same bytes.
+  mv "$work/zig-$host-$version" "$install" 2>/dev/null || true
+  [ -x "$zig" ] || die "could not install zig into $install"
+  rm -rf "$work"
+  trap - EXIT INT TERM
+fi
+
+# Keep both zig caches under o/ so the tree has one thing to delete.
+if [ "${1:-}" = "build" ]; then
+  shift
+  exec "$zig" build \
+    --cache-dir "$root/o/zig-cache" \
+    --global-cache-dir "$root/o/zig-global" \
+    --prefix "$root/o" \
+    "$@"
+fi
+
+exec "$zig" "$@"
