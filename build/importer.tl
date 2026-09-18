@@ -151,6 +151,15 @@ local function collect(root: string, self_tree: boolean): {Module} | nil, string
       }
     end
   end
+  local by_import_path: {string:string} = {}
+  for _, m in ipairs(out) do
+    local earlier = by_import_path[m.path]
+    if earlier ~= nil then
+      return nil, earlier .. " and " .. m.file .. " both compile to import " ..
+        "path '" .. m.path .. "'; rename one"
+    end
+    by_import_path[m.path] = m.file
+  end
   table.sort(out, function(a: Module, b: Module): boolean
     return a.path < b.path
   end)
