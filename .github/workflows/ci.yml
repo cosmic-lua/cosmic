@@ -26,6 +26,9 @@ jobs:
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
 
+      - name: run every test the tree defines, including doctests
+        run: o/bin/cosmic test
+
       - name: what the build produced
         run: |
           ls -l o/bin o/cosmic.db
