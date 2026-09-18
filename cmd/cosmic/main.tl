@@ -126,11 +126,26 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
+  local result, compile_trouble = importer.compile(root, built, env, boot_hash)
+  if result == nil then
+    complain("cosmic: " .. compile_trouble)
+    return 1
+  end
   local written, write_trouble =
-    writer.write(root, database, built, env, boot_hash, images, teal_source)
+    writer.write_result(database, result, images, teal_source)
   if not written then
     complain("cosmic: " .. write_trouble)
     return 1
+  end
+
+  -- A test file elsewhere in the tree that `importer.compile` refused
+  -- (the return-collision case `positions.has_top_level_return` and
+  -- `with_test_tail` guard against) is silently dropped from the
+  -- database otherwise; the file the caller actually asked to run
+  -- still compiled fine and still runs below, so this is a warning,
+  -- never a reason to fail this invocation.
+  for _, line in ipairs(result.refused) do
+    complain("cosmic: warning: " .. line)
   end
 
   local attached, attach_trouble = Store.attach(database)
