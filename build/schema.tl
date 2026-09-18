@@ -20,6 +20,7 @@ schema.tables = {
                           source TEXT NOT NULL,
                           lua TEXT NOT NULL,
                           bytecode BLOB NOT NULL,
+                          tests TEXT NOT NULL,
                           decl TEXT) WITHOUT ROWID]],
 
   [[CREATE TABLE imports (path TEXT NOT NULL,

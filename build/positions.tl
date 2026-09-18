@@ -22,10 +22,26 @@ local record positions
     source: string
     source_hash: string
     requires: {string}
+    tests: {string}
     key: string
     lua: string
     bytecode: string
   end
+end
+
+--- The name of every top-level `local function test_*` in `source`, in
+--- the order they appear. A name only counts when `local function
+--- test_` starts at column 0: an indented one is a helper some other
+--- function declares for itself, not a test the runner should call.
+function positions.discover_tests(source: string): {string}
+  local names: {string} = {}
+  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+    local name = line:match("^local%s+function%s+(test_[%w_]*)%s*%(")
+    if name ~= nil then
+      names[#names + 1] = name
+    end
+  end
+  return names
 end
 
 --- The file's own name, with no directory in front of it.
