@@ -171,10 +171,11 @@ static const luaL_Reg table[] = {
     ENTRY(mkdir),    ENTRY(rmdir),         ENTRY(unlink),
     ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),
     ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
-    ENTRY(executable), ENTRY(getenv),      ENTRY(environ),
-    ENTRY(exit),     ENTRY(getpid),        ENTRY(clock_gettime),
-    ENTRY(nanosleep), ENTRY(isatty),       ENTRY(sha256),
-    ENTRY(deflate),  ENTRY(inflate),       {NULL, NULL},
+    ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
+    ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
+    ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
+    ENTRY(sha256),   ENTRY(deflate),       ENTRY(inflate),
+    {NULL, NULL},
 };
 
 struct constant {

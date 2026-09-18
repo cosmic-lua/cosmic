@@ -216,6 +216,17 @@ COSMIC_SYSCALL(chdir, 1);
 COSMIC_SYSCALL(realpath, 1);
 
 /*
+ * --- Creates a fresh, empty directory from a template ending in six
+ * --- literal `X` characters, which are replaced with characters that
+ * --- make the name unique.
+ * ---@param template string the path to create, ending in "XXXXXX"
+ * ---@return string|nil path the created directory, or nil on failure
+ * ---@return string error what went wrong, when path is nil
+ * ---@return integer errno the error number, when path is nil
+ */
+COSMIC_SYSCALL(mkdtemp, 1);
+
+/*
  * --- Returns the path of the running executable.
  * ---@return string|nil path the executable's path, or nil on failure
  * ---@return string error what went wrong, when path is nil

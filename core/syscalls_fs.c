@@ -1,11 +1,18 @@
 /* The syscall table's file and directory half. */
 
+#if defined(__APPLE__)
+/* Darwin hides mkdtemp, a POSIX call, once _XOPEN_SOURCE narrows the
+ * headers below __DARWIN_C_FULL; asking for the full level back is what
+ * this system calls opting back in, not an extension of its own. */
+#define _DARWIN_C_SOURCE
+#endif
 #define _XOPEN_SOURCE 700
 
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -13,12 +20,12 @@
 #include "lauxlib.h"
 #include "syscalls.h"
 
-/* The one place the two systems name the same field differently. Under a
- * strict POSIX feature level macOS spells the pair out, and Linux keeps
- * the timespec. */
+/* The one place the two systems name the same field differently. macOS
+ * keeps a timespec once _DARWIN_C_SOURCE asks for the full header level
+ * mkdtemp also needs, and Linux always did. */
 #if defined(__APPLE__)
-#define COSMIC_MTIME_SECONDS(st) ((st).st_mtime)
-#define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtimensec)
+#define COSMIC_MTIME_SECONDS(st) ((st).st_mtimespec.tv_sec)
+#define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtimespec.tv_nsec)
 #else
 #define COSMIC_MTIME_SECONDS(st) ((st).st_mtim.tv_sec)
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtim.tv_nsec)
@@ -284,6 +291,21 @@ COSMIC_SYSCALL(realpath, 1) {
   const char *path = luaL_checkstring(L, 1);
   char room[PATH_MAX];
   if (realpath(path, room) == NULL) {
+    return cosmic_fail(L, errno);
+  }
+  lua_pushstring(L, room);
+  return 1;
+}
+
+COSMIC_SYSCALL(mkdtemp, 1) {
+  size_t len;
+  const char *template = luaL_checklstring(L, 1, &len);
+  if (len >= PATH_MAX) {
+    return luaL_argerror(L, 1, "template is too long");
+  }
+  char room[PATH_MAX];
+  memcpy(room, template, len + 1);
+  if (mkdtemp(room) == NULL) {
     return cosmic_fail(L, errno);
   }
   lua_pushstring(L, room);

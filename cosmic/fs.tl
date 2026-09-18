@@ -5,6 +5,7 @@
 --- `T | nil, string`; a call that only has an effect returns
 --- `boolean, string`.
 
+local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
 local record Fs
@@ -116,6 +117,19 @@ function Fs.mkdirs(path: string): boolean, string
     return false, path .. ": " .. why
   end
   return true, ""
+end
+
+--- A fresh, empty directory under the system temp directory, named with
+--- `prefix` and a random suffix. `TMPDIR` picks the temp directory when
+--- it is set, and `/tmp` otherwise.
+function Fs.mkdtemp(prefix: string): string | nil, string
+  local base = Env.get_or("TMPDIR", "/tmp")
+  local template = base .. "/" .. prefix .. "XXXXXX"
+  local path, trouble = sys.mkdtemp(template)
+  if path == nil then
+    return nil, template .. ": " .. trouble
+  end
+  return path
 end
 
 --- Removes a name. A name that is already gone is not a failure.
