@@ -36,8 +36,9 @@ these argues with the principle, not with the reviewer.
    bytes, is paid on every run. growth is named in the size report,
    never silent.
 2. **position is the manifest.** `*_test.tl` is a test, `cmd/<name>/`
-   is a binary, a leading `_` is internal, the root is the module
-   root. no list to maintain, none to go stale.
+   is a binary, a name that starts with a capital letter is public
+   and every other name is private to its tree, the root is the
+   module root. no list to maintain, none to go stale.
 3. **honest returns.** `T | nil, string` for a value, `boolean,
    string` for an effect, two slots and nothing in a third, a
    structured error record when the failure has shape. a throw or
@@ -143,6 +144,25 @@ implementation exists: JSON both directions and HTTP/1.1 framing
 start in C on that rule. the benchmark harness, not taste, moves a
 module across the line in either direction.
 
+### the lua surface
+
+the global environment holds Lua's pure libraries and nothing that
+reaches outside the process: `string`, `table`, `math`, `utf8`,
+`coroutine`, and the base functions minus `dofile` and `loadfile`.
+`package` keeps `loaded`, `preload`, and `searchers`, and the one
+searcher reads the database; `path`, `cpath`, `loadlib`, and
+`searchpath` do not exist. `io`, `os`, and `debug` are not globals.
+files, environment, time, and processes are `cosmic.Fs`,
+`cosmic.Env`, `cosmic.Time`, and `cosmic.Proc`, all over the syscall
+table, so the same call behaves the same on both OSes and the
+sandbox has one door. `print` writes through the syscall table.
+`debug` is reachable only by the test runner and the coverage
+collector through a private binding. a name that is missing errors
+with the module that replaces it.
+
+the vendored `tl.lua` uses six `io` and `os` functions. the importer
+loads it in an environment that supplies those six over the syscall
+table; the compiler is not patched for it.
 ### the database
 
 `require` reads the database and nothing else; a `.tl` on disk is
@@ -182,3 +202,5 @@ change. mutable state lives in an ordinary file. a program that
 ships a dataset it updates copies it out once with `VACUUM INTO`, or
 attaches the embedded database read-only beside a writable one and
 queries across both.
+- **the public namespace**: whether public modules are
+  `cosmic.<Name>` under `cosmic/` or `<Name>` at the root.
