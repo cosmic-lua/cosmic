@@ -357,3 +357,27 @@ carries a tradeoff, a decision record later.
     every verb takes paths to narrow it, ends in a verdict line and an
     exit code, and `cosmic help <verb>` is the whole discovery
     surface. no other stock-interpreter flags, no argv[0] personality.
+12. **an equivalent sandbox core on both OSes, Linux extensions
+    beside it, a conformance suite proving the equivalence.** the
+    sandbox is an opt-in library and the toolchain's own fence;
+    default-deny for user scripts is not promised. the policy model
+    is the intersection of Landlock plus seccomp and Seatbelt: read,
+    write, and exec under paths; network none, loopback, or all; TCP
+    connect and bind by port; spawn allowed or denied; inherited by
+    children and never liftable. per-host network rules are an
+    egress proxy on loopback on both OSes, the process allowed only
+    that port. extensions (seccomp syscall lists, a private network
+    or mount namespace, abstract socket scoping) may only deny what
+    the core allows, never allow what the core denies, and macOS
+    reports them `skipped` by name. every section reports `full`,
+    `degraded`, or `skipped`, and enforcement availability is a
+    property of the host even on Linux: a Landlock ABI below 3 cannot
+    restrict truncate, gVisor has no Landlock at all. one conformance
+    matrix (read inside and outside, create, unlink, rename across
+    the boundary, symlink escape, truncate, allowed and denied ports,
+    bind, spawn) runs under the same declared policy on both CI
+    lanes and fails on any cell that differs. vendored DNS keeps Mach
+    services out of the macOS profile. `cosmic build` and `cosmic
+    test` fence themselves with the core only, so they behave
+    identically on both OSes by construction; CI's profile requires
+    the fence, a laptop reports it.
