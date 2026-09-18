@@ -533,38 +533,5 @@ target:
 - **later, if pulled**: namespaces and egress proxying beyond what
   the sandbox core needs, `Shm`, `Instrument`, `Html`, `Css`, `Js`.
 
-## sequencing
-
-1. **hello from the database.** zig builds the applier, patches,
-   builds the core; the core runs `tl.lua` to compile the importer;
-   the importer writes `o/cosmic.db` with one module; the build
-   attaches it; `cosmic hello.tl` runs on all three targets from
-   byte-identical databases. proves boot, store, `require`, attach
-   on ELF and Mach-O, cross-build, reproducibility. the review reads
-   two numbers: the per-component size of one core image, and the
-   wall clock from editing one `.tl` to seeing it in `require`,
-   since the database-only rule stakes the developer loop on it.
-2. **self-check.** `cosmic check` and `cosmic test` gate cosmic's
-   own tree, incrementally, under the foreclosed-cast checker, with
-   records in the database and the stale-tool re-boot exercised.
-   gated on the narrowing patches landing. proves the type layer,
-   the build's incrementality, and that the tree can gate itself.
-   review.
-3. **the core tier**, then the second, each module earning its place.
-4. **release**, when three things hold: cosmic builds and tests the
-   work board, gitboard, from its own tree; the agent evaluation
-   suite scores at or above its recorded baseline; the release job
-   produces all three targets and the repro lane proves them
-   byte-identical.
-
-## open
-
-- **host language and toolchain**: Rust as the host was weighed and
-  deferred; zig as the language was set aside. revisit against the
-  design as a whole.
-- **FTS5**: 222 KB per core image, three images per binary; decided
-  against the size report after milestone 1.
-- **the public namespace**: whether public modules are
-  `cosmic.<Name>` under `cosmic/` or `<Name>` at the root.
-- **an address-sanitized lane** on a clang outside the pinned
-  toolchain, once the C core is large enough to want it.
+what comes after milestone 1, and the open questions that stand in
+the way, are in [roadmap.md](roadmap.md).
