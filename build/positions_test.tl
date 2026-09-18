@@ -1,16 +1,42 @@
+local teal = require("build.teal")
 local positions = require("build.positions")
 
---- Joins lines the way a real source file would read, without writing
---- any of them starting at column 0 in THIS file: a long-bracket
---- string holding literal `local function test_*` lines would also be
---- found by this very file's own discovery pass, since it is a plain
---- text scan with no notion of what a string literal is.
+local built, load_trouble = teal.load()
+if built == nil then
+  error("could not load the compiler: " .. tostring(load_trouble))
+end
+
+--- Joins lines the way a real source file would read. Fixtures are
+--- built from a table of plain string literals, assembled at run time,
+--- rather than as a long-bracket literal sitting directly in THIS
+--- file's own source: this file is itself a `_test.tl` module the real
+--- importer discovers and parses, and a fixture string embedded here
+--- as literal `[[...]]` text would put its own `local function
+--- test_*` sample right into this file's real AST for the discovery
+--- pass under test to find -- exactly the ambiguity `discover_tests`
+--- no longer has to resolve, since a string built this way is never
+--- anything but a "string" node's `conststr`, whichever implementation
+--- reads it.
 local function lines(parts: {string}): string
   return table.concat(parts, "\n") .. "\n"
 end
 
---- A `local function test_*` at column 0 is discovered, in the order
---- it appears.
+--- `discover_tests` on `source`, asserting the parse itself succeeded.
+local function discover(source: string): {string}
+  local found, err = positions.discover_tests(built, source, "fixture.tl")
+  assert(found ~= nil, "discover_tests failed: " .. tostring(err))
+  return found
+end
+
+--- `has_top_level_return` on `source`, asserting the parse succeeded.
+local function has_return(source: string): boolean
+  local found, err = positions.has_top_level_return(built, source, "fixture.tl")
+  assert(found ~= nil, "has_top_level_return failed: " .. tostring(err))
+  return found
+end
+
+--- A `local function test_*` at the chunk's own top level is
+--- discovered, in the order it appears.
 local function test_discovers_top_level_tests()
   local source = lines({
     "local function test_one()",
@@ -19,7 +45,7 @@ local function test_discovers_top_level_tests()
     "local function test_two()",
     "end",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 2, "expected 2, got " .. #found)
   assert(found[1] == "test_one")
   assert(found[2] == "test_two")
@@ -34,14 +60,15 @@ local function test_ignores_non_test_functions()
     "local function test_uses_helper()",
     "end",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 1, "expected 1, got " .. #found)
   assert(found[1] == "test_uses_helper")
 end
 
---- A `local function test_*` declared inside another function is
---- indented, not at column 0, and is not a test some other function
---- happens to declare for itself.
+--- A `local function test_*` declared inside another function is a
+--- child of that OTHER function's own body, never a direct element of
+--- the chunk's own top-level statement array, and is not a test some
+--- other function happens to declare for itself.
 local function test_ignores_indented_functions()
   local source = lines({
     "local function outer()",
@@ -53,7 +80,7 @@ local function test_ignores_indented_functions()
     "local function test_top()",
     "end",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 1, "expected 1, got " .. #found)
   assert(found[1] == "test_top")
 end
@@ -61,13 +88,15 @@ end
 --- A module with no `local function test_*` at all discovers nothing.
 local function test_discovers_nothing_when_there_is_no_test()
   local source = lines({ "local function helper()", "end" })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- A source SAMPLE held as a `[[...]]` long-bracket string can put its
---- own `local function test_*` at column 0 inside the bracket; that is
---- fixture text, not a real test of the file it sits in.
+--- A source SAMPLE held as a `[[...]]` long-bracket string parses to a
+--- single "string" node, never a chunk-level statement of its own kind
+--- -- its own `local function test_something()` text is never a
+--- candidate for `discover_tests` to find at all, structurally, rather
+--- than excluded by tracking where the bracket opens and closes.
 local function test_ignores_a_fake_test_inside_a_plain_long_bracket()
   local source = lines({
     "local sample = [[",
@@ -76,12 +105,11 @@ local function test_ignores_a_fake_test_inside_a_plain_long_bracket()
     "end",
     "]]",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- The same shape, but the bracket carries one `=` sign, `[=[...]=]`,
---- which only a matching `]=]` closes.
+--- The same shape, but the bracket carries one `=` sign, `[=[...]=]`.
 local function test_ignores_a_fake_test_inside_a_leveled_long_bracket()
   local source = lines({
     "local sample = [=[",
@@ -89,12 +117,13 @@ local function test_ignores_a_fake_test_inside_a_leveled_long_bracket()
     "end",
     "]=]",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- A long COMMENT has the identical column-0-inside risk as a
---- long-bracket string and needs the same skip.
+--- A long COMMENT parses to no statement at all -- tl's lexer consumes
+--- it as a comment attached to the following token, so it never
+--- reaches the parser as source text in the first place.
 local function test_ignores_a_fake_test_inside_a_long_comment()
   local source = lines({
     "--[[",
@@ -102,12 +131,12 @@ local function test_ignores_a_fake_test_inside_a_long_comment()
     "end",
     "]]",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 0, "expected 0, got " .. #found)
 end
 
---- Scanning resumes after a skipped bracket region: a real test that
---- follows one in the same file is still discovered.
+--- Discovery is not fooled by a string sample that precedes a real
+--- test: a real test that follows one in the same file is still found.
 local function test_discovers_a_real_test_after_a_bracket_region()
   local source = lines({
     "local sample = [[",
@@ -118,13 +147,13 @@ local function test_discovers_a_real_test_after_a_bracket_region()
     "local function test_real()",
     "end",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 1, "expected 1, got " .. #found)
   assert(found[1] == "test_real")
 end
 
---- A bracket region does not retroactively un-discover a real test
---- that came before it in the same file.
+--- A string sample does not retroactively un-discover a real test that
+--- came before it in the same file.
 local function test_discovers_a_real_test_before_a_bracket_region()
   local source = lines({
     "local function test_real()",
@@ -135,15 +164,14 @@ local function test_discovers_a_real_test_before_a_bracket_region()
     "end",
     "]]",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 1, "expected 1, got " .. #found)
   assert(found[1] == "test_real")
 end
 
 --- An ordinary quoted string holding the same text as a plain literal,
---- on one line, was never actually a problem, since the pattern is
---- anchored at column 0 and a quote character sits before it; confirm
---- this still is not one.
+--- on one line, parses to a "string" node either way; confirm this
+--- still is not one.
 local function test_ignores_a_quoted_string_naming_a_test()
   local source = lines({
     'local x = "local function test_x()"',
@@ -151,7 +179,7 @@ local function test_ignores_a_quoted_string_naming_a_test()
     "local function test_real()",
     "end",
   })
-  local found = positions.discover_tests(source)
+  local found = discover(source)
   assert(#found == 1, "expected 1, got " .. #found)
   assert(found[1] == "test_real")
 end
@@ -160,7 +188,7 @@ end
 --- generated tail.
 local function test_has_top_level_return_false_when_absent()
   local source = lines({ "local function helper()", "end" })
-  assert(not positions.has_top_level_return(source))
+  assert(not has_return(source))
 end
 
 --- A genuine top-level `return`, the file's own last statement.
@@ -171,47 +199,52 @@ local function test_has_top_level_return_true_for_a_real_one()
     "",
     "return 0",
   })
-  assert(positions.has_top_level_return(source))
+  assert(has_return(source))
 end
 
---- A `return` nested inside a function body is indented, not at
---- column 0, and is not the file's own chunk-level return.
+--- A `return` nested inside a function body is a child of that
+--- function's own "statements" node, never a direct element of the
+--- chunk's own top-level array.
 local function test_has_top_level_return_false_when_only_nested()
   local source = lines({
     "local function helper()",
     "  return 1",
     "end",
   })
-  assert(not positions.has_top_level_return(source))
+  assert(not has_return(source))
 end
 
---- A `return` inside a long-bracket sample does not count either.
+--- A `return` inside a long-bracket sample parses as part of a
+--- "string" node's own text, not as a "return" statement.
 local function test_has_top_level_return_false_inside_a_bracket()
   local source = lines({
     "local sample = [[",
     "return 0",
     "]]",
   })
-  assert(not positions.has_top_level_return(source))
+  assert(not has_return(source))
 end
 
---- A table constructor return is still a genuine top-level return.
+--- A table constructor return is still a genuine top-level return:
+--- `has_top_level_return` checks the statement's own `kind`, so what
+--- the return's own expression happens to be shaped like never
+--- matters, unlike a text pattern that has to special-case it.
 local function test_has_top_level_return_true_for_a_table_constructor()
-  local source = lines({ "return {" })
-  assert(positions.has_top_level_return(source))
+  local source = lines({ "return { 1, 2, 3 }" })
+  assert(has_return(source))
 end
 
 --- A `return` immediately followed by a comment, with no value, is
 --- still the chunk's genuine top-level return.
 local function test_has_top_level_return_true_with_a_trailing_comment()
   local source = lines({ "return -- nothing to give back" })
-  assert(positions.has_top_level_return(source))
+  assert(has_return(source))
 end
 
 --- An ordinary snake_case identifier assignment that happens to start
---- with the six letters `return` is not a `return` statement at all --
---- this project's own naming convention (D20) is full of names shaped
---- exactly like this one.
+--- with the six letters `return` parses to an `"assignment"` node, not
+--- `"return"` -- there is no shared text prefix for a checker to get
+--- wrong, unlike `%f[^%w_]` over raw source.
 local function test_has_top_level_return_false_for_return_prefixed_assignment()
   local source = lines({
     "local function test_one()",
@@ -219,21 +252,20 @@ local function test_has_top_level_return_false_for_return_prefixed_assignment()
     "",
     "return_code = 1",
   })
-  assert(not positions.has_top_level_return(source))
+  assert(not has_return(source))
 end
 
---- A function call whose name starts with `return_` reads the same way
---- at column 0: `return_value(` also starts with the six letters
---- `return_`, but it is a call, never a `return` statement.
+--- A function call whose name starts with `return_` parses to an
+--- `"op"` (call) node, never `"return"`.
 local function test_has_top_level_return_false_for_return_prefixed_call()
   local source = lines({ "return_value(x)" })
-  assert(not positions.has_top_level_return(source))
+  assert(not has_return(source))
 end
 
 --- `return(x)`, a genuine return of a parenthesized expression with no
---- space before the `(`, must still be flagged: the fix for the two
---- cases above must not overcorrect and swallow this legitimate one.
+--- space before the `(`, must still be flagged: the two cases above
+--- must not overcorrect and swallow this legitimate one.
 local function test_has_top_level_return_true_for_a_parenthesized_return()
   local source = lines({ "return(x)" })
-  assert(positions.has_top_level_return(source))
+  assert(has_return(source))
 end

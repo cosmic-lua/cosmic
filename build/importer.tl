@@ -120,7 +120,10 @@ end
 --- root, so a file's place in it is its import path.
 --- @param self_tree whether `root` is cosmic's own tree, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
-local function collect(root: string, self_tree: boolean): {Module} | nil, string
+--- @param built the compiler, loaded and ready -- needed to discover a
+---   `kind = "test"` module's own tests, which reads its real AST
+local function collect(root: string, self_tree: boolean,
+                       built: compiler): {Module} | nil, string
   if not self_tree and Fs.is_dir(root .. "/cosmic") then
     return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
   end
@@ -140,6 +143,14 @@ local function collect(root: string, self_tree: boolean): {Module} | nil, string
         return nil, failure
       end
       local kind = kind_of(file)
+      local tests: {string} = {}
+      if kind == "test" then
+        local found, test_trouble = positions.discover_tests(built, source, file)
+        if found == nil then
+          return nil, file .. ": " .. test_trouble
+        end
+        tests = found
+      end
       out[#out + 1] = {
         path = import_path(file),
         file = file,
@@ -147,7 +158,7 @@ local function collect(root: string, self_tree: boolean): {Module} | nil, string
         source = source,
         source_hash = Hash.hex_sha256(source),
         requires = requires_of(source),
-        tests = kind == "test" and positions.discover_tests(source) or {},
+        tests = tests,
         key = "",
         lua = "",
         bytecode = "",
@@ -278,8 +289,12 @@ end
 --- `return` as a block's last statement, so the two together always
 --- produce a parse error the moment both are true -- this is checked
 --- before that ever happens.
-local function collides_with_test_tail(m: Module): boolean
-  return #m.tests > 0 and positions.has_top_level_return(m.source)
+--- @param built the compiler, loaded and ready
+local function collides_with_test_tail(built: compiler, m: Module): boolean | nil, string
+  if #m.tests == 0 then
+    return false, ""
+  end
+  return positions.has_top_level_return(built, m.source, m.file)
 end
 
 local function complain(file: string, result: compiler.Result): string
@@ -300,7 +315,7 @@ end
 --- @param boot_hash what the tool doing the compiling hashes to
 function importer.compile(root: string, built: compiler, env: compiler.Env,
                           boot_hash: string): importer.Result | nil, string
-  local modules, trouble = collect(root, importer.is_own_tree(root))
+  local modules, trouble = collect(root, importer.is_own_tree(root), built)
   if modules == nil then
     return nil, trouble
   end
@@ -329,7 +344,15 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
       m.source_hash .. "\n" .. table.concat(closure, "\n") .. "\n" .. boot_hash)
     keys[m.path] = m.key
 
-    if m.kind == "test" and collides_with_test_tail(m) then
+    local colliding = false
+    if m.kind == "test" then
+      local collides, collide_trouble = collides_with_test_tail(built, m)
+      if collides == nil then
+        return nil, m.file .. ": " .. collide_trouble
+      end
+      colliding = collides
+    end
+    if colliding then
       -- Refused on its own, narrowly: every other module still
       -- compiles below, unaffected. Compiling this one anyway would
       -- only surface as `<eof> expected near 'return'` once

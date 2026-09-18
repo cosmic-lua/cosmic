@@ -14,6 +14,9 @@
 --- check can be a plain function of a module list without the two
 --- files requiring one another.
 
+local type compiler = require("build.compiler")
+local ast = require("build.ast")
+
 local record positions
   record Module
     path: string
@@ -29,87 +32,69 @@ local record positions
   end
 end
 
---- Every line of `source`, in order, but only the ones that sit
---- outside a long-bracket string or a long comment AT THEIR OWN START.
---- A long bracket can open and close entirely within one line, any
---- number of times, and none of that changes whether the NEXT line's
---- column 0 sits inside one, which is the only thing a column-0
---- anchored scan for a real declaration ever needs to know. Lua itself
---- guarantees a bracket's content can never contain its own closing
---- delimiter (a sample needing `]]` in its text has to use `[=[...]=]`
---- instead), so the first closing delimiter found at a level really is
---- the one that ends it -- no lexer is needed to tell a false close
---- from a real one.
-local function top_level_lines(source: string): {string}
-  local out: {string} = {}
-  local level: integer | nil = nil
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    if level == nil then
-      out[#out + 1] = line
-    end
-    local pos = 1
-    while true do
-      if level == nil then
-        local _start, stop, equals = line:find("%[(=*)%[", pos)
-        if stop == nil then
-          break
-        end
-        level = #equals
-        pos = stop + 1
-      else
-        local _start, stop = line:find("%]" .. ("="):rep(level) .. "%]", pos)
-        if stop == nil then
-          break
-        end
-        level = nil
-        pos = stop + 1
+--- The name of every top-level `local function test_*` in `source`, in
+--- the order they appear: every direct element of the parsed chunk's
+--- own top-level statement array (never a recursive walk) whose kind
+--- is `"local_function"` and whose declared name matches `^test_`. An
+--- indented one lives inside some OTHER statement's own body, not the
+--- chunk's own array part, so it is never reached here; a source
+--- SAMPLE held as a string literal is never parsed as a statement at
+--- all, so there is no bracket-tracking left to get wrong.
+--- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param source string
+--- @param name string Filename for parse diagnostics
+--- @return {string} | nil Every top-level test name, in source order
+--- @return string Error message when `source` fails to lex or parse
+function positions.discover_tests(built: compiler, source: string,
+                                  name: string): {string} | nil, string
+  local parsed, trouble = ast.parse(built, source, name)
+  if parsed == nil then
+    return nil, trouble
+  end
+  local names: {string} = {}
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_function" then
+      local fn_name = stmt.name
+      local tk = fn_name ~= nil and fn_name.tk or nil
+      if tk ~= nil and tk:match("^test_") ~= nil then
+        names[#names + 1] = tk
       end
     end
   end
-  return out
-end
-
---- The name of every top-level `local function test_*` in `source`, in
---- the order they appear. A name only counts when `local function
---- test_` starts at column 0 of a line outside any long-bracket string
---- or long comment: an indented one is a helper some other function
---- declares for itself, not a test the runner should call, and one
---- inside a bracket is a source SAMPLE a test embeds as fixture text,
---- not a test of this file's own.
-function positions.discover_tests(source: string): {string}
-  local names: {string} = {}
-  for _, line in ipairs(top_level_lines(source)) do
-    local name = line:match("^local%s+function%s+(test_[%w_]*)%s*%(")
-    if name ~= nil then
-      names[#names + 1] = name
-    end
-  end
-  return names
+  return names, ""
 end
 
 --- Whether `source` has a genuine top-level (chunk-level) `return`
---- statement: a `return` at column 0 of a line outside any long-bracket
---- string or long comment. Lua requires a `return` to be the last
---- statement of the block it sits in, so a module that type-checks at
---- all can only have a `return` at column 0 as its own chunk's final
+--- statement: any direct element of the parsed chunk's own top-level
+--- statement array whose kind is `"return"`. Lua requires a `return`
+--- to be the last statement of the block it sits in, so a module that
+--- type-checks at all can only have one as its own chunk's final
 --- statement -- never one a nested `if`, loop, or function body left
---- behind, since those sit indented under the block that owns them.
+--- behind, since those parse as children of that inner block's own
+--- "statements" node, never as an element of the chunk's own array.
 ---
---- The character right after `return` decides whether it is the
---- keyword or just the start of a longer identifier: `%f[^%w_]` is a
---- frontier out of a word-or-underscore character into anything else
---- (including end of line, where the implicit character past the end
---- is neither), which a bare `%f[%W]` gets wrong -- Lua's `%w` class
---- excludes `_`, so it would treat `_` itself as already outside the
---- word, and `return_code = 1`, an ordinary snake_case identifier,
---- would read as a `return` statement.
-function positions.has_top_level_return(source: string): boolean
-  for _, line in ipairs(top_level_lines(source)) do
-    if line:match("^return%f[^%w_]") ~= nil then
-      return true
+--- An ordinary snake_case identifier or call starting with the six
+--- letters `return` (`return_code = 1`, `return_value(x)`) parses to
+--- an `"assignment"` or `"op"` node, never `"return"` -- there is no
+--- text boundary to get wrong the way a pattern match over raw source
+--- has to draw one by hand.
+--- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param source string
+--- @param name string Filename for parse diagnostics
+--- @return boolean | nil Whether the chunk's own last statement is a return
+--- @return string Error message when `source` fails to lex or parse
+function positions.has_top_level_return(built: compiler, source: string,
+                                        name: string): boolean | nil, string
+  local parsed, trouble = ast.parse(built, source, name)
+  if parsed == nil then
+    return nil, trouble
+  end
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "return" then
+      return true, ""
     end
   end
-  return false
+  return false, ""
 end
 
 --- The file's own name, with no directory in front of it.
