@@ -24,6 +24,10 @@ local record importer
     modules: {Module}
     boot_hash: string
     main: string | nil
+    -- One message per `kind = "test"` module refused compilation
+    -- because it both defines its own tests and returns its own value;
+    -- every module NOT in this list compiled and is in `modules`.
+    refused: {string}
   end
 end
 
@@ -268,6 +272,16 @@ local function discount_test_warnings(result: compiler.Result,
   return result
 end
 
+--- Whether `m`'s own source both defines tests of its own and returns
+--- its own value at the top level. `with_test_tail` appends a generated
+--- `return` after the module's compiled Lua, and Lua allows only one
+--- `return` as a block's last statement, so the two together always
+--- produce a parse error the moment both are true -- this is checked
+--- before that ever happens.
+local function collides_with_test_tail(m: Module): boolean
+  return #m.tests > 0 and positions.has_top_level_return(m.source)
+end
+
 local function complain(file: string, result: compiler.Result): string
   local lines: {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
@@ -300,6 +314,8 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
   end
   local keys: {string:string} = {}
   local main: string | nil = nil
+  local compiled: {Module} = {}
+  local refused: {string} = {}
 
   for _, m in ipairs(order) do
     local closure: {string} = {}
@@ -313,35 +329,50 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
       m.source_hash .. "\n" .. table.concat(closure, "\n") .. "\n" .. boot_hash)
     keys[m.path] = m.key
 
-    local code, result = built.gen(m.source, env, nil, "tl")
-    if m.kind == "test" and result ~= nil then
-      result = discount_test_warnings(result, m.tests)
-    end
-    local refused = result ~= nil and complain(m.file, result) or ""
-    if code == nil or refused ~= "" then
-      return nil, m.file .. ": the compiler refused it\n" .. refused
-    end
-    if m.kind == "test" then
-      code = with_test_tail(code, m.tests)
-    end
-    m.lua = code
+    if m.kind == "test" and collides_with_test_tail(m) then
+      -- Refused on its own, narrowly: every other module still
+      -- compiles below, unaffected. Compiling this one anyway would
+      -- only surface as `<eof> expected near 'return'` once
+      -- `with_test_tail` appends its own generated return after this
+      -- file's, a Lua parse error naming neither the file nor the
+      -- cause.
+      refused[#refused + 1] = m.file .. ": a test file may not both " ..
+        "define test_* functions and return its own value; remove the " ..
+        "top-level return so the generated tail can hand the runner " ..
+        "its tests"
+    else
+      local code, result = built.gen(m.source, env, nil, "tl")
+      if m.kind == "test" and result ~= nil then
+        result = discount_test_warnings(result, m.tests)
+      end
+      local complaint = result ~= nil and complain(m.file, result) or ""
+      if code == nil or complaint ~= "" then
+        return nil, m.file .. ": the compiler refused it\n" .. complaint
+      end
+      if m.kind == "test" then
+        code = with_test_tail(code, m.tests)
+      end
+      m.lua = code
 
-    local chunk, load_trouble = load(code, "@" .. m.path, "t")
-    if chunk == nil then
-      return nil, m.file .. ": " .. tostring(load_trouble)
-    end
-    m.bytecode = string.dump(chunk, false)
-    if m.bytecode:sub(1, #bytecode_header) ~= bytecode_header then
-      return nil, m.file .. ": this host dumps bytecode the three targets " ..
-        "do not share"
-    end
+      local chunk, load_trouble = load(code, "@" .. m.path, "t")
+      if chunk == nil then
+        return nil, m.file .. ": " .. tostring(load_trouble)
+      end
+      m.bytecode = string.dump(chunk, false)
+      if m.bytecode:sub(1, #bytecode_header) ~= bytecode_header then
+        return nil, m.file .. ": this host dumps bytecode the three " ..
+          "targets do not share"
+      end
 
-    if m.kind == "main" then
-      main = m.path
+      if m.kind == "main" then
+        main = m.path
+      end
+      compiled[#compiled + 1] = m
     end
   end
 
-  return { modules = order, boot_hash = boot_hash, main = main }
+  return { modules = compiled, boot_hash = boot_hash, main = main,
+           refused = refused }
 end
 
 return importer

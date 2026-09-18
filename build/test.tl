@@ -214,6 +214,14 @@ function test.run(): integer
   end
   records:close()
 
+  -- A module `importer.compile` refused ran no tests at all; every
+  -- other module still compiled and ran above, so this only turns the
+  -- overall verdict to FAIL, one line per refusal, rather than aborting
+  -- the whole run the way an unrelated compile error still does.
+  for _, line in ipairs(result.refused) do
+    failures[#failures + 1] = line
+  end
+
   if #failures == 0 then
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules)")
     return 0
@@ -221,7 +229,8 @@ function test.run(): integer
   for _, line in ipairs(failures) do
     report("test: FAIL  " .. line)
   end
-  report("test: FAIL (" .. #failures .. " of " .. total .. " failed)")
+  report("test: FAIL (" .. #failures .. " of " ..
+    (total + #result.refused) .. " failed)")
   return 1
 end
 
