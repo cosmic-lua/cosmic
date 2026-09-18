@@ -194,3 +194,46 @@ local function test_has_top_level_return_false_inside_a_bracket()
   })
   assert(not positions.has_top_level_return(source))
 end
+
+--- A table constructor return is still a genuine top-level return.
+local function test_has_top_level_return_true_for_a_table_constructor()
+  local source = lines({ "return {" })
+  assert(positions.has_top_level_return(source))
+end
+
+--- A `return` immediately followed by a comment, with no value, is
+--- still the chunk's genuine top-level return.
+local function test_has_top_level_return_true_with_a_trailing_comment()
+  local source = lines({ "return -- nothing to give back" })
+  assert(positions.has_top_level_return(source))
+end
+
+--- An ordinary snake_case identifier assignment that happens to start
+--- with the six letters `return` is not a `return` statement at all --
+--- this project's own naming convention (D20) is full of names shaped
+--- exactly like this one.
+local function test_has_top_level_return_false_for_return_prefixed_assignment()
+  local source = lines({
+    "local function test_one()",
+    "end",
+    "",
+    "return_code = 1",
+  })
+  assert(not positions.has_top_level_return(source))
+end
+
+--- A function call whose name starts with `return_` reads the same way
+--- at column 0: `return_value(` also starts with the six letters
+--- `return_`, but it is a call, never a `return` statement.
+local function test_has_top_level_return_false_for_return_prefixed_call()
+  local source = lines({ "return_value(x)" })
+  assert(not positions.has_top_level_return(source))
+end
+
+--- `return(x)`, a genuine return of a parenthesized expression with no
+--- space before the `(`, must still be flagged: the fix for the two
+--- cases above must not overcorrect and swallow this legitimate one.
+local function test_has_top_level_return_true_for_a_parenthesized_return()
+  local source = lines({ "return(x)" })
+  assert(positions.has_top_level_return(source))
+end

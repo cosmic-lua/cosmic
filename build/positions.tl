@@ -94,9 +94,18 @@ end
 --- all can only have a `return` at column 0 as its own chunk's final
 --- statement -- never one a nested `if`, loop, or function body left
 --- behind, since those sit indented under the block that owns them.
+---
+--- The character right after `return` decides whether it is the
+--- keyword or just the start of a longer identifier: `%f[^%w_]` is a
+--- frontier out of a word-or-underscore character into anything else
+--- (including end of line, where the implicit character past the end
+--- is neither), which a bare `%f[%W]` gets wrong -- Lua's `%w` class
+--- excludes `_`, so it would treat `_` itself as already outside the
+--- word, and `return_code = 1`, an ordinary snake_case identifier,
+--- would read as a `return` statement.
 function positions.has_top_level_return(source: string): boolean
   for _, line in ipairs(top_level_lines(source)) do
-    if line:match("^return%f[%W]") ~= nil then
+    if line:match("^return%f[^%w_]") ~= nil then
       return true
     end
   end
