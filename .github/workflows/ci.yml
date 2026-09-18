@@ -1,0 +1,143 @@
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: cache the pinned zig
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ hashFiles('bin/zig.pin') }}
+      - name: build every core, then the database and the binaries
+        run: bin/zig build cores boot
+      - name: what the build produced
+        run: |
+          ls -l o/bin o/cosmic.db
+          file o/bin/cosmic-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            o/bin/cosmic-x86_64-linux-musl
+            o/bin/cosmic-aarch64-linux-musl
+            o/bin/cosmic-aarch64-macos
+            o/cosmic.db
+          if-no-files-found: error
+
+  sanitized:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: cache the pinned zig
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ hashFiles('bin/zig.pin') }}
+      - name: build the whole tree with the core that checks for undefined behavior
+        run: bin/zig build sanitized
+
+  test-linux-x86_64:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: downloaded
+      - name: run it
+        run: |
+          set -eu
+          cosmic=$PWD/downloaded/o/bin/cosmic-x86_64-linux-musl
+          chmod +x "$cosmic"
+          "$cosmic" help
+          mkdir -p "$RUNNER_TEMP/project"
+          cp hello.tl "$RUNNER_TEMP/project/"
+          cd "$RUNNER_TEMP/project"
+          test "$("$cosmic" hello.tl)" = "hello from the database"
+          echo "ci: PASS (linux x86_64)"
+
+  test-linux-aarch64:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: downloaded
+      - name: run it
+        run: |
+          set -eu
+          cosmic=$PWD/downloaded/o/bin/cosmic-aarch64-linux-musl
+          chmod +x "$cosmic"
+          "$cosmic" help
+          mkdir -p "$RUNNER_TEMP/project"
+          cp hello.tl "$RUNNER_TEMP/project/"
+          cd "$RUNNER_TEMP/project"
+          test "$("$cosmic" hello.tl)" = "hello from the database"
+          echo "ci: PASS (linux aarch64)"
+
+  test-macos:
+    needs: build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: downloaded
+      - name: the signature the attach wrote
+        run: |
+          set -eu
+          cosmic=$PWD/downloaded/o/bin/cosmic-aarch64-macos
+          chmod +x "$cosmic"
+          codesign --verify --strict --verbose=2 "$cosmic"
+          codesign --display --verbose=4 "$cosmic"
+      - name: run it
+        run: |
+          set -eu
+          cosmic=$PWD/downloaded/o/bin/cosmic-aarch64-macos
+          "$cosmic" help
+          mkdir -p "$RUNNER_TEMP/project"
+          cp hello.tl "$RUNNER_TEMP/project/"
+          cd "$RUNNER_TEMP/project"
+          test "$("$cosmic" hello.tl)" = "hello from the database"
+          echo "ci: PASS (macos aarch64)"
+
+  repro:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      # A second checkout, at another path, in a container of its own: a
+      # cold tree by construction.
+      - uses: actions/checkout@v4
+        with:
+          path: a-second-and-longer-checkout-path
+      - name: cache the pinned zig
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ hashFiles('a-second-and-longer-checkout-path/bin/zig.pin') }}
+      - name: build it again
+        working-directory: a-second-and-longer-checkout-path
+        run: bin/zig build cores boot
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: first
+      - name: compare every byte
+        run: |
+          set -eu
+          again=a-second-and-longer-checkout-path/o
+          cmp first/o/cosmic.db "$again/cosmic.db"
+          for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
+            cmp "first/o/bin/cosmic-$target" "$again/bin/cosmic-$target"
+          done
+          echo "repro: PASS (the database and all three images are byte-identical)"

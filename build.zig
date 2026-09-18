@@ -73,8 +73,6 @@ const core_sources = [_][]const u8{
 };
 
 pub fn build(b: *std.Build) void {
-    const sanitize = b.option(bool, "sanitize", "build the sanitized core") orelse false;
-
     // The applier is a host tool, built before anything it feeds.
     const applier = b.addExecutable(.{
         .name = "patch",
@@ -114,7 +112,7 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, resolved, sanitize, lua, sqlite, miniz);
+        const exe = core(b, resolved, false, lua, sqlite, miniz);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
@@ -135,6 +133,27 @@ pub fn build(b: *std.Build) void {
             boot.dependOn(&bridge.step);
         }
     }
+
+    // A fourth core, checked for undefined behavior: same sources, built
+    // for the host only, and installed beside the others rather than over
+    // them. It bridges into Teal like the release core, so the whole build
+    // runs under the checks.
+    const sanitized = b.step("sanitized", "build and boot the checked core");
+    const checked = core(b, b.graph.host, true, lua, sqlite, miniz);
+    const checked_install = b.addInstallFile(
+        checked.getEmittedBin(),
+        "sanitized/cosmic-core",
+    );
+    const checked_boot = b.addRunArtifact(checked);
+    checked_boot.addArg("--boot");
+    checked_boot.addDirectoryArg(b.path("."));
+    checked_boot.addDirectoryArg(tl);
+    checked_boot.addArg(hostName(b));
+    checked_boot.step.dependOn(cores);
+    checked_boot.step.dependOn(vendored);
+    checked_boot.has_side_effects = true;
+    sanitized.dependOn(&checked_install.step);
+    sanitized.dependOn(&checked_boot.step);
 
     b.getInstallStep().dependOn(cores);
 }
