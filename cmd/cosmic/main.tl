@@ -1,4 +1,4 @@
---- The binary's entry.
+--- The binary's main.
 ---
 --- A bare path runs a file: cosmic builds the tree that file sits in,
 --- into that tree's own database, and then requires the module. The

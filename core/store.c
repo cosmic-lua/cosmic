@@ -236,7 +236,7 @@ static int store_bytecode(lua_State *L) {
 }
 
 /* One entry of the meta table, which is where the build records what it
- * decided: the entry module's name, the hash of the tool. */
+ * decided: the main module's name, the hash of the tool. */
 static int store_meta(lua_State *L) {
   const char *key = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);

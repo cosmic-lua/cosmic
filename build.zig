@@ -185,17 +185,17 @@ fn patched(
     name: []const u8,
 ) std.Build.LazyPath {
     const vendor = b.fmt("vendor/{s}", .{name});
-    const patches = b.fmt("patches/{s}", .{name});
+    const patch_dir = b.fmt("patch/{s}", .{name});
 
     const run = b.addRunArtifact(applier);
     run.addDirectoryArg(b.path(vendor));
-    run.addDirectoryArg(b.path(patches));
+    run.addDirectoryArg(b.path(patch_dir));
 
     // A directory argument names a place, not its contents. Every file
     // under both trees is added as an input in its own right, so editing
     // one record or one upstream file reruns the applier.
     watchTree(b, run, vendor);
-    watchTree(b, run, patches);
+    watchTree(b, run, patch_dir);
 
     return run.addOutputDirectoryArg(name);
 }

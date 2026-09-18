@@ -259,7 +259,7 @@ input to the build, never to the runtime. one database holds:
   and bytecode, declaration, kind (module, test, example, main),
   and the test names the compile step found.
 - **docs**: extracted per symbol, queried by `cosmic docs`, from a
-  module named `cosmic.docs`.
+  module named `cosmic.doc`.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.
@@ -392,7 +392,7 @@ reports it.
 ### vendored sources
 
 `vendor/<name>/` is the extracted upstream tarball, never edited,
-with a `PIN` file naming version and hash. `patches/<name>/` holds
+with a `PIN` file naming version and hash. `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
 it exists. a ~200-line C applier that zig builds first writes the
 patched copy to `o/vendor/<name>`; a record whose anchor no longer
@@ -521,7 +521,7 @@ bin/zig             POSIX sh: fetch, verify, exec the pinned zig
 bin/zig.pin         version and per-host sha256; build.zig reads it
 build.zig           the C build; build.zig.zon names the package
 vendor/<name>/      pristine upstream, never edited, with a PIN file
-patches/<name>/     exact find/replace records, each with a note
+patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
@@ -531,6 +531,13 @@ build/              the importer, checker driver, embed (Teal, private)
 doc/                prose
 o/                  output; o/cosmic.db, o/records.db; never committed
 ```
+
+every directory name is singular: `doc`, not `docs`; `patch`, not
+`patches`. the rule reaches module paths too, since a module that
+grows past one file becomes a directory of the same name:
+`cosmic.docs` is `cosmic.doc` for exactly this reason. the one
+deliberate exception is a CLI verb, `cosmic docs`, since a verb
+names an action and reads differently from a module naming a thing.
 
 every module path is lowercase; no name is spelled differently
 because of what it is. reachability is a question of position
@@ -566,7 +573,7 @@ target:
 
 - **core**: `check`, `ast`, `fs`, `child`, `env`, `proc`, `hash`,
   `sqlite`, `json`, `time`, `rand`, `flags`, `string`, `posix.errno`,
-  `errors`, `log`, `teal`, `format`, `test`, `coverage`, `docs`,
+  `errors`, `log`, `teal`, `format`, `test`, `coverage`, `doc`,
   `embed`, `shape`.
 - **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
   `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
