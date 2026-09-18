@@ -381,3 +381,8 @@ carries a tradeoff, a decision record later.
     test` fence themselves with the core only, so they behave
     identically on both OSes by construction; CI's profile requires
     the fence, a laptop reports it.
+13. **first milestone: hello from the database; second: self-check.**
+    the first stops when `cosmic hello.tl` runs on all four targets
+    from byte-identical databases; the second when `cosmic check` and
+    `cosmic test` gate the rewrite's own tree incrementally under the
+    foreclosed-cast checker. each ends in a review before widening.
