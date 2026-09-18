@@ -39,6 +39,18 @@ local record importer
   end
 end
 
+--- Whether `root` is cosmic's own tree, structurally: `core/` and
+--- `build/` both exist, and `build/` holds the importer itself rather
+--- than just a directory of that name. `cosmic.*` is reserved to this
+--- one tree; nothing else may claim it, by directory or by import path.
+--- Exposed so a caller can gate other cosmic's-own-tree behavior on the
+--- same test the importer itself uses.
+function importer.is_own_tree(root: string): boolean
+  return Fs.is_dir(root .. "/core") and Fs.is_dir(root .. "/build") and
+    Fs.exists(root .. "/build/importer.tl") and
+    not Fs.is_dir(root .. "/build/importer.tl")
+end
+
 --- The bytecode header every target must agree on. One column of
 --- bytecode serves all three because they are all little-endian and
 --- 64-bit; this is what says so out loud, so a target whose sizes or
@@ -110,7 +122,12 @@ end
 
 --- Every source the tree holds, read and hashed. The root is the module
 --- root, so a file's place in it is its import path.
-local function collect(root: string): {Module} | nil, string
+--- @param self_tree whether `root` is cosmic's own tree, where the
+---   `cosmic.` namespace is not reserved against the tree itself
+local function collect(root: string, self_tree: boolean): {Module} | nil, string
+  if not self_tree and Fs.is_dir(root .. "/cosmic") then
+    return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
+  end
   local out: {Module} = {}
   local files, trouble = Fs.walk(root, skip)
   if files == nil then
@@ -118,6 +135,10 @@ local function collect(root: string): {Module} | nil, string
   end
   for _, file in ipairs(files) do
     if is_source(file) then
+      if not self_tree and (file == "cosmic" or file:sub(1, 7) == "cosmic/") then
+        return nil, file .. ": the 'cosmic' directory is reserved to " ..
+          "cosmic's own tree"
+      end
       local source, failure = Fs.read(root .. "/" .. file)
       if source == nil then
         return nil, failure
@@ -224,7 +245,7 @@ end
 --- @param boot_hash what the tool doing the compiling hashes to
 function importer.compile(root: string, built: compiler, env: compiler.Env,
                           boot_hash: string): importer.Result | nil, string
-  local modules, trouble = collect(root)
+  local modules, trouble = collect(root, importer.is_own_tree(root))
   if modules == nil then
     return nil, trouble
   end
@@ -258,7 +279,7 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
     if chunk == nil then
       return nil, m.file .. ": " .. tostring(load_trouble)
     end
-    m.bytecode = string.dump(chunk, true)
+    m.bytecode = string.dump(chunk, false)
     if m.bytecode:sub(1, #bytecode_header) ~= bytecode_header then
       return nil, m.file .. ": this host dumps bytecode the three targets " ..
         "do not share"
@@ -358,7 +379,7 @@ function importer.write(root: string, out: string, built: compiler,
       requires = {},
       key = Hash.hex_sha256(teal_source .. "\n" .. result.boot_hash),
       lua = teal_source,
-      bytecode = string.dump(chunk, true),
+      bytecode = string.dump(chunk, false),
     }
   end
 
