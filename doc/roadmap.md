@@ -27,34 +27,74 @@ returns need them to narrow at an index.
 
 `cosmic check` and `cosmic test` gate cosmic's own tree,
 incrementally, under the foreclosed-cast checker, with records in a
-database of their own. it adds:
+database of their own. the order below is the priority, not a bag
+of items: tests first, then ast, checking, and formatting, since a
+checker and a formatter both work over an AST and now sit in the
+same tier as it.
 
-- **the stale-tool re-exec.** milestone 1 detects a stale tool and
-  refuses; it has no child process yet to re-exec into. this is
-  where that lands.
-- **the provenance gate.** asserts that no bytes from outside the
-  tree and the pinned zig reach an output, checked by building on
-  two hosts and comparing hashes.
+**first: tests, doctests, and coverage.** none of this waits on
+process isolation to be useful; isolation is a layer added on top,
+not a gate in front:
+
+- **test discovery at compile time**, the same lexer walk over
+  source the compiler already does, finding `local function test_*`
+  names in a `kind = "test"` module and recording them.
+- **the runner**, in-process at first: `pcall` around each test
+  call, a fresh temp directory per test from `mkdtemp`, a pass/fail
+  verdict. an assertion failure is an ordinary Lua error and needs
+  nothing more than this to catch. a hang or a crash still takes
+  down the run; those two gaps are named, not hidden, and close once
+  child-process spawning exists, by wrapping this same calling code
+  in a spawned child, not by rewriting the runner.
+- **the doctest extractor**, per meta.md: fenced blocks from a doc
+  become one compiled Teal file, one function per example, so the
+  compiled file is a test file and needs no runner of its own.
+- **Lua and Teal coverage**, `debug.sethook` in line mode through
+  the private binding already reserved for it, reading the line
+  numbers the bytecode already carries.
+- **C coverage** on `core/*.c` only, source-based LLVM
+  instrumentation (`-fprofile-instr-generate -fcoverage-mapping`),
+  with a vendored `compiler-rt` profile runtime built per target,
+  since zig ships the instrumentation but no runtime to act on it,
+  the same shape as the ASan finding. `llvm-profdata` and
+  `llvm-cov`, pinned to zig's bundled LLVM version and re-verified
+  on every zig bump, turn the result into one JSON export.
+- **`o/records.db`**, test verdicts and coverage keyed by source
+  hash and by what a test was observed to read (every file access
+  already goes through the syscall table, so the runner can record
+  what a test touched instead of relying on a hand-written
+  declaration), never shipped.
+
+**second: ast, checking, formatting.** `cosmic.ast`, structural Teal
+parsing, matching, and rewriting, is what both of the following read
+and lean on:
+
+- **`cosmic check`**: the foreclosed-cast checker gate over a
+  project, which needs the binary's own declarations reachable on
+  disk or in a form the checker can read, since a real project
+  imports more than `hello.tl` does today.
+- **`cosmic format`**: the formatter, renamed to match the module.
+- **the visibility lint**, part of what "checking" means: no import
+  of a private module from outside its tree, no two names in a
+  directory differing only in case.
+- **the remaining tl narrowing patches**, record-field narrowing and
+  container covariance, so cast-foreclosure holds against real code,
+  not only `hello.tl`.
+
+**alongside, not gating either priority above:**
+
+- **child-process spawning**, `cosmic.child` over `posix_spawn`.
+  serves two things at once once it lands: the isolation layer the
+  test runner names as its own follow-up, and the re-exec the
+  stale-tool refusal needs (milestone 1 detects a stale tool and
+  refuses; it has no process yet to re-exec into).
+- **the provenance gate**: no bytes from outside the tree and the
+  pinned zig reach an output, checked by building on two hosts and
+  comparing hashes.
 - **`O_CLOEXEC` on the remaining `fopen` paths** in boot and the
   patch applier; the syscall table's own `open` already sets it.
 - **a fuzzer over the executable locator**, now that it parses
   untrusted bytes at every startup.
-- **the visibility lint**: no import of a private module from
-  outside its tree; no two names in a directory differing only in
-  case.
-- **project type-checking against `cosmic.*`**: a project can run
-  `cosmic check` today only because `hello.tl` imports nothing; a
-  real project needs the binary's declarations on disk or in a form
-  the checker can read.
-- **`o/records.db`**, test verdicts and coverage keyed by source
-  hash and by what a test was observed to read, never shipped.
-- **test discovery at compile time**, spawning per test for
-  isolation, a temp directory, and a deadline, results returned over
-  a pipe rather than written by the child.
-- **the doc extractor and the example runner**, per meta.md.
-- the remaining tl narrowing patches record-field narrowing and
-  container covariance need, so the cast-foreclosure rule holds
-  against real code rather than only against `hello.tl`.
 
 ## milestone 3 and the release bar
 

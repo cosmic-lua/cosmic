@@ -564,14 +564,14 @@ rather than instead of it.
 the tier order is a reading order for what to write, not a size
 target:
 
-- **core**: `check`, `fs`, `child`, `env`, `proc`, `hash`, `sqlite`,
-  `json`, `time`, `rand`, `flags`, `string`, `posix.errno`, `errors`,
-  `log`, `teal`, `format`, `test`, `coverage`, `docs`, `embed`,
-  `shape`.
+- **core**: `check`, `ast`, `fs`, `child`, `env`, `proc`, `hash`,
+  `sqlite`, `json`, `time`, `rand`, `flags`, `string`, `posix.errno`,
+  `errors`, `log`, `teal`, `format`, `test`, `coverage`, `docs`,
+  `embed`, `shape`.
 - **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
   `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
-  `sandbox`, `posix.signal`, `poll`, `fd`, `tty`, `ansi`, `user`, `host`,
-  `stream`, `deep`, `graph`, `fuzzy`, `literal`, `ast`, `template`.
+  `sandbox`, `posix.signal`, `poll`, `fd`, `tty`, `ansi`, `user`,
+  `host`, `stream`, `deep`, `graph`, `fuzzy`, `literal`, `template`.
 - **later, if pulled**: namespaces and egress proxying beyond what
   the sandbox core needs, `shm`, `instrument`, `html`, `css`, `js`.
 
