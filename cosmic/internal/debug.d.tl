@@ -21,6 +21,11 @@ local record native
   -- Removes the line hook and returns everything hit since the
   -- matching `start`.
   stop: function(): Hits
+
+  -- A copy of everything hit so far, without touching the hook or the
+  -- collection -- safe to call while collection keeps running, unlike
+  -- `stop`. Empty when no `start` has run.
+  snapshot: function(): Hits
 end
 
 return native

@@ -116,4 +116,18 @@ function Coverage.stop(session: Coverage.Session): Coverage.Hits | nil, string
   return native.stop(), ""
 end
 
+--- A copy of every line hit so far, without ending the collection or
+--- needing the session `start` returned: unlike `stop`, this only
+--- reads, so any caller may look in on a window it did not open,
+--- while it is still running, without the session token's refusal
+--- rules -- there is nothing here for a second caller to corrupt.
+--- Empty when no collection is open.
+--- @return Hits Every line hit so far
+function Coverage.snapshot(): Coverage.Hits
+  if not collecting then
+    return {}
+  end
+  return native.snapshot()
+end
+
 return Coverage

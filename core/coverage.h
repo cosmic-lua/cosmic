@@ -12,13 +12,17 @@
 
 #include "lua.h"
 
-/* Pushes a small table {start = <cfunction>, stop = <cfunction>} onto
- * the stack. `start` installs a line hook and begins a fresh, empty
- * collection; `stop` removes the hook and returns everything collected
- * since, as {string: {integer: boolean}} keyed by each hit's chunk
- * short_src. Registered as the raw value behind `cosmic.internal.debug`
- * (core/surface.c), the same trust-gated handoff `cosmic.store` and
- * `cosmic.sqlite` get through core/store.c's `store_searcher`. */
+/* Pushes a small table {start = <cfunction>, stop = <cfunction>,
+ * snapshot = <cfunction>} onto the stack. `start` installs a line hook
+ * and begins a fresh, empty collection; `stop` removes the hook and
+ * returns everything collected since; `snapshot` reads a copy of
+ * everything collected so far without touching the hook or the
+ * collection, for a caller that wants to look while collection keeps
+ * running. All three describe hits the same way: {string:
+ * {integer: boolean}}, keyed by each hit's chunk short_src. Registered
+ * as the raw value behind `cosmic.internal.debug` (core/surface.c),
+ * the same trust-gated handoff `cosmic.store` and `cosmic.sqlite` get
+ * through core/store.c's `store_searcher`. */
 void cosmic_coverage_install(lua_State *L);
 
 #endif

@@ -63,10 +63,59 @@ static int coverage_stop(lua_State *L) {
   return 1;
 }
 
+/* A read of the current collection while it keeps running: unlike
+ * `stop`, this touches neither the hook nor the registry slot the hook
+ * keeps writing to. What it returns is a copy, all the way down -- a
+ * fresh top-level table and a fresh copy of each per-file table -- so
+ * a caller can read or even mutate what it got back without either
+ * racing the hook's own writes into the live table or corrupting the
+ * collection this same caller, or any other, is still relying on.
+ * Nil (no `start` has ever run) reads as an empty table, same as
+ * `stop`. */
+static int coverage_snapshot(lua_State *L) {
+  lua_getfield(L, LUA_REGISTRYINDEX, COVERAGE_HITS);
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    lua_newtable(L);
+    return 1;
+  }
+  int live = lua_gettop(L); /* the live hits table the hook still writes */
+
+  lua_newtable(L);
+  int copy = lua_gettop(L); /* what this function returns */
+
+  lua_pushnil(L);
+  while (lua_next(L, live) != 0) {
+    /* live copy src per_file */
+    int per_file = lua_gettop(L);
+    int src = per_file - 1;
+
+    lua_newtable(L);
+    int per_copy = lua_gettop(L);
+
+    lua_pushnil(L);
+    while (lua_next(L, per_file) != 0) {
+      /* ... line true */
+      lua_pushvalue(L, -2); /* ... line true line */
+      lua_pushvalue(L, -2); /* ... line true line true */
+      lua_settable(L, per_copy);
+      lua_pop(L, 1); /* drop the value; the key stays for the next lua_next */
+    }
+
+    lua_pushvalue(L, src);      /* live copy src per_file per_copy src */
+    lua_pushvalue(L, per_copy); /* ... src per_copy */
+    lua_settable(L, copy);      /* copy[src] = per_copy */
+    lua_pop(L, 2);              /* per_copy and per_file; src stays as the key */
+  }
+  return 1;
+}
+
 void cosmic_coverage_install(lua_State *L) {
   lua_newtable(L);
   lua_pushcfunction(L, coverage_start);
   lua_setfield(L, -2, "start");
   lua_pushcfunction(L, coverage_stop);
   lua_setfield(L, -2, "stop");
+  lua_pushcfunction(L, coverage_snapshot);
+  lua_setfield(L, -2, "snapshot");
 }
