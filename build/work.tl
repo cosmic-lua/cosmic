@@ -378,8 +378,32 @@ function work.commit(handle: work.Handle): boolean, string
   if not handle.inside then
     return true, ""
   end
+  local committed, trouble = handle.db:exec("COMMIT")
+  if not committed then
+    -- A failed COMMIT leaves SQLite's transaction open. Discard it so
+    -- close cannot preserve a partial phase and the handle state remains
+    -- truthful even when the database reports a deferred error here.
+    local rolled_back = handle.db:exec("ROLLBACK")
+    if rolled_back then
+      handle.inside = false
+    end
+    return false, trouble
+  end
   handle.inside = false
-  return handle.db:exec("COMMIT")
+  return true, ""
+end
+
+--- Ends the run's transaction, discarding everything it did. Nothing to
+--- do when it has already ended.
+function work.rollback(handle: work.Handle): boolean, string
+  if not handle.inside then
+    return true, ""
+  end
+  local rolled_back, trouble = handle.db:exec("ROLLBACK")
+  if rolled_back then
+    handle.inside = false
+  end
+  return rolled_back, trouble
 end
 
 --- Opens another transaction on the run, for a phase that comes after
@@ -879,6 +903,17 @@ function work.close(handle: work.Handle): boolean, string
     return false, trouble
   end
   return handle.db:close()
+end
+
+--- Closes the database, discarding whatever a still-open transaction did.
+--- The handle is finished after this.
+function work.abort(handle: work.Handle): boolean, string
+  local rolled_back, trouble = work.rollback(handle)
+  local closed, close_trouble = handle.db:close()
+  if not rolled_back then
+    return false, trouble
+  end
+  return closed, close_trouble
 end
 
 return work
