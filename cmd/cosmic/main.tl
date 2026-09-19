@@ -8,6 +8,7 @@
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local databases = require("build.databases")
 local fix = require("build.fix")
 local importer = require("build.importer")
 local teal = require("build.teal")
@@ -26,6 +27,9 @@ cosmic -- a runtime for self-contained command-line software
                      as canonical text, in place
   cosmic fix --check the same, writing nothing: name the files a fix
                      would change, and fail if there are any
+  cosmic db          what the two databases under o/ hold, table by
+                     table -- rows, pages, bytes -- and how the last
+                     few builds went
   cosmic help        this
 
 A verb takes paths to narrow it. `fix` rebuilds each file from its own
@@ -218,6 +222,9 @@ local function main(argv: {integer:string}): integer
   end
   if verb == "fix" then
     return fix.run(argv)
+  end
+  if verb == "db" then
+    return databases.run()
   end
   if verb:sub(1, 1) == "-" then
     complain("cosmic: no such option: " .. verb)

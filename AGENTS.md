@@ -9,8 +9,10 @@
 ## Build, format, test
 
 1. Run `bin/zig build boot` in a fresh worktree. This builds the required cores
-   and generates `o/types/cosmic/sys.d.tl`; copying an existing cosmic executable
-   alone is insufficient to test a fresh checkout.
+   and stages the tree into `o/build.db`, the working database every later
+   build reads; copying an existing cosmic executable alone is insufficient to
+   test a fresh checkout. `o/bin/cosmic db` says what both databases under
+   `o/` hold and how the last few builds went.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-tl-paths>`.
    `fix` checks syntax and tree equivalence; compilation checks types.
 3. Run `bin/zig build boot` after the final source edit, including any changes

@@ -1,0 +1,133 @@
+--- What the two databases under `o/` hold, table by table: rows,
+--- pages and bytes, from SQLite's own `dbstat` table, and how the
+--- last few builds went. This is how growth gets named rather than
+--- noticed, and how a change to what the build stores is judged by
+--- what it costs.
+
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+
+local record databases
+end
+
+local function report(line: string)
+  Fs.put(Fs.stdout, line .. "\n")
+end
+
+local function complain(line: string)
+  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
+end
+
+--- A number, right-aligned in `width` columns.
+local function column(value: string, width: integer): string
+  return string.rep(" ", width - #value) .. value
+end
+
+--- One database's tables and indexes, largest first, each with its
+--- rows (for a table), its pages, the bytes those pages take, and the
+--- bytes that are actually payload. Returns how many tables it saw.
+local function describe(path: string): integer | nil, string
+  local db, open_trouble = Sqlite.open(path, false)
+  if db == nil then
+    return nil, open_trouble
+  end
+  local sizes, size_trouble = Sqlite.rows(db,
+    "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
+    "GROUP BY name ORDER BY sum(pgsize) DESC, name")
+  if sizes == nil then
+    db:close()
+    return nil, size_trouble
+  end
+  local tables, table_trouble = Sqlite.rows(db,
+    "SELECT name FROM sqlite_master WHERE type = 'table'")
+  if tables == nil then
+    db:close()
+    return nil, table_trouble
+  end
+  local is_table: {string:boolean} = {}
+  for _, row in ipairs(tables) do
+    is_table[row[1]] = true
+  end
+  local st = Fs.stat(path)
+  report(path .. "  " .. (st ~= nil and st.size or 0) .. " bytes")
+  report("  " .. column("rows", 8) .. column("pages", 8) ..
+    column("bytes", 10) .. column("payload", 10) .. "  name")
+  for _, row in ipairs(sizes) do
+    local name, pages, bytes, payload = row[1], row[2], row[3], row[4]
+    local rows = ""
+    if is_table[name] then
+      local counted, count_trouble = Sqlite.rows(db,
+        "SELECT count(*) FROM \"" .. name .. "\"")
+      if counted == nil then
+        db:close()
+        return nil, count_trouble
+      end
+      rows = counted[1][1]
+    end
+    report("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
+      column(payload, 10) .. "  " .. name)
+  end
+  db:close()
+  return #tables
+end
+
+--- The last few rows of the working database's `builds`.
+local function builds(path: string): boolean, string
+  local db, open_trouble = Sqlite.open(path, false)
+  if db == nil then
+    return false, open_trouble
+  end
+  local rows, trouble = Sqlite.rows(db,
+    "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
+    "ORDER BY run DESC LIMIT 5")
+  db:close()
+  if rows == nil then
+    return false, trouble
+  end
+  report("builds, latest first")
+  for _, row in ipairs(rows) do
+    report("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. row[3] ..
+      " files staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
+      row[6] .. " cached  " .. row[7])
+  end
+  return true, ""
+end
+
+--- Describes `o/cosmic.db` and `o/build.db` under the working
+--- directory, printing a verdict line and returning the exit code.
+function databases.run(): integer
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    complain(root_trouble)
+    return 1
+  end
+  local seen = 0
+  local tables = 0
+  for _, name in ipairs({ "o/cosmic.db", "o/build.db" }) do
+    local path = root .. "/" .. name
+    if Fs.exists(path) then
+      local counted, trouble = describe(path)
+      if counted == nil then
+        complain(path .. ": " .. trouble)
+        return 1
+      end
+      seen = seen + 1
+      tables = tables + counted
+      if name == "o/build.db" then
+        local ok, build_trouble = builds(path)
+        if not ok then
+          complain(path .. ": " .. build_trouble)
+          return 1
+        end
+      end
+    end
+  end
+  if seen == 0 then
+    report("db: FAIL (no database under " .. root .. "/o; build first)")
+    return 1
+  end
+  report("db: PASS (" .. tables .. " tables in " .. seen .. " databases)")
+  return 0
+end
+
+return databases

@@ -328,7 +328,9 @@ never binds NULL silently, TEXT and BLOB are distinguishable at the
 Lua boundary, and a closed handle fails the same way from every
 method. the build is single-threaded, so SQLite compiles with
 `SQLITE_THREADSAFE=0` and without extension loading, shared cache,
-double-quoted strings, or deprecated interfaces.
+double-quoted strings, or deprecated interfaces, and with the
+`dbstat` virtual table, so `cosmic db` can say what every table in
+both databases costs in rows, pages, and bytes.
 
 ### the build
 
