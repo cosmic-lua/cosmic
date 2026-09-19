@@ -151,6 +151,12 @@ static int bound(lua_State *L, int rc, sqlite3 *db) {
   return 1;
 }
 
+static int statement_parameters(lua_State *L) {
+  struct statement *s = checked_statement(L);
+  lua_pushinteger(L, sqlite3_bind_parameter_count(s->stmt));
+  return 1;
+}
+
 static int statement_bind_null(lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = (int)luaL_checkinteger(L, 2);
@@ -295,6 +301,7 @@ static const luaL_Reg handle_methods[] = {
 };
 
 static const luaL_Reg statement_methods[] = {
+    {"parameters", statement_parameters},
     {"bind_null", statement_bind_null},
     {"bind_integer", statement_bind_integer},
     {"bind_number", statement_bind_number},

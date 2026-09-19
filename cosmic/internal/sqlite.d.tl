@@ -8,6 +8,9 @@ local record sqlite
   record Statement
     userdata
 
+    -- Highest parameter index (including gaps introduced by ?NNN).
+    parameters: function(Statement): integer
+
     bind_null: function(Statement, index: integer): boolean, string
     bind_integer: function(Statement, index: integer, value: integer): boolean, string
     bind_number: function(Statement, index: integer, value: number): boolean, string
