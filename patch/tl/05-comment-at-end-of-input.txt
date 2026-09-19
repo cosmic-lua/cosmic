@@ -1,0 +1,25 @@
+file: tl.lua
+note: a short comment is recorded when the newline ending it is read, so input running out inside one -- a file with no final newline -- dropped it outright, and nothing downstream could notice: a comment reaching no token is absent from both sides of any comparison over tokens
+--- find
+         else
+            drop_token()
+         end
+      end
+
+      table.insert(tokens, { x = x + 1, y = y, i = i, tk = "$EOF$", kind = "$EOF$", comments = comments })
+--- replace
+         else
+            drop_token()
+         end
+      end
+
+      -- Input that ran out inside a short comment ends it here, exactly
+      -- as the newline would have. `got --` and `got --[` are the same
+      -- comment one and two characters in, which is how they are read
+      -- when a newline follows them instead of the end of the input.
+      if state == "comment short" or state == "got --" or state == "got --[" then
+         add_comment(input:sub(ti, i - 1))
+      end
+
+      table.insert(tokens, { x = x + 1, y = y, i = i, tk = "$EOF$", kind = "$EOF$", comments = comments })
+--- end
