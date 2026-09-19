@@ -15,6 +15,7 @@
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 
 local entry_source = "local record entry\nend\nreturn entry\n"
 local sibling_source = "local record sibling\nend\nreturn sibling\n"
@@ -52,7 +53,17 @@ local function try_build(root: string): boolean, string
   if env == nil then
     return false, env_trouble
   end
-  local result, trouble = importer.compile(root, built, env, "visibility-test")
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return false, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return false, stage_trouble
+  end
+  local result, trouble = importer.compile(handle, built, env, "visibility-test")
+  work.close(handle)
   if result == nil then
     return false, trouble
   end

@@ -1,9 +1,13 @@
---- The tree, read by position into a database.
+--- The staged tree, read by position into modules.
 ---
 --- A source's path relative to the root is its import path, so nothing
 --- lists what a module is: `cosmic/fs.tl` is `cosmic.fs`. A `*.d.tl`
 --- declares a module the core provides and holds no code, so it is read
 --- for its type and never stored.
+---
+--- Nothing here reads a path: `build.work` has already staged every
+--- input into the working database, and the tree is the rows of its
+--- `files` table.
 ---
 --- A module's key is the content hash of its source, the keys of
 --- everything it imports, and the hash of the tool that compiled it. An
@@ -12,9 +16,11 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Sqlite = require("cosmic.sqlite")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
 local positions = require("build.positions")
+local work = require("build.work")
 local type compiler = require("build.compiler")
 
 local type Module = positions.Module
@@ -60,42 +66,6 @@ local bytecode_header =
   "\8\136\169\255\255\255\255\255\255" ..
   "\8\0\0\0\0\0\40\119\192"
 
---- What is never a module: the build's own output, the upstream
---- sources and the records that patch them, prose, and anything
---- hidden. `doc` is handled separately by `skip` itself, below: almost
---- all of it is prose with no examples, but `doc/guides/*.md` is the
---- one place doc/meta.md's grammar applies, and `collect` needs to see
---- those files to run `build.doctest` over them.
-local not_source: {string:boolean} = {
-  ["o"] = true,
-  ["vendor"] = true,
-  ["patches"] = true,
-  ["bin"] = true,
-}
-
---- Whether `file` is a doc this tree extracts runnable examples from --
---- exactly `doc/guides/*.md`, never a markdown file anywhere else in
---- the tree (`doc/design.md`, `doc/roadmap.md`, and `doc/meta.md` are
---- prose with no examples, and stay out of scope on purpose).
-local function is_doc_guide(file: string): boolean
-  return file:match("^doc/guides/[^/]+%.md$") ~= nil
-end
-
-local function skip(entry: string): boolean
-  local first = entry:match("^([^/]+)") or entry
-  if first == "doc" then
-    if entry == "doc" or entry == "doc/guides" then
-      return false
-    end
-    return not is_doc_guide(entry)
-  end
-  if not_source[first] then
-    return true
-  end
-  local name = entry:match("([^/]+)$") or entry
-  return name:sub(1, 1) == "."
-end
-
 local function import_path(file: string): string
   local dir = file:match("^(.+)/init%.tl$")
   if dir ~= nil then
@@ -109,10 +79,6 @@ end
 --- compiles as `doc.guides.quickstart`.
 local function import_path_of_doc(file: string): string
   return (file:gsub("%.md$", ""):gsub("/", "."))
-end
-
-local function is_source(file: string): boolean
-  return file:sub(-3) == ".tl" and file:sub(-5) ~= ".d.tl"
 end
 
 local function kind_of(file: string): string
@@ -157,93 +123,95 @@ local function requires_of(built: compiler, source: string,
   return ast.all_requires(built, parsed)
 end
 
---- Every source the tree holds, read and hashed. The root is the module
---- root, so a file's place in it is its import path.
+--- Every source the staged tree holds. The root is the module root, so
+--- a file's place in it is its import path.
 --- @param self_tree whether `root` is cosmic's own tree, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
 --- @param built the compiler, loaded and ready -- needed to discover a
 ---   `kind = "test"` module's own tests, which reads its real AST
-local function collect(root: string, self_tree: boolean,
+local function collect(handle: work.Handle, self_tree: boolean,
                        built: compiler): {Module} | nil, string
-  if not self_tree and Fs.is_dir(root .. "/cosmic") then
+  if not self_tree and Fs.is_dir(handle.root .. "/cosmic") then
     return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
   end
   local out: {Module} = {}
-  local files, trouble = Fs.walk(root, skip)
-  if files == nil then
+  local sources, trouble = Sqlite.rows(handle.db,
+    "SELECT path, data, sha256 FROM files " ..
+    "WHERE path GLOB '*.tl' AND path NOT GLOB '*.d.tl' ORDER BY path")
+  if sources == nil then
     return nil, trouble
   end
-  for _, file in ipairs(files) do
-    if is_source(file) then
-      if not self_tree and (file == "cosmic" or file:sub(1, 7) == "cosmic/") then
-        return nil, file .. ": the 'cosmic' directory is reserved to " ..
-          "cosmic's own tree"
-      end
-      local source, failure = Fs.read(root .. "/" .. file)
-      if source == nil then
-        return nil, failure
-      end
-      local kind = kind_of(file)
-      local tests: {string} = {}
-      local has_top_level_return = false
-      if kind == "test" then
-        local found, analyze_trouble = positions.analyze(built, source, file)
-        if found == nil then
-          return nil, file .. ": " .. analyze_trouble
-        end
-        tests = found.tests
-        has_top_level_return = found.has_top_level_return
-      end
-      local requires, requires_trouble = requires_of(built, source, file)
-      if requires == nil then
-        return nil, file .. ": " .. requires_trouble
-      end
-      out[#out + 1] = {
-        path = import_path(file),
-        file = file,
-        kind = kind,
-        source = source,
-        source_hash = Hash.hex_sha256(source),
-        requires = requires,
-        tests = tests,
-        has_top_level_return = has_top_level_return,
-        generated = false,
-        key = "",
-        lua = "",
-        bytecode = "",
-      }
-    elseif is_doc_guide(file) then
-      local doc_source, doc_failure = Fs.read(root .. "/" .. file)
-      if doc_source == nil then
-        return nil, doc_failure
-      end
-      local generated_source, extract_trouble = doctest.extract(doc_source, file)
-      if generated_source == nil then
-        return nil, file .. ": " .. extract_trouble
-      end
-      local found, analyze_trouble = positions.analyze(built, generated_source, file)
+  for _, row in ipairs(sources) do
+    local file, source, source_hash = row[1], row[2], row[3]
+    if not self_tree and file:sub(1, 7) == "cosmic/" then
+      return nil, file .. ": the 'cosmic' directory is reserved to " ..
+        "cosmic's own tree"
+    end
+    local kind = kind_of(file)
+    local tests: {string} = {}
+    local has_top_level_return = false
+    if kind == "test" then
+      local found, analyze_trouble = positions.analyze(built, source, file)
       if found == nil then
         return nil, file .. ": " .. analyze_trouble
       end
-      local requires, requires_trouble = requires_of(built, generated_source, file)
-      if requires == nil then
-        return nil, file .. ": " .. requires_trouble
-      end
-      out[#out + 1] = {
-        path = import_path_of_doc(file),
-        file = file,
-        kind = "test",
-        source = generated_source,
-        source_hash = Hash.hex_sha256(generated_source),
-        requires = requires,
-        tests = found.tests,
-        has_top_level_return = found.has_top_level_return,
-        generated = true,
-        key = "",
-        lua = "",
-        bytecode = "",
-      }
+      tests = found.tests
+      has_top_level_return = found.has_top_level_return
     end
+    local requires, requires_trouble = requires_of(built, source, file)
+    if requires == nil then
+      return nil, file .. ": " .. requires_trouble
+    end
+    out[#out + 1] = {
+      path = import_path(file),
+      file = file,
+      kind = kind,
+      source = source,
+      source_hash = source_hash,
+      requires = requires,
+      tests = tests,
+      has_top_level_return = has_top_level_return,
+      generated = false,
+      key = "",
+      lua = "",
+      bytecode = "",
+    }
+  end
+  local guides, guide_trouble = Sqlite.rows(handle.db,
+    "SELECT path, data FROM files " ..
+    "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
+    "ORDER BY path")
+  if guides == nil then
+    return nil, guide_trouble
+  end
+  for _, row in ipairs(guides) do
+    local file, doc_source = row[1], row[2]
+    local generated_source, extract_trouble = doctest.extract(doc_source, file)
+    if generated_source == nil then
+      return nil, file .. ": " .. extract_trouble
+    end
+    local found, analyze_trouble = positions.analyze(built, generated_source, file)
+    if found == nil then
+      return nil, file .. ": " .. analyze_trouble
+    end
+    local requires, requires_trouble = requires_of(built, generated_source, file)
+    if requires == nil then
+      return nil, file .. ": " .. requires_trouble
+    end
+    out[#out + 1] = {
+      path = import_path_of_doc(file),
+      file = file,
+      kind = "test",
+      source = generated_source,
+      source_hash = Hash.hex_sha256(generated_source),
+      requires = requires,
+      tests = found.tests,
+      has_top_level_return = found.has_top_level_return,
+      generated = true,
+      key = "",
+      lua = "",
+      bytecode = "",
+    }
   end
   local by_import_path: {string:string} = {}
   for _, m in ipairs(out) do
@@ -301,37 +269,6 @@ local function ordered(modules: {Module}): {Module} | nil, string
     end
   end
   return out
-end
-
---- Fingerprint every source input to the embedded tool, including its
---- standard library and tests. Self-tree commands refuse a mismatched
---- fingerprint because cosmic.* resolves from the binary, not the tree. A
---- row compiled by an older importer is never mistaken for a current
---- one, because this is part of every key. A binary carries the number
---- it was built with, so a project reads it rather than computing one.
-function importer.boot_hash(root: string): string | nil, string
-  local parts: {string} = {}
-  for _, tree in ipairs({ "build", "core", "cosmic", "cmd", "patch", "vendor" }) do
-    local files, trouble = Fs.walk(root .. "/" .. tree)
-    if files == nil then
-      return nil, trouble
-    end
-    for _, relative in ipairs(files) do
-      local data, failure = Fs.read(root .. "/" .. tree .. "/" .. relative)
-      if data == nil then
-        return nil, failure
-      end
-      parts[#parts + 1] = tree .. "/" .. relative .. " " .. Hash.hex_sha256(data)
-    end
-  end
-  for _, path in ipairs({ "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin" }) do
-    local data, trouble = Fs.read(root .. "/" .. path)
-    if data == nil then
-      return nil, trouble
-    end
-    parts[#parts + 1] = path .. " " .. Hash.hex_sha256(data)
-  end
-  return Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
 --- Appends a generated `return` to compiled Lua for a test module, so a
@@ -417,13 +354,15 @@ local function complain(file: string, result: compiler.Result): string
 end
 
 --- Compiles every module, in import order, into Lua and bytecode.
---- @param root the tree to read
+--- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
 --- @param env the checker's environment, already pointed at the tree
 --- @param boot_hash what the tool doing the compiling hashes to
-function importer.compile(root: string, built: compiler, env: compiler.Env,
+function importer.compile(handle: work.Handle, built: compiler,
+                          env: compiler.Env,
                           boot_hash: string): importer.Result | nil, string
-  local modules, trouble = collect(root, importer.is_own_tree(root), built)
+  local modules, trouble =
+    collect(handle, importer.is_own_tree(handle.root), built)
   if modules == nil then
     return nil, trouble
   end

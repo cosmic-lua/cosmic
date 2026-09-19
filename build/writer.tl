@@ -12,6 +12,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local schema = require("build.schema")
+local work = require("build.work")
 local type compiler = require("build.compiler")
 
 local type Module = importer.Module
@@ -185,17 +186,17 @@ function writer.write_result(out: string, result: importer.Result,
   return Fs.rename(out .. ".building", out)
 end
 
---- Compiles the whole tree and writes the result into a fresh database
---- at `out`.
+--- Compiles the whole staged tree and writes the result into a fresh
+--- database at `out`.
 --- @param images the core image for each target, by target name
 --- @param teal_source the vendored compiler, which a binary must carry
 ---   so it can build a tree of its own; nil when building a project
 ---   with a binary that already has one
-function writer.write(root: string, out: string, built: compiler,
+function writer.write(handle: work.Handle, out: string, built: compiler,
                       env: compiler.Env, boot_hash: string,
                       images: {string:string},
                       teal_source: string | nil): boolean, string
-  local result, trouble = importer.compile(root, built, env, boot_hash)
+  local result, trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
     return false, trouble
   end

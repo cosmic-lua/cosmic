@@ -1,5 +1,5 @@
 --- Runs every test the tree defines, in-process, and records each
---- verdict into `o/records.db`, a database of its own that never ships
+--- verdict into the working database, `o/build.db`, which never ships
 --- and is never attached to `o/cosmic.db`.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
@@ -33,8 +33,8 @@ local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
 local payload = require("build.payload")
-local records_schema = require("build.records_schema")
 local teal = require("build.teal")
+local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
 
@@ -53,27 +53,12 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
---- Opens `o/records.db`, creating its one table when the file is new.
-local function open_records(path: string): Sqlite.Handle | nil, string
-  local handle, trouble = Sqlite.open(path, true)
-  if handle == nil then
-    return nil, trouble
+local function elapsed_ms(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
   end
-  for _, statement in ipairs(records_schema.settings) do
-    local ok, failure = handle:exec(statement)
-    if not ok then
-      handle:close()
-      return nil, failure
-    end
-  end
-  for _, statement in ipairs(records_schema.tables) do
-    local ok, failure = handle:exec(statement)
-    if not ok then
-      handle:close()
-      return nil, failure
-    end
-  end
-  return handle
+  return (now - from) // 1000000
 end
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
@@ -270,8 +255,8 @@ end
 --- when every test passed.
 function test.run(): integer
   -- Captured once, up front, and threaded through everything below as
-  -- this run's own identifier: see build/records_schema.tl for why a
-  -- nanosecond timestamp, not an autoincrement id, identifies a run.
+  -- this run's own identifier: see build/work.tl for why a nanosecond
+  -- timestamp, not an autoincrement id, identifies a run.
   local run_at_ns = Time.now_ns() or 0
 
   local root, root_trouble = Fs.absolute(".")
@@ -279,19 +264,34 @@ function test.run(): integer
     complain(root_trouble)
     return 1
   end
+  local started = Time.monotonic_ns() or 0
+  local own_tree = importer.is_own_tree(root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    complain(open_trouble)
+    return 1
+  end
+  local staged, stage_trouble = work.stage(handle, own_tree)
+  if staged == nil then
+    work.close(handle)
+    complain(stage_trouble)
+    return 1
+  end
 
   -- Same staleness guard `cosmic <file.tl>` applies when the tree under
   -- test is cosmic's own: a stale tool would check and compile it with
   -- a checker or patch set the tree no longer agrees with, and could
   -- execute embedded cosmic.* implementations and tests from an old tree.
-  if importer.is_own_tree(root) then
-    local current, hash_trouble = importer.boot_hash(root)
+  if own_tree then
+    local current, hash_trouble = work.boot_hash(handle)
     if current == nil then
+      work.close(handle)
       complain(hash_trouble)
       return 1
     end
     local running = Store.meta("boot_hash") or ""
     if current ~= running then
+      work.close(handle)
       complain("the tool is stale; run bin/zig build boot")
       return 3
     end
@@ -299,18 +299,14 @@ function test.run(): integer
 
   local built, load_trouble = teal.load()
   if built == nil then
+    work.close(handle)
     complain(load_trouble)
     return 1
   end
   local env, env_trouble = teal.environment_for(built, root)
   if env == nil then
+    work.close(handle)
     complain(env_trouble)
-    return 1
-  end
-
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    complain(mkdir_trouble)
     return 1
   end
 
@@ -318,34 +314,40 @@ function test.run(): integer
   local database = root .. "/o/cosmic.db"
   local images, teal_source, carry_trouble = payload.carried(database)
   if carry_trouble ~= "" then
+    work.close(handle)
     complain(carry_trouble)
     return 1
   end
 
-  local result, compile_trouble = importer.compile(root, built, env, boot_hash)
+  local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
+    work.record(handle, elapsed_ms(started), staged, 0, "FAIL")
+    work.close(handle)
     complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(database, result, images, teal_source)
+  work.record(handle, elapsed_ms(started), staged, #result.modules,
+    written and "PASS" or "FAIL")
   if not written then
+    work.close(handle)
     complain(write_trouble)
     return 1
   end
+  report("build: " .. #result.modules .. " modules (" .. staged.files ..
+    " files staged, " .. staged.read .. " read) in " ..
+    elapsed_ms(started) .. " ms")
 
   local attached, attach_trouble = Store.attach(database)
   if not attached then
+    work.close(handle)
     complain(attach_trouble)
     return 1
   end
 
-  local records_path = root .. "/o/records.db"
-  local records, records_trouble = open_records(records_path)
-  if records == nil then
-    complain(records_path .. ": " .. records_trouble)
-    return 1
-  end
+  local records_path = root .. "/o/build.db"
+  local records = handle.db
 
   local total = 0
   local modules_run = 0
@@ -377,7 +379,7 @@ function test.run(): integer
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
-  local closed, close_trouble = records:close()
+  local closed, close_trouble = work.close(handle)
   if not closed then
     errors[#errors + 1] = "close: " .. close_trouble
   end

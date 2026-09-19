@@ -9,8 +9,8 @@ local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local attach = require("build.attach")
 local compiler = require("build.compiler")
-local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 local writer = require("build.writer")
 
 --- The targets every binary carries an image for.
@@ -65,7 +65,17 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local boot_hash, hash_trouble = importer.boot_hash(root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    report("boot: FAIL (" .. open_trouble .. ")")
+    return 1
+  end
+  local staged, stage_trouble = work.stage(handle, true)
+  if staged == nil then
+    report("boot: FAIL (" .. stage_trouble .. ")")
+    return 1
+  end
+  local boot_hash, hash_trouble = work.boot_hash(handle)
   if boot_hash == nil then
     report("boot: FAIL (" .. hash_trouble .. ")")
     return 1
@@ -73,8 +83,11 @@ local function boot(root: string, argv: {integer:string}): integer
 
   local database_path = root .. "/o/cosmic.db"
   local written, write_trouble =
-    writer.write(root, database_path, compiler, env, boot_hash, images,
+    writer.write(handle, database_path, compiler, env, boot_hash, images,
                  teal_source)
+  work.record(handle, elapsed_ms(started), staged, staged.files,
+    written and "PASS" or "FAIL")
+  work.close(handle)
   if not written then
     report("boot: FAIL\n" .. write_trouble)
     return 1
@@ -109,8 +122,9 @@ local function boot(root: string, argv: {integer:string}): integer
     end
   end
 
-  report("boot: PASS (" .. #targets .. " targets, " ..
-    #database .. " database bytes, " .. elapsed_ms(started) .. " ms)")
+  report("boot: PASS (" .. #targets .. " targets, " .. staged.files ..
+    " files staged, " .. #database .. " database bytes, " ..
+    elapsed_ms(started) .. " ms)")
   return 0
 end
 

@@ -14,7 +14,7 @@ implemented, nor is the planned restriction on casts.
 tests, the in-process runner, and a real Teal AST (`build.ast`:
 parse, walk, structural match, rewrite) have already landed; what
 follows leans on `build.ast`, still build-internal today, and on
-`o/records.db`, which already holds test verdicts.
+`o/build.db`, which already holds test verdicts.
 
 there is no separate `cosmic check` verb, and none is planned:
 type and visibility checking run on every `cosmic test` and plain

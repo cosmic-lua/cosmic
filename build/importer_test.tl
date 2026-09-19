@@ -8,6 +8,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -40,7 +41,17 @@ local function requires_of_fixture(root: string, path: string): {string} | nil, 
   if env == nil then
     return nil, env_trouble
   end
-  local result, compile_trouble = importer.compile(root, built, env, "importer-test")
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return nil, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return nil, stage_trouble
+  end
+  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  work.close(handle)
   if result == nil then
     return nil, compile_trouble
   end
@@ -90,6 +101,17 @@ local function test_finds_a_real_top_level_require()
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
 end
 
+--- The tool's hash over a tree, staged fresh: each call is its own
+--- run, so a file that has gone since the last call is gone from the
+--- fingerprints too.
+local function boot_hash_of(root: string): string
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local hash = assert(work.boot_hash(handle))
+  work.close(handle)
+  return hash
+end
+
 --- Embedded library code and tests must invalidate the self-tree guard,
 --- just as native code and the compiler's patched sources do.
 local function test_boot_hash_tracks_embedded_inputs()
@@ -105,20 +127,20 @@ local function test_boot_hash_tracks_embedded_inputs()
   for _, path in ipairs(paths) do
     assert(Fs.write(root .. "/" .. path, "original"))
   end
-  local original = assert(importer.boot_hash(root))
-  assert(importer.boot_hash(root) == original)
+  local original = assert(boot_hash_of(root))
+  assert(boot_hash_of(root) == original)
   for _, path in ipairs(paths) do
     assert(Fs.write(root .. "/" .. path, "changed"))
-    assert(importer.boot_hash(root) ~= original, "missed changed input: " .. path)
+    assert(boot_hash_of(root) ~= original, "missed changed input: " .. path)
     assert(Fs.write(root .. "/" .. path, "original"))
-    assert(importer.boot_hash(root) == original)
+    assert(boot_hash_of(root) == original)
   end
   -- Generated output must not make a freshly built tool stale.
   assert(Fs.mkdirs(root .. "/o"))
   assert(Fs.write(root .. "/o/output", "generated"))
-  assert(importer.boot_hash(root) == original)
+  assert(boot_hash_of(root) == original)
   assert(Fs.write(root .. "/cosmic/added.tl", "new module"))
-  assert(importer.boot_hash(root) ~= original, "missed added module")
+  assert(boot_hash_of(root) ~= original, "missed added module")
   assert(Fs.remove(root .. "/cosmic/added.tl"))
-  assert(importer.boot_hash(root) == original)
+  assert(boot_hash_of(root) == original)
 end

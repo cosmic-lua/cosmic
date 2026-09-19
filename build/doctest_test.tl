@@ -13,6 +13,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 
 local type Module = importer.Module
 
@@ -110,7 +111,21 @@ local function compile_fixture(root: string): importer.Result | nil, string
   if env == nil then
     return nil, env_trouble
   end
-  return importer.compile(root, built, env, "doctest-test")
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return nil, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return nil, stage_trouble
+  end
+  local result, compile_trouble = importer.compile(handle, built, env, "doctest-test")
+  work.close(handle)
+  if result == nil then
+    return nil, compile_trouble
+  end
+  return result
 end
 
 local function find_module(result: importer.Result, path: string): Module | nil

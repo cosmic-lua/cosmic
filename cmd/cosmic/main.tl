@@ -7,11 +7,13 @@
 
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local Time = require("cosmic.time")
 local fix = require("build.fix")
 local importer = require("build.importer")
 local payload = require("build.payload")
 local teal = require("build.teal")
 local test = require("build.test")
+local work = require("build.work")
 local writer = require("build.writer")
 
 local help = [[
@@ -52,6 +54,14 @@ Every verb ends in a verdict line and an exit code.
 
 local function say(line: string)
   Fs.put(Fs.stdout, line .. "\n")
+end
+
+local function elapsed_ms(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
+  end
+  return (now - from) // 1000000
 end
 
 local function complain(line: string)
@@ -99,6 +109,20 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
+  local started = Time.monotonic_ns() or 0
+  local own_tree = importer.is_own_tree(root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    complain("cosmic: " .. open_trouble)
+    return 1
+  end
+  local staged, stage_trouble = work.stage(handle, own_tree)
+  if staged == nil then
+    work.close(handle)
+    complain("cosmic: " .. stage_trouble)
+    return 1
+  end
+
   -- A stale tool: this binary's source inputs no longer match what
   -- it was booted from. Rebuilding is the fix; running on
   -- would compile the tree with a checker or patch set the tree no
@@ -106,14 +130,16 @@ local function run(file: string, argv: {integer:string}): integer
   -- intended: re-run boot and re-exec once, per design.md's staleness
   -- section; M1 has no process spawning, so this only detects and
   -- refuses.
-  if importer.is_own_tree(root) then
-    local current, hash_trouble = importer.boot_hash(root)
+  if own_tree then
+    local current, hash_trouble = work.boot_hash(handle)
     if current == nil then
+      work.close(handle)
       complain("cosmic: " .. hash_trouble)
       return 1
     end
     local running = Store.meta("boot_hash") or ""
     if current ~= running then
+      work.close(handle)
       complain("cosmic: the tool is stale; run bin/zig build boot")
       return 3
     end
@@ -121,18 +147,14 @@ local function run(file: string, argv: {integer:string}): integer
 
   local built, load_trouble = teal.load()
   if built == nil then
+    work.close(handle)
     complain("cosmic: " .. load_trouble)
     return 1
   end
   local env, env_trouble = teal.environment_for(built, root)
   if env == nil then
+    work.close(handle)
     complain("cosmic: " .. env_trouble)
-    return 1
-  end
-
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    complain("cosmic: " .. mkdir_trouble)
     return 1
   end
 
@@ -148,17 +170,23 @@ local function run(file: string, argv: {integer:string}): integer
   -- carries them forward unchanged rather than writing an empty set.
   local images, teal_source, carry_trouble = payload.carried(database)
   if carry_trouble ~= "" then
+    work.close(handle)
     complain("cosmic: " .. carry_trouble)
     return 1
   end
 
-  local result, compile_trouble = importer.compile(root, built, env, boot_hash)
+  local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
+    work.record(handle, elapsed_ms(started), staged, 0, "FAIL")
+    work.close(handle)
     complain("cosmic: " .. compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(database, result, images, teal_source)
+  work.record(handle, elapsed_ms(started), staged, #result.modules,
+    written and "PASS" or "FAIL")
+  work.close(handle)
   if not written then
     complain("cosmic: " .. write_trouble)
     return 1

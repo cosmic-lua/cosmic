@@ -266,10 +266,14 @@ input to the build, never to the runtime. one database holds:
 - **roots**: Mozilla's CA bundle.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
 
-every table is `WITHOUT ROWID` on a natural key. records, meaning
-test verdicts, coverage, and timings, live in a second database
-beside it, `o/records.db`, and never ship: they move by host, and a
-shipped file must not.
+every table is `WITHOUT ROWID` on a natural key. everything a build
+does on one host lives in a second database beside it, `o/build.db`,
+the working database: the tree as it was last read, staged whole
+before anything transforms it; what a stat said about each file, so
+an unchanged file is never read again; one row per run saying what
+was staged, read, and compiled; and records, meaning test verdicts
+and coverage. it never ships: it moves by host, and a shipped file
+must not.
 
 all three targets are little-endian 64-bit, so one bytecode column
 serves them all, verified by a test that each image loads it, and
@@ -540,7 +544,7 @@ cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal, private)
 doc/                prose
-o/                  output; o/cosmic.db, o/records.db; never committed
+o/                  output; o/cosmic.db, o/build.db; never committed
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not
