@@ -210,8 +210,8 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   return true, ""
 end
 
---- Brings `derived` and the parse tables up to the staged tree, in one
---- transaction: a derived row whose file changed or vanished goes, and
+--- Brings `derived` and the parse tables up to the staged tree, inside
+--- the run's transaction: a derived row whose file changed or vanished goes, and
 --- only what is new is extracted, generated, or parsed. The compiler's
 --- row has no file and is Lua, so it is neither dropped nor parsed
 --- here; the plan carries it. What no input refers to any more is dropped, so the tables
@@ -237,7 +237,7 @@ local function derive(handle: work.Handle, self_tree: boolean,
     end
   end
 
-  return Sqlite.transact(db, function(): boolean, string
+  local derive_rows = function(): boolean, string
     local swept, sweep_trouble = db:exec(
       "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
       "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
@@ -264,7 +264,8 @@ local function derive(handle: work.Handle, self_tree: boolean,
       end
     end
     return true, ""
-  end)
+  end
+  return derive_rows()
 end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
@@ -632,10 +633,10 @@ end
 
 --- Compiles every module, in import order, into Lua and bytecode --
 --- or finds it already compiled under the same key. The keys and the
---- compiles land in the working database in one transaction, kept
---- even when a later module refuses, so a run that fails still pays
---- for each module once; a compile another tool made, or one no run
---- has used lately, is dropped.
+--- compiles land in the working database inside the run's
+--- transaction, kept even when a later module refuses, so a run that
+--- fails still pays for each module once; a compile another tool
+--- made, or one no run has used lately, is dropped.
 --- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
 --- @param env the checker's environment, already pointed at the tree
@@ -663,7 +664,7 @@ function importer.compile(handle: work.Handle, built: compiler,
   local db = handle.db
   local failure = ""
 
-  local made, transact_trouble = Sqlite.transact(db, function(): boolean, string
+  local compile_all = function(): boolean, string
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
     if not cleared then
       return false, clear_trouble
@@ -741,7 +742,8 @@ function importer.compile(handle: work.Handle, built: compiler,
     return Sqlite.run(db,
       "DELETE FROM compiled WHERE tool <> ?1 OR seen < ?2",
       { text(boot_hash), { integer = handle.run - kept_runs } })
-  end)
+  end
+  local made, transact_trouble = compile_all()
   if not made then
     return nil, transact_trouble
   end

@@ -131,7 +131,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     coverage:finalize()
     return 0, 0, test_trouble
   end
-  local called, made, trouble = pcall(Sqlite.transact, handle, function(): boolean, string
+  local write_rows = function(): boolean, string
     local recorded, run_trouble = Sqlite.run(handle,
       "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
       { { integer = run_at_ns } })
@@ -169,12 +169,10 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
       end
     end
     return true, ""
-  end)
+  end
+  local made, trouble = write_rows()
   coverage:finalize()
   per_test:finalize()
-  if not called then
-    error(made, 0)
-  end
   if not made then
     return 0, 0, trouble
   end
@@ -383,6 +381,13 @@ function test.run(): integer
     return 1
   end
 
+  -- Every verdict and every coverage row of this run lands together.
+  local begun, begin_trouble = work.begin(handle)
+  if not begun then
+    work.close(handle)
+    complain(begin_trouble)
+    return 1
+  end
   local records_path = root .. "/o/build.db"
   local records = handle.db
 

@@ -97,15 +97,22 @@ local function project(handle: work.Handle, path: string,
 end
 
 --- Writes an already-compiled result into a fresh database and leaves
---- it at `out`.
+--- it at `out`. This ends the run's transaction first: SQLite attaches
+--- and vacuums outside one only.
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result): boolean, string
-  local attached, attach_trouble = handle.db:exec("ATTACH ':memory:' AS out")
+  local db = handle.db
+  local committed, commit_trouble = work.commit(handle)
+  if not committed then
+    return false, commit_trouble
+  end
+
+  local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
   if not attached then
     return false, attach_trouble
   end
   local projected, trouble = project(handle, out, result)
-  handle.db:exec("DETACH out")
+  db:exec("DETACH out")
   if not projected then
     return false, trouble
   end

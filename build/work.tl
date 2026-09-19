@@ -18,14 +18,20 @@
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 
 local record work
-  --- An open working database, for one run.
+  --- An open working database, for one run. A run is one transaction
+  --- from `open` to `commit`: staging, deriving and compiling all land
+  --- together, and what happens after -- the projection, which SQLite
+  --- refuses inside a transaction, and the records -- is its own.
   record Handle
     db: Sqlite.Handle
     root: string
     --- This run's number: one more than the last run over this file.
     run: integer
+    --- Whether the run's transaction is open.
+    inside: boolean
   end
 
   --- What one staging pass found and what it had to read.
@@ -44,7 +50,7 @@ local record work
   version: string
 end
 
-work.version = "7"
+work.version = "8"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -284,17 +290,21 @@ function work.open(root: string): work.Handle | nil, string
     return work.open(root)
   end
 
-  local counted, count_trouble = Sqlite.transact(db, function(): boolean, string
-    local stamped, stamp_trouble = Sqlite.run(db,
-      "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
-      "ON CONFLICT (key) DO NOTHING", { text(work.version) })
-    if not stamped then
-      return false, stamp_trouble
-    end
-    return Sqlite.run(db,
-      "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
-      "ON CONFLICT (key) DO UPDATE SET value = value + 1")
-  end)
+  local begun, begin_trouble = db:exec("BEGIN")
+  if not begun then
+    db:close()
+    return nil, path .. ": " .. begin_trouble
+  end
+  local stamped, stamp_trouble = Sqlite.run(db,
+    "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
+    "ON CONFLICT (key) DO NOTHING", { text(work.version) })
+  if not stamped then
+    db:close()
+    return nil, path .. ": " .. stamp_trouble
+  end
+  local counted, count_trouble = Sqlite.run(db,
+    "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
+    "ON CONFLICT (key) DO UPDATE SET value = value + 1")
   if not counted then
     db:close()
     return nil, path .. ": " .. count_trouble
@@ -305,7 +315,28 @@ function work.open(root: string): work.Handle | nil, string
     db:close()
     return nil, path .. ": " .. run_trouble
   end
-  return { db = db, root = root, run = integer_of(runs) }
+  return { db = db, root = root, run = integer_of(runs), inside = true }
+end
+
+--- Ends the run's transaction, keeping everything it did. Nothing to
+--- do when it has already ended.
+function work.commit(handle: work.Handle): boolean, string
+  if not handle.inside then
+    return true, ""
+  end
+  handle.inside = false
+  return handle.db:exec("COMMIT")
+end
+
+--- Opens another transaction on the run, for a phase that comes after
+--- the projection: the test runner's records, written together.
+function work.begin(handle: work.Handle): boolean, string
+  local begun, trouble = handle.db:exec("BEGIN")
+  if not begun then
+    return false, trouble
+  end
+  handle.inside = true
+  return true, ""
 end
 
 --- What is never an input: the build's own output, the upstream
@@ -494,58 +525,37 @@ local function once(statement: Sqlite.Statement): boolean, string
   return true, ""
 end
 
---- Stages every file `chosen` picks into one table. A file whose stat
---- matches its row is not read; one that differs, or is new, is read,
---- hashed and written; one the walk no longer finds is deleted. Only a
---- change reaches the database.
-local function stage_into(handle: work.Handle, table_name: string,
-                          files: {string}, chosen: function(string): boolean,
-                          staged: work.Staged): boolean, string
-  local db = handle.db
-  local root = handle.root
-  local known, known_trouble = known_in(db, table_name)
-  if known == nil then
-    return false, known_trouble
-  end
-  local put, put_trouble = db:prepare(puts[table_name])
-  if put == nil then
-    return false, put_trouble
-  end
-  for _, file in ipairs(files) do
-    if chosen(file) then
-      local st, stat_trouble = Fs.stat(root .. "/" .. file)
-      if st == nil then
-        put:finalize()
-        return false, stat_trouble
-      end
-      local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
-      local was = known[file]
-      known[file] = nil
-      staged.files = staged.files + 1
-      local same = was ~= nil and was.size == st.size and
-        was.mtime_ns == mtime_ns and was.ino == st.ino and was.dev == st.dev
-      if not same then
-        local data, read_trouble = Fs.read(root .. "/" .. file)
-        if data == nil then
-          put:finalize()
-          return false, read_trouble
-        end
-        put:bind_text(1, file)
-        put:bind_integer(2, st.size)
-        put:bind_integer(3, mtime_ns)
-        put:bind_integer(4, st.ino)
-        put:bind_integer(5, st.dev)
-        put:bind_blob(6, data)
-        local written, write_trouble = once(put)
-        if not written then
-          put:finalize()
-          return false, file .. ": " .. write_trouble
-        end
-        staged.read = staged.read + 1
-      end
-    end
-  end
-  put:finalize()
+--- Whether a file's row no longer stands for it, consuming the row
+--- from `known` either way, so what is left in `known` at the end is
+--- what the walk no longer finds.
+local function moved(known: {string:Known}, file: string, st: sys.Stat,
+                     mtime_ns: integer): boolean
+  local was = known[file]
+  known[file] = nil
+  return was == nil or was.size ~= st.size or was.mtime_ns ~= mtime_ns or
+    was.ino ~= st.ino or was.dev ~= st.dev
+end
+
+--- Writes one file's row: its stat and its bytes, hashed in place.
+local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
+                       mtime_ns: integer, data: string): boolean, string
+  put:bind_text(1, file)
+  put:bind_integer(2, st.size)
+  put:bind_integer(3, mtime_ns)
+  put:bind_integer(4, st.ino)
+  put:bind_integer(5, st.dev)
+  put:bind_blob(6, data)
+  return once(put)
+end
+
+local function finish(put_files: Sqlite.Statement, put_tool: Sqlite.Statement)
+  put_files:finalize()
+  put_tool:finalize()
+end
+
+--- Deletes the rows `known` still holds, which the walk did not find.
+local function forget(db: Sqlite.Handle, table_name: string,
+                      known: {string:Known}): boolean, string
   for path in pairs(known) do
     local ok, why = Sqlite.run(db,
       "DELETE FROM " .. table_name .. " WHERE path = ?1", { text(path) })
@@ -557,30 +567,85 @@ local function stage_into(handle: work.Handle, table_name: string,
 end
 
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
---- what the tool is made of into `tool`, in one transaction.
+--- what the tool is made of into `tool`, in one pass: a file both
+--- tables want is stat'd once and read at most once. A file whose stat
+--- matches its row is not read; one that differs, or is new, is read,
+--- hashed and written; one the walk no longer finds is deleted. Only a
+--- change reaches the database.
 --- @param own_tree whether `root` is cosmic's own tree
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
+  local db = handle.db
+  local root = handle.root
   local walked, walk_trouble =
-    Fs.walk(handle.root, own_tree and skip_in_own_tree or skip_input)
+    Fs.walk(root, own_tree and skip_in_own_tree or skip_input)
   if walked == nil then
     return nil, walk_trouble
   end
   local files: {string} = walked
+  local known_files, files_trouble = known_in(db, "files")
+  if known_files == nil then
+    return nil, files_trouble
+  end
+  local known_tool, tool_trouble = known_in(db, "tool")
+  if known_tool == nil then
+    return nil, tool_trouble
+  end
+  local put_files, put_files_trouble = db:prepare(puts.files)
+  if put_files == nil then
+    return nil, put_files_trouble
+  end
+  local put_tool, put_tool_trouble = db:prepare(puts.tool)
+  if put_tool == nil then
+    put_files:finalize()
+    return nil, put_tool_trouble
+  end
   local staged: work.Staged = { files = 0, read = 0 }
-  local made, trouble = Sqlite.transact(handle.db, function(): boolean, string
-    local ok, why = stage_into(handle, "files", files,
-      function(file: string): boolean
-        return is_input(file, own_tree)
-      end, staged)
-    if not ok then
-      return false, why
+
+  for _, file in ipairs(files) do
+    local input = is_input(file, own_tree)
+    local tool = is_tool(file, own_tree)
+    if input or tool then
+      local st, stat_trouble = Fs.stat(root .. "/" .. file)
+      if st == nil then
+        finish(put_files, put_tool)
+        return nil, stat_trouble
+      end
+      local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+      staged.files = staged.files + 1
+      local write_files = input and moved(known_files, file, st, mtime_ns)
+      local write_tool = tool and moved(known_tool, file, st, mtime_ns)
+      if write_files or write_tool then
+        local data, read_trouble = Fs.read(root .. "/" .. file)
+        if data == nil then
+          finish(put_files, put_tool)
+          return nil, read_trouble
+        end
+        staged.read = staged.read + 1
+        if write_files then
+          local ok, why = put_row(put_files, file, st, mtime_ns, data)
+          if not ok then
+            finish(put_files, put_tool)
+            return nil, file .. ": " .. why
+          end
+        end
+        if write_tool then
+          local ok, why = put_row(put_tool, file, st, mtime_ns, data)
+          if not ok then
+            finish(put_files, put_tool)
+            return nil, file .. ": " .. why
+          end
+        end
+      end
     end
-    return stage_into(handle, "tool", files, function(file: string): boolean
-      return is_tool(file, own_tree)
-    end, staged)
-  end)
-  if not made then
-    return nil, trouble
+  end
+  finish(put_files, put_tool)
+  local forgot, forget_trouble = forget(db, "files", known_files)
+  if not forgot then
+    return nil, forget_trouble
+  end
+  forgot, forget_trouble = forget(db, "tool", known_tool)
+  if not forgot then
+    return nil, forget_trouble
   end
   return staged
 end
@@ -635,8 +700,14 @@ function work.record(handle: work.Handle, ms: integer, staged: work.Staged,
       integer(staged.read), integer(compiled), integer(cached), text(verdict) })
 end
 
---- Closes the database. The handle is finished after this.
+--- Closes the database, keeping whatever a still-open transaction
+--- did. The handle is finished after this.
 function work.close(handle: work.Handle): boolean, string
+  local committed, trouble = work.commit(handle)
+  if not committed then
+    handle.db:close()
+    return false, trouble
+  end
   return handle.db:close()
 end
 
