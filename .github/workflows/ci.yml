@@ -66,7 +66,7 @@ jobs:
         run: |
           cmp -n "$(wc -c < o/sanitized/cosmic-core)" \
             o/sanitized/cosmic-core o/sanitized/bin/cosmic
-          timeout 300 o/sanitized/bin/cosmic test
+          timeout 30 o/sanitized/bin/cosmic test
 
   # Each shipped target proves it can build AND test itself: the same
   # tree, built fresh with that platform's own C toolchain, must pass

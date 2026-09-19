@@ -50,19 +50,27 @@ local function boot(root: string, argv: {integer:string}): integer
     report("boot: FAIL (" .. mkdir_trouble .. ")")
     return 1
   end
-
   local images: {string:string} = {}
   for _, target in ipairs(targets) do
     local path = root .. "/o/core/" .. target .. "/cosmic-core"
-    if target == host and argv[6] ~= nil then
-      path = argv[6]
-    end
     local image, failure = Fs.read(path)
     if image == nil then
       report("boot: FAIL (" .. failure .. ")")
       return 1
     end
     images[target] = image
+  end
+
+  -- Checked boot changes the running host prefix, not the reusable images
+  -- in the shared working database. Later ordinary builds read those images.
+  local host_image = images[host]
+  if argv[6] ~= nil then
+    local checked, checked_trouble = Fs.read(argv[6])
+    if checked == nil then
+      report("boot: FAIL (" .. checked_trouble .. ")")
+      return 1
+    end
+    host_image = checked
   end
 
   local teal_source, teal_trouble = Fs.read(root .. "/o/vendor/tl/tl.lua")
@@ -134,14 +142,15 @@ local function boot(root: string, argv: {integer:string}): integer
 
   for _, target in ipairs(targets) do
     local out = output .. "/bin/cosmic-" .. target
-    local ok, failure = attach.write(out, target, images[target], database)
+    local image = target == host and host_image or images[target]
+    local ok, failure = attach.write(out, target, image, database)
     if not ok then
       report("boot: FAIL (" .. failure .. ")")
       return 1
     end
     if target == host then
       local same, host_trouble =
-        attach.write(output .. "/bin/cosmic", target, images[target], database)
+        attach.write(output .. "/bin/cosmic", target, image, database)
       if not same then
         report("boot: FAIL (" .. host_trouble .. ")")
         return 1

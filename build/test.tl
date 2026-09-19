@@ -70,6 +70,38 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
       { integer = ran_at_ns }, text(table.concat(reads, "\n")) })
 end
 
+--- The two coverage tables share their first three fields. Reuse their
+--- statements for the many rows in a snapshot, checking every operation.
+local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
+                              path: string, line: integer,
+                              last: integer | string): boolean, string
+  local ok, trouble = statement:bind_integer(1, run_at_ns)
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = statement:bind_text(2, path)
+  if not ok then
+    return false, trouble
+  end
+  ok, trouble = statement:bind_integer(3, line)
+  if not ok then
+    return false, trouble
+  end
+  if last is integer then
+    ok, trouble = statement:bind_integer(4, last)
+  else
+    ok, trouble = statement:bind_text(4, last)
+  end
+  if not ok then
+    return false, trouble
+  end
+  local state, failure = statement:step()
+  if state == nil then
+    return false, failure
+  end
+  return statement:reset()
+end
+
 --- Every line `build.coverage.report` found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`: nothing in
 --- `test_runs`/`coverage`/`coverage_by_test` is ever deleted, so a
@@ -87,7 +119,19 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               run_at_ns: integer): integer, integer, string
   local total_hit = 0
   local total_lines = 0
-  local made, trouble = Sqlite.transact(handle, function(): boolean, string
+  local coverage, prepare_trouble = handle:prepare(
+    "INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (?1, ?2, ?3, ?4)")
+  if coverage == nil then
+    return 0, 0, prepare_trouble
+  end
+  local per_test, test_trouble = handle:prepare(
+    "INSERT INTO coverage_by_test (ran_at_ns, path, line, test) " ..
+    "VALUES (?1, ?2, ?3, ?4)")
+  if per_test == nil then
+    coverage:finalize()
+    return 0, 0, test_trouble
+  end
+  local called, made, trouble = pcall(Sqlite.transact, handle, function(): boolean, string
     local recorded, run_trouble = Sqlite.run(handle,
       "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
       { { integer = run_at_ns } })
@@ -101,11 +145,8 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
           return false, m.file .. ": " .. line_trouble
         end
         for line, was_hit in pairs(per_line) do
-          local ok, write_trouble = Sqlite.run(handle,
-            "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
-            "VALUES (?1, ?2, ?3, ?4)",
-            { { integer = run_at_ns }, text(m.path), { integer = line },
-              { integer = was_hit and 1 or 0 } })
+          local ok, write_trouble = insert_coverage(coverage, run_at_ns,
+            m.path, line, was_hit and 1 or 0)
           if not ok then
             return false, write_trouble
           end
@@ -119,11 +160,8 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     for test_name, test_hits in pairs(by_test) do
       for path, per_line in pairs(test_hits) do
         for line in pairs(per_line) do
-          local ok, write_trouble = Sqlite.run(handle,
-            "INSERT INTO coverage_by_test (ran_at_ns, path, line, test) " ..
-            "VALUES (?1, ?2, ?3, ?4)",
-            { { integer = run_at_ns }, text(path), { integer = line },
-              text(test_name) })
+          local ok, write_trouble = insert_coverage(per_test, run_at_ns,
+            path, line, test_name)
           if not ok then
             return false, write_trouble
           end
@@ -132,6 +170,11 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     end
     return true, ""
   end)
+  coverage:finalize()
+  per_test:finalize()
+  if not called then
+    error(made, 0)
+  end
   if not made then
     return 0, 0, trouble
   end
