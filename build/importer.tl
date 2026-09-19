@@ -22,6 +22,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
@@ -184,13 +185,14 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     if requires == nil then
       return false, file .. ": " .. requires_trouble
     end
-    local found, analysis_trouble = positions.analysis_of(built, parsed)
+    local found, analysis_trouble = positions.analysis_of(built, parsed, source)
     if found == nil then
       return false, file .. ": " .. analysis_trouble
     end
     local ok, why = Sqlite.run(db,
-      "INSERT INTO parsed (source_hash, has_return) VALUES (?1, ?2)",
-      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 } })
+      "INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
+      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 },
+        text(found.export) })
     if not ok then
       return false, file .. ": " .. why
     end
@@ -212,16 +214,89 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     end
     for ordinal, entry in ipairs(found.catalog) do
       ok, why = Sqlite.run(db,
-        "INSERT INTO catalog (source_hash, ordinal, symbol, message, " ..
-        "guidance, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO catalog (source_hash, ordinal, symbol, message, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
         { text(source_hash), { integer = ordinal }, text(entry.symbol),
-          text(entry.message), text(entry.guidance), { integer = entry.line } })
+          text(entry.message), { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, entry in ipairs(found.docs) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO docs (source_hash, ordinal, symbol, kind, signature, " ..
+        "text, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        { text(source_hash), { integer = ordinal }, text(entry.symbol),
+          text(entry.kind), text(entry.signature), text(entry.text),
+          { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, entry in ipairs(found.references) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
+        { text(source_hash), { integer = ordinal }, text(entry.module),
+          text(entry.member), { integer = entry.line } })
       if not ok then
         return false, file .. ": " .. why
       end
     end
   end
   return true, ""
+end
+
+--- The tables a parse or a generator fills, keyed by the source they
+--- came from: rows in them are only ever as right as the code that
+--- derived them.
+local analysis_tables: {string} = {
+  "parsed", "requires", "tests", "catalog", "docs", "refs",
+}
+
+--- Forgets every derived row when the code that derives them has
+--- changed since they were made. A row keyed by its source's hash is
+--- found again for as long as that source stands, which is right only
+--- while the analyzer stands too: an extractor that learns to see
+--- something new, or a generator that emits differently, must see
+--- every source again. The analyzer's identity is the boot hash: in
+--- cosmic's own tree, the tree's (every tool input, already in `meta`
+--- from this run's staleness check), and in a project, the running
+--- binary's. A change to anything in the tool reparses everything,
+--- which costs a fraction of a second and is never wrong.
+local function forget_stale_analysis(db: Sqlite.Handle, self_tree: boolean): boolean, string
+  local analyzer: string
+  if self_tree then
+    local rows, trouble = Sqlite.rows(db,
+      "SELECT value FROM meta WHERE key = 'boot_hash'")
+    if rows == nil then
+      return false, trouble
+    end
+    analyzer = #rows > 0 and rows[1][1] or ""
+  else
+    analyzer = Store.meta("boot_hash") or ""
+  end
+  local last, last_trouble = Sqlite.rows(db,
+    "SELECT value FROM meta WHERE key = 'analyzer'")
+  if last == nil then
+    return false, last_trouble
+  end
+  if #last > 0 and last[1][1] == analyzer then
+    return true, ""
+  end
+  for _, table_name in ipairs(analysis_tables) do
+    local ok, trouble = db:exec("DELETE FROM " .. table_name)
+    if not ok then
+      return false, trouble
+    end
+  end
+  local swept, sweep_trouble = db:exec("DELETE FROM derived WHERE origin <> 'vendor'")
+  if not swept then
+    return false, sweep_trouble
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+    { text(analyzer) })
 end
 
 --- Brings `derived` and the parse tables up to the staged tree, inside
@@ -254,6 +329,11 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     end
   end
 
+  local forgotten, forget_trouble = forget_stale_analysis(db, self_tree)
+  if not forgotten then
+    return false, forget_trouble
+  end
+
   local derive_rows = function(): boolean, string
     local swept, sweep_trouble = db:exec(
       "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
@@ -273,7 +353,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     if not parsed then
       return false, parse_trouble
     end
-    for _, table_name in ipairs({ "parsed", "requires", "tests", "catalog" }) do
+    for _, table_name in ipairs(analysis_tables) do
       local ok, trouble = db:exec("DELETE FROM " .. table_name ..
         " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
       if not ok then

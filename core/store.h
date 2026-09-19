@@ -37,4 +37,10 @@ void cosmic_store_preload_raw(lua_State *L, const char *name);
  * stays valid until the next call that touches the stack. */
 const char *cosmic_store_meta(lua_State *L, const char *key);
 
+/* The databases `require` searches, in search order: how many there
+ * are, and the connection at 1-based `index` (NULL past the end). The
+ * last one is always the binary's own. */
+int cosmic_store_count(lua_State *L);
+sqlite3 *cosmic_store_database(lua_State *L, int index);
+
 #endif

@@ -48,15 +48,45 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- The documented symbols `build.positions.docs_of` found while parsing
+--- each planned module, in module order and then source order. `id` is
+--- left for SQLite to assign in that order, so it is the same on every
+--- build of the same tree.
+local insert_docs =
+  "INSERT INTO out.docs (module, symbol, kind, signature, text, file, line) " ..
+  "SELECT p.path, d.symbol, d.kind, d.signature, d.text, i.file, d.line " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "JOIN docs d ON d.source_hash = i.source_hash ORDER BY p.path, d.ordinal"
+
+--- The uses `build.positions.references_of` found: each
+--- `alias.member` resolved against the module the alias names, as the
+--- symbol that module's own returned record declares -- `Fs.read` when
+--- `cosmic.fs` returns `Fs` -- kept only where that symbol is a
+--- shipped module's documented one, as a field or as a method.
+local insert_uses =
+  "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
+  "from_file, line) " ..
+  "SELECT r.module, d.symbol, p.path, i.file, r.line " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "JOIN refs r ON r.source_hash = i.source_hash " ..
+  "JOIN inputs t ON t.path = r.module " ..
+  "JOIN parsed tp ON tp.source_hash = t.source_hash " ..
+  "JOIN out.docs d ON d.module = r.module " ..
+  "AND d.symbol IN (tp.export || '.' || r.member, tp.export || ':' || r.member) " ..
+  "WHERE r.module IN (SELECT path FROM plan) " ..
+  "ORDER BY r.module, d.symbol, p.path, r.line"
+
 --- The catalog entries `build.positions.catalog_of` found while parsing
---- each planned module: every `return nil, ...` whose enclosing
---- function's own comments named guidance for it. `id` is left for
---- SQLite to assign, in this SELECT's own deterministic order -- the
---- hand-authored rows below claim the low ids first, so this always
---- continues after them the same way on every build.
+--- each planned module: every literal `return nil, ...` under a
+--- top-level function. The guidance a match prints is that function's
+--- own documentation, joined from `docs` at lookup, so `text` is left
+--- NULL here. `id` is left for SQLite to assign, in this SELECT's own
+--- deterministic order -- the hand-authored rows below claim the low
+--- ids first, so this always continues after them the same way on
+--- every build.
 local insert_catalog_extracted =
   "INSERT INTO out.catalog (kind, module, symbol, message, text, file, " ..
-  "line) SELECT 'error', p.path, c.symbol, c.message, c.guidance, " ..
+  "line) SELECT 'error', p.path, c.symbol, c.message, NULL, " ..
   "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path " ..
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
@@ -120,22 +150,24 @@ local catalog_seed: {CatalogSeedRow} = {
     file = "core/fail.h", line = 0 },
 }
 
---- Rebuilds `catalog_fts`'s index from `catalog`'s current rows: the
+--- Rebuilds each FTS5 index from its content table's current rows: the
 --- documented way to bulk-load an external-content FTS5 table without
 --- keeping the two in sync through triggers a read-only, write-once
 --- database has no use for.
-local rebuild_catalog_fts =
-  "INSERT INTO out.catalog_fts(catalog_fts) VALUES ('rebuild')"
+local rebuild_fts: {string} = {
+  "INSERT INTO out.docs_fts(docs_fts) VALUES ('rebuild')",
+  "INSERT INTO out.catalog_fts(catalog_fts) VALUES ('rebuild')",
+}
 
 --- What the shipped database is a function of: this run's plan with
 --- each module's file, the declarations, the images, the fingerprints,
 --- identities and host it carries, and the main module, as one hash.
 --- When it matches the one the last write left in `meta` and the file
 --- is still there, the file already is the projection of these rows,
---- and nothing is written. The catalog adds nothing here: an extracted
---- entry changes only with the source it was parsed from, which moves
---- that module's key, and the seed rows change only with this module,
---- which moves `boot_hash`.
+--- and nothing is written. The catalog, docs and references add
+--- nothing here: an extracted row changes only with the source it was
+--- parsed from, which moves that module's key, and the seed rows
+--- change only with this module, which moves `boot_hash`.
 local signature_sql =
   "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
@@ -197,13 +229,18 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
-    local extracted, extracted_trouble = db:exec(insert_catalog_extracted)
-    if not extracted then
-      return false, extracted_trouble
+    for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
+                                 insert_uses }) do
+      local ok, failure = db:exec(statement)
+      if not ok then
+        return false, failure
+      end
     end
-    local rebuilt, rebuild_trouble = db:exec(rebuild_catalog_fts)
-    if not rebuilt then
-      return false, rebuild_trouble
+    for _, statement in ipairs(rebuild_fts) do
+      local ok, failure = db:exec(statement)
+      if not ok then
+        return false, failure
+      end
     end
     return Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",

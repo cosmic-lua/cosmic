@@ -58,6 +58,23 @@ local record TypeNode
   --- A tuple type's members: a function's argument or return types, and
   --- the type list a `local` declaration carries after its names.
   tuple: {TypeNode} | nil
+
+  --- A `"typedecl"`: the record, enum, or alias it declares, and whether
+  --- it is an alias (`local type X = Y`) rather than a definition.
+  def: TypeNode | nil
+  is_alias: boolean | nil
+  --- A `"generic"`: the type under the type arguments.
+  t: TypeNode | nil
+  --- A `"record"` or `"interface"`: its fields by name, the order the
+  --- source declared them in, and the comments tl attached to each --
+  --- one comment list per declaration of the name, so a field declared
+  --- once has exactly one.
+  fields: {string: TypeNode} | nil
+  field_order: {string} | nil
+  field_comments: {string: {{compiler.Comment}}} | nil
+  --- An `"enum"`: its values, and the comments attached to each.
+  enumset: {string: boolean} | nil
+  value_comments: {string: {compiler.Comment}} | nil
 end
 
 --- One node of a real (post-lex, post-parse) tl AST.
