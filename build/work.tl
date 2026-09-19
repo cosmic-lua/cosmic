@@ -44,7 +44,7 @@ local record work
   version: string
 end
 
-work.version = "1"
+work.version = "2"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. `seen` is the run
@@ -56,6 +56,19 @@ work.version = "1"
 --- binary, its standard library and tests included, since `cosmic.*`
 --- resolves from the binary rather than the tree. Its hash is the
 --- boot hash, and a self-tree command refuses a mismatch.
+---
+--- `inputs` is what the build derives from the staged files, one row
+--- per module source the compiler and checker see: a `.tl` or `.d.tl`
+--- as it is, the test module a doc guide extracts to, the declaration
+--- the syscall header generates to. `file` names where it came from
+--- and `from_hash` what that file hashed to, so a row is stale exactly
+--- when its file's row no longer matches, and a derivation is redone
+--- only then.
+---
+--- `parsed`, `requires` and `tests` are one parse of one source, keyed
+--- by its content hash rather than its path: what a parse finds is a
+--- function of the bytes alone, so a rename costs nothing and a row
+--- can never be stale.
 ---
 --- `builds` is one row per run: what was staged, what was read, what
 --- was compiled, and how the run ended.
@@ -113,6 +126,24 @@ work.schema = {
                                      dev INTEGER NOT NULL,
                                      sha256 TEXT NOT NULL,
                                      seen INTEGER NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS inputs (file TEXT PRIMARY KEY,
+                                       path TEXT NOT NULL,
+                                       kind TEXT NOT NULL,
+                                       origin TEXT NOT NULL,
+                                       from_hash TEXT NOT NULL,
+                                       source TEXT NOT NULL,
+                                       source_hash TEXT NOT NULL) WITHOUT ROWID]],
+  "CREATE INDEX IF NOT EXISTS inputs_by_path ON inputs (path)",
+  [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
+                                       has_return INTEGER NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
+                                         ordinal INTEGER NOT NULL,
+                                         name TEXT NOT NULL,
+                                         PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS tests (source_hash TEXT NOT NULL,
+                                      ordinal INTEGER NOT NULL,
+                                      name TEXT NOT NULL,
+                                      PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
                                        ms INTEGER NOT NULL,
                                        files INTEGER NOT NULL,

@@ -7,7 +7,12 @@
 ---
 --- Nothing here reads a path: `build.work` has already staged every
 --- input into the working database, and the tree is the rows of its
---- `files` table.
+--- `files` table. What a build derives from those rows -- the import
+--- path and kind each file's position gives it, the test module a doc
+--- guide extracts to, the declaration the syscall header generates
+--- to, and what one parse of each source finds -- is written back as
+--- rows too, each keyed so it is redone only when what it came from
+--- changed, and the modules to compile are a query over them.
 ---
 --- A module's key is the content hash of its source, the keys of
 --- everything it imports, and the hash of the tool that compiled it. An
@@ -19,6 +24,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
+local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
 local work = require("build.work")
 local type compiler = require("build.compiler")
@@ -66,165 +72,286 @@ local bytecode_header =
   "\8\136\169\255\255\255\255\255\255" ..
   "\8\0\0\0\0\0\40\119\192"
 
-local function import_path(file: string): string
-  local dir = file:match("^(.+)/init%.tl$")
-  if dir ~= nil then
-    return (dir:gsub("/", "."))
-  end
-  return (file:gsub("%.tl$", ""):gsub("/", "."))
+local function text(value: string): Sqlite.Value
+  return { text = value }
 end
 
---- A doc guide's import path, the same dotted-name convention
---- `import_path` gives every `.tl` file: `doc/guides/quickstart.md`
---- compiles as `doc.guides.quickstart`.
+--- A staged file's import path, as its position says: `cosmic/fs.tl`
+--- is `cosmic.fs`, `build/ast/init.tl` is `build.ast`, and
+--- `cosmic/internal/store.d.tl` is `cosmic.internal.store`.
+local import_path_sql = [[
+  replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
+               WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
+               ELSE substr(path, 1, length(path) - 3) END, '/', '.')]]
+
+--- A staged file's kind, as its name says: a declaration holds no
+--- code, `*_test.tl` is a test, `*_example.tl` an example, and
+--- `cmd/<name>/main.tl` a binary's entry.
+local kind_sql = [[
+  CASE WHEN path GLOB '*.d.tl' THEN 'decl'
+       WHEN path GLOB '*_test.tl' THEN 'test'
+       WHEN path GLOB '*_example.tl' THEN 'example'
+       WHEN path GLOB 'cmd/*/main.tl' AND path NOT GLOB 'cmd/*/*/*' THEN 'main'
+       ELSE 'module' END]]
+
+--- A doc guide's import path, the same dotted-name convention every
+--- `.tl` file gets: `doc/guides/quickstart.md` compiles as
+--- `doc.guides.quickstart`.
 local function import_path_of_doc(file: string): string
   return (file:gsub("%.md$", ""):gsub("/", "."))
 end
 
-local function kind_of(file: string): string
-  if file:match("_test%.tl$") ~= nil then
-    return "test"
-  end
-  if file:match("_example%.tl$") ~= nil then
-    return "example"
-  end
-  if file:match("^cmd/[^/]+/main%.tl$") ~= nil then
-    return "main"
-  end
-  return "module"
-end
+local insert_input =
+  "INSERT INTO inputs (file, path, kind, origin, from_hash, source, " ..
+  "source_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
 
---- The modules another module names, in the order they appear.
----
---- Structural, over `file`'s real AST (`build.ast.parse` +
---- `build.ast.all_requires`), not a regex over source text: a
---- `require("cosmic.foo")` sitting inside a string literal or a
---- comment is not a real import, and a real parse never mistakes byte
---- content for syntax the way a text pattern has to. `all_requires`,
---- not the narrower alias-resolving `requires`, is the right tool
---- here: this tree's own `local type compiler =
---- require("build.compiler")` type-only imports and `cosmic/store.tl`
---- / `cosmic/sqlite.tl`'s conditional re-assignment
---- (`store = require("cosmic.internal.store")` inside an `if`/`else`)
---- are both real dependencies this module's `ordered()` and `compile()`
---- must see, and neither is a top-level `local <alias> = require(...)`
---- binding -- `requires`'s own stated scope leaves both unresolved.
---- @param built the compiler, loaded and ready
---- @param source the file's own source text
---- @param file the file's path, for parse diagnostics
---- @return {string} | nil every required module, in source order
---- @return string error message on a lex or parse failure
-local function requires_of(built: compiler, source: string,
-                           file: string): {string} | nil, string
-  local parsed, parse_trouble = ast.parse(built, source, file)
-  if parsed == nil then
-    return nil, parse_trouble
-  end
-  return ast.all_requires(built, parsed)
-end
-
---- Every source the staged tree holds. The root is the module root, so
---- a file's place in it is its import path.
---- @param self_tree whether `root` is cosmic's own tree, where the
----   `cosmic.` namespace is not reserved against the tree itself
---- @param built the compiler, loaded and ready -- needed to discover a
----   `kind = "test"` module's own tests, which reads its real AST
-local function collect(handle: work.Handle, self_tree: boolean,
-                       built: compiler): {Module} | nil, string
-  if not self_tree and Fs.is_dir(handle.root .. "/cosmic") then
-    return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
-  end
-  local out: {Module} = {}
-  local sources, trouble = Sqlite.rows(handle.db,
+--- The doc guides with no current `inputs` row, each extracted into
+--- the test module it is.
+local function derive_doc_guides(db: Sqlite.Handle): boolean, string
+  local guides, trouble = Sqlite.rows(db,
     "SELECT path, data, sha256 FROM files " ..
-    "WHERE path GLOB '*.tl' AND path NOT GLOB '*.d.tl' ORDER BY path")
-  if sources == nil then
-    return nil, trouble
+    "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
+    "AND path NOT IN (SELECT file FROM inputs) ORDER BY path")
+  if guides == nil then
+    return false, trouble
   end
-  for _, row in ipairs(sources) do
-    local file, source, source_hash = row[1], row[2], row[3]
-    if not self_tree and file:sub(1, 7) == "cosmic/" then
-      return nil, file .. ": the 'cosmic' directory is reserved to " ..
+  for _, row in ipairs(guides) do
+    local file, doc_source, from_hash = row[1], row[2], row[3]
+    local source, extract_trouble = doctest.extract(doc_source, file)
+    if source == nil then
+      return false, file .. ": " .. extract_trouble
+    end
+    local ok, insert_trouble = Sqlite.run(db, insert_input,
+      { text(file), text(import_path_of_doc(file)), text("test"),
+        text("doctest"), text(from_hash), text(source),
+        text(Hash.hex_sha256(source)) })
+    if not ok then
+      return false, file .. ": " .. insert_trouble
+    end
+  end
+  return true, ""
+end
+
+--- The syscall table's declaration, generated from its header when the
+--- header has no current `inputs` row. Only cosmic's own tree has the
+--- header; a project gets the declaration from the binary.
+local function derive_syscalls(db: Sqlite.Handle): boolean, string
+  local headers, trouble = Sqlite.rows(db,
+    "SELECT data, sha256 FROM files WHERE path = 'core/syscalls.h' " ..
+    "AND path NOT IN (SELECT file FROM inputs)")
+  if headers == nil then
+    return false, trouble
+  end
+  if #headers == 0 then
+    return true, ""
+  end
+  local header, from_hash = headers[1][1], headers[1][2]
+  local source, generate_trouble = gen_syscalls.declaration(header)
+  if source == nil then
+    return false, "core/syscalls.h: " .. generate_trouble
+  end
+  return Sqlite.run(db, insert_input,
+    { text("core/syscalls.h"), text("cosmic.sys"), text("decl"),
+      text("syscalls"), text(from_hash), text(source),
+      text(Hash.hex_sha256(source)) })
+end
+
+--- Two files that would answer to one import path. The build refuses
+--- rather than letting one shadow the other.
+local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
+  local doubled, trouble = Sqlite.rows(db,
+    "SELECT path, group_concat(file, ' and ') FROM inputs " ..
+    "WHERE kind <> 'decl' GROUP BY path HAVING count(*) > 1 ORDER BY path")
+  if doubled == nil then
+    return false, trouble
+  end
+  if #doubled > 0 then
+    return false, doubled[1][2] .. " both compile to import path '" ..
+      doubled[1][1] .. "'; rename one"
+  end
+  return true, ""
+end
+
+--- One parse of every source no parse has seen: what it requires, in
+--- order, the tests it defines, and whether it returns its own value.
+--- Structural, over the real AST, never a regex over text: a
+--- `require("cosmic.foo")` inside a string literal or a comment is not
+--- an import. `all_requires`, not the narrower alias-resolving
+--- `requires`, because a type-only `local type compiler =
+--- require("build.compiler")` and a conditional re-assignment inside an
+--- `if` are both real dependencies the build order must see.
+local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
+  local fresh, trouble = Sqlite.rows(db,
+    "SELECT source_hash, min(file), source FROM inputs " ..
+    "WHERE kind <> 'decl' " ..
+    "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
+    "GROUP BY source_hash ORDER BY source_hash")
+  if fresh == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(fresh) do
+    local source_hash, file, source = row[1], row[2], row[3]
+    local parsed, parse_trouble = ast.parse(built, source, file)
+    if parsed == nil then
+      return false, file .. ": " .. parse_trouble
+    end
+    local requires, requires_trouble = ast.all_requires(built, parsed)
+    if requires == nil then
+      return false, file .. ": " .. requires_trouble
+    end
+    local found = positions.analysis_of(parsed)
+    local ok, why = Sqlite.run(db,
+      "INSERT INTO parsed (source_hash, has_return) VALUES (?1, ?2)",
+      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 } })
+    if not ok then
+      return false, file .. ": " .. why
+    end
+    for ordinal, name in ipairs(requires) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
+        { text(source_hash), { integer = ordinal }, text(name) })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, name in ipairs(found.tests) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO tests (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
+        { text(source_hash), { integer = ordinal }, text(name) })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+  end
+  return true, ""
+end
+
+--- Brings `inputs` and the parse tables up to the staged tree, in one
+--- transaction: a row whose file changed or vanished goes, a file with
+--- no row gets one, and only what is new is extracted, generated, or
+--- parsed. What no input refers to any more is dropped, so the tables
+--- describe this tree and nothing older.
+--- @param self_tree whether the tree is cosmic's own, where the
+---   `cosmic.` namespace is not reserved against the tree itself
+--- @param built the compiler, loaded and ready
+local function derive(handle: work.Handle, self_tree: boolean,
+                      built: compiler): boolean, string
+  local db = handle.db
+  if not self_tree then
+    if Fs.is_dir(handle.root .. "/cosmic") then
+      return false, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
+    end
+    local claimed, trouble = Sqlite.rows(db,
+      "SELECT path FROM files WHERE path GLOB 'cosmic/*' ORDER BY path LIMIT 1")
+    if claimed == nil then
+      return false, trouble
+    end
+    if #claimed > 0 then
+      return false, claimed[1][1] .. ": the 'cosmic' directory is reserved to " ..
         "cosmic's own tree"
     end
-    local kind = kind_of(file)
-    local tests: {string} = {}
-    local has_top_level_return = false
-    if kind == "test" then
-      local found, analyze_trouble = positions.analyze(built, source, file)
-      if found == nil then
-        return nil, file .. ": " .. analyze_trouble
+  end
+
+  return Sqlite.transact(db, function(): boolean, string
+    local statements: {string} = {
+      "DELETE FROM inputs WHERE NOT EXISTS (SELECT 1 FROM files f " ..
+      "WHERE f.path = inputs.file AND f.sha256 = inputs.from_hash)",
+      "INSERT INTO inputs (file, path, kind, origin, from_hash, source, " ..
+      "source_hash) SELECT path, " .. import_path_sql .. ", " .. kind_sql ..
+      ", 'tree', sha256, CAST(data AS TEXT), sha256 FROM files " ..
+      "WHERE path GLOB '*.tl' AND path NOT IN (SELECT file FROM inputs)",
+    }
+    for _, statement in ipairs(statements) do
+      local ok, trouble = db:exec(statement)
+      if not ok then
+        return false, trouble
       end
-      tests = found.tests
-      has_top_level_return = found.has_top_level_return
     end
-    local requires, requires_trouble = requires_of(built, source, file)
-    if requires == nil then
-      return nil, file .. ": " .. requires_trouble
+    local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
+    for _, step in ipairs(steps) do
+      local ok, trouble = step(db)
+      if not ok then
+        return false, trouble
+      end
     end
+    local parsed, parse_trouble = parse_new(db, built)
+    if not parsed then
+      return false, parse_trouble
+    end
+    for _, table_name in ipairs({ "parsed", "requires", "tests" }) do
+      local ok, trouble = db:exec("DELETE FROM " .. table_name ..
+        " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
+      if not ok then
+        return false, trouble
+      end
+    end
+    return true, ""
+  end)
+end
+
+--- Every name a table keyed by source hash lists, in order, by hash.
+local function names_by_hash(db: Sqlite.Handle,
+                             table_name: string): {string:{string}} | nil, string
+  local rows, trouble = Sqlite.rows(db,
+    "SELECT source_hash, name FROM " .. table_name ..
+    " ORDER BY source_hash, ordinal")
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: {string:{string}} = {}
+  for _, row in ipairs(rows) do
+    local list = out[row[1]]
+    if list == nil then
+      list = {}
+      out[row[1]] = list
+    end
+    list[#list + 1] = row[2]
+  end
+  return out
+end
+
+--- Every module the derived tree holds, with what its parse found.
+local function collect(handle: work.Handle, self_tree: boolean,
+                       built: compiler): {Module} | nil, string
+  local derived, derive_trouble = derive(handle, self_tree, built)
+  if not derived then
+    return nil, derive_trouble
+  end
+  local db = handle.db
+  local rows, trouble = Sqlite.rows(db,
+    "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
+    "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
+    "WHERE i.kind <> 'decl' ORDER BY i.path")
+  if rows == nil then
+    return nil, trouble
+  end
+  local requires, requires_trouble = names_by_hash(db, "requires")
+  if requires == nil then
+    return nil, requires_trouble
+  end
+  local tests, tests_trouble = names_by_hash(db, "tests")
+  if tests == nil then
+    return nil, tests_trouble
+  end
+  local out: {Module} = {}
+  for _, row in ipairs(rows) do
+    local path, file, kind, origin = row[1], row[2], row[3], row[4]
+    local source, source_hash, has_return = row[5], row[6], row[7]
     out[#out + 1] = {
-      path = import_path(file),
+      path = path,
       file = file,
       kind = kind,
       source = source,
       source_hash = source_hash,
-      requires = requires,
-      tests = tests,
-      has_top_level_return = has_top_level_return,
-      generated = false,
+      requires = requires[source_hash] or {},
+      tests = kind == "test" and (tests[source_hash] or {}) or {},
+      has_top_level_return = has_return == "1",
+      generated = origin == "doctest",
       key = "",
       lua = "",
       bytecode = "",
     }
   end
-  local guides, guide_trouble = Sqlite.rows(handle.db,
-    "SELECT path, data FROM files " ..
-    "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
-    "ORDER BY path")
-  if guides == nil then
-    return nil, guide_trouble
-  end
-  for _, row in ipairs(guides) do
-    local file, doc_source = row[1], row[2]
-    local generated_source, extract_trouble = doctest.extract(doc_source, file)
-    if generated_source == nil then
-      return nil, file .. ": " .. extract_trouble
-    end
-    local found, analyze_trouble = positions.analyze(built, generated_source, file)
-    if found == nil then
-      return nil, file .. ": " .. analyze_trouble
-    end
-    local requires, requires_trouble = requires_of(built, generated_source, file)
-    if requires == nil then
-      return nil, file .. ": " .. requires_trouble
-    end
-    out[#out + 1] = {
-      path = import_path_of_doc(file),
-      file = file,
-      kind = "test",
-      source = generated_source,
-      source_hash = Hash.hex_sha256(generated_source),
-      requires = requires,
-      tests = found.tests,
-      has_top_level_return = found.has_top_level_return,
-      generated = true,
-      key = "",
-      lua = "",
-      bytecode = "",
-    }
-  end
-  local by_import_path: {string:string} = {}
-  for _, m in ipairs(out) do
-    local earlier = by_import_path[m.path]
-    if earlier ~= nil then
-      return nil, earlier .. " and " .. m.file .. " both compile to import " ..
-        "path '" .. m.path .. "'; rename one"
-    end
-    by_import_path[m.path] = m.file
-  end
-  table.sort(out, function(a: Module, b: Module): boolean
-    return a.path < b.path
-  end)
   return out
 end
 
@@ -415,6 +542,11 @@ function importer.compile(handle: work.Handle, built: compiler,
       if code == nil or complaint ~= "" then
         return nil, m.file .. ": the compiler refused it\n" .. complaint
       end
+      -- The checker has just seen this module whole; a module compiled
+      -- after it that requires it is checked against that, rather than
+      -- against a second read and check of the same source.
+      env.modules[m.path] = result.type
+      env.module_filenames[m.path] = handle.root .. "/" .. m.file
       if m.kind == "test" then
         code = with_test_tail(code, m.tests)
       end

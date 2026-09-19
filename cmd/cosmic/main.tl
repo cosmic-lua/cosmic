@@ -151,7 +151,7 @@ local function run(file: string, argv: {integer:string}): integer
     complain("cosmic: " .. load_trouble)
     return 1
   end
-  local env, env_trouble = teal.environment_for(built, root)
+  local env, env_trouble = teal.environment_for(built, handle)
   if env == nil then
     work.close(handle)
     complain("cosmic: " .. env_trouble)

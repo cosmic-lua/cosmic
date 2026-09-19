@@ -56,6 +56,13 @@ local record compiler
   -- replaced with `.tl` or `.d.tl`.
   path: string
 
+  -- How the checker finds a module it has not been given: the name it
+  -- was found under and a handle that reads the whole source with
+  -- `read("*a")` and then closes. An ordinary field, so the build
+  -- replaces it with one that answers from the staged tree; `path`
+  -- above is only what the compiler's own looks at.
+  search_module: function(name: string, search_all: boolean): string | nil, any
+
   new_env: function(Options): Env | nil, string
   -- The Lua source for a Teal source, and what the checker found. The
   -- code is nil when the input did not parse.

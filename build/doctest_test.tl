@@ -107,10 +107,6 @@ local function write_fixture(case: string, content: string): string | nil, strin
 end
 
 local function compile_fixture(root: string): importer.Result | nil, string
-  local env, env_trouble = teal.environment_for(built, root)
-  if env == nil then
-    return nil, env_trouble
-  end
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
@@ -119,6 +115,11 @@ local function compile_fixture(root: string): importer.Result | nil, string
   if staged == nil then
     work.close(handle)
     return nil, stage_trouble
+  end
+  local env, env_trouble = teal.environment_for(built, handle)
+  if env == nil then
+    work.close(handle)
+    return nil, env_trouble
   end
   local result, compile_trouble = importer.compile(handle, built, env, "doctest-test")
   work.close(handle)

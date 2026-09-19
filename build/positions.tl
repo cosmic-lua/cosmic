@@ -52,6 +52,26 @@ local record positions
   end
 end
 
+--- The same two facts, read off a chunk something else already parsed,
+--- so a caller that needs the parse for another question too pays for
+--- it once.
+function positions.analysis_of(parsed: ast.Parsed): positions.Analysis
+  local names: {string} = {}
+  local has_return = false
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_function" then
+      local fn_name = stmt.name
+      local tk = fn_name ~= nil and fn_name.tk or nil
+      if tk ~= nil and tk:match("^test_") ~= nil then
+        names[#names + 1] = tk
+      end
+    elseif stmt.kind == "return" then
+      has_return = true
+    end
+  end
+  return { tests = names, has_top_level_return = has_return }
+end
+
 --- Both facts an importer needs from a `kind = "test"` module's source,
 --- from one parse: the name of every top-level `local function test_*`,
 --- in the order they appear, and whether the chunk also has a genuine
@@ -91,20 +111,7 @@ function positions.analyze(built: compiler, source: string,
   if parsed == nil then
     return nil, trouble
   end
-  local names: {string} = {}
-  local has_return = false
-  for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "local_function" then
-      local fn_name = stmt.name
-      local tk = fn_name ~= nil and fn_name.tk or nil
-      if tk ~= nil and tk:match("^test_") ~= nil then
-        names[#names + 1] = tk
-      end
-    elseif stmt.kind == "return" then
-      has_return = true
-    end
-  end
-  return { tests = names, has_top_level_return = has_return }, ""
+  return positions.analysis_of(parsed)
 end
 
 --- The file's own name, with no directory in front of it.

@@ -10,7 +10,9 @@
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local work = require("build.work")
 local type compiler = require("build.compiler")
 
 local record teal
@@ -157,11 +159,65 @@ function teal.load(): compiler | nil, string
   return produced as compiler
 end
 
---- A checker environment pointed at a tree, with the strictness this
---- project holds itself to.
-function teal.environment_for(built: compiler, root: string): compiler.Env | nil, string
-  built.path = root .. "/?.lua;" .. root .. "/?/init.lua;" ..
-    root .. "/o/types/?.lua;" .. root .. "/o/types/?/init.lua"
+--- What the checker gets when it asks for a module by name: the source
+--- as one string, then a close. It reads `inputs` rows and nothing
+--- else; a path never enters into it.
+local record Served
+  text: string
+  read: function(Served, what: string): string
+  close: function(Served): boolean
+end
+
+local function served(text: string): Served
+  return {
+    text = text,
+    read = function(self: Served, _what: string): string
+      return self.text
+    end,
+    close = function(_self: Served): boolean
+      return true
+    end,
+  }
+end
+
+--- The compiler's own module search, before this module replaced it,
+--- so that a compiler pointed at one tree and then another chains to
+--- the original each time rather than to the last tree's stage.
+local disk_search: {compiler:function(string, boolean): (string | nil, any)} = {}
+
+--- Points the checker at a staged tree: every module it asks for by
+--- name is answered from the working database's `inputs`, a
+--- declaration ahead of a source of the same name, under the name the
+--- module would have on disk. Nothing the tree holds is read from a
+--- path; what the stage does not hold falls through to the compiler's
+--- own search, which is what the bridge uses at boot for modules the
+--- stage does not exist for yet.
+local function serve(built: compiler, handle: work.Handle)
+  if disk_search[built] == nil then
+    disk_search[built] = built.search_module
+  end
+  local original = disk_search[built]
+  local db = handle.db
+  local root = handle.root
+  built.path = ""
+  built.search_module = function(name: string, search_all: boolean): string | nil, any
+    local rows = Sqlite.rows(db,
+      "SELECT kind, source FROM inputs WHERE path = ?1 " ..
+      "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
+    if rows ~= nil and #rows > 0 then
+      local kind, source = rows[1][1], rows[1][2]
+      local stem = name:gsub("%.", "/")
+      return root .. "/" .. stem .. (kind == "decl" and ".d.tl" or ".tl"),
+        served(source)
+    end
+    return original(name, search_all)
+  end
+end
+
+--- A checker environment pointed at a staged tree, with the strictness
+--- this project holds itself to.
+function teal.environment_for(built: compiler, handle: work.Handle): compiler.Env | nil, string
+  serve(built, handle)
   local env, trouble = built.new_env({
     defaults = {
       feat_lax = "off",

@@ -42,12 +42,6 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local env, trouble = teal.environment_for(compiler, root)
-  if env == nil then
-    report("boot: FAIL (" .. trouble .. ")")
-    return 1
-  end
-
   local images: {string:string} = {}
   for _, target in ipairs(targets) do
     local path = root .. "/o/core/" .. target .. "/cosmic-core"
@@ -78,6 +72,11 @@ local function boot(root: string, argv: {integer:string}): integer
   local boot_hash, hash_trouble = work.boot_hash(handle)
   if boot_hash == nil then
     report("boot: FAIL (" .. hash_trouble .. ")")
+    return 1
+  end
+  local env, trouble = teal.environment_for(compiler, handle)
+  if env == nil then
+    report("boot: FAIL (" .. trouble .. ")")
     return 1
   end
 
