@@ -12,7 +12,9 @@
    and stages the tree into `o/build.db`, the working database every later
    build reads; copying an existing cosmic executable alone is insufficient to
    test a fresh checkout. `o/bin/cosmic db` says what both databases under
-   `o/` hold and how the last few builds went.
+   `o/` hold and how the last few builds went; `o/bin/cosmic docs <symbol>`
+   shows a symbol's signature, doc comment and use count, and
+   `o/bin/cosmic uses <symbol>` lists every `file:line` that refers to it.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-tl-paths>`.
    `fix` checks syntax and tree equivalence; compilation checks types.
 3. A tool older than the tree rebuilds itself and re-enters the command the

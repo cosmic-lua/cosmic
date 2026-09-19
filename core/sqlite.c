@@ -11,6 +11,9 @@
 
 struct handle {
   sqlite3 *db;
+  /* Set when the connection belongs to someone else (the store): this
+   * handle reads through it and never closes it. */
+  int borrowed;
 };
 
 struct statement {
@@ -162,6 +165,7 @@ static int sqlite_open(lua_State *L) {
 
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = NULL;
+  h->borrowed = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 
   int rc = sqlite3_open_v2(path, &h->db, flags, NULL);
@@ -222,6 +226,11 @@ static int handle_close(lua_State *L) {
     lua_pushboolean(L, 1);
     return 1;
   }
+  if (h->borrowed) {
+    h->db = NULL;
+    lua_pushboolean(L, 1);
+    return 1;
+  }
   int rc = sqlite3_close(h->db);
   if (rc != SQLITE_OK) {
     return failed_effect(L, h->db, rc);
@@ -233,11 +242,18 @@ static int handle_close(lua_State *L) {
 
 static int handle_gc(lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
-  if (h->db != NULL) {
+  if (h->db != NULL && !h->borrowed) {
     sqlite3_close_v2(h->db);
-    h->db = NULL;
   }
+  h->db = NULL;
   return 0;
+}
+
+void cosmic_sqlite_push_borrowed(lua_State *L, sqlite3 *db) {
+  struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
+  h->db = db;
+  h->borrowed = 1;
+  luaL_setmetatable(L, HANDLE_TYPE);
 }
 
 static int handle_changes(lua_State *L) {
