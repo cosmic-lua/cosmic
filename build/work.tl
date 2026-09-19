@@ -51,6 +51,23 @@ local record work
     image: string
   end
 
+  --- What a compile and a verdict are functions of, beyond their own
+  --- inputs. `compiler` is the build's own modules in the importer's
+  --- import closure and the Teal compiler's and Lua's pins and
+  --- patches: what turns source into bytecode. The standard library
+  --- the importer runs on is plumbing, not transformation -- a bug
+  --- there breaks the build loudly rather than changing bytecode
+  --- quietly -- and is left out, which is what keeps an edit to it
+  --- from recompiling everything. `runtime` is the hash of the image
+  --- the binary actually runs and the same pins: what runs a test
+  --- beyond the modules its own key already covers. Both are computed over the tree being
+  --- built, carried in the binary, and read from there, so a tool
+  --- always names what it actually is.
+  record Identities
+    compiler: string
+    runtime: string
+  end
+
   --- The statements that create the database, in order. `IF NOT
   --- EXISTS` because this file is opened again and again across runs
   --- rather than built fresh every time.
@@ -730,13 +747,63 @@ function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   return { boot = boot, image = image }
 end
 
---- Names the target the binary being built runs on, for the
---- projection to carry: it is how a binary later finds its own image
---- among the three it holds.
-function work.put_host(handle: work.Handle, host: string): boolean, string
-  return Sqlite.run(handle.db,
+--- The two identities, computed over the tree and kept in `meta` for
+--- the projection to carry. See `Identities` for what each is over.
+function work.identities(handle: work.Handle): work.Identities | nil, string
+  local db = handle.db
+  local pins =
+    "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
+    "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
+    "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
+  local compilers, compiler_trouble = Sqlite.rows(db,
+    "WITH RECURSIVE closure(path) AS (SELECT 'build.importer' UNION " ..
+    "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
+    "JOIN requires r ON r.source_hash = i.source_hash) " ..
+    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
+    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
+    "(SELECT path FROM closure) AND path GLOB 'build.*'), '') || char(10) || " ..
+    pins .. ")))")
+  if compilers == nil then
+    return nil, compiler_trouble
+  end
+  local runtimes, runtime_trouble = Sqlite.rows(db,
+    "SELECT lower(hex(sha256(coalesce((SELECT value FROM meta " ..
+    "WHERE key = 'host_image'), '') || char(10) || " .. pins .. ")))")
+  if runtimes == nil then
+    return nil, runtime_trouble
+  end
+  local identities: work.Identities = {
+    compiler = compilers[1][1],
+    runtime = runtimes[1][1],
+  }
+  for _, pair in ipairs({ { "compiler", identities.compiler },
+                          { "runtime", identities.runtime } }) do
+    local ok, why = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+      { text(pair[1]), text(pair[2]) })
+    if not ok then
+      return nil, why
+    end
+  end
+  return identities
+end
+
+--- Names the target the binary being built runs on and hashes the
+--- image it actually runs, for the projection to carry: the target is
+--- how a binary later finds its own image among the three it holds,
+--- and the hash is what tells a checked image from the release one
+--- the working database holds for the same target.
+function work.put_host(handle: work.Handle, host: string,
+                       image: string): boolean, string
+  local named, name_trouble = Sqlite.run(handle.db,
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('host', ?1)",
     { text(host) })
+  if not named then
+    return false, name_trouble
+  end
+  return Sqlite.run(handle.db,
+    "INSERT OR REPLACE INTO meta (key, value) " ..
+    "VALUES ('host_image', lower(hex(sha256(?1))))", { { blob = image } })
 end
 
 --- One target's core image, as the bytes a boot put in.

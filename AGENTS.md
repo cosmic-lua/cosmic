@@ -15,9 +15,11 @@
    `o/` hold and how the last few builds went.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-tl-paths>`.
    `fix` checks syntax and tree equivalence; compilation checks types.
-3. Run `bin/zig build boot` after the final source edit, including any changes
-   made by `fix`. Code and tests are embedded in the executable, so testing an
-   older executable can exercise older implementations and tests.
+3. A tool older than the tree rebuilds itself and re-enters the command the
+   moment it notices, so an edit to Teal needs no boot: `o/bin/cosmic test`
+   after the edit is enough. A change under `core/`, to `build.zig`, or to a
+   vendored C library's pin or patches still needs `bin/zig build boot`, and
+   the tool says so by name.
 4. Run `timeout 90 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key, same hashes for every file under the root it read -- is not run
    again, so a run after a small edit takes seconds; a run after a boot, or on a

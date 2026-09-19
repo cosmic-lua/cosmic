@@ -166,13 +166,14 @@ local function run(file: string, argv: {integer:string}): integer
     end
   end
 
-  -- The tool's own hash, which the build that made this binary recorded.
-  -- A project's rows are keyed by it, so a new cosmic recompiles them.
-  local boot_hash = Store.meta("boot_hash") or ""
+  -- The compiler this binary is, as the build that made it recorded.
+  -- A project's rows are keyed by it, so a different compiler
+  -- recompiles them.
+  local tool = Store.meta("compiler") or ""
 
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
+  local result, compile_trouble = importer.compile(handle, built, env, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)

@@ -14,6 +14,7 @@
 --- the tool refuses by name.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -64,11 +65,28 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   end
   local root = handle.root
 
+  -- The image the tool re-enters is the one the working database
+  -- holds for this target; a binary running another -- a checked one
+  -- booted beside the release -- is not rebuilt from it.
+  local image, image_trouble = work.image(handle, host)
+  if image == nil then
+    return image_trouble
+  end
+  if Hash.hex_sha256(image) ~= (Store.meta("host_image") or "") then
+    return "the running image is not the one the working database " ..
+      "holds; run bin/zig build boot"
+  end
+  local named, name_trouble = work.put_host(handle, host, image)
+  if not named then
+    return name_trouble
+  end
+
   -- Compiled and keyed as this binary's own work: the tool that
-  -- replaces it recompiles under its own keys, so nothing an older
-  -- importer made is ever mistaken for its own.
+  -- replaces it compiles under its own identity, so nothing an older
+  -- compiler made is ever mistaken for its own, and everything the
+  -- same compiler made is found again.
   local result, compile_trouble =
-    importer.compile(handle, built, env, Store.meta("boot_hash") or "")
+    importer.compile(handle, built, env, Store.meta("compiler") or "")
   if result == nil then
     return compile_trouble
   end
@@ -76,10 +94,6 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   local written, write_trouble = writer.write_result(handle, database_path, result)
   if not written then
     return write_trouble
-  end
-  local image, image_trouble = work.image(handle, host)
-  if image == nil then
-    return image_trouble
   end
   local database, read_trouble = Fs.read(database_path)
   if database == nil then

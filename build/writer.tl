@@ -45,8 +45,8 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- What the shipped database is a function of: this run's plan with
---- each module's file, the declarations, the images, the fingerprints
---- and host it carries, and the main module, as one hash. When it matches the one the last write left
+--- each module's file, the declarations, the images, the fingerprints,
+--- identities and host it carries, and the main module, as one hash. When it matches the one the last write left
 --- in `meta` and the file is still there, the file already is the
 --- projection of these rows, and nothing is written.
 local signature_sql =
@@ -59,8 +59,8 @@ local signature_sql =
   "coalesce((SELECT group_concat(target || ' ' || hex(sha256), char(10) " ..
   "ORDER BY target) FROM images), '') || char(10) || " ..
   "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
-  "FROM meta WHERE key IN ('boot_hash', 'image_hash', 'host')), '') " ..
-  "|| char(10) || ?1)))"
+  "FROM meta WHERE key IN ('boot_hash', 'image_hash', 'host', 'host_image', " ..
+  "'compiler', 'runtime')), '') || char(10) || ?1)))"
 
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
@@ -94,7 +94,8 @@ local function project(handle: work.Handle, path: string,
     end
     local carried, meta_trouble = db:exec(
       "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
-      "WHERE key IN ('boot_hash', 'image_hash', 'host')")
+      "WHERE key IN ('boot_hash', 'image_hash', 'host', 'host_image', " ..
+      "'compiler', 'runtime')")
     if not carried then
       return false, meta_trouble
     end
@@ -120,6 +121,10 @@ function writer.write_result(handle: work.Handle, out: string,
   local committed, commit_trouble = work.commit(handle)
   if not committed then
     return false, commit_trouble
+  end
+  local identities, identity_trouble = work.identities(handle)
+  if identities == nil then
+    return false, identity_trouble
   end
   local signed, sign_trouble = Sqlite.rows(db, signature_sql,
     { text(result.main or "") })

@@ -103,11 +103,9 @@ that runs both, coverage reported the same way for either.
 **alongside, not gating the above:**
 
 - **child-process spawning**, `cosmic.child` over `posix_spawn`.
-  serves three things at once once it lands: the isolation layer the
+  serves two things at once once it lands: the isolation layer the
   test runner still lacks (a hang or a crash in one test currently
-  takes down the whole run), the re-exec the stale-tool refusal
-  needs (it detects a stale tool and refuses today; it has no
-  process yet to re-exec into), and a real default time limit on
+  takes down the whole run), and a real default time limit on
   `cosmic test` (something like 30 seconds) that can actually kill a
   hung test rather than just watch it: a cooperative, checked-between-
   tests budget was considered and set aside deliberately, since it

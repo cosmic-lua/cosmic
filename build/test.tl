@@ -201,11 +201,13 @@ local function under_root(root: string, path: string): string | nil
 end
 
 --- What one test's verdict is a function of: the test itself, its
---- module's key and the current hash of every file under the root it
---- read, by name. A file the stage holds is hashed already; any other
---- is read for it here, and one that is gone says so.
+--- module's key, the runtime it ran under -- see `build.work`'s
+--- `Identities` -- and the current hash of every file under the root
+--- it read, by name. A file the stage holds is hashed already; any
+--- other is read for it here, and one that is gone says so.
 local function verdict_key(root: string, hashes: {string:string}, id: string,
-                           module_key: string, reads: {string}): string
+                           module_key: string, runtime: string,
+                           reads: {string}): string
   local seen: {string:boolean} = {}
   local paths: {string} = {}
   for _, path in ipairs(reads) do
@@ -216,7 +218,7 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
     end
   end
   table.sort(paths)
-  local lines: {string} = { id .. " " .. module_key }
+  local lines: {string} = { id .. " " .. module_key .. " " .. runtime }
   for _, relative in ipairs(paths) do
     local hash = hashes[relative]
     if hash == nil then
@@ -427,8 +429,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
                           by_test: {string: Coverage.Hits}, root: string,
                           previous: {string:test.Previous},
                           verdicts: {string:test.Verdict}, credited: test.Credited,
-                          hashes: {string:string}, run_at_ns: integer, run: integer,
-                          tally: test.Tally)
+                          hashes: {string:string}, runtime: string,
+                          run_at_ns: integer, run: integer, tally: test.Tally)
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -467,7 +469,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   for _, name in ipairs(m.tests) do
     local id = m.path .. " " .. name
     local was = previous[id]
-    local key = was ~= nil and verdict_key(root, hashes, id, m.key, was.reads) or ""
+    local key = was ~= nil and
+      verdict_key(root, hashes, id, m.key, runtime, was.reads) or ""
     local stood = verdicts[key]
     if was ~= nil and stood ~= nil and stood.passed then
       -- The verdict stands: what the test read last time still hashes
@@ -505,7 +508,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
           by_test[id] = collected
         end
       end
-      local reached = verdict_key(root, hashes, id, m.key, reads)
+      local reached = verdict_key(root, hashes, id, m.key, runtime, reads)
       local saved, trouble = record_run(records, m.path, name, passed, message,
         Time.now_ns() or 0, reads, reached, run_at_ns)
       if not saved then
@@ -591,10 +594,14 @@ function test.run(argv: {integer:string}): integer
     end
   end
 
-  local boot_hash = Store.meta("boot_hash") or ""
+  -- Both identities are read before the project's database is attached
+  -- ahead of the binary's: they name this binary, and a project's own
+  -- projection carries the ones of whichever binary wrote it.
+  local tool = Store.meta("compiler") or ""
+  local runtime = Store.meta("runtime") or ""
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
+  local result, compile_trouble = importer.compile(handle, built, env, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
@@ -673,7 +680,7 @@ function test.run(argv: {integer:string}): integer
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
-        verdicts, credited, hashes, run_at_ns, handle.run, tally)
+        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally)
     end
   end
   local total = tally.ran + tally.cached

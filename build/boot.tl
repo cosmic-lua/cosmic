@@ -94,8 +94,7 @@ local function boot(root: string, argv: {integer:string}): integer
     report("boot: FAIL (" .. print_trouble .. ")")
     return 1
   end
-  local boot_hash = fingerprint.boot
-  local named, name_trouble = work.put_host(handle, host)
+  local named, name_trouble = work.put_host(handle, host, host_image)
   if not named then
     report("boot: FAIL (" .. name_trouble .. ")")
     return 1
@@ -120,10 +119,17 @@ local function boot(root: string, argv: {integer:string}): integer
     report("boot: FAIL (" .. keep_trouble .. ")")
     return 1
   end
+  -- The tree's own identities, which are this boot's: the bridge runs
+  -- the tree's build code, so what compiles is what is being built.
+  local identities, identity_trouble = work.identities(handle)
+  if identities == nil then
+    report("boot: FAIL (" .. identity_trouble .. ")")
+    return 1
+  end
 
   local database_path = output .. "/cosmic.db"
   local result, compile_trouble =
-    importer.compile(handle, compiler, env, boot_hash)
+    importer.compile(handle, compiler, env, identities.compiler)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)

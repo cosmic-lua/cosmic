@@ -359,12 +359,22 @@ attaches it as `o/bin/cosmic`. a fresh clone and CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
-and a stale tool is the bug to design against. `boot` stores a hash
-of `build/` and `core/` in the binary it produces. every `o/bin/cosmic
-build` hashes the same trees first; on a mismatch it runs `boot` and
-re-execs into the result, once, and refuses a second round by name.
-that hash is also part of every record key, so a row compiled by an
-older importer is never mistaken for a current one.
+and a stale tool is the bug to design against. `boot` stores two
+fingerprints in the binary it produces: one over everything the tool
+is made of, one over what the C core is built from. every run in
+cosmic's own tree fingerprints the tree first. when only Teal
+differs, the tool rebuilds itself -- compiles the tree, projects the
+database, attaches it to the host image it already carries -- and
+re-execs into the result, once, refusing a second round by name;
+when the C core's inputs differ, only zig can build it, and the tool
+says so. the binary also carries two identities: the compiler it is,
+over the build's own modules in the importer's closure and the Teal
+compiler's and Lua's pins and patches, which every module key
+carries; and the runtime it is, over its host image and the same
+pins, which every test verdict carries. the standard library the
+importer runs on is in neither, so an edit there reaches what
+imports it and nothing more. a row compiled by another compiler is
+never mistaken for this one's.
 
 the C stage is hermetic and checked. `build.zig` runs with both of
 zig's caches under `o/`, and `o/` is the only thing to delete. the
