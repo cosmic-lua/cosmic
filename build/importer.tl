@@ -22,6 +22,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
@@ -168,7 +169,7 @@ end
 local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   local fresh, trouble = Sqlite.rows(db,
     "SELECT source_hash, min(file), source FROM inputs " ..
-    "WHERE kind NOT IN ('decl', 'vendor') " ..
+    "WHERE kind <> 'vendor' " ..
     "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
     "GROUP BY source_hash ORDER BY source_hash")
   if fresh == nil then
@@ -184,13 +185,14 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     if requires == nil then
       return false, file .. ": " .. requires_trouble
     end
-    local found, analysis_trouble = positions.analysis_of(built, parsed)
+    local found, analysis_trouble = positions.analysis_of(built, parsed, source)
     if found == nil then
       return false, file .. ": " .. analysis_trouble
     end
     local ok, why = Sqlite.run(db,
-      "INSERT INTO parsed (source_hash, has_return) VALUES (?1, ?2)",
-      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 } })
+      "INSERT INTO parsed (source_hash, has_return, export) VALUES (?1, ?2, ?3)",
+      { text(source_hash), { integer = found.has_top_level_return and 1 or 0 },
+        text(found.export) })
     if not ok then
       return false, file .. ": " .. why
     end
@@ -212,16 +214,89 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     end
     for ordinal, entry in ipairs(found.catalog) do
       ok, why = Sqlite.run(db,
-        "INSERT INTO catalog (source_hash, ordinal, symbol, message, " ..
-        "guidance, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO catalog (source_hash, ordinal, symbol, message, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
         { text(source_hash), { integer = ordinal }, text(entry.symbol),
-          text(entry.message), text(entry.guidance), { integer = entry.line } })
+          text(entry.message), { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, entry in ipairs(found.docs) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO docs (source_hash, ordinal, symbol, kind, signature, " ..
+        "text, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        { text(source_hash), { integer = ordinal }, text(entry.symbol),
+          text(entry.kind), text(entry.signature), text(entry.text),
+          { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, entry in ipairs(found.references) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5)",
+        { text(source_hash), { integer = ordinal }, text(entry.module),
+          text(entry.member), { integer = entry.line } })
       if not ok then
         return false, file .. ": " .. why
       end
     end
   end
   return true, ""
+end
+
+--- The tables a parse or a generator fills, keyed by the source they
+--- came from: rows in them are only ever as right as the code that
+--- derived them.
+local analysis_tables: {string} = {
+  "parsed", "requires", "tests", "catalog", "docs", "refs",
+}
+
+--- Forgets every derived row when the code that derives them has
+--- changed since they were made. A row keyed by its source's hash is
+--- found again for as long as that source stands, which is right only
+--- while the analyzer stands too: an extractor that learns to see
+--- something new, or a generator that emits differently, must see
+--- every source again. The analyzer's identity is the boot hash: in
+--- cosmic's own tree, the tree's (every tool input, already in `meta`
+--- from this run's staleness check), and in a project, the running
+--- binary's. A change to anything in the tool reparses everything,
+--- which costs a fraction of a second and is never wrong.
+local function forget_stale_analysis(db: Sqlite.Handle, self_tree: boolean): boolean, string
+  local analyzer: string
+  if self_tree then
+    local rows, trouble = Sqlite.rows(db,
+      "SELECT value FROM meta WHERE key = 'boot_hash'")
+    if rows == nil then
+      return false, trouble
+    end
+    analyzer = #rows > 0 and rows[1][1] or ""
+  else
+    analyzer = Store.meta("boot_hash") or ""
+  end
+  local last, last_trouble = Sqlite.rows(db,
+    "SELECT value FROM meta WHERE key = 'analyzer'")
+  if last == nil then
+    return false, last_trouble
+  end
+  if #last > 0 and last[1][1] == analyzer then
+    return true, ""
+  end
+  for _, table_name in ipairs(analysis_tables) do
+    local ok, trouble = db:exec("DELETE FROM " .. table_name)
+    if not ok then
+      return false, trouble
+    end
+  end
+  local swept, sweep_trouble = db:exec("DELETE FROM derived WHERE origin <> 'vendor'")
+  if not swept then
+    return false, sweep_trouble
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+    { text(analyzer) })
 end
 
 --- Brings `derived` and the parse tables up to the staged tree, inside
@@ -254,6 +329,11 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     end
   end
 
+  local forgotten, forget_trouble = forget_stale_analysis(db, self_tree)
+  if not forgotten then
+    return false, forget_trouble
+  end
+
   local derive_rows = function(): boolean, string
     local swept, sweep_trouble = db:exec(
       "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
@@ -273,7 +353,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     if not parsed then
       return false, parse_trouble
     end
-    for _, table_name in ipairs({ "parsed", "requires", "tests", "catalog" }) do
+    for _, table_name in ipairs(analysis_tables) do
       local ok, trouble = db:exec("DELETE FROM " .. table_name ..
         " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
       if not ok then
@@ -304,6 +384,137 @@ local function names_by_hash(db: Sqlite.Handle,
     list[#list + 1] = row[2]
   end
   return out
+end
+
+local record Dependency
+  kind: string
+  source_hash: string
+  requires: {string}
+end
+
+--- The identity of every source the checker can load from this tree.
+--- A declaration wins over a source of the same name, just as
+--- `build.teal`'s module search does. Embedded standard-library sources
+--- are content-addressed when a project imports them.
+local function dependency_keys(db: Sqlite.Handle, modules: {Module},
+                               built: compiler,
+                               tool: string): {string:string} | nil, string
+  local requires, requires_trouble = names_by_hash(db, "requires")
+  if requires == nil then
+    return nil, requires_trouble
+  end
+  local dependencies: {string:Dependency} = {}
+  local rows, rows_trouble = Sqlite.rows(db,
+    "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
+    "ORDER BY path, kind = 'decl' DESC")
+  if rows == nil then
+    return nil, rows_trouble
+  end
+  for _, row in ipairs(rows) do
+    if dependencies[row[1]] == nil then
+      dependencies[row[1]] = {
+        kind = row[2], source_hash = row[3],
+        requires = requires[row[3]] or {},
+      }
+    end
+  end
+  -- A module's own compile is keyed from its implementation. Imports of
+  -- that same path still resolve through `dependencies`, and therefore
+  -- through its declaration when it has one.
+  for _, m in ipairs(modules) do
+    dependencies["\0" .. m.path] = {
+      kind = m.kind, source_hash = m.source_hash, requires = m.requires,
+    }
+  end
+
+  local resolve = function(slot: string, name: string): Dependency | nil, string
+    local dependency = dependencies[slot]
+    if dependency == nil then
+      if name:sub(1, 7) ~= "cosmic." then
+        return nil, ""
+      end
+      local source, source_trouble = Store.source(name)
+      if source == nil then
+        return nil, source_trouble
+      end
+      local parsed, parse_trouble = ast.parse(built, source, name)
+      if parsed == nil then
+        return nil, parse_trouble
+      end
+      local embedded_requires, embedded_requires_trouble =
+        ast.all_requires(built, parsed)
+      if embedded_requires == nil then
+        return nil, embedded_requires_trouble
+      end
+      dependency = {
+        kind = "embedded", source_hash = Hash.hex_sha256(source),
+        requires = embedded_requires,
+      }
+      dependencies[slot] = dependency
+    end
+    return dependency, ""
+  end
+
+  -- Hash the reachable graph as a sorted set rather than recursively
+  -- hashing one node into another. Declarations can legally refer to each
+  -- other, and a set closes over those cycles without making traversal
+  -- order part of the key. When a declaration shadows an implementation,
+  -- both matter: the checker reads the declaration, while the generated
+  -- `require` loads the implementation at runtime.
+  local identify = function(name: string): string | nil, string
+    local seen: {string:boolean} = {}
+    local graph: {string} = {}
+    local visit: function(string, string): boolean, string
+    visit = function(slot: string, display: string): boolean, string
+      if seen[slot] then
+        return true, ""
+      end
+      local dependency, resolve_trouble = resolve(slot, display)
+      if dependency == nil then
+        return resolve_trouble == "", resolve_trouble
+      end
+      seen[slot] = true
+      graph[#graph + 1] = slot .. "\n" .. dependency.kind .. "\n" ..
+        dependency.source_hash
+      for _, required in ipairs(dependency.requires) do
+        local child, child_trouble = resolve(required, required)
+        if child == nil and child_trouble ~= "" then
+          return false, child_trouble
+        end
+        if child ~= nil then
+          graph[#graph + 1] = slot .. "\nrequires\n" .. required
+          local ok, trouble = visit(required, required)
+          if not ok then
+            return false, trouble
+          end
+          if child.kind == "decl" and dependencies["\0" .. required] ~= nil then
+            graph[#graph + 1] = slot .. "\nloads\n" .. required
+            ok, trouble = visit("\0" .. required, required)
+            if not ok then
+              return false, trouble
+            end
+          end
+        end
+      end
+      return true, ""
+    end
+    local ok, trouble = visit("\0" .. name, name)
+    if not ok then
+      return nil, trouble
+    end
+    table.sort(graph)
+    return Hash.hex_sha256(table.concat(graph, "\n\0\n") .. "\n" .. tool), ""
+  end
+
+  local out: {string:string} = {}
+  for _, m in ipairs(modules) do
+    local key, trouble = identify(m.path)
+    if key == nil then
+      return nil, trouble
+    end
+    out[m.path] = key
+  end
+  return out, ""
 end
 
 --- Every module the derived tree holds, with what its parse found.
@@ -674,7 +885,10 @@ function importer.compile(handle: work.Handle, built: compiler,
   if order == nil then
     return nil, why
   end
-  local keys: {string:string} = {}
+  local keys, keys_trouble = dependency_keys(handle.db, modules, built, tool)
+  if keys == nil then
+    return nil, keys_trouble
+  end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = {},
     compiled = 0, cached = 0,
@@ -693,16 +907,7 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
 
     for ordinal, m in ipairs(order) do
-      local closure: {string} = {}
-      for _, name in ipairs(m.requires) do
-        if keys[name] ~= nil then
-          closure[#closure + 1] = name .. " " .. keys[name]
-        end
-      end
-      table.sort(closure)
-      m.key = Hash.hex_sha256(m.kind .. "\n" .. m.source_hash .. "\n" ..
-        table.concat(closure, "\n") .. "\n" .. tool)
-      keys[m.path] = m.key
+      m.key = keys[m.path]
 
       if m.kind == "test" and collides_with_test_tail(m) then
         -- Refused on its own, narrowly: every other module still

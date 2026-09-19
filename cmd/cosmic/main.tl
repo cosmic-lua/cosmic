@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local databases = require("build.databases")
+local docs = require("build.docs")
 local fix = require("build.fix")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
@@ -31,6 +32,10 @@ cosmic -- a runtime for self-contained command-line software
   cosmic db          what the two databases under o/ hold, table by
                      table -- rows, pages, bytes -- and how the last
                      few builds went
+  cosmic docs <q>    what the database says about q: a symbol
+                     (Fs.read, read), a module (cosmic.fs), or words
+                     to search the documentation for
+  cosmic uses <sym>  every place that refers to a symbol, as file:line
   cosmic help        this
 
 A verb takes paths to narrow it. `fix` rebuilds each file from its own
@@ -231,6 +236,12 @@ local function main(argv: {integer:string}): integer
   end
   if verb == "db" then
     return databases.run()
+  end
+  if verb == "docs" then
+    return docs.run(argv)
+  end
+  if verb == "uses" then
+    return docs.run_uses(argv)
   end
   if verb:sub(1, 1) == "-" then
     complain("cosmic: no such option: " .. verb)

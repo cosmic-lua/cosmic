@@ -209,7 +209,7 @@ end
 --- other is read for it here, and one that is gone says so.
 local function verdict_key(root: string, hashes: {string:string}, id: string,
                            module_key: string, runtime: string,
-                           reads: {observations.Observation}, reached?: boolean):
+                           reads: {observations.Observation}):
                            string, boolean
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
@@ -222,29 +222,34 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
       seen[identified] = true
       paths[#paths + 1] = identified
     end
-    if reached and relative ~= nil and observation.answer ~= "" then
+    if relative ~= nil and observation.answer ~= "" then
       local before = answers[identified]
       if before ~= nil and before ~= observation.answer then stable = false end
       answers[identified] = observation.answer
     end
   end
   table.sort(paths)
-  local lines: {string} = { id .. " " .. module_key .. " " .. runtime }
+  -- Versioned because older verdicts did not include reads made while loading
+  -- test modules and may otherwise appear to stand forever.
+  local lines: {string} = { "module-load-reads-v1",
+    id .. " " .. module_key .. " " .. runtime }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
-    local answer: string
-    if answers[identified] ~= nil then
-      answer = answers[identified]
-    elseif kind == "o" then
-      answer = hashes[relative]
-      if answer == nil then
+    local current: string
+    if kind == "o" then
+      current = hashes[relative]
+      if current == nil then
         local data = Fs.read(root .. "/" .. relative)
-        answer = data ~= nil and Hash.hex_sha256(data) or "missing"
+        current = data ~= nil and Hash.hex_sha256(data) or "missing"
       end
     elseif kind == "s" then
-      answer = observations.stat_answer(root .. "/" .. relative)
+      current = observations.stat_answer(root .. "/" .. relative)
     else
-      answer = observations.directory_answer(root .. "/" .. relative)
+      current = observations.directory_answer(root .. "/" .. relative)
+    end
+    local answer = answers[identified] or current
+    if answers[identified] ~= nil and answers[identified] ~= current then
+      stable = false
     end
     lines[#lines + 1] = observations.key_part(kind, relative, answer)
   end
@@ -440,7 +445,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
                           previous: {string:test.Previous},
                           verdicts: {string:test.Verdict}, credited: test.Credited,
                           hashes: {string:string}, runtime: string,
-                          run_at_ns: integer, run: integer, tally: test.Tally)
+                          run_at_ns: integer, run: integer, tally: test.Tally,
+                          process_reads: {observations.Observation})
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -453,7 +459,12 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   if module_session == nil then
     errors[#errors + 1] = m.path .. ": coverage start: " .. module_start_trouble
   end
-  local ok, produced = pcall(require, m.path)
+  local ok, produced, newly_read = observations.capture(function(): any
+    return require(m.path)
+  end)
+  for _, observation in ipairs(newly_read) do
+    process_reads[#process_reads + 1] = observation
+  end
   if module_session ~= nil then
     local collected, stop_trouble = Coverage.stop(module_session)
     if collected == nil then
@@ -479,9 +490,14 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   for _, name in ipairs(m.tests) do
     local id = m.path .. " " .. name
     local was = previous[id]
-    local key = was ~= nil and
-      verdict_key(root, hashes, id, m.key, runtime, was.reads) or ""
-    local stood = verdicts[key]
+    local prior_reads = was ~= nil and
+      observations.join(process_reads, was.reads) or process_reads
+    local key = ""
+    local prior_stable = false
+    if was ~= nil then
+      key, prior_stable = verdict_key(root, hashes, id, m.key, runtime, prior_reads)
+    end
+    local stood = prior_stable and verdicts[key] or nil
     if was ~= nil and stood ~= nil and stood.passed then
       -- The verdict stands: what the test read last time still hashes
       -- the same, and so does everything it was compiled from.
@@ -493,7 +509,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
         merge_hits(hits, by_id[id] or {})
       end
       local kept, keep_trouble = record_run(records, m.path, name, true, "",
-        Time.now_ns() or 0, was.reads, key, stood.run_at_ns)
+        Time.now_ns() or 0, prior_reads, key, stood.run_at_ns)
       if not kept then
         errors[#errors + 1] = id .. ": record: " .. keep_trouble
       end
@@ -509,6 +525,11 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
         errors[#errors + 1] = id .. ": coverage start: " .. test_start_trouble
       end
       local passed, message, reads = call_test(fn)
+      local test_reads = reads
+      reads = observations.join(process_reads, test_reads)
+      for _, observation in ipairs(test_reads) do
+        process_reads[#process_reads + 1] = observation
+      end
       if test_session ~= nil then
         local collected, stop_trouble = Coverage.stop(test_session)
         if collected == nil then
@@ -518,7 +539,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
           by_test[id] = collected
         end
       end
-      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads, true)
+      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads)
       local saved, trouble = record_run(records, m.path, name, passed, message,
         Time.now_ns() or 0, reads, reached, run_at_ns, stable)
       if not saved then
@@ -686,11 +707,16 @@ function test.run(argv: {integer:string}): integer
   -- it never has that same session value.
   local hits: Coverage.Hits = {}
   local by_test: {string: Coverage.Hits} = {}
+  -- Requires are cached process-wide. Keeping every read observed while test
+  -- modules or test bodies execute means a helper loaded earlier remains an
+  -- input to later code that receives that already-loaded helper.
+  local process_reads: {observations.Observation} = {}
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
-        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally)
+        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
+        process_reads)
     end
   end
   local total = tally.ran + tally.cached

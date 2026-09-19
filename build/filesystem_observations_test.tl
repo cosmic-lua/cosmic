@@ -15,6 +15,41 @@ local function test_round_trips_every_path_byte()
     observations.key_part("s", "a", "b\nc"))
 end
 
+local function test_capture_preserves_a_produced_table_and_restores(tmp: string)
+  local path = tmp .. "/loaded"
+  assert(Fs.write(path, "hello"))
+  local original = sys.open
+  local produced = { answer = 42 }
+  local ok, value, found = observations.capture(function(): any
+    assert(Fs.read(path) == "hello")
+    return produced
+  end)
+  assert(ok and value == produced)
+  assert(sys.open == original)
+  assert(#found == 1 and found[1].kind == "o" and found[1].path == path)
+end
+
+local function test_capture_restores_after_an_error()
+  local original = sys.open
+  local ok, failure = observations.capture(function()
+    error("expected")
+  end)
+  assert(not ok and tostring(failure):find("expected", 1, true) ~= nil)
+  assert(sys.open == original)
+end
+
+local function test_join_keeps_complete_observations()
+  local first: {observations.Observation} = {
+    { kind = "s", path = "config", answer = "old" },
+  }
+  local joined = observations.join(first, {
+    { kind = "d", path = "assets", answer = "listing" },
+  })
+  assert(#joined == 2)
+  assert(joined[1].answer == "old" and joined[2].answer == "listing")
+  assert(#first == 1)
+end
+
 local function test_captures_answers_when_the_query_occurs(tmp: string)
   local path = tmp .. "/file"
   assert(Fs.write(path, "x"))

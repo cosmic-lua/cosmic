@@ -13,6 +13,15 @@ local record observations
   end
 end
 
+--- Returns both lists in observation order, without changing either input.
+function observations.join(first: {observations.Observation},
+                           second: {observations.Observation}): {observations.Observation}
+  local joined: {observations.Observation} = {}
+  for _, observation in ipairs(first) do joined[#joined + 1] = observation end
+  for _, observation in ipairs(second) do joined[#joined + 1] = observation end
+  return joined
+end
+
 local function hex(data: string): string
   return (data:gsub(".", function(byte: string): string
     return string.format("%02x", string.byte(byte))
@@ -98,13 +107,23 @@ function observations.start(): {observations.Observation}, function()
   end
 end
 
---- Calls one test body and restores every wrapper even when it raises.
+--- Calls a function and restores every wrapper even when it raises. The value
+--- is left intact so callers such as `require` can consume a produced table.
+function observations.capture(fn: function(any...): (any...)):
+                              boolean, any, {observations.Observation}
+  local found, restore = observations.start()
+  local ok, produced = pcall(fn)
+  restore()
+  return ok, produced, found
+end
+
+--- Calls one test body and presents its failure as text to the runner.
 function observations.call(fn: function(any...): (any...), argument: any):
                            boolean, string, {observations.Observation}
-  local found, restore = observations.start()
-  local ok, failure = pcall(fn, argument)
-  restore()
-  return ok, ok and "" or tostring(failure), found
+  local ok, produced, found = observations.capture(function(): any
+    return fn(argument)
+  end)
+  return ok, ok and "" or tostring(produced), found
 end
 
 --- Every field exposed by `sys.stat`, including an error result.
