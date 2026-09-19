@@ -17,12 +17,11 @@ if built == nil then
 end
 
 --- Writes every entry of `files` (filename -> source) into a fresh
---- one-off project directory under `/tmp`, named after `case` so two
---- fixtures in the same test run never collide, and returns its root.
+--- one-off project directory under `/tmp`, named after `case` and a random
+--- suffix so a quickly reused process ID cannot pick up a prior run's cache.
 local function write_fixture(case: string, files: {string:string}): string | nil, string
-  local root = "/tmp/cosmic-importer-test-" .. case .. "-" .. tostring(Proc.pid())
-  local made, trouble = Fs.mkdirs(root)
-  if not made then
+  local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
+  if root == nil then
     return nil, trouble
   end
   for filename, source in pairs(files) do
