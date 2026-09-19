@@ -19,6 +19,7 @@ local Fs = require("cosmic.fs")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local fix = require("build.fix")
+local render_mod = require("build.fix.render")
 local teal = require("build.teal")
 
 local built, load_trouble = teal.load()
@@ -180,9 +181,8 @@ local function test_every_source_in_the_tree_is_canonical_and_stays_so()
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(root .. "/" .. file)
     assert(source ~= nil, file .. ": " .. tostring(read_trouble))
-    -- Each call parses what it wrote and compares it, tree and
-    -- comments, against what it came from, so a file that renders at
-    -- all has already round-tripped by the time this returns.
+    -- Each call proves rendering preserved the program and comments,
+    -- either by byte equality or by parsing and comparing its output.
     local result, trouble = fix.source(built, source, file)
     assert(result ~= nil, file .. ": fix refused it: " .. tostring(trouble))
     assert(result.changed == (result.source ~= source),
@@ -200,4 +200,32 @@ local function test_every_source_in_the_tree_is_canonical_and_stays_so()
   assert(#differing == 0,
     "run `cosmic fix` -- these are not what it writes: " ..
     table.concat(differing, ", "))
+end
+
+--- Changed output still has to parse and preserve both syntax and comments.
+local function test_changed_rendering_is_checked_before_it_is_accepted()
+  local original = render_mod.rendered
+  local ok, trouble = pcall(function(): (any...)
+    local source = "-- keep this\nlocal x = 1\n"
+    local outputs = {
+      "-- keep this\nlocal x = 2\n",
+      "local x = 1\n",
+      "local local\n",
+    }
+    local errors = {
+      "rendering changed the program:",
+      "rendering changed the comments:",
+      "what was rendered does not parse:",
+    }
+    for i, output in ipairs(outputs) do
+      render_mod.rendered = function(): string | nil, string
+        return output
+      end
+      local result, why = fix.source(built, source, "probe.tl")
+      assert(result == nil, "corrupt rendering was accepted")
+      assert(why:find(errors[i], 1, true) ~= nil, why)
+    end
+  end)
+  render_mod.rendered = original
+  assert(ok, tostring(trouble))
 end
