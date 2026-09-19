@@ -7,13 +7,21 @@ next and what is undecided.
 
 ## self-check
 
-`cosmic check` and `cosmic test` gate cosmic's own tree,
-incrementally, under the foreclosed-cast checker, with records in a
-database of their own. tests, the in-process runner, and a real Teal
-AST (`build.ast`: parse, walk, structural match, rewrite) have
-already landed; what follows leans on `build.ast`, still
-build-internal today, and on `o/records.db`, which already holds
-test verdicts.
+`cosmic test` gates cosmic's own tree, incrementally, under the
+foreclosed-cast checker, with records in a database of their own.
+tests, the in-process runner, and a real Teal AST (`build.ast`:
+parse, walk, structural match, rewrite) have already landed; what
+follows leans on `build.ast`, still build-internal today, and on
+`o/records.db`, which already holds test verdicts.
+
+there is no separate `cosmic check` verb, and none is planned:
+checking already runs, unconditionally, on every `cosmic test`,
+`cosmic fix`, and plain `cosmic file.tl` invocation. `build/
+importer.tl`'s `complain()` folds syntax errors, type errors, and
+warnings into one list, and any of them refuses the whole compile --
+warnings are already errors, everywhere, today. `build/positions.tl`'s
+sibling-privacy check runs the same way, on every compile -- see the
+visibility lint entry below, which this same mechanism already closes.
 
 - **the doctest extractor**, per meta.md: fenced blocks from a doc
   become one compiled Teal file, one function per example, so the
@@ -45,20 +53,34 @@ the same facilities and the same ergonomics as Lua and Teal testing,
 not a separate system beside it, one discovery convention, one verb
 that runs both, coverage reported the same way for either.
 
-- **`cosmic check`**: the foreclosed-cast checker gate over a
-  project, which needs the binary's own declarations reachable on
-  disk or in a form the checker can read, since a real project
-  imports more than a trivial one-file script does today.
+- **cosmic's own stdlib is unresolvable from outside its tree** --
+  very soon, not deferred: `require("cosmic.fs")` (or any `cosmic.*`
+  module) fails to
+  compile at all in a project that is not cosmic's own source
+  checkout -- confirmed directly (`cosmic: probe.tl: the compiler
+  refused it` / `probe.tl:1:19: module not found: 'cosmic.fs'`), not
+  a checking gap. `build/teal.tl`'s `environment_for` points the
+  checker's own module path (`built.path`) at the project's root and
+  its own generated `root/o/types`, never at wherever the binary
+  itself keeps its stdlib's declarations, so nothing outside this
+  repo can use any `cosmic.*` module today, for checking or for
+  running either one. This, not a missing verb, is what "a real
+  project imports more than a trivial one-file script" was actually
+  pointing at.
 - **the rewrite rules `cosmic fix` applies.** the verb has landed, and
   with it the renderer that writes a parsed tree back out as source; its
   rule list is empty, because the rules worth writing are lint fixes and
   the lint waits on the narrowing patches below. adding one is the whole
   cost of a new fix: no part of the pipeline moves around it.
-- **the visibility lint**, part of what "checking" means: no import
-  of a private module from outside its tree. the case-collision half
-  (no two names in a directory differing only in case) is dropped
-  for now, not merely deferred -- nothing about it is currently
-  planned.
+- **the visibility lint has landed**, and turned out to already be
+  built: `build/positions.tl`'s sibling-privacy check -- a directory
+  with its own `init.tl` is private, only a file inside it may
+  require a sibling beside that entry, generalized to every directory
+  in the tree, not only `cosmic`'s own reserved namespaces -- already
+  runs on every compile, and `test/visibility_test.tl` already proves
+  it. The case-collision half (no two names in a directory differing
+  only in case) is dropped, not merely deferred -- nothing about it
+  is currently planned.
 - **record-field narrowing has landed** (`patch/tl/08` through `14`,
   plus the bare-variable statement-form `assert` narrow it builds on,
   `07-assert-narrows.txt`): a guard on `x.field` -- truthy read,
@@ -66,9 +88,11 @@ that runs both, coverage reported the same way for either.
   field the same way a bare variable already narrows, on a
   bare-variable base only (`a.b.field` does not chain). **container
   covariance is still open**, so cast-foreclosure holds against real
-  code, not only a trivial one-file script; whether it is a live
-  blocker is a question for `cosmic check` to answer against this
-  tree, not one to guess at ahead of it.
+  code, not only a trivial one-file script; ordinary checking already
+  runs on every compile of this tree today and has surfaced no live
+  blocker, though that is a byproduct of the tree compiling clean, not
+  a targeted audit for this specific gap -- still open, not closed by
+  the absence of evidence so far.
 
 **alongside, not gating the above:**
 
