@@ -77,8 +77,11 @@ local function block(c: Ctx, body: Node)
         emit.put(c.em, ";")
       end
     end
-    ctx_mod.place(c, outer + 2, x)
-    ctx_mod.lead_to(c, y, outer + 2, " ")
+    -- A statement moves by the distance its own LINE moves, which is
+    -- not the distance its first keyword moves once the source wrote a
+    -- comment in front of it on that line.
+    ctx_mod.place(c, outer + 2, emit.opening_column(c.em, y, x))
+    ctx_mod.lead_to(c, y, x, outer + 2, " ")
     statement(c, s)
   end
   c.margin = outer
@@ -112,7 +115,7 @@ local function closes(c: Ctx, n: Node, word: string)
     expr.refuse(c, "a block with no recorded end")
     return
   end
-  ctx_mod.lead_to(c, y, c.margin, " ")
+  ctx_mod.lead_to(c, y, n.xend or 1, c.margin, " ")
   emit.put(c.em, word)
 end
 
@@ -230,7 +233,7 @@ local function conditional(c: Ctx, n: Node)
   end
   for i, b in ipairs(blocks) do
     if i > 1 then
-      ctx_mod.lead_to(c, b.y, c.margin, " ")
+      ctx_mod.lead_to(c, b.y, b.x, c.margin, " ")
     end
     emit.text(c.em, b.tk or "if")
     local condition = b.exp

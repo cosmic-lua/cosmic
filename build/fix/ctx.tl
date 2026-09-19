@@ -93,7 +93,7 @@ end
 --- @param inline string The separator to write when no line break is due
 local function lead(ctx: Ctx, node: Node, inline: string)
   local y, x = start_of(ctx, node)
-  emit.advance(ctx.em, y, indent(ctx, x), inline)
+  emit.advance(ctx.em, y, indent(ctx, x), inline, x)
 end
 
 --- Move to a bare position rather than a node's -- a continuation the
@@ -103,19 +103,26 @@ end
 --- @param x integer The column the terminator's first character sits at
 --- @param inline string The separator to write when no line break is due
 local function lead_at(ctx: Ctx, y: integer, x: integer, inline: string)
-  emit.advance(ctx.em, y, indent(ctx, x), inline)
+  emit.advance(ctx.em, y, indent(ctx, x), inline, x)
 end
 
 --- Move to source line `y` at the indentation the renderer chose, not
 --- one carried over from the source: `margin` columns in. Every line
 --- that opens a statement, and every block's closing keyword, goes
 --- through here.
+---
+--- `x` is carried even though the indentation does not come from it:
+--- what was written in front of the destination on its own line is
+--- placed in front of it here, and the column is how the buffer knows
+--- which comments those are.
 --- @param ctx Ctx
 --- @param y integer
+--- @param x integer The column the line's own first character sits at
 --- @param margin integer The column the line is indented to
 --- @param inline string The separator to write when no line break is due
-local function lead_to(ctx: Ctx, y: integer, margin: integer, inline: string)
-  emit.advance(ctx.em, y, string.rep(" ", margin), inline)
+local function lead_to(ctx: Ctx, y: integer, x: integer, margin: integer,
+                       inline: string)
+  emit.advance(ctx.em, y, string.rep(" ", margin), inline, x)
 end
 
 --- The byte offset of 1-based (`y`, `x`) in the source being rendered.
@@ -211,7 +218,8 @@ local record CtxModule
   indent: function(ctx: Ctx, x: integer): string
   lead: function(ctx: Ctx, node: Node, inline: string)
   lead_at: function(ctx: Ctx, y: integer, x: integer, inline: string)
-  lead_to: function(ctx: Ctx, y: integer, margin: integer, inline: string)
+  lead_to: function(ctx: Ctx, y: integer, x: integer, margin: integer,
+                    inline: string)
   place: function(ctx: Ctx, margin: integer, x: integer)
   verbatim: function(ctx: Ctx, y1: integer, x1: integer, y2: integer, x2: integer)
   region: function(ctx: Ctx, first: integer, last: integer): boolean
