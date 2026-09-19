@@ -756,6 +756,10 @@ end
 
 --- The two identities, computed over the tree and kept in `meta` for
 --- the projection to carry. See `Identities` for what each is over.
+--- The compiler's closes over `requires`, so the tree must be parsed
+--- (`build.importer.derive`) first: on a fresh working database the
+--- closure would otherwise stop at `build.importer` itself, and keys
+--- made under that identity would match no later build's.
 function work.identities(handle: work.Handle): work.Identities | nil, string
   local db = handle.db
   local pins =

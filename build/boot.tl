@@ -121,6 +121,13 @@ local function boot(root: string, argv: {integer:string}): integer
   end
   -- The tree's own identities, which are this boot's: the bridge runs
   -- the tree's build code, so what compiles is what is being built.
+  -- Parsed first, so the compiler's closure is whole on a fresh
+  -- working database too, and a boot there keys as a warm one does.
+  local derived, derive_trouble = importer.derive(handle, true, compiler)
+  if not derived then
+    report("boot: FAIL (" .. derive_trouble .. ")")
+    return 1
+  end
   local identities, identity_trouble = work.identities(handle)
   if identities == nil then
     report("boot: FAIL (" .. identity_trouble .. ")")
