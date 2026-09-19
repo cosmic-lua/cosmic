@@ -4,17 +4,6 @@
 --- for every kind `Node` covers. A `tl` pin bump that reshapes one of
 --- these fails loudly here rather than silently downstream, in
 --- whichever consumer reads it next.
----
---- v2's checker has not yet landed record-field narrowing
---- (`patch/tl/` carries only the four basic narrowing patches so
---- far -- design.md's own roadmap names this gap), so an optional
---- FIELD read twice in one chain (`call.op ~= nil and call.op.op ==
---- ...`, the shape cosmic (v1)'s own version of this file uses
---- throughout) does not narrow here. Every such read below goes
---- through `assert(field, msg)` into its own local first instead --
---- `assert`'s own declared type strips the `nil` from its first
---- argument's type, so the local it returns needs no further
---- narrowing to index.
 local teal = require("build.teal")
 local node_mod = require("build.ast.node")
 
@@ -44,27 +33,27 @@ local function test_funcall_index_and_string_literal()
   local call = root[1]
   assert(call.kind == "op", "call kind: " .. tostring(call.kind))
   assert(call.tk == nil, "an op node must carry no tk")
-  local call_op = assert(call.op, "call.op must not be nil")
-  assert(call_op.op == "@funcall", "call.op.op: " .. tostring(call_op.op))
-  local call_e1 = assert(call.e1, "call.e1 must not be nil")
-  assert(call_e1.kind == "variable" and call_e1.tk == "print",
+  assert(call.op, "call.op must not be nil")
+  assert(call.op.op == "@funcall", "call.op.op: " .. tostring(call.op.op))
+  assert(call.e1, "call.e1 must not be nil")
+  assert(call.e1.kind == "variable" and call.e1.tk == "print",
     "call.e1 not the 'print' variable")
 
-  local args = assert(call.e2, "call.e2 must not be nil")
-  assert(args.kind == "expression_list", "call.e2 kind: " .. tostring(args.kind))
+  assert(call.e2, "call.e2 must not be nil")
+  assert(call.e2.kind == "expression_list", "call.e2 kind: " .. tostring(call.e2.kind))
 
-  local index = args[1]
+  local index = call.e2[1]
   assert(index.kind == "op", "index kind: " .. tostring(index.kind))
-  local index_op = assert(index.op, "index.op must not be nil")
-  assert(index_op.op == ".", "index.op.op: " .. tostring(index_op.op))
-  local index_e1 = assert(index.e1, "index.e1 must not be nil")
-  assert(index_e1.kind == "variable" and index_e1.tk == "x",
+  assert(index.op, "index.op must not be nil")
+  assert(index.op.op == ".", "index.op.op: " .. tostring(index.op.op))
+  assert(index.e1, "index.e1 must not be nil")
+  assert(index.e1.kind == "variable" and index.e1.tk == "x",
     "index.e1 not the 'x' variable")
-  local index_e2 = assert(index.e2, "index.e2 must not be nil")
-  assert(index_e2.kind == "identifier" and index_e2.tk == "y",
+  assert(index.e2, "index.e2 must not be nil")
+  assert(index.e2.kind == "identifier" and index.e2.tk == "y",
     "index.e2 not the 'y' identifier")
 
-  local str = args[2]
+  local str = call.e2[2]
   assert(str.kind == "string", "str kind: " .. tostring(str.kind))
   assert(str.tk == "\"hi\"", "str.tk: " .. tostring(str.tk))
   assert(str.conststr == "hi", "str.conststr: " .. tostring(str.conststr))
@@ -82,25 +71,25 @@ local function test_if_block_cycle_and_return()
 
   local if_stmt = root[1]
   assert(if_stmt.kind == "if", "if_stmt kind: " .. tostring(if_stmt.kind))
-  local if_blocks = assert(if_stmt.if_blocks, "if_stmt.if_blocks must not be nil")
-  assert(#if_blocks == 1, "expected exactly one if_block")
+  assert(if_stmt.if_blocks, "if_stmt.if_blocks must not be nil")
+  assert(#if_stmt.if_blocks == 1, "expected exactly one if_block")
 
-  local blk = if_blocks[1]
+  local blk = if_stmt.if_blocks[1]
   assert(blk.kind == "if_block", "blk kind: " .. tostring(blk.kind))
   assert(blk.if_block_n == 1, "blk.if_block_n: " .. tostring(blk.if_block_n))
   assert(blk.if_parent == if_stmt,
     "if_block.if_parent must be the SAME table as its enclosing if (a real cycle)")
-  local blk_exp = assert(blk.exp, "blk.exp must not be nil")
-  assert(blk_exp.kind == "variable" and blk_exp.tk == "x", "blk.exp not the 'x' variable")
+  assert(blk.exp, "blk.exp must not be nil")
+  assert(blk.exp.kind == "variable" and blk.exp.tk == "x", "blk.exp not the 'x' variable")
 
-  local body = assert(blk.body, "blk.body must not be nil")
-  assert(body.kind == "statements", "blk.body kind: " .. tostring(body.kind))
+  assert(blk.body, "blk.body must not be nil")
+  assert(blk.body.kind == "statements", "blk.body kind: " .. tostring(blk.body.kind))
 
-  local ret = body[1]
+  local ret = blk.body[1]
   assert(ret.kind == "return", "ret kind: " .. tostring(ret.kind))
-  local ret_exps = assert(ret.exps, "ret.exps must not be nil")
-  assert(ret_exps.kind == "expression_list", "ret.exps kind: " .. tostring(ret_exps.kind))
-  assert(#ret_exps == 1, "expected one returned expression")
+  assert(ret.exps, "ret.exps must not be nil")
+  assert(ret.exps.kind == "expression_list", "ret.exps kind: " .. tostring(ret.exps.kind))
+  assert(#ret.exps == 1, "expected one returned expression")
 end
 
 --- `local function test_foo() end`, reached as `root[1]`: a
@@ -111,9 +100,9 @@ local function test_local_function_name()
   local root = parse_ok("local function test_foo()\nend\n", "local_function.tl")
   local fn = root[1]
   assert(fn.kind == "local_function", "fn kind: " .. tostring(fn.kind))
-  local fn_name = assert(fn.name, "fn.name must not be nil")
-  assert(fn_name.kind == "identifier" and fn_name.tk == "test_foo",
-    "fn.name: " .. tostring(fn_name.kind) .. " " .. tostring(fn_name.tk))
+  assert(fn.name, "fn.name must not be nil")
+  assert(fn.name.kind == "identifier" and fn.name.tk == "test_foo",
+    "fn.name: " .. tostring(fn.name.kind) .. " " .. tostring(fn.name.tk))
 end
 
 --- `Parsed` carries the token stream from the SAME parse, not a
