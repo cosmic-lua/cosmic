@@ -45,8 +45,8 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- What the shipped database is a function of: this run's plan with
---- each module's file, the declarations, the images, and the main
---- module, as one hash. When it matches the one the last write left
+--- each module's file, the declarations, the images, the fingerprints
+--- and host it carries, and the main module, as one hash. When it matches the one the last write left
 --- in `meta` and the file is still there, the file already is the
 --- projection of these rows, and nothing is written.
 local signature_sql =
@@ -57,7 +57,10 @@ local signature_sql =
   "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
   "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
   "coalesce((SELECT group_concat(target || ' ' || hex(sha256), char(10) " ..
-  "ORDER BY target) FROM images), '') || char(10) || ?1)))"
+  "ORDER BY target) FROM images), '') || char(10) || " ..
+  "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
+  "FROM meta WHERE key IN ('boot_hash', 'image_hash', 'host')), '') " ..
+  "|| char(10) || ?1)))"
 
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
@@ -89,19 +92,15 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
-    local meta: {{string}} = {
-      { "boot_hash", result.boot_hash },
-      { "main", result.main or "" },
-    }
-    for _, pair in ipairs(meta) do
-      local ok, failure = Sqlite.run(db,
-        "INSERT INTO out.meta (key, value) VALUES (?1, ?2)",
-        { text(pair[1]), text(pair[2]) })
-      if not ok then
-        return false, failure
-      end
+    local carried, meta_trouble = db:exec(
+      "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
+      "WHERE key IN ('boot_hash', 'image_hash', 'host')")
+    if not carried then
+      return false, meta_trouble
     end
-    return true, ""
+    return Sqlite.run(db,
+      "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
+      { text(result.main or "") })
   end)
   if not made then
     return false, refused

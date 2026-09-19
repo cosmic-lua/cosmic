@@ -108,9 +108,9 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local hash = assert(work.boot_hash(handle))
+  local fingerprint = assert(work.fingerprint(handle))
   work.close(handle)
-  return hash
+  return fingerprint.boot
 end
 
 --- Embedded library code and tests must invalidate the self-tree guard,

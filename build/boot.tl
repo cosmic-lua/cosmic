@@ -89,9 +89,15 @@ local function boot(root: string, argv: {integer:string}): integer
     report("boot: FAIL (" .. stage_trouble .. ")")
     return 1
   end
-  local boot_hash, hash_trouble = work.boot_hash(handle)
-  if boot_hash == nil then
-    report("boot: FAIL (" .. hash_trouble .. ")")
+  local fingerprint, print_trouble = work.fingerprint(handle)
+  if fingerprint == nil then
+    report("boot: FAIL (" .. print_trouble .. ")")
+    return 1
+  end
+  local boot_hash = fingerprint.boot
+  local named, name_trouble = work.put_host(handle, host)
+  if not named then
+    report("boot: FAIL (" .. name_trouble .. ")")
     return 1
   end
   local env, trouble = teal.environment_for(compiler, handle)

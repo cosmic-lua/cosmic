@@ -11,6 +11,7 @@ local Time = require("cosmic.time")
 local databases = require("build.databases")
 local fix = require("build.fix")
 local importer = require("build.importer")
+local reboot = require("build.reboot")
 local teal = require("build.teal")
 local test = require("build.test")
 local work = require("build.work")
@@ -126,28 +127,6 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  -- A stale tool: this binary's source inputs no longer match what
-  -- it was booted from. Rebuilding is the fix; running on
-  -- would compile the tree with a checker or patch set the tree no
-  -- longer agrees with.
-  -- intended: re-run boot and re-exec once, per design.md's staleness
-  -- section; M1 has no process spawning, so this only detects and
-  -- refuses.
-  if own_tree then
-    local current, hash_trouble = work.boot_hash(handle)
-    if current == nil then
-      work.close(handle)
-      complain("cosmic: " .. hash_trouble)
-      return 1
-    end
-    local running = Store.meta("boot_hash") or ""
-    if current ~= running then
-      work.close(handle)
-      complain("cosmic: the tool is stale; run bin/zig build boot")
-      return 3
-    end
-  end
-
   local built, load_trouble = teal.load()
   if built == nil then
     work.close(handle)
@@ -159,6 +138,32 @@ local function run(file: string, argv: {integer:string}): integer
     work.close(handle)
     complain("cosmic: " .. env_trouble)
     return 1
+  end
+
+  -- A stale tool: this binary's source inputs no longer match what
+  -- it was booted from. Running on would compile the tree with a
+  -- checker the tree no longer agrees with and run tests against
+  -- old code. When only Teal moved, the tool rebuilds itself and
+  -- re-enters this same command line; when the C core moved, zig
+  -- has to.
+  if own_tree then
+    local state, state_trouble = reboot.state(handle)
+    if state == nil then
+      work.close(handle)
+      complain("cosmic: " .. state_trouble)
+      return 1
+    end
+    if state == "core" then
+      work.close(handle)
+      complain("cosmic: the tool is stale; run bin/zig build boot")
+      return 3
+    end
+    if state == "teal" then
+      complain("cosmic: the tool is stale; rebuilding it from the tree")
+      local reboot_trouble = reboot.into(handle, built, env, argv)
+      complain("cosmic: " .. reboot_trouble)
+      return 3
+    end
   end
 
   -- The tool's own hash, which the build that made this binary recorded.
@@ -218,7 +223,7 @@ local function main(argv: {integer:string}): integer
     return 0
   end
   if verb == "test" then
-    return test.run()
+    return test.run(argv)
   end
   if verb == "fix" then
     return fix.run(argv)

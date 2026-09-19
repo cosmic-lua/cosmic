@@ -41,6 +41,16 @@ local record work
     read: integer
   end
 
+  --- What the tool is made of, as two hashes: everything, and the
+  --- part the C core is built from. A binary carries both; a tree
+  --- whose `boot` differs but whose `image` matches needs only a new
+  --- database attached to the image the binary already carries, and
+  --- the tool can do that to itself.
+  record Fingerprint
+    boot: string
+    image: string
+  end
+
   --- The statements that create the database, in order. `IF NOT
   --- EXISTS` because this file is opened again and again across runs
   --- rather than built fresh every time.
@@ -51,7 +61,7 @@ local record work
   version: string
 end
 
-work.version = "10"
+work.version = "11"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -678,19 +688,73 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   return staged
 end
 
---- The hash of the tool itself, over every fingerprint in `tool`. A
---- row compiled by an older importer is never mistaken for a current
---- one, because this is part of every module's key. A binary carries
---- the number it was built with, so a project reads it rather than
---- computing one.
-function work.boot_hash(handle: work.Handle): string | nil, string
-  local rows, trouble = Sqlite.rows(handle.db,
+--- The hash over some of the rows of `tool`, in path order.
+local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
+  local rows, trouble = Sqlite.rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
-    "ORDER BY path)))) FROM tool")
+    "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
     return nil, trouble
   end
   return rows[1][1]
+end
+
+--- The tool's fingerprints, over `tool`: `boot` over every row, and
+--- `image` over what the C core is built from -- `core/`, the zig
+--- build and wrapper, and every vendored tree's pin and patches but
+--- the Teal compiler's. Both are kept in `meta` for the projection to
+--- carry into the binary, which is how a binary knows what it was
+--- built from, so a project reads them rather than computing any.
+function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
+  local db = handle.db
+  local boot, boot_trouble = hash_over(db, "1")
+  if boot == nil then
+    return nil, boot_trouble
+  end
+  local image, image_trouble = hash_over(db,
+    "path GLOB 'core/*' OR path IN ('build.zig', 'build.zig.zon', " ..
+    "'bin/zig', 'bin/zig.pin') OR (path GLOB 'vendor/*/PIN' AND " ..
+    "path <> 'vendor/tl/PIN') OR (path GLOB 'patch/*' AND " ..
+    "path NOT GLOB 'patch/tl/*')")
+  if image == nil then
+    return nil, image_trouble
+  end
+  for _, pair in ipairs({ { "boot_hash", boot }, { "image_hash", image } }) do
+    local ok, why = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+      { text(pair[1]), text(pair[2]) })
+    if not ok then
+      return nil, why
+    end
+  end
+  return { boot = boot, image = image }
+end
+
+--- Names the target the binary being built runs on, for the
+--- projection to carry: it is how a binary later finds its own image
+--- among the three it holds.
+function work.put_host(handle: work.Handle, host: string): boolean, string
+  return Sqlite.run(handle.db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('host', ?1)",
+    { text(host) })
+end
+
+--- One target's core image, as the bytes a boot put in.
+function work.image(handle: work.Handle, target: string): string | nil, string
+  local rows, trouble = Sqlite.rows(handle.db,
+    "SELECT size, data FROM images WHERE target = ?1", { text(target) })
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil, "no image for " .. target .. " in the working database"
+  end
+  local size = math.tointeger(tonumber(rows[1][1]) or 0) or 0
+  local image, inflate_trouble = Compress.inflate(rows[1][2], size)
+  if image == nil then
+    return nil, target .. ": " .. inflate_trouble
+  end
+  return image
 end
 
 --- Puts one target's core image in, deflated, for every later build

@@ -29,4 +29,13 @@ function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
 end
 
+--- Replaces this process with another program: the same process id,
+--- the given arguments with the program's own name first, and the
+--- given environment. It returns only when it fails.
+function Proc.exec(path: string, argv: {string},
+                   environment: {string:string}): boolean, string
+  local _, trouble = sys.execve(path, argv, environment)
+  return false, path .. ": " .. trouble
+end
+
 return Proc

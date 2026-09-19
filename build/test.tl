@@ -47,6 +47,7 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
+local reboot = require("build.reboot")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -524,7 +525,9 @@ end
 --- Builds the tree in the working directory and runs every test it
 --- discovered, printing a verdict line and returning the exit code: 0
 --- when every test passed.
-function test.run(): integer
+--- @param argv the command line, which a stale tool re-enters after
+---   rebuilding itself
+function test.run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
@@ -549,25 +552,6 @@ function test.run(): integer
     return 1
   end
 
-  -- Same staleness guard `cosmic <file.tl>` applies when the tree under
-  -- test is cosmic's own: a stale tool would check and compile it with
-  -- a checker or patch set the tree no longer agrees with, and could
-  -- execute embedded cosmic.* implementations and tests from an old tree.
-  if own_tree then
-    local current, hash_trouble = work.boot_hash(handle)
-    if current == nil then
-      work.close(handle)
-      complain(hash_trouble)
-      return 1
-    end
-    local running = Store.meta("boot_hash") or ""
-    if current ~= running then
-      work.close(handle)
-      complain("the tool is stale; run bin/zig build boot")
-      return 3
-    end
-  end
-
   local built, load_trouble = teal.load()
   if built == nil then
     work.close(handle)
@@ -579,6 +563,32 @@ function test.run(): integer
     work.close(handle)
     complain(env_trouble)
     return 1
+  end
+
+  -- Same staleness guard `cosmic <file.tl>` applies when the tree under
+  -- test is cosmic's own: a stale tool would check and compile it with
+  -- a checker the tree no longer agrees with, and execute embedded
+  -- cosmic.* implementations and tests from an old tree. When only
+  -- Teal moved, the tool rebuilds itself and re-enters this command
+  -- line; when the C core moved, zig has to.
+  if own_tree then
+    local state, state_trouble = reboot.state(handle)
+    if state == nil then
+      work.close(handle)
+      complain(state_trouble)
+      return 1
+    end
+    if state == "core" then
+      work.close(handle)
+      complain("the tool is stale; run bin/zig build boot")
+      return 3
+    end
+    if state == "teal" then
+      complain("the tool is stale; rebuilding it from the tree")
+      local reboot_trouble = reboot.into(handle, built, env, argv)
+      complain(reboot_trouble)
+      return 3
+    end
   end
 
   local boot_hash = Store.meta("boot_hash") or ""

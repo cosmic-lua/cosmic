@@ -260,6 +260,17 @@ COSMIC_SYSCALL(exit, 1);
 COSMIC_SYSCALL(getpid, 0);
 
 /*
+ * --- Replaces the process with another program. It returns only on failure.
+ * ---@param path string the executable to run
+ * ---@param argv {string} the arguments, the program's own name first
+ * ---@param environment {string:string} the environment the program starts with
+ * ---@return boolean|nil ok nil, since the call returns only on failure
+ * ---@return string error what went wrong
+ * ---@return integer errno the error number
+ */
+COSMIC_SYSCALL(execve, 3);
+
+/*
  * --- Reads a clock, in nanoseconds.
  * ---@param clock integer one of `syscalls.CLOCK_REALTIME`, `_MONOTONIC`
  * ---@return integer|nil nanoseconds the reading, or nil on failure
