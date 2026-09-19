@@ -2,8 +2,8 @@
 --- it applies.
 ---
 --- The list is empty today, on purpose. The rules worth writing are
---- lint fixes, and the lint they would serve waits on the tl narrowing
---- patches this tree still carries ahead of it. What matters now is
+--- lint fixes, and those lint rules have not yet been implemented.
+--- What matters now is
 --- that the stage is real and sits where it belongs: a rule matches a
 --- structural PATTERN over the parsed tree and replaces it with another
 --- (`build.ast.match` and `build.ast.rewrite`), and whatever it

@@ -5,7 +5,9 @@
  * libraries -- `io.open` and the handle it returns, `io.stderr`,
  * `io.type`, `os.getenv`, `package.path` and `package.searchers` -- over
  * the syscall table, so the compiler runs unpatched and never observes
- * that those names are gone.
+ * that those names are gone. It also holds the one module that exists
+ * before any file does, the syscall table's declaration, and serves it
+ * to the checker from memory.
  */
 
 #ifndef COSMIC_BRIDGE_H
@@ -106,9 +108,34 @@ static const char cosmic_bridge_source[] =
     "  return table.concat(lines, '\\n')\n"
     "end\n"
     "\n"
+    "-- A module handed in as text, never written anywhere: the syscall\n"
+    "-- table's declaration, which the C entry generates before any Teal\n"
+    "-- runs and which every module that requires `cosmic.sys` is\n"
+    "-- checked against.\n"
+    "local declared = {}\n"
+    "\n"
+    "local function declare(name, text)\n"
+    "  declared[name] = text\n"
+    "end\n"
+    "\n"
+    "local function text_handle(text)\n"
+    "  local h = { is_boot_handle = true }\n"
+    "  function h:read() return text end\n"
+    "  function h:close() return true end\n"
+    "  return h\n"
+    "end\n"
+    "\n"
     "local function searcher_for(tl)\n"
-    "  tl.path = root .. '/?.lua;' .. root .. '/?/init.lua;' ..\n"
-    "    root .. '/o/types/?.lua;' .. root .. '/o/types/?/init.lua'\n"
+    "  tl.path = root .. '/?.lua;' .. root .. '/?/init.lua'\n"
+    "  local disk_search = tl.search_module\n"
+    "  tl.search_module = function(name, search_all)\n"
+    "    local text = declared[name]\n"
+    "    if text then\n"
+    "      local stem = name:gsub('%.', '/')\n"
+    "      return root .. '/' .. stem .. '.d.tl', text_handle(text)\n"
+    "    end\n"
+    "    return disk_search(name, search_all)\n"
+    "  end\n"
     "  local env = assert(tl.new_env({ defaults = {\n"
     "    feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',\n"
     "  } }))\n"
@@ -136,6 +163,7 @@ static const char cosmic_bridge_source[] =
     "  end\n"
     "end\n"
     "\n"
-    "return { environment = environment, searcher_for = searcher_for }\n";
+    "return { environment = environment, searcher_for = searcher_for,\n"
+    "         declare = declare }\n";
 
 #endif

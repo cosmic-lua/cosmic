@@ -18,7 +18,7 @@ local record report
 end
 
 --- Every executable line of `m`'s own source, hit or not -- the form a
---- caller writes into `o/records.db`'s `coverage` table one row per
+--- caller writes into `o/build.db`'s `coverage` table one row per
 --- line, so a specific never-hit line can be pointed at directly
 --- rather than only counted, and a percentage is a plain count over
 --- the result (`hit`/`#total`). A module whose source no longer parses

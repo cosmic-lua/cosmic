@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "lauxlib.h"
+#include "sha256.h"
 #include "sqlite3.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
@@ -55,6 +56,24 @@ static struct statement *checked_statement(lua_State *L) {
   return s;
 }
 
+/* `sha256(X)`: the 32-byte digest of a text or blob, NULL for NULL.
+ * Registered on every handle this module opens, so a build hashes
+ * inside the database it is writing rather than round-tripping bytes
+ * out to Lua and back. */
+static void sha256_function(sqlite3_context *ctx, int argc,
+                            sqlite3_value **argv) {
+  (void)argc;
+  if (sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  const void *data = sqlite3_value_blob(argv[0]);
+  int len = sqlite3_value_bytes(argv[0]);
+  unsigned char digest[32];
+  cosmic_sha256(data == NULL ? "" : data, (size_t)len, digest);
+  sqlite3_result_blob(ctx, digest, (int)sizeof digest, SQLITE_TRANSIENT);
+}
+
 static int sqlite_open(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int writable = lua_toboolean(L, 2);
@@ -69,6 +88,12 @@ static int sqlite_open(lua_State *L) {
   luaL_setmetatable(L, HANDLE_TYPE);
 
   int rc = sqlite3_open_v2(path, &h->db, flags, NULL);
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_create_function(
+        h->db, "sha256", 1,
+        SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
+        sha256_function, NULL, NULL);
+  }
   if (rc != SQLITE_OK) {
     int result = failed(L, h->db, rc);
     sqlite3_close_v2(h->db);
