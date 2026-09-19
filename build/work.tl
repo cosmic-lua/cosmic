@@ -44,12 +44,11 @@ local record work
   version: string
 end
 
-work.version = "6"
+work.version = "7"
 
 --- `files` is the staged tree, one row per file the build consumes,
---- holding the bytes exactly as they were on disk. `seen` is the run
---- that last found the file, so a file gone from the tree is a row
---- gone from the table.
+--- holding the bytes exactly as they were on disk. A file gone from
+--- the tree is a row gone from the table.
 ---
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
@@ -135,15 +134,13 @@ work.schema = {
                                       ino INTEGER NOT NULL,
                                       dev INTEGER NOT NULL,
                                       sha256 TEXT NOT NULL,
-                                      data BLOB NOT NULL,
-                                      seen INTEGER NOT NULL) WITHOUT ROWID]],
+                                      data BLOB NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS tool (path TEXT PRIMARY KEY,
                                      size INTEGER NOT NULL,
                                      mtime_ns INTEGER NOT NULL,
                                      ino INTEGER NOT NULL,
                                      dev INTEGER NOT NULL,
-                                     sha256 TEXT NOT NULL,
-                                     seen INTEGER NOT NULL) WITHOUT ROWID]],
+                                     sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS derived (file TEXT PRIMARY KEY,
                                         path TEXT NOT NULL,
                                         kind TEXT NOT NULL,
@@ -399,6 +396,54 @@ local function is_tool(file: string, own_tree: boolean): boolean
   return own_tree and (tool_trees[first_of(file)] or tool_files[file] or false)
 end
 
+--- What a stat said about a file the last time it was staged, read
+--- once per table into memory, so an unchanged file costs a stat and
+--- a comparison and never a query.
+local record Known
+  size: integer
+  mtime_ns: integer
+  ino: integer
+  dev: integer
+end
+
+local function known_in(db: Sqlite.Handle,
+                        table_name: string): {string:Known} | nil, string
+  local statement, trouble = db:prepare(
+    "SELECT path, size, mtime_ns, ino, dev FROM " .. table_name)
+  if statement == nil then
+    return nil, trouble
+  end
+  local out: {string:Known} = {}
+  while true do
+    local state, failure = statement:step()
+    if state == nil then
+      statement:finalize()
+      return nil, failure
+    end
+    if state == "done" then
+      break
+    end
+    out[statement:bytes(0)] = {
+      size = statement:integer(1),
+      mtime_ns = statement:integer(2),
+      ino = statement:integer(3),
+      dev = statement:integer(4),
+    }
+  end
+  statement:finalize()
+  return out
+end
+
+--- `files` keeps the bytes; `tool` keeps only what a stat and a hash
+--- say about them. The put for either takes the bytes as its sixth
+--- parameter and hashes them in place.
+local puts: {string:string} = {
+  files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
+    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?6)",
+  tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
+    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))))",
+}
+
 --- Runs a statement that yields no rows, once, and readies it to run
 --- again with other parameters.
 local function once(statement: Sqlite.Statement): boolean, string
@@ -410,130 +455,66 @@ local function once(statement: Sqlite.Statement): boolean, string
   return true, ""
 end
 
---- The three statements one staging pass runs over one table,
---- prepared once each.
-local record Statements
-  look: Sqlite.Statement
-  touch: Sqlite.Statement
-  put: Sqlite.Statement
-end
-
---- `files` keeps the bytes; `tool` keeps only what a stat and a hash
---- say about them. The put for either takes the bytes as its sixth
---- parameter and hashes them in place, and the run as its seventh.
-local puts: {string:string} = {
-  files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
-    "sha256, data, seen) " ..
-    "VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?6, ?7)",
-  tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
-    "sha256, seen) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?7)",
-}
-
-local function prepare(db: Sqlite.Handle, table_name: string): Statements | nil, string
-  local look, look_trouble = db:prepare(
-    "SELECT size, mtime_ns, ino, dev FROM " .. table_name .. " WHERE path = ?1")
-  if look == nil then
-    return nil, look_trouble
-  end
-  local touch, touch_trouble = db:prepare(
-    "UPDATE " .. table_name .. " SET seen = ?2 WHERE path = ?1")
-  if touch == nil then
-    look:finalize()
-    return nil, touch_trouble
-  end
-  local put, put_trouble = db:prepare(puts[table_name])
-  if put == nil then
-    look:finalize()
-    touch:finalize()
-    return nil, put_trouble
-  end
-  return { look = look, touch = touch, put = put }
-end
-
-local function finish(statements: Statements)
-  statements.look:finalize()
-  statements.touch:finalize()
-  statements.put:finalize()
-end
-
---- Stages one file: a stat that matches its row touches the row; any
---- other reads the file and writes the row. Reports whether the file
---- was read.
-local function stage_one(statements: Statements, root: string, file: string,
-                         run: integer): boolean | nil, string
-  local st, stat_trouble = Fs.stat(root .. "/" .. file)
-  if st == nil then
-    return nil, stat_trouble
-  end
-  local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
-  local look = statements.look
-  look:bind_text(1, file)
-  local state, step_trouble = look:step()
-  if state == nil then
-    return nil, step_trouble
-  end
-  local same = state == "row" and look:integer(0) == st.size and
-    look:integer(1) == mtime_ns and look:integer(2) == st.ino and
-    look:integer(3) == st.dev
-  look:reset()
-
-  if same then
-    local touch = statements.touch
-    touch:bind_text(1, file)
-    touch:bind_integer(2, run)
-    local touched, touch_trouble = once(touch)
-    if not touched then
-      return nil, touch_trouble
-    end
-    return false
-  end
-
-  local data, read_trouble = Fs.read(root .. "/" .. file)
-  if data == nil then
-    return nil, read_trouble
-  end
-  local put = statements.put
-  put:bind_text(1, file)
-  put:bind_integer(2, st.size)
-  put:bind_integer(3, mtime_ns)
-  put:bind_integer(4, st.ino)
-  put:bind_integer(5, st.dev)
-  put:bind_blob(6, data)
-  put:bind_integer(7, run)
-  local written, put_trouble = once(put)
-  if not written then
-    return nil, put_trouble
-  end
-  return true
-end
-
 --- Stages every file `chosen` picks into one table. A file whose stat
---- matches its row is not read; one that differs, or is new, is read
---- and hashed; one the walk no longer finds is deleted.
+--- matches its row is not read; one that differs, or is new, is read,
+--- hashed and written; one the walk no longer finds is deleted. Only a
+--- change reaches the database.
 local function stage_into(handle: work.Handle, table_name: string,
                           files: {string}, chosen: function(string): boolean,
                           staged: work.Staged): boolean, string
   local db = handle.db
-  local statements, prepare_trouble = prepare(db, table_name)
-  if statements == nil then
-    return false, prepare_trouble
+  local root = handle.root
+  local known, known_trouble = known_in(db, table_name)
+  if known == nil then
+    return false, known_trouble
+  end
+  local put, put_trouble = db:prepare(puts[table_name])
+  if put == nil then
+    return false, put_trouble
   end
   for _, file in ipairs(files) do
     if chosen(file) then
-      local read, why = stage_one(statements, handle.root, file, handle.run)
-      if read == nil then
-        finish(statements)
-        return false, file .. ": " .. why
+      local st, stat_trouble = Fs.stat(root .. "/" .. file)
+      if st == nil then
+        put:finalize()
+        return false, stat_trouble
       end
+      local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+      local was = known[file]
+      known[file] = nil
       staged.files = staged.files + 1
-      if read then
+      local same = was ~= nil and was.size == st.size and
+        was.mtime_ns == mtime_ns and was.ino == st.ino and was.dev == st.dev
+      if not same then
+        local data, read_trouble = Fs.read(root .. "/" .. file)
+        if data == nil then
+          put:finalize()
+          return false, read_trouble
+        end
+        put:bind_text(1, file)
+        put:bind_integer(2, st.size)
+        put:bind_integer(3, mtime_ns)
+        put:bind_integer(4, st.ino)
+        put:bind_integer(5, st.dev)
+        put:bind_blob(6, data)
+        local written, write_trouble = once(put)
+        if not written then
+          put:finalize()
+          return false, file .. ": " .. write_trouble
+        end
         staged.read = staged.read + 1
       end
     end
   end
-  finish(statements)
-  return Sqlite.run(db, "DELETE FROM " .. table_name .. " WHERE seen < ?1",
-    { integer(handle.run) })
+  put:finalize()
+  for path in pairs(known) do
+    local ok, why = Sqlite.run(db,
+      "DELETE FROM " .. table_name .. " WHERE path = ?1", { text(path) })
+    if not ok then
+      return false, path .. ": " .. why
+    end
+  end
+  return true, ""
 end
 
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
