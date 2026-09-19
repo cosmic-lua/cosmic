@@ -14,11 +14,33 @@ local record observations
 end
 
 --- Returns both lists in observation order, without changing either input.
+--- Repeated identical observations carry no more information, but different
+--- answers to the same query are both retained so callers can reject a run
+--- whose filesystem changed underneath it.
 function observations.join(first: {observations.Observation},
                            second: {observations.Observation}): {observations.Observation}
   local joined: {observations.Observation} = {}
-  for _, observation in ipairs(first) do joined[#joined + 1] = observation end
-  for _, observation in ipairs(second) do joined[#joined + 1] = observation end
+  local seen: {string:{string:{string:boolean}}} = {}
+  local function append(found: {observations.Observation})
+    for _, observation in ipairs(found) do
+      local by_path = seen[observation.kind]
+      if by_path == nil then
+        by_path = {}
+        seen[observation.kind] = by_path
+      end
+      local by_answer = by_path[observation.path]
+      if by_answer == nil then
+        by_answer = {}
+        by_path[observation.path] = by_answer
+      end
+      if not by_answer[observation.answer] then
+        by_answer[observation.answer] = true
+        joined[#joined + 1] = observation
+      end
+    end
+  end
+  append(first)
+  append(second)
   return joined
 end
 

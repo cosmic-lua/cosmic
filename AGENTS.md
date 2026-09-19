@@ -23,13 +23,16 @@
    vendored C library's pin or patches still needs `bin/zig build boot`, and
    the tool says so by name.
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
-   module key, same hashes for every file under the root it read -- is not run
-   again, so a run after a small edit takes seconds; a run after a boot, or on a
-   fresh `o/`, runs everything and still finishes in single-digit seconds under
-   the native coverage collector. Treat an actual timeout as a failure to
-   investigate, and report it separately from an assertion failure. Do not
-   silently raise the limit; inspect elapsed time and the slow work first.
-   Deleting `o/build.db` forgets every verdict.
+   module key, same contents for every file opened, and same stat and directory
+   read answers under the root -- is not run again, so a run after a small edit
+   takes seconds; a run after a boot, or on a fresh `o/`, runs everything and
+   still finishes in single-digit seconds under the native coverage collector.
+   Treat an actual
+   timeout as a failure to investigate, and report it separately from an
+   assertion failure. Do not silently raise the limit; inspect elapsed time and
+   the slow work first. To benchmark full test execution, delete only the rows
+   from the `verdicts` table in `o/build.db`; preserve the staged database and
+   report the `ran` and `stood` counts with the elapsed time.
 
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that

@@ -38,16 +38,20 @@ local function test_capture_restores_after_an_error()
   assert(sys.open == original)
 end
 
-local function test_join_keeps_complete_observations()
+local function test_join_deduplicates_only_identical_observations()
   local first: {observations.Observation} = {
+    { kind = "s", path = "config", answer = "old" },
     { kind = "s", path = "config", answer = "old" },
   }
   local joined = observations.join(first, {
+    { kind = "s", path = "config", answer = "old" },
+    { kind = "s", path = "config", answer = "new" },
     { kind = "d", path = "assets", answer = "listing" },
   })
-  assert(#joined == 2)
-  assert(joined[1].answer == "old" and joined[2].answer == "listing")
-  assert(#first == 1)
+  assert(#joined == 3)
+  assert(joined[1].answer == "old" and joined[2].answer == "new")
+  assert(joined[3].answer == "listing")
+  assert(#first == 2)
 end
 
 local function test_captures_answers_when_the_query_occurs(tmp: string)

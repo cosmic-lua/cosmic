@@ -202,6 +202,35 @@ local function under_root(root: string, path: string): string | nil
   return relative
 end
 
+--- Adds observations that can affect a verdict to the process-wide set.
+--- Module loads are shared by every later test, so this set is cumulative;
+--- keeping it small prevents every test from repeatedly walking irrelevant or
+--- identical queries. Distinct answers remain distinct and make the run
+--- unstable when `verdict_key` sees them.
+local function append_process_reads(root: string,
+                                    into: {observations.Observation},
+                                    seen: {string:{string:{string:boolean}}},
+                                    found: {observations.Observation})
+  for _, observation in ipairs(found) do
+    if under_root(root, observation.path) ~= nil then
+      local by_path = seen[observation.kind]
+      if by_path == nil then
+        by_path = {}
+        seen[observation.kind] = by_path
+      end
+      local by_answer = by_path[observation.path]
+      if by_answer == nil then
+        by_answer = {}
+        by_path[observation.path] = by_answer
+      end
+      if not by_answer[observation.answer] then
+        by_answer[observation.answer] = true
+        into[#into + 1] = observation
+      end
+    end
+  end
+end
+
 --- What one test's verdict is a function of: the test itself, its
 --- module's key, the runtime it ran under -- see `build.work`'s
 --- `Identities` -- and the current hash of every file under the root
@@ -454,7 +483,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
                           verdicts: {string:test.Verdict}, credited: test.Credited,
                           hashes: {string:string}, runtime: string,
                           run_at_ns: integer, run: integer, tally: test.Tally,
-                          process_reads: {observations.Observation})
+                          process_reads: {observations.Observation},
+                          process_seen: {string:{string:{string:boolean}}})
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -470,9 +500,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   local ok, produced, newly_read = observations.capture(function(): any
     return require(m.path)
   end)
-  for _, observation in ipairs(newly_read) do
-    process_reads[#process_reads + 1] = observation
-  end
+  append_process_reads(root, process_reads, process_seen, newly_read)
   if module_session ~= nil then
     local collected, stop_trouble = Coverage.stop(module_session)
     if collected == nil then
@@ -535,9 +563,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       local passed, message, reads = call_test(fn)
       local test_reads = reads
       reads = observations.join(process_reads, test_reads)
-      for _, observation in ipairs(test_reads) do
-        process_reads[#process_reads + 1] = observation
-      end
+      append_process_reads(root, process_reads, process_seen, test_reads)
       if test_session ~= nil then
         local collected, stop_trouble = Coverage.stop(test_session)
         if collected == nil then
@@ -722,12 +748,13 @@ function test.run(argv: {integer:string}): integer
   -- modules or test bodies execute means a helper loaded earlier remains an
   -- input to later code that receives that already-loaded helper.
   local process_reads: {observations.Observation} = {}
+  local process_seen: {string:{string:{string:boolean}}} = {}
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
         verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
-        process_reads)
+        process_reads, process_seen)
     end
   end
   local total = tally.ran + tally.cached
