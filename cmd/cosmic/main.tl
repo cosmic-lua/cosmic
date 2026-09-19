@@ -10,6 +10,7 @@ local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local databases = require("build.databases")
 local docs = require("build.docs")
+local embed = require("build.embed")
 local fix = require("build.fix")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
@@ -33,6 +34,10 @@ cosmic -- a runtime for self-contained command-line software
                      as canonical text, in place
   cosmic fix --check the same, writing nothing: name the files a fix
                      would change, and fail if there are any
+  cosmic embed       build the tree in the working directory, then
+                     write one executable under o/bin/ for each
+                     cmd/<name>/main.tl it holds: o/bin/<name>, which
+                     runs on its own, with nothing beside it
   cosmic db          what the two databases under o/ hold, table by
                      table -- rows, pages, bytes -- and how the last
                      few builds went
@@ -257,6 +262,9 @@ local function main(argv: {integer:string}): integer
   end
   if verb == "db" then
     return databases.run()
+  end
+  if verb == "embed" then
+    return embed.run()
   end
   if verb == "docs" then
     return docs.run(argv)

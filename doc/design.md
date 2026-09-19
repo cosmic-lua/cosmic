@@ -80,7 +80,10 @@ has named macOS 26 the last release for them, and no runner can test
 them without Rosetta.
 
 every cosmic binary carries the core image for all three targets, so
-any host builds any target offline with nothing fetched.
+any host builds any target offline with nothing fetched. a program
+`cosmic embed` builds carries none: its database holds its own
+modules, the standard library, and the error catalog, behind the
+image of the host it was built on.
 
 a target exists when three things hold: zig links it, a CI lane runs
 its full suite on it, and the sandbox conformance matrix runs on it.
