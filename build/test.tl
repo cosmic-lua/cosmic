@@ -229,9 +229,10 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
     end
   end
   table.sort(paths)
-  -- Versioned because older verdicts did not include reads made while loading
-  -- test modules and may otherwise appear to stand forever.
-  local lines: {string} = { "module-load-reads-v1",
+  -- Bump the recording generation when the invariants of a reusable verdict
+  -- change. Generation 1 runners could commit a verdict without its coverage
+  -- after an infrastructure error, so none of their verdicts can stand.
+  local lines: {string} = { "recording-2", "module-load-reads-v1",
     id .. " " .. module_key .. " " .. runtime }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
@@ -392,9 +393,16 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     end
     return true, ""
   end
-  local made, trouble = write_rows()
+  -- Keep the prepared statements from escaping when reporting a module's
+  -- lines itself throws. Turn that exception into the same infrastructure
+  -- error returned by an unsuccessful insert so the caller aborts the whole
+  -- recording transaction.
+  local called, made, trouble = pcall(write_rows)
   coverage:finalize()
   per_test:finalize()
+  if not called then
+    return 0, 0, tostring(made)
+  end
   if not made then
     return 0, 0, trouble
   end
@@ -671,18 +679,21 @@ function test.run(argv: {integer:string}): integer
   local records = handle.db
   local previous, previous_trouble = previous_runs(records)
   if previous == nil then
+    work.rollback(handle)
     work.close(handle)
     complain(records_path .. ": " .. previous_trouble)
     return 1
   end
   local hashes, hashes_trouble = staged_hashes(records)
   if hashes == nil then
+    work.rollback(handle)
     work.close(handle)
     complain(records_path .. ": " .. hashes_trouble)
     return 1
   end
   local verdicts, verdicts_trouble = known_verdicts(records)
   if verdicts == nil then
+    work.rollback(handle)
     work.close(handle)
     complain(records_path .. ": " .. verdicts_trouble)
     return 1
@@ -730,9 +741,15 @@ function test.run(argv: {integer:string}): integer
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
   end
-  local closed, close_trouble = work.close(handle)
-  if not closed then
-    errors[#errors + 1] = "close: " .. close_trouble
+  local finished: boolean
+  local finish_trouble: string
+  if #errors == 0 then
+    finished, finish_trouble = work.close(handle)
+  else
+    finished, finish_trouble = work.abort(handle)
+  end
+  if not finished then
+    errors[#errors + 1] = "close: " .. finish_trouble
   end
 
   -- A module `importer.compile` refused ran no tests at all; every
