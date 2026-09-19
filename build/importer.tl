@@ -6,9 +6,9 @@
 --- for its type and never stored.
 ---
 --- A module's key is the content hash of its source, the keys of
---- everything it imports, and the hash of the tool that compiled it. An
---- unchanged key is a stat; a changed one recompiles what depended on
---- it.
+--- everything it imports, and the hash of the tool that compiled it.
+--- These keys record provenance; compilation currently visits every
+--- module, without reusing results for unchanged keys.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
