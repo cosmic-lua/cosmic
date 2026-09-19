@@ -90,6 +90,9 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'file'")
   assert(tonumber(guidance[1][1]) > 0, "the error catalog is in, and indexed")
+  local about_build = rows_of(path,
+    "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
+  assert(about_build[1][1] == "0", "guidance about the build is not")
 end
 
 local function test_a_tree_without_a_main_is_refused(tmp: string)

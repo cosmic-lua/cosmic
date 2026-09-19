@@ -201,9 +201,12 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
+    -- The guidance a program's own errors can match: the errno rows and
+    -- the standard library's. It never runs the build, so a row about
+    -- the build could only ever match by accident.
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
       "SELECT kind, module, symbol, message, text, file, line FROM catalog " ..
-      "ORDER BY id")
+      "WHERE module = '(errno)' OR module LIKE 'cosmic.%' ORDER BY id")
     if not copied then
       return false, copy_trouble
     end
