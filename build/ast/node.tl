@@ -235,7 +235,7 @@ local function parse(built: compiler, source: string, name: string,
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
   end
   -- cast: parse_program erases its AST to `any`
-  return {node = ast as Node, tokens = tokens}, nil
+  return { node = ast as Node, tokens = tokens }, nil
 end
 
 local record NodeModule

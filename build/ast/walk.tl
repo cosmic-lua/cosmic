@@ -109,18 +109,18 @@ local function walk(node: Node, visit: function(Node))
     seen[n] = true
     visit(n)
     each_child(n, function(value: any)
-        local child, rest = classify(value)
-        if child then
-          go(child)
-        elseif rest then
-          for _, e in ipairs(rest) do
-            local gc = classify(e)
-            if gc then
-              go(gc)
-            end
+      local child, rest = classify(value)
+      if child then
+        go(child)
+      elseif rest then
+        for _, e in ipairs(rest) do
+          local gc = classify(e)
+          if gc then
+            go(gc)
           end
         end
-      end)
+      end
+    end)
   end
   go(node)
 end
@@ -142,24 +142,24 @@ local function span_start(node: Node): integer, integer
     end
     seen[n] = true
     each_child(n, function(value: any)
-        local child, rest = classify(value)
-        if child then
-          local cy, cx = compute(child, seen)
-          if cy < by or (cy == by and cx < bx) then
-            by, bx = cy, cx
-          end
-        elseif rest then
-          for _, e in ipairs(rest) do
-            local gc = classify(e)
-            if gc then
-              local cy, cx = compute(gc, seen)
-              if cy < by or (cy == by and cx < bx) then
-                by, bx = cy, cx
-              end
+      local child, rest = classify(value)
+      if child then
+        local cy, cx = compute(child, seen)
+        if cy < by or (cy == by and cx < bx) then
+          by, bx = cy, cx
+        end
+      elseif rest then
+        for _, e in ipairs(rest) do
+          local gc = classify(e)
+          if gc then
+            local cy, cx = compute(gc, seen)
+            if cy < by or (cy == by and cx < bx) then
+              by, bx = cy, cx
             end
           end
         end
-      end)
+      end
+    end)
     return by, bx
   end
   return compute(node, {})
@@ -237,24 +237,24 @@ local function span_end(node: Node, tokens: {compiler.Token}): integer, integer
     end
     seen[n] = true
     each_child(n, function(value: any)
-        local child, rest = classify(value)
-        if child then
-          local cy, cx = compute(child, seen)
-          if cy > by or (cy == by and cx > bx) then
-            by, bx = cy, cx
-          end
-        elseif rest then
-          for _, e in ipairs(rest) do
-            local gc = classify(e)
-            if gc then
-              local cy, cx = compute(gc, seen)
-              if cy > by or (cy == by and cx > bx) then
-                by, bx = cy, cx
-              end
+      local child, rest = classify(value)
+      if child then
+        local cy, cx = compute(child, seen)
+        if cy > by or (cy == by and cx > bx) then
+          by, bx = cy, cx
+        end
+      elseif rest then
+        for _, e in ipairs(rest) do
+          local gc = classify(e)
+          if gc then
+            local cy, cx = compute(gc, seen)
+            if cy > by or (cy == by and cx > bx) then
+              by, bx = cy, cx
             end
           end
         end
-      end)
+      end
+    end)
     return by, bx
   end
   return compute(node, {})

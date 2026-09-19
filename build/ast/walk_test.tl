@@ -32,9 +32,9 @@ local function test_walk_visits_every_node_once_through_a_real_cycle()
   local kinds: {string} = {}
   local visits: {node_mod.Node: integer} = {}
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
-      kinds[#kinds + 1] = n.kind
-      visits[n] = (visits[n] or 0) + 1
-    end)
+    kinds[#kinds + 1] = n.kind
+    visits[n] = (visits[n] or 0) + 1
+  end)
   for n, count in pairs(visits) do
     assert(count == 1, "node visited " .. count .. " times: " .. tostring(n.kind))
   end
@@ -61,10 +61,10 @@ local function test_walk_descends_into_if_blocks()
     "if_blocks.tl")
   local if_block_count = 0
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
-      if n.kind == "if_block" then
-        if_block_count = if_block_count + 1
-      end
-    end)
+    if n.kind == "if_block" then
+      if_block_count = if_block_count + 1
+    end
+  end)
   assert(if_block_count == 2,
     "expected both if_blocks reached, got " .. if_block_count)
 end
@@ -155,12 +155,12 @@ local function test_walk_never_visits_an_op_payload_as_a_node()
   local parsed = parse_ok("os.execute(cmd)\n", "op_payload.tl")
   local visits = 0
   walk_mod.walk(parsed.node, function(n: node_mod.Node)
-      visits = visits + 1
-      local kind: any = n.kind
-      assert(kind is string,
-        "visited a value with no string kind (likely an OpInfo payload): "
-        .. tostring(kind))
-    end)
+    visits = visits + 1
+    local kind: any = n.kind
+    assert(kind is string,
+      "visited a value with no string kind (likely an OpInfo payload): "
+      .. tostring(kind))
+  end)
   assert(visits > 0, "walk visited nothing")
 end
 

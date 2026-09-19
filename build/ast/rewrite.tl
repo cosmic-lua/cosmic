@@ -75,16 +75,16 @@ end
 local function find_all(ast: Node, pattern: Node): {Hit}
   local hits: {Hit} = {}
   ast_walk.walk(ast, function(n: Node)
-      local caps = ast_match.match(pattern, n)
-      if caps then
-        hits[#hits + 1] = {node = n, caps = caps}
-      end
-    end)
+    local caps = ast_match.match(pattern, n)
+    if caps then
+      hits[#hits + 1] = { node = n, caps = caps }
+    end
+  end)
   table.sort(hits, function(p: Hit, q: Hit): boolean
-      local py, px = ast_walk.span_start(p.node)
-      local qy, qx = ast_walk.span_start(q.node)
-      return py < qy or (py == qy and px < qx)
-    end)
+    local py, px = ast_walk.span_start(p.node)
+    local qy, qx = ast_walk.span_start(q.node)
+    return py < qy or (py == qy and px < qx)
+  end)
   return hits
 end
 
@@ -93,7 +93,7 @@ end
 --- @param source string
 --- @return {integer}
 local function line_starts(source: string): {integer}
-  local starts: {integer} = {1}
+  local starts: {integer} = { 1 }
   local pos = 1
   while true do
     local nl = source:find("\n", pos, true)
@@ -202,7 +202,7 @@ local function kept_ranges(caps: {string: Node}, replacement: string,
   for name, cap in pairs(caps) do
     if find_name(replacement, name, 1) then
       local a, b = byte_span(cap, tokens, starts)
-      kept[#kept + 1] = {a, b}
+      kept[#kept + 1] = { a, b }
     end
   end
   return kept
@@ -319,7 +319,7 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
     local kept = kept_ranges(h.caps, desugared, parsed.tokens, starts)
     local dropped = dropped_comments(parsed.tokens, starts, a, b, kept)
     if #dropped > 0 then
-      refused[#refused + 1] = {node = h.node, comments = dropped}
+      refused[#refused + 1] = { node = h.node, comments = dropped }
     else
       local text = desugared
       for cname, cap in pairs(h.caps) do
@@ -332,7 +332,7 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
       table.insert(edits, 1, h)
     end
   end
-  return {code = out, refused = refused, edits = edits}, nil
+  return { code = out, refused = refused, edits = edits }, nil
 end
 
 local record RewriteModule

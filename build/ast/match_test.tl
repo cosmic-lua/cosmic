@@ -47,9 +47,9 @@ end
 --- Each parse allocates fresh typeids for the declaration tuple and
 --- its nested annotation types; identical source must still match.
 local function test_typed_declarations_match_across_separate_parses()
-  for _, scope in ipairs({"local", "global"}) do
-    for _, annotation in ipairs({"number", "{string: {number}}",
-        "function(number): string", "Box<string>"}) do
+  for _, scope in ipairs({ "local", "global" }) do
+    for _, annotation in ipairs({ "number", "{string: {number}}",
+        "function(number): string", "Box<string>" }) do
       local source = scope .. " value: " .. annotation .. " = make_value()"
       local pattern = pattern_ok(source)
       local candidate = parse_ok(source, "typed_declaration.tl")[1]
@@ -62,10 +62,11 @@ end
 --- Ignoring parser ids must preserve the annotation's source shape,
 --- including primitive names and types nested inside containers.
 local function test_typed_declarations_still_compare_annotation_shape()
-  for _, scope in ipairs({"local", "global"}) do
+  for _, scope in ipairs({ "local", "global" }) do
     local prefix = scope .. " value: "
     local pattern = pattern_ok(prefix .. "{string: {number}} = make_value()")
-    for _, annotation in ipairs({"number", "{string: {string}}", "{number: {number}}"}) do
+    for _, annotation in ipairs({ "number", "{string: {string}}",
+        "{number: {number}}" }) do
       local candidate = parse_ok(prefix .. annotation .. " = make_value()",
         "different_annotation.tl")[1]
       assert(match.match(pattern, candidate) == nil,
@@ -77,8 +78,8 @@ end
 --- A source-authored record field named `typeid` is a type value,
 --- not the parser's numeric allocation id on the enclosing type node.
 local function test_record_typeid_field_still_compares_its_declared_type()
-  for _, scope in ipairs({"local", "global"}) do
-    for _, field in ipairs({"typeid", "ordinary"}) do
+  for _, scope in ipairs({ "local", "global" }) do
+    for _, field in ipairs({ "typeid", "ordinary" }) do
       local prefix = scope .. " record Box " .. field .. ": "
       local source = prefix .. "number end"
       local pattern = pattern_ok(source)

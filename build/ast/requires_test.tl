@@ -33,7 +33,7 @@ local function test_requires_resolves_a_single_alias()
   assert(parsed ~= nil, "parse failed: " .. tostring(perr))
   local result, err = requires_mod.requires(built, parsed)
   assert(result ~= nil, "requires failed: " .. tostring(err))
-  assert_same_map(result, {hash = "cosmic.hash"})
+  assert_same_map(result, { hash = "cosmic.hash" })
 end
 
 local function test_requires_resolves_two_aliases()
@@ -43,7 +43,7 @@ local function test_requires_resolves_two_aliases()
   assert(parsed ~= nil, "parse failed: " .. tostring(perr))
   local result, err = requires_mod.requires(built, parsed)
   assert(result ~= nil, "requires failed: " .. tostring(err))
-  assert_same_map(result, {hash = "cosmic.hash", str = "cosmic.string"})
+  assert_same_map(result, { hash = "cosmic.hash", str = "cosmic.string" })
 end
 
 --- A `require` of a module outside the `cosmic.` namespace is not a
@@ -83,7 +83,7 @@ local function test_requires_does_not_track_reassignment()
   assert(parsed ~= nil, "parse failed: " .. tostring(perr))
   local result, err = requires_mod.requires(built, parsed)
   assert(result ~= nil, "requires failed: " .. tostring(err))
-  assert_same_map(result, {hash = "cosmic.hash"})
+  assert_same_map(result, { hash = "cosmic.hash" })
 end
 
 local function test_requires_returns_an_empty_table_for_no_requires()

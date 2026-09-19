@@ -162,3 +162,26 @@ local function test_every_source_in_the_tree_renders_and_settles()
     "a second pass changed these again: " .. table.concat(unsettled, ", "))
 end
 
+--- And the tree is at that fixed point already, so `cosmic fix --check`
+--- can be a gate. This is the healthy direction of the relationship:
+--- the tree was brought to what the renderer writes, rather than the
+--- renderer bent to match whatever the tree happened to hold.
+local function test_the_tree_is_at_the_fixed_point()
+  local root, root_trouble = Fs.absolute(".")
+  assert(root ~= nil, "could not resolve the tree root: " .. tostring(root_trouble))
+  local files, list_trouble = fix.sources(root)
+  assert(files ~= nil, "could not walk the tree: " .. tostring(list_trouble))
+  local differing: {string} = {}
+  for _, file in ipairs(files) do
+    local source, read_trouble = Fs.read(root .. "/" .. file)
+    assert(source ~= nil, file .. ": " .. tostring(read_trouble))
+    local result, trouble = fix.source(built, source, file)
+    assert(result ~= nil, file .. ": fix refused it: " .. tostring(trouble))
+    if result.changed then
+      differing[#differing + 1] = file
+    end
+  end
+  assert(#differing == 0,
+    "run `cosmic fix` -- these are not what it writes: " ..
+    table.concat(differing, ", "))
+end

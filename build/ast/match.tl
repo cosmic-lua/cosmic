@@ -131,9 +131,9 @@ local function desugar(pattern_src: string): string
   local out = pattern_src:gsub("%$%$%$([%u_][%w_]*)", "___%1")
   out = out:gsub("%$([%u_][%w_]*):([^%s%(%),]+)",
     function(nm: string, pred: string): string
-      last_predicates["_" .. nm] = pred
-      return "_" .. nm
-    end)
+    last_predicates["_" .. nm] = pred
+    return "_" .. nm
+  end)
   out = out:gsub("%$([%u_][%w_]*)", "_%1")
   return out
 end
@@ -150,23 +150,23 @@ local function attach_predicates(root: Node, names: {string: string}): Node
     return root
   end
   ast_walk.walk(root, function(n: Node)
-      local tk = n.tk
-      if (n.kind == "variable" or n.kind == "identifier") and tk is string then
-        local pred = names[tk]
+    local tk = n.tk
+    if (n.kind == "variable" or n.kind == "identifier") and tk is string then
+      local pred = names[tk]
+      if pred then
+        capture_predicates[n] = pred
+      end
+    elseif n.kind == "cast" then
+      -- cast: tl-parser field this Node kind doesn't name
+      local cap = match_cast.capture_name((n as {any: any})["casttype"])
+      if cap then
+        local pred = names[cap]
         if pred then
           capture_predicates[n] = pred
         end
-      elseif n.kind == "cast" then
-        -- cast: tl-parser field this Node kind doesn't name
-        local cap = match_cast.capture_name((n as {any: any})["casttype"])
-        if cap then
-          local pred = names[cap]
-          if pred then
-            capture_predicates[n] = pred
-          end
-        end
       end
-    end)
+    end
+  end)
   return root
 end
 
@@ -213,7 +213,7 @@ end
 --- @return Node A bare-list node wrapping `elements`
 local function rest_value(marker: any, elements: {any}): Node
   local mt = marker as {any: any} -- cast: generic ast node view
-  local out: {any: any} = {kind = "rest_capture", f = mt["f"], y = mt["y"], x = mt["x"]}
+  local out: {any: any} = { kind = "rest_capture", f = mt["f"], y = mt["y"], x = mt["x"] }
   for i, e in ipairs(elements) do
     out[i] = e
   end
