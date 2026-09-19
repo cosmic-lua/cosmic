@@ -7,6 +7,7 @@
 
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local fix = require("build.fix")
 local importer = require("build.importer")
 local payload = require("build.payload")
 local teal = require("build.teal")
@@ -19,7 +20,21 @@ cosmic -- a runtime for self-contained command-line software
   cosmic <file.tl>   build the tree the file sits in, then run it
   cosmic test        build the tree in the working directory, then
                      run every test it defines
+  cosmic fix         rewrite every Teal source in the working
+                     directory structurally, then write it back out
+                     as canonical text, in place
+  cosmic fix --check the same, writing nothing: name the files a fix
+                     would change, and fail if there are any
   cosmic help        this
+
+A verb takes paths to narrow it. `fix` rebuilds each file from its own
+parsed tree: it decides every keyword, operator and bracket, and the
+spacing around each, from the tree rather than from whichever two
+tokens ended up adjacent -- so `local x <const> = 5` is one unit
+attached to the name and can never come back as `local x < const > =
+5`. It carries the source's own line breaks, indentation and blank
+lines over unchanged, writes type syntax out as the original bytes,
+and never rewraps a line.
 
 Every verb ends in a verdict line and an exit code.
 ]]
@@ -173,6 +188,9 @@ local function main(argv: {integer:string}): integer
   end
   if verb == "test" then
     return test.run()
+  end
+  if verb == "fix" then
+    return fix.run(argv)
   end
   if verb:sub(1, 1) == "-" then
     complain("cosmic: no such option: " .. verb)

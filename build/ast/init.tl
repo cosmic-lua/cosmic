@@ -34,6 +34,7 @@ local ast_rewrite = require("build.ast.rewrite")
 local ast_requires = require("build.ast.requires")
 
 local type Node = ast_node.Node
+local type TypeNode = ast_node.TypeNode
 local type Parsed = ast_node.Parsed
 local type Hit = ast_rewrite.Hit
 local type Refusal = ast_rewrite.Refusal
@@ -41,6 +42,7 @@ local type RewriteResult = ast_rewrite.RewriteResult
 
 local record AstModule
   type Node = Node
+  type TypeNode = TypeNode
   type Parsed = Parsed
   type Hit = Hit
   type Refusal = Refusal

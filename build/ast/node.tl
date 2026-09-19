@@ -25,12 +25,39 @@
 local type compiler = require("build.compiler")
 
 --- The operator payload of an "op" node. The live parser also sets
---- `arity`/`prec`/`x`/`y` on this table, but nothing outside the
---- parser reads them today; `.op` (the operator or call marker itself,
---- e.g. `"+"`, `"."`, `"@funcall"`) is the only field worth naming
---- until a real consumer needs more.
+--- `arity`/`prec` on this table, which nothing outside the parser reads
+--- today; `.op` is the operator or call marker itself, e.g. `"+"`,
+--- `"."`, `"@funcall"`.
+---
+--- `y`/`x` are the operator TOKEN's own position, which is the only
+--- place it is recorded: an "op" node's own `y`/`x` is where the parser
+--- finished building the node, and its operands have positions of their
+--- own, so a renderer asking whether `..` was written at the end of one
+--- line or the start of the next has nothing else to read.
 local record OpInfo
   op: string
+  y: integer
+  x: integer
+end
+
+--- A type as tl's parser builds it: a semantic object rather than a
+--- node, so it has no `kind` and `build.ast.walk` never descends into
+--- one. It carries the position the type was read from, and -- where
+--- the type's own syntax closes with a bracket, as `{a: b}` does -- an
+--- end position too. It keeps no record of how the type was SPELLED,
+--- which is why a renderer writes type syntax out as original bytes
+--- rather than rebuilding it from here.
+local record TypeNode
+  y: integer
+  x: integer
+  yend: integer | nil
+  xend: integer | nil
+  --- The type's own shape, e.g. `"integer"`, `"map"`, `"function"`,
+  --- `"nominal"`, `"record"`, `"tuple"`.
+  typename: string
+  --- A tuple type's members: a function's argument or return types, and
+  --- the type list a `local` declaration carries after its names.
+  tuple: {TypeNode} | nil
 end
 
 --- One node of a real (post-lex, post-parse) tl AST.
@@ -103,6 +130,69 @@ local record Node is {Node}
   --- this to find every top-level `test_*` function without falling
   --- back to a text pattern over the raw source.
   name: Node | nil
+
+  --- "identifier": the Lua 5.4 variable attribute this name was
+  --- declared with, `"const"` or `"close"`, as tl's parser reads it off
+  --- the `<const>`/`<close>` that follows the name and BEFORE any type
+  --- annotation. Structured here, so writing one back out is a question
+  --- about this field rather than about the spacing of three tokens.
+  attribute: string | nil
+
+  -- "local_declaration" and "assignment": the names being bound, a
+  -- "variable_list" node.
+  vars: Node | nil
+  --- "local_declaration": the type list written after the names, whose
+  --- own position is the `:` that opens it. Empty when the declaration
+  --- carries no annotation at all.
+  decltuple: TypeNode | nil
+
+  -- "local_function", "record_function", and a "function" literal.
+  args: Node | nil
+  rets: TypeNode | nil
+  --- Comments tl's parser attached to a statement directly. The
+  --- renderer reads comments off the token stream instead, uniformly,
+  --- so it never has to ask which kinds carry this and which do not.
+  comments: {compiler.Comment} | nil
+
+  -- "argument": the declared type, and whether a `?` followed the name.
+  argtype: TypeNode | nil
+  opt: boolean | nil
+
+  -- "cast": the type after an `as` or an `is`.
+  casttype: TypeNode | nil
+
+  -- "newtype": the record, enum, or type alias being declared.
+  newtype: TypeNode | nil
+
+  -- "local_type": the name it binds, and what it binds to -- a
+  -- "newtype" node for a declaration or alias, any other expression for
+  -- a `local type x = require(...)`.
+  var: Node | nil
+  value: Node | nil
+
+  -- "literal_table_item": the key, and how the source spelled it --
+  -- "implicit" (no key at all), "short" (`k = v`), or "long"
+  -- (`[k] = v`).
+  key: Node | nil
+  key_parsed: string | nil
+
+  -- "record_function": what the function hangs off, and whether it was
+  -- declared with a `:` rather than a `.`.
+  fn_owner: Node | nil
+  is_method: boolean | nil
+  --- "identifier", inside a method's argument list: the implicit `self`
+  --- the parser inserts at the `(`'s own position, which the source
+  --- never wrote.
+  is_self: boolean | nil
+
+  -- "goto" and "label": the name jumped to, or declared.
+  label: string | nil
+
+  -- "fornum": the numeric loop's bounds. `step` is absent when the
+  -- source wrote none.
+  from: Node | nil
+  to: Node | nil
+  step: Node | nil
 end
 
 --- One parse's result: the AST root plus the token stream it came
@@ -150,6 +240,7 @@ end
 
 local record NodeModule
   type OpInfo = OpInfo
+  type TypeNode = TypeNode
   type Node = Node
   type Parsed = Parsed
   parse: function(built: compiler, source: string, name: string,

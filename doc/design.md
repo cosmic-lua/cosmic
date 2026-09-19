@@ -414,7 +414,7 @@ no justification comments, no ledger. the rule is switched on from
 the first line, which is possible only because the narrowing gaps
 that forced casts before it, record-field narrowing and container
 covariance chiefly, land as carried patches before `cosmic check`
-and `cosmic format` do; both gate on them.
+and the lint rules `cosmic fix` applies do; both gate on them.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -507,11 +507,19 @@ a claim.
 ### the command line
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
-`cosmic check`, `cosmic format`, `cosmic docs`, `cosmic embed`; `cosmic
+`cosmic check`, `cosmic fix`, `cosmic docs`, `cosmic embed`; `cosmic
 file.tl` runs a file; `-e` stays as Lua's one-liner idiom. every verb
 takes paths to narrow it, ends in a verdict line and an exit code,
 and `cosmic help <verb>` is the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
+
+`fix` rather than `format`, because there is one verb and not two: it
+parses, applies whatever structural rewrites the lint has earned, and
+writes the tree back out. a fix is a change to the parsed tree and
+never a patch over bytes, and what a rule produces is rendered rather
+than spliced, so the result reads the same as source nothing touched.
+`--check` writes nothing and fails on anything it would have changed,
+which is what a gate runs.
 
 ### the repository
 

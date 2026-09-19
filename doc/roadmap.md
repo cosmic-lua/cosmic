@@ -42,7 +42,11 @@ that runs both, coverage reported the same way for either.
   project, which needs the binary's own declarations reachable on
   disk or in a form the checker can read, since a real project
   imports more than a trivial one-file script does today.
-- **`cosmic format`**: the formatter, renamed to match the module.
+- **the rewrite rules `cosmic fix` applies.** the verb has landed, and
+  with it the renderer that writes a parsed tree back out as source; its
+  rule list is empty, because the rules worth writing are lint fixes and
+  the lint waits on the narrowing patches below. adding one is the whole
+  cost of a new fix: no part of the pipeline moves around it.
 - **the visibility lint**, part of what "checking" means: no import
   of a private module from outside its tree, no two names in a
   directory differing only in case.
