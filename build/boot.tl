@@ -147,34 +147,93 @@ local function boot(root: string, argv: {integer:string}): integer
     writer.write_result(handle, database_path, result)
   work.record(handle, elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
-  work.close(handle)
   if not written then
+    work.close(handle)
     report("boot: FAIL\n" .. write_trouble)
     return 1
   end
 
   local database, read_trouble = Fs.read(database_path)
   if database == nil then
+    work.close(handle)
     report("boot: FAIL (" .. read_trouble .. ")")
     return 1
   end
 
+  -- Every attached binary carries its own `host` and `host_image`, so
+  -- `build/reboot.tl` can find its own image again on a later run.
+  -- o/cosmic.db already names this build's own host correctly;
+  -- attaching it as-is to the other two targets would misname them --
+  -- and would make the same target cross-compiled on two different
+  -- hosts differ by nothing but that. So only the matching target
+  -- reuses it; the other two get their own projection, host,
+  -- host_image and runtime retagged first, otherwise identical --
+  -- `write_result`'s connection is still open for exactly this.
   for _, target in ipairs(targets) do
     local out = output .. "/bin/cosmic-" .. target
     local image = target == host and host_image or images[target]
-    local ok, failure = attach.write(out, target, image, database)
+    local target_database = database
+    if target ~= host then
+      local retagged_host, retag_name_trouble = work.put_host(handle, target, image)
+      if not retagged_host then
+        work.close(handle)
+        report("boot: FAIL (" .. retag_name_trouble .. ")")
+        return 1
+      end
+      local retagged, retag_trouble = work.identities(handle)
+      if retagged == nil then
+        work.close(handle)
+        report("boot: FAIL (" .. retag_trouble .. ")")
+        return 1
+      end
+      local target_path = output .. "/cosmic." .. target .. ".db"
+      local target_written, target_write_trouble =
+        writer.write_result(handle, target_path, result)
+      if not target_written then
+        work.close(handle)
+        report("boot: FAIL (" .. target_write_trouble .. ")")
+        return 1
+      end
+      local read, target_read_trouble = Fs.read(target_path)
+      if read == nil then
+        work.close(handle)
+        report("boot: FAIL (" .. target_read_trouble .. ")")
+        return 1
+      end
+      target_database = read
+      local removed, remove_trouble = Fs.remove(target_path)
+      if not removed then
+        work.close(handle)
+        report("boot: FAIL (" .. remove_trouble .. ")")
+        return 1
+      end
+    end
+    local ok, failure = attach.write(out, target, image, target_database)
     if not ok then
+      work.close(handle)
       report("boot: FAIL (" .. failure .. ")")
       return 1
     end
     if target == host then
       local same, host_trouble =
-        attach.write(output .. "/bin/cosmic", target, image, database)
+        attach.write(output .. "/bin/cosmic", target, image, target_database)
       if not same then
+        work.close(handle)
         report("boot: FAIL (" .. host_trouble .. ")")
         return 1
       end
     end
+  end
+
+  -- The loop above retagged handle.db's own meta.host/host_image to
+  -- whichever non-native target it retagged last; put this run's own
+  -- host back before closing, since work.record and this run's own
+  -- verdict are this machine's, not a cross-compiled target's.
+  local restored, restore_trouble = work.put_host(handle, host, host_image)
+  work.close(handle)
+  if not restored then
+    report("boot: FAIL (" .. restore_trouble .. ")")
+    return 1
   end
 
   report("boot: PASS (" .. #targets .. " targets, " .. staged.files ..

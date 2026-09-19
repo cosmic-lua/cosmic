@@ -116,9 +116,6 @@ that runs both, coverage reported the same way for either.
   slowness) already surfaces well enough. Worth a CLI flag
   (`--timeout SECONDS`) and an env var default, once there is a
   process to actually kill.
-- **the provenance gate**: no bytes from outside the tree and the
-  pinned zig reach an output, checked by building on two hosts and
-  comparing hashes.
 - **`O_CLOEXEC` on the remaining `fopen` paths** in boot and the
   patch applier; the syscall table's own `open` already sets it.
 - **a fuzzer over the executable locator**, now that it parses
@@ -173,7 +170,7 @@ the core tier, then the second, each module earning its place. a
 release ships when three things hold: cosmic builds and tests the
 work board, gitboard, from its own tree; the agent evaluation suite
 scores at or above its recorded baseline; the release job produces
-all three targets and the repro lane proves them byte-identical.
+all three targets and the provenance job proves them byte-identical.
 
 ## open questions
 
