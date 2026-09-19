@@ -9,20 +9,34 @@ permissions:
 
 jobs:
   # `bin/zig build cores` cross-compiles every target from any host, so
-  # each of these three is not "testing its own platform" -- it is a
-  # complete, independent build of the whole tree (every image, the
-  # database, both cross-compiled binaries and its one native one),
-  # tested and packaged on its own real, unrelated host. Nothing here
-  # needs another job to finish first: three full builds happening at
-  # once, not one canonical build with the other two waiting on it.
-  ci-linux-x86_64:
-    runs-on: ubuntu-24.04
+  # this is not "one job per platform" testing its own build -- it is
+  # the same work, run three times on three unrelated hosts, each
+  # independently producing a complete build of the whole tree (every
+  # image, the database, all three cross-compiled binaries, tested and
+  # packaged). The work is identical by construction, so a matrix says
+  # that once instead of three copies of the same steps -- and nothing
+  # here needs another leg to finish first: three full builds at once,
+  # not one canonical build with the other two waiting on it.
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runs-on: ubuntu-24.04
+          - name: linux-aarch64
+            runs-on: ubuntu-24.04-arm
+          - name: macos-aarch64
+            runs-on: macos-15
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # The pinned compiler is the one thing a fresh clone fetches, and
-      # the pin is the cache key: a bump starts cold.
+      # the pin is the cache key: a bump starts cold. runner.arch keeps
+      # the two Linux legs from colliding on one key for two different
+      # zig tarballs.
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -40,8 +54,8 @@ jobs:
 
       # The only place the signature `build/attach.tl` wrote is judged
       # by the system that has to accept it. A no-op everywhere but
-      # macOS -- see bin/verify-codesign -- so this step is identical
-      # across all three of these jobs.
+      # macOS -- see bin/verify-codesign -- so this is the same step on
+      # every leg of the matrix, checking each binary against itself.
       - name: the macOS binary's signature, if this host can judge it
         run: bin/verify-codesign o/bin/cosmic-aarch64-macos
 
@@ -52,71 +66,7 @@ jobs:
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: binaries-linux-x86_64
-          path: |
-            o/bin/cosmic-x86_64-linux-musl
-            o/bin/cosmic-aarch64-linux-musl
-            o/bin/cosmic-aarch64-macos
-            o/cosmic.db
-          if-no-files-found: error
-
-  ci-linux-aarch64:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
-      - name: the tree renders exactly as `cosmic fix` would write it
-        run: o/bin/cosmic fix --check .
-      - name: the macOS binary's signature, if this host can judge it
-        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
-      - name: what the build produced
-        run: |
-          ls -l o/bin o/cosmic.db
-          file o/bin/cosmic-*
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: binaries-linux-aarch64
-          path: |
-            o/bin/cosmic-x86_64-linux-musl
-            o/bin/cosmic-aarch64-linux-musl
-            o/bin/cosmic-aarch64-macos
-            o/cosmic.db
-          if-no-files-found: error
-
-  ci-macos-aarch64:
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
-      - name: the tree renders exactly as `cosmic fix` would write it
-        run: o/bin/cosmic fix --check .
-      - name: the macOS binary's signature, if this host can judge it
-        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
-      - name: what the build produced
-        run: |
-          ls -l o/bin o/cosmic.db
-          file o/bin/cosmic-*
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: binaries-macos-aarch64
+          name: binaries-${{ matrix.name }}
           path: |
             o/bin/cosmic-x86_64-linux-musl
             o/bin/cosmic-aarch64-linux-musl
@@ -159,16 +109,15 @@ jobs:
   # find a stale tool's own image), so each of the three binaries is
   # retagged with ITS OWN target's name and image hash before it is
   # attached, never the building machine's -- attaching o/cosmic.db
-  # verbatim to all three, the way an earlier version of this job did,
-  # would make two of them misname themselves AND make the same
-  # target cross-compiled on two different hosts differ by nothing
-  # but that. o/cosmic.db itself is excluded from this comparison on
-  # purpose: it is this build's own project database, not a shipped
-  # target, and correctly names this specific host. Nothing here
-  # rebuilds anything; it only diffs what the three jobs above already
-  # made, so this costs a download, not a build.
+  # verbatim to all three would make two of them misname themselves
+  # AND make the same target cross-compiled on two different hosts
+  # differ by nothing but that. o/cosmic.db itself is excluded from
+  # this comparison on purpose: it is this build's own project
+  # database, not a shipped target, and correctly names this specific
+  # host. Nothing here rebuilds anything; it only diffs what the
+  # matrix above already made, so this costs a download, not a build.
   provenance:
-    needs: [ci-linux-x86_64, ci-linux-aarch64, ci-macos-aarch64]
+    needs: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
