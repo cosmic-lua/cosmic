@@ -44,7 +44,7 @@ local record work
   version: string
 end
 
-work.version = "4"
+work.version = "5"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. `seen` is the run
@@ -57,13 +57,16 @@ work.version = "4"
 --- resolves from the binary rather than the tree. Its hash is the
 --- boot hash, and a self-tree command refuses a mismatch.
 ---
---- `inputs` is what the build derives from the staged files, one row
---- per module source the compiler and checker see: a `.tl` or `.d.tl`
---- as it is, the test module a doc guide extracts to, the declaration
---- the syscall header generates to. `file` names where it came from
---- and `from_hash` what that file hashed to, so a row is stale exactly
---- when its file's row no longer matches, and a derivation is redone
---- only then.
+--- `inputs` is every module source the compiler and checker see, as
+--- a view: each staged `.tl` or `.d.tl` as it is, with the import path
+--- and kind its position gives it, together with every row of
+--- `derived` -- the test module a doc guide extracts to, the
+--- declaration the syscall header generates to, the compiler a boot
+--- puts in. A derived row's `file` names where it came from and
+--- `from_hash` what that file hashed to, so it is stale exactly when
+--- its file's row no longer matches, and a derivation is redone only
+--- then. A tree source is never copied: the view reads it from
+--- `files`.
 ---
 --- `parsed`, `requires` and `tests` are one parse of one source, keyed
 --- by its content hash rather than its path: what a parse finds is a
@@ -73,7 +76,7 @@ work.version = "4"
 --- `images` is the core executable for every target, deflated at
 --- rest, which a boot puts here and every later build carries into
 --- the database it writes. The compiler is the same kind of thing and
---- lives in `inputs`, the one row there with no file behind it.
+--- lives in `derived`, the one row there with no file behind it.
 ---
 --- `compiled` is one compile of one module, keyed by the module's key
 --- -- the hash of its kind, its source, its import closure's keys and
@@ -139,14 +142,30 @@ work.schema = {
                                      dev INTEGER NOT NULL,
                                      sha256 TEXT NOT NULL,
                                      seen INTEGER NOT NULL) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS inputs (file TEXT PRIMARY KEY,
-                                       path TEXT NOT NULL,
-                                       kind TEXT NOT NULL,
-                                       origin TEXT NOT NULL,
-                                       from_hash TEXT NOT NULL,
-                                       source TEXT NOT NULL,
-                                       source_hash TEXT NOT NULL) WITHOUT ROWID]],
-  "CREATE INDEX IF NOT EXISTS inputs_by_path ON inputs (path)",
+  [[CREATE TABLE IF NOT EXISTS derived (file TEXT PRIMARY KEY,
+                                        path TEXT NOT NULL,
+                                        kind TEXT NOT NULL,
+                                        origin TEXT NOT NULL,
+                                        from_hash TEXT NOT NULL,
+                                        source TEXT NOT NULL,
+                                        source_hash TEXT NOT NULL) WITHOUT ROWID]],
+  [[CREATE VIEW IF NOT EXISTS inputs AS
+      SELECT path AS file,
+             replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
+                          WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
+                          ELSE substr(path, 1, length(path) - 3) END, '/', '.') AS path,
+             CASE WHEN path GLOB '*.d.tl' THEN 'decl'
+                  WHEN path GLOB '*_test.tl' THEN 'test'
+                  WHEN path GLOB '*_example.tl' THEN 'example'
+                  WHEN path GLOB 'cmd/*/main.tl' AND path NOT GLOB 'cmd/*/*/*' THEN 'main'
+                  ELSE 'module' END AS kind,
+             'tree' AS origin,
+             sha256 AS from_hash,
+             CAST(data AS TEXT) AS source,
+             sha256 AS source_hash
+        FROM files WHERE path GLOB '*.tl'
+      UNION ALL
+      SELECT file, path, kind, origin, from_hash, source, source_hash FROM derived]],
   [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
                                        has_return INTEGER NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
@@ -576,7 +595,7 @@ end
 --- it, for every later build to carry.
 function work.put_compiler(handle: work.Handle, source: string): boolean, string
   return Sqlite.run(handle.db,
-    "INSERT OR REPLACE INTO inputs (file, path, kind, origin, from_hash, " ..
+    "INSERT OR REPLACE INTO derived (file, path, kind, origin, from_hash, " ..
     "source, source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', " ..
     "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
     { text(source) })

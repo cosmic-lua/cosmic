@@ -7,12 +7,12 @@
 ---
 --- Nothing here reads a path: `build.work` has already staged every
 --- input into the working database, and the tree is the rows of its
---- `files` table. What a build derives from those rows -- the import
---- path and kind each file's position gives it, the test module a doc
---- guide extracts to, the declaration the syscall header generates
---- to, and what one parse of each source finds -- is written back as
---- rows too, each keyed so it is redone only when what it came from
---- changed, and the modules to compile are a query over them.
+--- `files` table, which its `inputs` view reads by position. What a
+--- build derives beyond that -- the test module a doc guide extracts
+--- to, the declaration the syscall header generates to, and what one
+--- parse of each source finds -- is written back as rows too, each
+--- keyed so it is redone only when what it came from changed, and the
+--- modules to compile are a query over them.
 ---
 --- A module's key is the content hash of its source, the keys of
 --- everything it imports, and the hash of the tool that compiled it. An
@@ -80,24 +80,6 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
---- A staged file's import path, as its position says: `cosmic/fs.tl`
---- is `cosmic.fs`, `build/ast/init.tl` is `build.ast`, and
---- `cosmic/internal/store.d.tl` is `cosmic.internal.store`.
-local import_path_sql = [[
-  replace(CASE WHEN path GLOB '*.d.tl' THEN substr(path, 1, length(path) - 5)
-               WHEN path GLOB '*/init.tl' THEN substr(path, 1, length(path) - 8)
-               ELSE substr(path, 1, length(path) - 3) END, '/', '.')]]
-
---- A staged file's kind, as its name says: a declaration holds no
---- code, `*_test.tl` is a test, `*_example.tl` an example, and
---- `cmd/<name>/main.tl` a binary's entry.
-local kind_sql = [[
-  CASE WHEN path GLOB '*.d.tl' THEN 'decl'
-       WHEN path GLOB '*_test.tl' THEN 'test'
-       WHEN path GLOB '*_example.tl' THEN 'example'
-       WHEN path GLOB 'cmd/*/main.tl' AND path NOT GLOB 'cmd/*/*/*' THEN 'main'
-       ELSE 'module' END]]
-
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: `doc/guides/quickstart.md` compiles as
 --- `doc.guides.quickstart`.
@@ -105,17 +87,17 @@ local function import_path_of_doc(file: string): string
   return (file:gsub("%.md$", ""):gsub("/", "."))
 end
 
-local insert_input =
-  "INSERT INTO inputs (file, path, kind, origin, from_hash, source, " ..
+local insert_derived =
+  "INSERT INTO derived (file, path, kind, origin, from_hash, source, " ..
   "source_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, lower(hex(sha256(?6))))"
 
---- The doc guides with no current `inputs` row, each extracted into
+--- The doc guides with no current `derived` row, each extracted into
 --- the test module it is.
 local function derive_doc_guides(db: Sqlite.Handle): boolean, string
   local guides, trouble = Sqlite.rows(db,
     "SELECT path, data, sha256 FROM files " ..
     "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
-    "AND path NOT IN (SELECT file FROM inputs) ORDER BY path")
+    "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if guides == nil then
     return false, trouble
   end
@@ -125,7 +107,7 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
     if source == nil then
       return false, file .. ": " .. extract_trouble
     end
-    local ok, insert_trouble = Sqlite.run(db, insert_input,
+    local ok, insert_trouble = Sqlite.run(db, insert_derived,
       { text(file), text(import_path_of_doc(file)), text("test"),
         text("doctest"), text(from_hash), text(source) })
     if not ok then
@@ -136,12 +118,12 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
 end
 
 --- The syscall table's declaration, generated from its header when the
---- header has no current `inputs` row. Only cosmic's own tree has the
+--- header has no current `derived` row. Only cosmic's own tree has the
 --- header; a project gets the declaration from the binary.
 local function derive_syscalls(db: Sqlite.Handle): boolean, string
   local headers, trouble = Sqlite.rows(db,
     "SELECT data, sha256 FROM files WHERE path = 'core/syscalls.h' " ..
-    "AND path NOT IN (SELECT file FROM inputs)")
+    "AND path NOT IN (SELECT file FROM derived)")
   if headers == nil then
     return false, trouble
   end
@@ -153,7 +135,7 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
   if source == nil then
     return false, "core/syscalls.h: " .. generate_trouble
   end
-  return Sqlite.run(db, insert_input,
+  return Sqlite.run(db, insert_derived,
     { text("core/syscalls.h"), text("cosmic.sys"), text("decl"),
       text("syscalls"), text(from_hash), text(source) })
 end
@@ -228,11 +210,11 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   return true, ""
 end
 
---- Brings `inputs` and the parse tables up to the staged tree, in one
---- transaction: a row whose file changed or vanished goes, a file with
---- no row gets one, and only what is new is extracted, generated, or
---- parsed. The compiler's row has no file and is Lua, so it is neither
---- dropped nor parsed here; `build.writer` carries it. What no input refers to any more is dropped, so the tables
+--- Brings `derived` and the parse tables up to the staged tree, in one
+--- transaction: a derived row whose file changed or vanished goes, and
+--- only what is new is extracted, generated, or parsed. The compiler's
+--- row has no file and is Lua, so it is neither dropped nor parsed
+--- here; the plan carries it. What no input refers to any more is dropped, so the tables
 --- describe this tree and nothing older.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
@@ -256,20 +238,12 @@ local function derive(handle: work.Handle, self_tree: boolean,
   end
 
   return Sqlite.transact(db, function(): boolean, string
-    local statements: {string} = {
-      "DELETE FROM inputs WHERE origin <> 'vendor' AND NOT EXISTS " ..
-      "(SELECT 1 FROM files f WHERE f.path = inputs.file " ..
-      "AND f.sha256 = inputs.from_hash)",
-      "INSERT INTO inputs (file, path, kind, origin, from_hash, source, " ..
-      "source_hash) SELECT path, " .. import_path_sql .. ", " .. kind_sql ..
-      ", 'tree', sha256, CAST(data AS TEXT), sha256 FROM files " ..
-      "WHERE path GLOB '*.tl' AND path NOT IN (SELECT file FROM inputs)",
-    }
-    for _, statement in ipairs(statements) do
-      local ok, trouble = db:exec(statement)
-      if not ok then
-        return false, trouble
-      end
+    local swept, sweep_trouble = db:exec(
+      "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
+      "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
+      "AND f.sha256 = derived.from_hash)")
+    if not swept then
+      return false, sweep_trouble
     end
     local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
     for _, step in ipairs(steps) do
