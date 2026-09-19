@@ -55,8 +55,10 @@ that runs both, coverage reported the same way for either.
   the lint waits on the narrowing patches below. adding one is the whole
   cost of a new fix: no part of the pipeline moves around it.
 - **the visibility lint**, part of what "checking" means: no import
-  of a private module from outside its tree, no two names in a
-  directory differing only in case.
+  of a private module from outside its tree. the case-collision half
+  (no two names in a directory differing only in case) is dropped
+  for now, not merely deferred -- nothing about it is currently
+  planned.
 - **record-field narrowing has landed** (`patch/tl/08` through `14`,
   plus the bare-variable statement-form `assert` narrow it builds on,
   `07-assert-narrows.txt`): a guard on `x.field` -- truthy read,
