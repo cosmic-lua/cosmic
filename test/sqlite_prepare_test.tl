@@ -17,7 +17,7 @@ local function test_one_statement_helpers_reject_additional_sql()
 
   local ran, run_why = Sqlite.run(db, "SELECT 1; SELECT 2")
   assert(not ran and run_why:find("more than one statement", 1, true))
-  local rows, rows_why = Sqlite.rows(db, "SELECT 1; SELECT 2")
+  local rows, rows_why = Sqlite.text_rows(db, "SELECT 1; SELECT 2")
   assert(rows == nil and rows_why:find("more than one statement", 1, true))
 
   local nul_statement, nul_why = db:prepare("SELECT 1\0; SELECT 2")
