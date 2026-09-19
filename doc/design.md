@@ -131,8 +131,9 @@ and Mach-O alike; debug info carries the absolute path and a
 content-derived Mach-O UUID follows it. the Linux lane builds a
 fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
-bare trap, and runs the whole test suite and the fuzzers under it on
-every push. zig ships no address sanitizer runtime for any target;
+bare trap. `bin/zig build sanitized` boots with that core and embeds
+it in `o/sanitized/bin/cosmic`; CI verifies the embedded core bytes
+and runs the whole test suite under `timeout 30` on every push. zig ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
 toolchain and with that caveat stated, is a later addition. a
 `cosmic-debug` asset, the sanitized build published beside the

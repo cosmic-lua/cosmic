@@ -155,8 +155,8 @@ pub fn build(b: *std.Build) void {
 
     // A fourth core, checked for undefined behavior: same sources, built
     // for the host only, and installed beside the others rather than over
-    // them. It bridges into Teal like the release core, so the whole build
-    // runs under the checks.
+    // them. Both boot and the attached host executable use this image;
+    // checked artifacts stay under o/sanitized.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked = core(b, b.graph.host, true, lua, sqlite, miniz);
     const checked_install = b.addInstallFile(
@@ -168,6 +168,8 @@ pub fn build(b: *std.Build) void {
     checked_boot.addDirectoryArg(b.path("."));
     checked_boot.addDirectoryArg(tl);
     checked_boot.addArg(hostName(b));
+    checked_boot.addArg(b.getInstallPath(.prefix, "sanitized"));
+    checked_boot.addFileArg(checked.getEmittedBin());
     checked_boot.step.dependOn(cores);
     checked_boot.step.dependOn(vendored);
     checked_boot.has_side_effects = true;

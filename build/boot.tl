@@ -33,12 +33,20 @@ local function report(line: string)
 end
 
 --- @param root the tree to build
---- @param argv the command line, where slot 4 names the host target
+--- @param argv the command line: slot 4 is the host target, slots 5 and 6
+--- optionally set the output directory and host core image for checked builds
 local function boot(root: string, argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local host = argv[4]
   if host == nil or host == "" then
     report("boot: FAIL (the command line names no host target)")
+    return 1
+  end
+
+  local output = argv[5] or root .. "/o"
+  local made, mkdir_trouble = Fs.mkdirs(output .. "/bin")
+  if not made then
+    report("boot: FAIL (" .. mkdir_trouble .. ")")
     return 1
   end
 
@@ -51,6 +59,9 @@ local function boot(root: string, argv: {integer:string}): integer
   local images: {string:string} = {}
   for _, target in ipairs(targets) do
     local path = root .. "/o/core/" .. target .. "/cosmic-core"
+    if target == host and argv[6] ~= nil then
+      path = argv[6]
+    end
     local image, failure = Fs.read(path)
     if image == nil then
       report("boot: FAIL (" .. failure .. ")")
@@ -71,7 +82,7 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local database_path = root .. "/o/cosmic.db"
+  local database_path = output .. "/cosmic.db"
   local written, write_trouble =
     writer.write(root, database_path, compiler, env, boot_hash, images,
                  teal_source)
@@ -86,14 +97,8 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
-  if not made then
-    report("boot: FAIL (" .. mkdir_trouble .. ")")
-    return 1
-  end
-
   for _, target in ipairs(targets) do
-    local out = root .. "/o/bin/cosmic-" .. target
+    local out = output .. "/bin/cosmic-" .. target
     local ok, failure = attach.write(out, target, images[target], database)
     if not ok then
       report("boot: FAIL (" .. failure .. ")")
@@ -101,7 +106,7 @@ local function boot(root: string, argv: {integer:string}): integer
     end
     if target == host then
       local same, host_trouble =
-        attach.write(root .. "/o/bin/cosmic", target, images[target], database)
+        attach.write(output .. "/bin/cosmic", target, images[target], database)
       if not same then
         report("boot: FAIL (" .. host_trouble .. ")")
         return 1
