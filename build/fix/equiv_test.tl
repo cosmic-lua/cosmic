@@ -106,3 +106,25 @@ local function test_a_cycle_is_not_followed_forever()
   local same, difference = equiv.same_tree(node(before), node(after))
   assert(same, "a cycle was reported as a difference: " .. difference)
 end
+
+local function test_record_field_names_do_not_hide_type_changes()
+  for _, name in ipairs({ "ordinary", "x", "y", "xend", "yend", "f",
+                          "typeid", "comments", "if_parent", "kind",
+                          "typename", "op", "text" }) do
+    local prefix = "local record R\n kind: string\n typename: string\n "
+    if name == "kind" or name == "typename" then
+      prefix = "local record R\n "
+    end
+    local same = compare(prefix .. name .. ": string\nend\n",
+                           prefix .. name .. ": integer\nend\n")
+    assert(not same, "changed field type was ignored: " .. name)
+  end
+end
+
+local function test_record_spacing_alone_is_not_a_difference()
+  local same, kept, difference = compare(
+    "local record R\n -- field\n x: string\n f: integer\nend\n",
+    "local record R\n\n  -- field\n  x: string\n  f: integer\nend\n")
+  assert(same, "record spacing counted as a difference: " .. difference)
+  assert(kept, "record spacing changed comments: " .. difference)
+end
