@@ -47,6 +47,7 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
+local observed_reads = require("build.observed_reads")
 local reboot = require("build.reboot")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -218,7 +219,9 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
     end
   end
   table.sort(paths)
-  local lines: {string} = { id .. " " .. module_key .. " " .. runtime }
+  -- Versioned because older verdicts did not include reads made while loading
+  -- test modules and may otherwise appear to stand forever.
+  local lines: {string} = { "module-load-reads-v1", id .. " " .. module_key .. " " .. runtime }
   for _, relative in ipairs(paths) do
     local hash = hashes[relative]
     if hash == nil then
@@ -430,7 +433,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
                           previous: {string:test.Previous},
                           verdicts: {string:test.Verdict}, credited: test.Credited,
                           hashes: {string:string}, runtime: string,
-                          run_at_ns: integer, run: integer, tally: test.Tally)
+                          run_at_ns: integer, run: integer, tally: test.Tally,
+                          process_reads: {string})
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -443,7 +447,12 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   if module_session == nil then
     errors[#errors + 1] = m.path .. ": coverage start: " .. module_start_trouble
   end
-  local ok, produced = pcall(require, m.path)
+  local ok, produced, newly_read = observed_reads.call(function(): any
+    return require(m.path)
+  end)
+  for _, path in ipairs(newly_read) do
+    process_reads[#process_reads + 1] = path
+  end
   if module_session ~= nil then
     local collected, stop_trouble = Coverage.stop(module_session)
     if collected == nil then
@@ -469,8 +478,10 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   for _, name in ipairs(m.tests) do
     local id = m.path .. " " .. name
     local was = previous[id]
+    local prior_reads = was ~= nil and
+      observed_reads.join(process_reads, was.reads) or process_reads
     local key = was ~= nil and
-      verdict_key(root, hashes, id, m.key, runtime, was.reads) or ""
+      verdict_key(root, hashes, id, m.key, runtime, prior_reads) or ""
     local stood = verdicts[key]
     if was ~= nil and stood ~= nil and stood.passed then
       -- The verdict stands: what the test read last time still hashes
@@ -483,7 +494,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
         merge_hits(hits, by_id[id] or {})
       end
       local kept, keep_trouble = record_run(records, m.path, name, true, "",
-        Time.now_ns() or 0, was.reads, key, stood.run_at_ns)
+        Time.now_ns() or 0, prior_reads, key, stood.run_at_ns)
       if not kept then
         errors[#errors + 1] = id .. ": record: " .. keep_trouble
       end
@@ -499,6 +510,16 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
         errors[#errors + 1] = id .. ": coverage start: " .. test_start_trouble
       end
       local passed, message, reads = call_test(fn)
+      -- A test can require a helper for the first time. If a later test module
+      -- requires that helper at top level, require returns its cached value and
+      -- makes none of the helper's opens observable in that later window. Carry
+      -- every open made by code that actually ran so later verdicts remain a
+      -- conservative function of anything already cached in this process.
+      local test_reads = reads
+      reads = observed_reads.join(process_reads, test_reads)
+      for _, path in ipairs(test_reads) do
+        process_reads[#process_reads + 1] = path
+      end
       if test_session ~= nil then
         local collected, stop_trouble = Coverage.stop(test_session)
         if collected == nil then
@@ -676,11 +697,16 @@ function test.run(argv: {integer:string}): integer
   -- it never has that same session value.
   local hits: Coverage.Hits = {}
   local by_test: {string: Coverage.Hits} = {}
+  -- Requires are cached process-wide. Keeping every read observed while test
+  -- modules or test bodies execute means a helper loaded earlier remains an
+  -- input to later code that receives that already-loaded helper.
+  local process_reads: {string} = {}
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
-        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally)
+        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
+        process_reads)
     end
   end
   local total = tally.ran + tally.cached
