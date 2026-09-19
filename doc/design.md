@@ -431,9 +431,10 @@ from, whole, never one file beside a pristine tree, because a quoted
 `#include` finds the neighbor first and a half-applied patch builds
 green. a provenance gate in CI asserts that no bytes from outside
 the tree and the pinned zig reach any output, checked by building on
-two hosts with different system libraries and comparing hashes; zig
-opens a few host paths to probe the native target even for a cross
-build, so the gate judges outputs, not opens. the trust chain has
+three hosts with different kernels and system libraries and
+comparing every byte of the three shipped binaries; zig opens a few
+host paths to probe the native target even for a cross build, so the
+gate judges outputs, not opens. the trust chain has
 exactly two seeds that nothing in the repository built, and they are
 named here: the POSIX sh `bin/zig` and the zig tarball its pin
 verifies. everything else is vendored or built from it.
@@ -459,19 +460,36 @@ isolation is planned below, not implemented:
   captured streams; a child never opens a database, it reports its
   result over a pipe and the one build process writes it.
 - *reproducible*: the shipped database is a pure function of the
-  tree. it is a projection of the working database: a fresh schema
-  attached in memory, filled in one transaction from the rows the
-  build already holds, every table `WITHOUT ROWID` on a natural key
-  so insertion order cannot reach the bytes, and the file is
-  produced by `VACUUM INTO`. a
-  second build of the same tree is byte-identical, and CI's repro
-  lane asserts it from a second transaction layout as well as a
-  second host.
+  tree, apart from three `meta` rows that name the host that
+  attached it -- `host` and `host_image` name the target and image
+  the attaching build matched, and `runtime` folds in the same pins,
+  so `build/reboot.tl` can find a stale tool's own image back on a
+  later run. left as the one host that happened to run `bin/zig
+  build boot`, those three rows would make the same target,
+  cross-compiled on two different hosts, differ by nothing else --
+  so `build/boot.tl` retags them per target before attaching: the
+  target matching this build's own host reuses the database as
+  written, and each of the other two gets its own projection first,
+  `host`/`host_image`/`runtime` naming ITS target, everything else
+  identical. `o/cosmic.db` itself, the one file left over for this
+  host's own project tooling, still names this host -- correctly,
+  since that is what it is for. what the database is a projection
+  of: the working database, a fresh schema attached in memory,
+  filled in one transaction from the rows the build already holds,
+  every table `WITHOUT ROWID` on a natural key so insertion order
+  cannot reach the bytes, and the file produced by `VACUUM INTO`.
+  `bin/zig build cores` cross-compiles every target from any host,
+  so with retagging making the database side host-independent too,
+  each of the three shipped binaries is byte-identical regardless of
+  which host produced it -- CI's provenance job asserts exactly
+  that, three unrelated kernels and system libraries agreeing rather
+  than one host asked twice.
 
-one Linux lane builds every image; three lanes run the full suite on
-the real thing: Linux x86_64, Linux aarch64 on an arm runner, macOS
-aarch64 on an arm Mac runner. the sandbox conformance matrix runs on
-all three.
+three lanes, one per target -- Linux x86_64, Linux aarch64 on an arm
+runner, macOS aarch64 on an arm Mac runner -- each independently
+cross-compile every image and run the full suite on the real thing;
+a fourth job only diffs what the three already produced. the sandbox
+conformance matrix runs on all three.
 
 `cosmic build` and `cosmic test` fence themselves with the sandbox
 core, so a build cannot read outside its tree and a test cannot reach
