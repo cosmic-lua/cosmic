@@ -18,6 +18,7 @@
 local Fs = require("cosmic.fs")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 
 --- Builds the single-file fixture `source` at a fresh subdirectory of
 --- `tmp` and reports whether the tree compiled.
@@ -29,11 +30,22 @@ local function try_build(tmp: string, name: string, source: string): boolean, st
   if built == nil then
     return false, load_trouble
   end
-  local env, env_trouble = teal.environment_for(built, root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return false, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return false, stage_trouble
+  end
+  local env, env_trouble = teal.environment_for(built, handle)
   if env == nil then
+    work.close(handle)
     return false, env_trouble
   end
-  local result, trouble = importer.compile(root, built, env, "narrowing-test")
+  local result, trouble = importer.compile(handle, built, env, "narrowing-test")
+  work.close(handle)
   if result == nil then
     return false, trouble
   end

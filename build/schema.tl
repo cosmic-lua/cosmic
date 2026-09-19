@@ -4,45 +4,66 @@
 --- cannot reach the bytes and two builds of one tree produce one file.
 
 local record schema
-  tables: {string}
-  settings: {string}
 end
 
---- The statements that create an empty database, in order.
-schema.tables = {
-  "CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID",
+--- Each table's name and its column list, in creation order.
+local tables: {{string}} = {
+  { "meta", "(key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID" },
 
-  [[CREATE TABLE modules (path TEXT PRIMARY KEY,
-                          file TEXT NOT NULL,
-                          kind TEXT NOT NULL,
-                          source_hash BLOB NOT NULL,
-                          key BLOB NOT NULL,
-                          source TEXT NOT NULL,
-                          lua TEXT NOT NULL,
-                          bytecode BLOB NOT NULL,
-                          tests TEXT NOT NULL,
-                          decl TEXT) WITHOUT ROWID]],
+  { "modules", [[(path TEXT PRIMARY KEY,
+                  file TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  source_hash BLOB NOT NULL,
+                  key BLOB NOT NULL,
+                  source TEXT NOT NULL,
+                  lua TEXT NOT NULL,
+                  bytecode BLOB NOT NULL,
+                  tests TEXT NOT NULL) WITHOUT ROWID]] },
 
-  [[CREATE TABLE imports (path TEXT NOT NULL,
-                          requires TEXT NOT NULL,
-                          PRIMARY KEY (path, requires)) WITHOUT ROWID]],
+  { "imports", [[(path TEXT NOT NULL,
+                  requires TEXT NOT NULL,
+                  PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
-  [[CREATE TABLE images (target TEXT PRIMARY KEY,
-                          sha256 BLOB NOT NULL,
-                          size INTEGER NOT NULL,
-                          encoding TEXT NOT NULL,
-                          data BLOB NOT NULL) WITHOUT ROWID]],
+  { "images", [[(target TEXT PRIMARY KEY,
+                 sha256 BLOB NOT NULL,
+                 size INTEGER NOT NULL,
+                 encoding TEXT NOT NULL,
+                 data BLOB NOT NULL) WITHOUT ROWID]] },
 
-  [[CREATE TABLE payload (path TEXT PRIMARY KEY,
-                          data BLOB NOT NULL) WITHOUT ROWID]],
+  { "decls", [[(path TEXT PRIMARY KEY,
+                source TEXT NOT NULL) WITHOUT ROWID]] },
+
+  { "payload", [[(path TEXT PRIMARY KEY,
+                  data BLOB NOT NULL) WITHOUT ROWID]] },
 }
 
 --- The settings a reproducible file depends on. They are stated rather
 --- than left to the defaults, which could move with a SQLite bump.
-schema.settings = {
-  "PRAGMA page_size = 4096",
-  "PRAGMA auto_vacuum = 0",
-  "PRAGMA encoding = 'UTF-8'",
+local settings: {string} = {
+  "page_size = 4096",
+  "auto_vacuum = 0",
+  "encoding = 'UTF-8'",
 }
+
+--- The statements that create an empty database, in order, every table
+--- under `qualifier`: `"out."` for a schema attached under that name,
+--- `""` for a connection's own.
+function schema.create(qualifier: string): {string}
+  local out: {string} = {}
+  for _, pair in ipairs(tables) do
+    out[#out + 1] = "CREATE TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
+  end
+  return out
+end
+
+--- The pragmas that set a database up to be reproducible, for the
+--- schema `qualifier` names; they must run before its first table.
+function schema.settings(qualifier: string): {string}
+  local out: {string} = {}
+  for _, setting in ipairs(settings) do
+    out[#out + 1] = "PRAGMA " .. qualifier .. setting
+  end
+  return out
+end
 
 return schema
