@@ -67,18 +67,26 @@ local type Pairs = {any:{any:boolean}}
 
 local compare: function(any, any, string, Pairs): boolean, string
 
+local function has_metadata(t: {any:any}): boolean
+  -- Parser nodes, types, operators, and comments carry positions. Field
+  -- maps carry type objects, even under names such as kind or typename.
+  local kind, typename, op, text = t["kind"], t["typename"], t["op"], t["text"]
+  return kind is string or typename is string or op is string or text is string
+end
+
 --- The keys worth comparing on one table, both sides' keys together.
 local function keys_of(a: {any:any}, b: {any:any}): {any}
+  local metadata = has_metadata(a) and has_metadata(b)
   local seen: {any:boolean} = {}
   local out: {any} = {}
   for k in pairs(a) do
-    if not (k is string) or not positional[k] then
+    if not metadata or not (k is string) or not positional[k] then
       seen[k] = true
       out[#out + 1] = k
     end
   end
   for k in pairs(b) do
-    if not seen[k] and (not (k is string) or not positional[k]) then
+    if not seen[k] and (not metadata or not (k is string) or not positional[k]) then
       out[#out + 1] = k
     end
   end
