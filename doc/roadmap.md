@@ -124,6 +124,65 @@ that runs both, coverage reported the same way for either.
 - **a fuzzer over the executable locator**, now that it parses
   untrusted bytes at every startup.
 
+## documentation
+
+`cosmic docs` and `cosmic uses` (#1885) read the `docs` and `uses`
+tables every build now derives, and checking them against the tree
+shows the stdlib itself is already documented: every public function
+in `cosmic.fs`, `cosmic.hash`, `cosmic.env`, `cosmic.proc`,
+`cosmic.errors`, `cosmic.sqlite`, `cosmic.store`, `cosmic.time`,
+`cosmic.compress`, and `cosmic.coverage` carries a doc comment `cosmic
+docs <Symbol>` prints. What is missing is guide prose: `doc/guides/`
+holds exactly one file, `quickstart.md`, covering `cosmic.hash` and
+`cosmic.fs`. Per meta.md, a guide is short, stands alone, and every
+example in it runs, so this is several small files, not one long one.
+
+- **`docs.md`**: reading a module's own shipped database instead of
+  grepping source -- a symbol (`Fs.read`), a symbol's last name alone
+  (`read`, every `X.read`), a module (`cosmic.fs`), or words that hit
+  `docs_fts` when no name matches; `cosmic uses <symbol>` for every
+  `file:line` that calls it. Costs little to write, since this
+  session's own exploration is the walkthrough, and it documents the
+  feature this same PR landed.
+- **`errors.md`**: the `T | nil, string` / `boolean, string` return
+  convention, `cosmic.errors.trace`, and what changed under #1885 --
+  an uncaught error now prints the Teal line it was raised on and the
+  doc comment of the function that raised it, read from `catalog`
+  joined against `docs`. Today that behavior is proven only by
+  `build/docs_test.tl` and design.md prose; no guide shows a caller
+  hitting it.
+- **`sqlite.md`**: `cosmic.sqlite` has no guide despite being the
+  most-used core module with one (`Sqlite.rows`: 49 uses, `Sqlite.run`:
+  34) -- `Sqlite.open` vs `Sqlite.memory`, `rows` vs `run`, `transact`,
+  and the `Value` binding shape.
+- **`testing.md`**: `*_test.tl` discovery, the `test_*` convention, the
+  directory argument every test receives, and coverage, written for
+  someone building their own project rather than for a contributor
+  editing this tree (AGENTS.md already covers the latter).
+- **a project-layout guide**: quickstart.md runs two standalone
+  examples; nothing shows a multi-file project -- several modules,
+  `require` between them, `cosmic fix`, `cosmic test` -- from an empty
+  directory to a passing test. This is the gap someone outside this
+  repo actually hits first.
+- **`time.md`, `env.md`, `proc.md`**: small single-purpose modules,
+  short guides each rather than folding into quickstart.md.
+- **`store.md`**: `cosmic.store` and the reserved-`cosmic.internal`
+  pattern design.md documents in prose but no guide demonstrates --
+  worth writing once `docs.md` exists, since both read
+  `Store.databases()`.
+- **not yet**, deliberately: `compress.md` and `coverage.md`.
+  `cosmic.compress` only backs the store's own images and
+  `cosmic.coverage`'s own doc comment says its only caller is
+  `build.test`'s whole-run instrumentation -- neither has a second
+  caller yet, so a user guide would describe a library with one user,
+  against "the least tree that keeps its promises."
+
+separately, README.md's own `sh`/`output` example is not swept by the
+doctest extractor, which discovers exactly `doc/guides/*.md` (see
+`build/work.tl`'s `is_doc_guide`) -- it is checked by hand only. Worth
+either moving it under `doc/guides/` or accepting, explicitly, that
+the front door is the one doc this build does not enforce.
+
 ## the release bar
 
 the core tier, then the second, each module earning its place. a
