@@ -15,15 +15,19 @@
    `o/` hold and how the last few builds went.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-tl-paths>`.
    `fix` checks syntax and tree equivalence; compilation checks types.
-3. Run `bin/zig build boot` after the final source edit, including any changes
-   made by `fix`. Code and tests are embedded in the executable, so testing an
-   older executable can exercise older implementations and tests.
-4. Run `timeout 90 o/bin/cosmic test`. The suite's own native coverage collector
-   makes a healthy run take 30-40 seconds today, not the few seconds it used to --
-   a shorter timeout reports false failures on a tree with nothing wrong. Treat an
-   actual timeout as a failure to investigate, and report it separately from an
-   assertion failure. Do not silently raise it without checking real elapsed time
-   first.
+3. A tool older than the tree rebuilds itself and re-enters the command the
+   moment it notices, so an edit to Teal needs no boot: `o/bin/cosmic test`
+   after the edit is enough. A change under `core/`, to `build.zig`, or to a
+   vendored C library's pin or patches still needs `bin/zig build boot`, and
+   the tool says so by name.
+4. Run `timeout 90 o/bin/cosmic test`. A test whose verdict still stands -- same
+   module key, same hashes for every file under the root it read -- is not run
+   again, so a run after a small edit takes seconds; a run after a boot, or on a
+   fresh `o/`, runs everything and takes 30-40 seconds under the native coverage
+   collector. A shorter timeout reports false failures on a tree with nothing
+   wrong. Treat an actual timeout as a failure to investigate, and report it
+   separately from an assertion failure. Do not silently raise it without checking
+   real elapsed time first. Deleting `o/build.db` forgets every verdict.
 
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that

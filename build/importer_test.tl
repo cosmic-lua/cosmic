@@ -108,9 +108,41 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local hash = assert(work.boot_hash(handle))
+  local fingerprint = assert(work.fingerprint(handle))
   work.close(handle)
-  return hash
+  return fingerprint.boot
+end
+
+--- The compiler identity is what turns source into bytecode: the Teal
+--- compiler's and Lua's pins and patches, and the build's own modules
+--- in the importer's closure. The standard library the importer runs on
+--- is not in it, so an edit there does not recompile the world.
+local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
+  local root = "/tmp/cosmic-importer-test-identity-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+                         "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/patch/tl/01.txt", "a record"))
+  assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n"))
+  local function identities(): {string}
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    local found = assert(work.identities(handle))
+    work.close(handle)
+    return { found.compiler, found.runtime }
+  end
+  local original = identities()
+  assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n-- edited\n"))
+  local after_stdlib = identities()
+  assert(after_stdlib[1] == original[1], "a stdlib edit moved the compiler identity")
+  assert(after_stdlib[2] == original[2], "a stdlib edit moved the runtime identity")
+  assert(Fs.write(root .. "/patch/tl/01.txt", "another record"))
+  local after_patch = identities()
+  assert(after_patch[1] ~= original[1], "a compiler patch did not move the compiler identity")
+  assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime identity")
 end
 
 --- Embedded library code and tests must invalidate the self-tree guard,

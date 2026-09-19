@@ -145,6 +145,59 @@ COSMIC_SYSCALL(hmac, 3) {
   return hashed(L, status, mac, mac_len);
 }
 
+/* The argv and environment arrays are built from the Lua tables, which
+ * stay on the stack and so keep every string alive until execve, which
+ * frees nothing on success because nothing of this process remains. */
+COSMIC_SYSCALL(execve, 3) {
+  const char *path = luaL_checkstring(L, 1);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  luaL_checktype(L, 3, LUA_TTABLE);
+
+  lua_Integer count = luaL_len(L, 2);
+  char **argv = calloc((size_t)count + 1, sizeof *argv);
+  if (argv == NULL) {
+    return cosmic_fail(L, ENOMEM);
+  }
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_geti(L, 2, i);
+    argv[i - 1] = (char *)luaL_checkstring(L, -1);
+    lua_pop(L, 1);
+  }
+
+  /* Each "NAME=value" entry is built by concatenation and kept in a
+   * table on the stack, which is what keeps its bytes alive; the key
+   * itself is left exactly as lua_next needs it. */
+  lua_newtable(L);
+  int entries = lua_gettop(L);
+  lua_Integer variables = 0;
+  lua_pushnil(L);
+  while (lua_next(L, 3) != 0) {
+    luaL_checktype(L, -2, LUA_TSTRING);
+    lua_pushvalue(L, -2);
+    lua_pushliteral(L, "=");
+    lua_pushvalue(L, -3);
+    lua_concat(L, 3);
+    lua_seti(L, entries, ++variables);
+    lua_pop(L, 1);
+  }
+  char **envp = calloc((size_t)variables + 1, sizeof *envp);
+  if (envp == NULL) {
+    free(argv);
+    return cosmic_fail(L, ENOMEM);
+  }
+  for (lua_Integer i = 1; i <= variables; i++) {
+    lua_geti(L, entries, i);
+    envp[i - 1] = (char *)lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+
+  execve(path, argv, envp);
+  int number = errno;
+  free(envp);
+  free(argv);
+  return cosmic_fail(L, number);
+}
+
 COSMIC_SYSCALL(deflate, 1) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
@@ -203,7 +256,7 @@ static const luaL_Reg table[] = {
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
     ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
-    ENTRY(inflate),
+    ENTRY(inflate),  ENTRY(execve),
     {NULL, NULL},
 };
 

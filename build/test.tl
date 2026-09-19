@@ -1,6 +1,20 @@
---- Runs every test the tree defines, in-process, and records each
---- verdict into the working database, `o/build.db`, which never ships
---- and is never attached to `o/cosmic.db`.
+--- Runs every test the tree defines that a stored verdict does not
+--- already answer for, in-process, and records each verdict into the
+--- working database, `o/build.db`, which never ships and is never
+--- attached to `o/cosmic.db`.
+---
+--- A verdict is a function of the test module's key -- its source,
+--- its import closure, the tool -- and of every file under the root
+--- the test was observed to read, by content hash. While that key
+--- stands, a passing verdict stands, and the test is not run again:
+--- its module is still loaded, so what loading it hits is counted
+--- fresh, and the lines the test itself hit in the run that produced
+--- the verdict are credited to this one. Verdicts are kept by key, so
+--- an edit undone finds its old verdict again. A failing verdict is
+--- never reused; the test runs until it passes. Reads are opens through the syscall table, so a test
+--- that depends on a directory listing, or on a file outside the
+--- root, is not invalidated by those; the tool's own hash, in every
+--- module key, is what invalidates everything at once.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -26,18 +40,41 @@
 
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
+local reboot = require("build.reboot")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
 
 local record test
+  --- What the last run recorded about one test: what it read, which
+  --- is what its key is computed over next time.
+  record Previous
+    reads: {string}
+  end
+
+  --- One verdict ever reached, by key.
+  record Verdict
+    passed: boolean
+    run_at_ns: integer
+  end
+
+  --- What each run this run credits recorded, by test then module.
+  type Credited = {integer: {string: Coverage.Hits}}
+
+  --- How many tests this run ran, and how many it answered from a
+  --- verdict that still stood.
+  record Tally
+    ran: integer
+    cached: integer
+  end
 end
 
 local function report(line: string)
@@ -62,12 +99,168 @@ end
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
-                          reads: {string}): boolean, string
+                          reads: {string}, key: string,
+                          run_at_ns: integer): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
-    "reads) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    "reads, key, run_at_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
-      { integer = ran_at_ns }, text(table.concat(reads, "\n")) })
+      { integer = ran_at_ns }, text(table.concat(reads, "\n")), text(key),
+      { integer = run_at_ns } })
+end
+
+--- What the last run left of every test, by "path name".
+local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | nil, string
+  local rows, trouble = Sqlite.rows(handle, "SELECT path, test, reads FROM runs")
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: {string:test.Previous} = {}
+  for _, row in ipairs(rows) do
+    local reads: {string} = {}
+    for line in row[3]:gmatch("[^\n]+") do
+      reads[#reads + 1] = line
+    end
+    out[row[1] .. " " .. row[2]] = { reads = reads }
+  end
+  return out
+end
+
+--- Every verdict ever reached, by key.
+local function known_verdicts(handle: Sqlite.Handle): {string:test.Verdict} | nil, string
+  local rows, trouble = Sqlite.rows(handle,
+    "SELECT key, passed, run_at_ns FROM verdicts")
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: {string:test.Verdict} = {}
+  for _, row in ipairs(rows) do
+    out[row[1]] = {
+      passed = row[2] == "1",
+      run_at_ns = math.tointeger(tonumber(row[3]) or 0) or 0,
+    }
+  end
+  return out
+end
+
+--- Records one verdict under its key, as relied on by this run.
+local function record_verdict(handle: Sqlite.Handle, key: string, passed: boolean,
+                              run_at_ns: integer, run: integer): boolean, string
+  return Sqlite.run(handle,
+    "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen) " ..
+    "VALUES (?1, ?2, ?3, ?4)",
+    { text(key), { integer = passed and 1 or 0 }, { integer = run_at_ns },
+      { integer = run } })
+end
+
+--- How many runs a verdict stays after the last one that relied on it.
+local kept_runs = 100
+
+--- Drops every verdict no run has relied on lately, and the coverage
+--- rows that only such verdicts credited.
+local function prune_verdicts(handle: Sqlite.Handle, run: integer): boolean, string
+  local dropped, drop_trouble = Sqlite.run(handle,
+    "DELETE FROM verdicts WHERE seen < ?1", { { integer = run - kept_runs } })
+  if not dropped then
+    return false, drop_trouble
+  end
+  return handle:exec("DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
+    "(SELECT run_at_ns FROM verdicts)")
+end
+
+--- The staged tree's hashes by path, which is where a read of a
+--- staged file gets its hash without a second read.
+local function staged_hashes(handle: Sqlite.Handle): {string:string} | nil, string
+  local rows, trouble = Sqlite.rows(handle, "SELECT path, sha256 FROM files")
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: {string:string} = {}
+  for _, row in ipairs(rows) do
+    out[row[1]] = row[2]
+  end
+  return out
+end
+
+--- A recorded read as a path under the root, or nil when it is not
+--- one: a test's own scratch directory, or anything else outside the
+--- tree, is not an input to it, and nor is the build's own output.
+local function under_root(root: string, path: string): string | nil
+  local relative: string
+  if path:sub(1, #root + 1) == root .. "/" then
+    relative = path:sub(#root + 2)
+  elseif path:sub(1, 1) ~= "/" then
+    relative = path
+  else
+    return nil
+  end
+  if relative == "o" or relative:sub(1, 2) == "o/" then
+    return nil
+  end
+  return relative
+end
+
+--- What one test's verdict is a function of: the test itself, its
+--- module's key, the runtime it ran under -- see `build.work`'s
+--- `Identities` -- and the current hash of every file under the root
+--- it read, by name. A file the stage holds is hashed already; any
+--- other is read for it here, and one that is gone says so.
+local function verdict_key(root: string, hashes: {string:string}, id: string,
+                           module_key: string, runtime: string,
+                           reads: {string}): string
+  local seen: {string:boolean} = {}
+  local paths: {string} = {}
+  for _, path in ipairs(reads) do
+    local relative = under_root(root, path)
+    if relative ~= nil and not seen[relative] then
+      seen[relative] = true
+      paths[#paths + 1] = relative
+    end
+  end
+  table.sort(paths)
+  local lines: {string} = { id .. " " .. module_key .. " " .. runtime }
+  for _, relative in ipairs(paths) do
+    local hash = hashes[relative]
+    if hash == nil then
+      local data = Fs.read(root .. "/" .. relative)
+      hash = data ~= nil and Hash.hex_sha256(data) or "missing"
+    end
+    lines[#lines + 1] = relative .. " " .. hash
+  end
+  return Hash.hex_sha256(table.concat(lines, "\n"))
+end
+
+--- The lines every test hit in one run, by test, read once per run
+--- credited rather than once per test: a run's rows number in the
+--- hundred thousands.
+local function credited_hits(handle: Sqlite.Handle, credited: test.Credited,
+                             run_at_ns: integer): {string: Coverage.Hits} | nil, string
+  local have = credited[run_at_ns]
+  if have ~= nil then
+    return have
+  end
+  local rows, trouble = Sqlite.rows(handle,
+    "SELECT test, path, line FROM coverage_by_test WHERE ran_at_ns = ?1",
+    { { integer = run_at_ns } })
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: {string: Coverage.Hits} = {}
+  for _, row in ipairs(rows) do
+    local by_module = out[row[1]]
+    if by_module == nil then
+      by_module = {}
+      out[row[1]] = by_module
+    end
+    local per_line = by_module[row[2]]
+    if per_line == nil then
+      per_line = {}
+      by_module[row[2]] = per_line
+    end
+    per_line[math.tointeger(tonumber(row[3]) or 0) or 0] = true
+  end
+  credited[run_at_ns] = out
+  return out
 end
 
 --- The two coverage tables share their first three fields. Reuse their
@@ -110,8 +303,11 @@ end
 --- that ran, which of the lines it hit into `coverage_by_test`, tagged
 --- with that test's own identity (`by_test`, keyed by "path name" the
 --- same way a failure line already identifies a test elsewhere in this
---- file). Returns the overall hit and executable-line counts, over
---- every module written for this run, for the run's own verdict line.
+--- file); a test whose verdict stood is not in `by_test`, since its
+--- rows from the run that produced them still stand for it. Two
+--- statements, prepared once, since this is a hundred thousand rows a
+--- run. Returns the overall hit and executable-line counts, over every
+--- module written for this run, for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               hits: Coverage.Hits,
@@ -119,6 +315,12 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               run_at_ns: integer): integer, integer, string
   local total_hit = 0
   local total_lines = 0
+  local recorded, run_trouble = Sqlite.run(handle,
+    "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
+    { { integer = run_at_ns } })
+  if not recorded then
+    return 0, 0, run_trouble
+  end
   local coverage, prepare_trouble = handle:prepare(
     "INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (?1, ?2, ?3, ?4)")
   if coverage == nil then
@@ -131,18 +333,12 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     coverage:finalize()
     return 0, 0, test_trouble
   end
-  local called, made, trouble = pcall(Sqlite.transact, handle, function(): boolean, string
-    local recorded, run_trouble = Sqlite.run(handle,
-      "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
-      { { integer = run_at_ns } })
-    if not recorded then
-      return false, run_trouble
-    end
+  local write_rows = function(): boolean, string
     for _, m in ipairs(modules) do
       if m.kind ~= "vendor" then
-        local per_line, line_trouble = coverage_report.lines_of(built, m, hits)
+        local per_line, lines_trouble = coverage_report.lines_of(built, m, hits)
         if per_line == nil then
-          return false, m.file .. ": " .. line_trouble
+          return false, m.file .. ": " .. lines_trouble
         end
         for line, was_hit in pairs(per_line) do
           local ok, write_trouble = insert_coverage(coverage, run_at_ns,
@@ -169,12 +365,10 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
       end
     end
     return true, ""
-  end)
+  end
+  local made, trouble = write_rows()
   coverage:finalize()
   per_test:finalize()
-  if not called then
-    error(made, 0)
-  end
   if not made then
     return 0, 0, trouble
   end
@@ -220,16 +414,23 @@ local function call_test(fn: function(any...): (any...)): boolean, string, {stri
   return false, tostring(failure), reads
 end
 
---- Runs every test one `kind = "test"` module found, recording each
---- into `records` and appending a line to `failures` for any that did
---- not pass. Every hit line, from this module's own one-time load and
---- from each test in it, is folded into `hits`, the whole-run
---- accumulator; a test's own hits are additionally kept in `by_test`,
---- keyed by that test's own identity, so `write_coverage` can credit
---- specific lines to specific tests. Returns how many tests it ran.
+--- Runs every test one `kind = "test"` module found whose stored
+--- verdict does not stand, recording each into `records` and appending
+--- a line to `failures` for any that did not pass. Every hit line,
+--- from this module's own one-time load and from each test in it, is
+--- folded into `hits`, the whole-run accumulator; a test's own hits
+--- are additionally kept in `by_test`, keyed by that test's own
+--- identity, so `write_coverage` can credit specific lines to specific
+--- tests. A test answered from its verdict has the hits of the run
+--- that produced it folded into `hits`, and keeps pointing at that
+--- run. Counts into `tally`.
 local function run_module(records: Sqlite.Handle, m: importer.Module,
                           failures: {string}, errors: {string}, hits: Coverage.Hits,
-                          by_test: {string: Coverage.Hits}): integer
+                          by_test: {string: Coverage.Hits}, root: string,
+                          previous: {string:test.Previous},
+                          verdicts: {string:test.Verdict}, credited: test.Credited,
+                          hashes: {string:string}, runtime: string,
+                          run_at_ns: integer, run: integer, tally: test.Tally)
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -255,47 +456,81 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
     local message = "the module failed to load: " .. tostring(produced)
     for _, name in ipairs(m.tests) do
       failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
-      local saved, trouble =
-        record_run(records, m.path, name, false, message, Time.now_ns() or 0, {})
+      tally.ran = tally.ran + 1
+      local saved, trouble = record_run(records, m.path, name, false, message,
+        Time.now_ns() or 0, {}, "", run_at_ns)
       if not saved then
         errors[#errors + 1] = m.path .. " " .. name .. ": record: " .. trouble
       end
     end
-    return #m.tests
+    return
   end
   local mod = produced as {string:any}
   for _, name in ipairs(m.tests) do
-    local fn = mod[name] as function(any...): (any...)
-    local test_session, test_start_trouble = Coverage.start()
-    if test_session == nil then
-      errors[#errors + 1] = m.path .. " " .. name .. ": coverage start: " .. test_start_trouble
-    end
-    local passed, message, reads = call_test(fn)
-    if test_session ~= nil then
-      local collected, stop_trouble = Coverage.stop(test_session)
-      if collected == nil then
-        errors[#errors + 1] = m.path .. " " .. name .. ": coverage stop: " .. stop_trouble
+    local id = m.path .. " " .. name
+    local was = previous[id]
+    local key = was ~= nil and
+      verdict_key(root, hashes, id, m.key, runtime, was.reads) or ""
+    local stood = verdicts[key]
+    if was ~= nil and stood ~= nil and stood.passed then
+      -- The verdict stands: what the test read last time still hashes
+      -- the same, and so does everything it was compiled from.
+      tally.cached = tally.cached + 1
+      local by_id, credit_trouble = credited_hits(records, credited, stood.run_at_ns)
+      if by_id == nil then
+        errors[#errors + 1] = id .. ": coverage credit: " .. credit_trouble
       else
-        merge_hits(hits, collected)
-        by_test[m.path .. " " .. name] = collected
+        merge_hits(hits, by_id[id] or {})
+      end
+      local kept, keep_trouble = record_run(records, m.path, name, true, "",
+        Time.now_ns() or 0, was.reads, key, stood.run_at_ns)
+      if not kept then
+        errors[#errors + 1] = id .. ": record: " .. keep_trouble
+      end
+      kept, keep_trouble = record_verdict(records, key, true, stood.run_at_ns, run)
+      if not kept then
+        errors[#errors + 1] = id .. ": verdict: " .. keep_trouble
+      end
+    else
+      tally.ran = tally.ran + 1
+      local fn = mod[name] as function(any...): (any...)
+      local test_session, test_start_trouble = Coverage.start()
+      if test_session == nil then
+        errors[#errors + 1] = id .. ": coverage start: " .. test_start_trouble
+      end
+      local passed, message, reads = call_test(fn)
+      if test_session ~= nil then
+        local collected, stop_trouble = Coverage.stop(test_session)
+        if collected == nil then
+          errors[#errors + 1] = id .. ": coverage stop: " .. stop_trouble
+        else
+          merge_hits(hits, collected)
+          by_test[id] = collected
+        end
+      end
+      local reached = verdict_key(root, hashes, id, m.key, runtime, reads)
+      local saved, trouble = record_run(records, m.path, name, passed, message,
+        Time.now_ns() or 0, reads, reached, run_at_ns)
+      if not saved then
+        errors[#errors + 1] = id .. ": record: " .. trouble
+      end
+      saved, trouble = record_verdict(records, reached, passed, run_at_ns, run)
+      if not saved then
+        errors[#errors + 1] = id .. ": verdict: " .. trouble
+      end
+      if not passed then
+        failures[#failures + 1] = id .. ": " .. message
       end
     end
-    local saved, trouble =
-      record_run(records, m.path, name, passed, message, Time.now_ns() or 0, reads)
-    if not saved then
-      errors[#errors + 1] = m.path .. " " .. name .. ": record: " .. trouble
-    end
-    if not passed then
-      failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
-    end
   end
-  return #m.tests
 end
 
 --- Builds the tree in the working directory and runs every test it
 --- discovered, printing a verdict line and returning the exit code: 0
 --- when every test passed.
-function test.run(): integer
+--- @param argv the command line, which a stale tool re-enters after
+---   rebuilding itself
+function test.run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
@@ -320,25 +555,6 @@ function test.run(): integer
     return 1
   end
 
-  -- Same staleness guard `cosmic <file.tl>` applies when the tree under
-  -- test is cosmic's own: a stale tool would check and compile it with
-  -- a checker or patch set the tree no longer agrees with, and could
-  -- execute embedded cosmic.* implementations and tests from an old tree.
-  if own_tree then
-    local current, hash_trouble = work.boot_hash(handle)
-    if current == nil then
-      work.close(handle)
-      complain(hash_trouble)
-      return 1
-    end
-    local running = Store.meta("boot_hash") or ""
-    if current ~= running then
-      work.close(handle)
-      complain("the tool is stale; run bin/zig build boot")
-      return 3
-    end
-  end
-
   local built, load_trouble = teal.load()
   if built == nil then
     work.close(handle)
@@ -352,10 +568,40 @@ function test.run(): integer
     return 1
   end
 
-  local boot_hash = Store.meta("boot_hash") or ""
+  -- Same staleness guard `cosmic <file.tl>` applies when the tree under
+  -- test is cosmic's own: a stale tool would check and compile it with
+  -- a checker the tree no longer agrees with, and execute embedded
+  -- cosmic.* implementations and tests from an old tree. When only
+  -- Teal moved, the tool rebuilds itself and re-enters this command
+  -- line; when the C core moved, zig has to.
+  if own_tree then
+    local state, state_trouble = reboot.state(handle)
+    if state == nil then
+      work.close(handle)
+      complain(state_trouble)
+      return 1
+    end
+    if state == "core" then
+      work.close(handle)
+      complain("the tool is stale; run bin/zig build boot")
+      return 3
+    end
+    if state == "teal" then
+      complain("the tool is stale; rebuilding it from the tree")
+      local reboot_trouble = reboot.into(handle, built, env, argv)
+      complain(reboot_trouble)
+      return 3
+    end
+  end
+
+  -- Both identities are read before the project's database is attached
+  -- ahead of the binary's: they name this binary, and a project's own
+  -- projection carries the ones of whichever binary wrote it.
+  local tool = Store.meta("compiler") or ""
+  local runtime = Store.meta("runtime") or ""
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
+  local result, compile_trouble = importer.compile(handle, built, env, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
@@ -383,10 +629,36 @@ function test.run(): integer
     return 1
   end
 
+  -- Every verdict and every coverage row of this run lands together.
+  local begun, begin_trouble = work.begin(handle)
+  if not begun then
+    work.close(handle)
+    complain(begin_trouble)
+    return 1
+  end
   local records_path = root .. "/o/build.db"
   local records = handle.db
+  local previous, previous_trouble = previous_runs(records)
+  if previous == nil then
+    work.close(handle)
+    complain(records_path .. ": " .. previous_trouble)
+    return 1
+  end
+  local hashes, hashes_trouble = staged_hashes(records)
+  if hashes == nil then
+    work.close(handle)
+    complain(records_path .. ": " .. hashes_trouble)
+    return 1
+  end
+  local verdicts, verdicts_trouble = known_verdicts(records)
+  if verdicts == nil then
+    work.close(handle)
+    complain(records_path .. ": " .. verdicts_trouble)
+    return 1
+  end
+  local credited: test.Credited = {}
 
-  local total = 0
+  local tally: test.Tally = { ran = 0, cached = 0 }
   local modules_run = 0
   local failures: {string} = {}
   local errors: {string} = {}
@@ -407,14 +679,20 @@ function test.run(): integer
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
-      total = total + run_module(records, m, failures, errors, hits, by_test)
+      run_module(records, m, failures, errors, hits, by_test, root, previous,
+        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally)
     end
   end
+  local total = tally.ran + tally.cached
 
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
+  end
+  local pruned, prune_trouble = prune_verdicts(records, handle.run)
+  if not pruned then
+    errors[#errors + 1] = "prune: " .. prune_trouble
   end
   local closed, close_trouble = work.close(handle)
   if not closed then
@@ -434,7 +712,8 @@ function test.run(): integer
     cov_pct, cov_hit, cov_total)
 
   if #failures == 0 and #errors == 0 then
-    report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules)")
+    report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
+      tally.ran .. " ran, " .. tally.cached .. " stood)")
     report(cov_line)
     return 0
   end
