@@ -37,6 +37,20 @@ local record Sqlite
     blob: string
   end
 
+  --- One query result value. `kind` is one of `"null"`, `"integer"`,
+  --- `"number"`, `"text"`, or `"blob"`; exactly the matching value field is
+  --- present, except that a null cell has no value field.
+  record Cell
+    kind: string
+    integer: integer
+    number: number
+    text: string
+    blob: string
+  end
+
+  type Row = {Cell}
+  type Rows = {Row}
+
   --- The version of SQLite the core carries.
   version: string
 end
@@ -133,11 +147,59 @@ function Sqlite.run(handle: raw_sqlite.Handle, sql: string,
 end
 
 --- Parameters follow the same complete-list contract as run.
---- Every row a query yields, each row a list of column values in order.
---- A text column and a blob column both arrive as strings; `kinds` says
---- which each one was.
+--- Every row a query yields, each row a dense list of typed cells in column
+--- order. SQL NULL is an explicit `kind = "null"` cell.
 function Sqlite.rows(handle: raw_sqlite.Handle, sql: string,
-                      values?: {Sqlite.Value}): {{string}} | nil, string
+                      values?: {Sqlite.Value}): Sqlite.Rows | nil, string
+  local statement, trouble = handle:prepare(sql)
+  if statement == nil then
+    return nil, trouble
+  end
+  local bound, why = bind(statement, values or {})
+  if not bound then
+    statement:finalize()
+    return nil, why
+  end
+  local out: Sqlite.Rows = {}
+  local width = statement:columns()
+  while true do
+    local state, failure = statement:step()
+    if state == nil then
+      statement:finalize()
+      return nil, failure
+    end
+    if state == "done" then
+      break
+    end
+    local row: Sqlite.Row = {}
+    for index = 0, width - 1 do
+      local kind = statement:kind(index)
+      local cell: Sqlite.Cell
+      if kind == "integer" then
+        cell = { kind = kind, integer = statement:integer(index) }
+      elseif kind == "number" then
+        cell = { kind = kind, number = statement:number(index) }
+      elseif kind == "text" then
+        cell = { kind = kind, text = statement:bytes(index) }
+      elseif kind == "blob" then
+        cell = { kind = kind, blob = statement:bytes(index) }
+      else
+        cell = { kind = "null" }
+      end
+      row[index + 1] = cell
+    end
+    out[#out + 1] = row
+  end
+  statement:finalize()
+  return out
+end
+
+--- A direct text projection for callers whose SQL already defines the desired
+--- coercion. SQLite's byte representation is returned for every value: NULL,
+--- empty text, and empty blob all become `""`; integers and floats use
+--- SQLite's text formatting; text and blobs remain byte strings, including NUL.
+function Sqlite.text_rows(handle: raw_sqlite.Handle, sql: string,
+                           values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
     return nil, trouble
