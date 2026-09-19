@@ -11,6 +11,7 @@ local attach = require("build.attach")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 local writer = require("build.writer")
 
 --- The targets every binary carries an image for.
@@ -50,12 +51,6 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local env, trouble = teal.environment_for(compiler, root)
-  if env == nil then
-    report("boot: FAIL (" .. trouble .. ")")
-    return 1
-  end
-
   local images: {string:string} = {}
   for _, target in ipairs(targets) do
     local path = root .. "/o/core/" .. target .. "/cosmic-core"
@@ -76,16 +71,56 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local boot_hash, hash_trouble = importer.boot_hash(root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    report("boot: FAIL (" .. open_trouble .. ")")
+    return 1
+  end
+  local staged, stage_trouble = work.stage(handle, true)
+  if staged == nil then
+    report("boot: FAIL (" .. stage_trouble .. ")")
+    return 1
+  end
+  local boot_hash, hash_trouble = work.boot_hash(handle)
   if boot_hash == nil then
     report("boot: FAIL (" .. hash_trouble .. ")")
     return 1
   end
+  local env, trouble = teal.environment_for(compiler, handle)
+  if env == nil then
+    report("boot: FAIL (" .. trouble .. ")")
+    return 1
+  end
+
+  -- What a boot alone puts in the working database, for every later
+  -- build to carry: the three images and the compiler.
+  for _, target in ipairs(targets) do
+    local put, put_trouble = work.put_image(handle, target, images[target])
+    if not put then
+      report("boot: FAIL (" .. put_trouble .. ")")
+      return 1
+    end
+  end
+  local kept, keep_trouble = work.put_compiler(handle, teal_source)
+  if not kept then
+    report("boot: FAIL (" .. keep_trouble .. ")")
+    return 1
+  end
 
   local database_path = output .. "/cosmic.db"
+  local result, compile_trouble =
+    importer.compile(handle, compiler, env, boot_hash)
+  if result == nil then
+    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
+    work.close(handle)
+    report("boot: FAIL\n" .. compile_trouble)
+    return 1
+  end
   local written, write_trouble =
-    writer.write(root, database_path, compiler, env, boot_hash, images,
-                 teal_source)
+    writer.write_result(handle, database_path, result)
+  work.record(handle, elapsed_ms(started), staged, result.compiled,
+    result.cached, written and "PASS" or "FAIL")
+  work.close(handle)
   if not written then
     report("boot: FAIL\n" .. write_trouble)
     return 1
@@ -114,7 +149,8 @@ local function boot(root: string, argv: {integer:string}): integer
     end
   end
 
-  report("boot: PASS (" .. #targets .. " targets, " ..
+  report("boot: PASS (" .. #targets .. " targets, " .. staged.files ..
+    " files staged, " .. result.compiled .. " modules compiled, " ..
     #database .. " database bytes, " .. elapsed_ms(started) .. " ms)")
   return 0
 end

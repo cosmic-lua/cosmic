@@ -270,11 +270,18 @@ input to the build, never to the runtime. one database holds:
   rest; two of the three are inert on any host.
 - **roots**: Mozilla's CA bundle.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
+- **decls**: every declaration the tree holds, generated or written,
+  so a checker building another tree against this binary can type
+  what it requires.
 
-every table is `WITHOUT ROWID` on a natural key. records, meaning
-test verdicts, coverage, and timings, live in a second database
-beside it, `o/records.db`, and never ship: they move by host, and a
-shipped file must not.
+every table is `WITHOUT ROWID` on a natural key. everything a build
+does on one host lives in a second database beside it, `o/build.db`,
+the working database: the tree as it was last read, staged whole
+before anything transforms it; what a stat said about each file, so
+an unchanged file is never read again; one row per run saying what
+was staged, read, and compiled; and records, meaning test verdicts
+and coverage. it never ships: it moves by host, and a shipped file
+must not.
 
 all three targets are little-endian 64-bit, so one bytecode column
 serves them all, verified by a test that each image loads it, and
@@ -310,7 +317,12 @@ queries across both.
 a project's own build database, `o/cosmic.db`, is read ahead of the
 binary's: when cosmic runs or tests a project, `require` answers from
 the project's database first and the binary's second, except for
-`cosmic.*`, which the binary answers first. the importer refuses a
+`cosmic.*`, which the binary answers first. the checker is answered
+the same way while the project builds: a `cosmic.*` name the
+project's stage does not hold is typed from the source and the
+declarations the binary carries as rows, so a project imports the
+standard library with its types and nothing of cosmic's tree on
+disk. the importer refuses a
 project tree that holds a `cosmic/` directory or an import path
 under `cosmic.`, naming the path, so a project cannot shadow the
 standard library by accident or on purpose. that is how the tool
@@ -319,8 +331,9 @@ builds and tests a tree other than its own.
 inside cosmic's own tree, every run first compares the boot hash of
 `build/` and `core/` with the one the running binary carries; on a
 mismatch the tool refuses with `the tool is stale; run bin/zig build
-boot` and exit 3, and a re-import over the boot database carries the
-images and the compiler row forward unchanged.
+boot` and exit 3. the three images and the compiler are what a boot
+alone puts in the working database, and every later build carries
+them into the database it writes, as rows, without unpacking them.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
 problem and are fixed first: a typo'd or overlong parameter table
@@ -328,7 +341,9 @@ never binds NULL silently, TEXT and BLOB are distinguishable at the
 Lua boundary, and a closed handle fails the same way from every
 method. the build is single-threaded, so SQLite compiles with
 `SQLITE_THREADSAFE=0` and without extension loading, shared cache,
-double-quoted strings, or deprecated interfaces.
+double-quoted strings, or deprecated interfaces, and with the
+`dbstat` virtual table, so `cosmic db` can say what every table in
+both databases costs in rows, pages, and bytes.
 
 ### the build
 
@@ -363,7 +378,12 @@ exactly two seeds that nothing in the repository built, and they are
 named here: the POSIX sh `bin/zig` and the zig tarball its pin
 verifies. everything else is vendored or built from it.
 
-the build is fast, incremental, and reproducible, all three at once:
+the target build architecture is fast, incremental, and reproducible.
+today a module whose key stands is read back from the working
+database rather than compiled again, and the shipped database is a
+projection of that one; the runner still executes every discovered
+test in-process. test selection from observed reads and child-process
+isolation are planned below, not implemented:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, the boot hash, and, for
@@ -377,9 +397,11 @@ the build is fast, incremental, and reproducible, all three at once:
   captured streams; a child never opens a database, it reports its
   result over a pipe and the one build process writes it.
 - *reproducible*: the shipped database is a pure function of the
-  tree. it is built fresh in memory in one transaction, every table
-  is `WITHOUT ROWID` on a natural key so insertion order cannot
-  reach the bytes, and the file is produced by `VACUUM INTO`. a
+  tree. it is a projection of the working database: a fresh schema
+  attached in memory, filled in one transaction from the rows the
+  build already holds, every table `WITHOUT ROWID` on a natural key
+  so insertion order cannot reach the bytes, and the file is
+  produced by `VACUUM INTO`. a
   second build of the same tree is byte-identical, and CI's repro
   lane asserts it from a second transaction layout as well as a
   second host.
@@ -411,15 +433,16 @@ engine, and tl.
 ### teal
 
 tl vendored, carried patches, upstream-first and fork-if-blocked.
-casts are foreclosed: `x as T` type-checks only from `any`, from a
+the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
 enters and a shape validator turns it into a record by construction.
-no justification comments, no ledger. the rule is switched on from
-the first line, which is possible only because the narrowing gaps
-that forced casts before it, record-field narrowing and container
-covariance chiefly, land as carried patches before `cosmic check`
-and the lint rules `cosmic fix` applies do; both gate on them.
+no justification comments, no ledger in the target policy. this cast
+restriction is not implemented. record-field narrowing has landed as
+carried patches; container covariance was dropped (see the roadmap).
+there is no planned `cosmic check` verb: compilation performs checking,
+while `cosmic fix` currently operates on syntax and has no production
+rewrite rules.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -429,12 +452,12 @@ declared shapes. a runtime-checked cast is closed to Teal because
 Lua erases record types, so shapes construct their records rather
 than asserting them.
 
-three rules follow. `any` never assigns into a typed slot; tl
-already refuses that on assignment, argument, return, index, and
+the target type policy adds three rules. `any` never assigns into a
+typed slot; tl already refuses that on assignment, argument, return, index, and
 call. an unannotated parameter is an error, never an implicit `any`,
-which tl does not enforce and a lint does. `v is R` for a record `R`
-is refused on an `any` or a union of records by lint, because it
-compiles to a table check that cannot tell two records apart; the
+which tl does not enforce and a planned lint would. `v is R` for a
+record `R` would be refused on an `any` or a union of records by lint,
+because it compiles to a table check that cannot tell two records apart; the
 shape module is the way in. the checker's own hint on an `any`
 index points at a shape, not at a cast. the per-release report
 names the modules that cast from `any`; the expected list is the
@@ -540,7 +563,7 @@ cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
 build/              the importer, checker driver, embed (Teal, private)
 doc/                prose
-o/                  output; o/cosmic.db, o/records.db; never committed
+o/                  output; o/cosmic.db, o/build.db; never committed
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not

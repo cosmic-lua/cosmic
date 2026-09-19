@@ -80,21 +80,25 @@ end
 --- here: unlike `start`/`stop`, nothing is reset, removed, or handed to
 --- a caller that does not hold the session.
 local function test_native_collector_hits_executed_lines_only()
-  local function tiny(take_branch: boolean): integer
-    local total = 0
-    if take_branch then
-      total = total + 1
-    else
-      total = total - 1
-    end
-    return total
-  end
-  tiny(true)
+  -- Fixture-relative lines stay stable when this test file changes.
+  local source = table.concat({
+    "local take_branch = ...", -- 1
+    "local total = 0", -- 2: always executed
+    "if take_branch then", -- 3
+    "  total = total + 1", -- 4: taken
+    "else", -- 5
+    "  total = total - 1", -- 6: untaken
+    "end", -- 7
+    "return total", -- 8
+  }, "\n")
+  local tiny, trouble = load(source, "@coverage_probe", "t")
+  assert(tiny ~= nil, tostring(trouble))
+  assert(tiny(true) == 1)
 
   local hits = Coverage.snapshot()
-  local for_file = hits["cosmic.coverage_test"]
-  assert(for_file ~= nil, "the collector must attribute hits to this module")
-  assert(for_file[84] == true, "the always-run line must be hit")
-  assert(for_file[86] == true, "the taken branch's line must be hit")
-  assert(for_file[88] == nil, "the untaken branch's line must not be hit")
+  local for_file = hits["coverage_probe"]
+  assert(for_file ~= nil, "the collector must attribute hits to the fixture")
+  assert(for_file[2] == true, "the always-run line must be hit")
+  assert(for_file[4] == true, "the taken branch's line must be hit")
+  assert(for_file[6] == nil, "the untaken branch's line must not be hit")
 end

@@ -1,17 +1,9 @@
 --- That a rule registered in `build.fix.rule` actually reaches a file,
 --- end to end.
 ---
---- The list there is empty and is expected to stay that way for a
---- while, so the loop that applies it, and every seam under it, is
---- reached by nothing the tree ships. That is exactly the shape of
---- code that is broken for months without anyone finding out -- and the
---- claim it holds up, that adding a rule is the whole cost of a new
---- fix, is the one `build.fix.rule`'s own header makes. So each case
---- below registers a real rule for the length of one call and puts the
---- whole pipeline through it: pattern compiled, tree matched,
---- replacement spliced, result RENDERED rather than handed back as a
---- splice, and the render checked against the tree it came from before
---- anything is returned.
+--- Each case temporarily registers a real rule and runs the whole
+--- pipeline: pattern compiled, tree matched, replacement spliced,
+--- result rendered, and the render checked against its tree.
 ---
 --- The fixtures are deliberately mangled around the part a rule
 --- touches. A pipeline that spliced and returned would give the mangled
@@ -31,17 +23,27 @@ end
 
 --- Run `body` with `probe` as the one registered rule, and put the list
 --- back the way it was found afterwards, however `body` ends. The list
---- is module state shared with every other test in this run, and it is
---- empty in this tree -- a case that left one behind would change what
---- `cosmic fix` does to the whole tree.
+--- is module state shared with every other test in this run; preserve
+--- its identity and any production rules already registered.
 --- @param probe Rule
 --- @param body function(): (any...)
 local function with_rule(probe: Rule, body: function(): (any...))
   local registered = rule.rules
-  assert(#registered == 0, "a rule was left registered by an earlier case")
+  local saved: {Rule} = {}
+  for i, r in ipairs(registered) do
+    saved[i] = r
+  end
+  for i = #registered, 1, -1 do
+    registered[i] = nil
+  end
   registered[1] = probe
   local ok, trouble = pcall(body)
-  registered[1] = nil
+  for i = #registered, 1, -1 do
+    registered[i] = nil
+  end
+  for i, r in ipairs(saved) do
+    registered[i] = r
+  end
   assert(ok, tostring(trouble))
 end
 
@@ -126,8 +128,35 @@ local function test_a_hit_that_would_eat_a_comment_is_left_alone()
   assert(got == "print( -- why\n  a)\nlog(b)\n", "got:\n" .. got)
 end
 
---- The list is empty when this file is done with it, which the tree
---- depends on: `cosmic fix` applies whatever is registered.
-local function test_the_rule_list_is_left_empty()
-  assert(#rule.rules == 0, "a rule was left registered")
+--- Nested probes restore a nonempty registry, including after a body
+--- changes the list and raises an error.
+local function test_temporary_rules_restore_the_existing_registry()
+  local registered = rule.rules
+  local other: Rule = {
+    name = "other",
+    pattern = "log($X)",
+    replacement = "report($X)",
+  }
+  with_rule(probe, function()
+    registered[2] = other
+    with_rule(other, function()
+      assert(rule.rules == registered)
+      assert(#registered == 1 and registered[1] == other)
+      registered[2] = probe
+      registered[3] = other
+    end)
+    assert(rule.rules == registered)
+    assert(#registered == 2)
+    assert(registered[1] == probe and registered[2] == other)
+    local ok, trouble = pcall(function(): (any...)
+      with_rule(other, function()
+        registered[1] = nil
+        error("probe failure")
+      end)
+    end)
+    assert(not ok and tostring(trouble):find("probe failure", 1, true) ~= nil)
+    assert(rule.rules == registered)
+    assert(#registered == 2)
+    assert(registered[1] == probe and registered[2] == other)
+  end)
 end

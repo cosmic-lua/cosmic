@@ -28,7 +28,8 @@ local record Sqlite
   Statement: raw_sqlite.Statement
 
   --- One bound parameter. Its field says what SQLite is told it is, so
-  --- a blob never arrives as text by accident.
+  --- a blob never arrives as text by accident. Exactly one field is allowed;
+  --- an empty table explicitly binds SQL NULL.
   record Value
     integer: integer
     number: number
@@ -40,7 +41,9 @@ local record Sqlite
   version: string
 end
 
---- A database file, read-only unless `writable` says otherwise.
+--- A database file, read-only unless `writable` says otherwise. Every
+--- handle knows `sha256(X)`, the 32-byte digest of a text or blob;
+--- `lower(hex(sha256(X)))` is the form the build writes into keys.
 function Sqlite.open(path: string, writable?: boolean): raw_sqlite.Handle | nil, string
   return sqlite.open(path, writable)
 end
@@ -54,7 +57,31 @@ end
 local function bind(
   statement: raw_sqlite.Statement, values: {Sqlite.Value}
 ): boolean, string
-  for index, value in ipairs(values) do
+  local count = statement:parameters()
+  for key in pairs(values as {any: any}) do
+    if type(key) ~= "number" then
+      return false, "unexpected parameter key: " .. tostring(key)
+    end
+    local index = key as number
+    if index % 1 ~= 0 or index < 1 or index > count then
+      return false, "unexpected parameter key: " .. tostring(key)
+    end
+  end
+  for index = 1, count do
+    local value = values[index]
+    if type(value) ~= "table" then
+      return false, "parameter " .. index .. ": expected a Value table (use {} for NULL)"
+    end
+    local fields = 0
+    for key in pairs(value as {any: any}) do
+      if key ~= "integer" and key ~= "number" and key ~= "text" and key ~= "blob" then
+        return false, "parameter " .. index .. ": unknown Value field: " .. tostring(key)
+      end
+      fields = fields + 1
+    end
+    if fields > 1 then
+      return false, "parameter " .. index .. ": expected at most one Value field"
+    end
     local ok: boolean
     local trouble: string
     if value.integer ~= nil then
@@ -75,6 +102,9 @@ local function bind(
   return true, ""
 end
 
+--- Parameters are a dense list indexed by SQLite's parameter index, through
+--- its highest index. Repeated named parameters share an index; ?NNN gaps
+--- still need entries (use {}). Missing entries and extra keys are errors.
 --- Runs a statement that yields no rows.
 function Sqlite.run(handle: raw_sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
@@ -95,6 +125,7 @@ function Sqlite.run(handle: raw_sqlite.Handle, sql: string,
   return true, ""
 end
 
+--- Parameters follow the same complete-list contract as run.
 --- Every row a query yields, each row a list of column values in order.
 --- A text column and a blob column both arrive as strings; `kinds` says
 --- which each one was.
@@ -137,7 +168,11 @@ function Sqlite.transact(handle: raw_sqlite.Handle,
   if not started then
     return false, trouble
   end
-  local ok, why = work()
+  local called, ok, why = pcall(work)
+  if not called then
+    handle:exec("ROLLBACK")
+    error(ok, 0)
+  end
   if not ok then
     handle:exec("ROLLBACK")
     return false, why

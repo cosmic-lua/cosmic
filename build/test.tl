@@ -1,5 +1,5 @@
 --- Runs every test the tree defines, in-process, and records each
---- verdict into `o/records.db`, a database of its own that never ships
+--- verdict into the working database, `o/build.db`, which never ships
 --- and is never attached to `o/cosmic.db`.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
@@ -32,9 +32,8 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
-local payload = require("build.payload")
-local records_schema = require("build.records_schema")
 local teal = require("build.teal")
+local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
 
@@ -53,23 +52,12 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
---- Opens `o/records.db`, creating its one table when the file is new.
-local function open_records(path: string): Sqlite.Handle | nil, string
-  local handle, trouble = Sqlite.open(path, true)
-  if handle == nil then
-    return nil, trouble
+local function elapsed_ms(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
   end
-  for _, statement in ipairs(records_schema.settings) do
-    handle:exec(statement)
-  end
-  for _, statement in ipairs(records_schema.tables) do
-    local ok, failure = handle:exec(statement)
-    if not ok then
-      handle:close()
-      return nil, failure
-    end
-  end
-  return handle
+  return (now - from) // 1000000
 end
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
@@ -197,7 +185,7 @@ end
 --- keyed by that test's own identity, so `write_coverage` can credit
 --- specific lines to specific tests. Returns how many tests it ran.
 local function run_module(records: Sqlite.Handle, m: importer.Module,
-                          failures: {string}, hits: Coverage.Hits,
+                          failures: {string}, errors: {string}, hits: Coverage.Hits,
                           by_test: {string: Coverage.Hits}): integer
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
@@ -209,13 +197,13 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   -- single test to credit module-load code to.
   local module_session, module_start_trouble = Coverage.start()
   if module_session == nil then
-    complain("coverage: " .. module_start_trouble)
+    errors[#errors + 1] = m.path .. ": coverage start: " .. module_start_trouble
   end
   local ok, produced = pcall(require, m.path)
   if module_session ~= nil then
     local collected, stop_trouble = Coverage.stop(module_session)
     if collected == nil then
-      complain("coverage: " .. stop_trouble)
+      errors[#errors + 1] = m.path .. ": coverage stop: " .. stop_trouble
     else
       merge_hits(hits, collected)
     end
@@ -224,7 +212,11 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
     local message = "the module failed to load: " .. tostring(produced)
     for _, name in ipairs(m.tests) do
       failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
-      record_run(records, m.path, name, false, message, Time.now_ns() or 0, {})
+      local saved, trouble =
+        record_run(records, m.path, name, false, message, Time.now_ns() or 0, {})
+      if not saved then
+        errors[#errors + 1] = m.path .. " " .. name .. ": record: " .. trouble
+      end
     end
     return #m.tests
   end
@@ -233,19 +225,23 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
     local fn = mod[name] as function(any...): (any...)
     local test_session, test_start_trouble = Coverage.start()
     if test_session == nil then
-      complain("coverage: " .. test_start_trouble)
+      errors[#errors + 1] = m.path .. " " .. name .. ": coverage start: " .. test_start_trouble
     end
     local passed, message, reads = call_test(fn)
     if test_session ~= nil then
       local collected, stop_trouble = Coverage.stop(test_session)
       if collected == nil then
-        complain("coverage: " .. stop_trouble)
+        errors[#errors + 1] = m.path .. " " .. name .. ": coverage stop: " .. stop_trouble
       else
         merge_hits(hits, collected)
         by_test[m.path .. " " .. name] = collected
       end
     end
-    record_run(records, m.path, name, passed, message, Time.now_ns() or 0, reads)
+    local saved, trouble =
+      record_run(records, m.path, name, passed, message, Time.now_ns() or 0, reads)
+    if not saved then
+      errors[#errors + 1] = m.path .. " " .. name .. ": record: " .. trouble
+    end
     if not passed then
       failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
     end
@@ -258,8 +254,8 @@ end
 --- when every test passed.
 function test.run(): integer
   -- Captured once, up front, and threaded through everything below as
-  -- this run's own identifier: see build/records_schema.tl for why a
-  -- nanosecond timestamp, not an autoincrement id, identifies a run.
+  -- this run's own identifier: see build/work.tl for why a nanosecond
+  -- timestamp, not an autoincrement id, identifies a run.
   local run_at_ns = Time.now_ns() or 0
 
   local root, root_trouble = Fs.absolute(".")
@@ -267,18 +263,34 @@ function test.run(): integer
     complain(root_trouble)
     return 1
   end
+  local started = Time.monotonic_ns() or 0
+  local own_tree = importer.is_own_tree(root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    complain(open_trouble)
+    return 1
+  end
+  local staged, stage_trouble = work.stage(handle, own_tree)
+  if staged == nil then
+    work.close(handle)
+    complain(stage_trouble)
+    return 1
+  end
 
   -- Same staleness guard `cosmic <file.tl>` applies when the tree under
   -- test is cosmic's own: a stale tool would check and compile it with
-  -- a checker or patch set the tree no longer agrees with.
-  if importer.is_own_tree(root) then
-    local current, hash_trouble = importer.boot_hash(root)
+  -- a checker or patch set the tree no longer agrees with, and could
+  -- execute embedded cosmic.* implementations and tests from an old tree.
+  if own_tree then
+    local current, hash_trouble = work.boot_hash(handle)
     if current == nil then
+      work.close(handle)
       complain(hash_trouble)
       return 1
     end
     local running = Store.meta("boot_hash") or ""
     if current ~= running then
+      work.close(handle)
       complain("the tool is stale; run bin/zig build boot")
       return 3
     end
@@ -286,57 +298,55 @@ function test.run(): integer
 
   local built, load_trouble = teal.load()
   if built == nil then
+    work.close(handle)
     complain(load_trouble)
     return 1
   end
-  local env, env_trouble = teal.environment_for(built, root)
+  local env, env_trouble = teal.environment_for(built, handle)
   if env == nil then
+    work.close(handle)
     complain(env_trouble)
-    return 1
-  end
-
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    complain(mkdir_trouble)
     return 1
   end
 
   local boot_hash = Store.meta("boot_hash") or ""
   local database = root .. "/o/cosmic.db"
-  local images, teal_source, carry_trouble = payload.carried(database)
-  if carry_trouble ~= "" then
-    complain(carry_trouble)
-    return 1
-  end
 
-  local result, compile_trouble = importer.compile(root, built, env, boot_hash)
+  local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
+    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
+    work.close(handle)
     complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
-    writer.write_result(database, result, images, teal_source)
+    writer.write_result(handle, database, result)
+  work.record(handle, elapsed_ms(started), staged, result.compiled,
+    result.cached, written and "PASS" or "FAIL")
   if not written then
+    work.close(handle)
     complain(write_trouble)
     return 1
   end
+  report("build: " .. #result.modules .. " modules (" .. result.compiled ..
+    " compiled, " .. result.cached .. " cached; " .. staged.files ..
+    " files staged, " .. staged.read .. " read) in " ..
+    elapsed_ms(started) .. " ms")
 
   local attached, attach_trouble = Store.attach(database)
   if not attached then
+    work.close(handle)
     complain(attach_trouble)
     return 1
   end
 
-  local records_path = root .. "/o/records.db"
-  local records, records_trouble = open_records(records_path)
-  if records == nil then
-    complain(records_path .. ": " .. records_trouble)
-    return 1
-  end
+  local records_path = root .. "/o/build.db"
+  local records = handle.db
 
   local total = 0
   local modules_run = 0
   local failures: {string} = {}
+  local errors: {string} = {}
   -- One collection window per test, not one for the whole run: each
   -- `start`/`stop` pair is a handful of cheap C calls (core/coverage.c),
   -- and the real cost is proportional to lines executed, not to how
@@ -354,16 +364,19 @@ function test.run(): integer
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
-      total = total + run_module(records, m, failures, hits, by_test)
+      total = total + run_module(records, m, failures, errors, hits, by_test)
     end
   end
 
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
   if cov_trouble ~= "" then
-    complain("coverage: " .. cov_trouble)
+    errors[#errors + 1] = "coverage: " .. cov_trouble
   end
-  records:close()
+  local closed, close_trouble = work.close(handle)
+  if not closed then
+    errors[#errors + 1] = "close: " .. close_trouble
+  end
 
   -- A module `importer.compile` refused ran no tests at all; every
   -- other module still compiled and ran above, so this only turns the
@@ -377,7 +390,7 @@ function test.run(): integer
   local cov_line = string.format("test: coverage %.1f%% (%d/%d lines)",
     cov_pct, cov_hit, cov_total)
 
-  if #failures == 0 then
+  if #failures == 0 and #errors == 0 then
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules)")
     report(cov_line)
     return 0
@@ -385,9 +398,14 @@ function test.run(): integer
   for _, line in ipairs(failures) do
     report("test: FAIL  " .. line)
   end
+  for _, line in ipairs(errors) do
+    report("test: ERROR  " .. records_path .. ": " .. line)
+  end
   report("test: FAIL (" .. #failures .. " of " ..
-    (total + #result.refused) .. " failed)")
-  report(cov_line)
+    (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors)")
+  if #errors == 0 then
+    report(cov_line)
+  end
   return 1
 end
 

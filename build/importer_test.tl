@@ -8,6 +8,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local work = require("build.work")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -36,11 +37,22 @@ end
 --- Builds the fixture project at `root` and returns the `requires` of
 --- whichever compiled module has import path `path`.
 local function requires_of_fixture(root: string, path: string): {string} | nil, string
-  local env, env_trouble = teal.environment_for(built, root)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return nil, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return nil, stage_trouble
+  end
+  local env, env_trouble = teal.environment_for(built, handle)
   if env == nil then
+    work.close(handle)
     return nil, env_trouble
   end
-  local result, compile_trouble = importer.compile(root, built, env, "importer-test")
+  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  work.close(handle)
   if result == nil then
     return nil, compile_trouble
   end
@@ -88,4 +100,70 @@ local function test_finds_a_real_top_level_require()
   assert(requires ~= nil, "compile failed: " .. tostring(trouble))
   assert(#requires == 1, "expected 1 require, got " .. #requires)
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
+end
+
+--- The tool's hash over a tree, staged fresh: each call is its own
+--- run, so a file that has gone since the last call is gone from the
+--- fingerprints too.
+local function boot_hash_of(root: string): string
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local hash = assert(work.boot_hash(handle))
+  work.close(handle)
+  return hash
+end
+
+--- Embedded library code and tests must invalidate the self-tree guard,
+--- just as native code and the compiler's patched sources do.
+local function test_boot_hash_tracks_embedded_inputs()
+  local root = "/tmp/cosmic-importer-test-boot-hash-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl", "vendor/tl", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  local paths = {
+    "build/main.tl", "core/main.c", "cosmic/example.tl",
+    "cosmic/example_test.tl", "patch/tl/example.patch", "vendor/tl/tl.lua",
+    "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
+  }
+  for _, path in ipairs(paths) do
+    assert(Fs.write(root .. "/" .. path, "original"))
+  end
+  local original = assert(boot_hash_of(root))
+  assert(boot_hash_of(root) == original)
+  for _, path in ipairs(paths) do
+    assert(Fs.write(root .. "/" .. path, "changed"))
+    assert(boot_hash_of(root) ~= original, "missed changed input: " .. path)
+    assert(Fs.write(root .. "/" .. path, "original"))
+    assert(boot_hash_of(root) == original)
+  end
+  -- Generated output must not make a freshly built tool stale.
+  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.write(root .. "/o/output", "generated"))
+  assert(boot_hash_of(root) == original)
+  assert(Fs.write(root .. "/cosmic/added.tl", "new module"))
+  assert(boot_hash_of(root) ~= original, "missed added module")
+  assert(Fs.remove(root .. "/cosmic/added.tl"))
+  assert(boot_hash_of(root) == original)
+end
+
+--- A tree that is not cosmic's own can `require` the standard library
+--- and be checked against it: the binary carries every `cosmic.*`
+--- source and declaration, and the checker is answered from those
+--- rows for a name the tree itself does not hold.
+local function test_types_the_standard_library_from_the_binary()
+  local root, write_trouble = write_fixture("stdlib", {
+    ["main.tl"] = table.concat({
+      'local Fs = require("cosmic.fs")',
+      "local function exists(path: string): boolean",
+      "  return Fs.exists(path)",
+      "end",
+      "return exists",
+      "",
+    }, "\n"),
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local requires, trouble = requires_of_fixture(root, "main")
+  assert(requires ~= nil, "compile failed: " .. tostring(trouble))
+  assert(#requires == 1 and requires[1] == "cosmic.fs",
+    "expected cosmic.fs, got " .. table.concat(requires, ", "))
 end
