@@ -164,20 +164,18 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
     picked.refused[3])
 end
 
---- Every Teal source this tree holds renders, and rendering it reaches
---- the fixed point in one pass. No baseline and no exceptions: this
---- walks the whole tree, and one file that will not render, or that
---- needs a second pass to settle, fails it by name.
----
---- The fixed point is the property that matters, not agreement with
---- what is checked in: `fix` is allowed to change a file, and is
---- expected to. What it may not do is keep changing it.
-local function test_every_source_in_the_tree_renders_and_settles()
+--- Every Teal source this tree holds renders, is already canonical,
+--- and stays at the fixed point on a second pass. Check these together
+--- so the canonical-source gate reuses the first rendering instead of
+--- repeating a whole-tree pass. Neither pass may change the syntax tree
+--- or comments, and any failure names the source responsible.
+local function test_every_source_in_the_tree_is_canonical_and_stays_so()
   local root, root_trouble = Fs.absolute(".")
   assert(root ~= nil, "could not resolve the tree root: " .. tostring(root_trouble))
   local files, list_trouble = fix.sources(root)
   assert(files ~= nil, "could not walk the tree: " .. tostring(list_trouble))
   assert(#files > 20, "expected the whole tree, found " .. #files .. " files")
+  local differing: {string} = {}
   local unsettled: {string} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(root .. "/" .. file)
@@ -185,35 +183,20 @@ local function test_every_source_in_the_tree_renders_and_settles()
     -- Each call parses what it wrote and compares it, tree and
     -- comments, against what it came from, so a file that renders at
     -- all has already round-tripped by the time this returns.
-    local once = fixed(source, file)
-    local twice = fixed(once, file)
-    if twice ~= once then
+    local result, trouble = fix.source(built, source, file)
+    assert(result ~= nil, file .. ": fix refused it: " .. tostring(trouble))
+    assert(result.changed == (result.source ~= source),
+      file .. ": change flag disagrees with rendered bytes")
+    if result.source ~= source then
+      differing[#differing + 1] = file
+    end
+    local twice = fixed(result.source, file)
+    if twice ~= result.source then
       unsettled[#unsettled + 1] = file
     end
   end
   assert(#unsettled == 0,
     "a second pass changed these again: " .. table.concat(unsettled, ", "))
-end
-
---- And the tree is at that fixed point already, so `cosmic fix --check`
---- can be a gate. This is the healthy direction of the relationship:
---- the tree was brought to what the renderer writes, rather than the
---- renderer bent to match whatever the tree happened to hold.
-local function test_the_tree_is_at_the_fixed_point()
-  local root, root_trouble = Fs.absolute(".")
-  assert(root ~= nil, "could not resolve the tree root: " .. tostring(root_trouble))
-  local files, list_trouble = fix.sources(root)
-  assert(files ~= nil, "could not walk the tree: " .. tostring(list_trouble))
-  local differing: {string} = {}
-  for _, file in ipairs(files) do
-    local source, read_trouble = Fs.read(root .. "/" .. file)
-    assert(source ~= nil, file .. ": " .. tostring(read_trouble))
-    local result, trouble = fix.source(built, source, file)
-    assert(result ~= nil, file .. ": fix refused it: " .. tostring(trouble))
-    if result.changed then
-      differing[#differing + 1] = file
-    end
-  end
   assert(#differing == 0,
     "run `cosmic fix` -- these are not what it writes: " ..
     table.concat(differing, ", "))
