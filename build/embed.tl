@@ -1,11 +1,13 @@
---- Building an executable from a project: one file, the host's core
+--- Building a project into executables: one file each, the host's core
 --- image with a database behind it that holds the project's modules,
 --- the standard library, the error catalog, and the name of the main
 --- module, so it runs on its own with no `cosmic` beside it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
---- as `kind = "main"`, and `cosmic embed` writes `o/bin/<name>` for
---- each one the tree holds. The project's own projection, `o/cosmic.db`,
+--- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
+--- each one the tree holds, after building the tree as `cosmic test`
+--- does; a tree with no `cmd/` builds and writes nothing. The project's
+--- own projection, `o/cosmic.db`,
 --- carries the project and nothing of cosmic's; what the standard
 --- library needs at run time is read out of the running binary's own
 --- database, by handle, so no format of the executable is parsed here.
@@ -128,7 +130,7 @@ end
 
 --- What the binary's own database holds for one target's core image.
 local function image_of(binary: Sqlite.Handle, target: string): string | nil, string
-  local rows, trouble = Sqlite.rows(binary,
+  local rows, trouble = Sqlite.text_rows(binary,
     "SELECT size, data FROM images WHERE target = ?1", { text(target) })
   if rows == nil then
     return nil, trouble
@@ -272,7 +274,7 @@ end
 
 --- Builds the tree at `root` and writes `root/o/bin/<name>` for every
 --- `cmd/<name>/main.tl` it holds, for the target this binary runs on.
---- Returns the names written.
+--- Returns the names written, none for a tree with no `cmd/`.
 function embed.tree(root: string): {string} | nil, string
   if importer.is_own_tree(root) then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
@@ -325,8 +327,7 @@ function embed.tree(root: string): {string} | nil, string
   end
   table.sort(mains)
   if #mains == 0 then
-    return nil, "no cmd/<name>/main.tl in the tree; a binary is a " ..
-      "directory under cmd/ whose main.tl returns the function to run"
+    return {}
   end
 
   local databases = Store.databases()
@@ -358,28 +359,30 @@ function embed.tree(root: string): {string} | nil, string
   return names
 end
 
---- `cosmic embed`: the tree in the working directory, as executables
---- under `o/bin/`. Ends in a verdict line.
+--- `cosmic build`: the tree in the working directory, and its
+--- executables under `o/bin/`. Ends in a verdict line that names what
+--- was written, or says why nothing was.
 function embed.run(): integer
   local started = Time.monotonic_ns() or 0
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     complain(root_trouble)
-    report("embed: FAIL")
+    report("build: FAIL")
     return 1
   end
   local names, trouble = embed.tree(root)
   if names == nil then
     complain(trouble)
-    report("embed: FAIL")
+    report("build: FAIL")
     return 1
   end
   local outputs: {string} = {}
   for _, name in ipairs(names) do
     outputs[#outputs + 1] = "o/bin/" .. name
   end
-  report("embed: PASS (" .. table.concat(outputs, ", ") .. ", " ..
-    elapsed_ms(started) .. " ms)")
+  local wrote = #outputs > 0 and table.concat(outputs, ", ") or
+    "no executable: no cmd/<name>/main.tl in the tree"
+  report("build: PASS (" .. wrote .. ", " .. elapsed_ms(started) .. " ms)")
   return 0
 end
 

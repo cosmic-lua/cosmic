@@ -1,4 +1,4 @@
---- Proves `cosmic embed` writes an executable for a project: the tree
+--- Proves `cosmic build` writes an executable for a project: the tree
 --- is a fixture under a fresh temp directory, shaped as a binary is --
 --- `cmd/<name>/main.tl` and a module beside it -- and the database the
 --- executable carries is read back and checked for what a program
@@ -38,7 +38,7 @@ end
 
 local function rows_of(path: string, sql: string): {{string}}
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.rows(db, sql))
+  local rows = assert(Sqlite.text_rows(db, sql))
   db:close()
   return rows
 end
@@ -95,11 +95,13 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(about_build[1][1] == "0", "guidance about the build is not")
 end
 
-local function test_a_tree_without_a_main_is_refused(tmp: string)
+local function test_a_tree_without_a_main_builds_and_writes_nothing(tmp: string)
   assert(Fs.write(tmp .. "/greet.tl", greet_source))
   local names, trouble = embed.tree(tmp)
-  assert(names == nil)
-  assert(trouble:find("cmd/<name>/main.tl", 1, true) ~= nil, trouble)
+  assert(names ~= nil, trouble)
+  assert(#names == 0, "a library tree has no executable to write")
+  assert(Fs.exists(tmp .. "/o/cosmic.db"), "but it was built")
+  assert(not Fs.exists(tmp .. "/o/bin"))
 end
 
 local function test_cosmic_s_own_tree_is_refused(tmp: string)

@@ -34,7 +34,7 @@ cosmic -- a runtime for self-contained command-line software
                      as canonical text, in place
   cosmic fix --check the same, writing nothing: name the files a fix
                      would change, and fail if there are any
-  cosmic embed       build the tree in the working directory, then
+  cosmic build       build the tree in the working directory, then
                      write one executable under o/bin/ for each
                      cmd/<name>/main.tl it holds: o/bin/<name>, which
                      runs on its own, with nothing beside it
@@ -263,7 +263,7 @@ local function main(argv: {integer:string}): integer
   if verb == "db" then
     return databases.run()
   end
-  if verb == "embed" then
+  if verb == "build" then
     return embed.run()
   end
   if verb == "docs" then
