@@ -9,6 +9,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local importer = require("build.importer")
 
 local record docs
   --- One row of `docs`, with where it came from.
@@ -30,6 +31,16 @@ local record docs
 
   --- One worked example, matched to a symbol by content rather than by
   --- name -- see `examples_for`.
+  --- One database a lookup reads, and how much of it: a public source
+  --- answers only for the standard library's own modules -- `cosmic.*`
+  --- that is neither `cosmic.internal.*` nor a test -- which is what a
+  --- project sees of the binary it builds with. Its own database, and
+  --- the binary inside cosmic's own tree, answer for everything.
+  record Source
+    db: Sqlite.Handle
+    public: boolean
+  end
+
   record Example
     name: string
     text: string
@@ -90,14 +101,29 @@ end
 local EXAMPLE_BOUNDARY_SQL =
   "(e.text || ' ' || e.source || ' ') GLOB ('*' || d.symbol || '[^A-Za-z0-9_]*')"
 
-local columns =
-  "d.module, d.symbol, d.kind, d.signature, d.text, d.file, d.line, " ..
-  "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol), " ..
-  "CASE WHEN d.symbol = '' THEN 0 ELSE (SELECT count(*) FROM examples_fts " ..
-  "JOIN examples e ON e.id = examples_fts.rowid " ..
-  "WHERE e.module = d.module AND examples_fts MATCH " ..
-  "('\"' || replace(replace(d.symbol, '.', ' '), ':', ' ') || '\"') " ..
-  "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
+--- The rows a public source answers with, as a condition on the
+--- module `column` names: the standard library's own, and nothing
+--- private or test-only. `true` when the source is not public.
+local function public_only(column: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
+    " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
+end
+
+--- The columns every entry query selects. A public source counts only
+--- the uses the public modules themselves make.
+local function columns_for(public: boolean): string
+  return "d.module, d.symbol, d.kind, d.signature, d.text, d.file, d.line, " ..
+    "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol " ..
+    "AND " .. public_only("u.from_module", public) .. "), " ..
+    "CASE WHEN d.symbol = '' THEN 0 ELSE (SELECT count(*) FROM examples_fts " ..
+    "JOIN examples e ON e.id = examples_fts.rowid " ..
+    "WHERE e.module = d.module AND examples_fts MATCH " ..
+    "('\"' || replace(replace(d.symbol, '.', ' '), ':', ' ') || '\"') " ..
+    "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
+end
 
 local function entries_of(rows: {{string}}): {docs.Entry}
   local out: {docs.Entry} = {}
@@ -118,16 +144,17 @@ end
 --- deliberately for it once it matches at all, so source order reads
 --- better than a relevance ranking would. `""` finds nothing, since a
 --- module's own row has no code of its own to match.
-local function examples_for(db: Sqlite.Handle, module: string,
+local function examples_for(source: docs.Source, module: string,
                             symbol: string): {docs.Example} | nil, string
   if symbol == "" then
     return {}
   end
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.rows(source.db,
     "SELECT e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
     "AND (e.text || ' ' || e.source || ' ') GLOB ?3 " ..
+    "AND " .. public_only("e.module", source.public) .. " " ..
     "ORDER BY e.line",
     { text(module), text(example_phrase(symbol)), text(example_boundary(symbol)) })
   if rows == nil then
@@ -144,12 +171,13 @@ end
 --- The rows named `query` exactly: a symbol as declared (`Fs.read`), a
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row (`cosmic.fs`).
-local function named(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
-    "SELECT " .. columns .. " FROM docs d WHERE d.symbol = ?1 " ..
+local function named(source: docs.Source, query: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.rows(source.db,
+    "SELECT " .. columns_for(source.public) .. " FROM docs d WHERE (d.symbol = ?1 " ..
     "OR substr(d.symbol, -length(?1) - 1) = '.' || ?1 " ..
     "OR substr(d.symbol, -length(?1) - 1) = ':' || ?1 " ..
-    "OR (d.symbol = '' AND d.module = ?1) ORDER BY d.module, d.id",
+    "OR (d.symbol = '' AND d.module = ?1)) AND " ..
+    public_only("d.module", source.public) .. " ORDER BY d.module, d.id",
     { text(query) })
   if rows == nil then
     return nil, trouble
@@ -159,10 +187,11 @@ end
 
 --- Every symbol a module declares at its top level, for the listing
 --- under a module's own documentation.
-local function declared_in(db: Sqlite.Handle, module: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
-    "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
-    "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') ORDER BY d.id",
+local function declared_in(source: docs.Source, module: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.rows(source.db,
+    "SELECT " .. columns_for(source.public) .. " FROM docs d WHERE d.module = ?1 " ..
+    "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') AND " ..
+    public_only("d.module", source.public) .. " ORDER BY d.id",
     { text(module) })
   if rows == nil then
     return nil, trouble
@@ -182,10 +211,12 @@ end
 
 --- The rows whose symbol, signature or documentation carries every
 --- word of `query`, best match first.
-local function searched_docs(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
-    "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
-    "WHERE docs_fts MATCH ?1 ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
+local function searched_docs(source: docs.Source, fts: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.rows(source.db,
+    "SELECT " .. columns_for(source.public) .. " FROM docs_fts " ..
+    "JOIN docs d ON d.id = docs_fts.rowid " ..
+    "WHERE docs_fts MATCH ?1 AND " .. public_only("d.module", source.public) ..
+    " ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
     { text(fts) })
   if rows == nil then
     return nil, trouble
@@ -200,12 +231,13 @@ end
 --- `cosmic.fs`, whichever of its symbols the example turns out to be
 --- for; the module's own listing shows each symbol's own example
 --- count (`examples_for`, by name this time) to narrow from there.
-local function searched_examples(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
-    "SELECT " .. columns .. " FROM examples_fts " ..
+local function searched_examples(source: docs.Source, fts: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.rows(source.db,
+    "SELECT " .. columns_for(source.public) .. " FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "JOIN docs d ON d.module = e.module AND d.symbol = '' " ..
-    "WHERE examples_fts MATCH ?1 ORDER BY bm25(examples_fts), d.module, d.id LIMIT 20",
+    "WHERE examples_fts MATCH ?1 AND " .. public_only("d.module", source.public) ..
+    " ORDER BY bm25(examples_fts), d.module, d.id LIMIT 20",
     { text(fts) })
   if rows == nil then
     return nil, trouble
@@ -217,16 +249,16 @@ end
 --- once: a doc-comment match outranks an example-only one, since
 --- `searched_docs`'s own rows come first and a later duplicate is
 --- dropped.
-local function searched(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
+local function searched(source: docs.Source, query: string): {docs.Entry} | nil, string
   local fts = fts_query(query)
   if fts == "" then
     return {}
   end
-  local from_docs, docs_trouble = searched_docs(db, fts)
+  local from_docs, docs_trouble = searched_docs(source, fts)
   if from_docs == nil then
     return nil, docs_trouble
   end
-  local from_examples, examples_trouble = searched_examples(db, fts)
+  local from_examples, examples_trouble = searched_examples(source, fts)
   if from_examples == nil then
     return nil, examples_trouble
   end
@@ -246,12 +278,14 @@ end
 
 --- The places that refer to `symbol` as declared, or to any symbol
 --- whose last name is `symbol`.
-local function uses_of(db: Sqlite.Handle, query: string): {docs.Use} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+local function uses_of(source: docs.Source, query: string): {docs.Use} | nil, string
+  local rows, trouble = Sqlite.rows(source.db,
     "SELECT module, symbol, from_module, from_file, line FROM uses " ..
-    "WHERE symbol = ?1 OR substr(symbol, -length(?1) - 1) = '.' || ?1 " ..
-    "OR substr(symbol, -length(?1) - 1) = ':' || ?1 " ..
-    "ORDER BY module, symbol, from_file, line", { text(query) })
+    "WHERE (symbol = ?1 OR substr(symbol, -length(?1) - 1) = '.' || ?1 " ..
+    "OR substr(symbol, -length(?1) - 1) = ':' || ?1) AND " ..
+    public_only("module", source.public) .. " AND " ..
+    public_only("from_module", source.public) ..
+    " ORDER BY module, symbol, from_file, line", { text(query) })
   if rows == nil then
     return nil, trouble
   end
@@ -271,21 +305,31 @@ local function has_docs(db: Sqlite.Handle): boolean
   return rows ~= nil and #rows > 0
 end
 
+--- A database as a lookup reads it.
+function docs.source(db: Sqlite.Handle, public?: boolean): docs.Source
+  return { db = db, public = public == true }
+end
+
 --- The databases a lookup reads, in order: the working directory's own
 --- `o/cosmic.db` when there is one, then every database the store
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
---- the binary answers for the standard library.
-function docs.databases(): {Sqlite.Handle}
-  local out: {Sqlite.Handle} = {}
+--- the binary answers for the standard library. Outside cosmic's own
+--- tree the store's databases are public sources: a project sees its
+--- own code and the standard library, never the build that made the
+--- binary.
+function docs.databases(): {docs.Source}
+  local out: {docs.Source} = {}
   if Fs.exists("o/cosmic.db") then
     local own = Sqlite.open("o/cosmic.db", false)
     if own ~= nil then
-      out[#out + 1] = own
+      out[#out + 1] = docs.source(own)
     end
   end
+  local root = Fs.absolute(".")
+  local public = root == nil or not importer.is_own_tree(root)
   for _, db in ipairs(Store.databases()) do
-    out[#out + 1] = db
+    out[#out + 1] = docs.source(db, public)
   end
   return out
 end
@@ -293,14 +337,14 @@ end
 --- One lookup over `databases`, in order, with a module answered by an
 --- earlier database hiding it in every later one.
 --- @param look what to read from each database
-local function across<T>(databases: {Sqlite.Handle},
-                         look: function(Sqlite.Handle): {T} | nil, string,
+local function across<T>(databases: {docs.Source},
+                         look: function(docs.Source): {T} | nil, string,
                          module_of: function(T): string): {T} | nil, string
   local out: {T} = {}
   local claimed: {string: boolean} = {}
-  for _, db in ipairs(databases) do
-    if has_docs(db) then
-      local found, trouble = look(db)
+  for _, source in ipairs(databases) do
+    if has_docs(source.db) then
+      local found, trouble = look(source)
       if found == nil then
         return nil, trouble
       end
@@ -331,10 +375,10 @@ end
 --- What `query` names, across `databases`: its exact matches when it
 --- names a symbol or a module, otherwise the documentation that
 --- carries all its words.
-function docs.lookup(databases: {Sqlite.Handle}, query: string): {docs.Entry} | nil, string, boolean
+function docs.lookup(databases: {docs.Source}, query: string): {docs.Entry} | nil, string, boolean
   local exact, exact_trouble = across(databases,
-    function(db: Sqlite.Handle): {docs.Entry} | nil, string
-      return named(db, query)
+    function(source: docs.Source): {docs.Entry} | nil, string
+      return named(source, query)
     end, entry_module)
   if exact == nil then
     return nil, exact_trouble, false
@@ -343,8 +387,8 @@ function docs.lookup(databases: {Sqlite.Handle}, query: string): {docs.Entry} | 
     return exact, "", true
   end
   local found, search_trouble = across(databases,
-    function(db: Sqlite.Handle): {docs.Entry} | nil, string
-      return searched(db, query)
+    function(source: docs.Source): {docs.Entry} | nil, string
+      return searched(source, query)
     end, entry_module)
   if found == nil then
     return nil, search_trouble, false
@@ -353,16 +397,16 @@ function docs.lookup(databases: {Sqlite.Handle}, query: string): {docs.Entry} | 
 end
 
 --- Every place across `databases` that refers to what `query` names.
-function docs.uses(databases: {Sqlite.Handle}, query: string): {docs.Use} | nil, string
-  return across(databases, function(db: Sqlite.Handle): {docs.Use} | nil, string
-    return uses_of(db, query)
+function docs.uses(databases: {docs.Source}, query: string): {docs.Use} | nil, string
+  return across(databases, function(source: docs.Source): {docs.Use} | nil, string
+    return uses_of(source, query)
   end, use_module)
 end
 
 --- One entry, as `cosmic docs` prints it: where it is, its signature,
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
-function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
+function docs.render(databases: {docs.Source}, entry: docs.Entry): {string}
   local lines: {string} = {}
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
@@ -376,8 +420,8 @@ function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
   end
   if entry.symbol == "" then
     local declared = across(databases,
-      function(db: Sqlite.Handle): {docs.Entry} | nil, string
-        return declared_in(db, entry.module)
+      function(source: docs.Source): {docs.Entry} | nil, string
+        return declared_in(source, entry.module)
       end, entry_module)
     if declared ~= nil then
       for _, item in ipairs(declared) do
@@ -399,8 +443,8 @@ function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
         (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
     end
     local examples = across(databases,
-      function(db: Sqlite.Handle): {docs.Example} | nil, string
-        return examples_for(db, entry.module, entry.symbol)
+      function(source: docs.Source): {docs.Example} | nil, string
+        return examples_for(source, entry.module, entry.symbol)
       end, function(_: docs.Example): string return entry.module end)
     if examples ~= nil then
       for _, ex in ipairs(examples) do

@@ -52,7 +52,7 @@ local fs_uses: {{string}} = {
 --- A symbol as declared is found by name, with its use count.
 local function test_looks_up_a_symbol_as_declared()
   local db = database(fs_rows, fs_uses)
-  local found, trouble, exact = docs.lookup({ db }, "Fs.read")
+  local found, trouble, exact = docs.lookup({ docs.source(db) }, "Fs.read")
   assert(found ~= nil, trouble)
   assert(exact, "a declared name was not an exact match")
   assert(#found == 1 and found[1].symbol == "Fs.read", tostring(#found))
@@ -62,7 +62,7 @@ end
 --- A symbol's last name alone finds every symbol ending in it.
 local function test_looks_up_a_symbol_by_its_last_name()
   local db = database(fs_rows, fs_uses)
-  local found = assert(docs.lookup({ db }, "read"))
+  local found = assert(docs.lookup({ docs.source(db) }, "read"))
   assert(#found == 1 and found[1].symbol == "Fs.read")
 end
 
@@ -70,9 +70,9 @@ end
 --- the module declares.
 local function test_looks_up_a_module_and_lists_its_symbols()
   local db = database(fs_rows, fs_uses)
-  local found = assert(docs.lookup({ db }, "cosmic.fs"))
+  local found = assert(docs.lookup({ docs.source(db) }, "cosmic.fs"))
   assert(#found == 1 and found[1].kind == "module", tostring(#found))
-  local lines = docs.render({ db }, found[1])
+  local lines = docs.render({ docs.source(db) }, found[1])
   assert(lines[1] == "cosmic.fs (cosmic/fs.tl)", lines[1])
   assert(lines[2] == "  Files and directories.", lines[2])
   assert(lines[3] == "  record Fs", lines[3])
@@ -84,13 +84,13 @@ end
 --- required, and a name nothing matches finds nothing.
 local function test_searches_the_documentation_for_words()
   local db = database(fs_rows, fs_uses)
-  local words, _, exact = docs.lookup({ db }, "whole file")
+  local words, _, exact = docs.lookup({ docs.source(db) }, "whole file")
   assert(words ~= nil)
   assert(not exact)
   assert(#words == 2, tostring(#words))
-  local one = assert(docs.lookup({ db }, "parent directory"))
+  local one = assert(docs.lookup({ docs.source(db) }, "parent directory"))
   assert(#one == 1 and one[1].symbol == "Fs.write")
-  local none = assert(docs.lookup({ db }, "nothing_like_this"))
+  local none = assert(docs.lookup({ docs.source(db) }, "nothing_like_this"))
   assert(#none == 0)
 end
 
@@ -98,15 +98,15 @@ end
 --- line by line, and how it is used.
 local function test_renders_a_symbol()
   local db = database(fs_rows, fs_uses)
-  local found = assert(docs.lookup({ db }, "Fs.write"))
-  local lines = docs.render({ db }, found[1])
+  local found = assert(docs.lookup({ docs.source(db) }, "Fs.write"))
+  local lines = docs.render({ docs.source(db) }, found[1])
   assert(lines[1] == "cosmic.fs Fs.write (cosmic/fs.tl:40)", lines[1])
   assert(lines[2] == "  function Fs.write(path: string, data: string): boolean, string", lines[2])
   assert(lines[3] == "  Writes the whole of a file.", lines[3])
   assert(lines[4] == "  Creates no parent directory.", lines[4])
   assert(#lines == 4, tostring(#lines))
-  local read = assert(docs.lookup({ db }, "Fs.read"))
-  local read_lines = docs.render({ db }, read[1])
+  local read = assert(docs.lookup({ docs.source(db) }, "Fs.read"))
+  local read_lines = docs.render({ docs.source(db) }, read[1])
   assert(read_lines[#read_lines] == "  used in 2 places; cosmic uses Fs.read",
     read_lines[#read_lines])
 end
@@ -121,8 +121,8 @@ local function test_renders_a_symbols_example()
     { "cosmic.fs", "read", "Reads a file back.", "cosmic/fs_example.tl",
       "3", "function Example.read()\n  print(Fs.read(\"x\"))\nend" },
   })
-  local read = assert(docs.lookup({ db }, "Fs.read"))
-  local lines = docs.render({ db }, read[1])
+  local read = assert(docs.lookup({ docs.source(db) }, "Fs.read"))
+  local lines = docs.render({ docs.source(db) }, read[1])
   assert(lines[#lines - 4] == "  example read (cosmic/fs_example.tl:3):",
     lines[#lines - 4])
   assert(lines[#lines - 3] == "  Reads a file back.", lines[#lines - 3])
@@ -130,8 +130,8 @@ local function test_renders_a_symbols_example()
   assert(lines[#lines - 1] == "      print(Fs.read(\"x\"))", lines[#lines - 1])
   assert(lines[#lines] == "    end", lines[#lines])
 
-  local module = assert(docs.lookup({ db }, "cosmic.fs"))
-  local module_lines = docs.render({ db }, module[1])
+  local module = assert(docs.lookup({ docs.source(db) }, "cosmic.fs"))
+  local module_lines = docs.render({ docs.source(db) }, module[1])
   assert(module_lines[4] == "  function Fs.read (2 uses, 1 example)", module_lines[4])
   assert(module_lines[5] == "  function Fs.write", module_lines[5])
 end
@@ -146,8 +146,8 @@ local function test_many_examples_for_one_symbol()
     { "cosmic.fs", "missing_file", "", "cosmic/fs_example.tl", "9",
       "function Example.missing_file()\n  local ok = Fs.read(\"none\")\nend" },
   })
-  local read = assert(docs.lookup({ db }, "Fs.read"))
-  local lines = docs.render({ db }, read[1])
+  local read = assert(docs.lookup({ docs.source(db) }, "Fs.read"))
+  local lines = docs.render({ docs.source(db) }, read[1])
   local headers: {string} = {}
   for _, line in ipairs(lines) do
     if line:match("^  example ") then
@@ -158,8 +158,8 @@ local function test_many_examples_for_one_symbol()
   assert(headers[1] == "  example basic (cosmic/fs_example.tl:3):", headers[1])
   assert(headers[2] == "  example missing_file (cosmic/fs_example.tl:9):", headers[2])
 
-  local module = assert(docs.lookup({ db }, "cosmic.fs"))
-  local module_lines = docs.render({ db }, module[1])
+  local module = assert(docs.lookup({ docs.source(db) }, "cosmic.fs"))
+  local module_lines = docs.render({ docs.source(db) }, module[1])
   assert(module_lines[4] == "  function Fs.read (2 uses, 2 examples)", module_lines[4])
 end
 
@@ -181,14 +181,14 @@ local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix()
     { "cosmic.hash", "hex_sha256", "", "cosmic/hash_example.tl", "3",
       "function Example.hex_sha256()\n  print(Hash.hex_sha256(\"x\"))\nend" },
   })
-  local hex = assert(docs.lookup({ db }, "Hash.hex"))
+  local hex = assert(docs.lookup({ docs.source(db) }, "Hash.hex"))
   assert(#hex == 1 and hex[1].examples == 0, tostring(hex[1].examples))
-  for _, line in ipairs(docs.render({ db }, hex[1])) do
+  for _, line in ipairs(docs.render({ docs.source(db) }, hex[1])) do
     assert(not line:match("^  example "),
       "Hash.hex wrongly matched an example for Hash.hex_sha256: " .. line)
   end
 
-  local hex_sha256 = assert(docs.lookup({ db }, "Hash.hex_sha256"))
+  local hex_sha256 = assert(docs.lookup({ docs.source(db) }, "Hash.hex_sha256"))
   assert(#hex_sha256 == 1 and hex_sha256[1].examples == 1)
 end
 
@@ -202,7 +202,7 @@ local function test_searches_finds_a_word_only_in_an_example()
     { "cosmic.fs", "read", "", "cosmic/fs_example.tl", "3",
       "function Example.read()\n  print(Hash.hex_sha256(Fs.read(\"x\")))\nend" },
   })
-  local found, _, exact = docs.lookup({ db }, "hex_sha256")
+  local found, _, exact = docs.lookup({ docs.source(db) }, "hex_sha256")
   assert(found ~= nil)
   assert(not exact)
   assert(#found == 1 and found[1].module == "cosmic.fs" and found[1].symbol == "",
@@ -212,7 +212,7 @@ local function test_searches_finds_a_word_only_in_an_example()
     { "cosmic.fs", "read", "Demonstrates reading a config file.",
       "cosmic/fs_example.tl", "3", "function Example.read()\nend" },
   })
-  local by_text = assert(docs.lookup({ db2 }, "config"))
+  local by_text = assert(docs.lookup({ docs.source(db2) }, "config"))
   assert(#by_text == 1 and by_text[1].module == "cosmic.fs" and by_text[1].symbol == "",
     tostring(#by_text))
 end
@@ -220,9 +220,9 @@ end
 --- The uses of a symbol, by either name.
 local function test_lists_uses()
   local db = database(fs_rows, fs_uses)
-  local found = assert(docs.uses({ db }, "read"))
+  local found = assert(docs.uses({ docs.source(db) }, "read"))
   assert(#found == 2 and found[1].from_file == "build/boot.tl", tostring(#found))
-  assert(#assert(docs.uses({ db }, "Fs.write")) == 0)
+  assert(#assert(docs.uses({ docs.source(db) }, "Fs.write")) == 0)
 end
 
 --- An earlier database answers for a module ahead of a later one: a
@@ -234,8 +234,52 @@ local function test_an_earlier_database_hides_a_module_in_a_later_one()
       "The project's own.", "cosmic/fs.tl", "5" },
   }, {})
   local binary = database(fs_rows, fs_uses)
-  local read = assert(docs.lookup({ project, binary }, "read"))
+  local read = assert(docs.lookup({ docs.source(project), docs.source(binary) }, "read"))
   assert(#read == 1 and read[1].text == "The project's own.", tostring(#read))
-  local write = assert(docs.lookup({ project, binary }, "Fs.write"))
+  local write = assert(docs.lookup({ docs.source(project), docs.source(binary) }, "Fs.write"))
   assert(#write == 1 and write[1].module == "cosmic.fs")
+end
+
+--- From outside cosmic's own tree, the binary's database is a public
+--- source: it answers for the standard library's own modules and for
+--- nothing behind them -- not the build, not `cosmic.internal.*`, not
+--- a test -- and counts only the uses those modules make.
+local function test_a_public_source_answers_only_for_the_standard_library()
+  local rows: {{string}} = {
+    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
+    { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string | nil, string",
+      "The whole of a file.", "cosmic/fs.tl", "23" },
+    { "build.importer", "", "module", "", "The tree, read by position.", "build/importer.tl", "1" },
+    { "build.importer", "importer.read", "function", "function importer.read(path: string): string",
+      "The whole of a file, staged.", "build/importer.tl", "9" },
+    { "cosmic.internal.sqlite", "", "module", "", "SQLite at the Lua boundary.",
+      "cosmic/internal/sqlite.d.tl", "1" },
+    { "cosmic.internal.sqlite", "sqlite.read", "function", "read: function(Statement): string",
+      "A raw read.", "cosmic/internal/sqlite.d.tl", "8" },
+    { "cosmic.coverage_test", "", "module", "", "Proves coverage.", "cosmic/coverage_test.tl", "1" },
+    { "cosmic.coverage_test", "test_read", "function", "local function test_read()",
+      "Reads the whole of a file.", "cosmic/coverage_test.tl", "4" },
+  }
+  local uses: {{string}} = {
+    { "cosmic.fs", "Fs.read", "build.boot", "build/boot.tl", "56" },
+    { "cosmic.fs", "Fs.read", "cosmic.hash", "cosmic/hash.tl", "12" },
+  }
+  local db = database(rows, uses)
+
+  local everything = assert(docs.lookup({ docs.source(db) }, "read"))
+  assert(#everything == 3, tostring(#everything))
+  assert(#assert(docs.uses({ docs.source(db) }, "read")) == 2)
+
+  local public = { docs.source(db, true) }
+  local found = assert(docs.lookup(public, "read"))
+  assert(#found == 1 and found[1].module == "cosmic.fs", tostring(#found))
+  assert(found[1].uses == 1, "only the standard library's own use counts")
+  local build = assert(docs.lookup(public, "build.importer"))
+  assert(#build == 0, "the build is not a public module")
+  local searched = assert(docs.lookup(public, "whole file"))
+  assert(#searched == 1 and searched[1].module == "cosmic.fs", tostring(#searched))
+  local referring = assert(docs.uses(public, "Fs.read"))
+  assert(#referring == 1 and referring[1].from_module == "cosmic.hash")
+  local listed = docs.render(public, assert(docs.lookup(public, "cosmic.fs"))[1])
+  assert(listed[#listed]:find("Fs.read", 1, true) ~= nil, listed[#listed])
 end
