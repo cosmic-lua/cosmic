@@ -242,6 +242,44 @@ static int store_bytecode(lua_State *L) {
   return 2;
 }
 
+/* One module's Teal source, or a declaration's, from the database
+ * attached to the running binary and no other: what a checker building
+ * some other tree needs in order to type a `require` of this one's
+ * modules. Only the binary's rows answer, so a project's own database
+ * can never stand in for the standard library's types. */
+static int store_source(lua_State *L) {
+  const char *name = luaL_checkstring(L, 1);
+  int list = lua_upvalueindex(1);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  sqlite3 *db = count > 0 ? database_at(L, list, count) : NULL;
+  static const char *queries[] = {
+    "SELECT source FROM decls WHERE path = ?1",
+    "SELECT source FROM modules WHERE path = ?1",
+  };
+  for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db, queries[i], -1, &stmt, NULL) != SQLITE_OK) {
+      die_unreadable(db);
+    }
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+    int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+      lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
+                      (size_t)sqlite3_column_bytes(stmt, 0));
+      sqlite3_finalize(stmt);
+      return 1;
+    }
+    if (rc != SQLITE_DONE) {
+      sqlite3_finalize(stmt);
+      die_unreadable(db);
+    }
+    sqlite3_finalize(stmt);
+  }
+  lua_pushnil(L);
+  lua_pushfstring(L, "no module '%s' in the binary", name);
+  return 2;
+}
+
 /* One entry of the meta table, which is where the build records what it
  * decided: the main module's name, the hash of the tool. */
 static int store_meta(lua_State *L) {
@@ -289,6 +327,9 @@ static int open_store_module(lua_State *L) {
   lua_pushvalue(L, -2);
   lua_pushcclosure(L, store_meta, 1);
   lua_setfield(L, -2, "meta");
+  lua_pushvalue(L, -2);
+  lua_pushcclosure(L, store_source, 1);
+  lua_setfield(L, -2, "source");
   lua_remove(L, -2);
   return 1;
 }
