@@ -18,20 +18,54 @@
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 
 local record work
-  --- An open working database, for one run.
+  --- An open working database, for one run. A run is one transaction
+  --- from `open` to `commit`: staging, deriving and compiling all land
+  --- together, and what happens after -- the projection, which SQLite
+  --- refuses inside a transaction, and the records -- is its own.
   record Handle
     db: Sqlite.Handle
     root: string
     --- This run's number: one more than the last run over this file.
     run: integer
+    --- Whether the run's transaction is open.
+    inside: boolean
   end
 
   --- What one staging pass found and what it had to read.
   record Staged
     files: integer
     read: integer
+  end
+
+  --- What the tool is made of, as two hashes: everything, and the
+  --- part the C core is built from. A binary carries both; a tree
+  --- whose `boot` differs but whose `image` matches needs only a new
+  --- database attached to the image the binary already carries, and
+  --- the tool can do that to itself.
+  record Fingerprint
+    boot: string
+    image: string
+  end
+
+  --- What a compile and a verdict are functions of, beyond their own
+  --- inputs. `compiler` is the build's own modules in the importer's
+  --- import closure and the Teal compiler's and Lua's pins and
+  --- patches: what turns source into bytecode. The standard library
+  --- the importer runs on is plumbing, not transformation -- a bug
+  --- there breaks the build loudly rather than changing bytecode
+  --- quietly -- and is left out, which is what keeps an edit to it
+  --- from recompiling everything. `runtime` is the hash of the image
+  --- the binary actually runs and the same pins: what runs a test
+  --- beyond the modules its own key already covers. Both are computed over the tree being
+  --- built, carried in the binary, and read from there, so a tool
+  --- always names what it actually is.
+  record Identities
+    compiler: string
+    runtime: string
   end
 
   --- The statements that create the database, in order. `IF NOT
@@ -44,11 +78,15 @@ local record work
   version: string
 end
 
-work.version = "7"
+work.version = "12"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
---- the tree is a row gone from the table.
+--- the tree is a row gone from the table. A file written within the
+--- last two seconds of being staged is recorded with no modification
+--- time, so the next run reads it again rather than trusting a stat
+--- that a second write inside one timestamp tick could leave
+--- unchanged -- the rule zig's cache applies to its own inputs.
 ---
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
@@ -96,8 +134,17 @@ work.version = "7"
 --- `runs` is one row per test, keyed by the module and the test's own
 --- name inside it, so a later run of the same test replaces its row
 --- rather than piling up a history the runner has no use for yet.
---- That table's shape and semantics are unrelated to everything below
---- and untouched by it.
+--- `key` is what the verdict is a function of: the module's key and
+--- the hash of every file under the root the test was observed to
+--- read; `reads` is what it opened, as recorded, and `run_at_ns` the
+--- `cosmic test` invocation whose coverage rows credit the verdict.
+---
+--- `verdicts` is one row per key ever seen, with its verdict and the
+--- invocation that produced it, and `seen` the last run that relied on
+--- it: while a key stands and its verdict passed, the test is not run
+--- again, and an edit undone finds its old key again. One no run has
+--- relied on in the last hundred is dropped, and with it the
+--- `coverage_by_test` rows no verdict credits any more.
 ---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
 --- one snapshot per `cosmic test` invocation, never overwritten, each
@@ -211,7 +258,13 @@ work.schema = {
                                      message TEXT NOT NULL,
                                      ran_at_ns INTEGER NOT NULL,
                                      reads TEXT NOT NULL,
+                                     key TEXT NOT NULL,
+                                     run_at_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
+                                         passed INTEGER NOT NULL,
+                                         run_at_ns INTEGER NOT NULL,
+                                         seen INTEGER NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
                                           PRIMARY KEY)]],
   [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,
@@ -291,17 +344,21 @@ function work.open(root: string): work.Handle | nil, string
     return work.open(root)
   end
 
-  local counted, count_trouble = Sqlite.transact(db, function(): boolean, string
-    local stamped, stamp_trouble = Sqlite.run(db,
-      "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
-      "ON CONFLICT (key) DO NOTHING", { text(work.version) })
-    if not stamped then
-      return false, stamp_trouble
-    end
-    return Sqlite.run(db,
-      "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
-      "ON CONFLICT (key) DO UPDATE SET value = value + 1")
-  end)
+  local begun, begin_trouble = db:exec("BEGIN")
+  if not begun then
+    db:close()
+    return nil, path .. ": " .. begin_trouble
+  end
+  local stamped, stamp_trouble = Sqlite.run(db,
+    "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
+    "ON CONFLICT (key) DO NOTHING", { text(work.version) })
+  if not stamped then
+    db:close()
+    return nil, path .. ": " .. stamp_trouble
+  end
+  local counted, count_trouble = Sqlite.run(db,
+    "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
+    "ON CONFLICT (key) DO UPDATE SET value = value + 1")
   if not counted then
     db:close()
     return nil, path .. ": " .. count_trouble
@@ -312,7 +369,28 @@ function work.open(root: string): work.Handle | nil, string
     db:close()
     return nil, path .. ": " .. run_trouble
   end
-  return { db = db, root = root, run = integer_of(runs) }
+  return { db = db, root = root, run = integer_of(runs), inside = true }
+end
+
+--- Ends the run's transaction, keeping everything it did. Nothing to
+--- do when it has already ended.
+function work.commit(handle: work.Handle): boolean, string
+  if not handle.inside then
+    return true, ""
+  end
+  handle.inside = false
+  return handle.db:exec("COMMIT")
+end
+
+--- Opens another transaction on the run, for a phase that comes after
+--- the projection: the test runner's records, written together.
+function work.begin(handle: work.Handle): boolean, string
+  local begun, trouble = handle.db:exec("BEGIN")
+  if not begun then
+    return false, trouble
+  end
+  handle.inside = true
+  return true, ""
 end
 
 --- What is never an input: the build's own output, the upstream
@@ -501,58 +579,43 @@ local function once(statement: Sqlite.Statement): boolean, string
   return true, ""
 end
 
---- Stages every file `chosen` picks into one table. A file whose stat
---- matches its row is not read; one that differs, or is new, is read,
---- hashed and written; one the walk no longer finds is deleted. Only a
---- change reaches the database.
-local function stage_into(handle: work.Handle, table_name: string,
-                          files: {string}, chosen: function(string): boolean,
-                          staged: work.Staged): boolean, string
-  local db = handle.db
-  local root = handle.root
-  local known, known_trouble = known_in(db, table_name)
-  if known == nil then
-    return false, known_trouble
-  end
-  local put, put_trouble = db:prepare(puts[table_name])
-  if put == nil then
-    return false, put_trouble
-  end
-  for _, file in ipairs(files) do
-    if chosen(file) then
-      local st, stat_trouble = Fs.stat(root .. "/" .. file)
-      if st == nil then
-        put:finalize()
-        return false, stat_trouble
-      end
-      local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
-      local was = known[file]
-      known[file] = nil
-      staged.files = staged.files + 1
-      local same = was ~= nil and was.size == st.size and
-        was.mtime_ns == mtime_ns and was.ino == st.ino and was.dev == st.dev
-      if not same then
-        local data, read_trouble = Fs.read(root .. "/" .. file)
-        if data == nil then
-          put:finalize()
-          return false, read_trouble
-        end
-        put:bind_text(1, file)
-        put:bind_integer(2, st.size)
-        put:bind_integer(3, mtime_ns)
-        put:bind_integer(4, st.ino)
-        put:bind_integer(5, st.dev)
-        put:bind_blob(6, data)
-        local written, write_trouble = once(put)
-        if not written then
-          put:finalize()
-          return false, file .. ": " .. write_trouble
-        end
-        staged.read = staged.read + 1
-      end
-    end
-  end
-  put:finalize()
+--- How long a file's modification time has to be in the past before
+--- a stat is trusted to stand for its bytes.
+local settle_ns = 2 * 1000000000
+
+--- Whether a file's row no longer stands for it, consuming the row
+--- from `known` either way, so what is left in `known` at the end is
+--- what the walk no longer finds.
+local function moved(known: {string:Known}, file: string, st: sys.Stat,
+                     mtime_ns: integer): boolean
+  local was = known[file]
+  known[file] = nil
+  return was == nil or was.size ~= st.size or was.mtime_ns ~= mtime_ns or
+    was.ino ~= st.ino or was.dev ~= st.dev
+end
+
+--- Writes one file's row: its stat, with the modification time kept
+--- only once it has settled, and its bytes, hashed in place.
+local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
+                       mtime_ns: integer, settled: boolean,
+                       data: string): boolean, string
+  put:bind_text(1, file)
+  put:bind_integer(2, st.size)
+  put:bind_integer(3, settled and mtime_ns or 0)
+  put:bind_integer(4, st.ino)
+  put:bind_integer(5, st.dev)
+  put:bind_blob(6, data)
+  return once(put)
+end
+
+local function finish(put_files: Sqlite.Statement, put_tool: Sqlite.Statement)
+  put_files:finalize()
+  put_tool:finalize()
+end
+
+--- Deletes the rows `known` still holds, which the walk did not find.
+local function forget(db: Sqlite.Handle, table_name: string,
+                      known: {string:Known}): boolean, string
   for path in pairs(known) do
     local ok, why = Sqlite.run(db,
       "DELETE FROM " .. table_name .. " WHERE path = ?1", { text(path) })
@@ -564,47 +627,208 @@ local function stage_into(handle: work.Handle, table_name: string,
 end
 
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
---- what the tool is made of into `tool`, in one transaction.
+--- what the tool is made of into `tool`, in one pass: a file both
+--- tables want is stat'd once and read at most once. A file whose stat
+--- matches its row is not read; one that differs, or is new, is read,
+--- hashed and written; one the walk no longer finds is deleted. Only a
+--- change reaches the database.
 --- @param own_tree whether `root` is cosmic's own tree
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
+  local db = handle.db
+  local root = handle.root
   local walked, walk_trouble =
-    Fs.walk(handle.root, own_tree and skip_in_own_tree or skip_input)
+    Fs.walk(root, own_tree and skip_in_own_tree or skip_input)
   if walked == nil then
     return nil, walk_trouble
   end
   local files: {string} = walked
+  local known_files, files_trouble = known_in(db, "files")
+  if known_files == nil then
+    return nil, files_trouble
+  end
+  local known_tool, tool_trouble = known_in(db, "tool")
+  if known_tool == nil then
+    return nil, tool_trouble
+  end
+  local put_files, put_files_trouble = db:prepare(puts.files)
+  if put_files == nil then
+    return nil, put_files_trouble
+  end
+  local put_tool, put_tool_trouble = db:prepare(puts.tool)
+  if put_tool == nil then
+    put_files:finalize()
+    return nil, put_tool_trouble
+  end
+  local now = Time.now_ns() or 0
   local staged: work.Staged = { files = 0, read = 0 }
-  local made, trouble = Sqlite.transact(handle.db, function(): boolean, string
-    local ok, why = stage_into(handle, "files", files,
-      function(file: string): boolean
-        return is_input(file, own_tree)
-      end, staged)
-    if not ok then
-      return false, why
+
+  for _, file in ipairs(files) do
+    local input = is_input(file, own_tree)
+    local tool = is_tool(file, own_tree)
+    if input or tool then
+      local st, stat_trouble = Fs.stat(root .. "/" .. file)
+      if st == nil then
+        finish(put_files, put_tool)
+        return nil, stat_trouble
+      end
+      local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+      local settled = mtime_ns < now - settle_ns
+      staged.files = staged.files + 1
+      local write_files = input and moved(known_files, file, st, mtime_ns)
+      local write_tool = tool and moved(known_tool, file, st, mtime_ns)
+      if write_files or write_tool then
+        local data, read_trouble = Fs.read(root .. "/" .. file)
+        if data == nil then
+          finish(put_files, put_tool)
+          return nil, read_trouble
+        end
+        staged.read = staged.read + 1
+        if write_files then
+          local ok, why = put_row(put_files, file, st, mtime_ns, settled, data)
+          if not ok then
+            finish(put_files, put_tool)
+            return nil, file .. ": " .. why
+          end
+        end
+        if write_tool then
+          local ok, why = put_row(put_tool, file, st, mtime_ns, settled, data)
+          if not ok then
+            finish(put_files, put_tool)
+            return nil, file .. ": " .. why
+          end
+        end
+      end
     end
-    return stage_into(handle, "tool", files, function(file: string): boolean
-      return is_tool(file, own_tree)
-    end, staged)
-  end)
-  if not made then
-    return nil, trouble
+  end
+  finish(put_files, put_tool)
+  local forgot, forget_trouble = forget(db, "files", known_files)
+  if not forgot then
+    return nil, forget_trouble
+  end
+  forgot, forget_trouble = forget(db, "tool", known_tool)
+  if not forgot then
+    return nil, forget_trouble
   end
   return staged
 end
 
---- The hash of the tool itself, over every fingerprint in `tool`. A
---- row compiled by an older importer is never mistaken for a current
---- one, because this is part of every module's key. A binary carries
---- the number it was built with, so a project reads it rather than
---- computing one.
-function work.boot_hash(handle: work.Handle): string | nil, string
-  local rows, trouble = Sqlite.rows(handle.db,
+--- The hash over some of the rows of `tool`, in path order.
+local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
+  local rows, trouble = Sqlite.rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
-    "ORDER BY path)))) FROM tool")
+    "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
     return nil, trouble
   end
   return rows[1][1]
+end
+
+--- The tool's fingerprints, over `tool`: `boot` over every row, and
+--- `image` over what the C core is built from -- `core/`, the zig
+--- build and wrapper, and every vendored tree's pin and patches but
+--- the Teal compiler's. Both are kept in `meta` for the projection to
+--- carry into the binary, which is how a binary knows what it was
+--- built from, so a project reads them rather than computing any.
+function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
+  local db = handle.db
+  local boot, boot_trouble = hash_over(db, "1")
+  if boot == nil then
+    return nil, boot_trouble
+  end
+  local image, image_trouble = hash_over(db,
+    "path GLOB 'core/*' OR path IN ('build.zig', 'build.zig.zon', " ..
+    "'bin/zig', 'bin/zig.pin') OR (path GLOB 'vendor/*/PIN' AND " ..
+    "path <> 'vendor/tl/PIN') OR (path GLOB 'patch/*' AND " ..
+    "path NOT GLOB 'patch/tl/*')")
+  if image == nil then
+    return nil, image_trouble
+  end
+  for _, pair in ipairs({ { "boot_hash", boot }, { "image_hash", image } }) do
+    local ok, why = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+      { text(pair[1]), text(pair[2]) })
+    if not ok then
+      return nil, why
+    end
+  end
+  return { boot = boot, image = image }
+end
+
+--- The two identities, computed over the tree and kept in `meta` for
+--- the projection to carry. See `Identities` for what each is over.
+function work.identities(handle: work.Handle): work.Identities | nil, string
+  local db = handle.db
+  local pins =
+    "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
+    "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
+    "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
+  local compilers, compiler_trouble = Sqlite.rows(db,
+    "WITH RECURSIVE closure(path) AS (SELECT 'build.importer' UNION " ..
+    "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
+    "JOIN requires r ON r.source_hash = i.source_hash) " ..
+    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
+    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
+    "(SELECT path FROM closure) AND path GLOB 'build.*'), '') || char(10) || " ..
+    pins .. ")))")
+  if compilers == nil then
+    return nil, compiler_trouble
+  end
+  local runtimes, runtime_trouble = Sqlite.rows(db,
+    "SELECT lower(hex(sha256(coalesce((SELECT value FROM meta " ..
+    "WHERE key = 'host_image'), '') || char(10) || " .. pins .. ")))")
+  if runtimes == nil then
+    return nil, runtime_trouble
+  end
+  local identities: work.Identities = {
+    compiler = compilers[1][1],
+    runtime = runtimes[1][1],
+  }
+  for _, pair in ipairs({ { "compiler", identities.compiler },
+                          { "runtime", identities.runtime } }) do
+    local ok, why = Sqlite.run(db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+      { text(pair[1]), text(pair[2]) })
+    if not ok then
+      return nil, why
+    end
+  end
+  return identities
+end
+
+--- Names the target the binary being built runs on and hashes the
+--- image it actually runs, for the projection to carry: the target is
+--- how a binary later finds its own image among the three it holds,
+--- and the hash is what tells a checked image from the release one
+--- the working database holds for the same target.
+function work.put_host(handle: work.Handle, host: string,
+                       image: string): boolean, string
+  local named, name_trouble = Sqlite.run(handle.db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('host', ?1)",
+    { text(host) })
+  if not named then
+    return false, name_trouble
+  end
+  return Sqlite.run(handle.db,
+    "INSERT OR REPLACE INTO meta (key, value) " ..
+    "VALUES ('host_image', lower(hex(sha256(?1))))", { { blob = image } })
+end
+
+--- One target's core image, as the bytes a boot put in.
+function work.image(handle: work.Handle, target: string): string | nil, string
+  local rows, trouble = Sqlite.rows(handle.db,
+    "SELECT size, data FROM images WHERE target = ?1", { text(target) })
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil, "no image for " .. target .. " in the working database"
+  end
+  local size = math.tointeger(tonumber(rows[1][1]) or 0) or 0
+  local image, inflate_trouble = Compress.inflate(rows[1][2], size)
+  if image == nil then
+    return nil, target .. ": " .. inflate_trouble
+  end
+  return image
 end
 
 --- Puts one target's core image in, deflated, for every later build
@@ -642,8 +866,14 @@ function work.record(handle: work.Handle, ms: integer, staged: work.Staged,
       integer(staged.read), integer(compiled), integer(cached), text(verdict) })
 end
 
---- Closes the database. The handle is finished after this.
+--- Closes the database, keeping whatever a still-open transaction
+--- did. The handle is finished after this.
 function work.close(handle: work.Handle): boolean, string
+  local committed, trouble = work.commit(handle)
+  if not committed then
+    handle.db:close()
+    return false, trouble
+  end
   return handle.db:close()
 end
 

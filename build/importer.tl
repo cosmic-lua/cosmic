@@ -14,10 +14,10 @@
 --- keyed so it is redone only when what it came from changed, and the
 --- modules to compile are a query over them.
 ---
---- A module's key is the content hash of its source, the keys of
---- everything it imports, and the hash of the tool that compiled it. An
---- unchanged key is a stat; a changed one recompiles what depended on
---- it.
+--- A module's key is its kind, the content hash of its source, the
+--- keys of everything it imports, and the identity of the compiler
+--- that compiled it -- see `build.work`'s `Identities`. An unchanged
+--- key is a stat; a changed one recompiles what depended on it.
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -36,7 +36,8 @@ local record importer
 
   record Result
     modules: {Module}
-    boot_hash: string
+    --- The compiler identity every key in `modules` carries.
+    tool: string
     main: string | nil
     -- One message per `kind = "test"` module refused compilation
     -- because it both defines its own tests and returns its own value;
@@ -223,8 +224,8 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   return true, ""
 end
 
---- Brings `derived` and the parse tables up to the staged tree, in one
---- transaction: a derived row whose file changed or vanished goes, and
+--- Brings `derived` and the parse tables up to the staged tree, inside
+--- the run's transaction: a derived row whose file changed or vanished goes, and
 --- only what is new is extracted, generated, or parsed. The compiler's
 --- row has no file and is Lua, so it is neither dropped nor parsed
 --- here; the plan carries it. What no input refers to any more is dropped, so the tables
@@ -250,7 +251,7 @@ local function derive(handle: work.Handle, self_tree: boolean,
     end
   end
 
-  return Sqlite.transact(db, function(): boolean, string
+  local derive_rows = function(): boolean, string
     local swept, sweep_trouble = db:exec(
       "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
       "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
@@ -269,7 +270,7 @@ local function derive(handle: work.Handle, self_tree: boolean,
     if not parsed then
       return false, parse_trouble
     end
-    for _, table_name in ipairs({ "parsed", "requires", "tests" }) do
+    for _, table_name in ipairs({ "parsed", "requires", "tests", "catalog" }) do
       local ok, trouble = db:exec("DELETE FROM " .. table_name ..
         " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
       if not ok then
@@ -277,7 +278,8 @@ local function derive(handle: work.Handle, self_tree: boolean,
       end
     end
     return true, ""
-  end)
+  end
+  return derive_rows()
 end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
@@ -480,7 +482,7 @@ local record Cache
 end
 
 local function prepare_cache(handle: work.Handle,
-                             boot_hash: string): Cache | nil, string
+                             tool: string): Cache | nil, string
   local db = handle.db
   local look, look_trouble = db:prepare(
     "UPDATE compiled SET seen = ?2 WHERE key = ?1 RETURNING lua")
@@ -501,7 +503,7 @@ local function prepare_cache(handle: work.Handle,
     put:finalize()
     return nil, plan_trouble
   end
-  return { run = handle.run, tool = boot_hash, look = look, put = put,
+  return { run = handle.run, tool = tool, look = look, put = put,
            plan = plan }
 end
 
@@ -614,10 +616,10 @@ end
 
 --- The vendored compiler, planned and cached like any module: its Lua
 --- is its source, so only the bytecode is made, and only once per
---- tool. Nothing to do when the working database holds no compiler,
+--- compiler identity. Nothing to do when the working database holds no compiler,
 --- as a project's does not.
 local function plan_compiler(handle: work.Handle, cache: Cache,
-                             boot_hash: string, ordinal: integer): boolean, string
+                             tool: string, ordinal: integer): boolean, string
   local rows, trouble = Sqlite.rows(handle.db,
     "SELECT source FROM inputs WHERE kind = 'vendor'")
   if rows == nil then
@@ -627,7 +629,7 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
     return true, ""
   end
   local source = rows[1][1]
-  local key = Hash.hex_sha256(source .. "\n" .. boot_hash)
+  local key = Hash.hex_sha256(source .. "\n" .. tool)
   local lua, look_trouble = cached_lua(cache, key)
   if lua ~= nil then
     return remember(cache, "vendor.tl", key, ordinal, nil, nil)
@@ -645,17 +647,18 @@ end
 
 --- Compiles every module, in import order, into Lua and bytecode --
 --- or finds it already compiled under the same key. The keys and the
---- compiles land in the working database in one transaction, kept
---- even when a later module refuses, so a run that fails still pays
---- for each module once; a compile another tool made, or one no run
---- has used lately, is dropped.
+--- compiles land in the working database inside the run's
+--- transaction, kept even when a later module refuses, so a run that
+--- fails still pays for each module once; a compile another tool
+--- made, or one no run has used lately, is dropped.
 --- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
 --- @param env the checker's environment, already pointed at the tree
---- @param boot_hash what the tool doing the compiling hashes to
+--- @param tool the identity of the compiler doing the compiling, which
+---   every key carries
 function importer.compile(handle: work.Handle, built: compiler,
                           env: compiler.Env,
-                          boot_hash: string): importer.Result | nil, string
+                          tool: string): importer.Result | nil, string
   local modules, trouble = collect(handle, importer.is_own_tree(handle.root), built)
   if modules == nil then
     return nil, trouble
@@ -670,18 +673,18 @@ function importer.compile(handle: work.Handle, built: compiler,
   end
   local keys: {string:string} = {}
   local result: importer.Result = {
-    modules = {}, boot_hash = boot_hash, main = nil, refused = {},
+    modules = {}, tool = tool, main = nil, refused = {},
     compiled = 0, cached = 0,
   }
   local db = handle.db
   local failure = ""
 
-  local made, transact_trouble = Sqlite.transact(db, function(): boolean, string
+  local compile_all = function(): boolean, string
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
     if not cleared then
       return false, clear_trouble
     end
-    local cache, prepare_trouble = prepare_cache(handle, boot_hash)
+    local cache, prepare_trouble = prepare_cache(handle, tool)
     if cache == nil then
       return false, prepare_trouble
     end
@@ -695,7 +698,7 @@ function importer.compile(handle: work.Handle, built: compiler,
       end
       table.sort(closure)
       m.key = Hash.hex_sha256(m.kind .. "\n" .. m.source_hash .. "\n" ..
-        table.concat(closure, "\n") .. "\n" .. boot_hash)
+        table.concat(closure, "\n") .. "\n" .. tool)
       keys[m.path] = m.key
 
       if m.kind == "test" and collides_with_test_tail(m) then
@@ -743,7 +746,7 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
 
     if failure == "" then
-      local planned, plan_trouble = plan_compiler(handle, cache, boot_hash,
+      local planned, plan_trouble = plan_compiler(handle, cache, tool,
         #order + 1)
       if not planned then
         finish_cache(cache)
@@ -753,8 +756,9 @@ function importer.compile(handle: work.Handle, built: compiler,
     finish_cache(cache)
     return Sqlite.run(db,
       "DELETE FROM compiled WHERE tool <> ?1 OR seen < ?2",
-      { text(boot_hash), { integer = handle.run - kept_runs } })
-  end)
+      { text(tool), { integer = handle.run - kept_runs } })
+  end
+  local made, transact_trouble = compile_all()
   if not made then
     return nil, transact_trouble
   end

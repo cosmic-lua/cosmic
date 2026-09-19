@@ -8,10 +8,10 @@ next and what is undecided.
 ## self-check
 
 `cosmic test` compiles what changed in the tree with the patched Teal
-checker, reads the rest back from the working database, and runs every
-discovered test in-process, with records in that same database. test
-selection is not yet implemented, nor is the planned restriction on
-casts.
+checker, reads the rest back from the working database, and runs, in
+process, every discovered test whose stored verdict does not stand,
+with records in that same database. the planned restriction on casts
+is not yet implemented.
 tests, the in-process runner, and a real Teal AST (`build.ast`:
 parse, walk, structural match, rewrite) have already landed; what
 follows leans on `build.ast`, still build-internal today, and on
@@ -103,11 +103,9 @@ that runs both, coverage reported the same way for either.
 **alongside, not gating the above:**
 
 - **child-process spawning**, `cosmic.child` over `posix_spawn`.
-  serves three things at once once it lands: the isolation layer the
+  serves two things at once once it lands: the isolation layer the
   test runner still lacks (a hang or a crash in one test currently
-  takes down the whole run), the re-exec the stale-tool refusal
-  needs (it detects a stale tool and refuses today; it has no
-  process yet to re-exec into), and a real default time limit on
+  takes down the whole run), and a real default time limit on
   `cosmic test` (something like 30 seconds) that can actually kill a
   hung test rather than just watch it: a cooperative, checked-between-
   tests budget was considered and set aside deliberately, since it
@@ -140,9 +138,6 @@ all three targets and the repro lane proves them byte-identical.
   deferred early on; zig as the language was set aside. revisit now
   that a real C core and build.zig exist to compare against, not a
   sketch.
-- **FTS5.** measured at 222 KB per core image, three images per
-  binary, from the current size report. the decision itself is
-  still open, and belongs to whoever needs full-text search first.
 - **an address-sanitized lane** on a clang outside the pinned
   toolchain. deferred until the C core is large enough to want it;
   today's core is a few files and hasn't earned the second toolchain

@@ -271,3 +271,149 @@ local function test_has_top_level_return_true_for_a_parenthesized_return()
   local source = lines({ "return(x)" })
   assert(has_return(source))
 end
+
+--- `analyze` on `source`, asserting the parse succeeded, and returning
+--- just its guidance catalog.
+local function catalog(source: string): {positions.CatalogEntry}
+  local found, err = positions.analyze(built, source, "fixture.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  return found.catalog
+end
+
+--- A top-level function whose doc comment carries a `guidance:` line
+--- yields one entry per literal `return nil, ...` in its body, naming
+--- the function, the message text, the guidance, and the return's line.
+local function test_catalogs_a_guided_literal_failure()
+  local source = lines({
+    "--- Opens a thing.",
+    "--- guidance: check the thing is there",
+    "local function open_thing(): boolean, string",
+    "  return nil, \"the thing was not found\"",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1, "expected one entry, got " .. #found)
+  assert(found[1].symbol == "open_thing", found[1].symbol)
+  assert(found[1].message == "the thing was not found", found[1].message)
+  assert(found[1].guidance == "check the thing is there", found[1].guidance)
+  assert(found[1].line == 4, tostring(found[1].line))
+end
+
+--- Every comment line after the `guidance:` one joins the guidance,
+--- space-separated, with the comment leaders stripped.
+local function test_guidance_spans_the_remaining_comment_lines()
+  local source = lines({
+    "--- Opens a thing.",
+    "--- guidance: check the thing is there,",
+    "--- and that it is readable",
+    "local function open_thing(): boolean, string",
+    "  return nil, \"the thing was not found\"",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1)
+  assert(found[1].guidance == "check the thing is there, and that it is readable",
+    found[1].guidance)
+end
+
+--- A function whose comments name no guidance contributes nothing,
+--- however many literal failures it returns.
+local function test_catalogs_nothing_without_guidance()
+  local source = lines({
+    "--- Opens a thing, with no guidance to offer.",
+    "local function open_thing(): boolean, string",
+    "  return nil, \"the thing was not found\"",
+    "end",
+  })
+  assert(#catalog(source) == 0)
+end
+
+--- `return false, ...` is an honest failure too, and is catalogued the
+--- same way.
+local function test_catalogs_a_false_return()
+  local source = lines({
+    "--- guidance: retry later",
+    "local function try_thing(): boolean, string",
+    "  return false, \"the thing is busy right now\"",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1)
+  assert(found[1].message == "the thing is busy right now", found[1].message)
+end
+
+--- A concatenated message keeps its literal pieces and drops the
+--- interpolated ones, so the entry holds exactly the text an error
+--- would always contain.
+local function test_message_keeps_only_the_literal_text()
+  local source = lines({
+    "--- guidance: check the path",
+    "local function open_thing(path: string): boolean, string",
+    "  return nil, \"could not open \" .. path .. \" for reading\"",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1)
+  assert(found[1].message == "could not open  for reading", found[1].message)
+end
+
+--- A message that reduces to too little literal text to anchor a match
+--- is left out rather than shipped as a near-universal false hit.
+local function test_drops_a_mostly_interpolated_message()
+  local source = lines({
+    "--- guidance: check the path",
+    "local function open_thing(path: string): boolean, string",
+    "  return nil, path .. \": \" .. describe()",
+    "end",
+    "--- guidance: check the index",
+    "local function pick(index: integer): boolean, string",
+    "  return nil, \"no \" .. tostring(index)",
+    "end",
+  })
+  assert(#catalog(source) == 0)
+end
+
+--- A record function's symbol names its owner the way it was declared,
+--- with `.` for a plain function and `:` for a method.
+local function test_record_function_symbols_name_their_owner()
+  local source = lines({
+    "local record Thing",
+    "end",
+    "--- guidance: open it first",
+    "function Thing.read(): boolean, string",
+    "  return nil, \"the thing is not open\"",
+    "end",
+    "--- guidance: open it first",
+    "function Thing:write(): boolean, string",
+    "  return nil, \"the thing is not open for writing\"",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 2, "expected two entries, got " .. #found)
+  assert(found[1].symbol == "Thing.read", found[1].symbol)
+  assert(found[2].symbol == "Thing:write", found[2].symbol)
+end
+
+--- A failure returned from a nested block is found; one returned by a
+--- function declared inside the guided one belongs to that inner
+--- function's own comments, and is not attributed to the outer one.
+local function test_walks_nested_blocks_but_not_inner_functions()
+  local source = lines({
+    "--- guidance: check both conditions",
+    "local function open_thing(a: boolean): boolean, string",
+    "  if a then",
+    "    if not a then",
+    "      return nil, \"the thing is deeply wrong\"",
+    "    end",
+    "  end",
+    "  local function inner(): boolean, string",
+    "    return nil, \"the inner thing is wrong\"",
+    "  end",
+    "  return inner()",
+    "end",
+  })
+  local found = catalog(source)
+  assert(#found == 1, "expected one entry, got " .. #found)
+  assert(found[1].message == "the thing is deeply wrong", found[1].message)
+  assert(found[1].line == 5, tostring(found[1].line))
+end

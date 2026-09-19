@@ -129,6 +129,24 @@ local function symbol_of(stmt: ast.Node): string
   return (owner_tk or "") .. sep .. (tk or "")
 end
 
+--- Every node under a function declared inside `body` -- a nested
+--- `local function`, a method, or an anonymous `function` value -- so a
+--- hit found there can be told from one in `body`'s own blocks.
+--- `ast.find_all` walks the whole subtree and offers no way to stop at
+--- a function boundary, so the boundary is drawn here instead.
+local function nodes_under_inner_functions(body: ast.Node): {ast.Node: boolean}
+  local inner: {ast.Node: boolean} = {}
+  ast.walk(body, function(n: ast.Node)
+    if n.kind == "local_function" or n.kind == "record_function"
+       or n.kind == "global_function" or n.kind == "function" then
+      ast.walk(n, function(under: ast.Node)
+        inner[under] = true
+      end)
+    end
+  end)
+  return inner
+end
+
 --- Every honest-return failure inside `stmt`'s own body that carries
 --- literal text, once `stmt`'s comments have already named guidance for
 --- it: `return nil, ...` (a value) and `return false, ...` (an effect)
@@ -141,6 +159,7 @@ end
 local function catalog_in_body(body: ast.Node, patterns: {ast.Node},
     symbol: string, guidance: string): {positions.CatalogEntry}
   local out: {positions.CatalogEntry} = {}
+  local inner = nodes_under_inner_functions(body)
   for _, pattern in ipairs(patterns) do
     for _, hit in ipairs(ast.find_all(body, pattern)) do
       local msg = hit.caps["_MSG"]
@@ -149,7 +168,7 @@ local function catalog_in_body(body: ast.Node, patterns: {ast.Node},
       -- an FTS match, so a mostly-interpolated message ("parameter " ..
       -- index .. ": " .. trouble, reduced to "parameter : ") is left
       -- out rather than shipped as a near-universal false match.
-      if #(text:gsub("%A", "")) >= 6 then
+      if not inner[hit.node] and #(text:gsub("%A", "")) >= 6 then
         out[#out + 1] = { symbol = symbol, message = text, guidance = guidance,
           line = hit.node.y }
       end

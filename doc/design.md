@@ -131,8 +131,11 @@ and Mach-O alike; debug info carries the absolute path and a
 content-derived Mach-O UUID follows it. the Linux lane builds a
 fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
-bare trap, and runs the whole test suite and the fuzzers under it on
-every push. zig ships no address sanitizer runtime for any target;
+bare trap. `bin/zig build sanitized` boots with that core and embeds
+it in `o/sanitized/bin/cosmic`; CI verifies the embedded core bytes
+and runs the whole test suite under `timeout 90` on every push, with
+full undefined-behavior checking and coverage collection enabled. zig
+ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
 toolchain and with that caveat stated, is a later addition. a
 `cosmic-debug` asset, the sanitized build published beside the
@@ -268,8 +271,17 @@ input to the build, never to the runtime. one database holds:
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
+- **catalog**: guidance for errors a program can meet, one row per
+  literal `return nil, ...` message under a function whose doc
+  comment carries a `guidance:` line, plus hand-authored rows for
+  the `strerror()` messages a syscall can raise. an FTS5 index over
+  it, `catalog_fts`, is what an uncaught error's message is looked
+  up in, so the guidance prints beneath the traceback.
 
-every table is `WITHOUT ROWID` on a natural key. everything a build
+every table is `WITHOUT ROWID` on a natural key, except `catalog`,
+which FTS5's external-content mode joins by rowid and which is
+therefore keyed on an integer assigned in one deterministic insertion
+order instead. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so
@@ -356,12 +368,22 @@ attaches it as `o/bin/cosmic`. a fresh clone and CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
-and a stale tool is the bug to design against. `boot` stores a hash
-of `build/` and `core/` in the binary it produces. every `o/bin/cosmic
-build` hashes the same trees first; on a mismatch it runs `boot` and
-re-execs into the result, once, and refuses a second round by name.
-that hash is also part of every record key, so a row compiled by an
-older importer is never mistaken for a current one.
+and a stale tool is the bug to design against. `boot` stores two
+fingerprints in the binary it produces: one over everything the tool
+is made of, one over what the C core is built from. every run in
+cosmic's own tree fingerprints the tree first. when only Teal
+differs, the tool rebuilds itself -- compiles the tree, projects the
+database, attaches it to the host image it already carries -- and
+re-execs into the result, once, refusing a second round by name;
+when the C core's inputs differ, only zig can build it, and the tool
+says so. the binary also carries two identities: the compiler it is,
+over the build's own modules in the importer's closure and the Teal
+compiler's and Lua's pins and patches, which every module key
+carries; and the runtime it is, over its host image and the same
+pins, which every test verdict carries. the standard library the
+importer runs on is in neither, so an edit there reaches what
+imports it and nothing more. a row compiled by another compiler is
+never mistaken for this one's.
 
 the C stage is hermetic and checked. `build.zig` runs with both of
 zig's caches under `o/`, and `o/` is the only thing to delete. the
@@ -379,10 +401,12 @@ verifies. everything else is vendored or built from it.
 
 the target build architecture is fast, incremental, and reproducible.
 today a module whose key stands is read back from the working
-database rather than compiled again, and the shipped database is a
-projection of that one; the runner still executes every discovered
-test in-process. test selection from observed reads and child-process
-isolation are planned below, not implemented:
+database rather than compiled again, the shipped database is a
+projection of that one, written only when what it is a function of
+moved, and a test whose verdict stands -- its module's key and the
+hash of every file it was observed to read -- is not run again. the
+runner still executes what does run in-process; child-process
+isolation is planned below, not implemented:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, the boot hash, and, for
