@@ -283,7 +283,11 @@ input to the build, never to the runtime. one database holds:
   actually declares. `cosmic docs Fs.read` prints it, source and all,
   beneath the doc comment; the example itself compiles and runs like
   any other test, since it is one -- one assertion mechanism for code,
-  not a second, output-diffing one only doc guides need.
+  not a second, output-diffing one only doc guides need. An example
+  requires what it needs itself, inside its own function, rather than
+  sharing a require above it: what `cosmic docs` prints is exactly
+  this function's own text, so it should read as a complete,
+  standalone snippet on its own.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.

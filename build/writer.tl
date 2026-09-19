@@ -88,8 +88,12 @@ local insert_uses =
 --- where that resolved symbol is one the paired module actually
 --- documents, the same guard `insert_uses` applies, so an example
 --- naming nothing real is dropped rather than shipped unresolved.
+--- `OR IGNORE`, also matching `insert_uses`: two examples in one file
+--- that happen to resolve to the same symbol (a duplicate `function
+--- Example.<name>` declaration, effectively a typo) keep the first
+--- rather than failing the whole build on `examples`'s primary key.
 local insert_examples =
-  "INSERT INTO out.examples (module, symbol, file, line, source) " ..
+  "INSERT OR IGNORE INTO out.examples (module, symbol, file, line, source) " ..
   "SELECT t.path, tp.export || '.' || e.name, i.file, e.line, e.source " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'example' " ..
   "JOIN examples e ON e.source_hash = i.source_hash " ..
