@@ -2,7 +2,7 @@ local Sqlite = require("cosmic.sqlite")
 local work = require("build.work")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
-  local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM " .. table_name))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
   return math.tointeger(tonumber(rows[1][1])) as integer
 end
 

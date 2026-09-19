@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -79,6 +80,38 @@ COSMIC_SYSCALL(open, 3) {
   }
   lua_pushinteger(L, fd);
   return 1;
+}
+
+COSMIC_SYSCALL(open_temporary, 2) {
+  const char *path = luaL_checkstring(L, 1);
+  int mode = (int)luaL_optinteger(L, 2, 0644);
+  static unsigned long serial;
+  char temporary[PATH_MAX];
+
+  for (unsigned int attempt = 0; attempt < 100; attempt++) {
+    unsigned long number = ++serial;
+    int length = snprintf(temporary, sizeof temporary, "%s.writing.%ld.%lu",
+                          path, (long)getpid(), number);
+    if (length < 0 || (size_t)length >= sizeof temporary) {
+      return cosmic_fail(L, ENAMETOOLONG);
+    }
+    int fd;
+    do {
+      fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+                (mode_t)mode);
+    } while (fd < 0 && errno == EINTR);
+    if (fd >= 0) {
+      lua_createtable(L, 0, 2);
+      push_field(L, "fd", (lua_Integer)fd);
+      lua_pushstring(L, temporary);
+      lua_setfield(L, -2, "path");
+      return 1;
+    }
+    if (errno != EEXIST) {
+      return cosmic_fail(L, errno);
+    }
+  }
+  return cosmic_fail(L, EEXIST);
 }
 
 COSMIC_SYSCALL(close, 1) {

@@ -48,30 +48,36 @@ local function write_all(fd: integer, data: string): boolean, string
     if put == nil then
       return false, trouble
     end
+    if put == 0 then
+      return false, "write made no progress"
+    end
     at = at + put
   end
   return true, ""
 end
 
---- Replaces a file's contents, and leaves the old contents in place if
---- anything fails: the bytes go to a neighbouring name first and the
---- rename is what the reader sees.
+--- Replaces a file atomically for readers, and leaves the old contents in
+--- place if anything before the rename fails. This provides atomic visibility,
+--- not crash durability: neither the file nor its directory is synchronized.
 function Fs.write(path: string, data: string, mode?: integer): boolean, string
-  local temporary = path .. ".writing"
-  local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
-  local fd, trouble = sys.open(temporary, flags, mode or 0x1a4)
-  if fd == nil then
-    return false, temporary .. ": " .. trouble
+  local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
+  if temporary == nil then
+    return false, path .. ": " .. trouble
   end
-  local ok, failure = write_all(fd, data)
-  sys.close(fd)
+  local ok, failure = write_all(temporary.fd, data)
   if not ok then
-    sys.unlink(temporary)
-    return false, temporary .. ": " .. failure
+    sys.close(temporary.fd)
+    sys.unlink(temporary.path)
+    return false, temporary.path .. ": " .. failure
   end
-  local moved, why = sys.rename(temporary, path)
+  local closed, close_failure = sys.close(temporary.fd)
+  if not closed then
+    sys.unlink(temporary.path)
+    return false, temporary.path .. ": " .. close_failure
+  end
+  local moved, why = sys.rename(temporary.path, path)
   if not moved then
-    sys.unlink(temporary)
+    sys.unlink(temporary.path)
     return false, path .. ": " .. why
   end
   return true, ""

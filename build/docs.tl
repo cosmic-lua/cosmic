@@ -123,7 +123,7 @@ local function examples_for(db: Sqlite.Handle, module: string,
   if symbol == "" then
     return {}
   end
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
@@ -145,7 +145,7 @@ end
 --- symbol's last name alone (`read`, matching every `X.read` and
 --- `X:read`), or a module's own row (`cosmic.fs`).
 local function named(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.symbol = ?1 " ..
     "OR substr(d.symbol, -length(?1) - 1) = '.' || ?1 " ..
     "OR substr(d.symbol, -length(?1) - 1) = ':' || ?1 " ..
@@ -160,7 +160,7 @@ end
 --- Every symbol a module declares at its top level, for the listing
 --- under a module's own documentation.
 local function declared_in(db: Sqlite.Handle, module: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
     "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') ORDER BY d.id",
     { text(module) })
@@ -183,7 +183,7 @@ end
 --- The rows whose symbol, signature or documentation carries every
 --- word of `query`, best match first.
 local function searched_docs(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
     "WHERE docs_fts MATCH ?1 ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
     { text(fts) })
@@ -201,7 +201,7 @@ end
 --- for; the module's own listing shows each symbol's own example
 --- count (`examples_for`, by name this time) to narrow from there.
 local function searched_examples(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "JOIN docs d ON d.module = e.module AND d.symbol = '' " ..
@@ -247,7 +247,7 @@ end
 --- The places that refer to `symbol` as declared, or to any symbol
 --- whose last name is `symbol`.
 local function uses_of(db: Sqlite.Handle, query: string): {docs.Use} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line FROM uses " ..
     "WHERE symbol = ?1 OR substr(symbol, -length(?1) - 1) = '.' || ?1 " ..
     "OR substr(symbol, -length(?1) - 1) = ':' || ?1 " ..
@@ -266,7 +266,7 @@ end
 --- Whether `db` holds the shipped tables at all: a database built
 --- before they existed answers no query here.
 local function has_docs(db: Sqlite.Handle): boolean
-  local rows = Sqlite.rows(db,
+  local rows = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
   return rows ~= nil and #rows > 0
 end
