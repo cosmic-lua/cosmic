@@ -29,6 +29,9 @@ jobs:
       - name: run every test the tree defines, including doctests
         run: o/bin/cosmic test
 
+      - name: the tree renders exactly as `cosmic fix` would write it
+        run: o/bin/cosmic fix --check .
+
       - name: what the build produced
         run: |
           ls -l o/bin o/cosmic.db
