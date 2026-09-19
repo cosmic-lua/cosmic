@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "boot.h"
+#include "crypto.h"
 #include "lauxlib.h"
 #include "locate.h"
 #include "sqlite.h"
@@ -84,6 +85,9 @@ static int run_main(lua_State *L, int argc, char **argv) {
 
 int main(int argc, char **argv) {
   sqlite3_initialize();
+  if (cosmic_crypto_init() != 0) {
+    return complain("the crypto library would not start", NULL);
+  }
 
   char self[4096];
   if (!cosmic_executable_path(self, sizeof self)) {

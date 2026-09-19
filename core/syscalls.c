@@ -12,7 +12,7 @@
 #include "lauxlib.h"
 #include "locate.h"
 #include "miniz.h"
-#include "sha256.h"
+#include "crypto.h"
 #include "syscalls.h"
 
 #if defined(__APPLE__)
@@ -108,13 +108,41 @@ COSMIC_SYSCALL(isatty, 1) {
   return 1;
 }
 
-COSMIC_SYSCALL(sha256, 1) {
-  size_t len;
-  const char *data = luaL_checklstring(L, 1, &len);
-  unsigned char digest[32];
-  cosmic_sha256(data, len, digest);
-  lua_pushlstring(L, (const char *)digest, sizeof digest);
+/* An algorithm nobody has heard of is an argument-shape error and
+ * raises; the library refusing a hash it advertises is a bug, and
+ * raises too. Neither is a runtime failure a caller could handle. */
+static int hashed(lua_State *L, int status, const unsigned char *digest,
+                  size_t len) {
+  if (status == -1) {
+    return luaL_argerror(L, 1, "no such digest algorithm");
+  }
+  if (status != 0) {
+    return luaL_error(L, "the digest failed with status %d", status);
+  }
+  lua_pushlstring(L, (const char *)digest, len);
   return 1;
+}
+
+COSMIC_SYSCALL(digest, 2) {
+  const char *name = luaL_checkstring(L, 1);
+  size_t len;
+  const char *data = luaL_checklstring(L, 2, &len);
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_len = 0;
+  int status = cosmic_digest(name, data, len, digest, &digest_len);
+  return hashed(L, status, digest, digest_len);
+}
+
+COSMIC_SYSCALL(hmac, 3) {
+  const char *name = luaL_checkstring(L, 1);
+  size_t key_len;
+  const char *key = luaL_checklstring(L, 2, &key_len);
+  size_t len;
+  const char *data = luaL_checklstring(L, 3, &len);
+  unsigned char mac[COSMIC_DIGEST_MAX];
+  size_t mac_len = 0;
+  int status = cosmic_hmac(name, key, key_len, data, len, mac, &mac_len);
+  return hashed(L, status, mac, mac_len);
 }
 
 COSMIC_SYSCALL(deflate, 1) {
@@ -174,7 +202,8 @@ static const luaL_Reg table[] = {
     ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
-    ENTRY(sha256),   ENTRY(deflate),       ENTRY(inflate),
+    ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
+    ENTRY(inflate),
     {NULL, NULL},
 };
 

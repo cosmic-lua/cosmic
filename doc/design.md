@@ -475,12 +475,15 @@ addition that rewrites no bindings.
 
 ### tls
 
-mbedtls: TLS 1.2 and 1.3, one configuration, hashes and HMAC from
-the same library. the branch is chosen when the `fetch` module is
-pulled; 4.x is the expectation, since 3.6's support ends in March
-2027 and 4.1's runs to 2029 as one tarball with its crypto subtree
-included. nothing before that needs mbedtls: SHA-256 for records and
-for the Mach-O signer is two hundred lines in the core. Mozilla's
+mbedtls 4.1, vendored as one tarball with its crypto subtree
+included, whose support runs to 2029. today only the crypto subtree
+is built, and only for digests and HMAC: MD5, SHA-1, the SHA-2 and
+SHA-3 sizes, through the PSA API, with randomness from the OS rather
+than the library's own entropy and DRBG modules. `cosmic.hash` is
+the Teal face of it, the syscall table's `digest` and `hmac` the
+bindings, and every SQLite handle knows the same functions, so a
+query hashes in place. TLS 1.2 and 1.3 come from the same library,
+one configuration, when the `fetch` module is pulled. Mozilla's
 root bundle is stored in the database, identical on every machine,
 moved only by a pinned bump; an environment variable adds a
 certificate for the corporate-proxy case without making per-machine

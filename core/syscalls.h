@@ -285,11 +285,21 @@ COSMIC_SYSCALL(nanosleep, 1);
 COSMIC_SYSCALL(isatty, 1);
 
 /*
- * --- Hashes bytes with SHA-256 and returns the 32 raw bytes.
+ * --- Hashes bytes with a named algorithm and returns the raw digest.
+ * ---@param algorithm string one of md5, sha1, sha224, sha256, sha384, sha512, sha3-224, sha3-256, sha3-384, sha3-512
  * ---@param data string the bytes to hash
- * ---@return string digest the 32-byte digest
+ * ---@return string digest the raw digest, 16 to 64 bytes by algorithm
  */
-COSMIC_SYSCALL(sha256, 1);
+COSMIC_SYSCALL(digest, 2);
+
+/*
+ * --- Authenticates bytes with HMAC over a named algorithm and returns the raw code.
+ * ---@param algorithm string the digest algorithm, as for digest
+ * ---@param key string the secret key, any length
+ * ---@param data string the bytes to authenticate
+ * ---@return string mac the raw authentication code, the algorithm's digest size
+ */
+COSMIC_SYSCALL(hmac, 3);
 
 /*
  * --- Compresses bytes with deflate.

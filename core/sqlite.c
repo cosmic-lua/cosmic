@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "lauxlib.h"
-#include "sha256.h"
+#include "crypto.h"
 #include "sqlite3.h"
 
 #define HANDLE_TYPE "cosmic.sqlite.handle"
@@ -56,23 +56,100 @@ static struct statement *checked_statement(lua_State *L) {
   return s;
 }
 
-/* `sha256(X)`: the 32-byte digest of a text or blob, NULL for NULL.
- * Registered on every handle this module opens, so a build hashes
- * inside the database it is writing rather than round-tripping bytes
- * out to Lua and back. */
+/* The digest functions, registered on every handle this module opens,
+ * so a build hashes inside the database it is writing rather than
+ * round-tripping bytes out to Lua and back: `sha256(X)` is the 32-byte
+ * digest of a text or blob; `digest(A, X)` the digest under the
+ * algorithm named A; `hmac(A, K, X)` the HMAC of X under key K over
+ * A. A NULL among the arguments gives NULL; an algorithm no one has
+ * heard of is an error. */
+static void finish_digest(sqlite3_context *ctx, int status,
+                          const unsigned char *digest, size_t len) {
+  if (status == -1) {
+    sqlite3_result_error(ctx, "no such digest algorithm", -1);
+    return;
+  }
+  if (status != 0) {
+    sqlite3_result_error(ctx, "the digest failed", -1);
+    return;
+  }
+  sqlite3_result_blob(ctx, digest, (int)len, SQLITE_TRANSIENT);
+}
+
+static int any_null(int argc, sqlite3_value **argv) {
+  for (int i = 0; i < argc; i++) {
+    if (sqlite3_value_type(argv[i]) == SQLITE_NULL) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* A value's bytes, with an empty text or blob as a valid empty span
+ * rather than a NULL pointer. */
+static const void *bytes_of(sqlite3_value *value, size_t *len) {
+  const void *data = sqlite3_value_blob(value);
+  *len = (size_t)sqlite3_value_bytes(value);
+  return data == NULL ? "" : data;
+}
+
 static void sha256_function(sqlite3_context *ctx, int argc,
                             sqlite3_value **argv) {
-  (void)argc;
-  if (sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+  if (any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
   }
-  const void *data = sqlite3_value_blob(argv[0]);
-  int len = sqlite3_value_bytes(argv[0]);
-  unsigned char digest[32];
-  cosmic_sha256(data == NULL ? "" : data, (size_t)len, digest);
-  sqlite3_result_blob(ctx, digest, (int)sizeof digest, SQLITE_TRANSIENT);
+  size_t len;
+  const void *data = bytes_of(argv[0], &len);
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_len = 0;
+  int status = cosmic_digest("sha256", data, len, digest, &digest_len);
+  finish_digest(ctx, status, digest, digest_len);
 }
+
+static void digest_function(sqlite3_context *ctx, int argc,
+                            sqlite3_value **argv) {
+  if (any_null(argc, argv)) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  const char *name = (const char *)sqlite3_value_text(argv[0]);
+  size_t len;
+  const void *data = bytes_of(argv[1], &len);
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_len = 0;
+  int status = cosmic_digest(name, data, len, digest, &digest_len);
+  finish_digest(ctx, status, digest, digest_len);
+}
+
+static void hmac_function(sqlite3_context *ctx, int argc,
+                          sqlite3_value **argv) {
+  if (any_null(argc, argv)) {
+    sqlite3_result_null(ctx);
+    return;
+  }
+  const char *name = (const char *)sqlite3_value_text(argv[0]);
+  size_t key_len;
+  const void *key = bytes_of(argv[1], &key_len);
+  size_t len;
+  const void *data = bytes_of(argv[2], &len);
+  unsigned char mac[COSMIC_DIGEST_MAX];
+  size_t mac_len = 0;
+  int status = cosmic_hmac(name, key, key_len, data, len, mac, &mac_len);
+  finish_digest(ctx, status, mac, mac_len);
+}
+
+struct function {
+  const char *name;
+  int arity;
+  void (*call)(sqlite3_context *, int, sqlite3_value **);
+};
+
+static const struct function functions[] = {
+    {"sha256", 1, sha256_function},
+    {"digest", 2, digest_function},
+    {"hmac", 3, hmac_function},
+};
 
 static int sqlite_open(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
@@ -88,11 +165,12 @@ static int sqlite_open(lua_State *L) {
   luaL_setmetatable(L, HANDLE_TYPE);
 
   int rc = sqlite3_open_v2(path, &h->db, flags, NULL);
-  if (rc == SQLITE_OK) {
+  for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
+       i++) {
     rc = sqlite3_create_function(
-        h->db, "sha256", 1,
+        h->db, functions[i].name, functions[i].arity,
         SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
-        sha256_function, NULL, NULL);
+        functions[i].call, NULL, NULL);
   }
   if (rc != SQLITE_OK) {
     int result = failed(L, h->db, rc);

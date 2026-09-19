@@ -1,18 +1,45 @@
---- Content hashes.
+--- Content hashes and message authentication, over the vendored
+--- mbedtls.
 
 local sys = require("cosmic.sys")
 
 local record Hash
+  --- The digest algorithms the core knows, by the names the syscall
+  --- table takes.
+  enum Algorithm
+    "md5"
+    "sha1"
+    "sha224"
+    "sha256"
+    "sha384"
+    "sha512"
+    "sha3-224"
+    "sha3-256"
+    "sha3-384"
+    "sha3-512"
+  end
+end
+
+--- The raw digest of some bytes under an algorithm: 16 bytes for MD5,
+--- 20 for SHA-1, and 28 to 64 for the SHA-2 and SHA-3 sizes.
+function Hash.digest(algorithm: Hash.Algorithm, data: string): string
+  return sys.digest(algorithm, data)
+end
+
+--- The raw HMAC of some bytes under a key, over an algorithm. The code
+--- is as long as the algorithm's digest.
+function Hash.hmac(algorithm: Hash.Algorithm, key: string, data: string): string
+  return sys.hmac(algorithm, key, data)
+end
+
+--- The 32 raw bytes of a SHA-256 digest.
+function Hash.sha256(data: string): string
+  return sys.digest("sha256", data)
 end
 
 local hex = "0123456789abcdef"
 
---- The 32 raw bytes of a SHA-256 digest.
-function Hash.sha256(data: string): string
-  return sys.sha256(data)
-end
-
---- A digest as 64 lowercase hexadecimal characters.
+--- A digest as lowercase hexadecimal characters.
 function Hash.hex(digest: string): string
   local out: {string} = {}
   for i = 1, #digest do
@@ -26,7 +53,7 @@ end
 --- The hexadecimal SHA-256 of some bytes, which is the form the build
 --- writes into keys.
 function Hash.hex_sha256(data: string): string
-  return Hash.hex(sys.sha256(data))
+  return Hash.hex(sys.digest("sha256", data))
 end
 
 return Hash

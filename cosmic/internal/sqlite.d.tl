@@ -40,8 +40,8 @@ local record sqlite
 
   -- `writable` opens for reading and writing, creating the file when it
   -- is missing; without it the database is read-only. Every handle
-  -- knows `sha256(X)`, the 32-byte digest of a text or blob, so a
-  -- query hashes in place.
+  -- knows `sha256(X)`, `digest(A, X)` and `hmac(A, K, X)`, the digests
+  -- the core provides, so a query hashes in place.
   open: function(path: string, writable?: boolean): Handle | nil, string
   version: string
 end

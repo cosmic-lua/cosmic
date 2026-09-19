@@ -77,12 +77,38 @@ const lua_sources = [_][]const u8{
     "lundump.c",  "lutf8lib.c", "lvm.c",      "lzio.c",
 };
 
+/// mbedtls's compile-time configuration: digests and HMAC through the
+/// PSA API and nothing else, with randomness from the OS rather than
+/// the library's own entropy and DRBG modules. Flags rather than a
+/// header, for the same reason SQLite's are; the header the library
+/// insists on naming is empty. Every file that includes the library's
+/// headers is compiled with these, the core's own included, or the
+/// headers would describe another library.
+const mbedtls_config = [_][]const u8{
+    "-DTF_PSA_CRYPTO_CONFIG_FILE=\"crypto_config.h\"",
+    "-DPSA_WANT_ALG_MD5=1",
+    "-DPSA_WANT_ALG_SHA_1=1",
+    "-DPSA_WANT_ALG_SHA_224=1",
+    "-DPSA_WANT_ALG_SHA_256=1",
+    "-DPSA_WANT_ALG_SHA_384=1",
+    "-DPSA_WANT_ALG_SHA_512=1",
+    "-DPSA_WANT_ALG_SHA3_224=1",
+    "-DPSA_WANT_ALG_SHA3_256=1",
+    "-DPSA_WANT_ALG_SHA3_384=1",
+    "-DPSA_WANT_ALG_SHA3_512=1",
+    "-DPSA_WANT_ALG_HMAC=1",
+    "-DPSA_WANT_KEY_TYPE_HMAC=1",
+    "-DMBEDTLS_PSA_CRYPTO_C",
+    "-DMBEDTLS_PSA_CRYPTO_EXTERNAL_RNG",
+    "-DMBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS",
+};
+
 const core_sources = [_][]const u8{
     "boot.c",
     "coverage.c",
+    "crypto.c",
     "locate.c",
     "main.c",
-    "sha256.c",
     "sqlite.c",
     "store.c",
     "surface.c",
@@ -110,6 +136,7 @@ pub fn build(b: *std.Build) void {
     const sqlite = patched(b, applier, "sqlite");
     const tl = patched(b, applier, "tl");
     const miniz = patched(b, applier, "miniz");
+    const mbedtls = patched(b, applier, "mbedtls");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -117,6 +144,7 @@ pub fn build(b: *std.Build) void {
     for ([_]struct { []const u8, std.Build.LazyPath }{
         .{ "lua", lua },   .{ "sqlite", sqlite },
         .{ "tl", tl },     .{ "miniz", miniz },
+        .{ "mbedtls", mbedtls },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -131,7 +159,7 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, resolved, false, lua, sqlite, miniz);
+        const exe = core(b, resolved, false, lua, sqlite, miniz, mbedtls);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
@@ -158,7 +186,7 @@ pub fn build(b: *std.Build) void {
     // them. It bridges into Teal like the release core, so the whole build
     // runs under the checks.
     const sanitized = b.step("sanitized", "build and boot the checked core");
-    const checked = core(b, b.graph.host, true, lua, sqlite, miniz);
+    const checked = core(b, b.graph.host, true, lua, sqlite, miniz, mbedtls);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -221,6 +249,7 @@ fn core(
     lua: std.Build.LazyPath,
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
+    mbedtls: std.Build.LazyPath,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
@@ -300,16 +329,56 @@ fn core(
     });
     mod.addIncludePath(miniz);
 
+    // mbedtls, its crypto subtree only: the files below are the ones
+    // that hold any code under the configuration above, every other one
+    // compiles to nothing. TLS is not built; the `fetch` module pulls it
+    // in when it lands.
+    const mbedtls_flags = [_][]const u8{"-std=c11"} ++ mbedtls_config;
+    const crypto = mbedtls.path(b, "tf-psa-crypto");
+    mod.addCSourceFiles(.{
+        .root = crypto,
+        .files = &.{
+            "core/psa_crypto.c",
+            "core/psa_crypto_client.c",
+            "core/psa_crypto_driver_wrappers_no_static.c",
+            "core/psa_crypto_slot_management.c",
+            "core/psa_util.c",
+            "drivers/builtin/src/md5.c",
+            "drivers/builtin/src/psa_crypto_cipher.c",
+            "drivers/builtin/src/psa_crypto_hash.c",
+            "drivers/builtin/src/psa_crypto_mac.c",
+            "drivers/builtin/src/psa_crypto_rsa.c",
+            "drivers/builtin/src/psa_util_internal.c",
+            "drivers/builtin/src/sha1.c",
+            "drivers/builtin/src/sha256.c",
+            "drivers/builtin/src/sha3.c",
+            "drivers/builtin/src/sha512.c",
+            "platform/platform_util.c",
+            "utilities/constant_time.c",
+        },
+        .flags = &mbedtls_flags,
+    });
+    for ([_][]const u8{
+        "include",  "core",      "drivers/builtin/include",
+        "drivers/builtin/src",   "dispatch", "utilities",
+        "platform", "extras",
+    }) |dir| {
+        mod.addIncludePath(crypto.path(b, dir));
+    }
+
+    // The core sees the library through the same configuration it was
+    // built with, or the headers would describe another library.
+    const core_flags = [_][]const u8{
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+    } ++ mbedtls_config;
     mod.addCSourceFiles(.{
         .root = b.path("core"),
         .files = &core_sources,
-        .flags = &.{
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
-        },
+        .flags = &core_flags,
     });
     mod.addIncludePath(b.path("core"));
 
