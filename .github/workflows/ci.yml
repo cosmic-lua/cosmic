@@ -8,8 +8,14 @@ permissions:
   contents: read
 
 jobs:
-  # One Linux lane builds every image, and the database they all share.
-  build:
+  # `bin/zig build cores` cross-compiles every target from any host, so
+  # each of these three is not "testing its own platform" -- it is a
+  # complete, independent build of the whole tree (every image, the
+  # database, both cross-compiled binaries and its one native one),
+  # tested and packaged on its own real, unrelated host. Nothing here
+  # needs another job to finish first: three full builds happening at
+  # once, not one canonical build with the other two waiting on it.
+  ci-linux-x86_64:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -21,7 +27,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
@@ -32,6 +38,13 @@ jobs:
       - name: the tree renders exactly as `cosmic fix` would write it
         run: o/bin/cosmic fix --check .
 
+      # The only place the signature `build/attach.tl` wrote is judged
+      # by the system that has to accept it. A no-op everywhere but
+      # macOS -- see bin/verify-codesign -- so this step is identical
+      # across all three of these jobs.
+      - name: the macOS binary's signature, if this host can judge it
+        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
+
       - name: what the build produced
         run: |
           ls -l o/bin o/cosmic.db
@@ -39,7 +52,7 @@ jobs:
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: binaries
+          name: binaries-linux-x86_64
           path: |
             o/bin/cosmic-x86_64-linux-musl
             o/bin/cosmic-aarch64-linux-musl
@@ -47,36 +60,7 @@ jobs:
             o/cosmic.db
           if-no-files-found: error
 
-  # A fourth core, built with undefined-behavior checking on, running the
-  # whole build and test suite. It is not a shipped artifact; it is the run
-  # that would report what the release build would only do quietly.
-  sanitized:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build the tree with the checked core
-        run: bin/zig build sanitized
-      - name: run every test with the checked core
-        run: |
-          cmp -n "$(wc -c < o/sanitized/cosmic-core)" \
-            o/sanitized/cosmic-core o/sanitized/bin/cosmic
-          # Measured at ~29.7s locally even after the coverage/formatter
-          # performance stack; a shared CI runner has less headroom than
-          # that, so this keeps real margin rather than matching the
-          # ordinary suite's tighter limit.
-          timeout 90 o/sanitized/bin/cosmic test
-
-  # Each shipped target proves it can build AND test itself: the same
-  # tree, built fresh with that platform's own C toolchain, must pass
-  # every test the tree defines, so this builds natively instead of
-  # testing something cross-compiled elsewhere.
-  test-linux-aarch64:
+  ci-linux-aarch64:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     steps:
@@ -90,9 +74,25 @@ jobs:
         run: bin/zig build cores boot
       - name: run every test the tree defines, including doctests
         run: o/bin/cosmic test
+      - name: the tree renders exactly as `cosmic fix` would write it
+        run: o/bin/cosmic fix --check .
+      - name: the macOS binary's signature, if this host can judge it
+        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
+      - name: what the build produced
+        run: |
+          ls -l o/bin o/cosmic.db
+          file o/bin/cosmic-*
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: binaries-linux-aarch64
+          path: |
+            o/bin/cosmic-x86_64-linux-musl
+            o/bin/cosmic-aarch64-linux-musl
+            o/bin/cosmic-aarch64-macos
+            o/cosmic.db
+          if-no-files-found: error
 
-  test-macos:
-    needs: build
+  ci-macos-aarch64:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -106,62 +106,81 @@ jobs:
         run: bin/zig build cores boot
       - name: run every test the tree defines, including doctests
         run: o/bin/cosmic test
-
-      # The only place the signature `attach` wrote is judged by the
-      # system that has to accept it -- a fresh native build proves
-      # nothing about the SHIPPED, cross-compiled artifact's own
-      # signature, so this checks that one specifically.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: binaries
-          path: dl
-      - name: the shipped artifact's signature
-        shell: bash
+      - name: the tree renders exactly as `cosmic fix` would write it
+        run: o/bin/cosmic fix --check .
+      - name: the macOS binary's signature, if this host can judge it
+        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
+      - name: what the build produced
         run: |
-          set -euo pipefail
-          for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" dl/
-          done
-          cosmic=$(find dl -type f -name 'cosmic-aarch64-macos' | head -1)
-          chmod +x "$cosmic"
-          codesign --verify --strict --verbose=2 "$cosmic"
-          codesign --display --verbose=4 "$cosmic"
-          echo "signature: PASS"
+          ls -l o/bin o/cosmic.db
+          file o/bin/cosmic-*
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: binaries-macos-aarch64
+          path: |
+            o/bin/cosmic-x86_64-linux-musl
+            o/bin/cosmic-aarch64-linux-musl
+            o/bin/cosmic-aarch64-macos
+            o/cosmic.db
+          if-no-files-found: error
 
-  # The artifact is a pure function of the tree. A fresh container is a
-  # cold tree by construction; building at another path is what catches
-  # an absolute path that leaked into the bytes.
-  repro:
-    needs: build
+  # A fourth core, built with undefined-behavior checking on, running the
+  # whole build and test suite. It is not a shipped artifact; it is the
+  # run that would report what the release build would only do quietly.
+  sanitized:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          path: a-second-and-rather-longer-checkout-path
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('a-second-and-rather-longer-checkout-path/bin/zig.pin') }}
-      - name: build it again
-        working-directory: a-second-and-rather-longer-checkout-path
-        run: bin/zig build cores boot
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - name: build the tree with the checked core
+        run: bin/zig build sanitized
+      - name: run every test with the checked core
+        run: |
+          cmp -n "$(wc -c < o/sanitized/cosmic-core)" \
+            o/sanitized/cosmic-core o/sanitized/bin/cosmic
+          # Measured at ~29.7s locally even after the coverage/formatter
+          # performance stack; a shared CI runner has less headroom than
+          # that, so this keeps real margin rather than matching the
+          # ordinary suite's tighter limit.
+          timeout 90 o/sanitized/bin/cosmic test
+
+  # The provenance gate: the tree is a pure function of its own bytes and
+  # the pinned zig, so three unrelated hosts -- different kernels, different
+  # system libraries, different checkout paths by construction -- cross-
+  # compiling the same commit must all produce the same database and the
+  # same three images. Nothing here rebuilds anything; it only diffs what
+  # the three jobs above already made, so this costs a download, not a
+  # build.
+  provenance:
+    needs: [ci-linux-x86_64, ci-linux-aarch64, ci-macos-aarch64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: binaries
+          pattern: binaries-*
           path: dl
-      - name: compare every byte
+      - name: every host agrees, byte for byte
         shell: bash
         run: |
           set -euo pipefail
+          # Each artifact lands zipped in its own subdirectory; extracted
+          # there, in place, so three artifacts that all hold a file
+          # named cosmic.db never collide.
           for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" dl/
+            python3 -m zipfile -e "$z" "$(dirname "$z")"
           done
-          again=a-second-and-rather-longer-checkout-path/o
-          cmp "$(find dl -type f -name cosmic.db | head -1)" "$again/cosmic.db"
-          for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-            cmp "$(find dl -type f -name "cosmic-$target" | head -1)" \
-                "$again/bin/cosmic-$target"
+          hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
+          first=${hosts[0]}
+          for host in "${hosts[@]:1}"; do
+            cmp "dl/binaries-$first/cosmic.db" "dl/binaries-$host/cosmic.db"
+            for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
+              cmp "dl/binaries-$first/cosmic-$target" "dl/binaries-$host/cosmic-$target"
+            done
           done
-          echo "repro: PASS (the database and all three images are byte-identical)"
+          echo "provenance: PASS (linux-x86_64, linux-aarch64 and macos-aarch64 agree on the database and all three images)"
