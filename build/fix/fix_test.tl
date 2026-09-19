@@ -131,6 +131,39 @@ local function test_mangled_spacing_and_indentation_are_repaired()
   assert(got == want, "got:\n" .. got .. "\nwant:\n" .. want)
 end
 
+--- A named path the verb will not take is a refusal among the files the
+--- run covers, not an end to the run: it comes back in `refused` with
+--- the others still listed, which is what lets `fix.run` report it and
+--- still finish in its own verdict line.
+---
+--- And what a path IS is decided before what it is NAMED. A path with
+--- nothing at it is missing, whatever its suffix -- answering `nope`
+--- with a remark about Teal says the wrong thing about it, and says it
+--- about a file the caller may only have mistyped.
+local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp: string)
+  assert(Fs.write(tmp .. "/real.tl", "local x = 1\nprint(x)\n"))
+  assert(Fs.write(tmp .. "/notes.txt", "not Teal at all\n"))
+  local picked, trouble = fix.chosen(tmp, {
+    tmp .. "/real.tl",
+    tmp .. "/nope",
+    tmp .. "/nosuchdir/",
+    tmp .. "/notes.txt",
+  })
+  assert(picked ~= nil, "naming a missing path should not end the run: " ..
+    tostring(trouble))
+  assert(#picked.files == 1 and picked.files[1] == tmp .. "/real.tl",
+    "the real source should still be listed")
+  assert(#picked.refused == 3, "expected three refusals, got " .. #picked.refused)
+  for i, what in ipairs({ "nope", "nosuchdir/" }) do
+    assert(picked.refused[i]:find("No such file", 1, true) ~= nil,
+      what .. " should be reported as missing, not judged on its suffix: " ..
+      picked.refused[i])
+  end
+  assert(picked.refused[3]:find("not a Teal source", 1, true) ~= nil,
+    "a file that is there but is not Teal should be said so: " ..
+    picked.refused[3])
+end
+
 --- Every Teal source this tree holds renders, and rendering it reaches
 --- the fixed point in one pass. No baseline and no exceptions: this
 --- walks the whole tree, and one file that will not render, or that

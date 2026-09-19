@@ -35,6 +35,17 @@ local record fix
     source: string
     changed: boolean
   end
+
+  --- The files one invocation covers, and the named paths it will not
+  --- take: one that is not there at all, and one that is there but is
+  --- not Teal source. A refused path rides here rather than ending the
+  --- verb on the spot, so it is reported and counted like any other
+  --- refused file and the run still finishes in the verb's own verdict
+  --- line.
+  record Chosen
+    files: {string}
+    refused: {string}
+  end
 end
 
 --- What is never a file to fix: the build's own output, the upstream
@@ -133,18 +144,36 @@ end
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
---- A named directory is walked, which picks out the Teal sources in it
---- and nothing else. A named FILE is taken at its word, so a path that
---- is not Teal source at all is said so here -- it would otherwise
---- reach the parser and come back as a syntax error in a file nobody
---- ever claimed was Teal.
-local function chosen(root: string, paths: {string}): {string} | nil, string
+--- What a named path IS comes first, in one stat: a path with nothing
+--- at it is said to be missing rather than judged on its suffix, which
+--- would answer `nosuchdir/` with a remark about Teal. A directory is
+--- walked, which picks out the Teal sources in it and nothing else. A
+--- named FILE is taken at its word, so one that is not Teal source at
+--- all is said so here -- it would otherwise reach the parser and come
+--- back as a syntax error in a file nobody ever claimed was Teal.
+---
+--- Only a failure to walk a directory fails outright. A path the verb
+--- will not take is one refusal among however many were named, and is
+--- reported as one.
+--- @param root string The tree to cover when no path was named
+--- @param paths {string} The paths named on the command line
+--- @return fix.Chosen|nil The files to fix and the paths refused
+--- @return string Error message on failure
+function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   if #paths == 0 then
-    return fix.sources(root)
+    local all, trouble = fix.sources(root)
+    if all == nil then
+      return nil, trouble
+    end
+    return { files = all, refused = {} }
   end
   local out: {string} = {}
+  local refused: {string} = {}
   for _, path in ipairs(paths) do
-    if Fs.is_dir(path) then
+    local what, missing = Fs.stat(path)
+    if what == nil then
+      refused[#refused + 1] = missing
+    elseif what.kind == "dir" then
       local under, trouble = fix.sources(path)
       if under == nil then
         return nil, trouble
@@ -153,12 +182,12 @@ local function chosen(root: string, paths: {string}): {string} | nil, string
         out[#out + 1] = path .. "/" .. file
       end
     elseif path:sub(-3) ~= ".tl" then
-      return nil, path .. ": not a Teal source"
+      refused[#refused + 1] = path .. ": not a Teal source"
     else
       out[#out + 1] = path
     end
   end
-  return out
+  return { files = out, refused = refused }
 end
 
 --- `cosmic fix [--check] [path...]`.
@@ -186,8 +215,8 @@ function fix.run(argv: {integer:string}): integer
     complain(root_trouble)
     return 1
   end
-  local files, list_trouble = chosen(root, paths)
-  if files == nil then
+  local picked, list_trouble = fix.chosen(root, paths)
+  if picked == nil then
     complain(list_trouble)
     return 1
   end
@@ -198,8 +227,16 @@ function fix.run(argv: {integer:string}): integer
     return 1
   end
 
+  -- A named path the verb would not take counts among the files the run
+  -- covers, so the verdict says how many of everything asked for was
+  -- refused rather than only how many of what survived the naming.
+  local files = picked.files
+  local counted = #files + #picked.refused
   local changed: {string} = {}
   local failures: {string} = {}
+  for _, why in ipairs(picked.refused) do
+    failures[#failures + 1] = why
+  end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
@@ -227,14 +264,14 @@ function fix.run(argv: {integer:string}): integer
     report("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
   if #failures > 0 then
-    report("fix: FAIL (" .. #failures .. " of " .. #files .. " files refused)")
+    report("fix: FAIL (" .. #failures .. " of " .. counted .. " files refused)")
     return 1
   end
   if checking and #changed > 0 then
-    report("fix: FAIL (" .. #changed .. " of " .. #files .. " files to fix)")
+    report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix)")
     return 1
   end
-  report("fix: PASS (" .. #files .. " files, " .. #changed ..
+  report("fix: PASS (" .. counted .. " files, " .. #changed ..
     (checking and " to fix)" or " fixed)"))
   return 0
 end
