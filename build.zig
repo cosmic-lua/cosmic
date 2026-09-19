@@ -289,7 +289,9 @@ fn core(
     // through our own VFS, so everything that exists for other shapes of
     // use is off. The `dbstat` virtual table is on: it is what every
     // table and index costs in pages and bytes, which `cosmic db`
-    // reports.
+    // reports. `fts5` is on: it backs the shipped catalog an uncaught
+    // error and `cosmic docs` search against, and costs ~222 KB per
+    // core image (three images per binary).
     const sqlite_flags: []const []const u8 = &.{
         "-std=c11",
         "-DSQLITE_THREADSAFE=0",
@@ -307,6 +309,7 @@ fn core(
         "-DSQLITE_USE_ALLOCA=1",
         "-DSQLITE_ENABLE_COLUMN_METADATA=1",
         "-DSQLITE_ENABLE_DBSTAT_VTAB=1",
+        "-DSQLITE_ENABLE_FTS5=1",
     };
     mod.addCSourceFiles(.{
         .root = sqlite,

@@ -21,6 +21,12 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
+local function integer(value: integer): Sqlite.Value
+  return { integer = value }
+end
+
+local null: Sqlite.Value = {}
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- and the compiles it found or made, with a test module's own test
 --- names alongside.
@@ -43,6 +49,46 @@ local insert_imports =
   "JOIN inputs i ON i.path = p.path " ..
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
+
+--- One `core/surface.c` replacement hint: the name a program reached
+--- for, the guidance already raised at that site, and where it lives.
+local record CatalogSeedRow
+  symbol: string
+  hint: string
+  line: integer
+end
+
+--- Hand-authored catalog rows: `core/surface.c`'s replacement hints,
+--- migrated in as the first real content while the extractor that will
+--- read `cosmic/*.tl` directly is still being built.
+local catalog_seed: {CatalogSeedRow} = {
+  { symbol = "io",
+    hint = "io is not available: files are cosmic.fs, and the standard " ..
+           "streams are cosmic.fs.stdout, .stderr and .stdin",
+    line = 21 },
+  { symbol = "os",
+    hint = "os is not available: time is cosmic.time, the environment " ..
+           "is cosmic.env, and processes are cosmic.proc",
+    line = 23 },
+  { symbol = "debug",
+    hint = "debug is not available: a traceback is cosmic.errors.trace",
+    line = 25 },
+  { symbol = "dofile",
+    hint = "dofile is not available: a module comes from require, and " ..
+           "a file's bytes come from cosmic.fs.read",
+    line = 26 },
+  { symbol = "loadfile",
+    hint = "loadfile is not available: a module comes from require, " ..
+           "and a file's bytes come from cosmic.fs.read",
+    line = 28 },
+}
+
+--- Rebuilds `catalog_fts`'s index from `catalog`'s current rows: the
+--- documented way to bulk-load an external-content FTS5 table without
+--- keeping the two in sync through triggers a read-only, write-once
+--- database has no use for.
+local rebuild_catalog_fts =
+  "INSERT INTO out.catalog_fts(catalog_fts) VALUES ('rebuild')"
 
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
@@ -85,6 +131,20 @@ local function project(handle: work.Handle, path: string,
       if not ok then
         return false, failure
       end
+    end
+    for id, row in ipairs(catalog_seed) do
+      local ok, failure = Sqlite.run(db,
+        "INSERT INTO out.catalog (id, kind, module, symbol, message, " ..
+        "text, file, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        { integer(id), text("error"), text("(global)"), text(row.symbol),
+          null, text(row.hint), text("core/surface.c"), integer(row.line) })
+      if not ok then
+        return false, failure
+      end
+    end
+    local rebuilt, rebuild_trouble = db:exec(rebuild_catalog_fts)
+    if not rebuilt then
+      return false, rebuild_trouble
     end
     return true, ""
   end)
