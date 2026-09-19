@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #include "bridge.lua.h"
 #include "lauxlib.h"
@@ -67,26 +66,12 @@ static int slurp(lua_State *L, const char *path) {
   return 0;
 }
 
-static int spit(lua_State *L, const char *path, int index) {
-  size_t len;
-  const char *data = lua_tolstring(L, index, &len);
-  FILE *f = fopen(path, "wb");
-  if (f == NULL) {
-    fprintf(stderr, "cosmic boot: cannot write %s\n", path);
-    return 1;
-  }
-  int ok = len == 0 || fwrite(data, 1, len, f) == len;
-  if (fclose(f) != 0 || !ok) {
-    fprintf(stderr, "cosmic boot: cannot write %s\n", path);
-    return 1;
-  }
-  return 0;
-}
-
 /* The syscall table's declaration has to exist before any module that
  * requires it is compiled, so the generator runs first and on its own.
- * It imports nothing, which is what makes that possible. */
-static int write_declaration(lua_State *L, const char *root) {
+ * It imports nothing, which is what makes that possible. The result is
+ * handed to the bridge, which serves it to the checker from memory;
+ * nothing is written to disk. */
+static int declare_syscalls(lua_State *L, const char *root, int bridge) {
   char path[4096];
 
   lua_getglobal(L, "require");
@@ -109,18 +94,11 @@ static int write_declaration(lua_State *L, const char *root) {
     return 1;
   }
 
-  snprintf(path, sizeof path, "%s/o/types/cosmic", root);
-  /* Two levels, and an existing directory is not a failure. */
-  char parent[4096];
-  snprintf(parent, sizeof parent, "%s/o", root);
-  mkdir(parent, 0755);
-  snprintf(parent, sizeof parent, "%s/o/types", root);
-  mkdir(parent, 0755);
-  mkdir(path, 0755);
-
-  snprintf(path, sizeof path, "%s/o/types/cosmic/sys.d.tl", root);
-  if (spit(L, path, -2) != 0) {
-    return 1;
+  lua_getfield(L, bridge, "declare");
+  lua_pushstring(L, "cosmic.sys");
+  lua_pushvalue(L, -4);
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+    return report(L, "the declaration would not be declared");
   }
   lua_pop(L, 3);
   return 0;
@@ -157,7 +135,7 @@ int cosmic_boot(lua_State *L, const char *root, const char *tl_dir, int argc,
   lua_seti(L, -2, 2);
   lua_pop(L, 3);
 
-  if (write_declaration(L, root) != 0) {
+  if (declare_syscalls(L, root, bridge) != 0) {
     return 1;
   }
 

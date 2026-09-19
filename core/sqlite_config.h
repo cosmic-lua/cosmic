@@ -22,4 +22,8 @@
 #define SQLITE_USE_ALLOCA 1
 #define SQLITE_ENABLE_COLUMN_METADATA 1
 
+/* The `dbstat` virtual table: what every table and index costs in
+ * pages and bytes, which is what `cosmic db` reports. */
+#define SQLITE_ENABLE_DBSTAT_VTAB 1
+
 #endif
