@@ -79,6 +79,7 @@ const lua_sources = [_][]const u8{
 
 const core_sources = [_][]const u8{
     "boot.c",
+    "coverage.c",
     "locate.c",
     "main.c",
     "sha256.c",

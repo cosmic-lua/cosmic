@@ -10,8 +10,10 @@
 
 #include "lua.h"
 
-/* The registry key holding the libraries that are not globals. A private
- * binding hands `debug` to the test runner and the coverage collector. */
+/* The registry key holding the libraries that are not globals: `io`,
+ * `os`, and `debug`. Each is a strictly more dangerous surface than an
+ * ordinary sandboxed program needs, so each is taken out of reach here
+ * regardless of whether anything currently fetches it back out. */
 #define COSMIC_PRIVATE "cosmic.private"
 
 /* Creates the state and opens the surface. Returns NULL when there is no

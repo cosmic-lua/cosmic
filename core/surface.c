@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "coverage.h"
 #include "lauxlib.h"
 #include "lualib.h"
 #include "store.h"
@@ -147,17 +148,18 @@ lua_State *cosmic_surface_open(void) {
   make_private(L, LUA_OSLIBNAME);
   make_private(L, LUA_DBLIBNAME);
 
-  /* `debug` was just taken out of reach above; the coverage collector
-   * still needs the real table, so it is fetched back out of the
-   * private binding and registered as the raw value behind
-   * `cosmic.internal.debug` -- the same handoff `cosmic.store` and
-   * `cosmic.sqlite` already get through the store searcher's trust
-   * check (core/store.c's store_searcher). This runs on every open,
-   * boot and normal alike, since cosmic_surface_open runs before
-   * either path branches. */
-  lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
-  lua_getfield(L, -1, LUA_DBLIBNAME);
-  lua_remove(L, -2);
+  /* `debug` was just taken out of reach above and stays there: nothing
+   * ever fetches it back out any more. The coverage collector used to
+   * need the real table for its own `debug.getinfo`-driven line hook;
+   * it now hooks lines in C directly (core/coverage.c) and needs no
+   * Lua-level access to `debug` at all. The native collector goes
+   * behind the raw name that table used to occupy instead --
+   * `cosmic.internal.debug` -- the same trust-gated handoff
+   * `cosmic.store` and `cosmic.sqlite` get through the store
+   * searcher's trust check (core/store.c's store_searcher). This runs
+   * on every open, boot and normal alike, since cosmic_surface_open
+   * runs before either path branches. */
+  cosmic_coverage_install(L);
   cosmic_store_set_raw(L, "cosmic.internal.debug");
 
   lua_pushnil(L);
