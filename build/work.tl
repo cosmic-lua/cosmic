@@ -18,6 +18,7 @@
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
 local record work
@@ -54,7 +55,11 @@ work.version = "8"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
---- the tree is a row gone from the table.
+--- the tree is a row gone from the table. A file written within the
+--- last two seconds of being staged is recorded with no modification
+--- time, so the next run reads it again rather than trusting a stat
+--- that a second write inside one timestamp tick could leave
+--- unchanged -- the rule zig's cache applies to its own inputs.
 ---
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
@@ -525,6 +530,10 @@ local function once(statement: Sqlite.Statement): boolean, string
   return true, ""
 end
 
+--- How long a file's modification time has to be in the past before
+--- a stat is trusted to stand for its bytes.
+local settle_ns = 2 * 1000000000
+
 --- Whether a file's row no longer stands for it, consuming the row
 --- from `known` either way, so what is left in `known` at the end is
 --- what the walk no longer finds.
@@ -536,12 +545,14 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
---- Writes one file's row: its stat and its bytes, hashed in place.
+--- Writes one file's row: its stat, with the modification time kept
+--- only once it has settled, and its bytes, hashed in place.
 local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
-                       mtime_ns: integer, data: string): boolean, string
+                       mtime_ns: integer, settled: boolean,
+                       data: string): boolean, string
   put:bind_text(1, file)
   put:bind_integer(2, st.size)
-  put:bind_integer(3, mtime_ns)
+  put:bind_integer(3, settled and mtime_ns or 0)
   put:bind_integer(4, st.ino)
   put:bind_integer(5, st.dev)
   put:bind_blob(6, data)
@@ -599,6 +610,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     put_files:finalize()
     return nil, put_tool_trouble
   end
+  local now = Time.now_ns() or 0
   local staged: work.Staged = { files = 0, read = 0 }
 
   for _, file in ipairs(files) do
@@ -611,6 +623,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         return nil, stat_trouble
       end
       local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+      local settled = mtime_ns < now - settle_ns
       staged.files = staged.files + 1
       local write_files = input and moved(known_files, file, st, mtime_ns)
       local write_tool = tool and moved(known_tool, file, st, mtime_ns)
@@ -622,14 +635,14 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
         end
         staged.read = staged.read + 1
         if write_files then
-          local ok, why = put_row(put_files, file, st, mtime_ns, data)
+          local ok, why = put_row(put_files, file, st, mtime_ns, settled, data)
           if not ok then
             finish(put_files, put_tool)
             return nil, file .. ": " .. why
           end
         end
         if write_tool then
-          local ok, why = put_row(put_tool, file, st, mtime_ns, data)
+          local ok, why = put_row(put_tool, file, st, mtime_ns, settled, data)
           if not ok then
             finish(put_files, put_tool)
             return nil, file .. ": " .. why
