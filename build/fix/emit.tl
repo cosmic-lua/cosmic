@@ -53,7 +53,10 @@
 --- it. A comment with code BEFORE it as well -- `f(--[[ x ]] 1)` -- is
 --- no part of any line's opening, and `ahead` writes it where it was,
 --- in front of the code it introduces, with no line break in play at
---- all.
+--- all. `ahead` writes it in front of the next NODE, which is one
+--- token too far along when an operator the renderer writes itself
+--- stands between the two; that gap, what it costs and what closing it
+--- would take are written out at `ahead`.
 ---
 --- Because a comment can open a statement's line, where that line began
 --- is `opening_column`'s answer rather than the statement's own first
@@ -295,6 +298,37 @@ end
 --- BACKWARDS past code it was written behind. `local x = --[[ c ]] 1`
 --- leads to the name `x` before it leads to the value, and the comment
 --- belongs to neither the name nor anything else it merely sits after.
+---
+--- KNOWN GAP, and the one thing this placement gets wrong. This is
+--- reached only from `advance`, and `advance` runs only when a NODE's
+--- lead is about to be written. The operators and keywords between two
+--- nodes -- `=`, `,`, `.`, `:`, `(`, `in`, `function`, an attribute's
+--- `<const>` -- are written straight from the tree by `put` and `text`,
+--- which ask nothing about comments, so a comment the source wrote in
+--- front of one of those waits here until the NEXT node's lead, by
+--- which time the operator is already in the buffer. It comes back out
+--- one token further along than it went in: `local a --[[ c ]] = 1`
+--- becomes `local a = --[[ c ]] 1`, and `for k --[[ q ]], v in t do`
+--- becomes `for k, --[[ q ]] v in t do`.
+---
+--- What it costs: only placement. The comment is never lost, so
+--- `equiv.same_comments` stays satisfied; the moved result is its own
+--- fixed point, so a second pass does not walk it further along; and
+--- the class needs a comment written INSIDE a line, with code on both
+--- sides of it, which is why nothing in this tree meets it -- a `---`
+--- doc comment runs to the end of its line and so can never have code
+--- after it.
+---
+--- What closing it takes: a source position for every token the
+--- renderer writes itself, not just for the nodes. The tree does not
+--- carry one -- tl records no position for an assignment's `=` -- so it
+--- would come from the token stream, which `build.fix.typescan` already
+--- indexes by position: a cursor over that stream, advanced by every
+--- write site in `build.fix.stmt`, `.expr` and `.sig`, turning each
+--- operator write into a flush of the comments standing before that
+--- token. That makes comment placement a property of every token write
+--- rather than of node leads alone, and it is the model this module
+--- would have to be rebuilt on.
 --- @param e Emitter
 --- @param y integer The source line being moved to
 --- @param x integer The column on it the next thing written sits at

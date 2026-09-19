@@ -279,3 +279,45 @@ local function test_a_long_comment_opening_above_the_code_it_closes_beside()
   keeps("local a = 1\nprint(a) --[[ c\n]] --[[ d ]] print(2)\n")
   keeps("local a = 1\nprint(a) --[[ c\n]] -- tail\nprint(2)\n")
 end
+
+--- A comment written in front of an OPERATOR comes back out in front of
+--- the node after it instead. This is `emit.ahead`'s known gap, written
+--- out in full there: comments are placed when a node's lead is
+--- written, and the `=`, `,`, `.` or `in` the renderer writes itself
+--- between two nodes is not a lead, so a comment waiting in front of
+--- one is not reached until the operator is already written.
+---
+--- These are here as the shape of the gap, so that closing it shows up
+--- as these assertions flipping rather than as a silent change of
+--- behaviour. Nothing in this tree meets the class: it takes a comment
+--- with code on BOTH sides of it, and a `---` doc comment runs to the
+--- end of its line.
+local function test_a_comment_in_front_of_an_operator_moves_past_it()
+  writes("local a --[[ c ]] = 1\nprint(a)\n",
+         "local a = --[[ c ]] 1\nprint(a)\n")
+  writes("local x: integer --[[ c ]] = 1\nprint(x)\n",
+         "local x: integer = --[[ c ]] 1\nprint(x)\n")
+  writes("local t = { 1--[[ c ]], 2 }\nprint(#t)\n",
+         "local t = { 1, --[[ c ]] 2 }\nprint(#t)\n")
+  writes("for k, v --[[ c ]] in pairs({}) do print(k, v) end\n",
+         "for k, v in --[[ c ]] pairs({}) do print(k, v) end\n")
+end
+
+--- What the gap does NOT cost, which is what makes it a placement bug
+--- rather than a data one: the comment is still there, and the moved
+--- result is its own fixed point -- a second pass does not walk it one
+--- token further along again.
+local function test_a_comment_moved_past_an_operator_is_kept_and_settles()
+  for _, source in ipairs({
+    "local a --[[ c ]] = 1\nprint(a)\n",
+    "local t = { 1--[[ c ]], 2 }\nprint(#t)\n",
+    "for k, v --[[ c ]] in pairs({}) do print(k, v) end\n",
+    "local --[[ c ]] function h() end\nh()\n",
+  }) do
+    local once = fixed(source)
+    assert(once:find("--[[ c ]]", 1, true) ~= nil,
+      source .. ": the comment was dropped rather than moved")
+    assert(fixed(once) == once,
+      source .. ": a second pass moved it again:\n" .. fixed(once))
+  end
+end
