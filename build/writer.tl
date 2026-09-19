@@ -1,19 +1,17 @@
 --- Writing a compiled tree out as the shipped database.
 ---
 --- `o/cosmic.db` is a projection of the working database: a fresh
---- schema attached in memory, filled in one transaction from rows the
---- build already holds -- the images and the compiler a boot put
---- there, the modules this run compiled -- and produced by `VACUUM
---- INTO`, so a second build of the same tree is byte-identical.
+--- schema attached in memory, filled in one transaction by queries
+--- over rows the build already holds -- the images a boot put there,
+--- this run's plan joined to the inputs and compiles it names -- and
+--- produced by `VACUUM INTO`, so a second build of the same tree is
+--- byte-identical.
 
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local work = require("build.work")
-
-local type Module = importer.Module
 
 local record writer
 end
@@ -22,88 +20,28 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
---- The vendored compiler, as the module row a binary carries so it can
---- build a tree of its own. Its Lua is its source; only the bytecode
---- is made here. Nil when the working database holds no compiler, as
---- a project's does not.
-local function compiler_module(handle: work.Handle,
-                               boot_hash: string): Module | nil, string
-  local rows, trouble = Sqlite.rows(handle.db,
-    "SELECT file, source, source_hash FROM inputs WHERE kind = 'vendor'")
-  if rows == nil then
-    return nil, trouble
-  end
-  if #rows == 0 then
-    return nil, ""
-  end
-  local file, source, source_hash = rows[1][1], rows[1][2], rows[1][3]
-  local chunk, load_trouble = load(source, "@vendor.tl", "t")
-  if chunk == nil then
-    return nil, "the vendored compiler would not load: " .. tostring(load_trouble)
-  end
-  return {
-    path = "vendor.tl",
-    file = file,
-    kind = "vendor",
-    source = source,
-    source_hash = source_hash,
-    requires = {},
-    tests = {},
-    has_top_level_return = false,
-    generated = false,
-    key = Hash.hex_sha256(source .. "\n" .. boot_hash),
-    lua = source,
-    bytecode = string.dump(chunk, false),
-  }
-end
+--- The shipped modules: this run's plan joined to the inputs it named
+--- and the compiles it found or made, with a test module's own test
+--- names alongside.
+local insert_modules =
+  "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
+  "lua, bytecode, tests) " ..
+  "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
+  "CAST(p.key AS BLOB), i.source, c.lua, c.bytecode, " ..
+  "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
+  "char(10) ORDER BY ordinal) FROM tests t " ..
+  "WHERE t.source_hash = i.source_hash), '') ELSE '' END " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
-local function insert_modules(db: Sqlite.Handle, modules: {Module}): boolean, string
-  local statement, trouble = db:prepare(
-    "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
-    "lua, bytecode, tests) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
-  if statement == nil then
-    return false, trouble
-  end
-  for _, m in ipairs(modules) do
-    statement:bind_text(1, m.path)
-    statement:bind_text(2, m.file)
-    statement:bind_text(3, m.kind)
-    statement:bind_blob(4, m.source_hash)
-    statement:bind_blob(5, m.key)
-    statement:bind_text(6, m.source)
-    statement:bind_text(7, m.lua)
-    statement:bind_blob(8, m.bytecode)
-    statement:bind_text(9, table.concat(m.tests, "\n"))
-    local state, failure = statement:step()
-    if state == nil then
-      statement:finalize()
-      return false, m.path .. ": " .. failure
-    end
-    statement:reset()
-  end
-  statement:finalize()
-  return true, ""
-end
-
-local function insert_imports(db: Sqlite.Handle, modules: {Module}): boolean, string
-  local known: {string:boolean} = {}
-  for _, m in ipairs(modules) do
-    known[m.path] = true
-  end
-  for _, m in ipairs(modules) do
-    for _, name in ipairs(m.requires) do
-      if known[name] then
-        local ok, trouble = Sqlite.run(db,
-          "INSERT OR IGNORE INTO out.imports (path, requires) VALUES (?1, ?2)",
-          { text(m.path), text(name) })
-        if not ok then
-          return false, trouble
-        end
-      end
-    end
-  end
-  return true, ""
-end
+--- The import edges among shipped modules: what each planned module
+--- requires, kept only where the name is itself a planned module.
+local insert_imports =
+  "INSERT OR IGNORE INTO out.imports (path, requires) " ..
+  "SELECT p.path, r.name FROM plan p " ..
+  "JOIN inputs i ON i.path = p.path " ..
+  "JOIN requires r ON r.source_hash = i.source_hash " ..
+  "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
@@ -116,38 +54,21 @@ local function project(handle: work.Handle, path: string,
     end
   end
 
-  local compiler, compiler_trouble = compiler_module(handle, result.boot_hash)
-  if compiler == nil and compiler_trouble ~= "" then
-    return false, compiler_trouble
-  end
-  local modules: {Module} = {}
-  for _, m in ipairs(result.modules) do
-    modules[#modules + 1] = m
-  end
-  if compiler ~= nil then
-    modules[#modules + 1] = compiler
-  end
-
   local made, refused = Sqlite.transact(db, function(): boolean, string
+    local statements: {string} = {}
     for _, statement in ipairs(schema.create("out.")) do
+      statements[#statements + 1] = statement
+    end
+    statements[#statements + 1] = insert_modules
+    statements[#statements + 1] = insert_imports
+    statements[#statements + 1] =
+      "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
+      "SELECT target, sha256, size, encoding, data FROM images ORDER BY target"
+    for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure
       end
-    end
-    local stored, module_trouble = insert_modules(db, modules)
-    if not stored then
-      return false, module_trouble
-    end
-    local edged, import_trouble = insert_imports(db, modules)
-    if not edged then
-      return false, import_trouble
-    end
-    local carried, image_trouble = db:exec(
-      "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
-      "SELECT target, sha256, size, encoding, data FROM images ORDER BY target")
-    if not carried then
-      return false, image_trouble
     end
     local meta: {{string}} = {
       { "boot_hash", result.boot_hash },

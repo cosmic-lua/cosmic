@@ -44,7 +44,7 @@ local record work
   version: string
 end
 
-work.version = "3"
+work.version = "4"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. `seen` is the run
@@ -75,8 +75,16 @@ work.version = "3"
 --- the database it writes. The compiler is the same kind of thing and
 --- lives in `inputs`, the one row there with no file behind it.
 ---
+--- `compiled` is one compile of one module, keyed by the module's key
+--- -- the hash of its kind, its source, its import closure's keys and
+--- the tool -- so a module whose key stands is never compiled again,
+--- and `plan` is this run's key for every module it built, in build
+--- order. `seen` is the last run that used a compile; one no run has
+--- used in the last hundred is dropped, so an edit undone is still
+--- free and the cache stays bounded.
+---
 --- `builds` is one row per run: what was staged, what was read, what
---- was compiled, and how the run ended.
+--- was compiled and what came from the cache, and how the run ended.
 ---
 --- `runs` is one row per test, keyed by the module and the test's own
 --- name inside it, so a later run of the same test replaces its row
@@ -154,11 +162,19 @@ work.schema = {
                                        size INTEGER NOT NULL,
                                        encoding TEXT NOT NULL,
                                        data BLOB NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
+                                         lua TEXT NOT NULL,
+                                         bytecode BLOB NOT NULL,
+                                         seen INTEGER NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
+                                     key TEXT NOT NULL,
+                                     ordinal INTEGER NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
                                        ms INTEGER NOT NULL,
                                        files INTEGER NOT NULL,
                                        read INTEGER NOT NULL,
                                        compiled INTEGER NOT NULL,
+                                       cached INTEGER NOT NULL,
                                        verdict TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS runs (path TEXT NOT NULL,
                                      test TEXT NOT NULL,
@@ -568,12 +584,13 @@ end
 
 --- Writes this run's row into `builds`.
 function work.record(handle: work.Handle, ms: integer, staged: work.Staged,
-                     compiled: integer, verdict: string): boolean, string
+                     compiled: integer, cached: integer,
+                     verdict: string): boolean, string
   return Sqlite.run(handle.db,
-    "INSERT OR REPLACE INTO builds (run, ms, files, read, compiled, verdict) " ..
-    "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    "INSERT OR REPLACE INTO builds (run, ms, files, read, compiled, cached, " ..
+    "verdict) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     { integer(handle.run), integer(ms), integer(staged.files),
-      integer(staged.read), integer(compiled), text(verdict) })
+      integer(staged.read), integer(compiled), integer(cached), text(verdict) })
 end
 
 --- Closes the database. The handle is finished after this.

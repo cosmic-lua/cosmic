@@ -314,21 +314,22 @@ function test.run(): integer
 
   local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
-    work.record(handle, elapsed_ms(started), staged, 0, "FAIL")
+    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
     complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(handle, database, result)
-  work.record(handle, elapsed_ms(started), staged, #result.modules,
-    written and "PASS" or "FAIL")
+  work.record(handle, elapsed_ms(started), staged, result.compiled,
+    result.cached, written and "PASS" or "FAIL")
   if not written then
     work.close(handle)
     complain(write_trouble)
     return 1
   end
-  report("build: " .. #result.modules .. " modules (" .. staged.files ..
+  report("build: " .. #result.modules .. " modules (" .. result.compiled ..
+    " compiled, " .. result.cached .. " cached; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
     elapsed_ms(started) .. " ms")
 

@@ -47,8 +47,9 @@ local record positions
     --- see `discount_doctest_shadow_warnings`.
     generated: boolean
     key: string
+    --- The compiled Lua, once `build.importer.compile` has it: made
+    --- this run or read back from the cache under the same key.
     lua: string
-    bytecode: string
   end
 end
 

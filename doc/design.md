@@ -364,10 +364,11 @@ named here: the POSIX sh `bin/zig` and the zig tarball its pin
 verifies. everything else is vendored or built from it.
 
 the target build architecture is fast, incremental, and reproducible.
-today the importer computes dependency keys but recompiles every module;
-the runner executes every discovered test in-process. reuse of compiled
-modules, test selection from observed reads, and child-process isolation
-are planned below, not implemented:
+today a module whose key stands is read back from the working
+database rather than compiled again, and the shipped database is a
+projection of that one; the runner still executes every discovered
+test in-process. test selection from observed reads and child-process
+isolation are planned below, not implemented:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, the boot hash, and, for

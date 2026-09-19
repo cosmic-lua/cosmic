@@ -42,6 +42,10 @@ local record importer
     -- because it both defines its own tests and returns its own value;
     -- every module NOT in this list compiled and is in `modules`.
     refused: {string}
+    -- How many modules were compiled this run, and how many came back
+    -- from `compiled` under a key that stood.
+    compiled: integer
+    cached: integer
   end
 end
 
@@ -349,7 +353,6 @@ local function collect(handle: work.Handle, self_tree: boolean,
       generated = origin == "doctest",
       key = "",
       lua = "",
-      bytecode = "",
     }
   end
   return out
@@ -480,7 +483,179 @@ local function complain(file: string, result: compiler.Result): string
   return table.concat(lines, "\n")
 end
 
---- Compiles every module, in import order, into Lua and bytecode.
+--- The statements one compile pass runs, prepared once each.
+local record Cache
+  run: integer
+  look: Sqlite.Statement
+  put: Sqlite.Statement
+  plan: Sqlite.Statement
+end
+
+local function prepare_cache(handle: work.Handle): Cache | nil, string
+  local db = handle.db
+  local look, look_trouble = db:prepare(
+    "UPDATE compiled SET seen = ?2 WHERE key = ?1 RETURNING lua")
+  if look == nil then
+    return nil, look_trouble
+  end
+  local put, put_trouble = db:prepare(
+    "INSERT INTO compiled (key, lua, bytecode, seen) VALUES (?1, ?2, ?3, ?4)")
+  if put == nil then
+    look:finalize()
+    return nil, put_trouble
+  end
+  local plan, plan_trouble = db:prepare(
+    "INSERT INTO plan (path, key, ordinal) VALUES (?1, ?2, ?3)")
+  if plan == nil then
+    look:finalize()
+    put:finalize()
+    return nil, plan_trouble
+  end
+  return { run = handle.run, look = look, put = put, plan = plan }
+end
+
+local function finish_cache(cache: Cache)
+  cache.look:finalize()
+  cache.put:finalize()
+  cache.plan:finalize()
+end
+
+--- How many runs a compile stays cached after the last one that used
+--- it.
+local kept_runs = 100
+
+--- Runs a statement that yields no rows, once, and readies it to run
+--- again with other parameters.
+local function once(statement: Sqlite.Statement): boolean, string
+  local state, trouble = statement:step()
+  if state == nil then
+    return false, trouble
+  end
+  statement:reset()
+  return true, ""
+end
+
+--- The cached Lua under `key`, marked as used by this run, or nil
+--- when nothing is cached there.
+local function cached_lua(cache: Cache, key: string): string | nil, string
+  local look = cache.look
+  look:bind_text(1, key)
+  look:bind_integer(2, cache.run)
+  local state, trouble = look:step()
+  if state == nil then
+    return nil, trouble
+  end
+  local lua: string | nil = nil
+  if state == "row" then
+    lua = look:bytes(0)
+  end
+  look:reset()
+  return lua, ""
+end
+
+--- Bytecode for compiled Lua, checked to be the shape every target
+--- shares.
+local function bytecode_of(code: string, name: string,
+                           file: string): string | nil, string
+  local chunk, load_trouble = load(code, "@" .. name, "t")
+  if chunk == nil then
+    return nil, file .. ": " .. tostring(load_trouble)
+  end
+  local bytecode = string.dump(chunk, false)
+  if bytecode:sub(1, #bytecode_header) ~= bytecode_header then
+    return nil, file .. ": this host dumps bytecode the three " ..
+      "targets do not share"
+  end
+  return bytecode
+end
+
+--- Puts one compile in the cache under its key, and the module in
+--- this run's plan.
+local function remember(cache: Cache, path: string, key: string, ordinal: integer,
+                        lua: string | nil, bytecode: string | nil): boolean, string
+  if lua ~= nil and bytecode ~= nil then
+    local put = cache.put
+    put:bind_text(1, key)
+    put:bind_text(2, lua)
+    put:bind_blob(3, bytecode)
+    put:bind_integer(4, cache.run)
+    local kept, put_trouble = once(put)
+    if not kept then
+      return false, put_trouble
+    end
+  end
+  local plan = cache.plan
+  plan:bind_text(1, path)
+  plan:bind_text(2, key)
+  plan:bind_integer(3, ordinal)
+  return once(plan)
+end
+
+--- Compiles one module: the checker over its source, the test tail
+--- when it is a test, and the bytecode.
+local function generate(m: Module, built: compiler,
+                        env: compiler.Env): string | nil, string, string
+  local code, result = built.gen(m.source, env, nil, "tl")
+  if m.kind == "test" and result ~= nil then
+    result = discount_test_warnings(result, m.tests)
+  end
+  if m.generated and result ~= nil then
+    result = discount_doctest_shadow_warnings(result)
+  end
+  local complaint = result ~= nil and complain(m.file, result) or ""
+  if code == nil or complaint ~= "" then
+    return nil, "", m.file .. ": the compiler refused it\n" .. complaint
+  end
+  -- The checker has just seen this module whole; a module compiled
+  -- after it that requires it is checked against that, rather than
+  -- against a second read and check of the same source.
+  env.modules[m.path] = result.type
+  if m.kind == "test" then
+    code = with_test_tail(code, m.tests)
+  end
+  local bytecode, dump_trouble = bytecode_of(code, m.path, m.file)
+  if bytecode == nil then
+    return nil, "", dump_trouble
+  end
+  return code, bytecode, ""
+end
+
+--- The vendored compiler, planned and cached like any module: its Lua
+--- is its source, so only the bytecode is made, and only once per
+--- tool. Nothing to do when the working database holds no compiler,
+--- as a project's does not.
+local function plan_compiler(handle: work.Handle, cache: Cache,
+                             boot_hash: string, ordinal: integer): boolean, string
+  local rows, trouble = Sqlite.rows(handle.db,
+    "SELECT source FROM inputs WHERE kind = 'vendor'")
+  if rows == nil then
+    return false, trouble
+  end
+  if #rows == 0 then
+    return true, ""
+  end
+  local source = rows[1][1]
+  local key = Hash.hex_sha256(source .. "\n" .. boot_hash)
+  local lua, look_trouble = cached_lua(cache, key)
+  if lua ~= nil then
+    return remember(cache, "vendor.tl", key, ordinal, nil, nil)
+  end
+  if look_trouble ~= "" then
+    return false, look_trouble
+  end
+  local chunk, load_trouble = load(source, "@vendor.tl", "t")
+  if chunk == nil then
+    return false, "the vendored compiler would not load: " .. tostring(load_trouble)
+  end
+  return remember(cache, "vendor.tl", key, ordinal, source,
+    string.dump(chunk, false))
+end
+
+--- Compiles every module, in import order, into Lua and bytecode --
+--- or finds it already compiled under the same key. The keys and the
+--- compiles land in the working database in one transaction, kept
+--- even when a later module refuses, so a run that fails still pays
+--- for each module once; a compile no run has used lately is dropped.
 --- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
 --- @param env the checker's environment, already pointed at the tree
@@ -488,8 +663,7 @@ end
 function importer.compile(handle: work.Handle, built: compiler,
                           env: compiler.Env,
                           boot_hash: string): importer.Result | nil, string
-  local modules, trouble =
-    collect(handle, importer.is_own_tree(handle.root), built)
+  local modules, trouble = collect(handle, importer.is_own_tree(handle.root), built)
   if modules == nil then
     return nil, trouble
   end
@@ -502,75 +676,98 @@ function importer.compile(handle: work.Handle, built: compiler,
     return nil, why
   end
   local keys: {string:string} = {}
-  local main: string | nil = nil
-  local compiled: {Module} = {}
-  local refused: {string} = {}
+  local result: importer.Result = {
+    modules = {}, boot_hash = boot_hash, main = nil, refused = {},
+    compiled = 0, cached = 0,
+  }
+  local db = handle.db
+  local failure = ""
 
-  for _, m in ipairs(order) do
-    local closure: {string} = {}
-    for _, name in ipairs(m.requires) do
-      if keys[name] ~= nil then
-        closure[#closure + 1] = name .. " " .. keys[name]
+  local made, transact_trouble = Sqlite.transact(db, function(): boolean, string
+    local cleared, clear_trouble = db:exec("DELETE FROM plan")
+    if not cleared then
+      return false, clear_trouble
+    end
+    local cache, prepare_trouble = prepare_cache(handle)
+    if cache == nil then
+      return false, prepare_trouble
+    end
+
+    for ordinal, m in ipairs(order) do
+      local closure: {string} = {}
+      for _, name in ipairs(m.requires) do
+        if keys[name] ~= nil then
+          closure[#closure + 1] = name .. " " .. keys[name]
+        end
+      end
+      table.sort(closure)
+      m.key = Hash.hex_sha256(m.kind .. "\n" .. m.source_hash .. "\n" ..
+        table.concat(closure, "\n") .. "\n" .. boot_hash)
+      keys[m.path] = m.key
+
+      if m.kind == "test" and collides_with_test_tail(m) then
+        -- Refused on its own, narrowly: every other module still
+        -- compiles below, unaffected. Compiling this one anyway would
+        -- only surface as `<eof> expected near 'return'` once
+        -- `with_test_tail` appends its own generated return after this
+        -- file's, a Lua parse error naming neither the file nor the
+        -- cause.
+        result.refused[#result.refused + 1] = m.file .. ": a test file may not both " ..
+          "define test_* functions and return its own value; remove the " ..
+          "top-level return so the generated tail can hand the runner " ..
+          "its tests"
+      else
+        local lua, look_trouble = cached_lua(cache, m.key)
+        if lua == nil and look_trouble ~= "" then
+          finish_cache(cache)
+          return false, look_trouble
+        end
+        local bytecode: string | nil = nil
+        if lua ~= nil then
+          result.cached = result.cached + 1
+        else
+          local code, made_bytecode, generate_trouble = generate(m, built, env)
+          if code == nil then
+            failure = generate_trouble
+            break
+          end
+          lua = code
+          bytecode = made_bytecode
+          result.compiled = result.compiled + 1
+        end
+        m.lua = lua
+        local kept, keep_trouble = remember(cache, m.path, m.key, ordinal, lua,
+          bytecode)
+        if not kept then
+          finish_cache(cache)
+          return false, m.file .. ": " .. keep_trouble
+        end
+        if m.kind == "main" then
+          result.main = m.path
+        end
+        result.modules[#result.modules + 1] = m
       end
     end
-    table.sort(closure)
-    m.key = Hash.hex_sha256(
-      m.source_hash .. "\n" .. table.concat(closure, "\n") .. "\n" .. boot_hash)
-    keys[m.path] = m.key
 
-    local colliding = m.kind == "test" and collides_with_test_tail(m)
-    if colliding then
-      -- Refused on its own, narrowly: every other module still
-      -- compiles below, unaffected. Compiling this one anyway would
-      -- only surface as `<eof> expected near 'return'` once
-      -- `with_test_tail` appends its own generated return after this
-      -- file's, a Lua parse error naming neither the file nor the
-      -- cause.
-      refused[#refused + 1] = m.file .. ": a test file may not both " ..
-        "define test_* functions and return its own value; remove the " ..
-        "top-level return so the generated tail can hand the runner " ..
-        "its tests"
-    else
-      local code, result = built.gen(m.source, env, nil, "tl")
-      if m.kind == "test" and result ~= nil then
-        result = discount_test_warnings(result, m.tests)
+    if failure == "" then
+      local planned, plan_trouble = plan_compiler(handle, cache, boot_hash,
+        #order + 1)
+      if not planned then
+        finish_cache(cache)
+        return false, plan_trouble
       end
-      if m.generated and result ~= nil then
-        result = discount_doctest_shadow_warnings(result)
-      end
-      local complaint = result ~= nil and complain(m.file, result) or ""
-      if code == nil or complaint ~= "" then
-        return nil, m.file .. ": the compiler refused it\n" .. complaint
-      end
-      -- The checker has just seen this module whole; a module compiled
-      -- after it that requires it is checked against that, rather than
-      -- against a second read and check of the same source.
-      env.modules[m.path] = result.type
-      env.module_filenames[m.path] = handle.root .. "/" .. m.file
-      if m.kind == "test" then
-        code = with_test_tail(code, m.tests)
-      end
-      m.lua = code
-
-      local chunk, load_trouble = load(code, "@" .. m.path, "t")
-      if chunk == nil then
-        return nil, m.file .. ": " .. tostring(load_trouble)
-      end
-      m.bytecode = string.dump(chunk, false)
-      if m.bytecode:sub(1, #bytecode_header) ~= bytecode_header then
-        return nil, m.file .. ": this host dumps bytecode the three " ..
-          "targets do not share"
-      end
-
-      if m.kind == "main" then
-        main = m.path
-      end
-      compiled[#compiled + 1] = m
     end
+    finish_cache(cache)
+    return Sqlite.run(db, "DELETE FROM compiled WHERE seen < ?1",
+      { { integer = handle.run - kept_runs } })
+  end)
+  if not made then
+    return nil, transact_trouble
   end
-
-  return { modules = compiled, boot_hash = boot_hash, main = main,
-           refused = refused }
+  if failure ~= "" then
+    return nil, failure
+  end
+  return result
 end
 
 return importer

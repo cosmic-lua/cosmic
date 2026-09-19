@@ -165,15 +165,15 @@ local function run(file: string, argv: {integer:string}): integer
 
   local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
-    work.record(handle, elapsed_ms(started), staged, 0, "FAIL")
+    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
     complain("cosmic: " .. compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(handle, database, result)
-  work.record(handle, elapsed_ms(started), staged, #result.modules,
-    written and "PASS" or "FAIL")
+  work.record(handle, elapsed_ms(started), staged, result.compiled,
+    result.cached, written and "PASS" or "FAIL")
   work.close(handle)
   if not written then
     complain("cosmic: " .. write_trouble)
