@@ -1,7 +1,12 @@
 --- The shape of a cosmic database, in one place.
 ---
---- Every table is WITHOUT ROWID on a natural key, so insertion order
---- cannot reach the bytes and two builds of one tree produce one file.
+--- Every ordinary table is WITHOUT ROWID on a natural key, so insertion
+--- order cannot reach the bytes and two builds of one tree produce one
+--- file. `catalog` is the one exception: FTS5's external-content mode
+--- needs a real rowid to join against, so it is keyed on one instead --
+--- ordinary INSERTs still run in one deterministic order (see
+--- `build/writer.tl`), which is what keeps the file byte-identical, not
+--- the rowid's absence.
 
 local record schema
 end
@@ -35,6 +40,24 @@ local tables: {{string}} = {
 
   { "payload", [[(path TEXT PRIMARY KEY,
                   data BLOB NOT NULL) WITHOUT ROWID]] },
+
+  { "catalog", [[(id INTEGER PRIMARY KEY,
+                  kind TEXT NOT NULL,
+                  module TEXT NOT NULL,
+                  symbol TEXT,
+                  message TEXT,
+                  text TEXT NOT NULL,
+                  file TEXT NOT NULL,
+                  line INTEGER NOT NULL)]] },
+}
+
+--- Each FTS5 virtual table's name and its `USING fts5(...)` clause, in
+--- creation order, after every ordinary table. External-content mode
+--- (`content=`) keeps the searchable text in `catalog` itself rather
+--- than duplicating it into the index's own shadow storage.
+local virtual_tables: {{string}} = {
+  { "catalog_fts",
+    "USING fts5(message, text, content=catalog, content_rowid=id)" },
 }
 
 --- The settings a reproducible file depends on. They are stated rather
@@ -52,6 +75,10 @@ function schema.create(qualifier: string): {string}
   local out: {string} = {}
   for _, pair in ipairs(tables) do
     out[#out + 1] = "CREATE TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
+  end
+  for _, pair in ipairs(virtual_tables) do
+    out[#out + 1] =
+      "CREATE VIRTUAL TABLE " .. qualifier .. pair[1] .. " " .. pair[2]
   end
   return out
 end

@@ -21,6 +21,10 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
+local function integer(value: integer): Sqlite.Value
+  return { integer = value }
+end
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- and the compiles it found or made, with a test module's own test
 --- names alongside.
@@ -44,11 +48,94 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- The catalog entries `build.positions.catalog_of` found while parsing
+--- each planned module: every `return nil, ...` whose enclosing
+--- function's own comments named guidance for it. `id` is left for
+--- SQLite to assign, in this SELECT's own deterministic order -- the
+--- hand-authored rows below claim the low ids first, so this always
+--- continues after them the same way on every build.
+local insert_catalog_extracted =
+  "INSERT INTO out.catalog (kind, module, symbol, message, text, file, " ..
+  "line) SELECT 'error', p.path, c.symbol, c.message, c.guidance, " ..
+  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "JOIN catalog c ON c.source_hash = i.source_hash " ..
+  "ORDER BY p.path, c.ordinal"
+
+--- One hand-authored catalog row: a `strerror()` message the catalog
+--- matches on, the guidance already known for it, and where it comes
+--- from.
+local record CatalogSeedRow
+  symbol: string
+  message: string
+  hint: string
+  file: string
+  line: integer
+end
+
+--- Hand-authored catalog rows, seeded ahead of the extracted ones:
+--- guidance for the handful of `strerror()` messages cosmic's own
+--- syscalls can plausibly raise -- `core/fail.h`'s `cosmic_fail`
+--- returns `nil, strerror(errno), errno`, and a stdlib wrapper like
+--- `cosmic/fs.tl`'s `path .. ": " .. trouble` stitches that literal
+--- text straight into what a program sees, so it is exactly as
+--- matchable as an authored message. Every row here has a message: the
+--- catalog is matched on message text alone, so a row without one
+--- could never be found. `core/surface.c`'s replacement hints for the
+--- globals it removes are raised by that C code itself, not looked up.
+local catalog_seed: {CatalogSeedRow} = {
+  { symbol = "ENOENT",
+    message = "No such file or directory",
+    hint = "the path does not exist -- check it is spelled right, and " ..
+           "that every parent directory already exists; cosmic.fs " ..
+           "creates no parent directories on its own",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EACCES",
+    message = "Permission denied",
+    hint = "the process does not have permission for this path -- " ..
+           "check its ownership and mode, cosmic.fs.stat's own fields",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EEXIST",
+    message = "File exists",
+    hint = "something is already at this path -- cosmic.fs.remove it " ..
+           "first, or use a call that tolerates an existing target",
+    file = "core/fail.h", line = 0 },
+  { symbol = "ENOTDIR",
+    message = "Not a directory",
+    hint = "a path segment that should be a directory is a plain file " ..
+           "instead -- check every component up to the last",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EISDIR",
+    message = "Is a directory",
+    hint = "the path names a directory where a file was expected -- " ..
+           "reading or writing needs a file path, not a directory",
+    file = "core/fail.h", line = 0 },
+  { symbol = "ENOSPC",
+    message = "No space left on device",
+    hint = "the filesystem holding this path is full",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EMFILE",
+    message = "Too many open files",
+    hint = "this process already has too many files open -- close ones " ..
+           "no longer needed before opening more",
+    file = "core/fail.h", line = 0 },
+}
+
+--- Rebuilds `catalog_fts`'s index from `catalog`'s current rows: the
+--- documented way to bulk-load an external-content FTS5 table without
+--- keeping the two in sync through triggers a read-only, write-once
+--- database has no use for.
+local rebuild_catalog_fts =
+  "INSERT INTO out.catalog_fts(catalog_fts) VALUES ('rebuild')"
+
 --- What the shipped database is a function of: this run's plan with
 --- each module's file, the declarations, the images, the fingerprints,
---- identities and host it carries, and the main module, as one hash. When it matches the one the last write left
---- in `meta` and the file is still there, the file already is the
---- projection of these rows, and nothing is written.
+--- identities and host it carries, and the main module, as one hash.
+--- When it matches the one the last write left in `meta` and the file
+--- is still there, the file already is the projection of these rows,
+--- and nothing is written. The catalog adds nothing here: an extracted
+--- entry changes only with the source it was parsed from, which moves
+--- that module's key, and the seed rows change only with this module,
+--- which moves `boot_hash`.
 local signature_sql =
   "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
@@ -98,6 +185,25 @@ local function project(handle: work.Handle, path: string,
       "'compiler', 'runtime')")
     if not carried then
       return false, meta_trouble
+    end
+    for id, row in ipairs(catalog_seed) do
+      local ok, failure = Sqlite.run(db,
+        "INSERT INTO out.catalog (id, kind, module, symbol, message, " ..
+        "text, file, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        { integer(id), text("error"), text("(errno)"), text(row.symbol),
+          text(row.message), text(row.hint), text(row.file),
+          integer(row.line) })
+      if not ok then
+        return false, failure
+      end
+    end
+    local extracted, extracted_trouble = db:exec(insert_catalog_extracted)
+    if not extracted then
+      return false, extracted_trouble
+    end
+    local rebuilt, rebuild_trouble = db:exec(rebuild_catalog_fts)
+    if not rebuilt then
+      return false, rebuild_trouble
     end
     return Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",

@@ -271,8 +271,17 @@ input to the build, never to the runtime. one database holds:
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
+- **catalog**: guidance for errors a program can meet, one row per
+  literal `return nil, ...` message under a function whose doc
+  comment carries a `guidance:` line, plus hand-authored rows for
+  the `strerror()` messages a syscall can raise. an FTS5 index over
+  it, `catalog_fts`, is what an uncaught error's message is looked
+  up in, so the guidance prints beneath the traceback.
 
-every table is `WITHOUT ROWID` on a natural key. everything a build
+every table is `WITHOUT ROWID` on a natural key, except `catalog`,
+which FTS5's external-content mode joins by rowid and which is
+therefore keyed on an integer assigned in one deterministic insertion
+order instead. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so

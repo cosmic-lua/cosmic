@@ -57,6 +57,11 @@ function Sqlite.memory(): raw_sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
+--- Binds SQLite parameters positionally.
+--- guidance: parameter keys must be positional (1..N, matching the
+--- statement's own placeholders), and each value must be a table with
+--- exactly one field named integer, number, text, or blob (use {} for
+--- NULL)
 local function bind(
   statement: raw_sqlite.Statement, values: {Sqlite.Value}
 ): boolean, string

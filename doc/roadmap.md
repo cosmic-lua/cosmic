@@ -138,9 +138,6 @@ all three targets and the repro lane proves them byte-identical.
   deferred early on; zig as the language was set aside. revisit now
   that a real C core and build.zig exist to compare against, not a
   sketch.
-- **FTS5.** measured at 222 KB per core image, three images per
-  binary, from the current size report. the decision itself is
-  still open, and belongs to whoever needs full-text search first.
 - **an address-sanitized lane** on a clang outside the pinned
   toolchain. deferred until the C core is large enough to want it;
   today's core is a few files and hasn't earned the second toolchain
