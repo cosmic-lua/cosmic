@@ -26,6 +26,9 @@ local record docs
     --- is none -- see `build.positions.ExampleEntry`.
     example_file: string
     example_line: integer
+    --- The example's own doc comment: what it is for, `""` when there
+    --- is none.
+    example_text: string
     --- The example's own source, as written, `""` when there is none.
     example_source: string
   end
@@ -59,6 +62,8 @@ local columns =
   "AND e.symbol = d.symbol), ''), " ..
   "coalesce((SELECT line FROM examples e WHERE e.module = d.module " ..
   "AND e.symbol = d.symbol), 0), " ..
+  "coalesce((SELECT text FROM examples e WHERE e.module = d.module " ..
+  "AND e.symbol = d.symbol), ''), " ..
   "coalesce((SELECT source FROM examples e WHERE e.module = d.module " ..
   "AND e.symbol = d.symbol), '')"
 
@@ -70,7 +75,7 @@ local function entries_of(rows: {{string}}): {docs.Entry}
       text = row[5], file = row[6], line = math.tointeger(tonumber(row[7])) or 0,
       uses = math.tointeger(tonumber(row[8])) or 0,
       example_file = row[9], example_line = math.tointeger(tonumber(row[10])) or 0,
-      example_source = row[11],
+      example_text = row[11], example_source = row[12],
     }
   end
   return out
@@ -117,11 +122,7 @@ end
 
 --- The rows whose symbol, signature or documentation carries every
 --- word of `query`, best match first.
-local function searched(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
-  local fts = fts_query(query)
-  if fts == "" then
-    return {}
-  end
+local function searched_docs(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
     "WHERE docs_fts MATCH ?1 ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
@@ -130,6 +131,54 @@ local function searched(db: Sqlite.Handle, query: string): {docs.Entry} | nil, s
     return nil, trouble
   end
   return entries_of(rows)
+end
+
+--- The rows whose worked example carries every word of `query`, best
+--- match first, for a symbol `searched_docs` did not already find on
+--- its own doc comment -- a `cosmic docs "sha256 hex"` that only the
+--- example's own code mentions still finds `Fs.read`.
+local function searched_examples(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.rows(db,
+    "SELECT " .. columns .. " FROM examples_fts " ..
+    "JOIN examples e ON e.id = examples_fts.rowid " ..
+    "JOIN docs d ON d.module = e.module AND d.symbol = e.symbol " ..
+    "WHERE examples_fts MATCH ?1 ORDER BY bm25(examples_fts), d.module, d.id LIMIT 20",
+    { text(fts) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
+--- `searched_docs` and `searched_examples` together, a symbol kept
+--- once: a doc-comment match outranks an example-only one, since
+--- `searched_docs`'s own rows come first and a later duplicate is
+--- dropped.
+local function searched(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
+  local fts = fts_query(query)
+  if fts == "" then
+    return {}
+  end
+  local from_docs, docs_trouble = searched_docs(db, fts)
+  if from_docs == nil then
+    return nil, docs_trouble
+  end
+  local from_examples, examples_trouble = searched_examples(db, fts)
+  if from_examples == nil then
+    return nil, examples_trouble
+  end
+  local seen: {string: boolean} = {}
+  local out: {docs.Entry} = {}
+  for _, group in ipairs({ from_docs, from_examples }) do
+    for _, entry in ipairs(group) do
+      local key = entry.module .. "\n" .. entry.symbol
+      if not seen[key] then
+        seen[key] = true
+        out[#out + 1] = entry
+      end
+    end
+  end
+  return out
 end
 
 --- The places that refer to `symbol` as declared, or to any symbol
@@ -288,6 +337,9 @@ function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
     if entry.example_source ~= "" then
       lines[#lines + 1] = "  example (" .. entry.example_file .. ":" ..
         entry.example_line .. "):"
+      for line in (entry.example_text .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = #line > 0 and "  " .. line or ""
+      end
       for line in (entry.example_source .. "\n"):gmatch("(.-)\n") do
         lines[#lines + 1] = #line > 0 and "    " .. line or ""
       end

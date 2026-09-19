@@ -91,10 +91,13 @@ local insert_uses =
 --- `OR IGNORE`, also matching `insert_uses`: two examples in one file
 --- that happen to resolve to the same symbol (a duplicate `function
 --- Example.<name>` declaration, effectively a typo) keep the first
---- rather than failing the whole build on `examples`'s primary key.
+--- rather than failing the whole build on `examples`'s own
+--- `UNIQUE (module, symbol)`.
 local insert_examples =
-  "INSERT OR IGNORE INTO out.examples (module, symbol, file, line, source) " ..
-  "SELECT t.path, tp.export || '.' || e.name, i.file, e.line, e.source " ..
+  "INSERT OR IGNORE INTO out.examples (module, symbol, text, file, line, " ..
+  "source) " ..
+  "SELECT t.path, tp.export || '.' || e.name, e.text, i.file, e.line, " ..
+  "e.source " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'example' " ..
   "JOIN examples e ON e.source_hash = i.source_hash " ..
   "JOIN inputs t ON t.path = substr(p.path, 1, length(p.path) - length('_example')) " ..
@@ -184,6 +187,7 @@ local catalog_seed: {CatalogSeedRow} = {
 local rebuild_fts: {string} = {
   "INSERT INTO out.docs_fts(docs_fts) VALUES ('rebuild')",
   "INSERT INTO out.catalog_fts(catalog_fts) VALUES ('rebuild')",
+  "INSERT INTO out.examples_fts(examples_fts) VALUES ('rebuild')",
 }
 
 --- What the shipped database is a function of: this run's plan with

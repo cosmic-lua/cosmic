@@ -26,12 +26,13 @@ local function database(rows: {{string}}, uses: {{string}},
   end
   for _, row in ipairs(examples or {}) do
     assert(Sqlite.run(db,
-      "INSERT INTO examples (module, symbol, file, line, source) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5)",
-      { { text = row[1] }, { text = row[2] }, { text = row[3] },
-        { integer = math.tointeger(tonumber(row[4])) }, { text = row[5] } }))
+      "INSERT INTO examples (module, symbol, text, file, line, source) " ..
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
+        { integer = math.tointeger(tonumber(row[5])) }, { text = row[6] } }))
   end
   assert(db:exec("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')"))
+  assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
   return db
 end
 
@@ -110,18 +111,19 @@ local function test_renders_a_symbol()
     read_lines[#read_lines])
 end
 
---- A symbol with a worked example renders it, source and all, under
---- its doc comment; a module's own listing marks which of its symbols
---- have one.
+--- A symbol with a worked example renders its own doc comment and its
+--- source, in that order, under `Fs.read`'s own doc comment; a
+--- module's own listing marks which of its symbols have one.
 local function test_renders_a_symbols_example()
   local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "Fs.read", "cosmic/fs_example.tl", "3",
-      "function Example.read()\nend" },
+    { "cosmic.fs", "Fs.read", "Reads a file back.", "cosmic/fs_example.tl",
+      "3", "function Example.read()\nend" },
   })
   local read = assert(docs.lookup({ db }, "Fs.read"))
   local lines = docs.render({ db }, read[1])
-  assert(lines[#lines - 2] == "  example (cosmic/fs_example.tl:3):",
-    lines[#lines - 2])
+  assert(lines[#lines - 3] == "  example (cosmic/fs_example.tl:3):",
+    lines[#lines - 3])
+  assert(lines[#lines - 2] == "  Reads a file back.", lines[#lines - 2])
   assert(lines[#lines - 1] == "    function Example.read()", lines[#lines - 1])
   assert(lines[#lines] == "    end", lines[#lines])
 
@@ -129,6 +131,27 @@ local function test_renders_a_symbols_example()
   local module_lines = docs.render({ db }, module[1])
   assert(module_lines[4] == "  function Fs.read (2 uses, example)", module_lines[4])
   assert(module_lines[5] == "  function Fs.write", module_lines[5])
+end
+
+--- A word only a worked example's own code or its own doc comment
+--- mentions -- never in `Fs.read`'s own doc comment -- still finds
+--- `Fs.read`, through `examples_fts` rather than `docs_fts`.
+local function test_searches_finds_a_word_only_in_an_example()
+  local db = database(fs_rows, fs_uses, {
+    { "cosmic.fs", "Fs.read", "", "cosmic/fs_example.tl", "3",
+      "function Example.read()\n  print(Hash.hex_sha256(Fs.read(\"x\")))\nend" },
+  })
+  local found, _, exact = docs.lookup({ db }, "hex_sha256")
+  assert(found ~= nil)
+  assert(not exact)
+  assert(#found == 1 and found[1].symbol == "Fs.read", tostring(#found))
+
+  local db2 = database(fs_rows, fs_uses, {
+    { "cosmic.fs", "Fs.read", "Demonstrates reading a config file.",
+      "cosmic/fs_example.tl", "3", "function Example.read()\nend" },
+  })
+  local by_text = assert(docs.lookup({ db2 }, "config"))
+  assert(#by_text == 1 and by_text[1].symbol == "Fs.read", tostring(#by_text))
 end
 
 --- The uses of a symbol, by either name.

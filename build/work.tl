@@ -249,6 +249,7 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS examples (source_hash TEXT NOT NULL,
                                          ordinal INTEGER NOT NULL,
                                          name TEXT NOT NULL,
+                                         text TEXT NOT NULL,
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],

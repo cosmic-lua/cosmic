@@ -63,6 +63,10 @@ local record positions
   --- record's name, so nothing here has to know it.
   record ExampleEntry
     name: string
+    --- The doc comment directly above it, leaders stripped, the same
+    --- way `DocEntry.text` reads one -- what the example is FOR; the
+    --- source below it is how, and is documentation in its own right.
+    text: string
     --- The whole `function Example.<name>() ... end`, as written.
     source: string
     line: integer
@@ -511,7 +515,10 @@ end
 --- `docs_of` already finds `function Fs.read(...)` -- no tag names the
 --- association, only the shape of the declaration itself. `name` is
 --- bare; `build.writer`'s `insert_examples` resolves it against the
---- paired module's own record name at ship time.
+--- paired module's own record name at ship time. Its own doc comment
+--- is read the same way `docs_of` reads one, since an example is
+--- documentation too -- what it is for in the comment, how in the
+--- code below it.
 local function examples_of(lines: {string}, parsed: ast.Parsed): {positions.ExampleEntry}
   local out: {positions.ExampleEntry} = {}
   local nodes = parsed.node
@@ -524,6 +531,7 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {positions.Exam
         local until_y = after ~= nil and after.y or (#lines + 1)
         local until_x = after ~= nil and after.x or 1
         out[#out + 1] = { name = tk,
+          text = doc_before(stmt.comments, stmt.y),
           source = block_text(lines, stmt.y, stmt.x, until_y, until_x),
           line = stmt.y }
       end

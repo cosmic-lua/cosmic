@@ -610,6 +610,26 @@ local function test_discovers_an_example_function()
   assert(#found == 1, tostring(#found))
   assert(found[1].name == "read", found[1].name)
   assert(found[1].line == 2, tostring(found[1].line))
+  assert(found[1].text == "", found[1].text)
+end
+
+--- An example is documentation too: the comment directly above it is
+--- read the same way `docs_of` reads any other function's, and is
+--- never mistaken for part of the source below it.
+local function test_captures_an_examples_doc_comment()
+  local source = lines({
+    "local Example = {}",
+    "--- Reads a file back and prints it.",
+    "function Example.read()",
+    "  assert(1 == 1)",
+    "end",
+    "return Example",
+  })
+  local found = examples(source)
+  assert(#found == 1, tostring(#found))
+  assert(found[1].text == "Reads a file back and prints it.", found[1].text)
+  assert(not found[1].source:find("Reads a file back", 1, true),
+    "the doc comment leaked into the captured source: " .. found[1].source)
 end
 
 --- An ordinary function, local or on any other record, is not an

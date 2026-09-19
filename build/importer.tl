@@ -245,10 +245,10 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     end
     for ordinal, entry in ipairs(found.examples) do
       ok, why = Sqlite.run(db,
-        "INSERT INTO examples (source_hash, ordinal, name, source, line) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO examples (source_hash, ordinal, name, text, source, " ..
+        "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         { text(source_hash), { integer = ordinal }, text(entry.name),
-          text(entry.source), { integer = entry.line } })
+          text(entry.text), text(entry.source), { integer = entry.line } })
       if not ok then
         return false, file .. ": " .. why
       end

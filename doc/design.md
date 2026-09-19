@@ -280,14 +280,14 @@ input to the build, never to the runtime. one database holds:
   the association -- resolved against the module its file name pairs
   with (`cosmic/fs_example.tl` examples `cosmic.fs`) and that module's
   own entry record, kept only where the resolved symbol is one `docs`
-  actually declares. `cosmic docs Fs.read` prints it, source and all,
-  beneath the doc comment; the example itself compiles and runs like
-  any other test, since it is one -- one assertion mechanism for code,
-  not a second, output-diffing one only doc guides need. An example
-  requires what it needs itself, inside its own function, rather than
-  sharing a require above it: what `cosmic docs` prints is exactly
-  this function's own text, so it should read as a complete,
-  standalone snippet on its own.
+  actually declares. An example is documentation twice over: its own
+  doc comment, read the same way `docs` reads one, says what it is
+  for, and its body, which compiles and runs like any other test, says
+  how -- one assertion mechanism for code, not a second, output-
+  diffing one only doc guides need. `cosmic docs Fs.read` prints both,
+  source and all, beneath `Fs.read`'s own doc comment, and an
+  `examples_fts` index answers a word search over either the same way
+  `docs_fts` does for a symbol's own documentation.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.
