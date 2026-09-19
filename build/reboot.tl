@@ -70,7 +70,7 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   -- booted beside the release -- is not rebuilt from it.
   local image, image_trouble = work.image(handle, host)
   if image == nil then
-    return image_trouble
+    return image_trouble .. "; run bin/zig build boot"
   end
   if Hash.hex_sha256(image) ~= (Store.meta("host_image") or "") then
     return "the running image is not the one the working database " ..

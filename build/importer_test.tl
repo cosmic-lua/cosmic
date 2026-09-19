@@ -6,6 +6,7 @@
 --- while a genuine top-level require is still found.
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -238,4 +239,99 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "local record helper\nend\nreturn helper\n-- edited\n"))
   assert(identity() ~= fresh,
     "an edit to a module the compiler requires did not move its identity")
+end
+
+--- The Lua a module compiles to keeps the line numbers of the Teal it
+--- came from: an uncaught error names a Lua line, and the runtime
+--- reads that line straight out of the Teal source, so the two must
+--- agree on every line a declaration sits on -- however a doc comment
+--- or a wrapped signature moved things above it.
+local function test_generated_lua_keeps_teal_line_numbers()
+  local root = "/tmp/cosmic-importer-test-lines-" .. tostring(Proc.pid())
+  assert(Fs.mkdirs(root))
+  local source = table.concat({
+    "--- A module whose lines are known.",
+    "---",
+    "--- Three lines of comment, then a blank.",
+    "",
+    "local record lines",
+    "end",
+    "",
+    "--- Adds, on line eight.",
+    "function lines.add(a: integer,",
+    "                   b: integer): integer",
+    "  return a + b",
+    "end",
+    "",
+    "function lines.fail(): boolean, string",
+    "  return nil, \"line fifteen fails\"",
+    "end",
+    "",
+    "return lines",
+  }, "\n") .. "\n"
+  assert(Fs.write(root .. "/lines.tl", source))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local env = assert(teal.environment_for(built, handle))
+  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  assert(result ~= nil, tostring(compile_trouble))
+  local lua: string = nil
+  for _, m in ipairs(result.modules) do
+    if m.path == "lines" then
+      lua = m.lua
+    end
+  end
+  work.close(handle)
+  assert(lua ~= nil, "lines did not compile")
+  local generated: {string} = {}
+  for line in (lua .. "\n"):gmatch("(.-)\n") do
+    generated[#generated + 1] = line
+  end
+  assert(generated[9]:find("function lines.add", 1, true), "line 9: " .. generated[9])
+  assert(generated[11]:find("return a + b", 1, true), "line 11: " .. generated[11])
+  assert(generated[15]:find("line fifteen fails", 1, true), "line 15: " .. generated[15])
+end
+
+--- What a parse derived -- docs, requires, tests, the catalog -- is
+--- keyed by the source it came from and found again while that source
+--- stands. It is right only while the code that derived it stands too:
+--- when the analyzer's identity moves, every derived row is forgotten
+--- and every source is seen again, so an extractor that learns to see
+--- something new sees it in old sources as well.
+local function test_a_changed_analyzer_forgets_what_it_derived()
+  local root = "/tmp/cosmic-importer-test-analyzer-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+                         "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/cosmic/thing.tl",
+    "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
+  local function derived_with(boot_hash: string, plant: boolean): integer
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    assert(Sqlite.run(handle.db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', ?1)",
+      { { text = boot_hash } }))
+    if plant then
+      -- Under the real source's hash, so only the analyzer sweep, and
+      -- not the ordinary collection of rows no input refers to, can
+      -- remove it.
+      assert(Sqlite.run(handle.db,
+        "INSERT INTO docs (source_hash, ordinal, symbol, kind, signature, " ..
+        "text, line) SELECT source_hash, 99, 'Planted', 'record', '', '', 1 " ..
+        "FROM inputs WHERE path = 'cosmic.thing'"))
+    end
+    assert(importer.derive(handle, true, built))
+    local rows = assert(Sqlite.rows(handle.db,
+      "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
+    work.close(handle)
+    return math.tointeger(tonumber(rows[1][1])) or -1
+  end
+  assert(derived_with("tool-one", false) == 0)
+  -- The same analyzer: a planted row survives, as any derived row does.
+  assert(derived_with("tool-one", true) == 1, "the same analyzer forgot its rows")
+  -- A different analyzer: everything derived is gone and re-derived.
+  assert(derived_with("tool-two", false) == 0, "a changed analyzer kept stale rows")
 end

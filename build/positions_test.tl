@@ -273,20 +273,20 @@ local function test_has_top_level_return_true_for_a_parenthesized_return()
 end
 
 --- `analyze` on `source`, asserting the parse succeeded, and returning
---- just its guidance catalog.
+--- just its catalog.
 local function catalog(source: string): {positions.CatalogEntry}
   local found, err = positions.analyze(built, source, "fixture.tl")
   assert(found ~= nil, "analyze failed: " .. tostring(err))
   return found.catalog
 end
 
---- A top-level function whose doc comment carries a `guidance:` line
---- yields one entry per literal `return nil, ...` in its body, naming
---- the function, the message text, the guidance, and the return's line.
-local function test_catalogs_a_guided_literal_failure()
+--- A top-level function yields one entry per literal `return nil, ...`
+--- in its body, naming the function, the message text, and the
+--- return's line -- documented or not: the guidance is looked up from
+--- its docs later, and a function with none still names where the
+--- message comes from.
+local function test_catalogs_a_literal_failure()
   local source = lines({
-    "--- Opens a thing.",
-    "--- guidance: check the thing is there",
     "local function open_thing(): boolean, string",
     "  return nil, \"the thing was not found\"",
     "end",
@@ -295,44 +295,13 @@ local function test_catalogs_a_guided_literal_failure()
   assert(#found == 1, "expected one entry, got " .. #found)
   assert(found[1].symbol == "open_thing", found[1].symbol)
   assert(found[1].message == "the thing was not found", found[1].message)
-  assert(found[1].guidance == "check the thing is there", found[1].guidance)
-  assert(found[1].line == 4, tostring(found[1].line))
-end
-
---- Every comment line after the `guidance:` one joins the guidance,
---- space-separated, with the comment leaders stripped.
-local function test_guidance_spans_the_remaining_comment_lines()
-  local source = lines({
-    "--- Opens a thing.",
-    "--- guidance: check the thing is there,",
-    "--- and that it is readable",
-    "local function open_thing(): boolean, string",
-    "  return nil, \"the thing was not found\"",
-    "end",
-  })
-  local found = catalog(source)
-  assert(#found == 1)
-  assert(found[1].guidance == "check the thing is there, and that it is readable",
-    found[1].guidance)
-end
-
---- A function whose comments name no guidance contributes nothing,
---- however many literal failures it returns.
-local function test_catalogs_nothing_without_guidance()
-  local source = lines({
-    "--- Opens a thing, with no guidance to offer.",
-    "local function open_thing(): boolean, string",
-    "  return nil, \"the thing was not found\"",
-    "end",
-  })
-  assert(#catalog(source) == 0)
+  assert(found[1].line == 2, tostring(found[1].line))
 end
 
 --- `return false, ...` is an honest failure too, and is catalogued the
 --- same way.
 local function test_catalogs_a_false_return()
   local source = lines({
-    "--- guidance: retry later",
     "local function try_thing(): boolean, string",
     "  return false, \"the thing is busy right now\"",
     "end",
@@ -347,7 +316,6 @@ end
 --- would always contain.
 local function test_message_keeps_only_the_literal_text()
   local source = lines({
-    "--- guidance: check the path",
     "local function open_thing(path: string): boolean, string",
     "  return nil, \"could not open \" .. path .. \" for reading\"",
     "end",
@@ -361,11 +329,9 @@ end
 --- is left out rather than shipped as a near-universal false hit.
 local function test_drops_a_mostly_interpolated_message()
   local source = lines({
-    "--- guidance: check the path",
     "local function open_thing(path: string): boolean, string",
     "  return nil, path .. \": \" .. describe()",
     "end",
-    "--- guidance: check the index",
     "local function pick(index: integer): boolean, string",
     "  return nil, \"no \" .. tostring(index)",
     "end",
@@ -379,11 +345,9 @@ local function test_record_function_symbols_name_their_owner()
   local source = lines({
     "local record Thing",
     "end",
-    "--- guidance: open it first",
     "function Thing.read(): boolean, string",
     "  return nil, \"the thing is not open\"",
     "end",
-    "--- guidance: open it first",
     "function Thing:write(): boolean, string",
     "  return nil, \"the thing is not open for writing\"",
     "end",
@@ -395,11 +359,10 @@ local function test_record_function_symbols_name_their_owner()
 end
 
 --- A failure returned from a nested block is found; one returned by a
---- function declared inside the guided one belongs to that inner
---- function's own comments, and is not attributed to the outer one.
+--- function declared inside the outer one is that inner function's,
+--- and is not attributed to the outer one.
 local function test_walks_nested_blocks_but_not_inner_functions()
   local source = lines({
-    "--- guidance: check both conditions",
     "local function open_thing(a: boolean): boolean, string",
     "  if a then",
     "    if not a then",
@@ -415,5 +378,212 @@ local function test_walks_nested_blocks_but_not_inner_functions()
   local found = catalog(source)
   assert(#found == 1, "expected one entry, got " .. #found)
   assert(found[1].message == "the thing is deeply wrong", found[1].message)
-  assert(found[1].line == 5, tostring(found[1].line))
+  assert(found[1].line == 4, tostring(found[1].line))
+end
+
+--- `analyze` on `source`, asserting the parse succeeded, and returning
+--- its documented symbols by symbol.
+local function docs(source: string): {string: positions.DocEntry}, {positions.DocEntry}
+  local found, err = positions.analyze(built, source, "fixture.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  local by_symbol: {string: positions.DocEntry} = {}
+  for _, entry in ipairs(found.docs) do
+    by_symbol[entry.symbol] = entry
+  end
+  return by_symbol, found.docs
+end
+
+--- A function's doc comment is the run of comment lines directly above
+--- it, leaders stripped, one line per source line; its signature is
+--- its head as written, however the source wrapped it.
+local function test_documents_a_function()
+  local source = lines({
+    "--- Opens a thing.",
+    "---",
+    "--- Returns nil when it is not there.",
+    "local function open_thing(path: string,",
+    "                          mode: string): boolean, string",
+    "  return nil, \"the thing was not found\"",
+    "end",
+  })
+  local by_symbol = docs(source)
+  local entry = by_symbol["open_thing"]
+  assert(entry ~= nil, "open_thing is not documented")
+  assert(entry.kind == "function", entry.kind)
+  assert(entry.text == "Opens a thing.\n\nReturns nil when it is not there.", entry.text)
+  assert(entry.signature ==
+    "local function open_thing(path: string, mode: string): boolean, string",
+    entry.signature)
+  assert(entry.line == 4, tostring(entry.line))
+end
+
+--- A function with no comment of its own is still a symbol, with an
+--- empty text: `cosmic docs` can still say where it lives.
+local function test_an_undocumented_function_is_still_a_symbol()
+  local source = lines({
+    "local function quiet()",
+    "end",
+  })
+  local by_symbol = docs(source)
+  assert(by_symbol["quiet"] ~= nil)
+  assert(by_symbol["quiet"].text == "")
+end
+
+--- A comment separated from a declaration by a blank line is not its
+--- documentation; when that comment opens the file, it is the module's.
+local function test_the_opening_comment_documents_the_module()
+  local source = lines({
+    "--- The thing module.",
+    "--- It has things in it.",
+    "",
+    "--- Opens a thing.",
+    "local function open_thing()",
+    "end",
+  })
+  local by_symbol = docs(source)
+  local module = by_symbol[""]
+  assert(module ~= nil, "no module doc")
+  assert(module.kind == "module")
+  assert(module.text == "The thing module.\nIt has things in it.", module.text)
+  assert(by_symbol["open_thing"].text == "Opens a thing.", by_symbol["open_thing"].text)
+end
+
+--- A comment that opens the file with no blank line before the first
+--- function is that function's, not the module's.
+local function test_an_adjacent_opening_comment_belongs_to_the_function()
+  local source = lines({
+    "--- Opens a thing.",
+    "local function open_thing()",
+    "end",
+  })
+  local by_symbol = docs(source)
+  assert(by_symbol[""] == nil, "the opening comment was taken as the module's")
+  assert(by_symbol["open_thing"].text == "Opens a thing.")
+end
+
+--- A comment that opens the file directly above its first `local`
+--- (a require, as most files begin) is the module's, and does not
+--- make that local a documented value.
+local function test_an_opening_comment_above_a_require_is_the_modules()
+  local source = lines({
+    "--- The thing module.",
+    "local Fs = require(\"cosmic.fs\")",
+    "--- How many.",
+    "local count = 3",
+  })
+  local by_symbol = docs(source)
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "The thing module.")
+  assert(by_symbol["Fs"] == nil, "the require became a documented value")
+  assert(by_symbol["count"].text == "How many.")
+end
+
+--- A file that is only a comment documents its module.
+local function test_a_comment_only_file_documents_the_module()
+  local by_symbol = docs(lines({ "--- Nothing but words." }))
+  assert(by_symbol[""] ~= nil and by_symbol[""].text == "Nothing but words.")
+end
+
+--- A record is a symbol, and so is each field under it, in declaration
+--- order, with a nested record or enum recursing under its own name.
+--- Methods declared on the record join under the same prefix.
+local function test_documents_a_record_and_its_fields()
+  local source = lines({
+    "--- A thing.",
+    "local record Thing",
+    "  --- Where it is.",
+    "  path: string",
+    "  --- How it is opened.",
+    "  record Options",
+    "    --- Whether to create it.",
+    "    create: boolean",
+    "  end",
+    "  --- What kind it is.",
+    "  enum Kind",
+    "    \"file\"",
+    "    \"dir\"",
+    "  end",
+    "end",
+    "--- Reads it.",
+    "function Thing:read(): string",
+    "  return \"\"",
+    "end",
+    "return Thing",
+  })
+  local by_symbol, all = docs(source)
+  assert(by_symbol["Thing"].kind == "record", by_symbol["Thing"].kind)
+  assert(by_symbol["Thing"].signature == "local record Thing", by_symbol["Thing"].signature)
+  assert(by_symbol["Thing"].text == "A thing.")
+  assert(by_symbol["Thing.path"].kind == "field")
+  assert(by_symbol["Thing.path"].signature == "path: string", by_symbol["Thing.path"].signature)
+  assert(by_symbol["Thing.path"].text == "Where it is.")
+  assert(by_symbol["Thing.Options"].kind == "record")
+  assert(by_symbol["Thing.Options"].text == "How it is opened.", by_symbol["Thing.Options"].text)
+  assert(by_symbol["Thing.Options.create"].kind == "field")
+  assert(by_symbol["Thing.Options.create"].text == "Whether to create it.")
+  assert(by_symbol["Thing.Kind"].kind == "enum")
+  assert(by_symbol["Thing.Kind.file"].kind == "value")
+  assert(by_symbol["Thing.Kind.file"].signature == "\"file\"")
+  assert(by_symbol["Thing:read"].kind == "method")
+  assert(by_symbol["Thing:read"].text == "Reads it.")
+  local order: {string} = {}
+  for _, entry in ipairs(all) do
+    order[#order + 1] = entry.symbol
+  end
+  assert(table.concat(order, " ") ==
+    "Thing Thing.path Thing.Options Thing.Options.create Thing.Kind " ..
+    "Thing.Kind.dir Thing.Kind.file Thing:read", table.concat(order, " "))
+end
+
+--- A type alias is a symbol of kind `type`; a documented top-level
+--- value is one of kind `value`, and an undocumented one is not.
+local function test_documents_aliases_and_documented_values()
+  local source = lines({
+    "--- A name for a map.",
+    "local type Names = {string: string}",
+    "--- How many.",
+    "local count = 3",
+    "local quiet = 4",
+  })
+  local by_symbol = docs(source)
+  assert(by_symbol["Names"].kind == "type", by_symbol["Names"].kind)
+  assert(by_symbol["Names"].signature == "local type Names = {string: string}")
+  assert(by_symbol["count"].kind == "value")
+  assert(by_symbol["count"].text == "How many.")
+  assert(by_symbol["quiet"] == nil, "an undocumented local became a symbol")
+end
+
+--- The name a chunk returns is its export, and each `alias.member`
+--- through a top-level require alias is a reference to that module,
+--- once per member per line, in source order.
+local function test_finds_the_export_and_the_references()
+  local source = lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "local record Thing",
+    "end",
+    "function Thing.go()",
+    "  local data = Fs.read(\"x\")",
+    "  return Hash.hex(Hash.sha256(data)), Fs.read(\"y\")",
+    "end",
+    "return Thing",
+  })
+  local found, err = positions.analyze(built, source, "fixture.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  assert(found.export == "Thing", found.export)
+  local seen: {string} = {}
+  for _, r in ipairs(found.references) do
+    seen[#seen + 1] = r.module .. " " .. r.member .. " " .. r.line
+  end
+  assert(table.concat(seen, ", ") ==
+    "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
+    table.concat(seen, ", "))
+end
+
+--- A chunk that returns nothing, or an expression that is not a plain
+--- name, exports no name.
+local function test_export_is_empty_without_a_named_return()
+  local found = assert(positions.analyze(built, lines({ "return {}" }), "fixture.tl"))
+  assert(found.export == "", found.export)
+  found = assert(positions.analyze(built, lines({ "local x = 1" }), "fixture.tl"))
+  assert(found.export == "", found.export)
 end
