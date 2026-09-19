@@ -64,6 +64,146 @@ local function requires_of_fixture(root: string, path: string): {string} | nil, 
   return nil, path .. ": not found among compiled modules"
 end
 
+--- Stages and compiles one fixture run. Reopening the same root keeps its
+--- working database, which lets a test exercise the real warm cache.
+local function compile_fixture(root: string): importer.Result | nil, string
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return nil, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return nil, stage_trouble
+  end
+  local env, env_trouble = teal.environment_for(built, handle)
+  if env == nil then
+    work.close(handle)
+    return nil, env_trouble
+  end
+  local result, compile_trouble = importer.compile(handle, built, env,
+    "declaration-cache-test")
+  work.close(handle)
+  return result, compile_trouble
+end
+
+--- A declaration is the source the checker uses for an imported module,
+--- including when an implementation with the same import path exists. An
+--- edit that changes its public type must invalidate a warm dependent.
+local function test_declaration_edit_invalidates_a_warm_dependent()
+  local root, write_trouble = write_fixture("declaration-cache", {
+    ["main.tl"] = table.concat({
+      'local type Types = require("types")',
+      "local value: number = 42",
+      "local thing: Types.Thing = { value = value }",
+      "return thing",
+      "",
+    }, "\n"),
+    ["types.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+    ["types.d.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/types.d.tl",
+    "local record Types\n  record Thing\n    value: string\n  end\nend\nreturn Types\n"))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "a warm compile reused code checked against the old declaration")
+  assert(trouble:find("string", 1, true) ~= nil,
+    "the changed declaration did not reach the checker: " .. trouble)
+end
+
+--- Type-only imports participate in the same transitive closure. The main
+--- module does not name `types`, but changing that declaration must still
+--- invalidate `helper` and then main in a warm database.
+local function test_declaration_edit_invalidates_transitive_type_only_dependents()
+  local root, write_trouble = write_fixture("transitive-declaration-cache", {
+    ["main.tl"] = 'local helper = require("helper")\nreturn helper.make()\n',
+    ["helper.tl"] = table.concat({
+      'local type Types = require("types")',
+      "local record helper",
+      "  make: function(): Types.Thing",
+      "end",
+      "function helper.make(): Types.Thing",
+      "  return { value = 42 }",
+      "end",
+      "return helper",
+      "",
+    }, "\n"),
+    ["types.d.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/types.d.tl",
+    "local record Types\n  record Thing\n    value: string\n  end\nend\nreturn Types\n"))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "a warm compile missed a transitive declaration edit")
+  assert(trouble:find("string", 1, true) ~= nil,
+    "the transitive declaration did not reach the checker: " .. trouble)
+end
+
+--- The declaration controls checking, but the implementation still controls
+--- what a test loads. Changing only that implementation must move the test's
+--- key so a previously passing verdict is not reused.
+local function test_implementation_edit_invalidates_a_declared_dependent()
+  local root, write_trouble = write_fixture("declared-implementation-cache", {
+    ["dep.tl"] = "return { value = 1 }\n",
+    ["dep.d.tl"] = "local record Dep\n  value: number\nend\nreturn Dep\n",
+    ["main_test.tl"] = table.concat({
+      'local dep = require("dep")',
+      "local function test_value()",
+      "  assert(dep.value == 1)",
+      "end",
+      "",
+    }, "\n"),
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/dep.tl", "return { value = 2 }\n"))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "the edited fixture did not compile: " .. tostring(trouble))
+  assert(result.compiled == 2,
+    "the implementation edit left its declared dependent cached")
+end
+
+--- Mutually recursive declaration types are valid input to the checker. A
+--- cache key closes over the graph without rejecting that cycle itself.
+local function test_declaration_dependency_keys_allow_cycles()
+  local root, write_trouble = write_fixture("declaration-cycle", {
+    ["main.tl"] = table.concat({
+      'local type A = require("a")',
+      "return function(value: A.Value): number",
+      "  return value.n",
+      "end",
+      "",
+    }, "\n"),
+    ["a.d.tl"] = table.concat({
+      'local type B = require("b")',
+      "local record A",
+      "  record Value",
+      "    n: number",
+      "    peer: B.Value",
+      "  end",
+      "end",
+      "return A",
+      "",
+    }, "\n"),
+    ["b.d.tl"] = table.concat({
+      'local type A = require("a")',
+      "local record B",
+      "  record Value",
+      "    n: number",
+      "    peer: A.Value",
+      "  end",
+      "end",
+      "return B",
+      "",
+    }, "\n"),
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "declaration cycle was refused: " .. tostring(trouble))
+end
+
 --- A `require("cosmic.hidden_dep")` sitting inside a comment or a
 --- string literal is not a real import: `requires_of` finds no
 --- `require` call at all in this source, even though the raw bytes
