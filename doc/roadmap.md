@@ -92,13 +92,12 @@ that runs both, coverage reported the same way for either.
   `07-assert-narrows.txt`): a guard on `x.field` -- truthy read,
   `assert`, `== nil` / `~= nil`, the early-return shape -- narrows the
   field the same way a bare variable already narrows, on a
-  bare-variable base only (`a.b.field` does not chain). **container
-  covariance is still open**, so cast-foreclosure holds against real
-  code, not only a trivial one-file script; ordinary checking already
-  runs on every compile of this tree today and has surfaced no live
-  blocker, though that is a byproduct of the tree compiling clean, not
-  a targeted audit for this specific gap -- still open, not closed by
-  the absence of evidence so far.
+  bare-variable base only (`a.b.field` does not chain). container
+  covariance, once considered the other remaining narrowing patch, is
+  dropped, not deferred: no v1 precedent ever needed it, against a far
+  larger codebase, and no evidence of a live blocker has ever turned up
+  in this tree either -- a hypothetical with nothing behind it, not a
+  known gap.
 
 **alongside, not gating the above:**
 
