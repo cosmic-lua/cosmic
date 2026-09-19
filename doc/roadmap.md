@@ -18,19 +18,17 @@ test verdicts.
 - **the doctest extractor**, per meta.md: fenced blocks from a doc
   become one compiled Teal file, one function per example, so the
   compiled file is a test file and needs no runner of its own.
-- **Lua and Teal coverage has landed** (`cosmic/coverage.tl`,
-  `debug.sethook` in line mode through the private binding reserved
-  for it), but its per-line hook calls `debug.getinfo` on every line
-  the whole suite executes, which is minutes on this tree today --
-  `build.test` currently passes `install_hook = false` to keep the
-  window/session contract its own tests rely on without paying that
-  cost, so every run reports 0.0% honestly rather than a real
-  percentage nobody paid for. main's `cosmic.coverage` answers this
-  with a native collector, `cosmo.cov` (counts kept and read on the
-  C side, armed by the same `start`/`stop`), falling back to the Lua
-  hook only on a runtime without it; porting that collector, or an
-  equivalent, and turning the hook back on by default is the next
-  goal here.
+- **Lua and Teal coverage has landed** (`cosmic/coverage.tl`), and so
+  has the collector cheap enough to leave on by default: a line hook
+  that keeps its own hit accounting in C (`core/coverage.c`), one
+  `lua_getinfo` call filling `currentline`/`short_src` straight into a
+  C struct and a table write, no Lua closure and no `debug.getinfo`
+  call from Lua on the hot path -- the earlier Lua-side hook this
+  replaced cost exactly that call per line the whole suite executed,
+  which was minutes on this tree; `build.test` now runs it on every
+  `cosmic test` and reports a real percentage. `debug` itself stays
+  out of reach the same way it always has, for reasons that are not
+  this module's; nothing fetches it back out any more.
 
 **deferred, not dropped: C testing and coverage.** no C-level unit
 test framework exists yet, and C coverage is researched but not

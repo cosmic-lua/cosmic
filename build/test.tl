@@ -261,15 +261,12 @@ function test.run(): integer
   -- session `start` hands back is what keeps this window this run's own:
   -- an ordinary test elsewhere in the tree that also calls `start`/`stop`
   -- cannot reset or end it, since it never has this same session value.
-  -- The per-line hook costs one debug.getinfo call per Lua line
-  -- executed by the whole suite, which is minutes on this tree today;
-  -- a collector cheap enough to leave on by default is tracked in
-  -- doc/roadmap.md, not yet built. Passing false here keeps the
-  -- window/session open (so cosmic.coverage_test's own refusal tests
-  -- still hold) without installing the hook, so every run reports
-  -- 0.0% honestly instead of a real percentage nobody paid the cost
-  -- for.
-  local session, start_trouble = Coverage.start(false)
+  -- The hook itself now runs in C (core/coverage.c), one hit recorded
+  -- per line with no Lua-level debug.getinfo call, cheap enough to
+  -- leave on by default -- the Lua hook this replaced cost one such
+  -- call per line the whole suite executed, which was minutes on this
+  -- tree.
+  local session, start_trouble = Coverage.start()
   if session == nil then
     complain("coverage: " .. start_trouble)
   end
