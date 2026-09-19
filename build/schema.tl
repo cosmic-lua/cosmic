@@ -2,7 +2,7 @@
 ---
 --- Every ordinary table is WITHOUT ROWID on a natural key, so insertion
 --- order cannot reach the bytes and two builds of one tree produce one
---- file. `docs` and `catalog` are the exceptions: FTS5's
+--- file. `docs`, `catalog` and `examples` are the exceptions: FTS5's
 --- external-content mode needs a real rowid to join against, so each
 --- is keyed on one instead -- ordinary INSERTs still run in one
 --- deterministic order (see `build/writer.tl`), which is what keeps the
@@ -57,6 +57,15 @@ local tables: {{string}} = {
                      line INTEGER NOT NULL,
                      PRIMARY KEY (module, symbol, from_module, line)) WITHOUT ROWID]] },
 
+  { "examples", [[(id INTEGER PRIMARY KEY,
+                   module TEXT NOT NULL,
+                   name TEXT NOT NULL,
+                   text TEXT NOT NULL,
+                   file TEXT NOT NULL,
+                   line INTEGER NOT NULL,
+                   source TEXT NOT NULL,
+                   UNIQUE (module, name))]] },
+
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
                   module TEXT NOT NULL,
@@ -76,6 +85,8 @@ local virtual_tables: {{string}} = {
     "USING fts5(symbol, signature, text, content=docs, content_rowid=id)" },
   { "catalog_fts",
     "USING fts5(message, text, content=catalog, content_rowid=id)" },
+  { "examples_fts",
+    "USING fts5(name, text, source, content=examples, content_rowid=id)" },
 }
 
 --- The settings a reproducible file depends on. They are stated rather

@@ -243,6 +243,16 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
         return false, file .. ": " .. why
       end
     end
+    for ordinal, entry in ipairs(found.examples) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO examples (source_hash, ordinal, name, text, source, " ..
+        "line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        { text(source_hash), { integer = ordinal }, text(entry.name),
+          text(entry.text), text(entry.source), { integer = entry.line } })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
   end
   return true, ""
 end
@@ -251,7 +261,7 @@ end
 --- came from: rows in them are only ever as right as the code that
 --- derived them.
 local analysis_tables: {string} = {
-  "parsed", "requires", "tests", "catalog", "docs", "refs",
+  "parsed", "requires", "tests", "catalog", "docs", "refs", "examples",
 }
 
 --- Forgets every derived row when the code that derives them has
@@ -540,6 +550,10 @@ local function collect(handle: work.Handle, self_tree: boolean,
   if tests == nil then
     return nil, tests_trouble
   end
+  local examples, examples_trouble = names_by_hash(db, "examples")
+  if examples == nil then
+    return nil, examples_trouble
+  end
   local out: {Module} = {}
   for _, row in ipairs(rows) do
     local path, file, kind, origin = row[1], row[2], row[3], row[4]
@@ -551,7 +565,9 @@ local function collect(handle: work.Handle, self_tree: boolean,
       source = source,
       source_hash = source_hash,
       requires = requires[source_hash] or {},
-      tests = kind == "test" and (tests[source_hash] or {}) or {},
+      tests = kind == "test" and (tests[source_hash] or {})
+        or kind == "example" and (examples[source_hash] or {})
+        or {},
       has_top_level_return = has_return == "1",
       generated = origin == "doctest",
       key = "",
@@ -673,6 +689,17 @@ end
 --- what `m` itself carries -- never a second parse of the same source.
 local function collides_with_test_tail(m: Module): boolean
   return #m.tests > 0 and m.has_top_level_return
+end
+
+--- Whether an example module found `Example.<name>` functions but has
+--- no top-level `return` to hand any of them back: unlike a test
+--- module, an example module gets no generated tail, since its own
+--- `return Example` is what the runner and `cosmic docs` both need
+--- reachable from outside the file -- see `positions.ExampleEntry`.
+--- Caught here, at compile time, rather than left to fail the moment
+--- the runner indexes a table that `require` handed back as `true`.
+local function missing_example_return(m: Module): boolean
+  return #m.tests > 0 and not m.has_top_level_return
 end
 
 local function complain(file: string, result: compiler.Result): string
@@ -920,6 +947,10 @@ function importer.compile(handle: work.Handle, built: compiler,
           "define test_* functions and return its own value; remove the " ..
           "top-level return so the generated tail can hand the runner " ..
           "its tests"
+      elseif m.kind == "example" and missing_example_return(m) then
+        result.refused[#result.refused + 1] = m.file .. ": an example file " ..
+          "must return the table its Example.* functions are declared on " ..
+          "(`return Example`), or the runner has nothing to call"
       else
         local lua, look_trouble = cached_lua(cache, m.key)
         if lua == nil and look_trouble ~= "" then

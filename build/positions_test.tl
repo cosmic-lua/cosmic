@@ -587,3 +587,101 @@ local function test_export_is_empty_without_a_named_return()
   found = assert(positions.analyze(built, lines({ "local x = 1" }), "fixture.tl"))
   assert(found.export == "", found.export)
 end
+
+--- `analyze` on `source`, asserting the parse succeeded, and returning
+--- just its worked examples.
+local function examples(source: string): {positions.ExampleEntry}
+  local found, err = positions.analyze(built, source, "fixture.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  return found.examples
+end
+
+--- A top-level `function Example.<name>()` is a worked example, found
+--- by shape alone -- no tag, no comment above it required.
+local function test_discovers_an_example_function()
+  local source = lines({
+    "local Example = {}",
+    "function Example.read()",
+    "  assert(1 == 1)",
+    "end",
+    "return Example",
+  })
+  local found = examples(source)
+  assert(#found == 1, tostring(#found))
+  assert(found[1].name == "read", found[1].name)
+  assert(found[1].line == 2, tostring(found[1].line))
+  assert(found[1].text == "", found[1].text)
+end
+
+--- An example is documentation too: the comment directly above it is
+--- read the same way `docs_of` reads any other function's, and is
+--- never mistaken for part of the source below it.
+local function test_captures_an_examples_doc_comment()
+  local source = lines({
+    "local Example = {}",
+    "--- Reads a file back and prints it.",
+    "function Example.read()",
+    "  assert(1 == 1)",
+    "end",
+    "return Example",
+  })
+  local found = examples(source)
+  assert(#found == 1, tostring(#found))
+  assert(found[1].text == "Reads a file back and prints it.", found[1].text)
+  assert(not found[1].source:find("Reads a file back", 1, true),
+    "the doc comment leaked into the captured source: " .. found[1].source)
+end
+
+--- An ordinary function, local or on any other record, is not an
+--- example: only the exact shape `function Example.<name>()` is.
+local function test_ignores_non_example_functions()
+  local source = lines({
+    "local record Fs",
+    "end",
+    "function Fs.read()",
+    "end",
+    "local function test_helper()",
+    "end",
+  })
+  assert(#examples(source) == 0)
+end
+
+--- The captured source is the whole statement as written, every line,
+--- up to but not including whatever sits after it -- a trailing blank
+--- or comment-only line belongs to what follows, not to the example.
+local function test_captures_the_whole_example_source()
+  local source = lines({
+    "local Example = {}",
+    "",
+    "function Example.read()",
+    "  local ok = 1 == 1",
+    "  assert(ok)",
+    "end",
+    "",
+    "-- a comment about what comes next",
+    "return Example",
+  })
+  local found = examples(source)
+  assert(#found == 1, tostring(#found))
+  assert(found[1].source == lines({
+    "function Example.read()",
+    "  local ok = 1 == 1",
+    "  assert(ok)",
+    "end",
+  }):gsub("\n$", ""), found[1].source)
+end
+
+--- A worked example documents another module's symbol, not this
+--- chunk's own: `docs_of` (read through `found.docs`) never lists it.
+local function test_an_example_is_not_also_an_ordinary_doc_entry()
+  local source = lines({
+    "local Example = {}",
+    "function Example.read()",
+    "end",
+    "return Example",
+  })
+  local found = assert(positions.analyze(built, source, "fixture.tl"))
+  for _, entry in ipairs(found.docs) do
+    assert(entry.symbol ~= "Example.read", "Example.read leaked into docs")
+  end
+end

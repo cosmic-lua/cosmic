@@ -259,8 +259,8 @@ itself the public surface belongs, not only these three.
 input to the build, never to the runtime. one database holds:
 
 - **modules**: import path, source hash, Teal source, compiled Lua
-  and bytecode, declaration, kind (module, test, example, main),
-  and the test names the compile step found.
+  and bytecode, declaration, kind (module, test, example, main), and
+  the test or example names the compile step found.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
@@ -274,6 +274,28 @@ input to the build, never to the runtime. one database holds:
   symbol through a top-level require alias (`Fs.read(...)` under
   `local Fs = require("cosmic.fs")`), resolved against the name the
   other module returns. `cosmic uses Fs.read` lists them.
+- **examples**: one row per worked example, a `kind = "example"`
+  module's own top-level `function Example.<name>()` -- found the same
+  structural way `docs` finds `function Fs.read(...)`, shipped against
+  only the module its file name pairs with (`cosmic/fs_example.tl`
+  ships against `cosmic.fs`). `<name>` is a free label, not a symbol:
+  which real symbol an example is FOR is never decided here, or even
+  at ship time. `cosmic docs Fs.read` answers that at read time, over
+  `examples_fts`, an external-content FTS5 index the same shape as
+  `docs_fts` -- an example calls the real function it demonstrates, so
+  the symbol's own name is already in its code, tokenized the same way
+  a query for it is, and a phrase match finds it (narrowed by a
+  boundary check afterward, since FTS5 splits `_`, and `Fs.hex` would
+  otherwise also match an example that only ever calls
+  `Fs.hex_sha256`). This is looser than a build-time join on purpose:
+  more than one example can be FOR one symbol, in whatever order its
+  file declares them, and one example that calls two functions
+  together answers for both, without either needing to name the
+  other. An example is documentation twice over: its own doc comment,
+  read the same way `docs` reads one, says what it is for, and its
+  body, which compiles and runs like any other test, says how -- one
+  assertion mechanism for code, not a second, output-diffing one only
+  doc guides need.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.

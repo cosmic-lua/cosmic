@@ -124,6 +124,49 @@ that runs both, coverage reported the same way for either.
 - **a fuzzer over the executable locator**, now that it parses
   untrusted bytes at every startup.
 
+## documentation
+
+`cosmic docs` and `cosmic uses` (#1885) read the `docs` and `uses`
+tables every build derives, and the stdlib is already documented at
+the doc-comment level: every public function in `cosmic.fs`,
+`cosmic.hash`, `cosmic.env`, `cosmic.proc`, `cosmic.errors`,
+`cosmic.sqlite`, `cosmic.store`, `cosmic.time`, `cosmic.compress`, and
+`cosmic.coverage` carries one. A narrative gap belongs in the doc
+comment itself, not in a new `doc/guides/*.md` file: the doc comment
+is already in the index, already what an uncaught error surfaces as
+guidance, and already what `cosmic fix` keeps honest against the
+source beside it.
+
+**worked examples have landed.** `build/work.tl`'s `inputs` view
+already reserved the shape (`*_example.tl` GLOBs to `kind = 'example'`
+next to `*_test.tl`'s `kind = 'test'`); `build/positions.tl` now reads
+a top-level `function Example.<name>()` the same structural way
+`docs_of` reads `function Fs.read(...)`, no tag naming the association;
+`build/writer.tl` resolves it against the paired module's own entry
+record (`cosmic/fs_example.tl`'s `Example.read` against `cosmic/fs.tl`'s
+`Fs`) and ships it in a new `examples` table, kept only where the
+resolved symbol is one `docs` actually declares; `build/test.tl` runs
+it exactly like a `test_*` function, one assertion mechanism for code,
+not a second, output-diffing one; `cosmic docs Fs.read` prints it,
+source and all, beneath the doc comment. `cosmic/hash_example.tl`
+is the first one, proving the whole path end to end.
+
+**what is actually left is writing more of them**, one `_example.tl`
+per stdlib module that does not have one yet: `fs`, `sqlite`, `env`,
+`proc`, `time`, `errors`, `store`. Each is small (one file, one or a
+few `Example.<name>` functions, verified by `assert` like any test) and
+adds exactly one thing: a runnable example under a real symbol, not a
+guide restating what the doc comment already says. `compress` and
+`coverage` can wait, same as before -- each has exactly one internal
+caller today, so an example would demonstrate a library nobody outside
+this repo can use yet.
+
+separately, README.md's own `sh`/`output` example is not swept by the
+doctest extractor, which discovers exactly `doc/guides/*.md` (see
+`build/work.tl`'s `is_doc_guide`) -- it is checked by hand only. Worth
+either moving it under `doc/guides/` or accepting, explicitly, that
+the front door is the one doc this build does not enforce.
+
 ## the release bar
 
 the core tier, then the second, each module earning its place. a
