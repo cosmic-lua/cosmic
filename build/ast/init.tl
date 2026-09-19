@@ -11,8 +11,9 @@
 --- that hands one out, only `build.teal`'s own loader, itself gated to
 --- the build/test machinery. Promoting this module to `cosmic.ast`
 --- has to wait for whatever mechanism eventually exposes compiler
---- access safely to user code, tracked already in roadmap.md's
---- "second: ast, checking, formatting" phase. This mirrors an existing
+--- access safely to user code, which nothing has settled on yet: it is
+--- the same question `cosmic check` over a project runs into in
+--- roadmap.md's self-check section. This mirrors an existing
 --- precedent exactly: `test` and `coverage` are also named in
 --- design.md's public core tier, and both live under `build/`
 --- (`build/test.tl`) rather than `cosmic/` today, for the same reason

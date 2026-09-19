@@ -132,6 +132,12 @@ end
 
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
+---
+--- A named directory is walked, which picks out the Teal sources in it
+--- and nothing else. A named FILE is taken at its word, so a path that
+--- is not Teal source at all is said so here -- it would otherwise
+--- reach the parser and come back as a syntax error in a file nobody
+--- ever claimed was Teal.
 local function chosen(root: string, paths: {string}): {string} | nil, string
   if #paths == 0 then
     return fix.sources(root)
@@ -146,6 +152,8 @@ local function chosen(root: string, paths: {string}): {string} | nil, string
       for _, file in ipairs(under) do
         out[#out + 1] = path .. "/" .. file
       end
+    elseif path:sub(-3) ~= ".tl" then
+      return nil, path .. ": not a Teal source"
     else
       out[#out + 1] = path
     end

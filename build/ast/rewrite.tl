@@ -8,15 +8,18 @@
 --- match/span logic, now `build.ast.match` and `build.ast.walk`
 --- respectively.
 ---
---- cosmic's own version pipes the final splice through `cosmic.format`
---- before returning it, both to reflow whitespace and as a cheap
---- resplice validity check. v2 has no `cosmic.format` yet -- it is
---- still pending in roadmap.md's self-check section, alongside this
---- very module -- so `rewrite` here returns the raw spliced source
---- unformatted; every splice below is still byte-exact over the
---- original source, just without a reflow pass. Once `cosmic.format`
---- exists, piping `out` through it here is the one change this module
---- needs to regain that behavior.
+--- What this module returns is the RAW spliced source: byte-exact over
+--- the original everywhere a hit did not land, and the replacement
+--- template's own bytes where one did. It reflows nothing.
+---
+--- Rendering happens one layer out instead, in `build.fix`, which is
+--- the only caller that rewrites a file people read: it parses the
+--- spliced source again and writes the whole file back out through
+--- `build.fix.render`, so a rewrite's result reads the same as source
+--- that was never rewritten at all. Piping `out` through that renderer
+--- HERE would be the wrong place for it -- this module is reached with
+--- a source and a pattern by callers that want the splice itself, and
+--- `build.fix` would then render twice.
 ---
 --- Single-pass, single-file: no fixpoint (a rewrite creating a new
 --- match of itself or another rule), no project-wide loop. A rewrite

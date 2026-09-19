@@ -38,6 +38,15 @@ not, and never rewraps one. Type syntax is written as the original
 bytes. Nothing is written until the result has been parsed again and
 found to mean the same thing, comments included.
 
+That indentation is the indentation of LINES THAT OPEN SOMETHING: a
+statement, a block's closing keyword. A line that continues one keeps
+the column it was written at, moved with the statement it belongs to,
+and so does an entry of a table spread over several lines, a comment
+on a line of its own, and the body of a record or enum -- which is
+copied out as the bytes it was read from. Lining those up is a
+judgement about a whole line, which is the author's here, not the
+tool's.
+
 Every verb ends in a verdict line and an exit code.
 ]]
 

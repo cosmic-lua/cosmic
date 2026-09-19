@@ -3,12 +3,14 @@
 --- silently dropping a comment sitting in the match's own connective
 --- tissue.
 ---
---- cosmic (v1)'s own version of the first test below also checks that
---- the splice comes back correctly spaced through `cosmic.format`'s
---- whitespace round-trip; v2 has no `cosmic.format` yet (see
---- `rewrite.tl`'s own header comment), so this splice is verified
---- byte-exact against the raw spliced text instead -- every fixture
---- below is already well-formed, so the two checks agree regardless.
+--- The splice is verified byte-exact against the raw spliced text,
+--- which is what this module returns: it reflows nothing, and the
+--- renderer that would sits one layer out, in `build.fix` (see
+--- `rewrite.tl`'s own header comment). What a rule's result looks like
+--- once it HAS been rendered is `build.fix.rule_test`'s subject, over
+--- fixtures mangled on purpose so that only a rendered result passes.
+--- Every fixture below is already well-formed, so the two agree here
+--- regardless.
 local teal = require("build.teal")
 local ast = require("build.ast")
 local ast_match = require("build.ast.match")
