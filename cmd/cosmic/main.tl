@@ -99,8 +99,8 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  -- A stale tool: this binary's own build/** and core/** no longer
-  -- match what it was booted from. Rebuilding is the fix; running on
+  -- A stale tool: this binary's source inputs no longer match what
+  -- it was booted from. Rebuilding is the fix; running on
   -- would compile the tree with a checker or patch set the tree no
   -- longer agrees with.
   -- intended: re-run boot and re-exec once, per design.md's staleness
