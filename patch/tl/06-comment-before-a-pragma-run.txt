@@ -1,0 +1,14 @@
+file: tl.lua
+note: a `--#` run that turns out not to spell `--#pragma` is read as a pragma token first and un-made afterwards, and the token it built had already taken the comments waiting to be attached; removing it from the list dropped them, so any comment standing in front of a `--#region`-style line was lost outright. The un-making hands them back to keep waiting
+--- find
+                  state = "comment short"
+                  table.remove(tokens)
+                  nt = nt - 1
+                  drop_token()
+--- replace
+                  state = "comment short"
+                  comments = tokens[nt].comments
+                  table.remove(tokens)
+                  nt = nt - 1
+                  drop_token()
+--- end

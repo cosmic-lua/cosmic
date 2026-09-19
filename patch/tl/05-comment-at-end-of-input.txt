@@ -1,5 +1,5 @@
 file: tl.lua
-note: a short comment is recorded when the newline ending it is read, so input running out inside one -- a file with no final newline -- dropped it outright, and nothing downstream could notice: a comment reaching no token is absent from both sides of any comparison over tokens
+note: a short comment is recorded when the newline ending it is read, so input running out inside one -- a file with no final newline -- dropped it outright, and nothing downstream could notice: a comment reaching no token is absent from both sides of any comparison over tokens. a `--#...` run is the same comment read through the pragma states, and ended the same way here
 --- find
          else
             drop_token()
@@ -10,6 +10,22 @@ note: a short comment is recorded when the newline ending it is read, so input r
 --- replace
          else
             drop_token()
+         end
+      end
+
+      -- Input that ran out inside a `--#` run ends it here, exactly as
+      -- a newline would have. The run is a pragma when it spells
+      -- `--#pragma` and an ordinary short comment when it spells
+      -- anything else -- the same test the newline path makes on the
+      -- token it builds, made here on the bytes that token is cut
+      -- from. Leaving the state at `comment short` hands the bytes to
+      -- the next guard, which is where every short comment ends.
+      if state == "pragma" then
+         if input:sub(ti, i - 1) == "--#pragma" then
+            end_token_prev("pragma")
+            state = "pragma any"
+         else
+            state = "comment short"
          end
       end
 

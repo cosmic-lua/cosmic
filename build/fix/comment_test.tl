@@ -16,11 +16,23 @@
 --- input instead, which is what puts it on both sides of the
 --- comparison, and what the first tests here hold.
 ---
+--- A `--#...` run is a comment read through the lexer's PRAGMA states
+--- rather than its short-comment one: the run is cut as a pragma token
+--- first, and un-made back into a short comment unless it spells
+--- `--#pragma` exactly. Both halves of that leaked a comment. Input
+--- running out inside the run left it in a state the end-of-input guard
+--- did not name, so `--#region` at the end of a file went the same way
+--- an ordinary comment used to; and the un-making threw away the token
+--- it removed along with the comments that token had already taken, so
+--- a comment standing in FRONT of such a run was lost even with a
+--- newline after it. `patch/tl/06-comment-before-a-pragma-run.txt` is
+--- the second half.
+---
 --- And a comment can MOVE. `--[[ q ]] print(1)` is a comment the code
 --- was written behind, and writing it after the code instead says
 --- something different about the line while parsing the same and
 --- carrying the same comments -- so no comparison drawn over either
---- tree catches it, and only the text does. The second half of this
+--- tree catches it, and only the text does. The last part of this
 --- file is that text, one shape of enclosing construct at a time.
 
 local ast = require("build.ast")
@@ -58,6 +70,33 @@ local function carried(source: string): {string}
   return equiv.comments(parsed.tokens)
 end
 
+--- Assert the pipeline refuses `source`, with a message holding `why`.
+local function refuses(source: string, why: string)
+  local result, trouble = fix.source(built, source, "fixture.tl")
+  assert(result == nil, "fix accepted it and wrote:\n" .. tostring(
+    result ~= nil and result.source or ""))
+  assert(trouble:find(why, 1, true) ~= nil,
+    "refused with " .. trouble .. ", wanted one naming " .. why)
+end
+
+--- Assert `source` carries exactly the comments `source .. "\n"` does.
+---
+--- The version with the final newline is the ground truth throughout:
+--- it is the same file, and a newline at the end of it is layout rather
+--- than content, so a comment that survives one and not the other is a
+--- comment the end of the input ate.
+local function carries_what_a_final_newline_would(source: string)
+  local without, with = carried(source), carried(source .. "\n")
+  assert(#without == #with,
+    source .. ": carried " .. #without .. " comments without a final " ..
+    "newline and " .. #with .. " with one")
+  for i, text in ipairs(with) do
+    assert(without[i] == text,
+      source .. ": comment " .. i .. " is " .. tostring(without[i]) ..
+      ", not " .. text)
+  end
+end
+
 --- A file that ends inside a comment carries the same comments as the
 --- same file with the newline it was missing.
 ---
@@ -75,15 +114,7 @@ local function test_a_comment_ending_at_the_end_of_input_still_reaches_a_token()
     "local a = 1\nprint(a)\n--",
     "local a = 1\nprint(a)\n--[",
   }) do
-    local without, with = carried(source), carried(source .. "\n")
-    assert(#without == #with,
-      source .. ": carried " .. #without .. " comments without a final " ..
-      "newline and " .. #with .. " with one")
-    for i, text in ipairs(with) do
-      assert(without[i] == text,
-        source .. ": comment " .. i .. " is " .. tostring(without[i]) ..
-        ", not " .. text)
-    end
+    carries_what_a_final_newline_would(source)
   end
 end
 
@@ -120,6 +151,67 @@ end
 local function test_a_comment_that_got_no_further_than_its_dashes()
   writes("local a = 1\nprint(a)\n--", "local a = 1\nprint(a)\n--\n")
   writes("local a = 1\nprint(a)\n--[", "local a = 1\nprint(a)\n--[\n")
+end
+
+--- A `--#` run that does not spell `--#pragma` is an ordinary short
+--- comment, and the end of the input ends it where a newline would.
+--- The lexer reads such a run through its pragma states, which are not
+--- the short-comment state the end-of-input guard was first written
+--- for, so a `--#region` fold marker or a `--#tail` note at the end of
+--- a file with no final newline reached no token at all -- and a
+--- comment reaching no token is absent from both sides of the
+--- comparison that is supposed to catch a lost one.
+local function test_a_pragma_shaped_comment_at_the_end_of_input()
+  for _, source in ipairs({
+    "--#region\nprint(1)\n--#endregion",
+    "print(1) --#tail",
+    "--#foo",
+    "--#",
+    "print(1)\n--#region\n--#endregion",
+    "--#pragmatic",
+  }) do
+    carries_what_a_final_newline_would(source)
+  end
+end
+
+--- And the whole pipeline keeps it, which is the property the file is
+--- rewritten under: the run comes back out where it was written, with
+--- the one final newline the renderer always ends a file with.
+local function test_a_pragma_shaped_comment_survives_the_rewrite()
+  writes("--#region\nprint(1)\n--#endregion",
+         "--#region\nprint(1)\n--#endregion\n")
+  writes("print(1) --#tail", "print(1) --#tail\n")
+  writes("--#foo", "--#foo\n")
+  writes("--#", "--#\n")
+end
+
+--- A run that DOES spell `--#pragma` is a pragma token rather than a
+--- comment, and the end of the input does not turn it into one. This
+--- renderer has no spelling for a pragma, so both of these are refused
+--- -- loudly, which is the point: before the end-of-input guard named
+--- the pragma states, `--#pragma` with no newline after it vanished
+--- from the token stream and the file was rewritten without it.
+local function test_a_real_pragma_at_the_end_of_input_is_still_refused()
+  refuses("--#pragma", "expected pragma name")
+  refuses("--#pragma\n", "expected pragma name")
+  refuses("--#pragma arity on", "no spelling for an expression of kind")
+  refuses("--#pragma arity on\n", "no spelling for an expression of kind")
+end
+
+--- A comment in front of a `--#` run is kept. The run is cut as a
+--- pragma token before the lexer knows it is not one, and that token
+--- takes the comments waiting to be attached with it; un-making the
+--- token by removing it from the list threw those comments away, so
+--- the comment above a fold marker was lost whether or not the file
+--- ended in a newline.
+local function test_a_comment_in_front_of_a_pragma_shaped_comment()
+  keeps("-- hello\n--#region\nprint(1)\n")
+  keeps("--[[ b ]] --#region\nprint(1)\n")
+  keeps("-- one\n-- two\n--#region\n--#endregion\nprint(1)\n")
+  writes("print(1)\n-- hello\n--#endregion",
+         "print(1)\n-- hello\n--#endregion\n")
+  assert(#carried("-- hello\n--#region\nprint(1)\n") == 2,
+    "a comment in front of a `--#` run was dropped")
 end
 
 --- A comment the source wrote in FRONT of a statement, on that
