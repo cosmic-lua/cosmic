@@ -141,39 +141,48 @@ function Fs.remove(path: string): boolean, string
   return true, ""
 end
 
---- The entries of a directory, sorted, without `.` and `..`.
-function Fs.list(path: string): {string} | nil, string
-  local names, trouble = sys.readdir(path)
-  if names == nil then
-    return nil, path .. ": " .. trouble
+--- The names in a directory, sorted, without `.` and `..`.
+local function sorted_names(entries: {string:string}): {string}
+  local names: {string} = {}
+  for name in pairs(entries) do
+    names[#names + 1] = name
   end
   table.sort(names)
   return names
 end
 
+--- The entries of a directory, sorted, without `.` and `..`.
+function Fs.list(path: string): {string} | nil, string
+  local entries, trouble = sys.readdir(path)
+  if entries == nil then
+    return nil, path .. ": " .. trouble
+  end
+  return sorted_names(entries)
+end
+
 --- Every file under a root, sorted, as paths relative to that root.
---- `skip` is asked about each entry's relative path and may refuse a
---- whole directory.
-function Fs.walk(root: string, skip?: function(string): boolean): {string} | nil, string
+--- `skip` is asked about each entry's relative path, and its bare name
+--- second, and may refuse a whole directory. The listing says what
+--- each entry is, so nothing here is stat'd.
+function Fs.walk(root: string,
+                 skip?: function(string, string): boolean): {string} | nil, string
   local found: {string} = {}
   local pending: {string} = { "" }
   while #pending > 0 do
     local relative = table.remove(pending)
     local directory = relative == "" and root or (root .. "/" .. relative)
-    local names, trouble = Fs.list(directory)
-    if names == nil then
-      return nil, trouble
+    local entries, trouble = sys.readdir(directory)
+    if entries == nil then
+      return nil, directory .. ": " .. trouble
     end
-    for _, name in ipairs(names) do
+    for _, name in ipairs(sorted_names(entries)) do
       local entry = relative == "" and name or (relative .. "/" .. name)
-      if skip == nil or not skip(entry) then
-        local st = sys.stat(directory .. "/" .. name)
-        if st ~= nil then
-          if st.kind == "dir" then
-            pending[#pending + 1] = entry
-          elseif st.kind == "file" then
-            found[#found + 1] = entry
-          end
+      if skip == nil or not skip(entry, name) then
+        local kind = entries[name]
+        if kind == "dir" then
+          pending[#pending + 1] = entry
+        elseif kind == "file" then
+          found[#found + 1] = entry
         end
       end
     end

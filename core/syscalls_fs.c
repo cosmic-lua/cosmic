@@ -7,6 +7,9 @@
 #define _DARWIN_C_SOURCE
 #endif
 #define _XOPEN_SOURCE 700
+/* A directory entry's type, which readdir fills on both systems, is a
+ * BSD extension musl shows only when asked. */
+#define _DEFAULT_SOURCE
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -245,7 +248,6 @@ COSMIC_SYSCALL(readdir, 1) {
    * to a platform's discretion. */
   fcntl(dirfd(dir), F_SETFD, FD_CLOEXEC);
   lua_newtable(L);
-  lua_Integer n = 0;
   for (;;) {
     errno = 0;
     struct dirent *entry = readdir(dir);
@@ -263,8 +265,26 @@ COSMIC_SYSCALL(readdir, 1) {
          (entry->d_name[1] == '.' && entry->d_name[2] == '\0'))) {
       continue;
     }
-    lua_pushstring(L, entry->d_name);
-    lua_seti(L, -2, ++n);
+    /* The entry says what it is for free on every filesystem that
+     * matters; a link, or a filesystem that does not say, is resolved
+     * with one stat that follows, so a link counts as its target. */
+    const char *kind = "other";
+    if (entry->d_type == DT_DIR) {
+      kind = "dir";
+    } else if (entry->d_type == DT_REG) {
+      kind = "file";
+    } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
+      struct stat st;
+      if (fstatat(dirfd(dir), entry->d_name, &st, 0) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+          kind = "dir";
+        } else if (S_ISREG(st.st_mode)) {
+          kind = "file";
+        }
+      }
+    }
+    lua_pushstring(L, kind);
+    lua_setfield(L, -2, entry->d_name);
   }
   closedir(dir);
   return 1;

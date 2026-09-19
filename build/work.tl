@@ -53,8 +53,11 @@ work.version = "7"
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
 --- binary, its standard library and tests included, since `cosmic.*`
---- resolves from the binary rather than the tree. Its hash is the
---- boot hash, and a self-tree command refuses a mismatch.
+--- resolves from the binary rather than the tree. A vendored tree is
+--- a function of its `PIN` and the records under `patch/`, and is
+--- never edited in place, so the pin and the records are its inputs
+--- and the tree itself is not walked. Its hash is the boot hash, and
+--- a self-tree command refuses a mismatch.
 ---
 --- `inputs` is every module source the compiler and checker see, as
 --- a view: each staged `.tl` or `.d.tl` as it is, with the import path
@@ -310,9 +313,9 @@ end
 --- hidden. `doc` is handled on its own: almost all of it is prose with
 --- no examples, but `doc/guides/*.md` is the one place doc/meta.md's
 --- grammar applies, and the build has to see those files to run
---- `build.doctest` over them. In cosmic's own tree the upstream
---- sources, the patches and the zig wrapper are walked after all, as
---- inputs to the tool rather than to the build.
+--- `build.doctest` over them. In cosmic's own tree the patches, the
+--- vendor pins and the zig wrapper are walked after all, as inputs to
+--- the tool rather than to the build.
 local not_input: {string:boolean} = {
   ["o"] = true,
   ["vendor"] = true,
@@ -327,7 +330,6 @@ local tool_trees: {string:boolean} = {
   ["cosmic"] = true,
   ["cmd"] = true,
   ["patch"] = true,
-  ["vendor"] = true,
 }
 local tool_files: {string:boolean} = {
   ["build.zig"] = true,
@@ -336,12 +338,30 @@ local tool_files: {string:boolean} = {
   ["bin/zig.pin"] = true,
 }
 --- The directories the files above sit in, walked for them alone.
+--- `vendor` is walked one level down for each tree's `PIN`.
 local tool_dirs: {string:boolean} = {
   ["bin"] = true,
+  ["vendor"] = true,
 }
 
+--- The top-level directory an entry sits under, or the entry itself
+--- at the top. A plain find, since this runs for every entry walked.
 local function first_of(entry: string): string
-  return entry:match("^([^/]+)") or entry
+  local slash = entry:find("/", 1, true)
+  if slash == nil then
+    return entry
+  end
+  return entry:sub(1, slash - 1)
+end
+
+--- Whether an entry under `vendor/` is one tree's pin, or the tree's
+--- own directory on the way to it.
+local function is_vendor_pin(entry: string): boolean
+  local second = entry:find("/", 8, true)
+  if second == nil then
+    return true
+  end
+  return entry:sub(second) == "/PIN"
 end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
@@ -352,7 +372,13 @@ local function is_doc_guide(file: string): boolean
   return file:match("^doc/guides/[^/]+%.md$") ~= nil
 end
 
-local function skip_input(entry: string): boolean
+--- The walk's predicates take the entry's bare name second, so what
+--- is hidden is one byte compare, and the top-level rules run on the
+--- top-level component alone.
+local function skip_input(entry: string, name: string): boolean
+  if name:sub(1, 1) == "." then
+    return true
+  end
   local first = first_of(entry)
   if first == "doc" then
     if entry == "doc" or entry == "doc/guides" then
@@ -360,40 +386,53 @@ local function skip_input(entry: string): boolean
     end
     return not is_doc_guide(entry)
   end
-  if not_input[first] then
-    return true
-  end
-  local name = entry:match("([^/]+)$") or entry
-  return name:sub(1, 1) == "."
+  return not_input[first] == true
 end
 
-local function skip_in_own_tree(entry: string): boolean
-  if tool_trees[first_of(entry)] or tool_files[entry] or tool_dirs[entry] then
-    local name = entry:match("([^/]+)$") or entry
-    return name:sub(1, 1) == "."
+local function skip_in_own_tree(entry: string, name: string): boolean
+  if name:sub(1, 1) == "." then
+    return true
   end
-  return skip_input(entry)
+  local first = first_of(entry)
+  if first == "vendor" then
+    return not is_vendor_pin(entry)
+  end
+  if tool_trees[first] or tool_files[entry] or tool_dirs[entry] then
+    return false
+  end
+  return skip_input(entry, name)
 end
 
 --- Whether a file the walk found is one the build consumes: Teal
 --- source and declarations, a doc guide, and, in cosmic's own tree,
 --- the syscall header the declaration of `cosmic.sys` is generated
---- from. Never anything under the trees the tool alone is made of:
---- the vendored compiler ships its own `.tl` source, which is an
---- input to the tool's hash and nothing else.
+--- from. Never anything under the trees the tool alone is made of.
 local function is_input(file: string, own_tree: boolean): boolean
-  if not_input[first_of(file)] then
+  local first = first_of(file)
+  if not_input[first] then
     return false
   end
-  if file:sub(-3) == ".tl" or is_doc_guide(file) then
+  if file:sub(-3) == ".tl" then
     return true
+  end
+  if first == "doc" then
+    return is_doc_guide(file)
   end
   return own_tree and file == "core/syscalls.h"
 end
 
---- Whether a file is one the tool is made of, in cosmic's own tree.
+--- Whether a file is one the tool is made of, in cosmic's own tree: a
+--- file under one of its trees, one of its named files, or a vendored
+--- tree's pin.
 local function is_tool(file: string, own_tree: boolean): boolean
-  return own_tree and (tool_trees[first_of(file)] or tool_files[file] or false)
+  if not own_tree then
+    return false
+  end
+  local first = first_of(file)
+  if first == "vendor" then
+    return file:sub(-4) == "/PIN"
+  end
+  return tool_trees[first] == true or tool_files[file] == true
 end
 
 --- What a stat said about a file the last time it was staged, read

@@ -114,7 +114,9 @@ local function boot_hash_of(root: string): string
 end
 
 --- Embedded library code and tests must invalidate the self-tree guard,
---- just as native code and the compiler's patched sources do.
+--- just as native code and the compiler's patched sources do. A
+--- vendored tree counts through its pin and the records that patch it:
+--- it is never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
   local root = "/tmp/cosmic-importer-test-boot-hash-" .. tostring(Proc.pid())
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl", "vendor/tl", "bin" }) do
@@ -122,7 +124,7 @@ local function test_boot_hash_tracks_embedded_inputs()
   end
   local paths = {
     "build/main.tl", "core/main.c", "cosmic/example.tl",
-    "cosmic/example_test.tl", "patch/tl/example.patch", "vendor/tl/tl.lua",
+    "cosmic/example_test.tl", "patch/tl/example.patch", "vendor/tl/PIN",
     "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
   }
   for _, path in ipairs(paths) do
@@ -144,6 +146,10 @@ local function test_boot_hash_tracks_embedded_inputs()
   assert(boot_hash_of(root) ~= original, "missed added module")
   assert(Fs.remove(root .. "/cosmic/added.tl"))
   assert(boot_hash_of(root) == original)
+  -- A vendored tree's own files are reached through its pin, never
+  -- edited in place, so a stray write there is not an input.
+  assert(Fs.write(root .. "/vendor/tl/tl.lua", "edited in place"))
+  assert(boot_hash_of(root) == original, "walked into a vendored tree")
 end
 
 --- A tree that is not cosmic's own can `require` the standard library

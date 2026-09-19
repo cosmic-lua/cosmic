@@ -323,10 +323,14 @@ under `cosmic.`, naming the path, so a project cannot shadow the
 standard library by accident or on purpose. that is how the tool
 builds and tests a tree other than its own.
 
-inside cosmic's own tree, every run first compares the boot hash of
-`build/` and `core/` with the one the running binary carries; on a
-mismatch the tool refuses with `the tool is stale; run bin/zig build
-boot` and exit 3. the three images and the compiler are what a boot
+inside cosmic's own tree, every run first compares the boot hash with
+the one the running binary carries: a fingerprint of everything the
+tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
+vendored tree's `PIN`, `build.zig` and the zig wrapper. a vendored
+tree is a function of its pin and its patch records and is never
+edited in place, so those are its inputs and the tree is not walked.
+on a mismatch the tool refuses with `the tool is stale; run bin/zig
+build boot` and exit 3. the three images and the compiler are what a boot
 alone puts in the working database, and every later build carries
 them into the database it writes, as rows, without unpacking them.
 

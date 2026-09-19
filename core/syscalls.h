@@ -181,11 +181,11 @@ COSMIC_SYSCALL(rename, 2);
 COSMIC_SYSCALL(chmod, 2);
 
 /*
- * --- Lists a directory's entries, without `.` and `..`, in no order.
+ * --- Lists a directory's entries, without `.` and `..`, each with what it is: "dir", "file", or "other", a link counted as what it points at.
  * ---@param path string the directory to list
- * ---@return {string}|nil names the entry names, or nil on failure
- * ---@return string error what went wrong, when names is nil
- * ---@return integer errno the error number, when names is nil
+ * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
+ * ---@return string error what went wrong, when entries is nil
+ * ---@return integer errno the error number, when entries is nil
  */
 COSMIC_SYSCALL(readdir, 1);
 
