@@ -252,12 +252,37 @@ fn core(
     });
     mod.addIncludePath(lua.path(b, "src"));
 
+    // SQLite's compile-time configuration, as flags rather than a
+    // configuration header: a flag is part of the compile's cache key,
+    // where a header pulled in through SQLITE_CUSTOM_INCLUDE was seen to
+    // change without the object being rebuilt. The build is
+    // single-threaded and the shipped database is read-only and opened
+    // through our own VFS, so everything that exists for other shapes of
+    // use is off. The `dbstat` virtual table is on: it is what every
+    // table and index costs in pages and bytes, which `cosmic db`
+    // reports.
+    const sqlite_flags: []const []const u8 = &.{
+        "-std=c11",
+        "-DSQLITE_THREADSAFE=0",
+        "-DSQLITE_OMIT_LOAD_EXTENSION=1",
+        "-DSQLITE_OMIT_SHARED_CACHE=1",
+        "-DSQLITE_OMIT_DEPRECATED=1",
+        "-DSQLITE_OMIT_AUTOINIT=1",
+        "-DSQLITE_OMIT_PROGRESS_CALLBACK=1",
+        "-DSQLITE_OMIT_UTF16=1",
+        "-DSQLITE_DQS=0",
+        "-DSQLITE_DEFAULT_MEMSTATUS=0",
+        "-DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1",
+        "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS=1",
+        "-DSQLITE_MAX_EXPR_DEPTH=0",
+        "-DSQLITE_USE_ALLOCA=1",
+        "-DSQLITE_ENABLE_COLUMN_METADATA=1",
+        "-DSQLITE_ENABLE_DBSTAT_VTAB=1",
+    };
     mod.addCSourceFiles(.{
         .root = sqlite,
         .files = &.{"sqlite3.c"},
-        // SQLite's own hook for a configuration header, rather than
-        // -include, which zig's C cache does not track.
-        .flags = &.{ "-std=c11", "-DSQLITE_CUSTOM_INCLUDE=sqlite_config.h" },
+        .flags = sqlite_flags,
     });
     mod.addIncludePath(sqlite);
 
