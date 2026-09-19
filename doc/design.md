@@ -133,7 +133,11 @@ fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
 bare trap. `bin/zig build sanitized` boots with that core and embeds
 it in `o/sanitized/bin/cosmic`; CI verifies the embedded core bytes
-and runs the whole test suite under `timeout 30` on every push. zig ships no address sanitizer runtime for any target;
+and runs the whole test suite under `timeout 300` on every push -- the
+checked core's own instrumentation overhead, on top of coverage
+collection's, is real: a clean run took about two minutes measured
+directly, nowhere near the few seconds a shorter timeout assumed. zig
+ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
 toolchain and with that caveat stated, is a later addition. a
 `cosmic-debug` asset, the sanitized build published beside the
