@@ -343,6 +343,84 @@ local function test_a_long_comment_closing_on_its_own_line()
   writes(source, source)
 end
 
+--- A line can carry more than one comment. Where a long comment closes
+--- on it and another comment follows before the code, the whole line is
+--- written as one run: each later comment a single space along, and no
+--- break anywhere in it. Taking only the first and leaving the rest puts
+--- them after the code instead, which is where the tree comparison
+--- catches it and the file is refused.
+local function test_several_comments_share_the_line_a_long_one_closes_on()
+  local source = lines({
+    "local a = 1",
+    "--[[ p",
+    "q ]] --[[ r ]] local x = 2",
+    "print(a, x)",
+  })
+  writes(source, source)
+  writes(lines({
+    "local a = 1",
+    "--[[ p",
+    "q ]]     --[[ r ]]    local x = 2",
+    "print(a, x)",
+  }), source)
+end
+
+--- Three of them, the first two long ones closing a line later each: a
+--- run follows the comments from line to line, and what shares a line
+--- is decided per comment rather than once for the whole gap.
+local function test_three_comments_across_two_long_ones_closing()
+  local source = lines({
+    "local a = 1",
+    "--[[ p",
+    "q ]] --[[ r",
+    "s ]] --[[ t ]] local x = 2",
+    "print(a, x)",
+  })
+  writes(source, source)
+end
+
+--- A comment BEFORE the long one that closes the line, which is the
+--- same case from the other side: the first comment must not get a
+--- break after it either.
+local function test_a_comment_in_front_of_a_long_one_closing_a_line()
+  local source = lines({
+    "local a = 1",
+    "--[[ x ]] --[[ p",
+    "q ]] local y = 2",
+    "print(a, y)",
+  })
+  writes(source, source)
+end
+
+--- What follows a `]]` need not be code. A comment after it stays on
+--- that line too, and the statement under it keeps its own line: the
+--- renderer adds no break here any more than it does in front of code.
+local function test_a_comment_after_a_long_ones_close_keeps_its_line()
+  local source = lines({
+    "local a = 1",
+    "--[[ p",
+    "q ]] -- tail",
+    "-- under it",
+    "local x = 2",
+    "print(a, x)",
+  })
+  writes(source, source)
+end
+
+--- And a comment that follows the CODE on such a line is that line's
+--- trailing comment, written after the statement where the source had
+--- it. Pulling it forward with the ones in front of the code would put
+--- a `--` comment ahead of the statement and comment the line out.
+local function test_a_trailing_comment_stays_behind_the_code_it_follows()
+  local source = lines({
+    "local a = 1",
+    "--[[ p",
+    "q ]] --[[ r ]] local x = 2 -- why",
+    "print(a, x)",
+  })
+  writes(source, source)
+end
+
 --- A construct this renderer has no spelling for is named and refused,
 --- rather than written as something else.
 local function test_an_unknown_construct_is_refused_by_name()
