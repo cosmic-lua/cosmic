@@ -71,11 +71,21 @@ that runs both, coverage reported the same way for either.
 **alongside, not gating the above:**
 
 - **child-process spawning**, `cosmic.child` over `posix_spawn`.
-  serves two things at once once it lands: the isolation layer the
+  serves three things at once once it lands: the isolation layer the
   test runner still lacks (a hang or a crash in one test currently
-  takes down the whole run), and the re-exec the stale-tool refusal
+  takes down the whole run), the re-exec the stale-tool refusal
   needs (it detects a stale tool and refuses today; it has no
-  process yet to re-exec into).
+  process yet to re-exec into), and a real default time limit on
+  `cosmic test` (something like 30 seconds) that can actually kill a
+  hung test rather than just watch it: a cooperative, checked-between-
+  tests budget was considered and set aside deliberately, since it
+  cannot preempt one single test stuck in a genuine infinite loop
+  mid-execution -- exactly the failure a timeout exists to catch --
+  it can only notice aggregate slowdown after the fact, which
+  `cosmic test`'s own verdict line (pass/fail plus wall-clock-visible
+  slowness) already surfaces well enough. Worth a CLI flag
+  (`--timeout SECONDS`) and an env var default, once there is a
+  process to actually kill.
 - **the provenance gate**: no bytes from outside the tree and the
   pinned zig reach an output, checked by building on two hosts and
   comparing hashes.
