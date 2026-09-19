@@ -169,7 +169,7 @@ end
 local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   local fresh, trouble = Sqlite.rows(db,
     "SELECT source_hash, min(file), source FROM inputs " ..
-    "WHERE kind NOT IN ('decl', 'vendor') " ..
+    "WHERE kind <> 'vendor' " ..
     "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
     "GROUP BY source_hash ORDER BY source_hash")
   if fresh == nil then
@@ -384,6 +384,137 @@ local function names_by_hash(db: Sqlite.Handle,
     list[#list + 1] = row[2]
   end
   return out
+end
+
+local record Dependency
+  kind: string
+  source_hash: string
+  requires: {string}
+end
+
+--- The identity of every source the checker can load from this tree.
+--- A declaration wins over a source of the same name, just as
+--- `build.teal`'s module search does. Embedded standard-library sources
+--- are content-addressed when a project imports them.
+local function dependency_keys(db: Sqlite.Handle, modules: {Module},
+                               built: compiler,
+                               tool: string): {string:string} | nil, string
+  local requires, requires_trouble = names_by_hash(db, "requires")
+  if requires == nil then
+    return nil, requires_trouble
+  end
+  local dependencies: {string:Dependency} = {}
+  local rows, rows_trouble = Sqlite.rows(db,
+    "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
+    "ORDER BY path, kind = 'decl' DESC")
+  if rows == nil then
+    return nil, rows_trouble
+  end
+  for _, row in ipairs(rows) do
+    if dependencies[row[1]] == nil then
+      dependencies[row[1]] = {
+        kind = row[2], source_hash = row[3],
+        requires = requires[row[3]] or {},
+      }
+    end
+  end
+  -- A module's own compile is keyed from its implementation. Imports of
+  -- that same path still resolve through `dependencies`, and therefore
+  -- through its declaration when it has one.
+  for _, m in ipairs(modules) do
+    dependencies["\0" .. m.path] = {
+      kind = m.kind, source_hash = m.source_hash, requires = m.requires,
+    }
+  end
+
+  local resolve = function(slot: string, name: string): Dependency | nil, string
+    local dependency = dependencies[slot]
+    if dependency == nil then
+      if name:sub(1, 7) ~= "cosmic." then
+        return nil, ""
+      end
+      local source, source_trouble = Store.source(name)
+      if source == nil then
+        return nil, source_trouble
+      end
+      local parsed, parse_trouble = ast.parse(built, source, name)
+      if parsed == nil then
+        return nil, parse_trouble
+      end
+      local embedded_requires, embedded_requires_trouble =
+        ast.all_requires(built, parsed)
+      if embedded_requires == nil then
+        return nil, embedded_requires_trouble
+      end
+      dependency = {
+        kind = "embedded", source_hash = Hash.hex_sha256(source),
+        requires = embedded_requires,
+      }
+      dependencies[slot] = dependency
+    end
+    return dependency, ""
+  end
+
+  -- Hash the reachable graph as a sorted set rather than recursively
+  -- hashing one node into another. Declarations can legally refer to each
+  -- other, and a set closes over those cycles without making traversal
+  -- order part of the key. When a declaration shadows an implementation,
+  -- both matter: the checker reads the declaration, while the generated
+  -- `require` loads the implementation at runtime.
+  local identify = function(name: string): string | nil, string
+    local seen: {string:boolean} = {}
+    local graph: {string} = {}
+    local visit: function(string, string): boolean, string
+    visit = function(slot: string, display: string): boolean, string
+      if seen[slot] then
+        return true, ""
+      end
+      local dependency, resolve_trouble = resolve(slot, display)
+      if dependency == nil then
+        return resolve_trouble == "", resolve_trouble
+      end
+      seen[slot] = true
+      graph[#graph + 1] = slot .. "\n" .. dependency.kind .. "\n" ..
+        dependency.source_hash
+      for _, required in ipairs(dependency.requires) do
+        local child, child_trouble = resolve(required, required)
+        if child == nil and child_trouble ~= "" then
+          return false, child_trouble
+        end
+        if child ~= nil then
+          graph[#graph + 1] = slot .. "\nrequires\n" .. required
+          local ok, trouble = visit(required, required)
+          if not ok then
+            return false, trouble
+          end
+          if child.kind == "decl" and dependencies["\0" .. required] ~= nil then
+            graph[#graph + 1] = slot .. "\nloads\n" .. required
+            ok, trouble = visit("\0" .. required, required)
+            if not ok then
+              return false, trouble
+            end
+          end
+        end
+      end
+      return true, ""
+    end
+    local ok, trouble = visit("\0" .. name, name)
+    if not ok then
+      return nil, trouble
+    end
+    table.sort(graph)
+    return Hash.hex_sha256(table.concat(graph, "\n\0\n") .. "\n" .. tool), ""
+  end
+
+  local out: {string:string} = {}
+  for _, m in ipairs(modules) do
+    local key, trouble = identify(m.path)
+    if key == nil then
+      return nil, trouble
+    end
+    out[m.path] = key
+  end
+  return out, ""
 end
 
 --- Every module the derived tree holds, with what its parse found.
@@ -754,7 +885,10 @@ function importer.compile(handle: work.Handle, built: compiler,
   if order == nil then
     return nil, why
   end
-  local keys: {string:string} = {}
+  local keys, keys_trouble = dependency_keys(handle.db, modules, built, tool)
+  if keys == nil then
+    return nil, keys_trouble
+  end
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = {},
     compiled = 0, cached = 0,
@@ -773,16 +907,7 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
 
     for ordinal, m in ipairs(order) do
-      local closure: {string} = {}
-      for _, name in ipairs(m.requires) do
-        if keys[name] ~= nil then
-          closure[#closure + 1] = name .. " " .. keys[name]
-        end
-      end
-      table.sort(closure)
-      m.key = Hash.hex_sha256(m.kind .. "\n" .. m.source_hash .. "\n" ..
-        table.concat(closure, "\n") .. "\n" .. tool)
-      keys[m.path] = m.key
+      m.key = keys[m.path]
 
       if m.kind == "test" and collides_with_test_tail(m) then
         -- Refused on its own, narrowly: every other module still
