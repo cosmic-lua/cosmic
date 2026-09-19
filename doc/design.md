@@ -379,10 +379,12 @@ verifies. everything else is vendored or built from it.
 
 the target build architecture is fast, incremental, and reproducible.
 today a module whose key stands is read back from the working
-database rather than compiled again, and the shipped database is a
-projection of that one; the runner still executes every discovered
-test in-process. test selection from observed reads and child-process
-isolation are planned below, not implemented:
+database rather than compiled again, the shipped database is a
+projection of that one, written only when what it is a function of
+moved, and a test whose verdict stands -- its module's key and the
+hash of every file it was observed to read -- is not run again. the
+runner still executes what does run in-process; child-process
+isolation is planned below, not implemented:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, the boot hash, and, for

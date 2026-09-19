@@ -51,7 +51,7 @@ local record work
   version: string
 end
 
-work.version = "8"
+work.version = "10"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -107,8 +107,17 @@ work.version = "8"
 --- `runs` is one row per test, keyed by the module and the test's own
 --- name inside it, so a later run of the same test replaces its row
 --- rather than piling up a history the runner has no use for yet.
---- That table's shape and semantics are unrelated to everything below
---- and untouched by it.
+--- `key` is what the verdict is a function of: the module's key and
+--- the hash of every file under the root the test was observed to
+--- read; `reads` is what it opened, as recorded, and `run_at_ns` the
+--- `cosmic test` invocation whose coverage rows credit the verdict.
+---
+--- `verdicts` is one row per key ever seen, with its verdict and the
+--- invocation that produced it, and `seen` the last run that relied on
+--- it: while a key stands and its verdict passed, the test is not run
+--- again, and an edit undone finds its old key again. One no run has
+--- relied on in the last hundred is dropped, and with it the
+--- `coverage_by_test` rows no verdict credits any more.
 ---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
 --- one snapshot per `cosmic test` invocation, never overwritten, each
@@ -215,7 +224,13 @@ work.schema = {
                                      message TEXT NOT NULL,
                                      ran_at_ns INTEGER NOT NULL,
                                      reads TEXT NOT NULL,
+                                     key TEXT NOT NULL,
+                                     run_at_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
+                                         passed INTEGER NOT NULL,
+                                         run_at_ns INTEGER NOT NULL,
+                                         seen INTEGER NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
                                           PRIMARY KEY)]],
   [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,

@@ -8,10 +8,10 @@ next and what is undecided.
 ## self-check
 
 `cosmic test` compiles what changed in the tree with the patched Teal
-checker, reads the rest back from the working database, and runs every
-discovered test in-process, with records in that same database. test
-selection is not yet implemented, nor is the planned restriction on
-casts.
+checker, reads the rest back from the working database, and runs, in
+process, every discovered test whose stored verdict does not stand,
+with records in that same database. the planned restriction on casts
+is not yet implemented.
 tests, the in-process runner, and a real Teal AST (`build.ast`:
 parse, walk, structural match, rewrite) have already landed; what
 follows leans on `build.ast`, still build-internal today, and on
