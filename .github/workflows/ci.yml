@@ -48,7 +48,7 @@ jobs:
           if-no-files-found: error
 
   # A fourth core, built with undefined-behavior checking on, running the
-  # whole build. It is not the artifact anything ships; it is the run
+  # whole build and test suite. It is not a shipped artifact; it is the run
   # that would report what the release build would only do quietly.
   sanitized:
     runs-on: ubuntu-24.04
@@ -62,6 +62,11 @@ jobs:
           key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
       - name: build the tree with the checked core
         run: bin/zig build sanitized
+      - name: run every test with the checked core
+        run: |
+          cmp -n "$(wc -c < o/sanitized/cosmic-core)" \
+            o/sanitized/cosmic-core o/sanitized/bin/cosmic
+          timeout 30 o/sanitized/bin/cosmic test
 
   # Each shipped target proves it can build AND test itself: the same
   # tree, built fresh with that platform's own C toolchain, must pass
