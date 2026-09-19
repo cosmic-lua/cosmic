@@ -84,14 +84,18 @@ end
 
 --- Every line `build.coverage.report` found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`: nothing in
---- `test_runs`/`coverage` is ever deleted, so a file's coverage trend
---- over many runs is a plain query away rather than only the latest
---- run's numbers. Returns the overall hit and executable-line counts,
---- over every module written for this run, for the run's own verdict
---- line.
+--- `test_runs`/`coverage`/`coverage_by_test` is ever deleted, so a
+--- file's coverage trend over many runs is a plain query away rather
+--- than only the latest run's numbers. Also writes, for every test
+--- that ran, which of the lines it hit into `coverage_by_test`, tagged
+--- with that test's own identity (`by_test`, keyed by "path name" the
+--- same way a failure line already identifies a test elsewhere in this
+--- file). Returns the overall hit and executable-line counts, over
+--- every module written for this run, for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               hits: Coverage.Hits,
+                              by_test: {string: Coverage.Hits},
                               run_at_ns: integer): integer, integer, string
   local total_hit = 0
   local total_lines = 0
@@ -124,12 +128,43 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
         end
       end
     end
+    for test_name, test_hits in pairs(by_test) do
+      for path, per_line in pairs(test_hits) do
+        for line in pairs(per_line) do
+          local ok, write_trouble = Sqlite.run(handle,
+            "INSERT INTO coverage_by_test (ran_at_ns, path, line, test) " ..
+            "VALUES (?1, ?2, ?3, ?4)",
+            { { integer = run_at_ns }, text(path), { integer = line },
+              text(test_name) })
+          if not ok then
+            return false, write_trouble
+          end
+        end
+      end
+    end
     return true, ""
   end)
   if not made then
     return 0, 0, trouble
   end
   return total_hit, total_lines, ""
+end
+
+--- Folds every line `from` holds into `into`, both keyed by module
+--- import path then line number -- the shape one test's or one
+--- module-load's own coverage window hands back. Used to build the
+--- whole-run accumulator up one small window's worth at a time.
+local function merge_hits(into: Coverage.Hits, from: Coverage.Hits)
+  for path, per_line in pairs(from) do
+    local existing = into[path]
+    if existing == nil then
+      existing = {}
+      into[path] = existing
+    end
+    for line in pairs(per_line) do
+      existing[line] = true
+    end
+  end
 end
 
 --- Calls one test function with a fresh temporary directory as its one
@@ -156,10 +191,35 @@ end
 
 --- Runs every test one `kind = "test"` module found, recording each
 --- into `records` and appending a line to `failures` for any that did
---- not pass. Returns how many tests it ran.
+--- not pass. Every hit line, from this module's own one-time load and
+--- from each test in it, is folded into `hits`, the whole-run
+--- accumulator; a test's own hits are additionally kept in `by_test`,
+--- keyed by that test's own identity, so `write_coverage` can credit
+--- specific lines to specific tests. Returns how many tests it ran.
 local function run_module(records: Sqlite.Handle, m: importer.Module,
-                          failures: {string}): integer
+                          failures: {string}, hits: Coverage.Hits,
+                          by_test: {string: Coverage.Hits}): integer
+  -- A module's own top-level code -- `local record X ... end`, `local Y
+  -- = require(...)` and the like -- runs exactly once, right here, at
+  -- first require, not once per test below. Left outside every
+  -- coverage window, it would run in the gap between one test's window
+  -- and the next and never be recorded as hit at all -- silently
+  -- deflating the aggregate percentage. Folded into `hits` like any
+  -- other window's hits; not attributed to `by_test`, since there is no
+  -- single test to credit module-load code to.
+  local module_session, module_start_trouble = Coverage.start()
+  if module_session == nil then
+    complain("coverage: " .. module_start_trouble)
+  end
   local ok, produced = pcall(require, m.path)
+  if module_session ~= nil then
+    local collected, stop_trouble = Coverage.stop(module_session)
+    if collected == nil then
+      complain("coverage: " .. stop_trouble)
+    else
+      merge_hits(hits, collected)
+    end
+  end
   if not ok then
     local message = "the module failed to load: " .. tostring(produced)
     for _, name in ipairs(m.tests) do
@@ -171,7 +231,20 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   local mod = produced as {string:any}
   for _, name in ipairs(m.tests) do
     local fn = mod[name] as function(any...): (any...)
+    local test_session, test_start_trouble = Coverage.start()
+    if test_session == nil then
+      complain("coverage: " .. test_start_trouble)
+    end
     local passed, message, reads = call_test(fn)
+    if test_session ~= nil then
+      local collected, stop_trouble = Coverage.stop(test_session)
+      if collected == nil then
+        complain("coverage: " .. stop_trouble)
+      else
+        merge_hits(hits, collected)
+        by_test[m.path .. " " .. name] = collected
+      end
+    end
     record_run(records, m.path, name, passed, message, Time.now_ns() or 0, reads)
     if not passed then
       failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
@@ -264,40 +337,29 @@ function test.run(): integer
   local total = 0
   local modules_run = 0
   local failures: {string} = {}
-  -- One hook install for the whole run, not one per test: a first cut
-  -- of coverage only has to answer how much of the tree the suite as a
-  -- whole touched, and every test already runs in this same process,
-  -- so nothing is lost by not resetting collection between them. The
-  -- session `start` hands back is what keeps this window this run's own:
-  -- an ordinary test elsewhere in the tree that also calls `start`/`stop`
-  -- cannot reset or end it, since it never has this same session value.
-  -- The hook itself now runs in C (core/coverage.c), one hit recorded
-  -- per line with no Lua-level debug.getinfo call, cheap enough to
-  -- leave on by default -- the Lua hook this replaced cost one such
-  -- call per line the whole suite executed, which was minutes on this
-  -- tree.
-  local session, start_trouble = Coverage.start()
-  if session == nil then
-    complain("coverage: " .. start_trouble)
-  end
+  -- One collection window per test, not one for the whole run: each
+  -- `start`/`stop` pair is a handful of cheap C calls (core/coverage.c),
+  -- and the real cost is proportional to lines executed, not to how
+  -- many times the hook toggles on and off, so this is not meaningfully
+  -- slower than the one-window-per-run design it replaces. What it buys
+  -- is attribution: a window scoped to exactly one test's own execution
+  -- means the hits it collects can be credited to that test by name,
+  -- which one continuous whole-suite window never could. The session
+  -- each `start` hands back is what keeps a window its own opener's:
+  -- an ordinary test elsewhere in the tree that also calls
+  -- `start`/`stop` cannot reset or end a window it did not open, since
+  -- it never has that same session value.
+  local hits: Coverage.Hits = {}
+  local by_test: {string: Coverage.Hits} = {}
   for _, m in ipairs(result.modules) do
     if m.kind == "test" and #m.tests > 0 then
       modules_run = modules_run + 1
-      total = total + run_module(records, m, failures)
-    end
-  end
-  local hits: Coverage.Hits = {}
-  if session ~= nil then
-    local collected, stop_trouble = Coverage.stop(session)
-    if collected == nil then
-      complain("coverage: " .. stop_trouble)
-    else
-      hits = collected
+      total = total + run_module(records, m, failures, hits, by_test)
     end
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, built, result.modules, hits, run_at_ns)
+    write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
   if cov_trouble ~= "" then
     complain("coverage: " .. cov_trouble)
   end

@@ -33,13 +33,13 @@ local function test_untrusted_load_cannot_reach_raw_debug()
   assert(not ok, "an untrusted load must not obtain a working native collector")
 end
 
---- `build.test` already has a genuine collection window open for the
---- whole run by the time any `*_test.tl` file's own tests run, this one
---- included. Calling `start` from here -- an ordinary test file, not
---- the caller that opened that window -- must be refused rather than
---- silently resetting it, which is exactly what corrupted the real run
---- before the session token existed: a single interfering test dropped
---- the whole run's reported coverage to 0.0%.
+--- `build.test` already has a genuine collection window open around
+--- this exact test's own execution by the time its body runs, this one
+--- included. Calling `start` again from in here -- during a window
+--- that same caller already opened, not a second caller -- must be
+--- refused rather than silently resetting it, which is exactly what
+--- corrupted the real run before the session token existed: a single
+--- interfering test dropped the whole run's reported coverage to 0.0%.
 local function test_start_refused_while_a_window_is_already_open()
   local session, trouble = Coverage.start()
   assert(session == nil, "start must refuse while a real window is open")
@@ -70,16 +70,15 @@ end
 --- marked hit, and a line inside a branch it never took is not.
 ---
 --- This runs the probe function directly, under the real window
---- `build.test` already has open for the whole suite (the same window
---- test_start_refused_while_a_window_is_already_open and
+--- `build.test` already has open around this test's own execution (the
+--- same window test_start_refused_while_a_window_is_already_open and
 --- test_stop_with_a_foreign_session_does_not_disrupt_the_window rely
 --- on being open) -- no isolation needed, since `Coverage.snapshot`
---- only reads: it returns a copy of every line hit so far, mixed in
---- with whatever the rest of the suite has already hit, without
---- touching the hook or the collection at all. That is exactly what
---- makes checking specific (file, line) pairs in it safe here: unlike
---- `start`/`stop`, nothing is reset, removed, or handed to a caller
---- that does not hold the session.
+--- only reads: it returns a copy of every line hit so far in this
+--- window, without touching the hook or the collection at all. That is
+--- exactly what makes checking specific (file, line) pairs in it safe
+--- here: unlike `start`/`stop`, nothing is reset, removed, or handed to
+--- a caller that does not hold the session.
 local function test_native_collector_hits_executed_lines_only()
   local function tiny(take_branch: boolean): integer
     local total = 0
@@ -95,7 +94,7 @@ local function test_native_collector_hits_executed_lines_only()
   local hits = Coverage.snapshot()
   local for_file = hits["cosmic.coverage_test"]
   assert(for_file ~= nil, "the collector must attribute hits to this module")
-  assert(for_file[85] == true, "the always-run line must be hit")
-  assert(for_file[87] == true, "the taken branch's line must be hit")
-  assert(for_file[89] == nil, "the untaken branch's line must not be hit")
+  assert(for_file[84] == true, "the always-run line must be hit")
+  assert(for_file[86] == true, "the taken branch's line must be hit")
+  assert(for_file[88] == nil, "the untaken branch's line must not be hit")
 end

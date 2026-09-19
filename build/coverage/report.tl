@@ -1,9 +1,9 @@
 --- Turning one run's collected line hits into one module's own
---- hit-or-not line map, once for the whole `cosmic test` run rather
---- than once per test: instrumenting only the whole run is enough to
---- answer "how much of the tree did the suite touch", the question a
---- first cut of coverage needs to answer, and it costs one hook
---- install/remove instead of one pair per test.
+--- hit-or-not line map. `build.test` opens one coverage window per
+--- test (plus one for each module's own one-time load code) and merges
+--- every window's hits into a single whole-run accumulator before
+--- calling this; this module only ever sees that one flat `hits` table
+--- and does not care how many separate windows fed into it.
 
 local Coverage = require("cosmic.coverage")
 local lines = require("build.coverage.lines")
