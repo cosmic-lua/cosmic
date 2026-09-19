@@ -103,7 +103,7 @@ end
 
 local insert_input =
   "INSERT INTO inputs (file, path, kind, origin, from_hash, source, " ..
-  "source_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+  "source_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, lower(hex(sha256(?6))))"
 
 --- The doc guides with no current `inputs` row, each extracted into
 --- the test module it is.
@@ -123,8 +123,7 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
     end
     local ok, insert_trouble = Sqlite.run(db, insert_input,
       { text(file), text(import_path_of_doc(file)), text("test"),
-        text("doctest"), text(from_hash), text(source),
-        text(Hash.hex_sha256(source)) })
+        text("doctest"), text(from_hash), text(source) })
     if not ok then
       return false, file .. ": " .. insert_trouble
     end
@@ -152,8 +151,7 @@ local function derive_syscalls(db: Sqlite.Handle): boolean, string
   end
   return Sqlite.run(db, insert_input,
     { text("core/syscalls.h"), text("cosmic.sys"), text("decl"),
-      text("syscalls"), text(from_hash), text(source),
-      text(Hash.hex_sha256(source)) })
+      text("syscalls"), text(from_hash), text(source) })
 end
 
 --- Two files that would answer to one import path. The build refuses

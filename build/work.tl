@@ -16,7 +16,6 @@
 --- not read again.
 
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 
 local record work
@@ -371,13 +370,14 @@ local record Statements
 end
 
 --- `files` keeps the bytes; `tool` keeps only what a stat and a hash
---- say about them. The put for either takes the hash as its sixth
---- parameter, the bytes as its seventh and the run as its eighth.
+--- say about them. The put for either takes the bytes as its sixth
+--- parameter and hashes them in place, and the run as its seventh.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
-    "sha256, data, seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    "sha256, data, seen) " ..
+    "VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?6, ?7)",
   tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
-    "sha256, seen) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?8)",
+    "sha256, seen) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?7)",
 }
 
 local function prepare(db: Sqlite.Handle, table_name: string): Statements | nil, string
@@ -449,9 +449,8 @@ local function stage_one(statements: Statements, root: string, file: string,
   put:bind_integer(3, mtime_ns)
   put:bind_integer(4, st.ino)
   put:bind_integer(5, st.dev)
-  put:bind_text(6, Hash.hex_sha256(data))
-  put:bind_blob(7, data)
-  put:bind_integer(8, run)
+  put:bind_blob(6, data)
+  put:bind_integer(7, run)
   local written, put_trouble = once(put)
   if not written then
     return nil, put_trouble
@@ -524,15 +523,12 @@ end
 --- computing one.
 function work.boot_hash(handle: work.Handle): string | nil, string
   local rows, trouble = Sqlite.rows(handle.db,
-    "SELECT path, sha256 FROM tool ORDER BY path")
+    "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
+    "ORDER BY path)))) FROM tool")
   if rows == nil then
     return nil, trouble
   end
-  local parts: {string} = {}
-  for _, row in ipairs(rows) do
-    parts[#parts + 1] = row[1] .. " " .. row[2]
-  end
-  return Hash.hex_sha256(table.concat(parts, "\n"))
+  return rows[1][1]
 end
 
 --- Writes this run's row into `builds`.
