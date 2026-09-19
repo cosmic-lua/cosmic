@@ -18,10 +18,19 @@ test verdicts.
 - **the doctest extractor**, per meta.md: fenced blocks from a doc
   become one compiled Teal file, one function per example, so the
   compiled file is a test file and needs no runner of its own.
-- **Lua and Teal coverage**, `debug.sethook` in line mode through
-  the private binding already reserved for it, reading the line
-  numbers the bytecode already carries, recorded into
-  `o/records.db` alongside test verdicts.
+- **Lua and Teal coverage has landed** (`cosmic/coverage.tl`,
+  `debug.sethook` in line mode through the private binding reserved
+  for it), but its per-line hook calls `debug.getinfo` on every line
+  the whole suite executes, which is minutes on this tree today --
+  `build.test` currently passes `install_hook = false` to keep the
+  window/session contract its own tests rely on without paying that
+  cost, so every run reports 0.0% honestly rather than a real
+  percentage nobody paid for. main's `cosmic.coverage` answers this
+  with a native collector, `cosmo.cov` (counts kept and read on the
+  C side, armed by the same `start`/`stop`), falling back to the Lua
+  hook only on a runtime without it; porting that collector, or an
+  equivalent, and turning the hook back on by default is the next
+  goal here.
 
 **deferred, not dropped: C testing and coverage.** no C-level unit
 test framework exists yet, and C coverage is researched but not
@@ -50,9 +59,16 @@ that runs both, coverage reported the same way for either.
 - **the visibility lint**, part of what "checking" means: no import
   of a private module from outside its tree, no two names in a
   directory differing only in case.
-- **the remaining tl narrowing patches**, record-field narrowing and
-  container covariance, so cast-foreclosure holds against real code,
-  not only a trivial one-file script.
+- **record-field narrowing has landed** (`patch/tl/08` through `14`,
+  plus the bare-variable statement-form `assert` narrow it builds on,
+  `07-assert-narrows.txt`): a guard on `x.field` -- truthy read,
+  `assert`, `== nil` / `~= nil`, the early-return shape -- narrows the
+  field the same way a bare variable already narrows, on a
+  bare-variable base only (`a.b.field` does not chain). **container
+  covariance is still open**, so cast-foreclosure holds against real
+  code, not only a trivial one-file script; whether it is a live
+  blocker is a question for `cosmic check` to answer against this
+  tree, not one to guess at ahead of it.
 
 **alongside, not gating the above:**
 
