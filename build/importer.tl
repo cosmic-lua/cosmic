@@ -216,12 +216,15 @@ end
 --- only what is new is extracted, generated, or parsed. The compiler's
 --- row has no file and is Lua, so it is neither dropped nor parsed
 --- here; the plan carries it. What no input refers to any more is dropped, so the tables
---- describe this tree and nothing older.
+--- describe this tree and nothing older. `compile` does this itself;
+--- a caller that reads the tree's identities before compiling calls it
+--- first, since `work.identities` closes over `requires`, and a fresh
+--- working database has none until the tree is parsed.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
 --- @param built the compiler, loaded and ready
-local function derive(handle: work.Handle, self_tree: boolean,
-                      built: compiler): boolean, string
+function importer.derive(handle: work.Handle, self_tree: boolean,
+                         built: compiler): boolean, string
   local db = handle.db
   if not self_tree then
     if Fs.is_dir(handle.root .. "/cosmic") then
@@ -293,7 +296,7 @@ end
 --- Every module the derived tree holds, with what its parse found.
 local function collect(handle: work.Handle, self_tree: boolean,
                        built: compiler): {Module} | nil, string
-  local derived, derive_trouble = derive(handle, self_tree, built)
+  local derived, derive_trouble = importer.derive(handle, self_tree, built)
   if not derived then
     return nil, derive_trouble
   end

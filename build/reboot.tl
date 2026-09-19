@@ -81,12 +81,21 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
     return name_trouble
   end
 
-  -- Compiled and keyed as this binary's own work: the tool that
-  -- replaces it compiles under its own identity, so nothing an older
-  -- compiler made is ever mistaken for its own, and everything the
-  -- same compiler made is found again.
+  -- Compiled and keyed as the tree's own work: the tool that replaces
+  -- this one carries the tree's compiler identity, so its keys are
+  -- made under that identity -- what a boot of the same tree would
+  -- make, and what the new tool finds again -- never under this stale
+  -- tool's.
+  local derived, derive_trouble = importer.derive(handle, true, built)
+  if not derived then
+    return derive_trouble
+  end
+  local identities, identity_trouble = work.identities(handle)
+  if identities == nil then
+    return identity_trouble
+  end
   local result, compile_trouble =
-    importer.compile(handle, built, env, Store.meta("compiler") or "")
+    importer.compile(handle, built, env, identities.compiler)
   if result == nil then
     return compile_trouble
   end

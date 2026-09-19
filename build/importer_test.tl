@@ -205,3 +205,37 @@ local function test_types_the_standard_library_from_the_binary()
   assert(#requires == 1 and requires[1] == "cosmic.fs",
     "expected cosmic.fs, got " .. table.concat(requires, ", "))
 end
+
+--- The compiler identity closes over what `build.importer` requires, so
+--- it is the same whether the working database is fresh or has parsed
+--- the tree before -- a boot on an empty `o/` must key its modules
+--- exactly as a warm one does, or the two ship different databases.
+local function test_compiler_identity_is_the_same_on_a_fresh_database()
+  local root = "/tmp/cosmic-importer-test-fresh-identity-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+                         "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/build/helper.tl",
+    "local record helper\nend\nreturn helper\n"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local helper = require(\"build.helper\")\nlocal record importer\nend\n" ..
+    "importer.helper = helper\nreturn importer\n"))
+  local function identity(): string
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    assert(importer.derive(handle, true, built))
+    local found = assert(work.identities(handle))
+    work.close(handle)
+    return found.compiler
+  end
+  local fresh = identity()
+  local warm = identity()
+  assert(warm == fresh, "a second open of the same tree moved the compiler identity")
+  assert(Fs.write(root .. "/build/helper.tl",
+    "local record helper\nend\nreturn helper\n-- edited\n"))
+  assert(identity() ~= fresh,
+    "an edit to a module the compiler requires did not move its identity")
+end
