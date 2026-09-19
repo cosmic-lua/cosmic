@@ -44,6 +44,21 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
+--- What the shipped database is a function of: this run's plan with
+--- each module's file, the declarations, the images, and the main
+--- module, as one hash. When it matches the one the last write left
+--- in `meta` and the file is still there, the file already is the
+--- projection of these rows, and nothing is written.
+local signature_sql =
+  "SELECT lower(hex(sha256(" ..
+  "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
+  "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "WHERE i.kind <> 'decl'), '') || char(10) || " ..
+  "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
+  "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
+  "coalesce((SELECT group_concat(target || ' ' || hex(sha256), char(10) " ..
+  "ORDER BY target) FROM images), '') || char(10) || ?1)))"
+
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
                        result: importer.Result): boolean, string
@@ -97,14 +112,29 @@ local function project(handle: work.Handle, path: string,
 end
 
 --- Writes an already-compiled result into a fresh database and leaves
---- it at `out`. This ends the run's transaction first: SQLite attaches
---- and vacuums outside one only.
+--- it at `out`, unless the file there already is that projection. This
+--- ends the run's transaction first: SQLite attaches and vacuums
+--- outside one only.
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result): boolean, string
   local db = handle.db
   local committed, commit_trouble = work.commit(handle)
   if not committed then
     return false, commit_trouble
+  end
+  local signed, sign_trouble = Sqlite.rows(db, signature_sql,
+    { text(result.main or "") })
+  if signed == nil then
+    return false, sign_trouble
+  end
+  local signature = signed[1][1]
+  local last, last_trouble = Sqlite.rows(db,
+    "SELECT value FROM meta WHERE key = 'projected'")
+  if last == nil then
+    return false, last_trouble
+  end
+  if #last > 0 and last[1][1] == signature and Fs.exists(out) then
+    return true, ""
   end
 
   local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
@@ -116,7 +146,13 @@ function writer.write_result(handle: work.Handle, out: string,
   if not projected then
     return false, trouble
   end
-  return Fs.rename(out .. ".building", out)
+  local renamed, rename_trouble = Fs.rename(out .. ".building", out)
+  if not renamed then
+    return false, rename_trouble
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('projected', ?1)",
+    { text(signature) })
 end
 
 return writer
