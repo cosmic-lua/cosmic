@@ -22,15 +22,20 @@ local record docs
     line: integer
     --- How many places in shipped modules refer to it.
     uses: integer
-    --- Where the worked example for this symbol lives, `""` when there
-    --- is none -- see `build.positions.ExampleEntry`.
-    example_file: string
-    example_line: integer
-    --- The example's own doc comment: what it is for, `""` when there
-    --- is none.
-    example_text: string
-    --- The example's own source, as written, `""` when there is none.
-    example_source: string
+    --- How many worked examples match it -- see `examples_for`. A
+    --- listing count, not the examples themselves: `render` fetches
+    --- those separately, only for the one entry it is showing.
+    examples: integer
+  end
+
+  --- One worked example, matched to a symbol by content rather than by
+  --- name -- see `examples_for`.
+  record Example
+    name: string
+    text: string
+    file: string
+    line: integer
+    source: string
   end
 
   --- One row of `uses`.
@@ -55,17 +60,44 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
+--- A symbol as an `examples_fts` phrase: `Fs.read` and `Fs:read` alike
+--- become `"Fs read"`, matching adjacent tokens in that order -- what
+--- an example's own source reads as, tokenized, when it genuinely
+--- calls the symbol it demonstrates. Looser than an exact join, and
+--- deliberately so: this is what lets one example answer for every
+--- symbol its code actually mentions, not only the one whose name it
+--- happens to share.
+---
+--- On its own this over-matches: FTS5's tokenizer splits on `_`, so
+--- `Fs.hex` and `Fs.hex_sha256` share the same first two tokens, and
+--- `"Fs hex"` matches an example that only ever calls the second one.
+--- `example_boundary` is the other half of every query this builds --
+--- a phrase match narrows to candidates cheaply, the boundary check
+--- on those few rows says whether the symbol is really there, whole.
+local function example_phrase(symbol: string): string
+  return '"' .. symbol:gsub("[%.:]", " ") .. '"'
+end
+
+--- A GLOB pattern matching `symbol` followed by a character that could
+--- not continue the same identifier -- so `Fs.hex` matches `Fs.hex(`
+--- but not `Fs.hex_sha256`. Checked against an example's own text and
+--- source, space-joined so a match flush against the end of either
+--- still has a boundary to land on.
+local function example_boundary(symbol: string): string
+  return "*" .. symbol .. "[^A-Za-z0-9_]*"
+end
+
+local EXAMPLE_BOUNDARY_SQL =
+  "(e.text || ' ' || e.source || ' ') GLOB ('*' || d.symbol || '[^A-Za-z0-9_]*')"
+
 local columns =
   "d.module, d.symbol, d.kind, d.signature, d.text, d.file, d.line, " ..
   "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol), " ..
-  "coalesce((SELECT file FROM examples e WHERE e.module = d.module " ..
-  "AND e.symbol = d.symbol), ''), " ..
-  "coalesce((SELECT line FROM examples e WHERE e.module = d.module " ..
-  "AND e.symbol = d.symbol), 0), " ..
-  "coalesce((SELECT text FROM examples e WHERE e.module = d.module " ..
-  "AND e.symbol = d.symbol), ''), " ..
-  "coalesce((SELECT source FROM examples e WHERE e.module = d.module " ..
-  "AND e.symbol = d.symbol), '')"
+  "CASE WHEN d.symbol = '' THEN 0 ELSE (SELECT count(*) FROM examples_fts " ..
+  "JOIN examples e ON e.id = examples_fts.rowid " ..
+  "WHERE e.module = d.module AND examples_fts MATCH " ..
+  "('\"' || replace(replace(d.symbol, '.', ' '), ':', ' ') || '\"') " ..
+  "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
 
 local function entries_of(rows: {{string}}): {docs.Entry}
   local out: {docs.Entry} = {}
@@ -74,9 +106,37 @@ local function entries_of(rows: {{string}}): {docs.Entry}
       module = row[1], symbol = row[2], kind = row[3], signature = row[4],
       text = row[5], file = row[6], line = math.tointeger(tonumber(row[7])) or 0,
       uses = math.tointeger(tonumber(row[8])) or 0,
-      example_file = row[9], example_line = math.tointeger(tonumber(row[10])) or 0,
-      example_text = row[11], example_source = row[12],
+      examples = math.tointeger(tonumber(row[9])) or 0,
     }
+  end
+  return out
+end
+
+--- Every worked example whose own text or source matches `symbol`, in
+--- `module`, in the order its file declares them -- see
+--- `example_phrase`. Several can match one symbol; each was written
+--- deliberately for it once it matches at all, so source order reads
+--- better than a relevance ranking would. `""` finds nothing, since a
+--- module's own row has no code of its own to match.
+local function examples_for(db: Sqlite.Handle, module: string,
+                            symbol: string): {docs.Example} | nil, string
+  if symbol == "" then
+    return {}
+  end
+  local rows, trouble = Sqlite.rows(db,
+    "SELECT e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
+    "JOIN examples e ON e.id = examples_fts.rowid " ..
+    "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
+    "AND (e.text || ' ' || e.source || ' ') GLOB ?3 " ..
+    "ORDER BY e.line",
+    { text(module), text(example_phrase(symbol)), text(example_boundary(symbol)) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: {docs.Example} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { name = row[1], text = row[2], file = row[3],
+      line = math.tointeger(tonumber(row[4])) or 0, source = row[5] }
   end
   return out
 end
@@ -133,15 +193,18 @@ local function searched_docs(db: Sqlite.Handle, fts: string): {docs.Entry} | nil
   return entries_of(rows)
 end
 
---- The rows whose worked example carries every word of `query`, best
---- match first, for a symbol `searched_docs` did not already find on
---- its own doc comment -- a `cosmic docs "sha256 hex"` that only the
---- example's own code mentions still finds `Fs.read`.
+--- The module row of every module whose worked example carries every
+--- word of `query`, best match first, for a module `searched_docs`
+--- did not already find on a doc comment -- a `cosmic docs "sha256
+--- hex"` that only an example's own code mentions still finds
+--- `cosmic.fs`, whichever of its symbols the example turns out to be
+--- for; the module's own listing shows each symbol's own example
+--- count (`examples_for`, by name this time) to narrow from there.
 local function searched_examples(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT " .. columns .. " FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
-    "JOIN docs d ON d.module = e.module AND d.symbol = e.symbol " ..
+    "JOIN docs d ON d.module = e.module AND d.symbol = '' " ..
     "WHERE examples_fts MATCH ?1 ORDER BY bm25(examples_fts), d.module, d.id LIMIT 20",
     { text(fts) })
   if rows == nil then
@@ -322,8 +385,9 @@ function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
         if item.uses > 0 then
           marks[#marks + 1] = item.uses .. " uses"
         end
-        if item.example_source ~= "" then
-          marks[#marks + 1] = "example"
+        if item.examples > 0 then
+          marks[#marks + 1] = item.examples .. " example" ..
+            (item.examples == 1 and "" or "s")
         end
         lines[#lines + 1] = "  " .. item.kind .. " " .. item.symbol ..
           (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
@@ -334,14 +398,20 @@ function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
         (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
     end
-    if entry.example_source ~= "" then
-      lines[#lines + 1] = "  example (" .. entry.example_file .. ":" ..
-        entry.example_line .. "):"
-      for line in (entry.example_text .. "\n"):gmatch("(.-)\n") do
-        lines[#lines + 1] = #line > 0 and "  " .. line or ""
-      end
-      for line in (entry.example_source .. "\n"):gmatch("(.-)\n") do
-        lines[#lines + 1] = #line > 0 and "    " .. line or ""
+    local examples = across(databases,
+      function(db: Sqlite.Handle): {docs.Example} | nil, string
+        return examples_for(db, entry.module, entry.symbol)
+      end, function(_: docs.Example): string return entry.module end)
+    if examples ~= nil then
+      for _, ex in ipairs(examples) do
+        lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
+          ex.line .. "):"
+        for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+          lines[#lines + 1] = #line > 0 and "  " .. line or ""
+        end
+        for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+          lines[#lines + 1] = #line > 0 and "    " .. line or ""
+        end
       end
     end
   end

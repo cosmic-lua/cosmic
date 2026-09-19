@@ -14,4 +14,13 @@ function Example.hex_sha256()
     "unexpected digest: " .. digest)
 end
 
+--- `Hash.hex_sha256` of the empty string: never a special case, since
+--- SHA-256 is defined on every length, including zero.
+function Example.hex_sha256_of_the_empty_string()
+  local digest = Hash.hex_sha256("")
+  print(digest)
+  assert(digest == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "unexpected digest: " .. digest)
+end
+
 return Example

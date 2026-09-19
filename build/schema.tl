@@ -59,12 +59,12 @@ local tables: {{string}} = {
 
   { "examples", [[(id INTEGER PRIMARY KEY,
                    module TEXT NOT NULL,
-                   symbol TEXT NOT NULL,
+                   name TEXT NOT NULL,
                    text TEXT NOT NULL,
                    file TEXT NOT NULL,
                    line INTEGER NOT NULL,
                    source TEXT NOT NULL,
-                   UNIQUE (module, symbol))]] },
+                   UNIQUE (module, name))]] },
 
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
@@ -86,7 +86,7 @@ local virtual_tables: {{string}} = {
   { "catalog_fts",
     "USING fts5(message, text, content=catalog, content_rowid=id)" },
   { "examples_fts",
-    "USING fts5(symbol, text, source, content=examples, content_rowid=id)" },
+    "USING fts5(name, text, source, content=examples, content_rowid=id)" },
 }
 
 --- The settings a reproducible file depends on. They are stated rather

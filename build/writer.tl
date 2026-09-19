@@ -80,29 +80,25 @@ local insert_uses =
   "ORDER BY r.module, d.symbol, p.path, r.line"
 
 --- The worked examples `build.positions.examples_of` found: a
---- `<module>_example.tl`'s own `Example.<name>` resolved against the
---- module its file name pairs with (the `_example` suffix stripped)
---- and that module's own entry record, the name its top-level `return`
---- hands back (`tp.export`) -- `Fs.read` when `cosmic/fs_example.tl`
---- declares `Example.read` and `cosmic/fs.tl` returns `Fs`. Kept only
---- where that resolved symbol is one the paired module actually
---- documents, the same guard `insert_uses` applies, so an example
---- naming nothing real is dropped rather than shipped unresolved.
---- `OR IGNORE`, also matching `insert_uses`: two examples in one file
---- that happen to resolve to the same symbol (a duplicate `function
---- Example.<name>` declaration, effectively a typo) keep the first
---- rather than failing the whole build on `examples`'s own
---- `UNIQUE (module, symbol)`.
+--- `<module>_example.tl`'s own `function Example.<name>()`, shipped
+--- against the module its file name pairs with (the `_example` suffix
+--- stripped) -- nothing here decides which symbol an example is FOR.
+--- `build.docs` answers that at read time, by matching an example's
+--- own text and source against a symbol's name through
+--- `examples_fts`: an example calls the real function it demonstrates,
+--- so the symbol's own name is already in its code, and a query never
+--- needs `<name>` to encode an association a build-time join would
+--- only have to guess at anyway once more than one example can be FOR
+--- one symbol. `OR IGNORE` guards `examples`'s `UNIQUE (module, name)`
+--- against a literal duplicate declaration; `<name>` is otherwise free
+--- -- there is no convention left for it to hold to.
 local insert_examples =
-  "INSERT OR IGNORE INTO out.examples (module, symbol, text, file, line, " ..
+  "INSERT OR IGNORE INTO out.examples (module, name, text, file, line, " ..
   "source) " ..
-  "SELECT t.path, tp.export || '.' || e.name, e.text, i.file, e.line, " ..
-  "e.source " ..
+  "SELECT t.path, e.name, e.text, i.file, e.line, e.source " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'example' " ..
   "JOIN examples e ON e.source_hash = i.source_hash " ..
   "JOIN inputs t ON t.path = substr(p.path, 1, length(p.path) - length('_example')) " ..
-  "JOIN parsed tp ON tp.source_hash = t.source_hash " ..
-  "JOIN out.docs d ON d.module = t.path AND d.symbol = tp.export || '.' || e.name " ..
   "WHERE t.path IN (SELECT path FROM plan) " ..
   "ORDER BY t.path, e.line"
 

@@ -26,7 +26,7 @@ local function database(rows: {{string}}, uses: {{string}},
   end
   for _, row in ipairs(examples or {}) do
     assert(Sqlite.run(db,
-      "INSERT INTO examples (module, symbol, text, file, line, source) " ..
+      "INSERT INTO examples (module, name, text, file, line, source) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { integer = math.tointeger(tonumber(row[5])) }, { text = row[6] } }))
@@ -113,45 +113,108 @@ end
 
 --- A symbol with a worked example renders its own doc comment and its
 --- source, in that order, under `Fs.read`'s own doc comment; a
---- module's own listing marks which of its symbols have one.
+--- module's own listing marks which of its symbols have one. The
+--- example is matched to `Fs.read` by its own code calling it, not by
+--- its function name (`read`, here, could have been anything).
 local function test_renders_a_symbols_example()
   local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "Fs.read", "Reads a file back.", "cosmic/fs_example.tl",
-      "3", "function Example.read()\nend" },
+    { "cosmic.fs", "read", "Reads a file back.", "cosmic/fs_example.tl",
+      "3", "function Example.read()\n  print(Fs.read(\"x\"))\nend" },
   })
   local read = assert(docs.lookup({ db }, "Fs.read"))
   local lines = docs.render({ db }, read[1])
-  assert(lines[#lines - 3] == "  example (cosmic/fs_example.tl:3):",
-    lines[#lines - 3])
-  assert(lines[#lines - 2] == "  Reads a file back.", lines[#lines - 2])
-  assert(lines[#lines - 1] == "    function Example.read()", lines[#lines - 1])
+  assert(lines[#lines - 4] == "  example read (cosmic/fs_example.tl:3):",
+    lines[#lines - 4])
+  assert(lines[#lines - 3] == "  Reads a file back.", lines[#lines - 3])
+  assert(lines[#lines - 2] == "    function Example.read()", lines[#lines - 2])
+  assert(lines[#lines - 1] == "      print(Fs.read(\"x\"))", lines[#lines - 1])
   assert(lines[#lines] == "    end", lines[#lines])
 
   local module = assert(docs.lookup({ db }, "cosmic.fs"))
   local module_lines = docs.render({ db }, module[1])
-  assert(module_lines[4] == "  function Fs.read (2 uses, example)", module_lines[4])
+  assert(module_lines[4] == "  function Fs.read (2 uses, 1 example)", module_lines[4])
   assert(module_lines[5] == "  function Fs.write", module_lines[5])
+end
+
+--- Many examples can be for one symbol: each is matched independently
+--- by its own code, so nothing caps how many turn up, and each keeps
+--- its own name in the rendering to tell them apart.
+local function test_many_examples_for_one_symbol()
+  local db = database(fs_rows, fs_uses, {
+    { "cosmic.fs", "basic", "", "cosmic/fs_example.tl", "3",
+      "function Example.basic()\n  print(Fs.read(\"notes.txt\"))\nend" },
+    { "cosmic.fs", "missing_file", "", "cosmic/fs_example.tl", "9",
+      "function Example.missing_file()\n  local ok = Fs.read(\"none\")\nend" },
+  })
+  local read = assert(docs.lookup({ db }, "Fs.read"))
+  local lines = docs.render({ db }, read[1])
+  local headers: {string} = {}
+  for _, line in ipairs(lines) do
+    if line:match("^  example ") then
+      headers[#headers + 1] = line
+    end
+  end
+  assert(#headers == 2, table.concat(headers, " | "))
+  assert(headers[1] == "  example basic (cosmic/fs_example.tl:3):", headers[1])
+  assert(headers[2] == "  example missing_file (cosmic/fs_example.tl:9):", headers[2])
+
+  local module = assert(docs.lookup({ db }, "cosmic.fs"))
+  local module_lines = docs.render({ db }, module[1])
+  assert(module_lines[4] == "  function Fs.read (2 uses, 2 examples)", module_lines[4])
+end
+
+--- FTS5 tokenizes on `_`, so `Hash.hex` and `Hash.hex_sha256` share
+--- their first two tokens; an example that only ever calls
+--- `Hash.hex_sha256` must not also match `Hash.hex`.
+local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix()
+  local rows: {{string}} = {
+    { "cosmic.hash", "", "module", "", "", "cosmic/hash.tl", "1" },
+    { "cosmic.hash", "Hash", "record", "local record Hash", "", "cosmic/hash.tl", "5" },
+    { "cosmic.hash", "Hash.hex", "function",
+      "function Hash.hex(digest: string): string",
+      "Hex encodes a digest.", "cosmic/hash.tl", "10" },
+    { "cosmic.hash", "Hash.hex_sha256", "function",
+      "function Hash.hex_sha256(data: string): string",
+      "The hexadecimal SHA-256 of some bytes.", "cosmic/hash.tl", "20" },
+  }
+  local db = database(rows, {}, {
+    { "cosmic.hash", "hex_sha256", "", "cosmic/hash_example.tl", "3",
+      "function Example.hex_sha256()\n  print(Hash.hex_sha256(\"x\"))\nend" },
+  })
+  local hex = assert(docs.lookup({ db }, "Hash.hex"))
+  assert(#hex == 1 and hex[1].examples == 0, tostring(hex[1].examples))
+  for _, line in ipairs(docs.render({ db }, hex[1])) do
+    assert(not line:match("^  example "),
+      "Hash.hex wrongly matched an example for Hash.hex_sha256: " .. line)
+  end
+
+  local hex_sha256 = assert(docs.lookup({ db }, "Hash.hex_sha256"))
+  assert(#hex_sha256 == 1 and hex_sha256[1].examples == 1)
 end
 
 --- A word only a worked example's own code or its own doc comment
 --- mentions -- never in `Fs.read`'s own doc comment -- still finds
---- `Fs.read`, through `examples_fts` rather than `docs_fts`.
+--- `cosmic.fs`, through `examples_fts` rather than `docs_fts`, since
+--- an example is matched to a module first and a symbol only once
+--- its own name is the query.
 local function test_searches_finds_a_word_only_in_an_example()
   local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "Fs.read", "", "cosmic/fs_example.tl", "3",
+    { "cosmic.fs", "read", "", "cosmic/fs_example.tl", "3",
       "function Example.read()\n  print(Hash.hex_sha256(Fs.read(\"x\")))\nend" },
   })
   local found, _, exact = docs.lookup({ db }, "hex_sha256")
   assert(found ~= nil)
   assert(not exact)
-  assert(#found == 1 and found[1].symbol == "Fs.read", tostring(#found))
+  assert(#found == 1 and found[1].module == "cosmic.fs" and found[1].symbol == "",
+    tostring(#found))
 
   local db2 = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "Fs.read", "Demonstrates reading a config file.",
+    { "cosmic.fs", "read", "Demonstrates reading a config file.",
       "cosmic/fs_example.tl", "3", "function Example.read()\nend" },
   })
   local by_text = assert(docs.lookup({ db2 }, "config"))
-  assert(#by_text == 1 and by_text[1].symbol == "Fs.read", tostring(#by_text))
+  assert(#by_text == 1 and by_text[1].module == "cosmic.fs" and by_text[1].symbol == "",
+    tostring(#by_text))
 end
 
 --- The uses of a symbol, by either name.

@@ -276,18 +276,26 @@ input to the build, never to the runtime. one database holds:
   other module returns. `cosmic uses Fs.read` lists them.
 - **examples**: one row per worked example, a `kind = "example"`
   module's own top-level `function Example.<name>()` -- found the same
-  structural way `docs` finds `function Fs.read(...)`, no tag naming
-  the association -- resolved against the module its file name pairs
-  with (`cosmic/fs_example.tl` examples `cosmic.fs`) and that module's
-  own entry record, kept only where the resolved symbol is one `docs`
-  actually declares. An example is documentation twice over: its own
-  doc comment, read the same way `docs` reads one, says what it is
-  for, and its body, which compiles and runs like any other test, says
-  how -- one assertion mechanism for code, not a second, output-
-  diffing one only doc guides need. `cosmic docs Fs.read` prints both,
-  source and all, beneath `Fs.read`'s own doc comment, and an
-  `examples_fts` index answers a word search over either the same way
-  `docs_fts` does for a symbol's own documentation.
+  structural way `docs` finds `function Fs.read(...)`, shipped against
+  only the module its file name pairs with (`cosmic/fs_example.tl`
+  ships against `cosmic.fs`). `<name>` is a free label, not a symbol:
+  which real symbol an example is FOR is never decided here, or even
+  at ship time. `cosmic docs Fs.read` answers that at read time, over
+  `examples_fts`, an external-content FTS5 index the same shape as
+  `docs_fts` -- an example calls the real function it demonstrates, so
+  the symbol's own name is already in its code, tokenized the same way
+  a query for it is, and a phrase match finds it (narrowed by a
+  boundary check afterward, since FTS5 splits `_`, and `Fs.hex` would
+  otherwise also match an example that only ever calls
+  `Fs.hex_sha256`). This is looser than a build-time join on purpose:
+  more than one example can be FOR one symbol, in whatever order its
+  file declares them, and one example that calls two functions
+  together answers for both, without either needing to name the
+  other. An example is documentation twice over: its own doc comment,
+  read the same way `docs` reads one, says what it is for, and its
+  body, which compiles and runs like any other test, says how -- one
+  assertion mechanism for code, not a second, output-diffing one only
+  doc guides need.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.

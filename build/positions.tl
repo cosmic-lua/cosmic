@@ -57,10 +57,11 @@ local record positions
   end
 
   --- One worked example: a top-level `function Example.<name>()` --
-  --- see `examples_of`. `name` is bare (`"read"`), the same name the
-  --- paired module's own record declares it under; `build.writer`
-  --- resolves the real symbol (`"Fs.read"`) at ship time, against that
-  --- record's name, so nothing here has to know it.
+  --- see `examples_of`. `name` is a free label, not a symbol: which
+  --- real symbol an example is for is never decided here, or even at
+  --- ship time -- `build.docs` matches an example's own text and
+  --- source against a symbol's name at read time, since an example's
+  --- code already calls the real function it demonstrates.
   record ExampleEntry
     name: string
     --- The doc comment directly above it, leaders stripped, the same
@@ -512,13 +513,15 @@ end
 
 --- Every worked example a chunk declares at its top level: a
 --- `function Example.<name>()`, found the same structural way
---- `docs_of` already finds `function Fs.read(...)` -- no tag names the
---- association, only the shape of the declaration itself. `name` is
---- bare; `build.writer`'s `insert_examples` resolves it against the
---- paired module's own record name at ship time. Its own doc comment
---- is read the same way `docs_of` reads one, since an example is
---- documentation too -- what it is for in the comment, how in the
---- code below it.
+--- `docs_of` already finds `function Fs.read(...)` -- the shape of the
+--- declaration is the only marker, `name` itself is a free label. Its
+--- own doc comment is read the same way `docs_of` reads one, since an
+--- example is documentation too -- what it is for in the comment, how
+--- in the code below it. Which real symbol it demonstrates is not
+--- decided here, or even at ship time (`build.writer`'s
+--- `insert_examples` ships an example against its module alone) --
+--- `build.docs` answers that at read time, by matching this text and
+--- source against a symbol's own name.
 local function examples_of(lines: {string}, parsed: ast.Parsed): {positions.ExampleEntry}
   local out: {positions.ExampleEntry} = {}
   local nodes = parsed.node
