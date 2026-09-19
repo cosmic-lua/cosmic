@@ -28,13 +28,15 @@ cosmic -- a runtime for self-contained command-line software
   cosmic help        this
 
 A verb takes paths to narrow it. `fix` rebuilds each file from its own
-parsed tree: it decides every keyword, operator and bracket, and the
-spacing around each, from the tree rather than from whichever two
-tokens ended up adjacent -- so `local x <const> = 5` is one unit
-attached to the name and can never come back as `local x < const > =
-5`. It carries the source's own line breaks, indentation and blank
-lines over unchanged, writes type syntax out as the original bytes,
-and never rewraps a line.
+parsed tree. It decides everything a line holds -- every keyword,
+operator and bracket, the spacing around each, and two columns of
+indentation per level of block -- from the tree rather than from
+whichever two tokens ended up adjacent, so `local x <const> = 5` is
+one unit attached to the name and can never come back as `local x <
+const > = 5`. It carries over where the lines break and where they do
+not, and never rewraps one. Type syntax is written as the original
+bytes. Nothing is written until the result has been parsed again and
+found to mean the same thing, comments included.
 
 Every verb ends in a verdict line and an exit code.
 ]]
