@@ -515,11 +515,9 @@ stock-interpreter flags, no argv[0] personality.
 
 `fix` rather than `format`, because there is one verb and not two: it
 parses, applies whatever structural rewrites the lint has earned, and
-writes the tree back out. a fix is a change to the parsed tree and
-never a patch over bytes, and what a rule produces is rendered rather
-than spliced, so the result reads the same as source nothing touched.
-`--check` writes nothing and fails on anything it would have changed,
-which is what a gate runs.
+renders the result rather than splicing it, so a fix reads the same as
+source nothing touched. `--check` writes nothing and fails on anything
+it would have changed.
 
 ### the repository
 
