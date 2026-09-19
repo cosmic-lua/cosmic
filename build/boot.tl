@@ -34,7 +34,8 @@ local function report(line: string)
 end
 
 --- @param root the tree to build
---- @param argv the command line, where slot 4 names the host target
+--- @param argv the command line: slot 4 is the host target, slots 5 and 6
+--- optionally set the output directory and host core image for checked builds
 local function boot(root: string, argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local host = argv[4]
@@ -43,6 +44,12 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
+  local output = argv[5] or root .. "/o"
+  local made, mkdir_trouble = Fs.mkdirs(output .. "/bin")
+  if not made then
+    report("boot: FAIL (" .. mkdir_trouble .. ")")
+    return 1
+  end
   local images: {string:string} = {}
   for _, target in ipairs(targets) do
     local path = root .. "/o/core/" .. target .. "/cosmic-core"
@@ -52,6 +59,18 @@ local function boot(root: string, argv: {integer:string}): integer
       return 1
     end
     images[target] = image
+  end
+
+  -- Checked boot changes the running host prefix, not the reusable images
+  -- in the shared working database. Later ordinary builds read those images.
+  local host_image = images[host]
+  if argv[6] ~= nil then
+    local checked, checked_trouble = Fs.read(argv[6])
+    if checked == nil then
+      report("boot: FAIL (" .. checked_trouble .. ")")
+      return 1
+    end
+    host_image = checked
   end
 
   local teal_source, teal_trouble = Fs.read(root .. "/o/vendor/tl/tl.lua")
@@ -96,7 +115,7 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local database_path = root .. "/o/cosmic.db"
+  local database_path = output .. "/cosmic.db"
   local result, compile_trouble =
     importer.compile(handle, compiler, env, boot_hash)
   if result == nil then
@@ -121,22 +140,17 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
-  if not made then
-    report("boot: FAIL (" .. mkdir_trouble .. ")")
-    return 1
-  end
-
   for _, target in ipairs(targets) do
-    local out = root .. "/o/bin/cosmic-" .. target
-    local ok, failure = attach.write(out, target, images[target], database)
+    local out = output .. "/bin/cosmic-" .. target
+    local image = target == host and host_image or images[target]
+    local ok, failure = attach.write(out, target, image, database)
     if not ok then
       report("boot: FAIL (" .. failure .. ")")
       return 1
     end
     if target == host then
       local same, host_trouble =
-        attach.write(root .. "/o/bin/cosmic", target, images[target], database)
+        attach.write(output .. "/bin/cosmic", target, image, database)
       if not same then
         report("boot: FAIL (" .. host_trouble .. ")")
         return 1
