@@ -19,6 +19,19 @@
 --- `if_parent` is skipped rather than followed: an "if_block" node
 --- points back at its own enclosing "if" statement, a real cycle. The
 --- enclosing statement is compared anyway, from the top.
+---
+--- What stops the walk is a set of PAIRS -- one before-side table
+--- together with the after-side table it is being compared against --
+--- and not of before-side tables alone. A cycle still terminates, since
+--- coming back around brings the same pair with it, but a table reached
+--- twice by two DIFFERENT routes is compared twice, once against each
+--- of the two things the other tree holds there. tl's parser output is
+--- not a tree: `local record Node is {Node}` in this tree's own
+--- `build/ast/node.tl` hands the same type object back as both the
+--- record's element type and its interface list's, so the second route
+--- to it is real. Keyed on the before side alone, whatever the after
+--- tree held at the end of that second route would never be looked at,
+--- and a renderer that changed it would be waved through.
 
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
@@ -48,7 +61,11 @@ local function as_map(v: any): {any:any}
   return {}
 end
 
-local compare: function(any, any, string, {any:boolean}): boolean, string
+--- The pairs already under comparison, the before side keying a set of
+--- the after sides it has been held against.
+local type Pairs = {any:{any:boolean}}
+
+local compare: function(any, any, string, Pairs): boolean, string
 
 --- The keys worth comparing on one table, both sides' keys together.
 local function keys_of(a: {any:any}, b: {any:any}): {any}
@@ -69,7 +86,7 @@ local function keys_of(a: {any:any}, b: {any:any}): {any}
 end
 
 compare = function(a: any, b: any, path: string,
-                   seen: {any:boolean}): boolean, string
+                   seen: Pairs): boolean, string
   if is_table(a) ~= is_table(b) then
     return false, path .. ": one side is a node and the other is not"
   end
@@ -79,10 +96,14 @@ compare = function(a: any, b: any, path: string,
     end
     return true, ""
   end
-  if seen[a] then
+  local against = seen[a]
+  if against == nil then
+    against = {}
+    seen[a] = against
+  elseif against[b] then
     return true, ""
   end
-  seen[a] = true
+  against[b] = true
   local ma, mb = as_map(a), as_map(b)
   for _, k in ipairs(keys_of(ma, mb)) do
     local ok, why = compare(ma[k], mb[k], path .. "." .. tostring(k), seen)

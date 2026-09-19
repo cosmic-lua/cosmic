@@ -19,6 +19,14 @@ if built == nil then
   error("could not load the compiler: " .. tostring(load_trouble))
 end
 
+--- A hand-built tree, for the two cases below that need a shape a
+--- parse will not hand out on demand.
+--- @param fields {any:any} The node's own fields and array part
+--- @return ast.Node
+local function node(fields: {any:any}): ast.Node
+  return fields as ast.Node -- cast: hand-built, not from a parse
+end
+
 --- Compare two sources as trees and as comment streams.
 --- @return boolean Whether the trees match
 --- @return boolean Whether the comments match
@@ -66,4 +74,35 @@ local function test_spacing_alone_is_not_a_difference()
                                          "local a = x - y -- why\n")
   assert(same, "spacing counted as a difference: " .. difference)
   assert(kept, "spacing counted as a comment change: " .. difference)
+end
+
+--- tl's parser output is not a tree: one table can sit at two places
+--- at once, which `local record Node is {Node}` in this tree's own
+--- `build/ast/node.tl` is enough to produce. A comparison that stopped
+--- at a before-side table it had already visited would look at only the
+--- first of the two things the after tree holds opposite it, and wave
+--- the second one through whatever it said.
+local function test_a_node_reached_by_two_routes_is_compared_on_both()
+  local shared: {any:any} = { kind = "string", tk = "\"one\"" }
+  local before: {any:any} = { kind = "statements" }
+  before[1] = shared
+  before[2] = shared
+  local after: {any:any} = { kind = "statements" }
+  after[1] = { kind = "string", tk = "\"one\"" }
+  after[2] = { kind = "string", tk = "\"two\"" }
+  local same, difference = equiv.same_tree(node(before), node(after))
+  assert(not same, "the second route to a shared node was never followed")
+  assert(difference:find("two", 1, true) ~= nil, "got: " .. difference)
+end
+
+--- And the guard that makes the above possible still stops a real
+--- cycle, which is what it was there for: without one this call does
+--- not return at all.
+local function test_a_cycle_is_not_followed_forever()
+  local before: {any:any} = { kind = "statements" }
+  before["body"] = before
+  local after: {any:any} = { kind = "statements" }
+  after["body"] = after
+  local same, difference = equiv.same_tree(node(before), node(after))
+  assert(same, "a cycle was reported as a difference: " .. difference)
 end
