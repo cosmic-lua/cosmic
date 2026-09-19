@@ -31,14 +31,14 @@ local function describe(path: string): integer | nil, string
   if db == nil then
     return nil, open_trouble
   end
-  local sizes, size_trouble = Sqlite.rows(db,
+  local sizes, size_trouble = Sqlite.text_rows(db,
     "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
     "GROUP BY name ORDER BY sum(pgsize) DESC, name")
   if sizes == nil then
     db:close()
     return nil, size_trouble
   end
-  local tables, table_trouble = Sqlite.rows(db,
+  local tables, table_trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_master WHERE type = 'table'")
   if tables == nil then
     db:close()
@@ -56,7 +56,7 @@ local function describe(path: string): integer | nil, string
     local name, pages, bytes, payload = row[1], row[2], row[3], row[4]
     local rows = ""
     if is_table[name] then
-      local counted, count_trouble = Sqlite.rows(db,
+      local counted, count_trouble = Sqlite.text_rows(db,
         "SELECT count(*) FROM \"" .. name .. "\"")
       if counted == nil then
         db:close()
@@ -77,7 +77,7 @@ local function builds(path: string): boolean, string
   if db == nil then
     return false, open_trouble
   end
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
     "ORDER BY run DESC LIMIT 5")
   db:close()

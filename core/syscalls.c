@@ -246,8 +246,9 @@ COSMIC_SYSCALL(inflate, 2) {
 #define ENTRY(name) {#name, cosmic_sys_##name}
 
 static const luaL_Reg table[] = {
-    ENTRY(open),     ENTRY(close),         ENTRY(read),
-    ENTRY(pread),    ENTRY(write),         ENTRY(lseek),
+    ENTRY(open),     ENTRY(open_temporary), ENTRY(close),
+    ENTRY(read),     ENTRY(pread),          ENTRY(write),
+    ENTRY(lseek),
     ENTRY(fstat),    ENTRY(stat),          ENTRY(lstat),
     ENTRY(mkdir),    ENTRY(rmdir),         ENTRY(unlink),
     ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),

@@ -96,7 +96,7 @@ local insert_derived =
 --- The doc guides with no current `derived` row, each extracted into
 --- the test module it is.
 local function derive_doc_guides(db: Sqlite.Handle): boolean, string
-  local guides, trouble = Sqlite.rows(db,
+  local guides, trouble = Sqlite.text_rows(db,
     "SELECT path, data, sha256 FROM files " ..
     "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
     "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
@@ -123,7 +123,7 @@ end
 --- header has no current `derived` row. Only cosmic's own tree has the
 --- header; a project gets the declaration from the binary.
 local function derive_syscalls(db: Sqlite.Handle): boolean, string
-  local headers, trouble = Sqlite.rows(db,
+  local headers, trouble = Sqlite.text_rows(db,
     "SELECT data, sha256 FROM files WHERE path = 'core/syscalls.h' " ..
     "AND path NOT IN (SELECT file FROM derived)")
   if headers == nil then
@@ -145,7 +145,7 @@ end
 --- Two files that would answer to one import path. The build refuses
 --- rather than letting one shadow the other.
 local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
-  local doubled, trouble = Sqlite.rows(db,
+  local doubled, trouble = Sqlite.text_rows(db,
     "SELECT path, group_concat(file, ' and ') FROM inputs " ..
     "WHERE kind <> 'decl' GROUP BY path HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
@@ -167,7 +167,7 @@ end
 --- require("build.compiler")` and a conditional re-assignment inside an
 --- `if` are both real dependencies the build order must see.
 local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
-  local fresh, trouble = Sqlite.rows(db,
+  local fresh, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source FROM inputs " ..
     "WHERE kind <> 'vendor' " ..
     "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
@@ -277,7 +277,7 @@ local analysis_tables: {string} = {
 local function forget_stale_analysis(db: Sqlite.Handle, self_tree: boolean): boolean, string
   local analyzer: string
   if self_tree then
-    local rows, trouble = Sqlite.rows(db,
+    local rows, trouble = Sqlite.text_rows(db,
       "SELECT value FROM meta WHERE key = 'boot_hash'")
     if rows == nil then
       return false, trouble
@@ -286,7 +286,7 @@ local function forget_stale_analysis(db: Sqlite.Handle, self_tree: boolean): boo
   else
     analyzer = Store.meta("boot_hash") or ""
   end
-  local last, last_trouble = Sqlite.rows(db,
+  local last, last_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
     return false, last_trouble
@@ -328,7 +328,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     if Fs.is_dir(handle.root .. "/cosmic") then
       return false, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
     end
-    local claimed, trouble = Sqlite.rows(db,
+    local claimed, trouble = Sqlite.text_rows(db,
       "SELECT path FROM files WHERE path GLOB 'cosmic/*' ORDER BY path LIMIT 1")
     if claimed == nil then
       return false, trouble
@@ -378,7 +378,7 @@ end
 --- Every name a table keyed by source hash lists, in order, by hash.
 local function names_by_hash(db: Sqlite.Handle,
                              table_name: string): {string:{string}} | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM " .. table_name ..
     " ORDER BY source_hash, ordinal")
   if rows == nil then
@@ -414,7 +414,7 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
     return nil, requires_trouble
   end
   local dependencies: {string:Dependency} = {}
-  local rows, rows_trouble = Sqlite.rows(db,
+  local rows, rows_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
     "ORDER BY path, kind = 'decl' DESC")
   if rows == nil then
@@ -535,7 +535,7 @@ local function collect(handle: work.Handle, self_tree: boolean,
     return nil, derive_trouble
   end
   local db = handle.db
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
     "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
     "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
@@ -861,7 +861,7 @@ end
 --- as a project's does not.
 local function plan_compiler(handle: work.Handle, cache: Cache,
                              tool: string, ordinal: integer): boolean, string
-  local rows, trouble = Sqlite.rows(handle.db,
+  local rows, trouble = Sqlite.text_rows(handle.db,
     "SELECT source FROM inputs WHERE kind = 'vendor'")
   if rows == nil then
     return false, trouble

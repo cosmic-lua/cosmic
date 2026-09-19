@@ -203,7 +203,7 @@ local function serve(built: compiler, handle: work.Handle)
   local root = handle.root
   built.path = ""
   built.search_module = function(name: string, search_all: boolean): string | nil, any
-    local rows = Sqlite.rows(db,
+    local rows = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
       "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
     local stem = name:gsub("%.", "/")

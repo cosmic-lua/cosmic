@@ -8,20 +8,40 @@ permissions:
   contents: read
 
 jobs:
-  # One Linux lane builds every image, and the database they all share.
-  build:
-    runs-on: ubuntu-24.04
+  # `bin/zig build cores` cross-compiles every target from any host, so
+  # this is not "one job per platform" testing its own build -- it is
+  # the same work, run three times on three unrelated hosts, each
+  # independently producing a complete build of the whole tree (every
+  # image, the database, all three cross-compiled binaries, tested and
+  # packaged). The work is identical by construction, so a matrix says
+  # that once instead of three copies of the same steps -- and nothing
+  # here needs another leg to finish first: three full builds at once,
+  # not one canonical build with the other two waiting on it.
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runs-on: ubuntu-24.04
+          - name: linux-aarch64
+            runs-on: ubuntu-24.04-arm
+          - name: macos-aarch64
+            runs-on: macos-15
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # The pinned compiler is the one thing a fresh clone fetches, and
-      # the pin is the cache key: a bump starts cold.
+      # the pin is the cache key: a bump starts cold. runner.arch keeps
+      # the two Linux legs from colliding on one key for two different
+      # zig tarballs.
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
@@ -32,6 +52,13 @@ jobs:
       - name: the tree renders exactly as `cosmic fix` would write it
         run: o/bin/cosmic fix --check .
 
+      # The only place the signature `build/attach.tl` wrote is judged
+      # by the system that has to accept it. A no-op everywhere but
+      # macOS -- see bin/verify-codesign -- so this is the same step on
+      # every leg of the matrix, checking each binary against itself.
+      - name: the macOS binary's signature, if this host can judge it
+        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
+
       - name: what the build produced
         run: |
           ls -l o/bin o/cosmic.db
@@ -39,7 +66,7 @@ jobs:
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: binaries
+          name: binaries-${{ matrix.name }}
           path: |
             o/bin/cosmic-x86_64-linux-musl
             o/bin/cosmic-aarch64-linux-musl
@@ -48,8 +75,8 @@ jobs:
           if-no-files-found: error
 
   # A fourth core, built with undefined-behavior checking on, running the
-  # whole build and test suite. It is not a shipped artifact; it is the run
-  # that would report what the release build would only do quietly.
+  # whole build and test suite. It is not a shipped artifact; it is the
+  # run that would report what the release build would only do quietly.
   sanitized:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -59,7 +86,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
       - name: build the tree with the checked core
         run: bin/zig build sanitized
       - name: run every test with the checked core
@@ -72,96 +99,48 @@ jobs:
           # ordinary suite's tighter limit.
           timeout 90 o/sanitized/bin/cosmic test
 
-  # Each shipped target proves it can build AND test itself: the same
-  # tree, built fresh with that platform's own C toolchain, must pass
-  # every test the tree defines, so this builds natively instead of
-  # testing something cross-compiled elsewhere.
-  test-linux-aarch64:
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
-
-  test-macos:
-    needs: build
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
-
-      # The only place the signature `attach` wrote is judged by the
-      # system that has to accept it -- a fresh native build proves
-      # nothing about the SHIPPED, cross-compiled artifact's own
-      # signature, so this checks that one specifically.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: binaries
-          path: dl
-      - name: the shipped artifact's signature
-        shell: bash
-        run: |
-          set -euo pipefail
-          for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" dl/
-          done
-          cosmic=$(find dl -type f -name 'cosmic-aarch64-macos' | head -1)
-          chmod +x "$cosmic"
-          codesign --verify --strict --verbose=2 "$cosmic"
-          codesign --display --verbose=4 "$cosmic"
-          echo "signature: PASS"
-
-  # The artifact is a pure function of the tree. A fresh container is a
-  # cold tree by construction; building at another path is what catches
-  # an absolute path that leaked into the bytes.
-  repro:
-    needs: build
+  # The provenance gate: three unrelated hosts -- different kernels,
+  # different system libraries, different checkout paths by
+  # construction -- cross-compiling the same commit must produce the
+  # same three shipped binaries, byte for byte. build/boot.tl makes
+  # this true by construction: `host`/`host_image` in the database
+  # `build/attach.tl` embeds name whichever target the attaching
+  # host's own build matched (`build/reboot.tl` reads them back to
+  # find a stale tool's own image), so each of the three binaries is
+  # retagged with ITS OWN target's name and image hash before it is
+  # attached, never the building machine's -- attaching o/cosmic.db
+  # verbatim to all three would make two of them misname themselves
+  # AND make the same target cross-compiled on two different hosts
+  # differ by nothing but that. o/cosmic.db itself is excluded from
+  # this comparison on purpose: it is this build's own project
+  # database, not a shipped target, and correctly names this specific
+  # host. Nothing here rebuilds anything; it only diffs what the
+  # matrix above already made, so this costs a download, not a build.
+  provenance:
+    needs: ci
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          path: a-second-and-rather-longer-checkout-path
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('a-second-and-rather-longer-checkout-path/bin/zig.pin') }}
-      - name: build it again
-        working-directory: a-second-and-rather-longer-checkout-path
-        run: bin/zig build cores boot
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: binaries
+          pattern: binaries-*
           path: dl
-      - name: compare every byte
+      - name: every host produces the same three binaries
         shell: bash
         run: |
           set -euo pipefail
+          # Each artifact lands zipped in its own subdirectory; extracted
+          # there, in place, so three artifacts that all hold a file
+          # named bin/cosmic-x86_64-linux-musl never collide.
           for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" dl/
+            python3 -m zipfile -e "$z" "$(dirname "$z")"
           done
-          again=a-second-and-rather-longer-checkout-path/o
-          cmp "$(find dl -type f -name cosmic.db | head -1)" "$again/cosmic.db"
-          for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-            cmp "$(find dl -type f -name "cosmic-$target" | head -1)" \
-                "$again/bin/cosmic-$target"
+          hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
+          first=${hosts[0]}
+          for host in "${hosts[@]:1}"; do
+            for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
+              cmp "dl/binaries-$first/bin/cosmic-$target" \
+                  "dl/binaries-$host/bin/cosmic-$target"
+            done
           done
-          echo "repro: PASS (the database and all three images are byte-identical)"
+          echo "provenance: PASS (linux-x86_64, linux-aarch64 and macos-aarch64 produce byte-identical binaries for every target)"

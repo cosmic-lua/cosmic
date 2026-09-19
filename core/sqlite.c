@@ -1,5 +1,6 @@
 #include "sqlite.h"
 
+#include <limits.h>
 #include <string.h>
 
 #include "lauxlib.h"
@@ -204,6 +205,16 @@ static int handle_prepare(lua_State *L) {
   struct handle *h = checked_handle(L);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
+  if (len > INT_MAX) {
+    lua_pushnil(L);
+    lua_pushstring(L, "SQL is too long");
+    return 2;
+  }
+  if (memchr(sql, '\0', len) != NULL) {
+    lua_pushnil(L);
+    lua_pushstring(L, "SQL contains an embedded NUL byte");
+    return 2;
+  }
   struct statement *s = lua_newuserdatauv(L, sizeof *s, 1);
   s->stmt = NULL;
   s->db = h->db;
@@ -213,9 +224,34 @@ static int handle_prepare(lua_State *L) {
   lua_pushvalue(L, 1);
   lua_setiuservalue(L, -2, 1);
 
-  int rc = sqlite3_prepare_v2(h->db, sql, (int)len + 1, &s->stmt, NULL);
+  const char *tail = NULL;
+  int rc = sqlite3_prepare_v2(h->db, sql, (int)len, &s->stmt, &tail);
   if (rc != SQLITE_OK) {
     return failed(L, h->db, rc);
+  }
+  if (s->stmt == NULL) {
+    lua_pushnil(L);
+    lua_pushstring(L, "SQL contains no statement");
+    return 2;
+  }
+
+  sqlite3_stmt *extra = NULL;
+  const char *end = sql + len;
+  rc = sqlite3_prepare_v2(h->db, tail, (int)(end - tail), &extra, NULL);
+  if (rc != SQLITE_OK) {
+    lua_pushnil(L);
+    lua_pushstring(L, sqlite3_errmsg(h->db));
+    sqlite3_finalize(s->stmt);
+    s->stmt = NULL;
+    return 2;
+  }
+  if (extra != NULL) {
+    sqlite3_finalize(extra);
+    sqlite3_finalize(s->stmt);
+    s->stmt = NULL;
+    lua_pushnil(L);
+    lua_pushstring(L, "SQL contains more than one statement");
+    return 2;
   }
   return 1;
 }
