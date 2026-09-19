@@ -83,19 +83,24 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
 end
 
 --- Every line `build.coverage.report` found for every non-vendor module
---- `modules` holds, written fresh: the whole table is cleared first, so
---- a line the tree no longer has never lingers as a row nothing else
---- overwrites. Returns the overall hit and executable-line counts, over
---- every module written, for the run's own verdict line.
+--- `modules` holds, added as a new snapshot for `run_at_ns`: nothing in
+--- `test_runs`/`coverage` is ever deleted, so a file's coverage trend
+--- over many runs is a plain query away rather than only the latest
+--- run's numbers. Returns the overall hit and executable-line counts,
+--- over every module written for this run, for the run's own verdict
+--- line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
-                              hits: Coverage.Hits): integer, integer, string
+                              hits: Coverage.Hits,
+                              run_at_ns: integer): integer, integer, string
   local total_hit = 0
   local total_lines = 0
   local made, trouble = Sqlite.transact(handle, function(): boolean, string
-    local cleared, clear_trouble = handle:exec("DELETE FROM coverage")
-    if not cleared then
-      return false, clear_trouble
+    local recorded, run_trouble = Sqlite.run(handle,
+      "INSERT OR REPLACE INTO test_runs (ran_at_ns) VALUES (?1)",
+      { { integer = run_at_ns } })
+    if not recorded then
+      return false, run_trouble
     end
     for _, m in ipairs(modules) do
       if m.kind ~= "vendor" then
@@ -105,9 +110,9 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
         end
         for line, was_hit in pairs(per_line) do
           local ok, write_trouble = Sqlite.run(handle,
-            "INSERT OR REPLACE INTO coverage (path, line, hit) " ..
-            "VALUES (?1, ?2, ?3)",
-            { text(m.path), { integer = line },
+            "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
+            "VALUES (?1, ?2, ?3, ?4)",
+            { { integer = run_at_ns }, text(m.path), { integer = line },
               { integer = was_hit and 1 or 0 } })
           if not ok then
             return false, write_trouble
@@ -179,6 +184,11 @@ end
 --- discovered, printing a verdict line and returning the exit code: 0
 --- when every test passed.
 function test.run(): integer
+  -- Captured once, up front, and threaded through everything below as
+  -- this run's own identifier: see build/records_schema.tl for why a
+  -- nanosecond timestamp, not an autoincrement id, identifies a run.
+  local run_at_ns = Time.now_ns() or 0
+
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     complain(root_trouble)
@@ -287,7 +297,7 @@ function test.run(): integer
   end
 
   local cov_hit, cov_total, cov_trouble =
-    write_coverage(records, built, result.modules, hits)
+    write_coverage(records, built, result.modules, hits, run_at_ns)
   if cov_trouble ~= "" then
     complain("coverage: " .. cov_trouble)
   end
