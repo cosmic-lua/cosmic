@@ -131,9 +131,9 @@ local function desugar(pattern_src: string): string
   local out = pattern_src:gsub("%$%$%$([%u_][%w_]*)", "___%1")
   out = out:gsub("%$([%u_][%w_]*):([^%s%(%),]+)",
     function(nm: string, pred: string): string
-    last_predicates["_" .. nm] = pred
-    return "_" .. nm
-  end)
+      last_predicates["_" .. nm] = pred
+      return "_" .. nm
+    end)
   out = out:gsub("%$([%u_][%w_]*)", "_%1")
   return out
 end

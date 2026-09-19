@@ -13,6 +13,17 @@
 --- tree this tool renders uses neither attribute anywhere, so nothing
 --- else would ever exercise them.
 ---
+--- The function-literal cases at the end are here for a second reason.
+--- A literal is the only construct that opens a BLOCK from inside an
+--- expression, so it is the only one whose block can open somewhere
+--- other than the grid its enclosing statement sits on -- on a
+--- continuation line, as an argument or a table value. Indenting its
+--- body from the statement instead writes the body level with its own
+--- `function` keyword and puts the `end` two columns further left
+--- again, which at the top level is an `end` in column zero in the
+--- middle of an argument list. It compiles, and it is a stable fixed
+--- point, so nothing but a golden string notices.
+---
 --- Every case goes through the whole verb, `build.fix.source`, not the
 --- renderer alone: that reparses what it wrote and compares the trees,
 --- so a golden string here is checked for meaning as well as for text.
@@ -38,6 +49,14 @@ end
 local function writes(source: string, want: string)
   local got = fixed(source)
   assert(got == want, "got:\n" .. got .. "\nwant:\n" .. want)
+end
+
+--- A fixture written a line at a time, closing newline and all, for the
+--- cases whose whole point is which column each line starts in.
+--- @param text {string} The lines, without their newlines
+--- @return string
+local function lines(text: {string}): string
+  return table.concat(text, "\n") .. "\n"
 end
 
 --- A `<const>` is one unit against the name, with a single space in
@@ -186,6 +205,142 @@ end
 --- token stream.
 local function test_a_semicolon_between_statements_survives()
   writes("local t: integer; t = 1\n", "local t: integer; t = 1\n")
+end
+
+--- A literal function passed as a call argument on a line of its own:
+--- its body is indented from the column the `function` keyword was
+--- written at, and its `end` closes back to that same column, not to
+--- the column of the statement that encloses the whole call.
+local function test_a_literal_function_on_a_continuation_line()
+  writes(lines({
+    "local ok = apply(",
+    "  { 1, 2 },",
+    "  function(v)",
+    "      return v",
+    "        and true",
+    "  end",
+    ")",
+  }), lines({
+    "local ok = apply(",
+    "  { 1, 2 },",
+    "  function(v)",
+    "    return v",
+    "      and true",
+    "  end",
+    ")",
+  }))
+end
+
+--- The same, as a table value: the `function` keyword is not the first
+--- thing on its line, so the column it is written at is the line's own
+--- indentation rather than the keyword's position.
+local function test_a_literal_function_as_a_table_value()
+  writes(lines({
+    "local handlers = {",
+    "  go = function(v)",
+    "  return v",
+    "end,",
+    "}",
+  }), lines({
+    "local handlers = {",
+    "  go = function(v)",
+    "    return v",
+    "  end,",
+    "}",
+  }))
+end
+
+--- Two levels of it, a literal inside a literal, each on a continuation
+--- line of its own: every block is indented from the one that opened
+--- it, all the way down and all the way back out.
+local function test_literal_functions_nested_through_continuation_lines()
+  writes(lines({
+    "local deep = outer(",
+    "  function()",
+    "  return inner(",
+    "    function()",
+    "    return 1",
+    "  end",
+    "  )",
+    "end",
+    ")",
+  }), lines({
+    "local deep = outer(",
+    "  function()",
+    "    return inner(",
+    "      function()",
+    "        return 1",
+    "      end",
+    "    )",
+    "  end",
+    ")",
+  }))
+end
+
+--- A continuation line keeps its own column, which is not always an
+--- even one, and a literal opening there still gets a body two columns
+--- in from ITS column and an `end` back at it.
+local function test_a_literal_function_off_the_two_column_grid()
+  writes(lines({
+    "local u = { 1,",
+    "   function()",
+    "  return 2",
+    "  end }",
+  }), lines({
+    "local u = { 1,",
+    "   function()",
+    "     return 2",
+    "   end }",
+  }))
+end
+
+--- And a literal that opens on the line its own statement opens on is
+--- indented from the statement, which is the same rule: the column the
+--- `function` keyword is being written at.
+local function test_a_literal_function_on_its_statements_own_line()
+  writes(lines({
+    "local f = function()",
+    "      return 1",
+    "    end",
+    "g(function()",
+    "      return 2",
+    "    end)",
+  }), lines({
+    "local f = function()",
+    "  return 1",
+    "end",
+    "g(function()",
+    "  return 2",
+    "end)",
+  }))
+end
+
+--- A long comment written across several lines with code after its
+--- `]]` keeps that code on the same line: the renderer adds no break
+--- there any more than anywhere else. The blank line before the second
+--- one is the case where a blank was owed at the same moment.
+local function test_a_long_comment_closing_on_a_line_of_code()
+  local source = lines({
+    "--[[ a",
+    "b ]] local x = 1",
+    "",
+    "--[[ c",
+    "d",
+    "e ]] local y = 2",
+    "print(x, y)",
+  })
+  writes(source, source)
+end
+
+--- And one that closes on a line of its own still gets that line, with
+--- whatever follows it written under it as usual.
+local function test_a_long_comment_closing_on_its_own_line()
+  local source = lines({
+    "--[[ a",
+    "b ]]",
+    "local x = 1",
+  })
+  writes(source, source)
 end
 
 --- A construct this renderer has no spelling for is named and refused,

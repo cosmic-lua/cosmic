@@ -63,7 +63,7 @@ local function rendered(parsed: ast.Parsed, source: string): string | nil, strin
     starts = ast.line_starts(source),
     scan = typescan.new(parsed.tokens),
     shift = 0,
-    level = -1,
+    margin = -2,
     memo = {},
     refused = {},
     block = stmt.block,

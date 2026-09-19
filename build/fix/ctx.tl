@@ -38,10 +38,13 @@ local record Ctx
   --- Columns to move a continuation line by: the statement's rendered
   --- indentation minus the one it was read at.
   shift: integer
-  --- How many blocks deep the statement being rendered sits. Two
-  --- columns of indentation each, and a block's closing keyword lines
-  --- up with the statement that opened it.
-  level: integer
+  --- The indentation, in COLUMNS, of the statement being rendered: two
+  --- for each block it sits inside, and the same number again for the
+  --- closing keyword of a block it opens, so the two line up. A column
+  --- rather than a count of blocks because a block does not always open
+  --- on the grid -- a function literal on a continuation line opens
+  --- wherever that line sits, and its body is indented from there.
+  margin: integer
   --- `span_start`, remembered: the renderer asks for the same node's
   --- start once per join it sits beside, and the answer is a walk of
   --- the whole subtree.
@@ -104,15 +107,15 @@ local function lead_at(ctx: Ctx, y: integer, x: integer, inline: string)
 end
 
 --- Move to source line `y` at the indentation the renderer chose, not
---- one carried over from the source: `level` blocks deep, two columns
---- each. Every line that opens a statement, and every block's closing
---- keyword, goes through here.
+--- one carried over from the source: `margin` columns in. Every line
+--- that opens a statement, and every block's closing keyword, goes
+--- through here.
 --- @param ctx Ctx
 --- @param y integer
---- @param level integer How many blocks deep the line sits
+--- @param margin integer The column the line is indented to
 --- @param inline string The separator to write when no line break is due
-local function lead_to(ctx: Ctx, y: integer, level: integer, inline: string)
-  emit.advance(ctx.em, y, string.rep("  ", level), inline)
+local function lead_to(ctx: Ctx, y: integer, margin: integer, inline: string)
+  emit.advance(ctx.em, y, string.rep(" ", margin), inline)
 end
 
 --- The byte offset of 1-based (`y`, `x`) in the source being rendered.
@@ -120,16 +123,16 @@ local function offset(ctx: Ctx, y: integer, x: integer): integer
   return ast.offset_of(ctx.starts, y, x)
 end
 
---- Set the indentation of the statement about to be written: `level`
---- blocks deep, read from source column `x`. Everything the statement
+--- Set the indentation of the statement about to be written: `margin`
+--- columns in, read from source column `x`. Everything the statement
 --- carries onto a later line moves by the same amount, comments in
 --- front of it included.
 --- @param ctx Ctx
---- @param level integer
+--- @param margin integer The column to write the statement at
 --- @param x integer The column the statement was read at
-local function place(ctx: Ctx, level: integer, x: integer)
-  ctx.level = level
-  ctx.shift = level * 2 - (x - 1)
+local function place(ctx: Ctx, margin: integer, x: integer)
+  ctx.margin = margin
+  ctx.shift = margin - (x - 1)
   ctx.em.shift = ctx.shift
 end
 
@@ -208,8 +211,8 @@ local record CtxModule
   indent: function(ctx: Ctx, x: integer): string
   lead: function(ctx: Ctx, node: Node, inline: string)
   lead_at: function(ctx: Ctx, y: integer, x: integer, inline: string)
-  lead_to: function(ctx: Ctx, y: integer, level: integer, inline: string)
-  place: function(ctx: Ctx, level: integer, x: integer)
+  lead_to: function(ctx: Ctx, y: integer, margin: integer, inline: string)
+  place: function(ctx: Ctx, margin: integer, x: integer)
   verbatim: function(ctx: Ctx, y1: integer, x1: integer, y2: integer, x2: integer)
   region: function(ctx: Ctx, first: integer, last: integer): boolean
   annotation: function(ctx: Ctx, first: integer, last: integer): boolean

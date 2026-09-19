@@ -112,19 +112,38 @@ local function call(c: Ctx, list: Node)
 end
 
 --- A function literal, signature and body.
+---
+--- This is the one construct that opens a block from inside an
+--- expression, and so the one whose block does not necessarily open on
+--- the grid its enclosing statement sits on. Its body is indented from
+--- the column the `function` keyword is actually being WRITTEN at --
+--- the indentation of the output line in progress, whether that line
+--- was opened by the statement itself or is a continuation of it -- and
+--- its `end` lines up with that same column.
+---
+--- Taking the enclosing statement's own indentation instead is wrong
+--- exactly where a literal opens a line of its own: an argument on its
+--- own line, a table value, a callback nested inside another. The body
+--- would then be written level with its own `function` keyword and the
+--- `end` two columns further left again, which for a top-level call
+--- means an `end` in column zero in the middle of an argument list.
 local function literal_function(c: Ctx, n: Node)
   local args, body, rets = n.args, n.body, n.rets
   if args == nil or body == nil or rets == nil then
     refuse(c, "a function with no signature")
     return
   end
+  local base = c.em.indent
+  local outer = c.margin
   emit.text(c.em, "function")
   sig.typeargs(c, typescan.index_at(c.scan, n.y, n.x))
   sig.arguments(c, args)
   sig.returns(c, rets, args, body)
+  c.margin = base
   c.block(c, body)
-  ctx_mod.lead_to(c, n.yend or body.y, c.level, " ")
+  ctx_mod.lead_to(c, n.yend or body.y, base, " ")
   emit.put(c.em, "end")
+  c.margin = outer
 end
 
 --- One entry of a table literal, in whichever of the three spellings

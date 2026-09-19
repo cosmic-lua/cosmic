@@ -67,7 +67,7 @@ end
 --- @param c Ctx
 --- @param body Node A "statements" node
 local function block(c: Ctx, body: Node)
-  local outer = c.level
+  local outer = c.margin
   local outer_shift = c.shift
   for i, s in ipairs(body) do
     local y, x = begins_at(c, s)
@@ -77,11 +77,11 @@ local function block(c: Ctx, body: Node)
         emit.put(c.em, ";")
       end
     end
-    ctx_mod.place(c, outer + 1, x)
-    ctx_mod.lead_to(c, y, outer + 1, " ")
+    ctx_mod.place(c, outer + 2, x)
+    ctx_mod.lead_to(c, y, outer + 2, " ")
     statement(c, s)
   end
-  c.level = outer
+  c.margin = outer
   c.shift = outer_shift
   c.em.shift = outer_shift
 end
@@ -112,7 +112,7 @@ local function closes(c: Ctx, n: Node, word: string)
     expr.refuse(c, "a block with no recorded end")
     return
   end
-  ctx_mod.lead_to(c, y, c.level, " ")
+  ctx_mod.lead_to(c, y, c.margin, " ")
   emit.put(c.em, word)
 end
 
@@ -230,7 +230,7 @@ local function conditional(c: Ctx, n: Node)
   end
   for i, b in ipairs(blocks) do
     if i > 1 then
-      ctx_mod.lead_to(c, b.y, c.level, " ")
+      ctx_mod.lead_to(c, b.y, c.margin, " ")
     end
     emit.text(c.em, b.tk or "if")
     local condition = b.exp
