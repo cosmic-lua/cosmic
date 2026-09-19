@@ -9,9 +9,8 @@
 
 local record native
   -- Every source line hit while collecting was on, by the module's
-  -- own import path -- a chunk's `short_src`, which is exactly its
-  -- import path for every module this runtime loads (core/store.c's
-  -- `load_from`).
+  -- own import path: the chunk's full source identifier with its
+  -- leading `@` removed. Other source identifiers are kept verbatim.
   type Hits = {string: {integer: boolean}}
 
   -- Installs the line hook and begins a fresh, empty collection,
