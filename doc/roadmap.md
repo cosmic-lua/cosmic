@@ -23,9 +23,15 @@ warnings are already errors, everywhere, today. `build/positions.tl`'s
 sibling-privacy check runs the same way, on every compile -- see the
 visibility lint entry below, which this same mechanism already closes.
 
-- **the doctest extractor**, per meta.md: fenced blocks from a doc
-  become one compiled Teal file, one function per example, so the
-  compiled file is a test file and needs no runner of its own.
+- **the doctest extractor has landed** (`build/doctest/`: `markdown.tl`
+  parses fenced blocks, `generate.tl` turns them into one compiled Teal
+  file per doc, one function per example), and is wired straight into
+  `build/importer.tl`'s ordinary collection: `doc/guides/*.md` is
+  discovered and run through it exactly like a hand-written `_test.tl`,
+  needing no runner of its own, per meta.md. Live today, not
+  hypothetical -- `doc/guides/quickstart.md` compiles and runs as
+  `doc.guides.quickstart`, and CI's own step name already says "run
+  every test the tree defines, including doctests".
 - **Lua and Teal coverage has landed** (`cosmic/coverage.tl`), and so
   has the collector cheap enough to leave on by default: a line hook
   that keeps its own hit accounting in C (`core/coverage.c`), one
