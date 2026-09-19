@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "lauxlib.h"
+#include "sqlite.h"
 
 #define STORE_LIST "cosmic.store.databases"
 
@@ -315,6 +316,27 @@ static int store_meta(lua_State *L) {
   return 1;
 }
 
+/* Every database `require` searches, in search order, each as a
+ * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
+ * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
+ * path to any of them, since the binary's own is inside the binary.
+ * The handles read only; `close` on one is a no-op, and the store
+ * keeps the connections for as long as the process runs. */
+static int store_databases(lua_State *L) {
+  int list = lua_upvalueindex(1);
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  lua_createtable(L, (int)count, 0);
+  for (lua_Integer i = 1; i <= count; i++) {
+    sqlite3 *db = database_at(L, list, i);
+    if (db == NULL) {
+      continue;
+    }
+    cosmic_sqlite_push_borrowed(L, db);
+    lua_seti(L, -2, i);
+  }
+  return 1;
+}
+
 static int open_store_module(lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   lua_newtable(L);
@@ -330,8 +352,25 @@ static int open_store_module(lua_State *L) {
   lua_pushvalue(L, -2);
   lua_pushcclosure(L, store_source, 1);
   lua_setfield(L, -2, "source");
+  lua_pushvalue(L, -2);
+  lua_pushcclosure(L, store_databases, 1);
+  lua_setfield(L, -2, "databases");
   lua_remove(L, -2);
   return 1;
+}
+
+int cosmic_store_count(lua_State *L) {
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  int count = (int)lua_rawlen(L, -1);
+  lua_pop(L, 1);
+  return count;
+}
+
+sqlite3 *cosmic_store_database(lua_State *L, int index) {
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  sqlite3 *db = database_at(L, -1, index);
+  lua_pop(L, 1);
+  return db;
 }
 
 int cosmic_store_install(lua_State *L, sqlite3 *binary) {

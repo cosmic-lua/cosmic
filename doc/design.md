@@ -261,8 +261,19 @@ input to the build, never to the runtime. one database holds:
 - **modules**: import path, source hash, Teal source, compiled Lua
   and bytecode, declaration, kind (module, test, example, main),
   and the test names the compile step found.
-- **docs**: extracted per symbol, queried by `cosmic docs`, from a
-  module named `cosmic.doc`.
+- **docs**: one row per symbol a module declares at its top level --
+  the module itself, each function, each record, enum or alias and
+  every field and value under it, and each documented value -- with
+  its kind, its declaration as the source wrote it, its doc comment
+  (the run of comment lines directly above it, leaders stripped),
+  and where it sits. every function is here, documented or not, so
+  `cosmic docs` can always say where one lives. an FTS5 index,
+  `docs_fts`, answers `cosmic docs` when the query is words rather
+  than a name.
+- **uses**: one row per place a module refers to another module's
+  symbol through a top-level require alias (`Fs.read(...)` under
+  `local Fs = require("cosmic.fs")`), resolved against the name the
+  other module returns. `cosmic uses Fs.read` lists them.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.
@@ -271,17 +282,23 @@ input to the build, never to the runtime. one database holds:
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
-- **catalog**: guidance for errors a program can meet, one row per
-  literal `return nil, ...` message under a function whose doc
-  comment carries a `guidance:` line, plus hand-authored rows for
-  the `strerror()` messages a syscall can raise. an FTS5 index over
-  it, `catalog_fts`, is what an uncaught error's message is looked
-  up in, so the guidance prints beneath the traceback.
+- **catalog**: the errors a program can meet, one row per literal
+  `return nil, ...` or `return false, ...` message under a top-level
+  function, naming that function, plus hand-authored rows for the
+  `strerror()` messages a syscall can raise. an FTS5 index over it,
+  `catalog_fts`, is what an uncaught error's message is looked up
+  in. the guidance that prints is the doc comment of the function
+  the message came from, joined from `docs` by symbol -- there is no
+  second place to write it, so documenting a function is documenting
+  its failures. the runtime also prints the Teal line the error was
+  raised on: tl's generated Lua keeps the line numbers of the Teal it
+  came from, so the line a Lua error names is a line of the module's
+  own source, read straight out of `modules`.
 
-every table is `WITHOUT ROWID` on a natural key, except `catalog`,
-which FTS5's external-content mode joins by rowid and which is
-therefore keyed on an integer assigned in one deterministic insertion
-order instead. everything a build
+every table is `WITHOUT ROWID` on a natural key, except `docs` and
+`catalog`, which FTS5's external-content mode joins by rowid and
+which are therefore keyed on an integer assigned in one deterministic
+insertion order instead. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so

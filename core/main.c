@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -174,62 +175,177 @@ static int count_shared_words(const char *message, const char *candidate) {
   return shared;
 }
 
-/* The best-matching `catalog` row's guidance for `message`, or NULL
- * when `db` carries no catalog (a build/bridge run with no database
- * attached), nothing in it shares two or more significant words with
- * `message` (see `count_shared_words`), or the FTS5 query itself
- * carried no significant word at all. Read straight off the connection
- * `main` already has open for module lookups, through the same
+/* Prints `text` beneath an uncaught error, one `cosmic: ` line per
+ * line of it, the first opening with `head` (`ENOENT (core/fail.h)`,
+ * `Fs.read (cosmic/fs.tl:212)`) so a reader knows where the words come
+ * from. Guidance is a doc comment's own lines, already wrapped; its
+ * `@param`/`@return` lines describe the signature, not the failure,
+ * and are left out here. */
+static void print_guidance(const char *head, const char *text) {
+  const char *p = text;
+  bool first = true;
+  while (*p != '\0') {
+    const char *nl = strchr(p, '\n');
+    size_t len = nl == NULL ? strlen(p) : (size_t)(nl - p);
+    if (len > 0 && p[0] == '@') {
+      /* a tag line: skip it */
+    } else if (first) {
+      fprintf(stderr, "cosmic: %s: %.*s\n", head, (int)len, p);
+      first = false;
+    } else {
+      fprintf(stderr, "cosmic:   %.*s\n", (int)len, p);
+    }
+    p = nl == NULL ? p + len : nl + 1;
+  }
+}
+
+/* The best-matching `catalog` row for `message` in `db`, printed as
+ * guidance: true when one was, false when `db` carries no catalog (a
+ * build/bridge run with no database attached), nothing in it shares
+ * two or more significant words with `message` (see
+ * `count_shared_words`), or the FTS5 query itself carried no
+ * significant word at all. A row's own text is the hand-authored
+ * guidance a seed row carries; an extracted row has none, and prints
+ * the doc comment of the function it was found in instead, joined from
+ * `docs` by symbol. Read straight off the connection, through the same
  * `sqlite3_prepare_v2`/`step`/`column` shape `store.c` uses -- an
  * uncaught error is exactly the one path with no Lua state left in
  * working order to ask instead. */
-static const char *catalog_guidance(sqlite3 *db, const char *message) {
+static bool catalog_guidance(sqlite3 *db, const char *message) {
   if (db == NULL || message == NULL || message[0] == '\0') {
-    return NULL;
+    return false;
   }
   char query[1024];
   catalog_query(message, query, sizeof query);
   if (query[0] == '\0') {
-    return NULL;
+    return false;
   }
-  static char guidance[2048];
-  char candidate[2048];
   sqlite3_stmt *stmt = NULL;
-  const char *sql = "SELECT catalog.text, catalog.message FROM catalog_fts "
-                     "JOIN catalog ON catalog.id = catalog_fts.rowid "
-                     "WHERE catalog_fts MATCH ?1 "
-                     "ORDER BY bm25(catalog_fts) LIMIT 1";
+  const char *sql =
+      "SELECT coalesce(catalog.text, (SELECT d.text FROM docs d "
+      "WHERE d.module = catalog.module AND d.symbol = catalog.symbol)), "
+      "catalog.message, catalog.symbol, catalog.file, catalog.line "
+      "FROM catalog_fts JOIN catalog ON catalog.id = catalog_fts.rowid "
+      "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1";
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    return NULL;
+    return false;
   }
   sqlite3_bind_text(stmt, 1, query, -1, SQLITE_STATIC);
-  const char *result = NULL;
+  bool printed = false;
   if (sqlite3_step(stmt) == SQLITE_ROW) {
-    const unsigned char *text = sqlite3_column_text(stmt, 0);
-    int len = sqlite3_column_bytes(stmt, 0);
-    const unsigned char *msg = sqlite3_column_text(stmt, 1);
-    int msg_len = sqlite3_column_bytes(stmt, 1);
-    if (text != NULL && len > 0 && (size_t)len < sizeof guidance &&
-        msg != NULL && msg_len > 0 && (size_t)msg_len < sizeof candidate) {
-      memcpy(candidate, msg, (size_t)msg_len);
-      candidate[msg_len] = '\0';
-      if (count_shared_words(message, candidate) >= 2) {
-        memcpy(guidance, text, (size_t)len);
-        guidance[len] = '\0';
-        result = guidance;
+    const char *text = (const char *)sqlite3_column_text(stmt, 0);
+    const char *candidate = (const char *)sqlite3_column_text(stmt, 1);
+    const char *symbol = (const char *)sqlite3_column_text(stmt, 2);
+    const char *file = (const char *)sqlite3_column_text(stmt, 3);
+    int line = sqlite3_column_int(stmt, 4);
+    if (text != NULL && text[0] != '\0' && candidate != NULL &&
+        count_shared_words(message, candidate) >= 2) {
+      char head[512];
+      if (line > 0) {
+        snprintf(head, sizeof head, "%s (%s:%d)", symbol == NULL ? "" : symbol,
+                 file == NULL ? "" : file, line);
+      } else {
+        snprintf(head, sizeof head, "%s (%s)", symbol == NULL ? "" : symbol,
+                 file == NULL ? "" : file);
       }
+      print_guidance(head, text);
+      printed = true;
     }
   }
   sqlite3_finalize(stmt);
-  return result;
+  return printed;
 }
 
+/* Where an uncaught error's message says it was raised, as the source
+ * it names: a Lua error message opens `chunk:line: `, and a module's
+ * chunk name is its import path, so the line is one of that module's
+ * own Teal lines -- tl's generated Lua keeps the line numbers of the
+ * Teal it came from. Prints `cosmic: at <file>:<line>: <that line>`
+ * from the first database in `db`'s search order that holds the module,
+ * and says whether it did. */
+static bool source_position(lua_State *L, const char *message) {
+  if (message == NULL) {
+    return false;
+  }
+  const char *colon = strchr(message, ':');
+  if (colon == NULL || colon == message) {
+    return false;
+  }
+  size_t name_len = (size_t)(colon - message);
+  for (size_t i = 0; i < name_len; i++) {
+    unsigned char c = (unsigned char)message[i];
+    if (!isalnum(c) && c != '.' && c != '_' && c != '-') {
+      return false;
+    }
+  }
+  char *after = NULL;
+  long line = strtol(colon + 1, &after, 10);
+  if (after == colon + 1 || line <= 0 || *after != ':') {
+    return false;
+  }
+  char name[256];
+  if (name_len >= sizeof name) {
+    return false;
+  }
+  memcpy(name, message, name_len);
+  name[name_len] = '\0';
+
+  int count = cosmic_store_count(L);
+  for (int index = 1; index <= count; index++) {
+    sqlite3 *db = cosmic_store_database(L, index);
+    if (db == NULL) {
+      continue;
+    }
+    sqlite3_stmt *stmt = NULL;
+    const char *sql = "SELECT file, source FROM modules WHERE path = ?1";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+      continue;
+    }
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+    bool found = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      const char *file = (const char *)sqlite3_column_text(stmt, 0);
+      const char *source = (const char *)sqlite3_column_text(stmt, 1);
+      const char *p = source == NULL ? "" : source;
+      for (long at = 1; at < line && *p != '\0'; at++) {
+        const char *nl = strchr(p, '\n');
+        p = nl == NULL ? p + strlen(p) : nl + 1;
+      }
+      const char *nl = strchr(p, '\n');
+      size_t len = nl == NULL ? strlen(p) : (size_t)(nl - p);
+      while (len > 0 && (*p == ' ' || *p == '\t')) {
+        p++;
+        len--;
+      }
+      if (len > 0) {
+        fprintf(stderr, "cosmic: at %s:%ld: %.*s\n", file == NULL ? name : file,
+                line, (int)len, p);
+        found = true;
+      }
+    }
+    sqlite3_finalize(stmt);
+    if (found) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* An uncaught error: its message, then where in the Teal source it was
+ * raised, then the guidance the first database in search order (a
+ * project's own ahead of the binary's) holds for it. `db` is the
+ * binary's own connection, the last one searched. */
 static int failed(lua_State *L, sqlite3 *db) {
   const char *message = lua_tostring(L, -1);
   fprintf(stderr, "cosmic: %s\n", message == NULL ? "failed" : message);
-  const char *guidance = catalog_guidance(db, message);
-  if (guidance != NULL) {
-    fprintf(stderr, "cosmic: %s\n", guidance);
+  source_position(L, message);
+  int count = cosmic_store_count(L);
+  bool guided = false;
+  for (int index = 1; index <= count && !guided; index++) {
+    guided = catalog_guidance(cosmic_store_database(L, index), message);
+  }
+  if (!guided && count == 0) {
+    catalog_guidance(db, message);
   }
   return 1;
 }

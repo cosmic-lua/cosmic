@@ -13,6 +13,7 @@
 --- back to requiring it by name, which only boot's own preload answers.
 
 local type raw_store = require("cosmic.internal.store")
+local type Sqlite = require("cosmic.sqlite")
 
 local extra: any = select(2, ...)
 local store: raw_store
@@ -60,6 +61,14 @@ function Store.source(name: string): string | nil, string
     return nil, trouble
   end
   return source
+end
+
+--- Every database `require` searches, in search order: a project's
+--- own ahead of the binary's, which is always last. Each is a handle
+--- `cosmic.sqlite` reads through and never closes -- what a verb that
+--- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
+function Store.databases(): {Sqlite.Handle}
+  return store.databases()
 end
 
 return Store

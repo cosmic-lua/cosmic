@@ -6,6 +6,7 @@
 --- while a genuine top-level require is still found.
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -62,6 +63,146 @@ local function requires_of_fixture(root: string, path: string): {string} | nil, 
     end
   end
   return nil, path .. ": not found among compiled modules"
+end
+
+--- Stages and compiles one fixture run. Reopening the same root keeps its
+--- working database, which lets a test exercise the real warm cache.
+local function compile_fixture(root: string): importer.Result | nil, string
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return nil, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, false)
+  if staged == nil then
+    work.close(handle)
+    return nil, stage_trouble
+  end
+  local env, env_trouble = teal.environment_for(built, handle)
+  if env == nil then
+    work.close(handle)
+    return nil, env_trouble
+  end
+  local result, compile_trouble = importer.compile(handle, built, env,
+    "declaration-cache-test")
+  work.close(handle)
+  return result, compile_trouble
+end
+
+--- A declaration is the source the checker uses for an imported module,
+--- including when an implementation with the same import path exists. An
+--- edit that changes its public type must invalidate a warm dependent.
+local function test_declaration_edit_invalidates_a_warm_dependent()
+  local root, write_trouble = write_fixture("declaration-cache", {
+    ["main.tl"] = table.concat({
+      'local type Types = require("types")',
+      "local value: number = 42",
+      "local thing: Types.Thing = { value = value }",
+      "return thing",
+      "",
+    }, "\n"),
+    ["types.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+    ["types.d.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/types.d.tl",
+    "local record Types\n  record Thing\n    value: string\n  end\nend\nreturn Types\n"))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "a warm compile reused code checked against the old declaration")
+  assert(trouble:find("string", 1, true) ~= nil,
+    "the changed declaration did not reach the checker: " .. trouble)
+end
+
+--- Type-only imports participate in the same transitive closure. The main
+--- module does not name `types`, but changing that declaration must still
+--- invalidate `helper` and then main in a warm database.
+local function test_declaration_edit_invalidates_transitive_type_only_dependents()
+  local root, write_trouble = write_fixture("transitive-declaration-cache", {
+    ["main.tl"] = 'local helper = require("helper")\nreturn helper.make()\n',
+    ["helper.tl"] = table.concat({
+      'local type Types = require("types")',
+      "local record helper",
+      "  make: function(): Types.Thing",
+      "end",
+      "function helper.make(): Types.Thing",
+      "  return { value = 42 }",
+      "end",
+      "return helper",
+      "",
+    }, "\n"),
+    ["types.d.tl"] = "local record Types\n  record Thing\n    value: number\n  end\nend\nreturn Types\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/types.d.tl",
+    "local record Types\n  record Thing\n    value: string\n  end\nend\nreturn Types\n"))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "a warm compile missed a transitive declaration edit")
+  assert(trouble:find("string", 1, true) ~= nil,
+    "the transitive declaration did not reach the checker: " .. trouble)
+end
+
+--- The declaration controls checking, but the implementation still controls
+--- what a test loads. Changing only that implementation must move the test's
+--- key so a previously passing verdict is not reused.
+local function test_implementation_edit_invalidates_a_declared_dependent()
+  local root, write_trouble = write_fixture("declared-implementation-cache", {
+    ["dep.tl"] = "return { value = 1 }\n",
+    ["dep.d.tl"] = "local record Dep\n  value: number\nend\nreturn Dep\n",
+    ["main_test.tl"] = table.concat({
+      'local dep = require("dep")',
+      "local function test_value()",
+      "  assert(dep.value == 1)",
+      "end",
+      "",
+    }, "\n"),
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  assert(compile_fixture(root))
+  assert(Fs.write(root .. "/dep.tl", "return { value = 2 }\n"))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "the edited fixture did not compile: " .. tostring(trouble))
+  assert(result.compiled == 2,
+    "the implementation edit left its declared dependent cached")
+end
+
+--- Mutually recursive declaration types are valid input to the checker. A
+--- cache key closes over the graph without rejecting that cycle itself.
+local function test_declaration_dependency_keys_allow_cycles()
+  local root, write_trouble = write_fixture("declaration-cycle", {
+    ["main.tl"] = table.concat({
+      'local type A = require("a")',
+      "return function(value: A.Value): number",
+      "  return value.n",
+      "end",
+      "",
+    }, "\n"),
+    ["a.d.tl"] = table.concat({
+      'local type B = require("b")',
+      "local record A",
+      "  record Value",
+      "    n: number",
+      "    peer: B.Value",
+      "  end",
+      "end",
+      "return A",
+      "",
+    }, "\n"),
+    ["b.d.tl"] = table.concat({
+      'local type A = require("a")',
+      "local record B",
+      "  record Value",
+      "    n: number",
+      "    peer: A.Value",
+      "  end",
+      "end",
+      "return B",
+      "",
+    }, "\n"),
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "declaration cycle was refused: " .. tostring(trouble))
 end
 
 --- A `require("cosmic.hidden_dep")` sitting inside a comment or a
@@ -238,4 +379,99 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     "local record helper\nend\nreturn helper\n-- edited\n"))
   assert(identity() ~= fresh,
     "an edit to a module the compiler requires did not move its identity")
+end
+
+--- The Lua a module compiles to keeps the line numbers of the Teal it
+--- came from: an uncaught error names a Lua line, and the runtime
+--- reads that line straight out of the Teal source, so the two must
+--- agree on every line a declaration sits on -- however a doc comment
+--- or a wrapped signature moved things above it.
+local function test_generated_lua_keeps_teal_line_numbers()
+  local root = "/tmp/cosmic-importer-test-lines-" .. tostring(Proc.pid())
+  assert(Fs.mkdirs(root))
+  local source = table.concat({
+    "--- A module whose lines are known.",
+    "---",
+    "--- Three lines of comment, then a blank.",
+    "",
+    "local record lines",
+    "end",
+    "",
+    "--- Adds, on line eight.",
+    "function lines.add(a: integer,",
+    "                   b: integer): integer",
+    "  return a + b",
+    "end",
+    "",
+    "function lines.fail(): boolean, string",
+    "  return nil, \"line fifteen fails\"",
+    "end",
+    "",
+    "return lines",
+  }, "\n") .. "\n"
+  assert(Fs.write(root .. "/lines.tl", source))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local env = assert(teal.environment_for(built, handle))
+  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  assert(result ~= nil, tostring(compile_trouble))
+  local lua: string = nil
+  for _, m in ipairs(result.modules) do
+    if m.path == "lines" then
+      lua = m.lua
+    end
+  end
+  work.close(handle)
+  assert(lua ~= nil, "lines did not compile")
+  local generated: {string} = {}
+  for line in (lua .. "\n"):gmatch("(.-)\n") do
+    generated[#generated + 1] = line
+  end
+  assert(generated[9]:find("function lines.add", 1, true), "line 9: " .. generated[9])
+  assert(generated[11]:find("return a + b", 1, true), "line 11: " .. generated[11])
+  assert(generated[15]:find("line fifteen fails", 1, true), "line 15: " .. generated[15])
+end
+
+--- What a parse derived -- docs, requires, tests, the catalog -- is
+--- keyed by the source it came from and found again while that source
+--- stands. It is right only while the code that derived it stands too:
+--- when the analyzer's identity moves, every derived row is forgotten
+--- and every source is seen again, so an extractor that learns to see
+--- something new sees it in old sources as well.
+local function test_a_changed_analyzer_forgets_what_it_derived()
+  local root = "/tmp/cosmic-importer-test-analyzer-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+                         "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/cosmic/thing.tl",
+    "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
+  local function derived_with(boot_hash: string, plant: boolean): integer
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, true))
+    assert(Sqlite.run(handle.db,
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', ?1)",
+      { { text = boot_hash } }))
+    if plant then
+      -- Under the real source's hash, so only the analyzer sweep, and
+      -- not the ordinary collection of rows no input refers to, can
+      -- remove it.
+      assert(Sqlite.run(handle.db,
+        "INSERT INTO docs (source_hash, ordinal, symbol, kind, signature, " ..
+        "text, line) SELECT source_hash, 99, 'Planted', 'record', '', '', 1 " ..
+        "FROM inputs WHERE path = 'cosmic.thing'"))
+    end
+    assert(importer.derive(handle, true, built))
+    local rows = assert(Sqlite.rows(handle.db,
+      "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
+    work.close(handle)
+    return math.tointeger(tonumber(rows[1][1])) or -1
+  end
+  assert(derived_with("tool-one", false) == 0)
+  -- The same analyzer: a planted row survives, as any derived row does.
+  assert(derived_with("tool-one", true) == 1, "the same analyzer forgot its rows")
+  -- A different analyzer: everything derived is gone and re-derived.
+  assert(derived_with("tool-two", false) == 0, "a changed analyzer kept stale rows")
 end

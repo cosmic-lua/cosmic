@@ -1,6 +1,8 @@
 -- The module store, as the core provides it. `require` reads a database
 -- and nothing else; these are the ways in that `require` does not cover.
 
+local type sqlite = require("cosmic.internal.sqlite")
+
 local record store
   -- Opens a database and searches it ahead of every other, which is what
   -- a project's own build database needs.
@@ -18,6 +20,11 @@ local record store
   -- database and no other: what a checker building another tree needs
   -- to type a `require` of this one's modules.
   source: function(path: string): string | nil, string
+
+  -- Every database `require` searches, in search order, each as a
+  -- borrowed `cosmic.sqlite` handle that reads only and never closes
+  -- the connection under it.
+  databases: function(): {sqlite.Handle}
 end
 
 return store
