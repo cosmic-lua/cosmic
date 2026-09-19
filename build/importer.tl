@@ -460,12 +460,14 @@ end
 --- The statements one compile pass runs, prepared once each.
 local record Cache
   run: integer
+  tool: string
   look: Sqlite.Statement
   put: Sqlite.Statement
   plan: Sqlite.Statement
 end
 
-local function prepare_cache(handle: work.Handle): Cache | nil, string
+local function prepare_cache(handle: work.Handle,
+                             boot_hash: string): Cache | nil, string
   local db = handle.db
   local look, look_trouble = db:prepare(
     "UPDATE compiled SET seen = ?2 WHERE key = ?1 RETURNING lua")
@@ -473,7 +475,8 @@ local function prepare_cache(handle: work.Handle): Cache | nil, string
     return nil, look_trouble
   end
   local put, put_trouble = db:prepare(
-    "INSERT INTO compiled (key, lua, bytecode, seen) VALUES (?1, ?2, ?3, ?4)")
+    "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
+    "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
     return nil, put_trouble
@@ -485,7 +488,8 @@ local function prepare_cache(handle: work.Handle): Cache | nil, string
     put:finalize()
     return nil, plan_trouble
   end
-  return { run = handle.run, look = look, put = put, plan = plan }
+  return { run = handle.run, tool = boot_hash, look = look, put = put,
+           plan = plan }
 end
 
 local function finish_cache(cache: Cache)
@@ -550,9 +554,10 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
   if lua ~= nil and bytecode ~= nil then
     local put = cache.put
     put:bind_text(1, key)
-    put:bind_text(2, lua)
-    put:bind_blob(3, bytecode)
-    put:bind_integer(4, cache.run)
+    put:bind_text(2, cache.tool)
+    put:bind_text(3, lua)
+    put:bind_blob(4, bytecode)
+    put:bind_integer(5, cache.run)
     local kept, put_trouble = once(put)
     if not kept then
       return false, put_trouble
@@ -629,7 +634,8 @@ end
 --- or finds it already compiled under the same key. The keys and the
 --- compiles land in the working database in one transaction, kept
 --- even when a later module refuses, so a run that fails still pays
---- for each module once; a compile no run has used lately is dropped.
+--- for each module once; a compile another tool made, or one no run
+--- has used lately, is dropped.
 --- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
 --- @param env the checker's environment, already pointed at the tree
@@ -662,7 +668,7 @@ function importer.compile(handle: work.Handle, built: compiler,
     if not cleared then
       return false, clear_trouble
     end
-    local cache, prepare_trouble = prepare_cache(handle)
+    local cache, prepare_trouble = prepare_cache(handle, boot_hash)
     if cache == nil then
       return false, prepare_trouble
     end
@@ -732,8 +738,9 @@ function importer.compile(handle: work.Handle, built: compiler,
       end
     end
     finish_cache(cache)
-    return Sqlite.run(db, "DELETE FROM compiled WHERE seen < ?1",
-      { { integer = handle.run - kept_runs } })
+    return Sqlite.run(db,
+      "DELETE FROM compiled WHERE tool <> ?1 OR seen < ?2",
+      { text(boot_hash), { integer = handle.run - kept_runs } })
   end)
   if not made then
     return nil, transact_trouble

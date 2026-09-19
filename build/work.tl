@@ -44,7 +44,7 @@ local record work
   version: string
 end
 
-work.version = "5"
+work.version = "6"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. `seen` is the run
@@ -82,9 +82,11 @@ work.version = "5"
 --- -- the hash of its kind, its source, its import closure's keys and
 --- the tool -- so a module whose key stands is never compiled again,
 --- and `plan` is this run's key for every module it built, in build
---- order. `seen` is the last run that used a compile; one no run has
---- used in the last hundred is dropped, so an edit undone is still
---- free and the cache stays bounded.
+--- order. `tool` is the hash of the tool that made a compile, and
+--- `seen` the last run that used it: a compile another tool made is
+--- dropped the moment this one runs, and one no run has used in the
+--- last hundred goes too, so an edit undone is still free and the
+--- cache stays bounded.
 ---
 --- `builds` is one row per run: what was staged, what was read, what
 --- was compiled and what came from the cache, and how the run ended.
@@ -182,6 +184,7 @@ work.schema = {
                                        encoding TEXT NOT NULL,
                                        data BLOB NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
+                                         tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
