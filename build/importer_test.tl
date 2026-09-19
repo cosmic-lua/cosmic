@@ -89,3 +89,36 @@ local function test_finds_a_real_top_level_require()
   assert(#requires == 1, "expected 1 require, got " .. #requires)
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
 end
+
+--- Embedded library code and tests must invalidate the self-tree guard,
+--- just as native code and the compiler's patched sources do.
+local function test_boot_hash_tracks_embedded_inputs()
+  local root = "/tmp/cosmic-importer-test-boot-hash-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl", "vendor/tl", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  local paths = {
+    "build/main.tl", "core/main.c", "cosmic/example.tl",
+    "cosmic/example_test.tl", "patch/tl/example.patch", "vendor/tl/tl.lua",
+    "cmd/cosmic/main.tl", "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin",
+  }
+  for _, path in ipairs(paths) do
+    assert(Fs.write(root .. "/" .. path, "original"))
+  end
+  local original = assert(importer.boot_hash(root))
+  assert(importer.boot_hash(root) == original)
+  for _, path in ipairs(paths) do
+    assert(Fs.write(root .. "/" .. path, "changed"))
+    assert(importer.boot_hash(root) ~= original, "missed changed input: " .. path)
+    assert(Fs.write(root .. "/" .. path, "original"))
+    assert(importer.boot_hash(root) == original)
+  end
+  -- Generated output must not make a freshly built tool stale.
+  assert(Fs.mkdirs(root .. "/o"))
+  assert(Fs.write(root .. "/o/output", "generated"))
+  assert(importer.boot_hash(root) == original)
+  assert(Fs.write(root .. "/cosmic/added.tl", "new module"))
+  assert(importer.boot_hash(root) ~= original, "missed added module")
+  assert(Fs.remove(root .. "/cosmic/added.tl"))
+  assert(importer.boot_hash(root) == original)
+end

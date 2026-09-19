@@ -270,7 +270,8 @@ function test.run(): integer
 
   -- Same staleness guard `cosmic <file.tl>` applies when the tree under
   -- test is cosmic's own: a stale tool would check and compile it with
-  -- a checker or patch set the tree no longer agrees with.
+  -- a checker or patch set the tree no longer agrees with, and could
+  -- execute embedded cosmic.* implementations and tests from an old tree.
   if importer.is_own_tree(root) then
     local current, hash_trouble = importer.boot_hash(root)
     if current == nil then

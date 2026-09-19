@@ -303,13 +303,15 @@ local function ordered(modules: {Module}): {Module} | nil, string
   return out
 end
 
---- The hash of the tool itself, over the trees a build is made of. A
+--- Fingerprint every source input to the embedded tool, including its
+--- standard library and tests. Self-tree commands refuse a mismatched
+--- fingerprint because cosmic.* resolves from the binary, not the tree. A
 --- row compiled by an older importer is never mistaken for a current
 --- one, because this is part of every key. A binary carries the number
 --- it was built with, so a project reads it rather than computing one.
 function importer.boot_hash(root: string): string | nil, string
   local parts: {string} = {}
-  for _, tree in ipairs({ "build", "core" }) do
+  for _, tree in ipairs({ "build", "core", "cosmic", "cmd", "patch", "vendor" }) do
     local files, trouble = Fs.walk(root .. "/" .. tree)
     if files == nil then
       return nil, trouble
@@ -321,6 +323,13 @@ function importer.boot_hash(root: string): string | nil, string
       end
       parts[#parts + 1] = tree .. "/" .. relative .. " " .. Hash.hex_sha256(data)
     end
+  end
+  for _, path in ipairs({ "build.zig", "build.zig.zon", "bin/zig", "bin/zig.pin" }) do
+    local data, trouble = Fs.read(root .. "/" .. path)
+    if data == nil then
+      return nil, trouble
+    end
+    parts[#parts + 1] = path .. " " .. Hash.hex_sha256(data)
   end
   return Hash.hex_sha256(table.concat(parts, "\n"))
 end
