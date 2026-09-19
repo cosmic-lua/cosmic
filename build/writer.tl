@@ -26,8 +26,8 @@ local function integer(value: integer): Sqlite.Value
 end
 
 --- The shipped modules: this run's plan joined to the inputs it named
---- and the compiles it found or made, with a test module's own test
---- names alongside.
+--- and the compiles it found or made, with a test or example module's
+--- own names alongside.
 local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "lua, bytecode, tests) " ..
@@ -35,7 +35,10 @@ local insert_modules =
   "CAST(p.key AS BLOB), i.source, c.lua, c.bytecode, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
-  "WHERE t.source_hash = i.source_hash), '') ELSE '' END " ..
+  "WHERE t.source_hash = i.source_hash), '') " ..
+  "WHEN i.kind = 'example' THEN coalesce((SELECT group_concat(name, " ..
+  "char(10) ORDER BY ordinal) FROM examples e " ..
+  "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
   "FROM plan p JOIN inputs i ON i.path = p.path " ..
   "JOIN compiled c ON c.key = p.key ORDER BY p.path"
 
@@ -75,6 +78,26 @@ local insert_uses =
   "AND d.symbol IN (tp.export || '.' || r.member, tp.export || ':' || r.member) " ..
   "WHERE r.module IN (SELECT path FROM plan) " ..
   "ORDER BY r.module, d.symbol, p.path, r.line"
+
+--- The worked examples `build.positions.examples_of` found: a
+--- `<module>_example.tl`'s own `Example.<name>` resolved against the
+--- module its file name pairs with (the `_example` suffix stripped)
+--- and that module's own entry record, the name its top-level `return`
+--- hands back (`tp.export`) -- `Fs.read` when `cosmic/fs_example.tl`
+--- declares `Example.read` and `cosmic/fs.tl` returns `Fs`. Kept only
+--- where that resolved symbol is one the paired module actually
+--- documents, the same guard `insert_uses` applies, so an example
+--- naming nothing real is dropped rather than shipped unresolved.
+local insert_examples =
+  "INSERT INTO out.examples (module, symbol, file, line, source) " ..
+  "SELECT t.path, tp.export || '.' || e.name, i.file, e.line, e.source " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'example' " ..
+  "JOIN examples e ON e.source_hash = i.source_hash " ..
+  "JOIN inputs t ON t.path = substr(p.path, 1, length(p.path) - length('_example')) " ..
+  "JOIN parsed tp ON tp.source_hash = t.source_hash " ..
+  "JOIN out.docs d ON d.module = t.path AND d.symbol = tp.export || '.' || e.name " ..
+  "WHERE t.path IN (SELECT path FROM plan) " ..
+  "ORDER BY t.path, e.line"
 
 --- The catalog entries `build.positions.catalog_of` found while parsing
 --- each planned module: every literal `return nil, ...` under a
@@ -164,9 +187,9 @@ local rebuild_fts: {string} = {
 --- identities and host it carries, and the main module, as one hash.
 --- When it matches the one the last write left in `meta` and the file
 --- is still there, the file already is the projection of these rows,
---- and nothing is written. The catalog, docs and references add
---- nothing here: an extracted row changes only with the source it was
---- parsed from, which moves that module's key, and the seed rows
+--- and nothing is written. The catalog, docs, examples and references
+--- add nothing here: an extracted row changes only with the source it
+--- was parsed from, which moves that module's key, and the seed rows
 --- change only with this module, which moves `boot_hash`.
 local signature_sql =
   "SELECT lower(hex(sha256(" ..
@@ -230,7 +253,7 @@ local function project(handle: work.Handle, path: string,
       end
     end
     for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
-                                 insert_uses }) do
+                                 insert_uses, insert_examples }) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure

@@ -259,8 +259,8 @@ itself the public surface belongs, not only these three.
 input to the build, never to the runtime. one database holds:
 
 - **modules**: import path, source hash, Teal source, compiled Lua
-  and bytecode, declaration, kind (module, test, example, main),
-  and the test names the compile step found.
+  and bytecode, declaration, kind (module, test, example, main), and
+  the test or example names the compile step found.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
@@ -274,6 +274,16 @@ input to the build, never to the runtime. one database holds:
   symbol through a top-level require alias (`Fs.read(...)` under
   `local Fs = require("cosmic.fs")`), resolved against the name the
   other module returns. `cosmic uses Fs.read` lists them.
+- **examples**: one row per worked example, a `kind = "example"`
+  module's own top-level `function Example.<name>()` -- found the same
+  structural way `docs` finds `function Fs.read(...)`, no tag naming
+  the association -- resolved against the module its file name pairs
+  with (`cosmic/fs_example.tl` examples `cosmic.fs`) and that module's
+  own entry record, kept only where the resolved symbol is one `docs`
+  actually declares. `cosmic docs Fs.read` prints it, source and all,
+  beneath the doc comment; the example itself compiles and runs like
+  any other test, since it is one -- one assertion mechanism for code,
+  not a second, output-diffing one only doc guides need.
 - **payload**: for an embed-built executable, the user's files.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.

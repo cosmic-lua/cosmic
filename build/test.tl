@@ -414,8 +414,9 @@ local function call_test(fn: function(any...): (any...)): boolean, string, {stri
   return false, tostring(failure), reads
 end
 
---- Runs every test one `kind = "test"` module found whose stored
---- verdict does not stand, recording each into `records` and appending
+--- Runs every test one `kind = "test"` or `kind = "example"` module
+--- found whose stored verdict does not stand, recording each into
+--- `records` and appending
 --- a line to `failures` for any that did not pass. Every hit line,
 --- from this module's own one-time load and from each test in it, is
 --- folded into `hits`, the whole-run accumulator; a test's own hits
@@ -677,7 +678,7 @@ function test.run(argv: {integer:string}): integer
   local hits: Coverage.Hits = {}
   local by_test: {string: Coverage.Hits} = {}
   for _, m in ipairs(result.modules) do
-    if m.kind == "test" and #m.tests > 0 then
+    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
         verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally)

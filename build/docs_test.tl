@@ -4,7 +4,8 @@ local schema = require("build.schema")
 
 --- One in-memory shipped database holding the rows a test names, its
 --- FTS index built, so the lookups run against the real schema.
-local function database(rows: {{string}}, uses: {{string}}): Sqlite.Handle
+local function database(rows: {{string}}, uses: {{string}},
+                        examples?: {{string}}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
@@ -22,6 +23,13 @@ local function database(rows: {{string}}, uses: {{string}}): Sqlite.Handle
       "VALUES (?1, ?2, ?3, ?4, ?5)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { integer = math.tointeger(tonumber(row[5])) } }))
+  end
+  for _, row in ipairs(examples or {}) do
+    assert(Sqlite.run(db,
+      "INSERT INTO examples (module, symbol, file, line, source) " ..
+      "VALUES (?1, ?2, ?3, ?4, ?5)",
+      { { text = row[1] }, { text = row[2] }, { text = row[3] },
+        { integer = math.tointeger(tonumber(row[4])) }, { text = row[5] } }))
   end
   assert(db:exec("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')"))
   return db
@@ -100,6 +108,27 @@ local function test_renders_a_symbol()
   local read_lines = docs.render({ db }, read[1])
   assert(read_lines[#read_lines] == "  used in 2 places; cosmic uses Fs.read",
     read_lines[#read_lines])
+end
+
+--- A symbol with a worked example renders it, source and all, under
+--- its doc comment; a module's own listing marks which of its symbols
+--- have one.
+local function test_renders_a_symbols_example()
+  local db = database(fs_rows, fs_uses, {
+    { "cosmic.fs", "Fs.read", "cosmic/fs_example.tl", "3",
+      "function Example.read()\nend" },
+  })
+  local read = assert(docs.lookup({ db }, "Fs.read"))
+  local lines = docs.render({ db }, read[1])
+  assert(lines[#lines - 2] == "  example (cosmic/fs_example.tl:3):",
+    lines[#lines - 2])
+  assert(lines[#lines - 1] == "    function Example.read()", lines[#lines - 1])
+  assert(lines[#lines] == "    end", lines[#lines])
+
+  local module = assert(docs.lookup({ db }, "cosmic.fs"))
+  local module_lines = docs.render({ db }, module[1])
+  assert(module_lines[4] == "  function Fs.read (2 uses, example)", module_lines[4])
+  assert(module_lines[5] == "  function Fs.write", module_lines[5])
 end
 
 --- The uses of a symbol, by either name.

@@ -56,14 +56,26 @@ local record positions
     line: integer
   end
 
+  --- One worked example: a top-level `function Example.<name>()` --
+  --- see `examples_of`. `name` is bare (`"read"`), the same name the
+  --- paired module's own record declares it under; `build.writer`
+  --- resolves the real symbol (`"Fs.read"`) at ship time, against that
+  --- record's name, so nothing here has to know it.
+  record ExampleEntry
+    name: string
+    --- The whole `function Example.<name>() ... end`, as written.
+    source: string
+    line: integer
+  end
+
   --- What a single parse of a module's source tells the importer: its
   --- own test names, whether it also returns its own value at the top
   --- level and under what name, its catalog entries, its documented
-  --- symbols, and what it refers to. Bundled into one record rather
-  --- than returned as separate slots: `analyze`'s first return admits
-  --- nil (source that fails to lex or parse), and a fallible return may
-  --- declare at most two slots -- the extras ride on the value's record
-  --- instead.
+  --- symbols, its worked examples, and what it refers to. Bundled into
+  --- one record rather than returned as separate slots: `analyze`'s
+  --- first return admits nil (source that fails to lex or parse), and
+  --- a fallible return may declare at most two slots -- the extras
+  --- ride on the value's record instead.
   record Analysis
     tests: {string}
     has_top_level_return: boolean
@@ -73,6 +85,7 @@ local record positions
     export: string
     catalog: {CatalogEntry}
     docs: {DocEntry}
+    examples: {ExampleEntry}
     references: {Reference}
   end
 
@@ -83,6 +96,10 @@ local record positions
     source: string
     source_hash: string
     requires: {string}
+    --- The names the runner calls, bare: a `kind = "test"` module's own
+    --- `local function test_*` names, or a `kind = "example"` module's
+    --- `Example.<name>` names -- empty for any other kind. The two
+    --- never mix in one module, since a file is only ever one kind.
     tests: {string}
     has_top_level_return: boolean
     --- True only for a module `build.doctest` produced from a
@@ -398,6 +415,14 @@ local function record_docs(lines: {string}, symbol: string,
   end
 end
 
+--- Whether `stmt` is a top-level `function Example.<name>()` --
+--- `examples_of`'s own shape, kept out of `docs_of` so a worked
+--- example is never also shipped as a trivial doc entry of its own.
+local function is_example_function(stmt: ast.Node): boolean
+  local owner = stmt.fn_owner
+  return stmt.kind == "record_function" and owner ~= nil and owner.tk == "Example"
+end
+
 --- Every documented symbol a chunk declares at its top level, in
 --- source order: the module itself when the file opens with a comment
 --- of its own, each function, each record, interface, enum or alias
@@ -405,7 +430,9 @@ end
 --- declaration carries a doc comment. Every function is here, whether
 --- or not it is documented, so `cosmic docs` can find where an
 --- undocumented one lives; a bare `local x = ...` is not, since a
---- module's private bindings are not its surface.
+--- module's private bindings are not its surface. A worked example
+--- (`examples_of`) is not either -- it documents another module's
+--- symbol, not this one's.
 local function docs_of(lines: {string}, parsed: ast.Parsed): {positions.DocEntry}
   local out: {positions.DocEntry} = {}
   local opening = module_doc(parsed)
@@ -414,8 +441,8 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {positions.DocEntry
       text = opening, line = 1 }
   end
   for _, stmt in ipairs(parsed.node) do
-    if stmt.kind == "local_function" or stmt.kind == "record_function"
-       or stmt.kind == "global_function" then
+    if (stmt.kind == "local_function" or stmt.kind == "record_function"
+        or stmt.kind == "global_function") and not is_example_function(stmt) then
       out[#out + 1] = { symbol = symbol_of(stmt),
         kind = stmt.is_method and "method" or "function",
         signature = function_signature(lines, stmt),
@@ -450,6 +477,55 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {positions.DocEntry
       if #text > 0 then
         out[#out + 1] = { symbol = stmt.vars[1].tk or "", kind = "value",
           signature = line_at(lines, stmt.y), text = text, line = stmt.y }
+      end
+    end
+  end
+  return out
+end
+
+--- The source from one top-level statement's own start up to just
+--- before the next one's, or to the end of the chunk for the last --
+--- an example is always exactly one top-level statement, so this is
+--- its whole, as-written text, lines and indentation kept, unlike
+--- `span_text`'s one-line collapse. A trailing blank or comment-only
+--- line belongs to whatever sits after it, not to this statement, so
+--- it is trimmed rather than shown as part of the example.
+local function block_text(lines: {string}, y: integer, x: integer,
+                          until_y: integer, until_x: integer): string
+  local parts: {string} = {}
+  for line_no = y, until_y do
+    local line = lines[line_no] or ""
+    local from = line_no == y and x or 1
+    local to = line_no == until_y and (until_x - 1) or #line
+    parts[#parts + 1] = line:sub(from, to)
+  end
+  while #parts > 0 and (parts[#parts]:match("^%s*$") ~= nil
+     or parts[#parts]:match("^%s*%-%-") ~= nil) do
+    parts[#parts] = nil
+  end
+  return table.concat(parts, "\n")
+end
+
+--- Every worked example a chunk declares at its top level: a
+--- `function Example.<name>()`, found the same structural way
+--- `docs_of` already finds `function Fs.read(...)` -- no tag names the
+--- association, only the shape of the declaration itself. `name` is
+--- bare; `build.writer`'s `insert_examples` resolves it against the
+--- paired module's own record name at ship time.
+local function examples_of(lines: {string}, parsed: ast.Parsed): {positions.ExampleEntry}
+  local out: {positions.ExampleEntry} = {}
+  local nodes = parsed.node
+  for index, stmt in ipairs(nodes) do
+    if is_example_function(stmt) then
+      local name = stmt.name
+      local tk = name ~= nil and name.tk or nil
+      if tk ~= nil then
+        local after = nodes[index + 1]
+        local until_y = after ~= nil and after.y or (#lines + 1)
+        local until_x = after ~= nil and after.x or 1
+        out[#out + 1] = { name = tk,
+          source = block_text(lines, stmt.y, stmt.x, until_y, until_x),
+          line = stmt.y }
       end
     end
   end
@@ -558,7 +634,8 @@ function positions.analysis_of(built: compiler, parsed: ast.Parsed,
   local lines = lines_of(source)
   return {
     tests = names, has_top_level_return = has_return, export = export,
-    catalog = catalog, docs = docs_of(lines, parsed), references = references,
+    catalog = catalog, docs = docs_of(lines, parsed),
+    examples = examples_of(lines, parsed), references = references,
   }, ""
 end
 

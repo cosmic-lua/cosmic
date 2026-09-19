@@ -57,6 +57,13 @@ local tables: {{string}} = {
                      line INTEGER NOT NULL,
                      PRIMARY KEY (module, symbol, from_module, line)) WITHOUT ROWID]] },
 
+  { "examples", [[(module TEXT NOT NULL,
+                   symbol TEXT NOT NULL,
+                   file TEXT NOT NULL,
+                   line INTEGER NOT NULL,
+                   source TEXT NOT NULL,
+                   PRIMARY KEY (module, symbol)) WITHOUT ROWID]] },
+
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
                   module TEXT NOT NULL,

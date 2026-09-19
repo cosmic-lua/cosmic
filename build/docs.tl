@@ -22,6 +22,12 @@ local record docs
     line: integer
     --- How many places in shipped modules refer to it.
     uses: integer
+    --- Where the worked example for this symbol lives, `""` when there
+    --- is none -- see `build.positions.ExampleEntry`.
+    example_file: string
+    example_line: integer
+    --- The example's own source, as written, `""` when there is none.
+    example_source: string
   end
 
   --- One row of `uses`.
@@ -48,7 +54,13 @@ end
 
 local columns =
   "d.module, d.symbol, d.kind, d.signature, d.text, d.file, d.line, " ..
-  "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol)"
+  "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol), " ..
+  "coalesce((SELECT file FROM examples e WHERE e.module = d.module " ..
+  "AND e.symbol = d.symbol), ''), " ..
+  "coalesce((SELECT line FROM examples e WHERE e.module = d.module " ..
+  "AND e.symbol = d.symbol), 0), " ..
+  "coalesce((SELECT source FROM examples e WHERE e.module = d.module " ..
+  "AND e.symbol = d.symbol), '')"
 
 local function entries_of(rows: {{string}}): {docs.Entry}
   local out: {docs.Entry} = {}
@@ -57,6 +69,8 @@ local function entries_of(rows: {{string}}): {docs.Entry}
       module = row[1], symbol = row[2], kind = row[3], signature = row[4],
       text = row[5], file = row[6], line = math.tointeger(tonumber(row[7])) or 0,
       uses = math.tointeger(tonumber(row[8])) or 0,
+      example_file = row[9], example_line = math.tointeger(tonumber(row[10])) or 0,
+      example_source = row[11],
     }
   end
   return out
@@ -255,13 +269,29 @@ function docs.render(databases: {Sqlite.Handle}, entry: docs.Entry): {string}
       end, entry_module)
     if declared ~= nil then
       for _, item in ipairs(declared) do
+        local marks: {string} = {}
+        if item.uses > 0 then
+          marks[#marks + 1] = item.uses .. " uses"
+        end
+        if item.example_source ~= "" then
+          marks[#marks + 1] = "example"
+        end
         lines[#lines + 1] = "  " .. item.kind .. " " .. item.symbol ..
-          (item.uses > 0 and " (" .. item.uses .. " uses)" or "")
+          (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
       end
     end
-  elseif entry.uses > 0 then
-    lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
-      (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
+  else
+    if entry.uses > 0 then
+      lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
+        (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
+    end
+    if entry.example_source ~= "" then
+      lines[#lines + 1] = "  example (" .. entry.example_file .. ":" ..
+        entry.example_line .. "):"
+      for line in (entry.example_source .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = #line > 0 and "    " .. line or ""
+      end
+    end
   end
   return lines
 end
