@@ -137,7 +137,11 @@ function Sqlite.transact(handle: raw_sqlite.Handle,
   if not started then
     return false, trouble
   end
-  local ok, why = work()
+  local called, ok, why = pcall(work)
+  if not called then
+    handle:exec("ROLLBACK")
+    error(ok, 0)
+  end
   if not ok then
     handle:exec("ROLLBACK")
     return false, why
