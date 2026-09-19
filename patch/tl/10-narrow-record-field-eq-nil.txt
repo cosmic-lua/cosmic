@@ -1,0 +1,55 @@
+file: tl.lua
+note: `x.field == nil` / `~= nil` is the same exact type test 03-eq-nil.txt gives a bare variable, generalized to a field key -- but only when the field's own declared type admits nil. A field declared with a plain, non-union type, compared to nil anyway as an uninitialized-sentinel pattern, must not narrow to bare `nil`: the double negation the early-return shape feeds this into resolves straight to the positive IsFact (bypassing not_facts's subtract, which is what protects a bare variable's own nil-union case), and a plain type has no nil member to subtract
+--- find
+               elseif self:is_a(ub, ua) or ua.typename == "typevar" then
+                  -- Comparing a variable against nil is an exact type
+                  -- test: __eq never fires with a nil operand. So it
+                  -- carries an IsFact, whose negation narrows, rather
+                  -- than an EqFact, whose negation says nothing.
+                  if node.e1.kind == "variable" and rb.typename == "nil" then
+                     local f = IsFact({ var = node.e1.tk, typ = rb, w = node })
+                     node.known = node.op.op == "==" and f or NotFact({ f1 = f, w = node })
+                  elseif node.op.op == "==" and node.e1.kind == "variable" then
+                     node.known = EqFact({ var = node.e1.tk, typ = ub, w = node })
+                  end
+               elseif self:is_a(ua, ub) or ub.typename == "typevar" then
+                  if node.e2.kind == "variable" and ra.typename == "nil" then
+                     local f = IsFact({ var = node.e2.tk, typ = ra, w = node })
+                     node.known = node.op.op == "==" and f or NotFact({ f1 = f, w = node })
+                  elseif node.op.op == "==" and node.e2.kind == "variable" then
+                     node.known = EqFact({ var = node.e2.tk, typ = ua, w = node })
+                  end
+--- replace
+               elseif self:is_a(ub, ua) or ua.typename == "typevar" then
+                  -- Comparing a variable against nil is an exact type
+                  -- test: __eq never fires with a nil operand. So it
+                  -- carries an IsFact, whose negation narrows, rather
+                  -- than an EqFact, whose negation says nothing. The
+                  -- same test on `x.field` narrows the field, keyed
+                  -- the same way a truthy read on it is -- but only
+                  -- when the field's own declared type admits nil (see
+                  -- this record's note).
+                  local e1_key = fact_key(node.e1)
+                  if e1_key and not (node.e1.kind == "variable")
+                     and not admits_nil(self, node, ua) then
+                     e1_key = nil
+                  end
+                  if e1_key and rb.typename == "nil" then
+                     local f = IsFact({ var = e1_key, typ = rb, w = node })
+                     node.known = node.op.op == "==" and f or NotFact({ f1 = f, w = node })
+                  elseif node.op.op == "==" and e1_key then
+                     node.known = EqFact({ var = e1_key, typ = ub, w = node })
+                  end
+               elseif self:is_a(ua, ub) or ub.typename == "typevar" then
+                  local e2_key = fact_key(node.e2)
+                  if e2_key and not (node.e2.kind == "variable")
+                     and not admits_nil(self, node, ub) then
+                     e2_key = nil
+                  end
+                  if e2_key and ra.typename == "nil" then
+                     local f = IsFact({ var = e2_key, typ = ra, w = node })
+                     node.known = node.op.op == "==" and f or NotFact({ f1 = f, w = node })
+                  elseif node.op.op == "==" and e2_key then
+                     node.known = EqFact({ var = e2_key, typ = ua, w = node })
+                  end
+--- end

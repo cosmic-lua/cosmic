@@ -1,0 +1,28 @@
+file: tl.lua
+note: the same fact_base_type fallback and silent-drop as 13-narrow-record-field-not-facts.txt, for eval_fact's positive-fact path
+--- find
+      eval_fact = function(self, f)
+         if not f then
+            return {}
+         elseif f.fact == "is" then
+            local typ = self:find_var_type(f.var, "check_only")
+            if not typ then
+               return { [f.var] = invalid_from(f) }
+            end
+--- replace
+      eval_fact = function(self, f)
+         if not f then
+            return {}
+         elseif f.fact == "is" then
+            -- A field key's current type is not always one find_var_type
+            -- already knows -- see fact_base_type.
+            local typ = self:fact_base_type(f)
+            if not typ then
+               -- An unresolvable field key drops silently rather than
+               -- reporting an unresolvable variable -- see not_facts.
+               if string.find(f.var, ".", 1, true) then
+                  return {}
+               end
+               return { [f.var] = invalid_from(f) }
+            end
+--- end
