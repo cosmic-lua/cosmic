@@ -1,19 +1,17 @@
---- Writing a compiled tree into a fresh database.
+--- Writing a compiled tree out as the shipped database.
 ---
---- `build.importer` turns the tree into Lua and bytecode; this turns
---- that result into the database file `require` reads at run time. The
---- two are split so a caller that needs the compiled modules for
---- itself, such as the test runner, gets them from one compile rather
---- than paying for the second one `write` alone would otherwise run.
+--- `o/cosmic.db` is a projection of the working database: a fresh
+--- schema attached in memory, filled in one transaction from rows the
+--- build already holds -- the images and the compiler a boot put
+--- there, the modules this run compiled -- and produced by `VACUUM
+--- INTO`, so a second build of the same tree is byte-identical.
 
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local work = require("build.work")
-local type compiler = require("build.compiler")
 
 local type Module = importer.Module
 
@@ -24,14 +22,45 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
-local function blob(value: string): Sqlite.Value
-  return { blob = value }
+--- The vendored compiler, as the module row a binary carries so it can
+--- build a tree of its own. Its Lua is its source; only the bytecode
+--- is made here. Nil when the working database holds no compiler, as
+--- a project's does not.
+local function compiler_module(handle: work.Handle,
+                               boot_hash: string): Module | nil, string
+  local rows, trouble = Sqlite.rows(handle.db,
+    "SELECT file, source, source_hash FROM inputs WHERE kind = 'vendor'")
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil, ""
+  end
+  local file, source, source_hash = rows[1][1], rows[1][2], rows[1][3]
+  local chunk, load_trouble = load(source, "@vendor.tl", "t")
+  if chunk == nil then
+    return nil, "the vendored compiler would not load: " .. tostring(load_trouble)
+  end
+  return {
+    path = "vendor.tl",
+    file = file,
+    kind = "vendor",
+    source = source,
+    source_hash = source_hash,
+    requires = {},
+    tests = {},
+    has_top_level_return = false,
+    generated = false,
+    key = Hash.hex_sha256(source .. "\n" .. boot_hash),
+    lua = source,
+    bytecode = string.dump(chunk, false),
+  }
 end
 
-local function insert_modules(handle: Sqlite.Handle, modules: {Module}): boolean, string
-  local statement, trouble = handle:prepare(
-    "INSERT INTO modules (path, file, kind, source_hash, key, source, lua, " ..
-    "bytecode, tests, decl) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)")
+local function insert_modules(db: Sqlite.Handle, modules: {Module}): boolean, string
+  local statement, trouble = db:prepare(
+    "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
+    "lua, bytecode, tests) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
   if statement == nil then
     return false, trouble
   end
@@ -56,7 +85,7 @@ local function insert_modules(handle: Sqlite.Handle, modules: {Module}): boolean
   return true, ""
 end
 
-local function insert_imports(handle: Sqlite.Handle, modules: {Module}): boolean, string
+local function insert_imports(db: Sqlite.Handle, modules: {Module}): boolean, string
   local known: {string:boolean} = {}
   for _, m in ipairs(modules) do
     known[m.path] = true
@@ -64,8 +93,8 @@ local function insert_imports(handle: Sqlite.Handle, modules: {Module}): boolean
   for _, m in ipairs(modules) do
     for _, name in ipairs(m.requires) do
       if known[name] then
-        local ok, trouble = Sqlite.run(handle,
-          "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
+        local ok, trouble = Sqlite.run(db,
+          "INSERT OR IGNORE INTO out.imports (path, requires) VALUES (?1, ?2)",
           { text(m.path), text(name) })
         if not ok then
           return false, trouble
@@ -76,93 +105,57 @@ local function insert_imports(handle: Sqlite.Handle, modules: {Module}): boolean
   return true, ""
 end
 
---- Writes an already-compiled result into a fresh database and leaves
---- it at `out`.
---- @param images the core image for each target, by target name
---- @param teal_source the vendored compiler, which a binary must carry
----   so it can build a tree of its own; nil when building a project
----   with a binary that already has one
-function writer.write_result(out: string, result: importer.Result,
-                             images: {string:string},
-                             teal_source: string | nil): boolean, string
-  if teal_source ~= nil then
-    local chunk, load_trouble = load(teal_source, "@vendor.tl", "t")
-    if chunk == nil then
-      return false, "the vendored compiler would not load: " ..
-        tostring(load_trouble)
-    end
-    result.modules[#result.modules + 1] = {
-      path = "vendor.tl",
-      file = "o/vendor/tl/tl.lua",
-      kind = "vendor",
-      source = teal_source,
-      source_hash = Hash.hex_sha256(teal_source),
-      requires = {},
-      tests = {},
-      key = Hash.hex_sha256(teal_source .. "\n" .. result.boot_hash),
-      lua = teal_source,
-      bytecode = string.dump(chunk, false),
-    }
-  end
-
-  local handle, why = Sqlite.memory()
-  if handle == nil then
-    return false, why
-  end
-
-  for _, statement in ipairs(schema.settings) do
-    local ok, failure = handle:exec(statement)
+--- Fills the attached `out` schema and vacuums it into `path`.
+local function project(handle: work.Handle, path: string,
+                       result: importer.Result): boolean, string
+  local db = handle.db
+  for _, statement in ipairs(schema.settings("out.")) do
+    local ok, failure = db:exec(statement)
     if not ok then
-      handle:close()
       return false, failure
     end
   end
 
-  local made, refused = Sqlite.transact(handle, function(): boolean, string
-    for _, statement in ipairs(schema.tables) do
-      local ok, failure = handle:exec(statement)
+  local compiler, compiler_trouble = compiler_module(handle, result.boot_hash)
+  if compiler == nil and compiler_trouble ~= "" then
+    return false, compiler_trouble
+  end
+  local modules: {Module} = {}
+  for _, m in ipairs(result.modules) do
+    modules[#modules + 1] = m
+  end
+  if compiler ~= nil then
+    modules[#modules + 1] = compiler
+  end
+
+  local made, refused = Sqlite.transact(db, function(): boolean, string
+    for _, statement in ipairs(schema.create("out.")) do
+      local ok, failure = db:exec(statement)
       if not ok then
         return false, failure
       end
     end
-
-    local stored, module_trouble = insert_modules(handle, result.modules)
+    local stored, module_trouble = insert_modules(db, modules)
     if not stored then
       return false, module_trouble
     end
-    local edged, import_trouble = insert_imports(handle, result.modules)
+    local edged, import_trouble = insert_imports(db, modules)
     if not edged then
       return false, import_trouble
     end
-
-    local targets: {string} = {}
-    for target in pairs(images) do
-      targets[#targets + 1] = target
+    local carried, image_trouble = db:exec(
+      "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
+      "SELECT target, sha256, size, encoding, data FROM images ORDER BY target")
+    if not carried then
+      return false, image_trouble
     end
-    table.sort(targets)
-    for _, target in ipairs(targets) do
-      local image = images[target]
-      local packed, deflate_trouble = Compress.deflate(image)
-      if packed == nil then
-        return false, target .. ": " .. deflate_trouble
-      end
-      local ok, failure = Sqlite.run(handle,
-        "INSERT INTO images (target, sha256, size, encoding, data) " ..
-        "VALUES (?1, ?2, ?3, 'deflate', ?4)",
-        { text(target), blob(Hash.sha256(image)), { integer = #image },
-          blob(packed) })
-      if not ok then
-        return false, failure
-      end
-    end
-
     local meta: {{string}} = {
       { "boot_hash", result.boot_hash },
       { "main", result.main or "" },
     }
     for _, pair in ipairs(meta) do
-      local ok, failure = Sqlite.run(handle,
-        "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+      local ok, failure = Sqlite.run(db,
+        "INSERT INTO out.meta (key, value) VALUES (?1, ?2)",
         { text(pair[1]), text(pair[2]) })
       if not ok then
         return false, failure
@@ -171,36 +164,27 @@ function writer.write_result(out: string, result: importer.Result,
     return true, ""
   end)
   if not made then
-    handle:close()
     return false, refused
   end
 
-  Fs.remove(out .. ".building")
-  local vacuumed, vacuum_trouble = Sqlite.run(handle,
-    "VACUUM INTO ?1", { text(out .. ".building") })
-  handle:close()
-  if not vacuumed then
-    return false, vacuum_trouble
-  end
-
-  return Fs.rename(out .. ".building", out)
+  Fs.remove(path .. ".building")
+  return Sqlite.run(db, "VACUUM out INTO ?1", { text(path .. ".building") })
 end
 
---- Compiles the whole staged tree and writes the result into a fresh
---- database at `out`.
---- @param images the core image for each target, by target name
---- @param teal_source the vendored compiler, which a binary must carry
----   so it can build a tree of its own; nil when building a project
----   with a binary that already has one
-function writer.write(handle: work.Handle, out: string, built: compiler,
-                      env: compiler.Env, boot_hash: string,
-                      images: {string:string},
-                      teal_source: string | nil): boolean, string
-  local result, trouble = importer.compile(handle, built, env, boot_hash)
-  if result == nil then
+--- Writes an already-compiled result into a fresh database and leaves
+--- it at `out`.
+function writer.write_result(handle: work.Handle, out: string,
+                             result: importer.Result): boolean, string
+  local attached, attach_trouble = handle.db:exec("ATTACH ':memory:' AS out")
+  if not attached then
+    return false, attach_trouble
+  end
+  local projected, trouble = project(handle, out, result)
+  handle.db:exec("DETACH out")
+  if not projected then
     return false, trouble
   end
-  return writer.write_result(out, result, images, teal_source)
+  return Fs.rename(out .. ".building", out)
 end
 
 return writer

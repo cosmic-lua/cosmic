@@ -32,7 +32,6 @@ local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
-local payload = require("build.payload")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -312,12 +311,6 @@ function test.run(): integer
 
   local boot_hash = Store.meta("boot_hash") or ""
   local database = root .. "/o/cosmic.db"
-  local images, teal_source, carry_trouble = payload.carried(database)
-  if carry_trouble ~= "" then
-    work.close(handle)
-    complain(carry_trouble)
-    return 1
-  end
 
   local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
@@ -327,7 +320,7 @@ function test.run(): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(database, result, images, teal_source)
+    writer.write_result(handle, database, result)
   work.record(handle, elapsed_ms(started), staged, #result.modules,
     written and "PASS" or "FAIL")
   if not written then

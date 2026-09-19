@@ -10,7 +10,6 @@ local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local fix = require("build.fix")
 local importer = require("build.importer")
-local payload = require("build.payload")
 local teal = require("build.teal")
 local test = require("build.test")
 local work = require("build.work")
@@ -164,17 +163,6 @@ local function run(file: string, argv: {integer:string}): integer
 
   local database = root .. "/o/cosmic.db"
 
-  -- Re-importing over cosmic's own database must not erase what `boot`
-  -- put there: the three core images and the vendored compiler row.
-  -- Read them back first and hand them straight through, so this run
-  -- carries them forward unchanged rather than writing an empty set.
-  local images, teal_source, carry_trouble = payload.carried(database)
-  if carry_trouble ~= "" then
-    work.close(handle)
-    complain("cosmic: " .. carry_trouble)
-    return 1
-  end
-
   local result, compile_trouble = importer.compile(handle, built, env, boot_hash)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, "FAIL")
@@ -183,7 +171,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(database, result, images, teal_source)
+    writer.write_result(handle, database, result)
   work.record(handle, elapsed_ms(started), staged, #result.modules,
     written and "PASS" or "FAIL")
   work.close(handle)

@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
 local attach = require("build.attach")
 local compiler = require("build.compiler")
+local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -80,11 +81,33 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
+  -- What a boot alone puts in the working database, for every later
+  -- build to carry: the three images and the compiler.
+  for _, target in ipairs(targets) do
+    local put, put_trouble = work.put_image(handle, target, images[target])
+    if not put then
+      report("boot: FAIL (" .. put_trouble .. ")")
+      return 1
+    end
+  end
+  local kept, keep_trouble = work.put_compiler(handle, teal_source)
+  if not kept then
+    report("boot: FAIL (" .. keep_trouble .. ")")
+    return 1
+  end
+
   local database_path = root .. "/o/cosmic.db"
+  local result, compile_trouble =
+    importer.compile(handle, compiler, env, boot_hash)
+  if result == nil then
+    work.record(handle, elapsed_ms(started), staged, 0, "FAIL")
+    work.close(handle)
+    report("boot: FAIL\n" .. compile_trouble)
+    return 1
+  end
   local written, write_trouble =
-    writer.write(handle, database_path, compiler, env, boot_hash, images,
-                 teal_source)
-  work.record(handle, elapsed_ms(started), staged, staged.files,
+    writer.write_result(handle, database_path, result)
+  work.record(handle, elapsed_ms(started), staged, #result.modules,
     written and "PASS" or "FAIL")
   work.close(handle)
   if not written then

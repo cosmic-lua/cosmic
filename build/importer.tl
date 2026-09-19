@@ -181,7 +181,7 @@ end
 local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   local fresh, trouble = Sqlite.rows(db,
     "SELECT source_hash, min(file), source FROM inputs " ..
-    "WHERE kind <> 'decl' " ..
+    "WHERE kind NOT IN ('decl', 'vendor') " ..
     "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
     "GROUP BY source_hash ORDER BY source_hash")
   if fresh == nil then
@@ -227,7 +227,8 @@ end
 --- Brings `inputs` and the parse tables up to the staged tree, in one
 --- transaction: a row whose file changed or vanished goes, a file with
 --- no row gets one, and only what is new is extracted, generated, or
---- parsed. What no input refers to any more is dropped, so the tables
+--- parsed. The compiler's row has no file and is Lua, so it is neither
+--- dropped nor parsed here; `build.writer` carries it. What no input refers to any more is dropped, so the tables
 --- describe this tree and nothing older.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
@@ -252,8 +253,9 @@ local function derive(handle: work.Handle, self_tree: boolean,
 
   return Sqlite.transact(db, function(): boolean, string
     local statements: {string} = {
-      "DELETE FROM inputs WHERE NOT EXISTS (SELECT 1 FROM files f " ..
-      "WHERE f.path = inputs.file AND f.sha256 = inputs.from_hash)",
+      "DELETE FROM inputs WHERE origin <> 'vendor' AND NOT EXISTS " ..
+      "(SELECT 1 FROM files f WHERE f.path = inputs.file " ..
+      "AND f.sha256 = inputs.from_hash)",
       "INSERT INTO inputs (file, path, kind, origin, from_hash, source, " ..
       "source_hash) SELECT path, " .. import_path_sql .. ", " .. kind_sql ..
       ", 'tree', sha256, CAST(data AS TEXT), sha256 FROM files " ..
@@ -319,7 +321,7 @@ local function collect(handle: work.Handle, self_tree: boolean,
   local rows, trouble = Sqlite.rows(db,
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
     "p.has_return FROM inputs i JOIN parsed p ON p.source_hash = i.source_hash " ..
-    "WHERE i.kind <> 'decl' ORDER BY i.path")
+    "WHERE i.kind NOT IN ('decl', 'vendor') ORDER BY i.path")
   if rows == nil then
     return nil, trouble
   end

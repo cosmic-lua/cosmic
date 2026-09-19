@@ -15,6 +15,7 @@
 --- the bytes and the hash on the row are still right and the file is
 --- not read again.
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 
@@ -43,7 +44,7 @@ local record work
   version: string
 end
 
-work.version = "2"
+work.version = "3"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. `seen` is the run
@@ -68,6 +69,11 @@ work.version = "2"
 --- by its content hash rather than its path: what a parse finds is a
 --- function of the bytes alone, so a rename costs nothing and a row
 --- can never be stale.
+---
+--- `images` is the core executable for every target, deflated at
+--- rest, which a boot puts here and every later build carries into
+--- the database it writes. The compiler is the same kind of thing and
+--- lives in `inputs`, the one row there with no file behind it.
 ---
 --- `builds` is one row per run: what was staged, what was read, what
 --- was compiled, and how the run ended.
@@ -143,6 +149,11 @@ work.schema = {
                                       ordinal INTEGER NOT NULL,
                                       name TEXT NOT NULL,
                                       PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS images (target TEXT PRIMARY KEY,
+                                       sha256 BLOB NOT NULL,
+                                       size INTEGER NOT NULL,
+                                       encoding TEXT NOT NULL,
+                                       data BLOB NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS builds (run INTEGER PRIMARY KEY,
                                        ms INTEGER NOT NULL,
                                        files INTEGER NOT NULL,
@@ -529,6 +540,30 @@ function work.boot_hash(handle: work.Handle): string | nil, string
     return nil, trouble
   end
   return rows[1][1]
+end
+
+--- Puts one target's core image in, deflated, for every later build
+--- to carry.
+function work.put_image(handle: work.Handle, target: string,
+                        image: string): boolean, string
+  local packed, deflate_trouble = Compress.deflate(image)
+  if packed == nil then
+    return false, target .. ": " .. deflate_trouble
+  end
+  return Sqlite.run(handle.db,
+    "INSERT OR REPLACE INTO images (target, sha256, size, encoding, data) " ..
+    "VALUES (?1, sha256(?2), ?3, 'deflate', ?4)",
+    { text(target), { blob = image }, integer(#image), { blob = packed } })
+end
+
+--- Puts the vendored compiler in, as the one input with no file behind
+--- it, for every later build to carry.
+function work.put_compiler(handle: work.Handle, source: string): boolean, string
+  return Sqlite.run(handle.db,
+    "INSERT OR REPLACE INTO inputs (file, path, kind, origin, from_hash, " ..
+    "source, source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', " ..
+    "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
+    { text(source) })
 end
 
 --- Writes this run's row into `builds`.

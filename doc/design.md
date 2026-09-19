@@ -318,8 +318,9 @@ builds and tests a tree other than its own.
 inside cosmic's own tree, every run first compares the boot hash of
 `build/` and `core/` with the one the running binary carries; on a
 mismatch the tool refuses with `the tool is stale; run bin/zig build
-boot` and exit 3, and a re-import over the boot database carries the
-images and the compiler row forward unchanged.
+boot` and exit 3. the three images and the compiler are what a boot
+alone puts in the working database, and every later build carries
+them into the database it writes, as rows, without unpacking them.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
 problem and are fixed first: a typo'd or overlong parameter table
@@ -380,9 +381,11 @@ are planned below, not implemented:
   captured streams; a child never opens a database, it reports its
   result over a pipe and the one build process writes it.
 - *reproducible*: the shipped database is a pure function of the
-  tree. it is built fresh in memory in one transaction, every table
-  is `WITHOUT ROWID` on a natural key so insertion order cannot
-  reach the bytes, and the file is produced by `VACUUM INTO`. a
+  tree. it is a projection of the working database: a fresh schema
+  attached in memory, filled in one transaction from the rows the
+  build already holds, every table `WITHOUT ROWID` on a natural key
+  so insertion order cannot reach the bytes, and the file is
+  produced by `VACUUM INTO`. a
   second build of the same tree is byte-identical, and CI's repro
   lane asserts it from a second transaction layout as well as a
   second host.
