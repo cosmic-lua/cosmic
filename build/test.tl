@@ -11,10 +11,10 @@
 --- fresh, and the lines the test itself hit in the run that produced
 --- the verdict are credited to this one. Verdicts are kept by key, so
 --- an edit undone finds its old verdict again. A failing verdict is
---- never reused; the test runs until it passes. Reads are opens through the syscall table, so a test
---- that depends on a directory listing, or on a file outside the
---- root, is not invalidated by those; the tool's own hash, in every
---- module key, is what invalidates everything at once.
+--- never reused; the test runs until it passes. Opens, stat queries,
+--- and directory listings are observed through the syscall table.
+--- Observations outside the root do not enter the key; the tool's own
+--- hash, in every module key, invalidates everything at once.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -44,20 +44,20 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
-local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
+local observations = require("build.filesystem_observations")
 local type compiler = require("build.compiler")
 
 local record test
   --- What the last run recorded about one test: what it read, which
   --- is what its key is computed over next time.
   record Previous
-    reads: {string}
+    reads: {observations.Observation}
   end
 
   --- One verdict ever reached, by key.
@@ -99,13 +99,14 @@ end
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
-                          reads: {string}, key: string,
-                          run_at_ns: integer): boolean, string
+                          reads: {observations.Observation}, key: string,
+                          run_at_ns: integer, cacheable?: boolean): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
     "reads, key, run_at_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
-      { integer = ran_at_ns }, text(table.concat(reads, "\n")), text(key),
+      { integer = ran_at_ns }, text(cacheable == false and
+        observations.encode_unstable() or observations.encode(reads)), text(key),
       { integer = run_at_ns } })
 end
 
@@ -117,11 +118,10 @@ local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | ni
   end
   local out: {string:test.Previous} = {}
   for _, row in ipairs(rows) do
-    local reads: {string} = {}
-    for line in row[3]:gmatch("[^\n]+") do
-      reads[#reads + 1] = line
+    local reads = observations.decode(row[3])
+    if reads ~= nil then
+      out[row[1] .. " " .. row[2]] = { reads = reads }
     end
-    out[row[1] .. " " .. row[2]] = { reads = reads }
   end
   return out
 end
@@ -187,7 +187,9 @@ end
 --- tree, is not an input to it, and nor is the build's own output.
 local function under_root(root: string, path: string): string | nil
   local relative: string
-  if path:sub(1, #root + 1) == root .. "/" then
+  if path == root then
+    relative = "."
+  elseif path:sub(1, #root + 1) == root .. "/" then
     relative = path:sub(#root + 2)
   elseif path:sub(1, 1) ~= "/" then
     relative = path
@@ -207,27 +209,46 @@ end
 --- other is read for it here, and one that is gone says so.
 local function verdict_key(root: string, hashes: {string:string}, id: string,
                            module_key: string, runtime: string,
-                           reads: {string}): string
+                           reads: {observations.Observation}, reached?: boolean):
+                           string, boolean
   local seen: {string:boolean} = {}
+  local answers: {string:string} = {}
+  local stable = true
   local paths: {string} = {}
-  for _, path in ipairs(reads) do
-    local relative = under_root(root, path)
-    if relative ~= nil and not seen[relative] then
-      seen[relative] = true
-      paths[#paths + 1] = relative
+  for _, observation in ipairs(reads) do
+    local relative = under_root(root, observation.path)
+    local identified = observation.kind .. " " .. (relative or "")
+    if relative ~= nil and not seen[identified] then
+      seen[identified] = true
+      paths[#paths + 1] = identified
+    end
+    if reached and relative ~= nil and observation.answer ~= "" then
+      local before = answers[identified]
+      if before ~= nil and before ~= observation.answer then stable = false end
+      answers[identified] = observation.answer
     end
   end
   table.sort(paths)
   local lines: {string} = { id .. " " .. module_key .. " " .. runtime }
-  for _, relative in ipairs(paths) do
-    local hash = hashes[relative]
-    if hash == nil then
-      local data = Fs.read(root .. "/" .. relative)
-      hash = data ~= nil and Hash.hex_sha256(data) or "missing"
+  for _, identified in ipairs(paths) do
+    local kind, relative = identified:match("^(.) (.*)$")
+    local answer: string
+    if answers[identified] ~= nil then
+      answer = answers[identified]
+    elseif kind == "o" then
+      answer = hashes[relative]
+      if answer == nil then
+        local data = Fs.read(root .. "/" .. relative)
+        answer = data ~= nil and Hash.hex_sha256(data) or "missing"
+      end
+    elseif kind == "s" then
+      answer = observations.stat_answer(root .. "/" .. relative)
+    else
+      answer = observations.directory_answer(root .. "/" .. relative)
     end
-    lines[#lines + 1] = relative .. " " .. hash
+    lines[#lines + 1] = observations.key_part(kind, relative, answer)
   end
-  return Hash.hex_sha256(table.concat(lines, "\n"))
+  return Hash.hex_sha256(table.concat(lines, "\n")), stable
 end
 
 --- The lines every test hit in one run, by test, read once per run
@@ -394,24 +415,13 @@ end
 
 --- Calls one test function with a fresh temporary directory as its one
 --- argument, through `pcall`, and reports what it observed opening.
-local function call_test(fn: function(any...): (any...)): boolean, string, {string}
+local function call_test(fn: function(any...): (any...)):
+                         boolean, string, {observations.Observation}
   local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
   if tmp == nil then
     return false, "could not make a temporary directory: " .. tmp_trouble, {}
   end
-  local reads: {string} = {}
-  local original = sys.open
-  sys.open = function(path: string, flags: integer,
-                      mode?: integer): integer | nil, string, integer
-    reads[#reads + 1] = path
-    return original(path, flags, mode)
-  end
-  local ok, failure = pcall(fn, tmp)
-  sys.open = original
-  if ok then
-    return true, "", reads
-  end
-  return false, tostring(failure), reads
+  return observations.call(fn, tmp)
 end
 
 --- Runs every test one `kind = "test"` module found whose stored
@@ -508,9 +518,9 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
           by_test[id] = collected
         end
       end
-      local reached = verdict_key(root, hashes, id, m.key, runtime, reads)
+      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads, true)
       local saved, trouble = record_run(records, m.path, name, passed, message,
-        Time.now_ns() or 0, reads, reached, run_at_ns)
+        Time.now_ns() or 0, reads, reached, run_at_ns, stable)
       if not saved then
         errors[#errors + 1] = id .. ": record: " .. trouble
       end
