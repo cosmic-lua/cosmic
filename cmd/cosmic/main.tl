@@ -21,7 +21,11 @@ local writer = require("build.writer")
 local help = [[
 cosmic -- a runtime for self-contained command-line software
 
-  cosmic <file.tl>   build the tree the file sits in, then run it
+  cosmic <file.tl>   build the tree the file sits in, then run it:
+                     require the file, and if what it returns is a
+                     function, call it with the file's own arguments
+                     -- argv[0] its path, the rest from argv[1] -- and
+                     exit with the integer it returns, or 0
   cosmic test        build the tree in the working directory, then
                      run every test it defines
   cosmic fix         rewrite every Teal source in the working
@@ -106,6 +110,16 @@ local function module_of(root: string, file: string): string | nil, string
   return (relative:gsub("%.tl$", ""):gsub("/", "."))
 end
 
+--- Runs a file. The file is a module: it is required once its tree is
+--- built, and if what it returns is a function, that function is
+--- called with the file's own arguments -- `argv[0]` the file's path
+--- as it was named, everything after it from `argv[1]` on -- the shape
+--- C, Lua and every shell give a program, so `#argv` and `ipairs` see
+--- exactly the arguments. An integer it returns is the exit code;
+--- anything else, or no function at all, is 0.
+--- @param file the path named on the command line
+--- @param argv the whole command line, `cosmic` at slot 0 and `file` at
+---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
   local root, trouble = directory_of(file)
   if root == nil then
@@ -213,7 +227,14 @@ local function run(file: string, argv: {integer:string}): integer
 
   local produced: any = require(name)
   if produced is function(...: any): any then
-    local status: any = produced(argv)
+    local arguments: {string} = {}
+    arguments[0] = file
+    local slot = 2
+    while argv[slot] ~= nil do
+      arguments[slot - 1] = argv[slot]
+      slot = slot + 1
+    end
+    local status: any = produced(arguments)
     if status is integer then
       return status
     end
