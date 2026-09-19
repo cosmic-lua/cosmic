@@ -112,7 +112,7 @@ end
 
 --- What the last run left of every test, by "path name".
 local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | nil, string
-  local rows, trouble = Sqlite.rows(handle, "SELECT path, test, reads FROM runs")
+  local rows, trouble = Sqlite.text_rows(handle, "SELECT path, test, reads FROM runs")
   if rows == nil then
     return nil, trouble
   end
@@ -128,7 +128,7 @@ end
 
 --- Every verdict ever reached, by key.
 local function known_verdicts(handle: Sqlite.Handle): {string:test.Verdict} | nil, string
-  local rows, trouble = Sqlite.rows(handle,
+  local rows, trouble = Sqlite.text_rows(handle,
     "SELECT key, passed, run_at_ns FROM verdicts")
   if rows == nil then
     return nil, trouble
@@ -171,7 +171,7 @@ end
 --- The staged tree's hashes by path, which is where a read of a
 --- staged file gets its hash without a second read.
 local function staged_hashes(handle: Sqlite.Handle): {string:string} | nil, string
-  local rows, trouble = Sqlite.rows(handle, "SELECT path, sha256 FROM files")
+  local rows, trouble = Sqlite.text_rows(handle, "SELECT path, sha256 FROM files")
   if rows == nil then
     return nil, trouble
   end
@@ -295,7 +295,7 @@ local function credited_hits(handle: Sqlite.Handle, credited: test.Credited,
   if have ~= nil then
     return have
   end
-  local rows, trouble = Sqlite.rows(handle,
+  local rows, trouble = Sqlite.text_rows(handle,
     "SELECT test, path, line FROM coverage_by_test WHERE ran_at_ns = ?1",
     { { integer = run_at_ns } })
   if rows == nil then

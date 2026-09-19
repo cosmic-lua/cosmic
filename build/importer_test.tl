@@ -463,7 +463,7 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
         "FROM inputs WHERE path = 'cosmic.thing'"))
     end
     assert(importer.derive(handle, true, built))
-    local rows = assert(Sqlite.rows(handle.db,
+    local rows = assert(Sqlite.text_rows(handle.db,
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
     return math.tointeger(tonumber(rows[1][1])) or -1

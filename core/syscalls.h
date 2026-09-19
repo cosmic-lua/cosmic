@@ -55,6 +55,23 @@
 COSMIC_SYSCALL(open, 3);
 
 /*
+ * ---@class TemporaryFile
+ * ---@field fd integer the open descriptor
+ * ---@field path string the created path
+ */
+
+/*
+ * --- Creates a fresh file beside `path`, exclusively, and returns its open
+ * --- descriptor and name. The requested mode has ordinary umask semantics.
+ * ---@param path string the destination the temporary file will neighbor
+ * ---@param mode? integer the creation mode, default 0o644
+ * ---@return TemporaryFile|nil file the created file, or nil on failure
+ * ---@return string error what went wrong, when file is nil
+ * ---@return integer errno the error number, when file is nil
+ */
+COSMIC_SYSCALL(open_temporary, 2);
+
+/*
  * --- Closes a descriptor.
  * ---@param fd integer the descriptor to close
  * ---@return boolean ok false on failure

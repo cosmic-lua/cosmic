@@ -1,0 +1,25 @@
+#!/bin/sh
+# Whether a macOS binary's ad-hoc signature (build/codesign.tl, attached
+# during boot on whichever host built it) is one Apple's own tooling
+# accepts. Only macOS itself can judge that -- codesign is not something
+# a Linux host can run -- so every other host takes this as a no-op: the
+# same CI step runs unchanged on every target's own worker, and only the
+# macOS one does real work.
+set -eu
+
+[ "$#" -eq 1 ] || {
+  printf 'verify-codesign: usage: %s <path-to-macos-binary>\n' "$0" >&2
+  exit 2
+}
+binary=$1
+
+case "$(uname -s)" in
+  Darwin)
+    codesign --verify --strict --verbose=2 "$binary"
+    codesign --display --verbose=4 "$binary"
+    printf 'verify-codesign: PASS (%s)\n' "$binary"
+    ;;
+  *)
+    printf 'verify-codesign: skipped (%s only verifies on macOS)\n' "$binary"
+    ;;
+esac

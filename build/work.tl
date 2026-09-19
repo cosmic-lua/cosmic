@@ -350,7 +350,7 @@ function work.open(root: string): work.Handle | nil, string
     return nil, path .. ": " .. create_trouble
   end
 
-  local versions, version_trouble = Sqlite.rows(db,
+  local versions, version_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'schema'")
   if versions == nil then
     db:close()
@@ -384,7 +384,7 @@ function work.open(root: string): work.Handle | nil, string
     db:close()
     return nil, path .. ": " .. count_trouble
   end
-  local runs, run_trouble = Sqlite.rows(db,
+  local runs, run_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'run'")
   if runs == nil then
     db:close()
@@ -759,7 +759,7 @@ end
 
 --- The hash over some of the rows of `tool`, in path order.
 local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
-  local rows, trouble = Sqlite.rows(db,
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
     "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
@@ -811,7 +811,7 @@ function work.identities(handle: work.Handle): work.Identities | nil, string
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
     "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
     "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
-  local compilers, compiler_trouble = Sqlite.rows(db,
+  local compilers, compiler_trouble = Sqlite.text_rows(db,
     "WITH RECURSIVE closure(path) AS (SELECT 'build.importer' UNION " ..
     "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
     "JOIN requires r ON r.source_hash = i.source_hash) " ..
@@ -822,7 +822,7 @@ function work.identities(handle: work.Handle): work.Identities | nil, string
   if compilers == nil then
     return nil, compiler_trouble
   end
-  local runtimes, runtime_trouble = Sqlite.rows(db,
+  local runtimes, runtime_trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(coalesce((SELECT value FROM meta " ..
     "WHERE key = 'host_image'), '') || char(10) || " .. pins .. ")))")
   if runtimes == nil then
@@ -864,7 +864,7 @@ end
 
 --- One target's core image, as the bytes a boot put in.
 function work.image(handle: work.Handle, target: string): string | nil, string
-  local rows, trouble = Sqlite.rows(handle.db,
+  local rows, trouble = Sqlite.text_rows(handle.db,
     "SELECT size, data FROM images WHERE target = ?1", { text(target) })
   if rows == nil then
     return nil, trouble

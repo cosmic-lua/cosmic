@@ -296,13 +296,13 @@ function writer.write_result(handle: work.Handle, out: string,
   if identities == nil then
     return false, identity_trouble
   end
-  local signed, sign_trouble = Sqlite.rows(db, signature_sql,
+  local signed, sign_trouble = Sqlite.text_rows(db, signature_sql,
     { text(result.main or "") })
   if signed == nil then
     return false, sign_trouble
   end
   local signature = signed[1][1]
-  local last, last_trouble = Sqlite.rows(db,
+  local last, last_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'projected'")
   if last == nil then
     return false, last_trouble
