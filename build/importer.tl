@@ -183,7 +183,10 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     if requires == nil then
       return false, file .. ": " .. requires_trouble
     end
-    local found = positions.analysis_of(parsed)
+    local found, analysis_trouble = positions.analysis_of(built, parsed)
+    if found == nil then
+      return false, file .. ": " .. analysis_trouble
+    end
     local ok, why = Sqlite.run(db,
       "INSERT INTO parsed (source_hash, has_return) VALUES (?1, ?2)",
       { text(source_hash), { integer = found.has_top_level_return and 1 or 0 } })
@@ -202,6 +205,16 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
       ok, why = Sqlite.run(db,
         "INSERT INTO tests (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
         { text(source_hash), { integer = ordinal }, text(name) })
+      if not ok then
+        return false, file .. ": " .. why
+      end
+    end
+    for ordinal, entry in ipairs(found.catalog) do
+      ok, why = Sqlite.run(db,
+        "INSERT INTO catalog (source_hash, ordinal, symbol, message, " ..
+        "guidance, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        { text(source_hash), { integer = ordinal }, text(entry.symbol),
+          text(entry.message), text(entry.guidance), { integer = entry.line } })
       if not ok then
         return false, file .. ": " .. why
       end

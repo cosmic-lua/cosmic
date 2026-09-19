@@ -50,37 +50,100 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
---- One `core/surface.c` replacement hint: the name a program reached
---- for, the guidance already raised at that site, and where it lives.
+--- The catalog entries `build.positions.catalog_of` found while parsing
+--- each planned module: every `return nil, ...` whose enclosing
+--- function's own comments named guidance for it. `id` is left for
+--- SQLite to assign, in this SELECT's own deterministic order -- the
+--- hand-authored rows below claim the low ids first, so this always
+--- continues after them the same way on every build.
+local insert_catalog_extracted =
+  "INSERT INTO out.catalog (kind, module, symbol, message, text, file, " ..
+  "line) SELECT 'error', p.path, c.symbol, c.message, c.guidance, " ..
+  "i.file, c.line FROM plan p JOIN inputs i ON i.path = p.path " ..
+  "JOIN catalog c ON c.source_hash = i.source_hash " ..
+  "ORDER BY p.path, c.ordinal"
+
+--- One hand-authored catalog row: a name or a `strerror()` message the
+--- catalog matches on, the guidance already known for it, and where it
+--- comes from.
 local record CatalogSeedRow
   symbol: string
+  message: string
   hint: string
+  file: string
   line: integer
 end
 
---- Hand-authored catalog rows: `core/surface.c`'s replacement hints,
---- migrated in as the first real content while the extractor that will
---- read `cosmic/*.tl` directly is still being built.
+--- Hand-authored catalog rows, seeded ahead of the extracted ones:
+--- `core/surface.c`'s five replacement hints (its C source is not
+--- walked by `build.positions`'s Teal-only extractor), and guidance for
+--- the handful of `strerror()` messages cosmic's own syscalls can
+--- plausibly raise -- `core/fail.h`'s `cosmic_fail` returns `nil,
+--- strerror(errno), errno`, and a stdlib wrapper like `cosmic/fs.tl`'s
+--- `path .. ": " .. trouble` stitches that literal text straight into
+--- what a program sees, so it is exactly as matchable as an authored
+--- message. `message` carries no symbol; `core_fail(errno name)` names
+--- where each guidance's `strerror()` string comes from instead.
 local catalog_seed: {CatalogSeedRow} = {
   { symbol = "io",
+    message = "",
     hint = "io is not available: files are cosmic.fs, and the standard " ..
            "streams are cosmic.fs.stdout, .stderr and .stdin",
-    line = 21 },
+    file = "core/surface.c", line = 21 },
   { symbol = "os",
+    message = "",
     hint = "os is not available: time is cosmic.time, the environment " ..
            "is cosmic.env, and processes are cosmic.proc",
-    line = 23 },
+    file = "core/surface.c", line = 23 },
   { symbol = "debug",
+    message = "",
     hint = "debug is not available: a traceback is cosmic.errors.trace",
-    line = 25 },
+    file = "core/surface.c", line = 25 },
   { symbol = "dofile",
+    message = "",
     hint = "dofile is not available: a module comes from require, and " ..
            "a file's bytes come from cosmic.fs.read",
-    line = 26 },
+    file = "core/surface.c", line = 26 },
   { symbol = "loadfile",
+    message = "",
     hint = "loadfile is not available: a module comes from require, " ..
            "and a file's bytes come from cosmic.fs.read",
-    line = 28 },
+    file = "core/surface.c", line = 28 },
+  { symbol = "ENOENT",
+    message = "No such file or directory",
+    hint = "the path does not exist -- check it is spelled right, and " ..
+           "that every parent directory already exists; cosmic.fs " ..
+           "creates no parent directories on its own",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EACCES",
+    message = "Permission denied",
+    hint = "the process does not have permission for this path -- " ..
+           "check its ownership and mode, cosmic.fs.stat's own fields",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EEXIST",
+    message = "File exists",
+    hint = "something is already at this path -- cosmic.fs.remove it " ..
+           "first, or use a call that tolerates an existing target",
+    file = "core/fail.h", line = 0 },
+  { symbol = "ENOTDIR",
+    message = "Not a directory",
+    hint = "a path segment that should be a directory is a plain file " ..
+           "instead -- check every component up to the last",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EISDIR",
+    message = "Is a directory",
+    hint = "the path names a directory where a file was expected -- " ..
+           "reading or writing needs a file path, not a directory",
+    file = "core/fail.h", line = 0 },
+  { symbol = "ENOSPC",
+    message = "No space left on device",
+    hint = "the filesystem holding this path is full",
+    file = "core/fail.h", line = 0 },
+  { symbol = "EMFILE",
+    message = "Too many open files",
+    hint = "this process already has too many files open -- close ones " ..
+           "no longer needed before opening more",
+    file = "core/fail.h", line = 0 },
 }
 
 --- Rebuilds `catalog_fts`'s index from `catalog`'s current rows: the
@@ -133,14 +196,20 @@ local function project(handle: work.Handle, path: string,
       end
     end
     for id, row in ipairs(catalog_seed) do
+      local module = row.file == "core/surface.c" and "(global)" or "(errno)"
+      local message = #row.message > 0 and text(row.message) or null
       local ok, failure = Sqlite.run(db,
         "INSERT INTO out.catalog (id, kind, module, symbol, message, " ..
         "text, file, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        { integer(id), text("error"), text("(global)"), text(row.symbol),
-          null, text(row.hint), text("core/surface.c"), integer(row.line) })
+        { integer(id), text("error"), text(module), text(row.symbol),
+          message, text(row.hint), text(row.file), integer(row.line) })
       if not ok then
         return false, failure
       end
+    end
+    local extracted, extracted_trouble = db:exec(insert_catalog_extracted)
+    if not extracted then
+      return false, extracted_trouble
     end
     local rebuilt, rebuild_trouble = db:exec(rebuild_catalog_fts)
     if not rebuilt then

@@ -85,6 +85,9 @@ local active: Coverage.Session | nil = nil
 --- silently reset a collection already in progress.
 --- @return Session | nil The session `stop` must be called with, or nil if refused
 --- @return string Error message when refused, "" on success
+--- guidance: only one collection window may be open at a time -- call
+--- Coverage.stop with the session an earlier Coverage.start returned
+--- before starting another
 function Coverage.start(): Coverage.Session | nil, string
   if collecting then
     return nil, "coverage collection is already active"
