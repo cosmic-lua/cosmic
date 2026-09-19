@@ -3,7 +3,7 @@
 #include "lauxlib.h"
 
 /* Where the current collection's hits live between one `start` and its
- * matching `stop`: {short_src: {line: true}}. `start` always replaces
+ * matching `stop`: {source: {line: true}}. `start` always replaces
  * this with a fresh, empty table, so a `stop` with no matching `start`
  * reads whatever the last `start` put here (or nothing at all, before
  * any `start` ever ran) rather than crashing -- the Lua-side session
@@ -20,18 +20,28 @@
  * code to call `debug.getinfo`, answering "what file, what line" here
  * costs no table or string allocation beyond the one line this hook
  * itself records. Everything after that is plain table writes through
- * the C API: hits[ar->short_src][ar->currentline] = true, creating the
+ * the C API: hits[source][ar->currentline] = true, creating the
  * per-file table the first time a given file is seen. */
 static void native_line_hook(lua_State *L, lua_Debug *ar) {
   lua_getinfo(L, "Sl", ar);
 
+  /* short_src is a truncated display label, not a module identity.
+   * File chunks use @module; strip only that marker to match store keys. */
+  const char *source = ar->source;
+  size_t length = ar->srclen;
+  if (length > 0 && source[0] == '@') {
+    source++;
+    length--;
+  }
   lua_getfield(L, LUA_REGISTRYINDEX, COVERAGE_HITS); /* hits */
-  lua_getfield(L, -1, ar->short_src);                /* hits, hits[src]? */
+  lua_pushlstring(L, source, length);
+  lua_gettable(L, -2); /* hits, hits[src]? */
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
     lua_newtable(L);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, -3, ar->short_src); /* hits[src] = new table */
+    lua_pushlstring(L, source, length);
+    lua_pushvalue(L, -2);
+    lua_settable(L, -4); /* hits[src] = new table */
   }
   lua_pushboolean(L, 1);
   lua_seti(L, -2, ar->currentline); /* hits[src][line] = true */

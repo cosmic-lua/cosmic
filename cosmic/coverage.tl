@@ -63,9 +63,8 @@ end
 
 local record Coverage
   --- Every source line hit while collecting was on, by the module's
-  --- own import path -- a chunk's `short_src`, which is exactly its
-  --- import path for every module this runtime loads (see
-  --- cosmic/internal/debug.d.tl).
+  --- own import path: the chunk's full source identifier with its
+  --- leading `@` removed (see cosmic/internal/debug.d.tl).
   type Hits = NativeCoverage.Hits
 
   --- An opaque handle to one open collection window, compared only by
