@@ -128,54 +128,63 @@ that runs both, coverage reported the same way for either.
 
 `cosmic docs` and `cosmic uses` (#1885) read the `docs` and `uses`
 tables every build now derives, and checking them against the tree
-shows the stdlib itself is already documented: every public function
-in `cosmic.fs`, `cosmic.hash`, `cosmic.env`, `cosmic.proc`,
+shows the stdlib is already documented: every public function in
+`cosmic.fs`, `cosmic.hash`, `cosmic.env`, `cosmic.proc`,
 `cosmic.errors`, `cosmic.sqlite`, `cosmic.store`, `cosmic.time`,
 `cosmic.compress`, and `cosmic.coverage` carries a doc comment `cosmic
-docs <Symbol>` prints. What is missing is guide prose: `doc/guides/`
-holds exactly one file, `quickstart.md`, covering `cosmic.hash` and
-`cosmic.fs`. Per meta.md, a guide is short, stands alone, and every
-example in it runs, so this is several small files, not one long one.
+docs <Symbol>` prints. Any narrative gap this turns up belongs in the
+doc comment itself, not in a new `doc/guides/*.md` file: the doc
+comment is what is already in the index, what an uncaught error
+already surfaces as guidance (the `catalog`-joined-to-`docs` change in
+this same PR), and what `cosmic fix` already keeps honest against the
+source beside it. A separate guide is a second place to write the
+same fact and a second place for it to go stale.
 
-- **`docs.md`**: reading a module's own shipped database instead of
-  grepping source -- a symbol (`Fs.read`), a symbol's last name alone
-  (`read`, every `X.read`), a module (`cosmic.fs`), or words that hit
-  `docs_fts` when no name matches; `cosmic uses <symbol>` for every
-  `file:line` that calls it. Costs little to write, since this
-  session's own exploration is the walkthrough, and it documents the
-  feature this same PR landed.
-- **`errors.md`**: the `T | nil, string` / `boolean, string` return
-  convention, `cosmic.errors.trace`, and what changed under #1885 --
-  an uncaught error now prints the Teal line it was raised on and the
-  doc comment of the function that raised it, read from `catalog`
-  joined against `docs`. Today that behavior is proven only by
-  `build/docs_test.tl` and design.md prose; no guide shows a caller
-  hitting it.
-- **`sqlite.md`**: `cosmic.sqlite` has no guide despite being the
-  most-used core module with one (`Sqlite.rows`: 49 uses, `Sqlite.run`:
-  34) -- `Sqlite.open` vs `Sqlite.memory`, `rows` vs `run`, `transact`,
-  and the `Value` binding shape.
-- **`testing.md`**: `*_test.tl` discovery, the `test_*` convention, the
-  directory argument every test receives, and coverage, written for
-  someone building their own project rather than for a contributor
-  editing this tree (AGENTS.md already covers the latter).
-- **a project-layout guide**: quickstart.md runs two standalone
-  examples; nothing shows a multi-file project -- several modules,
-  `require` between them, `cosmic fix`, `cosmic test` -- from an empty
-  directory to a passing test. This is the gap someone outside this
-  repo actually hits first.
-- **`time.md`, `env.md`, `proc.md`**: small single-purpose modules,
-  short guides each rather than folding into quickstart.md.
-- **`store.md`**: `cosmic.store` and the reserved-`cosmic.internal`
-  pattern design.md documents in prose but no guide demonstrates --
-  worth writing once `docs.md` exists, since both read
-  `Store.databases()`.
-- **not yet**, deliberately: `compress.md` and `coverage.md`.
-  `cosmic.compress` only backs the store's own images and
-  `cosmic.coverage`'s own doc comment says its only caller is
-  `build.test`'s whole-run instrumentation -- neither has a second
-  caller yet, so a user guide would describe a library with one user,
-  against "the least tree that keeps its promises."
+**the actual gap: no example is attached to a symbol.** `cosmic docs`
+prints a signature and a doc comment; it has nothing runnable to show
+underneath, the way godoc prints a type's `ExampleType_Method`
+alongside its doc. `build/work.tl`'s `inputs` view already reserves
+the shape -- `*_example.tl` GLOBs to `kind = 'example'` next to
+`*_test.tl`'s `kind = 'test'` -- but nothing produces such a file
+today, and nothing downstream (`build/positions.tl`, `build/test.tl`,
+`build/docs.tl`) treats that kind as anything but an inert label.
+Closing this is a build feature, not a writing task:
+
+- **association without a tag.** `record_docs`/`docs_of` already read
+  `function Fs.read(...)` structurally, by walking the `record_function`
+  node's `fn_owner` and name -- no `guidance:`-style comment, because
+  design.md's own rule for the error catalog is that there is no
+  second place to write an association. An example should be found the
+  same way: `cosmic/fs_example.tl` declares `local Example = {}` and
+  `function Example.read()`, and the importer resolves `Example.read`
+  against the paired module (`fs_example` strips to `cosmic.fs`) and
+  that module's own entry record (`Fs`, the capitalized basename every
+  module already uses) to the real symbol, `Fs.read`. No name-mangling
+  of a dotted symbol into an identifier, which is ambiguous the moment
+  a method name has its own underscore (`hex_sha256`).
+- **verification stays `assert`.** An example is compiled and run
+  exactly like a `test_*` function -- same runner, same verdict cache,
+  same failing-gate rule from meta.md -- rather than a second
+  captured-output mechanism like doc guides' `output` fenced blocks.
+  One assertion mechanism for code, one for markdown prose; a symbol's
+  example does not need a third.
+- **what ships:** a table (`examples`: module, symbol, file, line,
+  source, alongside `docs` and `uses` in schema.tl) so `cosmic docs
+  Fs.read` can print the example's own source beneath its doc comment,
+  the way godoc shows the code, not just a claim that one exists.
+- **touches:** `build/schema.tl` (the table), `build/positions.tl` (an
+  `examples_of` walk beside `docs_of`), `build/importer.tl` (insert
+  during `parse_new`, and stop double-counting an example file's
+  functions as its own module's ordinary docs), `build/test.tl`
+  (`kind = 'example'` runs alongside `kind = 'test'`), `build/docs.tl`
+  and `build/writer.tl` (render the example under its symbol). Real
+  surface area across the build, not a doc-only change, which is why
+  it is scoped here rather than started inline.
+
+worth deciding before writing it: whether this session builds the
+above now, in the same PR the docs-only pass already touched, or
+whether it lands as its own change once scoped and reviewed on its
+own.
 
 separately, README.md's own `sh`/`output` example is not swept by the
 doctest extractor, which discovers exactly `doc/guides/*.md` (see
