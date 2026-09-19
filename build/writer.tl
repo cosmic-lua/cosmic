@@ -3,9 +3,10 @@
 --- `o/cosmic.db` is a projection of the working database: a fresh
 --- schema attached in memory, filled in one transaction by queries
 --- over rows the build already holds -- the images a boot put there,
---- this run's plan joined to the inputs and compiles it names -- and
---- produced by `VACUUM INTO`, so a second build of the same tree is
---- byte-identical.
+--- this run's plan joined to the inputs and compiles it names, the
+--- declarations a checker needs to build a tree against this one --
+--- and produced by `VACUUM INTO`, so a second build of the same tree
+--- is byte-identical.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -61,6 +62,9 @@ local function project(handle: work.Handle, path: string,
     end
     statements[#statements + 1] = insert_modules
     statements[#statements + 1] = insert_imports
+    statements[#statements + 1] =
+      "INSERT INTO out.decls (path, source) SELECT path, source FROM inputs " ..
+      "WHERE kind = 'decl' ORDER BY path"
     statements[#statements + 1] =
       "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
       "SELECT target, sha256, size, encoding, data FROM images ORDER BY target"

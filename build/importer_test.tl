@@ -145,3 +145,25 @@ local function test_boot_hash_tracks_embedded_inputs()
   assert(Fs.remove(root .. "/cosmic/added.tl"))
   assert(boot_hash_of(root) == original)
 end
+
+--- A tree that is not cosmic's own can `require` the standard library
+--- and be checked against it: the binary carries every `cosmic.*`
+--- source and declaration, and the checker is answered from those
+--- rows for a name the tree itself does not hold.
+local function test_types_the_standard_library_from_the_binary()
+  local root, write_trouble = write_fixture("stdlib", {
+    ["main.tl"] = table.concat({
+      'local Fs = require("cosmic.fs")',
+      "local function exists(path: string): boolean",
+      "  return Fs.exists(path)",
+      "end",
+      "return exists",
+      "",
+    }, "\n"),
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local requires, trouble = requires_of_fixture(root, "main")
+  assert(requires ~= nil, "compile failed: " .. tostring(trouble))
+  assert(#requires == 1 and requires[1] == "cosmic.fs",
+    "expected cosmic.fs, got " .. table.concat(requires, ", "))
+end

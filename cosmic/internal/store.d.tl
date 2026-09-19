@@ -13,6 +13,11 @@ local record store
   -- One entry of the meta table, which is where the build records what
   -- it decided. Nil when no database holds that key.
   meta: function(key: string): string | nil
+
+  -- One module's Teal source, or a declaration's, from the binary's own
+  -- database and no other: what a checker building another tree needs
+  -- to type a `require` of this one's modules.
+  source: function(path: string): string | nil, string
 end
 
 return store

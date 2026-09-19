@@ -66,20 +66,14 @@ the same facilities and the same ergonomics as Lua and Teal testing,
 not a separate system beside it, one discovery convention, one verb
 that runs both, coverage reported the same way for either.
 
-- **cosmic's own stdlib is unresolvable from outside its tree** --
-  very soon, not deferred: `require("cosmic.fs")` (or any `cosmic.*`
-  module) fails to
-  compile at all in a project that is not cosmic's own source
-  checkout -- confirmed directly (`cosmic: probe.tl: the compiler
-  refused it` / `probe.tl:1:19: module not found: 'cosmic.fs'`), not
-  a checking gap. `build/teal.tl`'s `environment_for` points the
-  checker's own module path (`built.path`) at the project's root and
-  its own generated `root/o/types`, never at wherever the binary
-  itself keeps its stdlib's declarations, so nothing outside this
-  repo can use any `cosmic.*` module today, for checking or for
-  running either one. This, not a missing verb, is what "a real
-  project imports more than a trivial one-file script" was actually
-  pointing at.
+- **cosmic's own stdlib resolves from outside its tree** -- landed:
+  the binary ships every `cosmic.*` source and declaration as rows
+  (`decls` beside `modules`), and the checker's module search falls
+  through to them for a name the project's own stage does not hold,
+  so `require("cosmic.fs")` in a project that is not cosmic's own
+  checkout compiles, is typed, and runs, with nothing of this repo on
+  disk. This, not a missing verb, is what "a real project imports
+  more than a trivial one-file script" was actually pointing at.
 - **the rewrite rules `cosmic fix` applies.** the verb has landed, and
   with it the renderer that writes a parsed tree back out as source; its
   rule list is empty, because the rules worth writing are lint fixes and

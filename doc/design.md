@@ -265,6 +265,9 @@ input to the build, never to the runtime. one database holds:
   rest; two of the three are inert on any host.
 - **roots**: Mozilla's CA bundle.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
+- **decls**: every declaration the tree holds, generated or written,
+  so a checker building another tree against this binary can type
+  what it requires.
 
 every table is `WITHOUT ROWID` on a natural key. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
@@ -309,7 +312,12 @@ queries across both.
 a project's own build database, `o/cosmic.db`, is read ahead of the
 binary's: when cosmic runs or tests a project, `require` answers from
 the project's database first and the binary's second, except for
-`cosmic.*`, which the binary answers first. the importer refuses a
+`cosmic.*`, which the binary answers first. the checker is answered
+the same way while the project builds: a `cosmic.*` name the
+project's stage does not hold is typed from the source and the
+declarations the binary carries as rows, so a project imports the
+standard library with its types and nothing of cosmic's tree on
+disk. the importer refuses a
 project tree that holds a `cosmic/` directory or an import path
 under `cosmic.`, naming the path, so a project cannot shadow the
 standard library by accident or on purpose. that is how the tool

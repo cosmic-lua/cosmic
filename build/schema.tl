@@ -30,6 +30,9 @@ local tables: {{string}} = {
                  encoding TEXT NOT NULL,
                  data BLOB NOT NULL) WITHOUT ROWID]] },
 
+  { "decls", [[(path TEXT PRIMARY KEY,
+                source TEXT NOT NULL) WITHOUT ROWID]] },
+
   { "payload", [[(path TEXT PRIMARY KEY,
                   data BLOB NOT NULL) WITHOUT ROWID]] },
 }

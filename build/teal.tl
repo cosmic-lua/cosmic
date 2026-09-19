@@ -188,10 +188,12 @@ local disk_search: {compiler:function(string, boolean): (string | nil, any)} = {
 --- Points the checker at a staged tree: every module it asks for by
 --- name is answered from the working database's `inputs`, a
 --- declaration ahead of a source of the same name, under the name the
---- module would have on disk. Nothing the tree holds is read from a
---- path; what the stage does not hold falls through to the compiler's
---- own search, which is what the bridge uses at boot for modules the
---- stage does not exist for yet.
+--- module would have on disk. A `cosmic.*` name the stage does not
+--- hold is answered by the binary's own rows, which is how a project
+--- outside this tree types its `require` of the standard library.
+--- Nothing is read from a path; what neither holds falls through to
+--- the compiler's own search, which is what the bridge uses at boot
+--- for modules the stage does not exist for yet.
 local function serve(built: compiler, handle: work.Handle)
   if disk_search[built] == nil then
     disk_search[built] = built.search_module
@@ -204,11 +206,17 @@ local function serve(built: compiler, handle: work.Handle)
     local rows = Sqlite.rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
       "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
+    local stem = name:gsub("%.", "/")
     if rows ~= nil and #rows > 0 then
       local kind, source = rows[1][1], rows[1][2]
-      local stem = name:gsub("%.", "/")
       return root .. "/" .. stem .. (kind == "decl" and ".d.tl" or ".tl"),
         served(source)
+    end
+    if name:sub(1, 7) == "cosmic." then
+      local source = Store.source(name)
+      if source ~= nil then
+        return root .. "/" .. stem .. ".tl", served(source)
+      end
     end
     return original(name, search_all)
   end
