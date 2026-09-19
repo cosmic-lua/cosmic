@@ -1,0 +1,46 @@
+file: tl.lua
+note: a write to `x` or `x.field` drops the field's narrow before the LHS is even visited, not after the whole statement is checked -- type_check_index (patched by 09-narrow-record-field-dot.txt) substitutes any live narrow the moment the LHS is visited to derive the assignment's own expected type (children[1], read below in `after`), so dropping from `after` would be too late: the mismatch against the stale narrowed type is already raised by the time `after` runs. A `before` callback fires ahead of every child visit, which is the only hook early enough. `x = ...` drops every `x.*` field narrow; `x.field = ...` drops just that one
+--- find
+      ["assignment"] = {
+         before_exp = set_expected_types_to_decltuple,
+         after = function(self, node, children)
+            local vartuple = children[1]
+            assert(vartuple.typename == "tuple")
+            local vartypes = vartuple.tuple
+            local valtuple = children[3]
+            assert(valtuple.typename == "tuple")
+            local valtypes = get_assignment_values(node, valtuple, #vartypes)
+            for i, vartype in ipairs(vartypes) do
+               local varnode = node.vars[i]
+               local varname = varnode.tk
+               local valtype = valtypes.tuple[i]
+               local rvar, rval, err = self:check_assignment(varnode, vartype, valtype)
+--- replace
+      ["assignment"] = {
+         before = function(self, node)
+            for _, varnode in ipairs(node.vars) do
+               local varname = varnode.tk
+               if varname then
+                  self:drop_field_narrows(varname .. ".")
+               else
+                  local field_key = fact_key(varnode)
+                  if field_key then
+                     self:drop_field_narrows(field_key)
+                  end
+               end
+            end
+         end,
+         before_exp = set_expected_types_to_decltuple,
+         after = function(self, node, children)
+            local vartuple = children[1]
+            assert(vartuple.typename == "tuple")
+            local vartypes = vartuple.tuple
+            local valtuple = children[3]
+            assert(valtuple.typename == "tuple")
+            local valtypes = get_assignment_values(node, valtuple, #vartypes)
+            for i, vartype in ipairs(vartypes) do
+               local varnode = node.vars[i]
+               local varname = varnode.tk
+               local valtype = valtypes.tuple[i]
+               local rvar, rval, err = self:check_assignment(varnode, vartype, valtype)
+--- end

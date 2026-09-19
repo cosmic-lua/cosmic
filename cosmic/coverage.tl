@@ -90,9 +90,19 @@ end
 --- Refuses, touching no shared state, while a window opened by an
 --- earlier `start` is still open -- a second, unrelated caller cannot
 --- silently reset a collection already in progress.
+---
+--- `install_hook` (default true) governs only whether the per-line
+--- hook itself goes in: a caller that passes false still opens a real
+--- window -- `stop` still ends it, a second `start` still refuses --
+--- it just collects nothing, at none of the per-line `debug.getinfo`
+--- cost. `build.test` uses this to keep the window/session contract
+--- its own tests rely on without paying that cost on every run, until
+--- a collector cheap enough to leave on by default lands (see
+--- doc/roadmap.md).
+--- @param install_hook boolean? Install the actual line hook (default true)
 --- @return Session | nil The session `stop` must be called with, or nil if refused
 --- @return string Error message when refused, "" on success
-function Coverage.start(): Coverage.Session | nil, string
+function Coverage.start(install_hook?: boolean): Coverage.Session | nil, string
   if collecting then
     return nil, "coverage collection is already active"
   end
@@ -100,7 +110,9 @@ function Coverage.start(): Coverage.Session | nil, string
   collecting = true
   local session: Coverage.Session = {}
   active = session
-  dbg.sethook(on_line, "l")
+  if install_hook ~= false then
+    dbg.sethook(on_line, "l")
+  end
   return session, ""
 end
 

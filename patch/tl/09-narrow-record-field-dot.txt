@@ -1,0 +1,73 @@
+file: tl.lua
+note: a truthy `x.field` read (an `if x.field then` guard, or the left operand of `and`, which already marks truthy_read regardless of kind) narrows the field's nil union the same way a plain variable already does, and a live narrow recorded on it is read back here too
+--- find
+            if node.op.op == "." then
+               node.receiver = ua
+
+               assert(node.e2.kind == "identifier")
+               local bnode = node_at(node.e2, {
+                  tk = node.e2.tk,
+                  kind = "string",
+               })
+               local btype = a_type(node.e2, "string", { literal = node.e2.tk })
+               local t = self:type_check_index(node.e1, bnode, ua, btype)
+
+               if t.needs_compat and self.gen_compat ~= "off" then
+
+                  if node.e1.kind == "variable" and node.e2.kind == "identifier" then
+                     local key = node.e1.tk .. "." .. node.e2.tk
+                     node.kind = "variable"
+                     node.tk = "_tl_" .. node.e1.tk .. "_" .. node.e2.tk
+                     self.all_needs_compat[key] = true
+                  end
+               end
+
+               return t
+            end
+--- replace
+            if node.op.op == "." then
+               node.receiver = ua
+
+               assert(node.e2.kind == "identifier")
+               local bnode = node_at(node.e2, {
+                  tk = node.e2.tk,
+                  kind = "string",
+               })
+               local btype = a_type(node.e2, "string", { literal = node.e2.tk })
+               local t = self:type_check_index(node.e1, bnode, ua, btype)
+
+               -- A prior narrow recorded for this field is read back
+               -- here, which is what lets a chain like `o.sub.x` see a
+               -- narrow recorded on `o.sub` through `o.sub`'s own
+               -- return value. A truthy read here (`if x.field then`,
+               -- or the left operand of `and`) then sets the fact for
+               -- reads that follow; `==`/`~=` nil and `assert` set it
+               -- at their own call sites, keyed the same way.
+               local field_key = fact_key(node)
+               if field_key then
+                  local narrowed = self:find_var_type(field_key, "check_only")
+                  if narrowed then
+                     t = narrowed
+                  end
+                  if node.truthy_read or
+                     (node.expected and node.expected.typename == "boolean_context") then
+                     local typ = without_nil(self, node, t, true)
+                     if typ then
+                        node.known = IsFact({ var = field_key, typ = typ, w = node })
+                     end
+                  end
+               end
+
+               if t.needs_compat and self.gen_compat ~= "off" then
+
+                  if node.e1.kind == "variable" and node.e2.kind == "identifier" then
+                     local key = node.e1.tk .. "." .. node.e2.tk
+                     node.kind = "variable"
+                     node.tk = "_tl_" .. node.e1.tk .. "_" .. node.e2.tk
+                     self.all_needs_compat[key] = true
+                  end
+               end
+
+               return t
+            end
+--- end

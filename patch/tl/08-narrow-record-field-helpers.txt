@@ -1,0 +1,71 @@
+file: tl.lua
+note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers every record-field narrowing patch below shares
+--- find
+   function TypeChecker:type_check_index(anode, bnode, a, b)
+--- replace
+   -- A fact key for record-field narrowing. A bare variable's key is
+   -- its own name; `x.field`'s key is "varname.fieldname" -- a string
+   -- no real identifier can ever collide with, since a Lua name never
+   -- contains a dot -- so a field guard shares the SAME scope.vars
+   -- table a plain variable's narrow already lives in, and gets that
+   -- table's shadowing, widening, and end-of-scope cleanup for free.
+   -- Only a bare-variable base is tracked; `a.b.c` does not chain.
+   local function fact_key(n)
+      if n.kind == "variable" then
+         return n.tk
+      end
+      if n.kind == "op" and n.op.op == "." and n.e1.kind == "variable" then
+         return n.e1.tk .. "." .. n.e2.tk
+      end
+      return nil
+   end
+
+   -- The current type behind a fact key, even the first time a field
+   -- key is narrowed: a plain variable's is whatever the checker
+   -- already tracks for it (find_var_type finds it directly); a field
+   -- key with no narrow recorded yet falls back to the field's type as
+   -- declared on the base variable's CURRENT type. This must be a
+   -- SILENT query -- by the time a fact composed with another (an
+   -- `or`, say) is finally applied, the scope that temporarily
+   -- narrowed the base variable while the fact was built has already
+   -- closed, so its current type can be one the field access that
+   -- created the fact never actually ran against (`any`, typically).
+   -- match_record_key, unlike type_check_index, never adds an error
+   -- itself -- it hands nil plus a message back to its caller to
+   -- report -- so a base that turns out not to carry this field after
+   -- all just answers nil here, the same as an unknown variable would.
+   function TypeChecker:fact_base_type(f)
+      local typ = self:find_var_type(f.var, "check_only")
+      if typ then
+         return typ
+      end
+      local dot = string.find(f.var, ".", 1, true)
+      if not dot then
+         return nil
+      end
+      local base = self:find_var_type(string.sub(f.var, 1, dot - 1), "check_only")
+      if not base then
+         return nil
+      end
+      local fname = string.sub(f.var, dot + 1)
+      return (self:match_record_key(base, f.w, fname))
+   end
+
+   -- A write to `x` or to `x.field` drops any narrow recorded for that
+   -- field -- do not narrow across an intervening write, the same
+   -- rule a bare variable's own fact already follows. `prefix` is
+   -- "x." to drop every field of x, or the exact field key itself to
+   -- drop only that one.
+   function TypeChecker:drop_field_narrows(prefix)
+      for i = #self.st, 1, -1 do
+         local scope = self.st[i]
+         for name in pairs(scope.vars) do
+            if name:sub(1, #prefix) == prefix then
+               scope.vars[name] = nil
+            end
+         end
+      end
+   end
+
+   function TypeChecker:type_check_index(anode, bnode, a, b)
+--- end
