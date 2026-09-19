@@ -7,19 +7,25 @@ next and what is undecided.
 
 ## self-check
 
-`cosmic test` gates cosmic's own tree, incrementally, under the
-foreclosed-cast checker, with records in a database of their own.
+`cosmic test` compiles the whole tree with the patched Teal checker
+and runs every discovered test in-process, with records in a database
+of their own. incremental compilation and test selection are not yet
+implemented, nor is the planned restriction on casts.
 tests, the in-process runner, and a real Teal AST (`build.ast`:
 parse, walk, structural match, rewrite) have already landed; what
 follows leans on `build.ast`, still build-internal today, and on
 `o/records.db`, which already holds test verdicts.
 
 there is no separate `cosmic check` verb, and none is planned:
-checking already runs, unconditionally, on every `cosmic test`,
-`cosmic fix`, and plain `cosmic file.tl` invocation. `build/
+type and visibility checking run on every `cosmic test` and plain
+`cosmic file.tl` invocation. `cosmic fix` parses, rewrites, renders,
+and checks the rendered AST and comments against the rewritten input;
+it does not run type or visibility checking. `build/
 importer.tl`'s `complain()` folds syntax errors, type errors, and
 warnings into one list, and any of them refuses the whole compile --
-warnings are already errors, everywhere, today. `build/positions.tl`'s
+remaining compiler warnings are errors on these compile paths
+(the importer filters unused discovered test functions and generated
+doctest `print` shadowing warnings). `build/positions.tl`'s
 sibling-privacy check runs the same way, on every compile -- see the
 visibility lint entry below, which this same mechanism already closes.
 
@@ -76,7 +82,7 @@ that runs both, coverage reported the same way for either.
 - **the rewrite rules `cosmic fix` applies.** the verb has landed, and
   with it the renderer that writes a parsed tree back out as source; its
   rule list is empty, because the rules worth writing are lint fixes and
-  the lint waits on the narrowing patches below. adding one is the whole
+  the lint rules have not yet been implemented. adding one is the whole
   cost of a new fix: no part of the pipeline moves around it.
 - **the visibility lint has landed**, and turned out to already be
   built: `build/positions.tl`'s sibling-privacy check -- a directory

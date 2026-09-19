@@ -358,7 +358,11 @@ exactly two seeds that nothing in the repository built, and they are
 named here: the POSIX sh `bin/zig` and the zig tarball its pin
 verifies. everything else is vendored or built from it.
 
-the build is fast, incremental, and reproducible, all three at once:
+the target build architecture is fast, incremental, and reproducible.
+today the importer computes dependency keys but recompiles every module;
+the runner executes every discovered test in-process. reuse of compiled
+modules, test selection from observed reads, and child-process isolation
+are planned below, not implemented:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, the boot hash, and, for
@@ -406,15 +410,16 @@ engine, and tl.
 ### teal
 
 tl vendored, carried patches, upstream-first and fork-if-blocked.
-casts are foreclosed: `x as T` type-checks only from `any`, from a
+the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
 enters and a shape validator turns it into a record by construction.
-no justification comments, no ledger. the rule is switched on from
-the first line, which is possible only because the narrowing gaps
-that forced casts before it, record-field narrowing and container
-covariance chiefly, land as carried patches before `cosmic check`
-and the lint rules `cosmic fix` applies do; both gate on them.
+no justification comments, no ledger in the target policy. this cast
+restriction is not implemented. record-field narrowing has landed as
+carried patches; container covariance was dropped (see the roadmap).
+there is no planned `cosmic check` verb: compilation performs checking,
+while `cosmic fix` currently operates on syntax and has no production
+rewrite rules.
 
 the spirit is consistent, strong, explicit typing, the same shape the
 languages that hold it converged on: the top type inert until
@@ -424,12 +429,12 @@ declared shapes. a runtime-checked cast is closed to Teal because
 Lua erases record types, so shapes construct their records rather
 than asserting them.
 
-three rules follow. `any` never assigns into a typed slot; tl
-already refuses that on assignment, argument, return, index, and
+the target type policy adds three rules. `any` never assigns into a
+typed slot; tl already refuses that on assignment, argument, return, index, and
 call. an unannotated parameter is an error, never an implicit `any`,
-which tl does not enforce and a lint does. `v is R` for a record `R`
-is refused on an `any` or a union of records by lint, because it
-compiles to a table check that cannot tell two records apart; the
+which tl does not enforce and a planned lint would. `v is R` for a
+record `R` would be refused on an `any` or a union of records by lint,
+because it compiles to a table check that cannot tell two records apart; the
 shape module is the way in. the checker's own hint on an `any`
 index points at a shape, not at a cast. the per-release report
 names the modules that cast from `any`; the expected list is the
