@@ -160,3 +160,13 @@ local function test_temporary_rules_restore_the_existing_registry()
     assert(registered[1] == probe and registered[2] == other)
   end)
 end
+
+--- Canonical rewritten bytes still differ from the original input.
+local function test_canonical_rewriting_reports_a_change()
+  with_rule(probe, function()
+    local result, trouble = fix.source(built, "print(a)\n", "probe.tl")
+    assert(result ~= nil, tostring(trouble))
+    assert(result.source == "log(a)\n")
+    assert(result.changed, "a rewrite must report its change")
+  end)
+end

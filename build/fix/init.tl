@@ -90,15 +90,15 @@ function fix.sources(root: string): {string} | nil, string
 end
 
 --- The whole pipeline over one file's source: parse, rewrite, render,
---- and then read the result back to check it still says the same thing.
+--- and check that rendering still says the same thing.
 ---
 --- That last step is not a test, it is part of the verb. A renderer
 --- that is merely self-consistent can be consistently wrong -- `local x
 --- <const> = 5` re-emitted as `local x < const > = 5` is stable and
---- idempotent -- so nothing is written until the rendered text has been
---- parsed again and compared, tree and comments, against the tree it
---- came from. A file that fails the comparison is reported and left
---- exactly as it was.
+--- idempotent -- so changed rendered text is parsed again and compared,
+--- tree and comments, against the tree it came from. Identical bytes
+--- already preserve both and need no second parse. A file that fails
+--- the comparison is reported and left exactly as it was.
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string
 --- @param name string Filename used in diagnostics
@@ -117,6 +117,9 @@ function fix.source(built: compiler, source: string,
   local out, render_trouble = render_mod.rendered(before, rewritten)
   if out == nil then
     return nil, render_trouble
+  end
+  if out == rewritten then
+    return { source = out, changed = out ~= source }
   end
   local after, reparse_trouble = ast.parse(built, out, name)
   if after == nil then
