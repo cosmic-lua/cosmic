@@ -302,8 +302,10 @@ static bool source_position(lua_State *L, const char *message) {
       continue;
     }
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+    bool owned = false;
     bool found = false;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
+      owned = true;
       const char *file = (const char *)sqlite3_column_text(stmt, 0);
       const char *source = (const char *)sqlite3_column_text(stmt, 1);
       const char *p = source == NULL ? "" : source;
@@ -324,8 +326,8 @@ static bool source_position(lua_State *L, const char *message) {
       }
     }
     sqlite3_finalize(stmt);
-    if (found) {
-      return true;
+    if (owned) {
+      return found;
     }
   }
   return false;
