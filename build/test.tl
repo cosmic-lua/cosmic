@@ -793,6 +793,11 @@ function test.run(argv: {integer:string}): integer
     cov_pct, cov_hit, cov_total)
 
   if #failures == 0 and #errors == 0 then
+    if total == 0 then
+      report("test: nothing to run: a test is a top-level `local function " ..
+        "test_*` of a *_test.tl file, or a function of the `Example` " ..
+        "record a *_example.tl file returns")
+    end
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood)")
     report(cov_line)

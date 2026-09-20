@@ -22,13 +22,20 @@ local writer = require("build.writer")
 local help = [[
 cosmic -- a runtime for self-contained command-line software
 
-  cosmic <file.tl>   build the tree the file sits in, then run it:
-                     require the file, and if what it returns is a
-                     function, call it with the file's own arguments
-                     -- argv[0] its path, the rest from argv[1] -- and
-                     exit with the integer it returns, or 0
+  cosmic <file.tl>   build the tree the file sits in -- the working
+                     directory when the file is under it, so a file
+                     of a project reaches the rest of it; the file's
+                     own directory otherwise -- then run it: require
+                     the file, and if what it returns is a function,
+                     call it with the file's own arguments -- argv[0]
+                     its path, the rest from argv[1] -- and exit with
+                     the integer it returns, or 0
   cosmic test        build the tree in the working directory, then
-                     run every test it defines
+                     run every test it defines: each top-level
+                     `local function test_*` of a *_test.tl file, and
+                     each function of the `Example` record a
+                     *_example.tl file returns, which `cosmic docs`
+                     also shows under every symbol it calls
   cosmic fix         rewrite every Teal source in the working
                      directory structurally, then write it back out
                      as canonical text, in place
@@ -99,6 +106,23 @@ local function directory_of(path: string): string | nil, string
   return parent
 end
 
+--- The tree a file run builds: the working directory when the file
+--- sits under it, so `cosmic cmd/notes/main.tl` from a project's root
+--- builds the project as `test` and `build` do and the file reaches
+--- the rest of it; the file's own directory otherwise, so a file
+--- anywhere else runs on its own.
+local function root_of(file: string): string | nil, string
+  local resolved, trouble = Fs.absolute(file)
+  if resolved == nil then
+    return nil, file .. ": " .. trouble
+  end
+  local here = Fs.absolute(".")
+  if here ~= nil and (here == "/" or resolved:sub(1, #here + 1) == here .. "/") then
+    return here
+  end
+  return directory_of(file)
+end
+
 --- The module a file is, as its path relative to the root says.
 local function module_of(root: string, file: string): string | nil, string
   local resolved, trouble = Fs.absolute(file)
@@ -126,7 +150,7 @@ end
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
-  local root, trouble = directory_of(file)
+  local root, trouble = root_of(file)
   if root == nil then
     complain("cosmic: " .. trouble)
     return 1
