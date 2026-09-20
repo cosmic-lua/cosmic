@@ -57,6 +57,16 @@ int main(int argc, char **argv) {
     fail("ordinary environment");
   if (strcmp(need("PORTABLE_CALLER_LOCALE"), "preserved") != 0)
     fail("caller locale environment");
+  const char *expected_umask = getenv("PORTABLE_EXPECT_UMASK");
+  if (expected_umask != NULL) {
+    char *umask_end = NULL;
+    long expected_mode = strtol(expected_umask, &umask_end, 8);
+    mode_t actual_mode = umask(0);
+    umask(actual_mode);
+    if (umask_end == NULL || *umask_end != '\0' || expected_mode < 0 ||
+        (mode_t)expected_mode != actual_mode)
+      fail("caller umask");
+  }
 
   const char *expected_cwd = getenv("PORTABLE_EXPECT_CWD");
   if (expected_cwd != NULL) {

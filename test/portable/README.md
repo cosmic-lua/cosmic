@@ -18,3 +18,12 @@ configuration, or runtime basis must produce a different verdict key and run
 the test again. An unchanged repeat must still stand. The build assertion
 changes in commit 6 only from missing target to the later `image_of` failure;
 portable build does not pass until commit 7.
+
+`runtime_build.sh` and `runtime_test.sh` cover step 5 with real Cosmic cores and
+the real Cosmic database. A fixture-only core build contains a deterministic
+FIFO pause after descriptor validation and before SQLite opens the main
+database; ordinary cores contain neither the hook code nor its environment
+names. Atomic replacement and unlink at that pause prove both VFS and the
+trusted `build.artifact` prefix capability keep reading FD 8. The retained
+descriptor selects one complete immutable file. Writing that same inode in
+place remains unsupported and is deliberately not presented as safe.

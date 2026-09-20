@@ -37,10 +37,12 @@ case "$(uname -s):$(uname -m)" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
 esac
+@SELECT_HOOK@
 
 # Keep this open across extraction and exec. Step 5 adopts this descriptor;
 # extraction deliberately reads it rather than reopening the pathname.
 exec 8<"$cosmic_artifact" || portable_die 'cannot open the portable artifact'
+@ADOPT_HOOK@
 
 if [ "${COSMIC_PORTABLE_CACHE+x}" = x ]; then
   cosmic_cache=${COSMIC_PORTABLE_CACHE-}
@@ -71,6 +73,7 @@ while [ "$cosmic_cache" != / ] && [ "${cosmic_cache%/}" != "$cosmic_cache" ]; do
   cosmic_cache=${cosmic_cache%/}
 done
 
+cosmic_original_umask=$(umask) || portable_die 'cannot read caller umask'
 umask 077
 if [ -L "$cosmic_cache" ]; then
   portable_die "cache leaf is a symbolic link: $cosmic_cache"
@@ -318,6 +321,7 @@ export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
 export COSMIC_PORTABLE_CORE_SHA256
 
 trap - EXIT HUP INT TERM
+umask "$cosmic_original_umask" || portable_die 'cannot restore caller umask'
 exec "$cosmic_core" --artifact "$cosmic_artifact" "$@"
 portable_die 'cannot execute verified core'
 ]=]
@@ -342,12 +346,18 @@ end
 function launcher.render(arms: string, test_hooks: boolean): string
   local rendered = substitute(template, "@TARGETS@", arms)
   if test_hooks then
+    rendered = substitute(rendered, "@SELECT_HOOK@",
+      "portable_test_hook after_select")
+    rendered = substitute(rendered, "@ADOPT_HOOK@",
+      "portable_test_hook after_artifact_open")
     rendered = substitute(rendered, "@REPAIR_HOOK@",
       "  portable_test_hook after_repair_lock")
     rendered = substitute(rendered, "@PUBLISH_HOOK@",
       "  portable_test_hook before_publish")
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
   else
+    rendered = substitute(rendered, "@SELECT_HOOK@", "")
+    rendered = substitute(rendered, "@ADOPT_HOOK@", "")
     rendered = substitute(rendered, "@REPAIR_HOOK@", "")
     rendered = substitute(rendered, "@PUBLISH_HOOK@", "")
   end

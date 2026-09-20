@@ -136,6 +136,7 @@ const core_sources = [_][]const u8{
 
 pub fn build(b: *std.Build) void {
     const portable_probe = b.option(bool, "portable-probe", "build the experimental external-artifact entry") orelse false;
+    const portable_startup_test_hooks = b.option(bool, "portable-startup-test-hooks", "compile deterministic retained-artifact test hooks") orelse false;
     // The applier is a host tool, built before anything it feeds.
     const applier = b.addExecutable(.{
         .name = "patch",
@@ -196,7 +197,7 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe, portable_startup_test_hooks);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
@@ -225,7 +226,7 @@ pub fn build(b: *std.Build) void {
     // checked artifacts stay under o/sanitized.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, b.graph.host, lua, sqlite, miniz, mbedtls, portable_probe);
+    const checked = core(b, checked_target, sanitized_configuration, b.graph.host, lua, sqlite, miniz, mbedtls, portable_probe, portable_startup_test_hooks);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -294,6 +295,7 @@ fn core(
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     portable_probe: bool,
+    portable_startup_test_hooks: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
@@ -445,6 +447,8 @@ fn core(
     }
     mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{required_target_mask}));
     mod.addCMacro("COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID", b.fmt("{d}", .{release_configuration.id}));
+    if (portable_startup_test_hooks)
+        mod.addCMacro("COSMIC_PORTABLE_STARTUP_TEST_HOOKS", "1");
 
     return b.addExecutable(.{
         .name = "cosmic-core",

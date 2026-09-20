@@ -1,9 +1,14 @@
-#include "crypto.h"
-
 /* getentropy is a BSD call both systems have: musl shows it under
  * _DEFAULT_SOURCE, Darwin in its own header. */
 #define _DEFAULT_SOURCE
+#define _XOPEN_SOURCE 700
+
+#include "crypto.h"
+
+#include <errno.h>
+#include <limits.h>
 #include <string.h>
+#include <sys/types.h>
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <sys/random.h>
@@ -73,6 +78,40 @@ int cosmic_digest(const char *name, const void *data, size_t len,
   }
   return (int)psa_hash_compute(alg, data, len, out, COSMIC_DIGEST_MAX,
                                out_len);
+}
+
+int cosmic_digest_fd(const char *name, int fd, uint64_t offset,
+                     uint64_t length,
+                     unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
+  psa_algorithm_t alg = by_name(name);
+  if (alg == PSA_ALG_NONE) return -1;
+  if (offset > (uint64_t)INT64_MAX || length > (uint64_t)INT64_MAX - offset)
+    return PSA_ERROR_INVALID_ARGUMENT;
+
+  psa_hash_operation_t operation = PSA_HASH_OPERATION_INIT;
+  psa_status_t status = psa_hash_setup(&operation, alg);
+  unsigned char bytes[64 * 1024];
+  uint64_t consumed = 0;
+  while (status == PSA_SUCCESS && consumed < length) {
+    size_t take = length - consumed < sizeof bytes
+                      ? (size_t)(length - consumed)
+                      : sizeof bytes;
+    ssize_t got;
+    do {
+      got = pread(fd, bytes, take, (off_t)(offset + consumed));
+    } while (got < 0 && errno == EINTR);
+    if (got <= 0) {
+      status = PSA_ERROR_DATA_CORRUPT;
+      break;
+    }
+    status = psa_hash_update(&operation, bytes, (size_t)got);
+    consumed += (uint64_t)got;
+  }
+  if (status == PSA_SUCCESS)
+    status = psa_hash_finish(&operation, out, COSMIC_DIGEST_MAX, out_len);
+  else
+    psa_hash_abort(&operation);
+  return (int)status;
 }
 
 int cosmic_hmac(const char *name, const void *key, size_t key_len,

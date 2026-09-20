@@ -13,12 +13,15 @@
 #include "lua.h"
 #include "sqlite3.h"
 
+struct cosmic_artifact;
+
 /* Installs the searcher, with `binary` as the last database searched.
  * `binary` may be NULL, which leaves the list empty until something is
  * attached. The raw `cosmic.internal.store` value goes in the registry,
  * never in package.preload: only a caller the searcher itself trusts
  * ever gets it back. */
-int cosmic_store_install(lua_State *L, sqlite3 *binary);
+int cosmic_store_install(lua_State *L, sqlite3 *binary,
+                         const struct cosmic_artifact *artifact);
 
 /* Registers the value on top of the stack (popped) as the raw module a
  * trusted caller's `require(name)` resolves to. `name` is

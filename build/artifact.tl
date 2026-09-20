@@ -8,8 +8,25 @@
 
 local Hash = require("cosmic.hash")
 local launcher_template = require("build.launcher")
+local type raw_store = require("cosmic.internal.store")
+
+local extra: any = select(2, ...)
+local trusted_store: raw_store | nil = nil
+if type(extra) == "table" then
+  trusted_store = extra as raw_store
+end
 
 local record artifact
+end
+
+--- Reads the validated reusable prefix from the retained portable descriptor.
+--- This capability is injected only when this module is loaded from Cosmic's
+--- own trusted Store; the public cosmic.store wrapper does not carry it.
+function artifact.trusted_prefix(): string | nil, string
+  if trusted_store == nil then
+    return nil, "no retained portable artifact capability"
+  end
+  return trusted_store.trusted_prefix()
 end
 
 local version = 1

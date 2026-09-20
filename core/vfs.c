@@ -1,6 +1,10 @@
+#define _XOPEN_SOURCE 700
+
 #include "vfs.h"
 
+#include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 /* The base VFS does the real reading; this one only shifts offsets and
  * refuses every write. */
@@ -8,6 +12,7 @@ struct cosmic_file {
   sqlite3_file base;
   sqlite3_int64 offset;
   sqlite3_int64 length;
+  int fd;
   sqlite3_file *lower;
 };
 
@@ -17,7 +22,22 @@ static sqlite3_vfs *base_vfs(sqlite3_vfs *vfs) {
 
 static int file_close(sqlite3_file *file) {
   struct cosmic_file *f = (struct cosmic_file *)file;
+  if (f->fd >= 0) return SQLITE_OK; /* borrowed until the database closes */
   return f->lower->pMethods->xClose(f->lower);
+}
+
+static int retained_read(int fd, void *buf, int amount, sqlite3_int64 at) {
+  unsigned char *p = buf;
+  int left = amount;
+  while (left > 0) {
+    ssize_t got = pread(fd, p, (size_t)left, (off_t)at);
+    if (got < 0 && errno == EINTR) continue;
+    if (got <= 0) return SQLITE_IOERR_READ;
+    p += (size_t)got;
+    left -= (int)got;
+    at += (sqlite3_int64)got;
+  }
+  return SQLITE_OK;
 }
 
 static int file_read(sqlite3_file *file, void *buf, int amount,
@@ -32,11 +52,15 @@ static int file_read(sqlite3_file *file, void *buf, int amount,
     /* A short read is reported, with the tail zeroed, the way SQLite
      * expects; it means the database is truncated, not that we failed. */
     int have = (int)room;
-    int rc = f->lower->pMethods->xRead(f->lower, buf, have, f->offset + at);
+    int rc = f->fd >= 0 ? retained_read(f->fd, buf, have, f->offset + at) :
+                          f->lower->pMethods->xRead(
+                              f->lower, buf, have, f->offset + at);
     memset((char *)buf + have, 0, (size_t)(amount - have));
     return rc == SQLITE_OK ? SQLITE_IOERR_SHORT_READ : rc;
   }
-  return f->lower->pMethods->xRead(f->lower, buf, amount, f->offset + at);
+  return f->fd >= 0 ? retained_read(f->fd, buf, amount, f->offset + at) :
+                      f->lower->pMethods->xRead(
+                          f->lower, buf, amount, f->offset + at);
 }
 
 static int file_write(sqlite3_file *file, const void *buf, int amount,
@@ -94,11 +118,13 @@ static int file_control(sqlite3_file *file, int op, void *arg) {
 
 static int file_sector_size(sqlite3_file *file) {
   struct cosmic_file *f = (struct cosmic_file *)file;
+  if (f->fd >= 0) return 4096;
   return f->lower->pMethods->xSectorSize(f->lower);
 }
 
 static int file_characteristics(sqlite3_file *file) {
   struct cosmic_file *f = (struct cosmic_file *)file;
+  if (f->fd >= 0) return SQLITE_IOCAP_IMMUTABLE;
   return f->lower->pMethods->xDeviceCharacteristics(f->lower) |
          SQLITE_IOCAP_IMMUTABLE;
 }
@@ -126,12 +152,14 @@ static const sqlite3_io_methods cosmic_io_methods = {
 static char registered_path[4096];
 static sqlite3_int64 registered_offset;
 static sqlite3_int64 registered_length;
+static int registered_fd = -1;
 
 static int vfs_open(sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file,
                     int flags, int *out_flags) {
   sqlite3_vfs *lower_vfs = base_vfs(vfs);
   struct cosmic_file *f = (struct cosmic_file *)file;
   memset(f, 0, sizeof *f);
+  f->fd = -1;
   f->lower = (sqlite3_file *)((char *)file + sizeof(struct cosmic_file));
 
   if (name != NULL && (sqlite3_uri_parameter(name, "off") != NULL ||
@@ -153,15 +181,16 @@ static int vfs_open(sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *file,
 
   f->offset = registered_offset;
   f->length = registered_length;
+  f->fd = registered_fd;
   if (f->offset <= 0 || f->length <= 0) {
     return SQLITE_CANTOPEN;
   }
 
-  int rc = lower_vfs->xOpen(lower_vfs, name, f->lower,
-                            SQLITE_OPEN_READONLY | SQLITE_OPEN_MAIN_DB,
-                            out_flags);
-  if (rc != SQLITE_OK) {
-    return rc;
+  if (f->fd < 0) {
+    int rc = lower_vfs->xOpen(lower_vfs, name, f->lower,
+                              SQLITE_OPEN_READONLY | SQLITE_OPEN_MAIN_DB,
+                              out_flags);
+    if (rc != SQLITE_OK) return rc;
   }
   if (out_flags != NULL) {
     *out_flags = SQLITE_OPEN_READONLY;
@@ -180,6 +209,16 @@ static int vfs_access(sqlite3_vfs *vfs, const char *name, int flags, int *out) {
 
 static int vfs_full_pathname(sqlite3_vfs *vfs, const char *name, int room,
                              char *out) {
+  /* The logical artifact spelling is an opaque database key. Normalizing
+   * `/./` or a symlink alias here would make xOpen reject the same retained
+   * file, and reopening the normalized pathname would break adoption. */
+  if (name != NULL && registered_path[0] != '\0' &&
+      strcmp(name, registered_path) == 0) {
+    size_t length = strlen(name);
+    if (length + 1 > (size_t)room) return SQLITE_CANTOPEN;
+    memcpy(out, name, length + 1);
+    return SQLITE_OK;
+  }
   return base_vfs(vfs)->xFullPathname(base_vfs(vfs), name, room, out);
 }
 
@@ -199,13 +238,15 @@ static int vfs_last_error(sqlite3_vfs *vfs, int room, char *out) {
   return base_vfs(vfs)->xGetLastError(base_vfs(vfs), room, out);
 }
 
-int cosmic_vfs_register(const char *path, int64_t offset, int64_t length) {
+int cosmic_vfs_register(const char *path, int fd, int64_t offset,
+                        int64_t length) {
   if (strlen(path) >= sizeof registered_path) {
     return SQLITE_ERROR;
   }
   memcpy(registered_path, path, strlen(path) + 1);
   registered_offset = (sqlite3_int64)offset;
   registered_length = (sqlite3_int64)length;
+  registered_fd = fd;
 
   if (sqlite3_vfs_find(COSMIC_VFS_NAME) != NULL) {
     return SQLITE_OK;

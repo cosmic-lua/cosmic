@@ -25,6 +25,10 @@ local record store
   -- borrowed `cosmic.sqlite` handle that reads only and never closes
   -- the connection under it.
   databases: function(): {sqlite.Handle}
+
+  -- Private retained-artifact capability. Only trusted build.artifact receives
+  -- this raw table; cosmic.store deliberately exposes no wrapper for it.
+  trusted_prefix: function(): string | nil, string
 end
 
 return store

@@ -32,9 +32,10 @@ static int complain(const char *what, const char *detail) {
   return 2;
 }
 
-static sqlite3 *open_attached(const char *path,
+static sqlite3 *open_attached(const char *path, int retained_fd,
                               const struct cosmic_attachment *at) {
-  if (cosmic_vfs_register(path, at->offset, at->length) != SQLITE_OK) {
+  if (cosmic_vfs_register(path, retained_fd, at->offset, at->length) !=
+      SQLITE_OK) {
     return NULL;
   }
   char uri[8192];
@@ -441,39 +442,71 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     return complain("the crypto library would not start", NULL);
   }
 
+  struct cosmic_artifact artifact;
+  const char *adoption_error = NULL;
+  if (!cosmic_startup_adopt(startup, &artifact, &adoption_error)) {
+    return complain(adoption_error == NULL ? "portable startup failed" :
+                                              adoption_error,
+                    NULL);
+  }
+  if (startup->kind == COSMIC_STARTUP_PORTABLE &&
+      !cosmic_startup_test_pause(&adoption_error)) {
+    cosmic_artifact_close(&artifact);
+    return complain(adoption_error, NULL);
+  }
+
   char self[4096];
-  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+  if (startup->kind == COSMIC_STARTUP_PORTABLE ||
+      startup->kind == COSMIC_STARTUP_LEGACY_ARTIFACT) {
     if (snprintf(self, sizeof self, "%s", startup->artifact_path) >=
         (int)sizeof self) {
+      cosmic_artifact_close(&artifact);
       return complain("artifact path is too long", NULL);
     }
   } else if (!cosmic_executable_path(self, sizeof self)) {
+    cosmic_artifact_close(&artifact);
     return complain("cannot find my own path", NULL);
   }
 
   struct cosmic_attachment attached;
-  int found = cosmic_locate(self, &attached);
+  int found;
+  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+    attached.offset = (int64_t)artifact.portable.database_offset;
+    attached.length = (int64_t)artifact.portable.database_length;
+    found = 1;
+  } else {
+    found = cosmic_locate_path(self, &attached);
+  }
   if (found < 0) {
+    cosmic_artifact_close(&artifact);
     return complain("cannot read my own file", self);
   }
-  if (startup->kind == COSMIC_STARTUP_PORTABLE && found != 1) {
+  if (startup->kind != COSMIC_STARTUP_NATIVE && found != 1) {
+    cosmic_artifact_close(&artifact);
     return complain("portable artifact has no database", self);
   }
 
   lua_State *L = cosmic_surface_open();
   if (L == NULL) {
+    cosmic_artifact_close(&artifact);
     return complain("no memory for a Lua state", NULL);
   }
 
   sqlite3 *db = NULL;
   if (found == 1) {
-    db = open_attached(self, &attached);
+    db = open_attached(self,
+                       startup->kind == COSMIC_STARTUP_PORTABLE ? artifact.fd :
+                                                                  -1,
+                       &attached);
     if (db == NULL) {
       lua_close(L);
+      cosmic_artifact_close(&artifact);
       return complain("cannot open my own database", self);
     }
   }
-  cosmic_store_install(L, db);
+  cosmic_store_install(L, db,
+                       startup->kind == COSMIC_STARTUP_PORTABLE ? &artifact :
+                                                                  NULL);
   cosmic_open_sqlite(L); /* leaves the module table on the stack */
   cosmic_store_set_raw(L, "cosmic.internal.sqlite");
 
@@ -498,14 +531,17 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);
       lua_close(L);
+      cosmic_artifact_close(&artifact);
       return status;
     }
     lua_close(L);
+    cosmic_artifact_close(&artifact);
     return complain("no database attached, and no tree to boot from", self);
   }
 
   int status = run_main(L, db, argc, argv);
   lua_close(L);
   sqlite3_close_v2(db);
+  cosmic_artifact_close(&artifact);
   return status;
 }

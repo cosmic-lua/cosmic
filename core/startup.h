@@ -1,13 +1,16 @@
 /*
  * Private process-startup contract shared by native and portable entries.
- * Artifact-format and descriptor validation are added at their later boundary;
- * this record establishes the explicit seam and binds target/configuration now.
+ * Portable startup captures and clears the launcher's bounded environment
+ * contract before the runtime can create a Lua state. The inherited handles
+ * are then adopted into one owned artifact context.
  */
 
 #ifndef COSMIC_STARTUP_H
 #define COSMIC_STARTUP_H
 
 #include <stdint.h>
+
+#include "portable.h"
 
 #define COSMIC_STARTUP_VERSION 1u
 
@@ -31,6 +34,8 @@
 enum cosmic_startup_kind {
   COSMIC_STARTUP_NATIVE = 1,
   COSMIC_STARTUP_PORTABLE = 2,
+  /* Temporary compatibility for experiments/portable's old pathname entry. */
+  COSMIC_STARTUP_LEGACY_ARTIFACT = 3,
 };
 
 struct cosmic_startup {
@@ -41,12 +46,27 @@ struct cosmic_startup {
   const char *target_name;
   const char *configuration_name;
   const char *artifact_path;
+  int artifact_fd;
+  int core_fd;
+  uint32_t launcher_target_id;
+  uint32_t launcher_configuration_id;
+  uint64_t launcher_core_offset;
+  uint64_t launcher_core_length;
+  unsigned char launcher_core_sha256[COSMIC_PORTABLE_SHA256_LENGTH];
+  const char *contract_error;
 };
 
 void cosmic_startup_native(struct cosmic_startup *startup);
 void cosmic_startup_portable(struct cosmic_startup *startup,
                              const char *artifact_path);
+void cosmic_startup_legacy_artifact(struct cosmic_startup *startup,
+                                    const char *artifact_path);
+int cosmic_startup_has_private_environment(void);
 const char *cosmic_startup_validate(const struct cosmic_startup *startup);
+int cosmic_startup_adopt(const struct cosmic_startup *startup,
+                         struct cosmic_artifact *artifact,
+                         const char **error);
+int cosmic_startup_test_pause(const char **error);
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
                          char **argv);
 

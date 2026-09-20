@@ -41,6 +41,22 @@ static int read_at(int fd, void *into, size_t length, uint64_t offset) {
   return 1;
 }
 
+void cosmic_artifact_init(struct cosmic_artifact *artifact) {
+  memset(artifact, 0, sizeof *artifact);
+  artifact->fd = -1;
+}
+
+void cosmic_artifact_close(struct cosmic_artifact *artifact) {
+  if (artifact != NULL && artifact->fd >= 0) close(artifact->fd);
+  if (artifact != NULL) cosmic_artifact_init(artifact);
+}
+
+int cosmic_artifact_read(const struct cosmic_artifact *artifact, void *into,
+                         size_t length, uint64_t offset) {
+  return artifact != NULL && artifact->fd >= 0 &&
+         read_at(artifact->fd, into, length, offset);
+}
+
 static uint32_t be32(const unsigned char *p) {
   return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 |
          (uint32_t)p[2] << 8 | (uint32_t)p[3];
@@ -102,7 +118,7 @@ int cosmic_portable_decode(int fd, uint32_t target_id,
 
   if (target_id == 0 || configuration_id == 0)
     return reject(out, error, "compiled target or configuration is zero");
-  if (fstat(fd, &st) != 0 || st.st_size < 0)
+  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0)
     return reject(out, error, "artifact size is unavailable");
   file_length = (uint64_t)st.st_size;
   if (file_length > (uint64_t)INT64_MAX)

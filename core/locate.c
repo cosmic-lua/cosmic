@@ -41,6 +41,17 @@ int cosmic_executable_path(char *into, size_t room) {
 #endif
 }
 
+int cosmic_executable_fd(void) {
+#if defined(__APPLE__)
+  char raw[PATH_MAX];
+  uint32_t size = sizeof raw;
+  if (_NSGetExecutablePath(raw, &size) != 0) return -1;
+  return open(raw, O_RDONLY | O_CLOEXEC);
+#else
+  return open("/proc/self/exe", O_RDONLY | O_CLOEXEC);
+#endif
+}
+
 #define MACHO_MAGIC_64 0xfeedfacfu
 #define MACHO_LC_CODE_SIGNATURE 0x1du
 
@@ -171,14 +182,9 @@ static int signature_offset(int fd, int64_t file_size, int64_t *out) {
   return 0;
 }
 
-int cosmic_locate(const char *path, struct cosmic_attachment *out) {
-  int fd = open(path, O_RDONLY);
-  if (fd < 0) {
-    return -1;
-  }
+int cosmic_locate(int fd, struct cosmic_attachment *out) {
   struct stat st;
   if (fstat(fd, &st) != 0) {
-    close(fd);
     return -1;
   }
   int64_t size = (int64_t)st.st_size;
@@ -190,6 +196,13 @@ int cosmic_locate(const char *path, struct cosmic_attachment *out) {
       found = trailer_at(fd, signature, size, out);
     }
   }
+  return found;
+}
+
+int cosmic_locate_path(const char *path, struct cosmic_attachment *out) {
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) return -1;
+  int found = cosmic_locate(fd, out);
   close(fd);
   return found;
 }

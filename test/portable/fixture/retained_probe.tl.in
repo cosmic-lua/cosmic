@@ -1,0 +1,5 @@
+local Fs = require("cosmic.fs")
+return function(argv: {string}): integer
+  Fs.put(Fs.stdout, "script " .. argv[1] .. " " .. argv[2] .. "\n")
+  return 0
+end

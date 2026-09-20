@@ -1,0 +1,193 @@
+#!/bin/sh
+# Exercise retained validation, VFS reads, and private prefix reads using the
+# real Cosmic runtime rather than the step-4 native payload substitute.
+set -eu
+
+fixture=${1:?usage: runtime_test.sh RUNTIME_FIXTURE_DIRECTORY}
+case $fixture in /*) ;; *) fixture=$PWD/$fixture ;; esac
+root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-runtime.XXXXXXXX")
+cleanup() {
+  status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    for diagnostic in "$work"/*.err; do
+      if [ -s "$diagnostic" ]; then
+        printf '%s:\n' "$diagnostic" >&2
+        cat "$diagnostic" >&2
+      fi
+    done
+    if [ -s "$work/paused.out" ]; then
+      printf '%s:\n' "$work/paused.out" >&2
+      cat "$work/paused.out" >&2
+    fi
+  fi
+  chmod -R u+w "$work" 2>/dev/null || :
+  rm -rf "$work"
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 126' HUP INT TERM
+
+chmod 755 "$fixture/runtime.release" "$fixture/runtime.old" \
+  "$fixture/runtime.new" "$fixture/runtime.incompatible"
+release_hash=$(cat "$fixture/runtime.release.prefix-sha256")
+old_hash=$(cat "$fixture/runtime.old.prefix-sha256")
+new_hash=$(cat "$fixture/runtime.new.prefix-sha256")
+[ "$old_hash" != "$new_hash" ]
+mkdir -p "$work/bin" "$work/run space"
+cp "$fixture/runtime.release" "$work/bin/cosmic-runtime"
+cp "$fixture/probe.tl" "$work/run space/probe.tl"
+chmod 755 "$work/bin/cosmic-runtime"
+
+# Absolute, relative, PATH, and symlink logical names all open the same retained
+# descriptor. Help, docs, and a real compiled script read the artifact DB.
+COSMIC_PORTABLE_CACHE="$work/cache-release" \
+  "$work/bin/cosmic-runtime" help > "$work/help"
+grep -q '^cosmic -- a runtime' "$work/help"
+COSMIC_PORTABLE_CACHE="$work/cache-release" \
+  "$work/bin/cosmic-runtime" docs Fs.read > "$work/docs"
+grep -q 'Fs.read' "$work/docs"
+(
+  cd "$work/bin"
+  COSMIC_PORTABLE_CACHE="$work/cache-release" ./cosmic-runtime help >/dev/null
+)
+PATH="$work/bin:$PATH" COSMIC_PORTABLE_CACHE="$work/cache-release" \
+  cosmic-runtime help >/dev/null
+ln -s "$work/bin/cosmic-runtime" "$work/cosmic-alias"
+COSMIC_PORTABLE_CACHE="$work/cache-release" "$work/cosmic-alias" help >/dev/null
+(
+  cd "$work/run space"
+  COSMIC_PORTABLE_CACHE="$work/cache-release" "$work/bin/cosmic-runtime" \
+    probe.tl "$release_hash" old > "$work/script"
+)
+grep -q "^script $release_hash old$" "$work/script"
+
+# Any private field marks a strict portable launch, even without --artifact;
+# it cannot propagate through or enter the raw-core --boot bridge.
+host=$(uname -s):$(uname -m)
+selected=$(dd if="$fixture/runtime.release" bs=16384 count=1 2>/dev/null | \
+  grep "^  $host")
+target_id=$(printf '%s\n' "$selected" | \
+  sed 's/.*cosmic_target_id=\([0-9][0-9]*\);.*/\1/')
+configuration_id=$(printf '%s\n' "$selected" | \
+  sed 's/.*cosmic_configuration_id=\([0-9][0-9]*\);.*/\1/')
+offset=$(printf '%s\n' "$selected" | \
+  sed 's/.*cosmic_offset=\([0-9][0-9]*\);.*/\1/')
+length=$(printf '%s\n' "$selected" | \
+  sed 's/.*cosmic_length=\([0-9][0-9]*\);.*/\1/')
+digest=$(printf '%s\n' "$selected" | \
+  sed 's/.*cosmic_sha256=\([0-9a-f][0-9a-f]*\) .*/\1/')
+target=$(awk -F '\t' -v id="$target_id" '$1 == id { print $4 }' \
+  "$fixture/hooked-build/targets.tsv")
+wrong_core=$fixture/hooked-build/core/$target/cosmic-core
+chmod 755 "$wrong_core"
+set +e
+COSMIC_PORTABLE_TARGET_ID="$target_id" "$wrong_core" --boot x y \
+  > "$work/partial.out" 2> "$work/partial.err"
+partial_status=$?
+set -e
+[ "$partial_status" -ne 0 ]
+grep -q 'portable startup names no artifact' "$work/partial.err"
+
+# A different build of the same target/configuration is the executing inode and
+# FD9, but differs from the manifest's exact core bytes and is rejected.
+set +e
+(
+  exec 8<"$fixture/runtime.release"
+  exec 9<"$wrong_core"
+  COSMIC_PORTABLE_ARTIFACT_FD=8 COSMIC_PORTABLE_CORE_FD=9 \
+    COSMIC_PORTABLE_TARGET_ID="$target_id" \
+    COSMIC_PORTABLE_CONFIGURATION_ID="$configuration_id" \
+    COSMIC_PORTABLE_CORE_OFFSET="$offset" COSMIC_PORTABLE_CORE_LENGTH="$length" \
+    COSMIC_PORTABLE_CORE_SHA256="$digest" \
+    "$wrong_core" --artifact "$fixture/runtime.release" help
+) > "$work/wrong-core.out" 2> "$work/wrong-core.err"
+wrong_core_status=$?
+set -e
+[ "$wrong_core_status" -ne 0 ]
+grep -Eq 'executing core (length|digest) differs from manifest' \
+  "$work/wrong-core.err"
+
+run_paused() {
+  hook=$1
+  program=$2
+  cache=$3
+  expected_hash=$4
+  expected_marker=$5
+  ready=$work/ready
+  go=$work/go
+  rm -f "$ready" "$go"
+  mkfifo "$ready" "$go"
+  if [ "$hook" = after_validation ]; then
+    (
+      cd "$root"
+      COSMIC_PORTABLE_CACHE="$cache" \
+        COSMIC_PORTABLE_STARTUP_TEST_READY="$ready" \
+        COSMIC_PORTABLE_STARTUP_TEST_GO="$go" \
+        "$program" test/portable/retained_prefix_probe.tl \
+        "$expected_hash" "$expected_marker"
+    ) > "$work/paused.out" 2> "$work/paused.err" &
+  else
+    (
+      cd "$work/run space"
+      COSMIC_PORTABLE_CACHE="$cache" COSMIC_PORTABLE_TEST_HOOK="$hook" \
+        COSMIC_PORTABLE_TEST_READY="$ready" COSMIC_PORTABLE_TEST_GO="$go" \
+        "$program" probe.tl "$expected_hash" "$expected_marker"
+    ) > "$work/paused.out" 2> "$work/paused.err" &
+  fi
+  paused_pid=$!
+  IFS= read -r ignored < "$ready"
+}
+release_paused() {
+  printf 'go\n' > "$work/go" & release_pid=$!
+  wait "$release_pid"
+  wait "$paused_pid"
+}
+
+# Once FD8 is open, atomic replacement cannot mix the new pathname's database
+# or prefix into the paused process. A subsequent launch selects all-new bytes.
+mkdir -p "$work/replace space"
+program=$work/replace\ space/cosmic
+cp "$fixture/runtime.old" "$program"
+chmod 755 "$program"
+run_paused after_validation "$program" "$work/cache-replace" "$old_hash" old
+cp "$fixture/runtime.new" "$work/replacement"
+chmod 755 "$work/replacement"
+mv "$work/replacement" "$program"
+release_paused
+grep -q "^old $old_hash$" "$work/paused.out"
+(
+  cd "$root"
+  COSMIC_PORTABLE_CACHE="$work/cache-replace" "$program" \
+    test/portable/retained_prefix_probe.tl "$new_hash" new > "$work/new.out"
+)
+grep -q "^new $new_hash$" "$work/new.out"
+
+# Unlink after adoption also leaves database and private prefix reads on FD8.
+unlinked=$work/unlinked
+cp "$fixture/runtime.old" "$unlinked"
+chmod 755 "$unlinked"
+run_paused after_validation "$unlinked" "$work/cache-unlink" "$old_hash" old
+rm "$unlinked"
+release_paused
+grep -q "^old $old_hash$" "$work/paused.out"
+
+# Replacement after shell selection but before open cannot pair old launcher
+# claims with an incompatible complete artifact and never reaches boot mode.
+mismatch=$work/mismatch
+cp "$fixture/runtime.old" "$mismatch"
+chmod 755 "$mismatch"
+run_paused after_select "$mismatch" "$work/cache-mismatch" "$old_hash" old
+cp "$fixture/runtime.incompatible" "$work/mismatch.new"
+chmod 755 "$work/mismatch.new"
+mv "$work/mismatch.new" "$mismatch"
+set +e
+release_paused
+mismatch_status=$?
+set -e
+[ "$mismatch_status" -ne 0 ]
+grep -q 'extracted core digest differs' "$work/paused.err"
+if grep -q 'no tree to boot' "$work/paused.err"; then exit 1; fi
+
+printf 'portable runtime: PASS (real help/docs/script, logical paths, retained replacement/unlink, mismatch rejection)\n'

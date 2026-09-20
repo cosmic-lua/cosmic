@@ -21,6 +21,8 @@ jobs:
         run: test/portable/format.sh o/portable/format
       - name: build the cross-host launcher contract fixture
         run: test/portable/launcher_build.sh o/portable/launcher
+      - name: build the real retained-artifact runtime fixture
+        run: test/portable/runtime_build.sh o/portable/runtime
       - run: experiments/portable/pack.sh
       - name: build loader probes for each target
         run: |
@@ -37,6 +39,7 @@ jobs:
             o/portable/probe-*
             o/portable/format/*
             o/portable/launcher/*
+            o/portable/runtime/*
   execute:
     needs: build
     strategy:
@@ -95,3 +98,5 @@ jobs:
           test/portable/launcher_test.sh \
             "$PWD/portable/launcher/launcher.test" \
             "$PWD/portable/launcher/payloads/socket-$TARGET"
+      - name: validate retained artifact bytes with the real runtime
+        run: test/portable/runtime_test.sh "$PWD/portable/runtime"

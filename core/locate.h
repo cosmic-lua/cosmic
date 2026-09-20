@@ -29,8 +29,12 @@ struct cosmic_attachment {
  * when it does not fit or the system will not say. */
 int cosmic_executable_path(char *into, size_t room);
 
+/* Opens the physical executable for private portable identity binding. */
+int cosmic_executable_fd(void);
+
 /* Fills `out` and returns 1 when the file carries a database, 0 when it
  * carries none, and -1 when the file could not be read at all. */
-int cosmic_locate(const char *path, struct cosmic_attachment *out);
+int cosmic_locate(int fd, struct cosmic_attachment *out);
+int cosmic_locate_path(const char *path, struct cosmic_attachment *out);
 
 #endif

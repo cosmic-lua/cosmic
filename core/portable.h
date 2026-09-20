@@ -36,7 +36,9 @@
 #ifndef COSMIC_PORTABLE_H
 #define COSMIC_PORTABLE_H
 
+#include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #define COSMIC_PORTABLE_VERSION 1u
 #define COSMIC_PORTABLE_SHELL_LENGTH UINT64_C(16384)
@@ -71,6 +73,18 @@ struct cosmic_portable {
   struct cosmic_portable_entry selected;
 };
 
+#define COSMIC_ARTIFACT_PATH_CAPACITY 4096u
+
+/* One portable artifact descriptor, owned until its database closes. */
+struct cosmic_artifact {
+  char logical_path[COSMIC_ARTIFACT_PATH_CAPACITY];
+  int fd;
+  uint64_t device;
+  uint64_t inode;
+  uint64_t file_size;
+  struct cosmic_portable portable;
+};
+
 /*
  * Decodes and validates the file currently held open by fd.  target_id and
  * configuration_id are the running core's compiled fields.  On every error
@@ -82,5 +96,10 @@ int cosmic_portable_decode(int fd, uint32_t target_id,
                            uint32_t configuration_id,
                            struct cosmic_portable *out,
                            const char **error);
+
+void cosmic_artifact_init(struct cosmic_artifact *artifact);
+void cosmic_artifact_close(struct cosmic_artifact *artifact);
+int cosmic_artifact_read(const struct cosmic_artifact *artifact, void *into,
+                         size_t length, uint64_t offset);
 
 #endif

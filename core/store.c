@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "lauxlib.h"
+#include "portable.h"
 #include "sqlite.h"
 
 #define STORE_LIST "cosmic.store.databases"
@@ -145,7 +146,8 @@ static int store_searcher(lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  int reserved = strncmp(name, "cosmic.", 7) == 0;
+  int reserved = strncmp(name, "cosmic.", 7) == 0 ||
+                 strcmp(name, "build.artifact") == 0;
 
   for (lua_Integer step = 0; step < count; step++) {
     lua_Integer i = reserved ? count - step : step + 1;
@@ -163,6 +165,8 @@ static int store_searcher(lua_State *L) {
         raw_name = "cosmic.internal.sqlite";
       } else if (trusted && strcmp(name, "cosmic.coverage") == 0) {
         raw_name = "cosmic.internal.debug";
+      } else if (trusted && strcmp(name, "build.artifact") == 0) {
+        raw_name = "cosmic.internal.store";
       }
       if (raw_name != NULL && raw_value(L, raw_name)) {
         return 2;
@@ -337,7 +341,36 @@ static int store_databases(lua_State *L) {
   return 1;
 }
 
-static int open_store_module(lua_State *L) {
+/* Private capability handed only to the trusted build.artifact chunk. */
+static int store_trusted_prefix(lua_State *L) {
+  const struct cosmic_artifact *artifact =
+      lua_touserdata(L, lua_upvalueindex(1));
+  if (artifact == NULL || artifact->fd < 0) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "no retained portable artifact");
+    return 2;
+  }
+  uint64_t length = artifact->portable.prefix_length;
+  if (length > (uint64_t)SIZE_MAX) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "retained portable prefix is too large");
+    return 2;
+  }
+  luaL_Buffer buffer;
+  char *bytes = luaL_buffinitsize(L, &buffer, (size_t)length);
+  if (!cosmic_artifact_read(artifact, bytes, (size_t)length, 0)) {
+    luaL_pushresultsize(&buffer, 0);
+    lua_pop(L, 1);
+    lua_pushnil(L);
+    lua_pushliteral(L, "retained portable prefix cannot be read");
+    return 2;
+  }
+  luaL_pushresultsize(&buffer, (size_t)length);
+  return 1;
+}
+
+static int open_store_module(lua_State *L,
+                             const struct cosmic_artifact *artifact) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   lua_newtable(L);
   lua_pushvalue(L, -2);
@@ -355,6 +388,9 @@ static int open_store_module(lua_State *L) {
   lua_pushvalue(L, -2);
   lua_pushcclosure(L, store_databases, 1);
   lua_setfield(L, -2, "databases");
+  lua_pushlightuserdata(L, (void *)artifact);
+  lua_pushcclosure(L, store_trusted_prefix, 1);
+  lua_setfield(L, -2, "trusted_prefix");
   lua_remove(L, -2);
   return 1;
 }
@@ -373,7 +409,8 @@ sqlite3 *cosmic_store_database(lua_State *L, int index) {
   return db;
 }
 
-int cosmic_store_install(lua_State *L, sqlite3 *binary) {
+int cosmic_store_install(lua_State *L, sqlite3 *binary,
+                         const struct cosmic_artifact *artifact) {
   lua_newtable(L);
   if (binary != NULL) {
     lua_pushlightuserdata(L, binary);
@@ -399,7 +436,7 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary) {
    * second door, open to anything that can `require`. It goes in the
    * registry instead, where only a trusted caller through the searcher
    * above can reach it. */
-  open_store_module(L);
+  open_store_module(L, artifact);
   cosmic_store_set_raw(L, "cosmic.internal.store");
   return 0;
 }

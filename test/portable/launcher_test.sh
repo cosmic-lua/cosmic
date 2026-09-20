@@ -35,6 +35,7 @@ chmod 755 "$artifact"
 artifact_before=$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$artifact"; else shasum -a 256 "$artifact"; fi)
 artifact_before=${artifact_before%% *}
 ordinary='PORTABLE_ORDINARY_ENV=preserved'
+caller_umask=$(umask)
 PORTABLE_CALLER_LOCALE=preserved
 export PORTABLE_CALLER_LOCALE
 
@@ -83,7 +84,8 @@ printf 'input stays intact\n' > "$work/input"
 cd "$work/run alias"
 env "$ordinary" COSMIC_PORTABLE_CACHE="$basic_cache" \
   PORTABLE_PAYLOAD_MARKER="$marker" PORTABLE_EXPECT_CWD="$PWD" \
-  PORTABLE_CHECK_IO=1 "$artifact" 'a b' '' --literal \
+  PORTABLE_EXPECT_UMASK="$caller_umask" PORTABLE_CHECK_IO=1 \
+  "$artifact" 'a b' '' --literal \
   < "$work/input" > "$work/basic.out" 2> "$work/basic.err" &
 launcher_pid=$!
 wait "$launcher_pid"
