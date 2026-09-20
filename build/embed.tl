@@ -203,12 +203,12 @@ function embed.database(project: string, main: string): string | nil, string
     if not copied then
       return false, copy_trouble
     end
-    -- The guidance a program's own errors can match: the errno rows and
-    -- the standard library's. It never runs the build, so a row about
-    -- the build could only ever match by accident.
+    -- The guidance a program's own errors can match: the standard
+    -- library's own extracted rows. It never runs the build, so a row
+    -- about the build could only ever match by accident.
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
       "SELECT kind, module, symbol, message, text, file, line FROM catalog " ..
-      "WHERE module = '(errno)' OR module LIKE 'cosmic.%' ORDER BY id")
+      "WHERE module LIKE 'cosmic.%' ORDER BY id")
     if not copied then
       return false, copy_trouble
     end
@@ -222,11 +222,9 @@ function embed.database(project: string, main: string): string | nil, string
         "ORDER BY path",
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
         "ORDER BY path, requires",
-      -- The errno guidance is seeded into every projection; the binary's
-      -- copy is already in, so only what this project's own sources say.
       "INSERT INTO catalog (kind, module, symbol, message, text, file, " ..
         "line) SELECT kind, module, symbol, message, text, file, line " ..
-        "FROM project.catalog WHERE module <> '(errno)' ORDER BY id",
+        "FROM project.catalog ORDER BY id",
       "INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')",
       "INSERT INTO catalog_fts(catalog_fts) VALUES ('rebuild')",
       "INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')",

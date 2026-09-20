@@ -8,7 +8,6 @@
 --- and produced by `VACUUM INTO`, so a second build of the same tree
 --- is byte-identical.
 
-local Catalog = require("cosmic.catalog")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
@@ -20,14 +19,6 @@ end
 
 local function text(value: string): Sqlite.Value
   return { text = value }
-end
-
-local function integer(value: integer): Sqlite.Value
-  return { integer = value }
-end
-
-local function null(): Sqlite.Value
-  return {}
 end
 
 --- The shipped modules: this run's plan joined to the inputs it named
@@ -135,8 +126,7 @@ local rebuild_fts: {string} = {
 --- is still there, the file already is the projection of these rows,
 --- and nothing is written. The catalog, docs, examples and references
 --- add nothing here: an extracted row changes only with the source it
---- was parsed from, which moves that module's key, and the seed rows
---- change only with this module, which moves `boot_hash`.
+--- was parsed from, which moves that module's key.
 local signature_sql =
   "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
@@ -186,16 +176,6 @@ local function project(handle: work.Handle, path: string,
       "'compiler', 'runtime')")
     if not carried then
       return false, meta_trouble
-    end
-    for id, row in ipairs(Catalog.rows) do
-      local ok, failure = Sqlite.run(db,
-        "INSERT INTO out.catalog (id, kind, module, symbol, message, " ..
-        "text, file, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        { integer(id), text("error"), text(row.module), text(row.symbol),
-          text(row.message), null(), text(row.file), integer(row.line) })
-      if not ok then
-        return false, failure
-      end
     end
     for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
                                  insert_uses, insert_examples }) do
