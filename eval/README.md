@@ -1,6 +1,6 @@
 # evaluating cosmic with a fresh agent
 
-design.md's second promise names the measure: a builder given only the
+doc/design.md's second promise names the measure: a builder given only the
 binary completes real work with less friction than elsewhere, and the
 measure is a fresh agent given the binary and nothing else, journaling
 what slowed it down. This directory is that measure, runnable: a task,
@@ -20,85 +20,116 @@ the built executable through its paces, and the journal's ranked
 summary says what to fix next. The fix goes in, the binary is rebuilt,
 and the same task runs again: the numbers say whether it helped.
 
-## running one
+## preparing a run
 
-1. **Build the binary** at the commit under test: `bin/zig build boot`
-   in a clean worktree gives `o/bin/cosmic`. Note the commit.
-2. **Make the arena**: `eval/arena <task> <binary> <dir>` lays out `dir/`
-   with the binary at `bin/cosmic` and the task at `project/TASK.md`
-   (the task file joined to `eval/journal.md`, the journal contract
-   every task shares). Put the arena outside this repository, so the
-   agent cannot reach the tree by accident. `o/eval/<task>/<commit>/`
-   is the conventional place; nothing under `o/` is committed.
-3. **Run the agent** in `dir/project`, with `dir/bin` first on its PATH,
-   under the conditions below, with this as its whole prompt:
+Build once at the commit under test (`bin/zig build boot`). Claude and
+Codex use the same task, journal, binary and grader, but each gets a new
+arena and a fresh agent. Do not show either agent another run's output.
 
-   ```text
-   Your working directory is <dir>/project. Read TASK.md there and do
-   exactly what it says. The 'cosmic' binary is on your PATH.
-   ```
+```sh
+eval/arena notes o/bin/cosmic /tmp/cosmic-evals/notes/claude/run-001
+eval/arena notes o/bin/cosmic /tmp/cosmic-evals/notes/codex/run-001
+```
 
-4. **Grade**: `eval/check/<task> <dir>` runs the project's tests and
-   format check, builds it, and runs the executable with nothing beside
-   it. It ends in a verdict line. The grader is the record of what
-   works; the journal can be wrong about the tool and about itself, and
-   has been (one run reported an argv bug that its own transcript
-   disproved).
-5. **Read the journal's summary**, act on its ranked list, and go again.
-   A run commits nothing: the transcript, the journal, and the project
-   stay wherever you put the arena, outside the repository. If a run
-   turns up a real fix, that fix is the PR — say the run's verdict,
-   minutes, tool calls, and cost in its description; nothing here
-   tracks them across runs.
+Choose new absolute paths outside the checkout; an existing destination
+is an error, never deleted. The arena contains `bin/cosmic`,
+`project/TASK.md` (task plus journal contract), `PROMPT.md` (the entire
+launch prompt), and `inputs.sha256`. Give the solver only PROMPT.md's
+contents. The parent keeps metadata, grading output and other runs out
+of the solver's project. The prompt varies only in arena paths.
 
-## the conditions the agent runs under
+## conditions shared by both runners
 
-The point is a fresh builder with only the binary. Every condition
-below protects that, and the run is invalid without it:
+- **No cosmic context.** A fresh agent, no inherited conversation,
+  repository instructions, prior journals or coaching about cosmic.
+  Generic platform instructions and ordinary tools are fine. The
+  binary is the only source of cosmic information: no repository,
+  skills, plugins, web searches or other outside sources may supply it.
+  Tool availability alone is not contamination; using an outside source
+  about cosmic is. Record any known contamination and invalidate that run.
+- **Work in the arena.** Explicitly set `project/` as the working directory
+  and prepend the arena's `bin/` to PATH for every shell call. A Work
+  subagent's default directory is still the parent's workspace. Reading
+  the binary itself, including `strings`, is fair. No delegation.
+- **Bounded.** Use a 600-second solver deadline. Claude's timeout enforces
+  it; the Work parent monitors elapsed time and interrupts at the deadline.
+  Record actual elapsed time and enforcement method. A turn cap is an
+  additional runner-specific limit, not a claim of equal model budgets.
+- **Independent grading.** After the solver stops, run
+  `timeout 30 eval/check/notes <absolute-arena>` and save stdout/stderr as
+  `grade.log` outside `project/`. A timeout is distinct from an assertion
+  failure. The notes grader requires recorded tests and examples (including
+  guide doctests), checks formatting, builds exactly `o/bin/notes`, then
+  exercises it without supporting files or environment. Python 3 is a
+  grader dependency, not a solver dependency.
+- **Evidence.** Preserve the project and journal. Preserve a full transcript
+  where the runner supplies one; a journal is not a replacement transcript.
+  Validate claims against available outputs and reproduce uncertain ones.
+- **Named.** Record runner, exact model/settings, commit, input hashes,
+  start/end times, completion or timeout, grading exit code and verdict.
+  Keep usage metrics if supplied; unavailable metrics are `null`, not zero.
+  Compare commits within a fixed runner/model/settings first. A paired
+  Claude/Codex result compares the whole agent setup, not just the model.
 
-- **No prior context.** A fresh session: no memory, no project or user
-  instruction files, no skills or plugins, no system prompt beyond the
-  agent's own default. Anything that describes cosmic, including this
-  repository, must be out of reach.
-- **No network.** No web search or fetch tools; the task text says the
-  binary is the only source of information, and the tools must make
-  that true.
-- **Only local tools.** A shell, and reading, writing, editing and
-  searching files. No sub-agents, no delegation.
-- **The arena is the world.** Working directory `dir/project`; the
-  binary reached by name through `dir/bin` on PATH. The agent may read
-  the binary itself: `strings` over it is fair, and one run found the
-  standard library that way.
-- **Bounded.** A turn cap on the order of 60 and a wall clock under 10
-  minutes, so a stuck run ends and its journal says so, and a passing
-  run stays quick and cheap to run.
-- **Kept.** The full transcript, so a journal claim can be checked
-  against what the agent actually saw.
-- **Named.** Say the agent and model wherever you report a run's
-  numbers: they do not compare across models, only across commits of
-  one model.
+## Claude Code
 
-Runs so far used Claude Code with Sonnet, invoked non-interactively;
-this satisfies every condition above:
+Use a fresh noninteractive session, without resume or inherited project
+instructions. Set `dir` to the absolute arena path and `model` explicitly.
+The existing tool allowlist makes local tools usable without prompts.
 
 ```sh
 cd "$dir/project" && PATH="$dir/bin:$PATH" timeout 600 \
-  claude -p "Your working directory is $dir/project. Read TASK.md there and do exactly what it says. The 'cosmic' binary is on your PATH." \
-  --model sonnet --disable-slash-commands \
+  claude -p "$(cat "$dir/PROMPT.md")" \
+  --model "$model" --disable-slash-commands \
   --tools "Bash,Read,Write,Edit,Glob,Grep" \
   --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
   --disallowedTools "Skill,WebSearch,WebFetch,Agent,Task,ToolSearch,SearchSkills,ListSkills,SearchPlugins,ListPlugins,SearchMcpRegistry,Workflow,SendMessage,Artifact,NotebookEdit,SendUserFile" \
   --max-turns 60 --output-format stream-json --verbose \
-  < /dev/null > "$out/transcript.jsonl" 2> "$out/stderr"
+  < /dev/null > "$dir/transcript.jsonl" 2> "$dir/stderr"
 ```
 
-Two flags that look right and are not: `--bare` drops the credential
-helper and the run fails to authenticate, and the permission-bypass
-flag is refused by policy; the explicit allowlist is what makes the
-tools usable without prompts. `eval/summarize` reads that transcript
-for the turn count, tool calls, duration and cost. Another agent needs
-its own invocation and its own reading of its own transcript; the
-conditions and the prompt stay the same.
+`eval/summarize <transcript.jsonl>` is specifically a Claude stream-json
+reader. Keep it for Claude; do not feed Work results into it. `--bare`
+previously dropped the credential helper, and bypassing permissions was
+refused; neither is required for this eval.
+
+## Codex in ChatGPT Work
+
+The parent reads PROMPT.md and uses its exact contents as `message` in
+`collaboration.spawn_agent`, with these settings:
+
+```json
+{
+  "task_name": "notes_eval",
+  "fork_turns": "none",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "medium"
+}
+```
+
+Supply no repo context or launch explanation to the child. Let it use
+normal tools; do not mediate individual commands or help when it gets
+stuck. Monitor from the parent without sending hints. On completion,
+retain the final response and independently run the same grader. At the
+deadline interrupt the agent and record a timeout before grading partial
+work; do not resume it to repair the result.
+
+The current collaboration interface does not export the full transcript,
+turn count or cost. Mark those unavailable. Record the journal, final
+response, elapsed time and grader log rather than claiming a full trace.
+Fresh-context and repo-access probes found no accidental cosmic leakage
+with this setup; it is not a filesystem security boundary.
+
+## reporting a run
+
+Keep a small `result.json` next to PROMPT.md, written by the evaluator:
+`runner`, `model`, `reasoning_effort`, `commit`, `started_at`, `finished_at`,
+`elapsed_seconds`, `status`, `deadline_method`, `grade_exit_code`,
+`grade_verdict`, `contamination`, `transcript`, `turns`, `tool_calls`, and
+`cost_usd`. Use `null` for unavailable fields. `inputs.sha256` identifies
+all solver inputs; record the harness commit separately when it differs
+from the binary commit. A run commits nothing. If it reveals a real fix,
+that fix is the PR; cite the run's evidence and limitations.
 
 ## writing a task
 

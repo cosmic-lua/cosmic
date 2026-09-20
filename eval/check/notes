@@ -8,29 +8,35 @@
 # The executable is copied alone into an empty directory and run with an
 # empty environment, so nothing beside it and nothing on PATH can help.
 set -u
+here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 dir=${1:?usage: eval/check/notes <dir>}
 project=$dir/project
 cosmic=$dir/bin/cosmic
 fail=0
+step_count=0
 say() { echo "check: $*"; }
 step() {
-  if "$@" > "$dir/check.out" 2>&1; then say "ok   $*"; else say "FAIL $*"; sed 's/^/check:   /' "$dir/check.out"; fail=1; fi
+  step_count=$((step_count + 1))
+  log=$dir/check-$step_count.out
+  if "$@" > "$log" 2>&1; then say "ok   $*"; else say "FAIL $*"; sed 's/^/check:   /' "$log"; fail=1; fi
 }
 expect() {
   want=$1; shift
   got=$("$@" 2>&1); status=$?
-  if [ "$got" = "$want" ]; then say "ok   $* -> $(printf %s "$want" | head -1)"; else say "FAIL $*: got '$got', wanted '$want'"; fail=1; fi
+  if [ "$status" -eq 0 ] && [ "$got" = "$want" ]; then say "ok   $* -> $(printf %s "$want" | head -1)"; else say "FAIL $*: exit $status, got '$got', wanted '$want'"; fail=1; fi
   return $status
 }
 [ -d "$project" ] || { say "FAIL no project at $project"; echo "check: FAIL"; exit 1; }
 cd "$project" || exit 1
 rm -f notes.db
+step python3 "$here/evidence" reset "$project/o/build.db"
 step "$cosmic" test
+step python3 "$here/evidence" check "$project/o/build.db"
 step "$cosmic" fix --check
 step "$cosmic" build
-exe=$(ls "$project"/o/bin/* 2>/dev/null | head -1)
-if [ -z "$exe" ]; then
-  say "FAIL cosmic build wrote nothing under o/bin/; a binary is cmd/<name>/main.tl"
+exe=$project/o/bin/notes
+if [ ! -x "$exe" ]; then
+  say "FAIL cosmic build did not produce o/bin/notes; a binary is cmd/<name>/main.tl"
   fail=1
 else
   empty=$dir/empty

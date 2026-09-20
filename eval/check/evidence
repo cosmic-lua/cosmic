@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Require test and example verdicts from this grading invocation."""
+import pathlib
+import sqlite3
+import sys
+
+mode, filename = sys.argv[1:]
+path = pathlib.Path(filename)
+if mode == "reset" and not path.exists():
+    sys.exit(0)
+with sqlite3.connect(path.as_uri() + "?mode=rw", uri=True) as db:
+    if mode == "reset":
+        # Keep cached verdicts; cosmic test credits them into runs again.
+        db.execute("delete from runs")
+    elif mode == "check":
+        rows = db.execute("""
+            select i.kind, i.origin, count(*)
+            from runs r join inputs i on i.path = r.path
+            where r.passed = 1
+            group by i.kind, i.origin
+        """).fetchall()
+        tests = sum(n for kind, origin, n in rows if kind == "test" and origin != "doctest")
+        examples = sum(n for kind, origin, n in rows if kind == "example" or origin == "doctest")
+        print(f"evidence: {tests} tests, {examples} examples")
+        sys.exit(0 if tests > 0 and examples > 0 else 1)
+    else:
+        sys.exit("usage: evidence reset|check /absolute/path/to/build.db")
