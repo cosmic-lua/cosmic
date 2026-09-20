@@ -103,15 +103,37 @@ conditions and the prompt stay the same.
 ## writing a task
 
 A task file is Markdown under `eval/task/`, and `eval/arena` appends
-`eval/journal.md` to it. What has worked:
+`eval/journal.md` to it. Whatever the task itself asks the agent to
+build, hold it to the same bar, and grade every part of it for real:
+
+1. **Tests.** The project must ship tests `cosmic test` discovers and
+   passes. Non-negotiable, whatever else the task asks for.
+2. **Examples, or another form of code docs, where the task's own
+   code has a public shape worth demonstrating.** Worked examples
+   `cosmic test` also runs and `cosmic docs` shows under the symbols
+   they demonstrate; name this requirement explicitly rather than
+   leaving it implied, the same as any other.
+3. **A green build, fast.** `cosmic test` and `cosmic fix --check`
+   both pass, and pass in seconds -- the grader runs them for real,
+   the way a project's own CI would, not just checks that the files
+   exist. A task too big to build and test quickly is too big for
+   this harness.
+4. **A binary that stands on its own and says what it does, when the
+   task asks for one.** Built by `cosmic build`, runs with nothing
+   beside it -- and answers `--help` (or whatever the task names) with
+   real usage text; a binary that only works when its author already
+   knows the commands is not yet a finished tool.
+
+Each requirement the task names is one the grader runs; a task must
+say what it asks for in its own words, so the grader is never checking
+something the agent was never told. Beyond that bar, what has worked:
 
 - **Say what is fair game and what is not**, in the task's own words:
   the binary is the only source, no skills, no web, no prior knowledge
   of anything called cosmic, work only in this directory.
 - **Ask for something a grader can check**: named commands with exact
   output, a file the tests must live in, an executable that must run
-  with nothing beside it. Each requirement the task names is one the
-  grader runs.
+  with nothing beside it.
 - **Use the standard library that exists.** A task that needs a module
   cosmic does not have yet measures the gap, not the tool.
 - **Pair it with a grader** at `eval/check/<task>`, taking the arena

@@ -25,6 +25,8 @@ notes tool:
   stderr and a non-zero exit code.
 - `search <word>`: prints every note whose text contains `word`, in the
   same format as `list`.
+- `help`: prints usage naming every command above, to stdout, and
+  exits 0. Run this one with no other arguments; it takes none.
 - Notes persist in a SQLite database file: the path in the `NOTES_DB`
   environment variable when it is set, otherwise `notes.db` in the
   current directory. Use cosmic's own SQLite support rather than

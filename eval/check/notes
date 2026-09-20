@@ -1,6 +1,7 @@
 #!/bin/sh
 # Grades the notes task in an arena: the project's tests and format
-# check pass, cosmic builds it, and the executable runs on its own.
+# check pass, cosmic builds it, and the executable runs on its own,
+# including its own `help`.
 #
 #   eval/check/notes <dir>
 #
@@ -47,5 +48,16 @@ else
   rm -f "$empty/notes.db"
   expect "1" env -i NOTES_DB=other.db ./notes add elsewhere
   [ -f "$empty/other.db" ] && say "ok   NOTES_DB names the file" || { say "FAIL NOTES_DB was not honored"; fail=1; }
+  help_out=$(env -i ./notes help 2>"$dir/check.err"); help_status=$?
+  if [ $help_status -ne 0 ]; then say "FAIL notes help exited $help_status"; fail=1
+  elif [ -z "$help_out" ]; then say "FAIL notes help printed nothing"; fail=1
+  else
+    missing=""
+    for word in add list rm search; do
+      case "$help_out" in *"$word"*) ;; *) missing="$missing $word" ;; esac
+    done
+    if [ -n "$missing" ]; then say "FAIL notes help did not mention:$missing"; fail=1
+    else say "ok   notes help -> mentions add, list, rm, search"; fi
+  fi
 fi
 if [ $fail -eq 0 ]; then echo "check: PASS"; else echo "check: FAIL"; exit 1; fi
