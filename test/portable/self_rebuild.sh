@@ -19,6 +19,39 @@ cache_entries() {
   find "$1" -type f -name 'core-*' | wc -l | tr -d ' '
 }
 
+file_size() {
+  wc -c < "$1" | awk '{ print $1 }'
+}
+
+compare_prefix() {
+  expected=$1
+  program=$2
+  length=$3
+  extracted=$4
+  case $length in
+    ''|*[!0-9]*)
+      printf 'portable self-rebuild: invalid prefix length: %s\n' "$length" >&2
+      return 1
+      ;;
+  esac
+  expected_size=$(file_size "$expected")
+  if [ "$expected_size" -ne "$length" ]; then
+    printf 'portable self-rebuild: expected prefix has %s bytes, want %s\n' \
+      "$expected_size" "$length" >&2
+    return 1
+  fi
+  # Compare equal-length files: Darwin's bounded cmp still rejects the longer
+  # artifact after matching the requested bytes.
+  head -c "$length" "$program" > "$extracted"
+  extracted_size=$(file_size "$extracted")
+  if [ "$extracted_size" -ne "$length" ]; then
+    printf 'portable self-rebuild: rebuilt artifact prefix has %s bytes, want %s\n' \
+      "$extracted_size" "$length" >&2
+    return 1
+  fi
+  cmp "$expected" "$extracted"
+}
+
 if [ "${1-}" = --case ]; then
   action=${2:?internal usage: --case ACTION FIXTURE CASE-DIRECTORY}
   fixture=${3:?internal usage: --case ACTION FIXTURE CASE-DIRECTORY}
@@ -118,7 +151,8 @@ if [ "${1-}" = --case ]; then
       "$case_root/rebuild.err" >/dev/null; then
     exit 1
   fi
-  cmp -n "$prefix_length" "$fixture/runtime.old.prefix" "$program"
+  compare_prefix "$fixture/runtime.old.prefix" "$program" "$prefix_length" \
+    "$case_root/rebuilt.prefix"
   entries_after=$(cache_entries "$cache")
   [ "$entries_after" -eq "$entries_before" ]
   [ "$(hash_value "$program")" != "$original_hash" ]
@@ -159,6 +193,29 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 126' HUP INT TERM
 
+exercise_prefix_comparison() {
+  comparison=$work/prefix-comparison
+  mkdir "$comparison"
+  printf 'abc' > "$comparison/expected"
+  printf 'abc-suffix' > "$comparison/program"
+  compare_prefix "$comparison/expected" "$comparison/program" 3 \
+    "$comparison/extracted"
+
+  printf 'ab' > "$comparison/program-short"
+  if compare_prefix "$comparison/expected" "$comparison/program-short" 3 \
+      "$comparison/extracted-short" > /dev/null 2>&1; then
+    echo 'portable self-rebuild: short prefix comparison unexpectedly passed' >&2
+    return 1
+  fi
+
+  printf 'axc-suffix' > "$comparison/program-mutated"
+  if compare_prefix "$comparison/expected" "$comparison/program-mutated" 3 \
+      "$comparison/extracted-mutated" > /dev/null 2>&1; then
+    echo 'portable self-rebuild: mutated prefix comparison unexpectedly passed' >&2
+    return 1
+  fi
+}
+
 run_bounded_case() {
   action=$1
   mkdir "$work/$action"
@@ -175,6 +232,7 @@ run_bounded_case() {
   fi
 }
 
+exercise_prefix_comparison
 run_bounded_case rename
 run_bounded_case unlink
 
