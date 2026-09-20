@@ -4,8 +4,8 @@ design.md's second promise names the measure: a builder given only the
 binary completes real work with less friction than elsewhere, and the
 measure is a fresh agent given the binary and nothing else, journaling
 what slowed it down. This directory is that measure, runnable: a task,
-an arena to run it in, a grader that checks the result without trusting
-the agent's word, and a table of what each run cost.
+an arena to run it in, and a grader that checks the result without
+trusting the agent's word.
 
 Nothing here is part of the build, and CI never runs it: an eval spends
 money and minutes on a model, and reaches the network to do so.
@@ -44,10 +44,12 @@ and the same task runs again: the numbers say whether it helped.
    works; the journal can be wrong about the tool and about itself, and
    has been (one run reported an argv bug that its own transcript
    disproved).
-5. **Record** a row in `eval/baseline.md`: task, commit, agent and model,
-   verdict, minutes, tool calls, cost. The transcript, the journal, and
-   the project stay under `o/eval/`.
-6. **Read the journal's summary**, act on its ranked list, and go again.
+5. **Read the journal's summary**, act on its ranked list, and go again.
+   A run commits nothing: the transcript, the journal, and the project
+   stay wherever you put the arena, outside the repository. If a run
+   turns up a real fix, that fix is the PR — say the run's verdict,
+   minutes, tool calls, and cost in its description; nothing here
+   tracks them across runs.
 
 ## the conditions the agent runs under
 
@@ -72,8 +74,9 @@ below protects that, and the run is invalid without it:
   run stays quick and cheap to run.
 - **Kept.** The full transcript, so a journal claim can be checked
   against what the agent actually saw.
-- **Named.** The agent and model, in the baseline row: numbers across
-  models do not compare, numbers across commits of one model do.
+- **Named.** Say the agent and model wherever you report a run's
+  numbers: they do not compare across models, only across commits of
+  one model.
 
 Runs so far used Claude Code with Sonnet, invoked non-interactively;
 this satisfies every condition above:

@@ -169,9 +169,9 @@ the front door is the one doc this build does not enforce.
 the core tier, then the second, each module earning its place. a
 release ships when three things hold: cosmic builds and tests the
 work board, gitboard, from its own tree; the agent evaluation suite,
-`eval/`, scores at or above the baseline recorded in
-`eval/baseline.md`; the release job produces all three targets and the
-provenance job proves them byte-identical.
+`eval/`, passes its task's grader (`eval/check/<task>`); the release
+job produces all three targets and the provenance job proves them
+byte-identical.
 
 ## open questions
 

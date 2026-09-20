@@ -1,7 +1,7 @@
 #!/bin/sh
 # One line of numbers from a Claude Code stream-json transcript: turns,
 # tool calls, minutes, cost. Another agent's transcript needs its own
-# reader; the baseline row wants the same four numbers.
+# reader.
 #
 #   eval/summarize <transcript.jsonl>
 set -eu
