@@ -9,16 +9,10 @@ local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
-local databases = require("build.databases")
-local docs = require("build.docs")
-local embed = require("build.embed")
-local fix = require("build.fix")
-local importer = require("build.importer")
-local reboot = require("build.reboot")
-local teal = require("build.teal")
-local test = require("build.test")
-local work = require("build.work")
-local writer = require("build.writer")
+
+-- The build modules are required lazily, inside the verb that needs
+-- them: every verb used to load the whole build system before
+-- dispatch, and `help` needs only build.docs.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 
@@ -30,6 +24,7 @@ local help_prefix = "cosmic -- a runtime for self-contained command-line softwar
 --- dropping a verb from its own help, if `cosmic.cli`'s own database
 --- row is ever missing.
 local function verb_help(): string
+  local docs = require("build.docs")
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
   if view == nil then
@@ -159,6 +154,11 @@ end
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
+  local importer = require("build.importer")
+  local reboot = require("build.reboot")
+  local teal = require("build.teal")
+  local work = require("build.work")
+  local writer = require("build.writer")
   local root, trouble = root_of(file)
   if root == nil then
     complain("cosmic: " .. trouble)
@@ -288,21 +288,27 @@ local function main(argv: {integer:string}): integer
     return 0
   end
   if verb == "test" then
+    local test = require("build.test")
     return test.run(argv)
   end
   if verb == "fix" then
+    local fix = require("build.fix")
     return fix.run(argv)
   end
   if verb == "db" then
+    local databases = require("build.databases")
     return databases.run()
   end
   if verb == "build" then
+    local embed = require("build.embed")
     return embed.run()
   end
   if verb == "docs" then
+    local docs = require("build.docs")
     return docs.run(argv)
   end
   if verb == "uses" then
+    local docs = require("build.docs")
     return docs.run_uses(argv)
   end
   if verb:sub(1, 1) == "-" then
