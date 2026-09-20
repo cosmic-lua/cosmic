@@ -7,9 +7,12 @@
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local docs = require("build.docs")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
+local writer = require("build.writer")
 
 local built, load_trouble = teal.load()
 if built == nil then
@@ -346,6 +349,58 @@ local function test_types_the_standard_library_from_the_binary()
     "expected cosmic.fs, got " .. table.concat(requires, ", "))
 end
 
+--- Project projections retain resolved references to bundled modules even
+--- though those targets are absent from the project's own build plan.
+local function test_project_keeps_uses_of_bundled_symbols()
+  local root = assert(write_fixture("stdlib-uses", {
+    ["main.tl"] = table.concat({
+      'local disk = require("cosmic.fs")',
+      "local record Main",
+      "end",
+      "--- Checks whether a path exists.",
+      "function Main.check(path: string): boolean, string",
+      "  if not disk.exists(path) then",
+      "    return false, \"the project path does not exist\"",
+      "  end",
+      "  return true, \"\"",
+      "end",
+      "return Main",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local env = assert(teal.environment_for(built, handle))
+  local result = assert(importer.compile(handle, built, env, "importer-test"))
+  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local rows = assert(Sqlite.text_rows(shipped,
+    "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
+  assert(#rows == 1, tostring(#rows))
+  assert(rows[1][1] == "cosmic.fs" and rows[1][2] == "exists")
+  assert(rows[1][3] == "main" and rows[1][4] == "6")
+  local guidance = assert(Sqlite.text_rows(shipped,
+    "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
+    "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
+    "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
+  assert(#guidance == 1 and guidance[1][1] == "Checks whether a path exists.")
+  local databases: {Sqlite.Handle} = { shipped }
+  for _, database in ipairs(Store.databases()) do
+    databases[#databases + 1] = database
+  end
+  local effective = assert(docs.view(databases))
+  local definition = assert(docs.lookup(effective, "Fs.exists"))
+  assert(#definition == 1 and definition[1].module == "cosmic.fs")
+  local uses = assert(docs.uses(effective, "Fs.exists"))
+  local found_main = false
+  for _, use in ipairs(uses) do
+    if use.from_module == "main" and use.line == 6 then found_main = true end
+  end
+  assert(found_main, "effective uses dropped the project's bundled reference")
+  assert(shipped:close())
+  work.close(handle)
+end
+
 --- The compiler identity closes over what `build.importer` requires, so
 --- it is the same whether the working database is fresh or has parsed
 --- the tree before -- a boot on an empty `o/` must key its modules
@@ -458,8 +513,9 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
       -- not the ordinary collection of rows no input refers to, can
       -- remove it.
       assert(Sqlite.run(handle.db,
-        "INSERT INTO docs (source_hash, ordinal, symbol, kind, signature, " ..
-        "text, line) SELECT source_hash, 99, 'Planted', 'record', '', '', 1 " ..
+        "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
+        "exported, kind, signature, text, line) SELECT source_hash, 99, " ..
+        "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
         "FROM inputs WHERE path = 'cosmic.thing'"))
     end
     assert(importer.derive(handle, true, built))

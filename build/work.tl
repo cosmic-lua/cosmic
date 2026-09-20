@@ -78,7 +78,7 @@ local record work
   version: string
 end
 
-work.version = "13"
+work.version = "14"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -235,6 +235,8 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS docs (source_hash TEXT NOT NULL,
                                      ordinal INTEGER NOT NULL,
                                      symbol TEXT NOT NULL,
+                                     source_symbol TEXT NOT NULL,
+                                     exported INTEGER NOT NULL,
                                      kind TEXT NOT NULL,
                                      signature TEXT NOT NULL,
                                      text TEXT NOT NULL,

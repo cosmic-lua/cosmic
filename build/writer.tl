@@ -56,28 +56,24 @@ local insert_imports =
 --- left for SQLite to assign in that order, so it is the same on every
 --- build of the same tree.
 local insert_docs =
-  "INSERT INTO out.docs (module, symbol, kind, signature, text, file, line) " ..
-  "SELECT p.path, d.symbol, d.kind, d.signature, d.text, i.file, d.line " ..
+  "INSERT INTO out.docs (module, symbol, source_symbol, exported, kind, " ..
+  "signature, text, file, line) " ..
+  "SELECT p.path, d.symbol, d.source_symbol, d.exported, d.kind, " ..
+  "d.signature, d.text, i.file, d.line " ..
   "FROM plan p JOIN inputs i ON i.path = p.path " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY p.path, d.ordinal"
 
 --- The uses `build.positions.references_of` found: each
 --- `alias.member` resolved against the module the alias names, as the
---- symbol that module's own returned record declares -- `Fs.read` when
---- `cosmic.fs` returns `Fs` -- kept only where that symbol is a
---- shipped module's documented one, as a field or as a method.
+--- canonical member path. Targets need not be in this build plan: bundled and
+--- external definitions are selected from the effective database view later.
 local insert_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..
-  "SELECT r.module, d.symbol, p.path, i.file, r.line " ..
+  "SELECT r.module, r.member, p.path, i.file, r.line " ..
   "FROM plan p JOIN inputs i ON i.path = p.path " ..
   "JOIN refs r ON r.source_hash = i.source_hash " ..
-  "JOIN inputs t ON t.path = r.module " ..
-  "JOIN parsed tp ON tp.source_hash = t.source_hash " ..
-  "JOIN out.docs d ON d.module = r.module " ..
-  "AND d.symbol IN (tp.export || '.' || r.member, tp.export || ':' || r.member) " ..
-  "WHERE r.module IN (SELECT path FROM plan) " ..
-  "ORDER BY r.module, d.symbol, p.path, r.line"
+  "ORDER BY r.module, r.member, p.path, r.line"
 
 --- The worked examples `build.positions.examples_of` found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped

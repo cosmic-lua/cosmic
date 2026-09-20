@@ -28,8 +28,9 @@ local function database(rows: {{string}}, uses: {{string}},
   end
   for _, row in ipairs(rows) do
     assert(Sqlite.run(db,
-      "INSERT INTO docs (module, symbol, kind, signature, text, file, line) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
+      "signature, text, file, line) " ..
+      "VALUES (?1, ?2, ?2, 1, ?3, ?4, ?5, ?6, ?7)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { text = row[5] }, { text = row[6] }, { integer = math.tointeger(tonumber(row[7])) } }))
   end
@@ -336,4 +337,24 @@ local function test_a_public_source_answers_only_for_the_standard_library()
   assert(#referring == 1 and referring[1].from_module == "cosmic.hash")
   local listed = docs.render(public, assert(docs.lookup(public, "cosmic.fs"))[1])
   assert(listed[#listed]:find("Fs.read", 1, true) ~= nil, listed[#listed])
+end
+
+--- Counts use the same public target-and-caller boundary as the listed rows.
+--- A binary row aimed at a private build name must not inflate an unrelated
+--- project module that happens to own that path.
+local function test_public_use_count_matches_list_across_project_collision()
+  local project = database({
+    { "build.helper", "Helper.run", "function", "function Helper.run()",
+      "Runs the project helper.", "build/helper.tl", "4" },
+  }, {})
+  local binary = database({
+    { "cosmic.fs", "Fs.read", "function", "function Fs.read()",
+      "Reads a file.", "cosmic/fs.tl", "20" },
+  }, {
+    { "build.helper", "Helper.run", "cosmic.fs", "cosmic/fs.tl", "30" },
+  }, {}, { "cosmic.fs" })
+  local layered = assert(docs.view({ project, binary }, { false, true }))
+  local entry = assert(docs.lookup(layered, "Helper.run"))[1]
+  assert(entry ~= nil and entry.uses == 0, tostring(entry and entry.uses))
+  assert(#assert(docs.uses(layered, "Helper.run")) == 0)
 end

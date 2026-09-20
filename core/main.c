@@ -266,7 +266,8 @@ static bool catalog_guidance(sqlite3 *db, const char *message) {
   sqlite3_stmt *stmt = NULL;
   const char *sql =
       "SELECT coalesce(catalog.text, (SELECT d.text FROM docs d "
-      "WHERE d.module = catalog.module AND d.symbol = catalog.symbol)), "
+      "WHERE d.module = catalog.module AND "
+      "d.source_symbol = catalog.symbol)), "
       "catalog.message, catalog.symbol, catalog.file, catalog.line "
       "FROM catalog_fts JOIN catalog ON catalog.id = catalog_fts.rowid "
       "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1";

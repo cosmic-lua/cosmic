@@ -44,6 +44,8 @@ local tables: {{string}} = {
   { "docs", [[(id INTEGER PRIMARY KEY,
                module TEXT NOT NULL,
                symbol TEXT NOT NULL,
+               source_symbol TEXT NOT NULL,
+               exported INTEGER NOT NULL,
                kind TEXT NOT NULL,
                signature TEXT NOT NULL,
                text TEXT NOT NULL,

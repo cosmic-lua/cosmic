@@ -513,25 +513,26 @@ local function test_documents_a_record_and_its_fields()
   assert(by_symbol["Thing"].kind == "record", by_symbol["Thing"].kind)
   assert(by_symbol["Thing"].signature == "local record Thing", by_symbol["Thing"].signature)
   assert(by_symbol["Thing"].text == "A thing.")
-  assert(by_symbol["Thing.path"].kind == "field")
-  assert(by_symbol["Thing.path"].signature == "path: string", by_symbol["Thing.path"].signature)
-  assert(by_symbol["Thing.path"].text == "Where it is.")
-  assert(by_symbol["Thing.Options"].kind == "record")
-  assert(by_symbol["Thing.Options"].text == "How it is opened.", by_symbol["Thing.Options"].text)
-  assert(by_symbol["Thing.Options.create"].kind == "field")
-  assert(by_symbol["Thing.Options.create"].text == "Whether to create it.")
-  assert(by_symbol["Thing.Kind"].kind == "enum")
-  assert(by_symbol["Thing.Kind.file"].kind == "value")
-  assert(by_symbol["Thing.Kind.file"].signature == "\"file\"")
-  assert(by_symbol["Thing:read"].kind == "method")
-  assert(by_symbol["Thing:read"].text == "Reads it.")
+  assert(by_symbol["path"].kind == "field")
+  assert(by_symbol["path"].source_symbol == "Thing.path")
+  assert(by_symbol["path"].signature == "path: string", by_symbol["path"].signature)
+  assert(by_symbol["path"].text == "Where it is.")
+  assert(by_symbol["Options"].kind == "record")
+  assert(by_symbol["Options"].text == "How it is opened.", by_symbol["Options"].text)
+  assert(by_symbol["Options.create"].kind == "field")
+  assert(by_symbol["Options.create"].text == "Whether to create it.")
+  assert(by_symbol["Kind"].kind == "enum")
+  assert(by_symbol["Kind.file"].kind == "value")
+  assert(by_symbol["Kind.file"].signature == "\"file\"")
+  assert(by_symbol["read"].kind == "method")
+  assert(by_symbol["read"].text == "Reads it.")
   local order: {string} = {}
   for _, entry in ipairs(all) do
     order[#order + 1] = entry.symbol
   end
   assert(table.concat(order, " ") ==
-    "Thing Thing.path Thing.Options Thing.Options.create Thing.Kind " ..
-    "Thing.Kind.dir Thing.Kind.file Thing:read", table.concat(order, " "))
+    "Thing path Options Options.create Kind Kind.dir Kind.file read",
+    table.concat(order, " "))
 end
 
 --- A type alias is a symbol of kind `type`; a documented top-level
@@ -577,6 +578,207 @@ local function test_finds_the_export_and_the_references()
   assert(table.concat(seen, ", ") ==
     "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
     table.concat(seen, ", "))
+end
+
+--- Reference identity follows the lexical binding, not the spelling. Every
+--- shadow hides the import only in its own scope, while reassignment makes
+--- later uses uncertain and therefore absent.
+local function test_references_respect_shadowing_loops_and_reassignment()
+  local source = lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "Fs.read(\"before\")",
+    "local function parameter(Fs: any)",
+    "  Fs.read(\"shadowed parameter\")",
+    "end",
+    "do",
+    "  local Fs = {}",
+    "  Fs.read(\"shadowed block\")",
+    "end",
+    "for Fs in values do",
+    "  Fs.read(\"shadowed loop\")",
+    "end",
+    "Fs.read(\"after scopes\")",
+    "Fs = replacement",
+    "Fs.read(\"after reassignment\")",
+  })
+  local found = assert(positions.analyze(built, source, "fixture.tl"))
+  assert(#found.references == 2, tostring(#found.references))
+  assert(found.references[1].line == 2, tostring(found.references[1].line))
+  assert(found.references[2].line == 13, tostring(found.references[2].line))
+end
+
+--- A repeat body's locals remain in scope in its `until` condition. A local
+--- with the import's spelling must therefore suppress that apparent member.
+local function test_repeat_condition_uses_the_body_scope()
+  local found = assert(positions.analyze(built, lines({
+    'local Fs = require("cosmic.fs")',
+    "repeat",
+    "  local Fs = {}",
+    "until Fs.done",
+  }), "fixture.tl"))
+  assert(#found.references == 0, tostring(#found.references))
+end
+
+--- Local import spellings are not target identity: two aliases of the same
+--- module produce the same canonical module/member pair.
+local function test_distinct_import_aliases_share_canonical_identity()
+  local found = assert(positions.analyze(built, lines({
+    'local Fs = require("cosmic.fs")',
+    'local disk = require("cosmic.fs")',
+    'Fs.read("one")',
+    'disk.read("two")',
+  }), "fixture.tl"))
+  assert(#found.references == 2)
+  for _, reference in ipairs(found.references) do
+    assert(reference.module == "cosmic.fs" and reference.member == "read")
+  end
+end
+
+--- The returned record name is display spelling. Renaming it leaves the same
+--- canonical exported member and its original definition location.
+local function test_export_record_name_is_not_symbol_identity()
+  local first = assert(positions.analyze(built, lines({
+    "local record First", "end", "function First.read()", "end", "return First",
+  }), "first.tl"))
+  local second = assert(positions.analyze(built, lines({
+    "local record Renamed", "end", "function Renamed.read()", "end", "return Renamed",
+  }), "second.tl"))
+  assert(first.docs[2].symbol == "read", first.docs[2].symbol)
+  assert(second.docs[2].symbol == "read", second.docs[2].symbol)
+  assert(first.docs[2].source_symbol == "First.read")
+  assert(second.docs[2].source_symbol == "Renamed.read")
+  assert(first.docs[2].line == 3 and second.docs[2].line == 3)
+end
+
+--- A public record field assigned a documented local implementation is the
+--- exported identity, but points at the implementation's docs and location.
+--- The local declaration remains available for private inspection.
+local function test_export_alias_points_to_implementation_definition()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public",
+    "  run: function(string): boolean",
+    "end",
+    "--- Runs the operation.",
+    "local function implementation(value: string): boolean",
+    "  return value ~= \"\"",
+    "end",
+    "Public.run = implementation",
+    "return Public",
+  }), "fixture.tl"))
+  local by_symbol: {string: positions.DocEntry} = {}
+  for _, entry in ipairs(found.docs) do by_symbol[entry.symbol] = entry end
+  local public = assert(by_symbol["run"])
+  assert(public.source_symbol == "Public.run")
+  assert(public.kind == "function" and public.exported)
+  assert(public.text == "Runs the operation.")
+  assert(public.line == 5, tostring(public.line))
+  local private = assert(by_symbol["implementation"])
+  assert(not private.exported and private.line == 5)
+end
+
+--- Export assignment captures the function value at that point. Reassigning
+--- the local later does not change the member that already received it.
+local function test_export_alias_survives_later_local_reassignment()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public", "  run: function(): boolean", "end",
+    "--- The captured implementation.",
+    "local function implementation(): boolean", "  return true", "end",
+    "Public.run = implementation",
+    "implementation = function(): boolean return false end",
+    "return Public",
+  }), "fixture.tl"))
+  local exported: positions.DocEntry = nil
+  for _, entry in ipairs(found.docs) do
+    if entry.exported and entry.symbol == "run" then exported = entry end
+  end
+  assert(exported ~= nil and exported.line == 5)
+  assert(exported.text == "The captured implementation.")
+end
+
+--- An assignment to a nested binding with the same spelling is unrelated to
+--- the outer implementation captured by the public member.
+local function test_nested_shadow_does_not_invalidate_export_alias()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public", "  run: function(): boolean", "end",
+    "--- The outer implementation.",
+    "local function implementation(): boolean", "  return true", "end",
+    "Public.run = implementation",
+    "do",
+    "  local implementation = function(): boolean return false end",
+    "  implementation = function(): boolean return false end",
+    "end",
+    "return Public",
+  }), "fixture.tl"))
+  local exported: positions.DocEntry = nil
+  for _, entry in ipairs(found.docs) do
+    if entry.exported and entry.symbol == "run" then exported = entry end
+  end
+  assert(exported ~= nil and exported.line == 5)
+  assert(exported.text == "The outer implementation.")
+end
+
+--- The last supported member write controls the public definition. An
+--- unknown final value leaves only the truthful declared field exported;
+--- earlier callable definitions remain private inspection rows.
+local function test_final_unknown_member_write_removes_stale_callable_export()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public", "  run: function(): boolean", "end",
+    "--- The original callable.",
+    "function Public.run(): boolean", "  return true", "end",
+    "Public.run = unknown_value",
+    "return Public",
+  }), "fixture.tl"))
+  local exported = 0
+  local private_callable = 0
+  for _, entry in ipairs(found.docs) do
+    if entry.exported and entry.symbol == "run" then
+      exported = exported + 1
+      assert(entry.kind == "field", entry.kind)
+      assert(entry.line == 2, tostring(entry.line))
+    elseif not entry.exported and entry.source_symbol == "Public.run"
+           and entry.kind == "function" then
+      private_callable = private_callable + 1
+    end
+  end
+  assert(exported == 1, tostring(exported))
+  assert(private_callable == 1, tostring(private_callable))
+end
+
+--- A keyed table return is an equally explicit export surface even without a
+--- named record. Its member aliases the local implementation canonically.
+local function test_table_return_alias_points_to_implementation()
+  local found = assert(positions.analyze(built, lines({
+    "--- Runs the operation.",
+    "local function implementation(): boolean",
+    "  return true",
+    "end",
+    "return { run = implementation }",
+  }), "fixture.tl"))
+  local exported: positions.DocEntry = nil
+  local private: positions.DocEntry = nil
+  for _, entry in ipairs(found.docs) do
+    if entry.symbol == "run" then exported = entry end
+    if entry.symbol == "implementation" then private = entry end
+  end
+  assert(exported ~= nil and exported.exported and exported.line == 2)
+  assert(exported.source_symbol == "run" and exported.text == "Runs the operation.")
+  assert(private ~= nil and not private.exported)
+end
+
+--- An unsupported scalar value has no declaration identity. The empty
+--- sentinel must never resolve to the module's own empty-symbol doc row.
+local function test_unresolved_table_export_does_not_inherit_module_doc()
+  local found = assert(positions.analyze(built, lines({
+    "--- Public version.",
+    "local version = \"1\"",
+    "return { version = version, make = function(): string return \"x\" end }",
+  }), "fixture.tl"))
+  for _, entry in ipairs(found.docs) do
+    assert(entry.symbol ~= "version", "scalar export inherited a declaration")
+    assert(entry.symbol ~= "make", "function expression inherited a declaration")
+  end
+  assert(found.docs[1].symbol == "" and found.docs[1].kind == "module")
+  assert(found.docs[1].text == "Public version.")
 end
 
 --- A chunk that returns nothing, or an expression that is not a plain
