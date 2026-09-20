@@ -627,12 +627,6 @@ function test.run(argv: {integer:string}): integer
     complain(load_trouble)
     return 1
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    complain(env_trouble)
-    return 1
-  end
 
   -- Same staleness guard `cosmic <file.tl>` applies when the tree under
   -- test is cosmic's own: a stale tool would check and compile it with
@@ -654,7 +648,7 @@ function test.run(argv: {integer:string}): integer
     end
     if state == "teal" then
       complain("the tool is stale; rebuilding it from the tree")
-      local reboot_trouble = reboot.into(handle, built, env, argv)
+      local reboot_trouble = reboot.into(handle, built, argv)
       complain(reboot_trouble)
       return 3
     end
@@ -667,7 +661,7 @@ function test.run(argv: {integer:string}): integer
   local runtime = Store.meta("runtime") or ""
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, tool)
+  local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)

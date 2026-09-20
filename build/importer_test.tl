@@ -49,12 +49,7 @@ local function requires_of_fixture(root: string, path: string): {string} | nil, 
     work.close(handle)
     return nil, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return nil, env_trouble
-  end
-  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  local result, compile_trouble = importer.compile(handle, built, "importer-test")
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
@@ -79,12 +74,7 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return nil, env_trouble
-  end
-  local result, compile_trouble = importer.compile(handle, built, env,
+  local result, compile_trouble = importer.compile(handle, built,
     "declaration-cache-test")
   work.close(handle)
   return result, compile_trouble
@@ -370,8 +360,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local env = assert(teal.environment_for(built, handle))
-  local result = assert(importer.compile(handle, built, env, "importer-test"))
+  local result = assert(importer.compile(handle, built, "importer-test"))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
   local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
   local rows = assert(Sqlite.text_rows(shipped,
@@ -466,8 +455,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   assert(Fs.write(root .. "/lines.tl", source))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local env = assert(teal.environment_for(built, handle))
-  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  local result, compile_trouble = importer.compile(handle, built, "importer-test")
   assert(result ~= nil, tostring(compile_trouble))
   local lua: string = nil
   for _, m in ipairs(result.modules) do

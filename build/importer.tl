@@ -28,6 +28,7 @@ local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
 local symbols = require("build.symbols")
+local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local type compiler = require("build.compiler")
@@ -977,13 +978,17 @@ end
 --- transaction, kept even when a later module refuses, so a run that
 --- fails still pays for each module once; a compile another tool
 --- made, or one no run has used lately, is dropped.
+---
+--- The checker's environment (`build.teal`'s `environment_for`) is made
+--- on first use, right before the first module that actually needs one
+--- to compile, rather than up front: `new_env` parses and type-checks
+--- tl's own prelude and stdlib declarations, so a build that finds
+--- every module already cached never pays for it.
 --- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
---- @param env the checker's environment, already pointed at the tree
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
 function importer.compile(handle: work.Handle, built: compiler,
-                          env: compiler.Env,
                           tool: string): importer.Result | nil, string
   local modules, trouble = collect(handle, importer.is_own_tree(handle.root), built)
   if modules == nil then
@@ -1007,6 +1012,10 @@ function importer.compile(handle: work.Handle, built: compiler,
   }
   local db = handle.db
   local failure = ""
+  -- Made on first use, by whichever module first fails to find a
+  -- cached compile below: a run that compiles nothing never pays for
+  -- `new_env`'s parse and type-check of tl's own prelude and stdlib.
+  local env: compiler.Env | nil = nil
 
   -- Where a refused module's own hint (`with_docs_hint`) looks up the
   -- name it could not resolve: this build's own working database
@@ -1061,6 +1070,14 @@ function importer.compile(handle: work.Handle, built: compiler,
         if lua ~= nil then
           result.cached = result.cached + 1
         else
+          if env == nil then
+            local made_env, env_trouble = teal.environment_for(built, handle)
+            if made_env == nil then
+              failure = env_trouble
+              break
+            end
+            env = made_env
+          end
           local code, made_bytecode, generate_trouble =
             generate(m, built, env, hint_databases, hint_public)
           if code == nil then

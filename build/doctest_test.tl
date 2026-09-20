@@ -116,12 +116,7 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return nil, env_trouble
-  end
-  local result, compile_trouble = importer.compile(handle, built, env, "doctest-test")
+  local result, compile_trouble = importer.compile(handle, built, "doctest-test")
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
