@@ -417,7 +417,8 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
         return nil, trouble
       end
       for _, row in ipairs(rows) do
-        local counted = not scope[index] or is_public_module(row[3])
+        local counted = not scope[index] or
+          (is_public_module(row[1]) and is_public_module(row[3]))
         if counted and owners[row[3]] == index then
           local position = table.concat(row, "\n")
           if not seen[position] then
