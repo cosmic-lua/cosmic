@@ -9,8 +9,8 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local importer = require("build.importer")
 local symbols = require("build.symbols")
+local tree = require("build.tree")
 
 local record docs
   --- One ordered database view and the owner of every module in it.
@@ -23,6 +23,10 @@ local record docs
     --- every database inside cosmic's own tree, answer for everything.
     public: {integer: boolean}
     owners: {string: integer}
+    --- How many places refer to a module/symbol pair, keyed by
+    --- `use_key` -- computed on demand, once per command, by
+    --- `effective_counts`, and cached here so several entries or
+    --- renders naming the same symbol query `uses` only once.
     use_counts: {string: integer}
   end
 
@@ -111,10 +115,14 @@ local EXAMPLE_BOUNDARY_SQL =
   "(e.text || ' ' || e.source || ' ') GLOB " ..
   "('*' || d.source_symbol || '[^A-Za-z0-9_]*')"
 
+-- The row's use count is never read as queried: `effective_counts`
+-- overwrites it on every path that renders `entry.uses` -- see
+-- `entries_of` -- so this column is a placeholder, not a correlated
+-- `uses` subquery run for every row of every listing or search.
 local columns =
   "d.module, d.symbol, d.source_symbol, d.exported, d.kind, d.signature, " ..
   "d.text, d.file, d.line, " ..
-  "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol), " ..
+  "0, " ..
   "CASE WHEN d.symbol = '' THEN 0 ELSE (SELECT count(*) FROM examples_fts " ..
   "JOIN examples e ON e.id = examples_fts.rowid " ..
   "WHERE e.module = d.module AND examples_fts MATCH " ..
@@ -174,6 +182,29 @@ local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.E
     "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
     " AND " .. symbols.public_only("d.module", public) .. " ORDER BY d.module, d.id",
     { text(query) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
+--- The rows named exactly by one of `names` (`d.symbol IN (...)`), in
+--- one query -- unlike `named`, only the symbol as declared, never a
+--- last name or a module's own row, since a caller passing several
+--- names already knows exactly what each one is.
+local function named_all(db: Sqlite.Handle, public: boolean,
+                         names: {string}): {docs.Entry} | nil, string
+  local placeholders: {string} = {}
+  local args: {Sqlite.Value} = {}
+  for index, name in ipairs(names) do
+    placeholders[index] = "?" .. index
+    args[index] = text(name)
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol IN (" ..
+    table.concat(placeholders, ", ") .. ") AND " ..
+    symbols.public_only("d.module", public) .. " ORDER BY d.module, d.id",
+    args)
   if rows == nil then
     return nil, trouble
   end
@@ -316,7 +347,7 @@ function docs.databases(): {Sqlite.Handle}, {boolean}
   -- a project sees its own code and the standard library, never the
   -- build that made the binary.
   local root = Fs.absolute(".")
-  local outside = root == nil or not importer.is_own_tree(root)
+  local outside = root == nil or not tree.is_own(root)
   for _, db in ipairs(Store.databases()) do
     out[#out + 1] = db
     public[#out] = outside
@@ -360,9 +391,52 @@ local function use_key(module: string, symbol: string): string
   return module .. "\n" .. symbol
 end
 
+--- How many places refer to `module`/`symbol`, across `view.databases`,
+--- by the same rules `docs.view` used to apply eagerly to every row of
+--- every `uses` table: a use counts only if the database is not a
+--- public source or both ends are public modules, and only if the
+--- database that counts it is the one that owns the calling module --
+--- see `across`. Computed once per pair and cached on `view`, since a
+--- module's own listing and a symbol's own rendering can both ask for
+--- the same pair in one command.
+local function count_uses(view: docs.View, module: string, symbol: string): integer
+  local key = use_key(module, symbol)
+  local cached = view.use_counts[key]
+  if cached ~= nil then
+    return cached
+  end
+  local seen: {string: boolean} = {}
+  local total = 0
+  for index, db in ipairs(view.databases) do
+    if has_docs(db) then
+      local rows = Sqlite.text_rows(db,
+        "SELECT from_module, from_file, line FROM uses " ..
+        "WHERE module = ?1 AND symbol = ?2",
+        { text(module), text(symbol) })
+      if rows ~= nil then
+        for _, row in ipairs(rows) do
+          local from_module = row[1]
+          local counted = not view.public[index] or
+            (symbols.is_public_module(module) and symbols.is_public_module(from_module))
+          if counted and view.owners[from_module] == index then
+            local position = module .. "\n" .. symbol .. "\n" .. from_module ..
+              "\n" .. row[2] .. "\n" .. row[3]
+            if not seen[position] then
+              seen[position] = true
+              total = total + 1
+            end
+          end
+        end
+      end
+    end
+  end
+  view.use_counts[key] = total
+  return total
+end
+
 local function effective_counts(view: docs.View, entries: {docs.Entry})
   for _, entry in ipairs(entries) do
-    entry.uses = view.use_counts[use_key(entry.module, entry.symbol)] or 0
+    entry.uses = count_uses(view, entry.module, entry.symbol)
   end
 end
 
@@ -388,32 +462,8 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
       end
     end
   end
-  local use_counts: {string: integer} = {}
-  local seen: {string: boolean} = {}
-  for index, db in ipairs(databases) do
-    if has_docs(db) then
-      local rows, trouble = Sqlite.text_rows(db,
-        "SELECT module, symbol, from_module, from_file, line FROM uses " ..
-        "ORDER BY module, symbol, from_module, from_file, line")
-      if rows == nil then
-        return nil, trouble
-      end
-      for _, row in ipairs(rows) do
-        local counted = not scope[index] or
-          (symbols.is_public_module(row[1]) and symbols.is_public_module(row[3]))
-        if counted and owners[row[3]] == index then
-          local position = table.concat(row, "\n")
-          if not seen[position] then
-            seen[position] = true
-            local key = use_key(row[1], row[2])
-            use_counts[key] = (use_counts[key] or 0) + 1
-          end
-        end
-      end
-    end
-  end
   return { databases = databases, public = scope, owners = owners,
-           use_counts = use_counts }
+           use_counts = {} }
 end
 
 --- What `query` names, across `databases`: its exact matches when it
@@ -440,6 +490,27 @@ function docs.lookup(view: docs.View, query: string): {docs.Entry} | nil, string
   end
   effective_counts(view, found)
   return found, "", false
+end
+
+--- Every one of `names` that names a symbol exactly, in one query per
+--- database rather than one lookup per name -- built for a caller
+--- that needs several known symbols in one command, such as `cosmic
+--- help` listing every verb. `#names == 0` finds nothing without
+--- querying. A name absent from the result was not found; this never
+--- fails for that, only for real trouble reading a database.
+function docs.named_all(view: docs.View, names: {string}): {docs.Entry} | nil, string
+  if #names == 0 then
+    return {}
+  end
+  local found, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+      return named_all(db, public, names)
+    end, entry_module)
+  if found == nil then
+    return nil, trouble
+  end
+  effective_counts(view, found)
+  return found
 end
 
 --- Every place across `databases` that refers to what `query` names.

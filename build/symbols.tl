@@ -2,10 +2,10 @@
 --- `cosmic docs`'s own matching (`build.docs`) and the compiler's own
 --- hint for a name it could not resolve (`build.importer`), so a
 --- compile-time pointer can never name a row `cosmic docs <word>`
---- itself would disagree with. `build.docs` cannot hold this rule on
---- its own: it already requires `build.importer` (for
---- `is_own_tree`), so `build.importer` requiring it back would be a
---- cycle. This module requires neither.
+--- itself would disagree with. Kept in its own module rather than in
+--- either of those: `build.importer` already requires it directly
+--- (for the hint), so `build.docs` requiring `build.importer` back
+--- for this rule would be a cycle. This module requires neither.
 
 local Sqlite = require("cosmic.sqlite")
 

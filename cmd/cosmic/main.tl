@@ -30,15 +30,29 @@ local function verb_help(): string
   if view == nil then
     return "(cosmic.cli: " .. view_trouble .. ")"
   end
+  local names: {string} = {}
+  for _, verb in ipairs(Cli.order) do
+    names[#names + 1] = "Cli." .. verb
+  end
+  local found, trouble = docs.named_all(view, names)
   local lines: {string} = {}
   for _, verb in ipairs(Cli.order) do
-    local found, trouble = docs.lookup(view, "Cli." .. verb)
+    local symbol = "Cli." .. verb
+    local text: string | nil = nil
+    if found ~= nil then
+      for _, entry in ipairs(found) do
+        if entry.symbol == symbol then
+          text = entry.text
+          break
+        end
+      end
+    end
     if found == nil then
-      lines[#lines + 1] = "(cosmic.cli.Cli." .. verb .. ": " .. trouble .. ")"
-    elseif #found == 0 then
-      lines[#lines + 1] = "(cosmic.cli.Cli." .. verb .. ": not found)"
+      lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": " .. trouble .. ")"
+    elseif text == nil then
+      lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": not found)"
     else
-      lines[#lines + 1] = found[1].text
+      lines[#lines + 1] = text
     end
     lines[#lines + 1] = ""
   end

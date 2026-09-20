@@ -28,6 +28,7 @@ local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
 local symbols = require("build.symbols")
+local tree = require("build.tree")
 local work = require("build.work")
 local type compiler = require("build.compiler")
 
@@ -52,16 +53,12 @@ local record importer
   end
 end
 
---- Whether `root` is cosmic's own tree, structurally: `core/` and
---- `build/` both exist, and `build/` holds the importer itself rather
---- than just a directory of that name. `cosmic.*` is reserved to this
---- one tree; nothing else may claim it, by directory or by import path.
---- Exposed so a caller can gate other cosmic's-own-tree behavior on the
---- same test the importer itself uses.
+--- Whether `root` is cosmic's own tree, structurally. Exposed so a
+--- caller can gate other cosmic's-own-tree behavior on the same test
+--- the importer itself uses; see `build.tree`, which holds the real
+--- check so answering it never costs loading the rest of `build`.
 function importer.is_own_tree(root: string): boolean
-  return Fs.is_dir(root .. "/core") and Fs.is_dir(root .. "/build") and
-    Fs.exists(root .. "/build/importer.tl") and
-    not Fs.is_dir(root .. "/build/importer.tl")
+  return tree.is_own(root)
 end
 
 --- The bytecode header every target must agree on. One column of
