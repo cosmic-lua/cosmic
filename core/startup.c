@@ -306,3 +306,12 @@ int cosmic_startup_test_pause(const char **error) {
 #endif
   return 1;
 }
+
+#if defined(COSMIC_PORTABLE_STARTUP_TEST_HOOKS)
+void cosmic_startup_test_phase(const char *phase) {
+  static const char prefix[] = "cosmic portable test phase: ";
+  (void)write(STDERR_FILENO, prefix, sizeof prefix - 1);
+  (void)write(STDERR_FILENO, phase, strlen(phase));
+  (void)write(STDERR_FILENO, "\n", 1);
+}
+#endif

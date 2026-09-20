@@ -67,6 +67,11 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
                          struct cosmic_artifact *artifact,
                          const char **error);
 int cosmic_startup_test_pause(const char **error);
+#if defined(COSMIC_PORTABLE_STARTUP_TEST_HOOKS)
+void cosmic_startup_test_phase(const char *phase);
+#else
+#define cosmic_startup_test_phase(phase) ((void)(phase))
+#endif
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
                          char **argv);
 

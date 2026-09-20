@@ -10,6 +10,8 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-runtime.XXXXXXXX")
 cleanup() {
   status=$?
   trap - EXIT
+  # Diagnostics and cleanup must never replace the inferior's original status.
+  set +e
   if [ "$status" -ne 0 ]; then
     for diagnostic in "$work"/*.err; do
       if [ -s "$diagnostic" ]; then
@@ -21,6 +23,30 @@ cleanup() {
       printf '%s:\n' "$work/paused.out" >&2
       cat "$work/paused.out" >&2
     fi
+    if [ -n "${COSMIC_PORTABLE_DIAGNOSTICS-}" ]; then
+      mkdir -p "$COSMIC_PORTABLE_DIAGNOSTICS"
+      printf '%s\n' "$status" > "$COSMIC_PORTABLE_DIAGNOSTICS/status"
+      for diagnostic in "$work"/*.out "$work"/*.err; do
+        if [ -f "$diagnostic" ]; then
+          cp "$diagnostic" "$COSMIC_PORTABLE_DIAGNOSTICS/"
+        fi
+      done
+      for executable in "$work"/cache-replace/core-*; do
+        if [ -f "$executable" ]; then
+          cp "$executable" "$COSMIC_PORTABLE_DIAGNOSTICS/executing-core"
+        fi
+      done
+      # Cover ordinary core and core.PID file patterns when the kernel writes
+      # them. The checkout already has a core/ directory, so an unsuffixed dump
+      # in $root cannot land there; piped system core handlers are also outside
+      # this fixture's filesystem capture.
+      for dump in "$root"/core "$root"/core.[0-9]* \
+          "$work"/core "$work"/core.[0-9]*; do
+        if [ -f "$dump" ]; then
+          cp "$dump" "$COSMIC_PORTABLE_DIAGNOSTICS/"
+        fi
+      done
+    fi
   fi
   chmod -R u+w "$work" 2>/dev/null || :
   rm -rf "$work"
@@ -28,6 +54,7 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 126' HUP INT TERM
+ulimit -c unlimited 2>/dev/null || :
 
 chmod 755 "$fixture/runtime.release" "$fixture/runtime.old" \
   "$fixture/runtime.new" "$fixture/runtime.incompatible"

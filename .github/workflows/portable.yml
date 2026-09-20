@@ -99,7 +99,16 @@ jobs:
             "$PWD/portable/launcher/launcher.test" \
             "$PWD/portable/launcher/payloads/socket-$TARGET"
       - name: validate retained artifact bytes with the real runtime
+        env:
+          COSMIC_PORTABLE_DIAGNOSTICS: ${{ runner.temp }}/cosmic-runtime-diagnostics
         run: test/portable/runtime_test.sh "$PWD/portable/runtime"
+      - name: preserve retained-runtime failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: portable-runtime-diagnostics-${{ matrix.target }}
+          path: ${{ runner.temp }}/cosmic-runtime-diagnostics
+          if-no-files-found: ignore
   identity-x86:
     needs: build
     runs-on: ubuntu-24.04
