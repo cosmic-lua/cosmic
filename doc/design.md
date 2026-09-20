@@ -353,8 +353,9 @@ ships a dataset it updates copies it out once with `VACUUM INTO`, or
 attaches the embedded database read-only beside a writable one and
 queries across both.
 
-the launcher's cache leaf is untrusted until its owner, mode, link count,
-contents, length, and digest all match the manifest. its parent directory is
+the launcher's cache leaf is untrusted until its owner, mode, and contents
+meet the cache policy, and the core's length and digest match the manifest. its
+parent directory is
 the user's trust boundary. a cold launch writes and publishes a verified core
 atomically; a warm launch repeats the complete hash before execution. the
 launcher uses POSIX utilities available on the supported systems and reserves
