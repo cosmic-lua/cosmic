@@ -163,6 +163,51 @@ function teal.load(): compiler | nil, string
   return produced as compiler
 end
 
+--- A capsule that puts off `teal.load`'s ~5ms, ~291KB bytecode load
+--- until something actually touches the compiler. Most runs never do:
+--- when `build.importer` answers every module and every coverage line
+--- from its own caches, nothing ever asks the compiler to parse, check
+--- or generate anything, and loading it up front is pure waste on
+--- exactly that (common) run. The capsule is an empty table whose
+--- metatable loads the compiler on the first field anything reads or
+--- writes and remembers it afterward, so the load happens at most
+--- once. A write goes onto the loaded compiler itself, never onto the
+--- capsule: tl reaches its own `search_module` and `path` through its
+--- module table, so `serve`'s override below has to land there for
+--- the checker to see it, and a capsule that kept the write for itself
+--- would leave tl searching the filesystem. A load failure raises the
+--- exact message `teal.load` would have returned, with `error(_, 0)`
+--- so it reaches the top unprefixed by a location naming this line
+--- rather than the real cause: a broken binary still says "the
+--- compiler is not in this binary: ..." instead of a nil-index
+--- traceback.
+--- @return compiler a capsule usable everywhere `teal.load`'s own
+---   result is: the same one boundary, an untyped table cast to the
+---   declared surface, just deferred to the first real use
+function teal.lazy(): compiler
+  local loaded: {any:any}
+  local function real(): {any:any}
+    if loaded == nil then
+      local built, trouble = teal.load()
+      if built == nil then
+        error(trouble, 0)
+      end
+      loaded = built as {any:any}
+    end
+    return loaded
+  end
+  local capsule: any = {}
+  setmetatable(capsule, {
+    __index = function(_self: any, key: any): any
+      return real()[key]
+    end,
+    __newindex = function(_self: any, key: any, value: any)
+      real()[key] = value
+    end,
+  })
+  return capsule as compiler
+end
+
 --- What the checker gets when it asks for a module by name: the source
 --- as one string, then a close. It reads `inputs` rows and nothing
 --- else; a path never enters into it.

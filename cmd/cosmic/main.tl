@@ -198,12 +198,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  local built, load_trouble = teal.load()
-  if built == nil then
-    work.close(handle)
-    complain("cosmic: " .. load_trouble)
-    return 1
-  end
+  local built = teal.lazy()
 
   -- A stale tool: this binary's source inputs no longer match what
   -- it was booted from. Running on would compile the tree with a
