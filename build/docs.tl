@@ -263,71 +263,6 @@ local function has_docs(db: Sqlite.Handle): boolean
   return rows ~= nil and #rows > 0
 end
 
---- The hand-authored `catalog` rows this module's own columns shape,
---- so `docs.render` shows one exactly like any other entry: a
---- synthetic module (`(errno)`, `(removed)`) in place of a real one,
---- the catalog's own text as the entry's whole documentation, no
---- signature. Ignores `public` on purpose -- guidance for a removed
---- global or a syscall failure applies to a project's own code
---- exactly as it does inside cosmic's own tree, the same way
---- `core/main.c`'s reactive `catalog_guidance` never scopes it either.
---- Only hand-authored rows (`c.text` set) answer here: a per-function
---- extracted row (`text` NULL, joined to its own doc comment instead)
---- is already reachable by name through `named`, and showing it twice
---- would only duplicate that entry under a synthetic module.
-local catalog_columns =
-  "c.module, c.symbol, c.symbol, 0, 'guidance', '', c.text, c.file, " ..
-  "c.line, 0, 0"
-
---- Catalog rows named `query` exactly, by symbol (`ENOENT`, `os`).
-local function named_catalog(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. catalog_columns .. " FROM catalog c WHERE c.symbol = ?1 " ..
-    "AND c.text IS NOT NULL AND c.text <> '' ORDER BY c.id",
-    { text(query) })
-  if rows == nil then
-    return nil, trouble
-  end
-  return entries_of(rows)
-end
-
---- Catalog rows whose guidance or matched message carries every word
---- of `fts`, best match first.
-local function searched_catalog(db: Sqlite.Handle, fts: string): {docs.Entry} | nil, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. catalog_columns .. " FROM catalog_fts " ..
-    "JOIN catalog c ON c.id = catalog_fts.rowid " ..
-    "WHERE catalog_fts MATCH ?1 AND c.text IS NOT NULL AND c.text <> '' " ..
-    "ORDER BY bm25(catalog_fts) LIMIT 20",
-    { text(fts) })
-  if rows == nil then
-    return nil, trouble
-  end
-  return entries_of(rows)
-end
-
---- `look` over `view.databases` in order, answered by the first
---- database that has any row for it: every build seeds the same
---- hand-authored catalog rows into its own database, so the first
---- database in search order (a project's own ahead of the binary's,
---- per `docs.databases`) already carries the whole catalog, and this
---- avoids showing the same seeded row once per database that has it.
-local function catalog_across(view: docs.View,
-                              look: function(Sqlite.Handle): {docs.Entry} | nil, string): {docs.Entry} | nil, string
-  for _, db in ipairs(view.databases) do
-    if has_docs(db) then
-      local found, trouble = look(db)
-      if found == nil then
-        return nil, trouble
-      end
-      if #found > 0 then
-        return found
-      end
-    end
-  end
-  return {}
-end
-
 --- `searched_docs` and `searched_examples` together, a symbol kept
 --- once: a doc-comment match outranks an example-only one, since
 --- `searched_docs`'s own rows come first and a later duplicate is
@@ -510,16 +445,6 @@ function docs.lookup(view: docs.View, query: string): {docs.Entry} | nil, string
   if exact == nil then
     return nil, exact_trouble, false
   end
-  if #exact == 0 then
-    local catalog_exact, catalog_trouble = catalog_across(view,
-      function(db: Sqlite.Handle): {docs.Entry} | nil, string
-        return named_catalog(db, query)
-      end)
-    if catalog_exact == nil then
-      return nil, catalog_trouble, false
-    end
-    exact = catalog_exact
-  end
   if #exact > 0 then
     effective_counts(view, exact)
     return exact, "", true
@@ -530,19 +455,6 @@ function docs.lookup(view: docs.View, query: string): {docs.Entry} | nil, string
     end, entry_module)
   if found == nil then
     return nil, search_trouble, false
-  end
-  if #found == 0 then
-    local fts = fts_query(query)
-    if fts ~= "" then
-      local catalog_found, catalog_trouble = catalog_across(view,
-        function(db: Sqlite.Handle): {docs.Entry} | nil, string
-          return searched_catalog(db, fts)
-        end)
-      if catalog_found == nil then
-        return nil, catalog_trouble, false
-      end
-      found = catalog_found
-    end
   end
   effective_counts(view, found)
   return found, "", false
@@ -578,12 +490,9 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
   else
-    local where = entry.line > 0 and entry.file .. ":" .. entry.line or entry.file
     lines[#lines + 1] = entry.module .. " " .. entry.source_symbol .. " (" ..
-      where .. ")"
-    if entry.signature ~= "" then
-      lines[#lines + 1] = "  " .. entry.signature
-    end
+      entry.file .. ":" .. entry.line .. ")"
+    lines[#lines + 1] = "  " .. entry.signature
   end
   for line in (entry.text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = #line > 0 and "  " .. line or ""

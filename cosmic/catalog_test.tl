@@ -1,10 +1,11 @@
 local Catalog = require("cosmic.catalog")
+local Errno = require("cosmic.errno")
 
-local function test_every_row_has_a_symbol_module_hint_and_file()
+local function test_every_row_has_a_module_symbol_message_and_file()
   for _, row in ipairs(Catalog.rows) do
     assert(row.module ~= "", "a row's module is empty")
     assert(row.symbol ~= "", "a row's symbol is empty")
-    assert(row.hint ~= "", row.module .. " " .. row.symbol .. ": empty hint")
+    assert(row.message ~= "", row.module .. " " .. row.symbol .. ": empty message")
     assert(row.file ~= "", row.module .. " " .. row.symbol .. ": empty file")
   end
 end
@@ -18,17 +19,20 @@ local function test_no_two_rows_share_a_module_and_symbol()
   end
 end
 
---- A row with `message` set is matched reactively (`core/main.c`'s
---- `catalog_guidance`) against a real uncaught error's own text, so
---- its `hint` must be able to add something beyond that text -- see
---- `cosmic/catalog.tl`'s own doc comment for why the removed-global
---- and convention rows opt out with an empty `message` instead.
-local function test_a_row_with_a_message_has_a_different_hint()
+--- Every row's message is exactly the `cosmic.errno` field it names,
+--- the strerror() text `core/main.c`'s reactive matcher looks for --
+--- if these ever drifted apart, a real ENOENT would stop finding its
+--- own guidance, silently.
+local function test_every_row_matches_its_own_errno_field()
+  local by_symbol: {string: string} = {}
   for _, row in ipairs(Catalog.rows) do
-    if row.message ~= "" then
-      assert(row.hint ~= row.message,
-        row.module .. " " .. row.symbol ..
-        ": hint repeats message, so a reactive match would print it twice")
-    end
+    by_symbol[row.symbol] = row.message
   end
+  assert(by_symbol["Errno.ENOENT"] == Errno.ENOENT)
+  assert(by_symbol["Errno.EACCES"] == Errno.EACCES)
+  assert(by_symbol["Errno.EEXIST"] == Errno.EEXIST)
+  assert(by_symbol["Errno.ENOTDIR"] == Errno.ENOTDIR)
+  assert(by_symbol["Errno.EISDIR"] == Errno.EISDIR)
+  assert(by_symbol["Errno.ENOSPC"] == Errno.ENOSPC)
+  assert(by_symbol["Errno.EMFILE"] == Errno.EMFILE)
 end

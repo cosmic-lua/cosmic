@@ -26,6 +26,10 @@ local function integer(value: integer): Sqlite.Value
   return { integer = value }
 end
 
+local function null(): Sqlite.Value
+  return {}
+end
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- and the compiles it found or made, with a test or example module's
 --- own names alongside.
@@ -188,8 +192,7 @@ local function project(handle: work.Handle, path: string,
         "INSERT INTO out.catalog (id, kind, module, symbol, message, " ..
         "text, file, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { integer(id), text("error"), text(row.module), text(row.symbol),
-          text(row.message), text(row.hint), text(row.file),
-          integer(row.line) })
+          text(row.message), null(), text(row.file), integer(row.line) })
       if not ok then
         return false, failure
       end

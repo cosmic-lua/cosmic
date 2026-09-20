@@ -4,11 +4,8 @@ local schema = require("build.schema")
 
 --- One in-memory shipped database holding the rows a test names, its
 --- FTS index built, so the lookups run against the real schema.
---- `catalog` rows are `{module, symbol, message, text, file, line}`,
---- the shape `build.writer`'s hand-authored seed rows take.
 local function database(rows: {{string}}, uses: {{string}},
-                        examples?: {{string}}, modules?: {string},
-                        catalog?: {{string}}): Sqlite.Handle
+                        examples?: {{string}}, modules?: {string}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
@@ -51,17 +48,8 @@ local function database(rows: {{string}}, uses: {{string}},
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { integer = math.tointeger(tonumber(row[5])) }, { text = row[6] } }))
   end
-  for id, row in ipairs(catalog or {}) do
-    assert(Sqlite.run(db,
-      "INSERT INTO catalog (id, kind, module, symbol, message, text, " ..
-      "file, line) VALUES (?1, 'error', ?2, ?3, ?4, ?5, ?6, ?7)",
-      { { integer = id }, { text = row[1] }, { text = row[2] },
-        { text = row[3] }, { text = row[4] }, { text = row[5] },
-        { integer = math.tointeger(tonumber(row[6])) } }))
-  end
   assert(db:exec("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')"))
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
-  assert(db:exec("INSERT INTO catalog_fts(catalog_fts) VALUES ('rebuild')"))
   return db
 end
 
@@ -369,71 +357,4 @@ local function test_public_use_count_matches_list_across_project_collision()
   local entry = assert(docs.lookup(layered, "Helper.run"))[1]
   assert(entry ~= nil and entry.uses == 0, tostring(entry and entry.uses))
   assert(#assert(docs.uses(layered, "Helper.run")) == 0)
-end
-
---- A hand-authored catalog row -- guidance for a removed global or a
---- syscall failure, `build.writer`'s seed data -- answers a lookup
---- that no doc comment or example does, by symbol, exactly like an
---- ordinary entry.
-local function test_catalog_row_answers_when_nothing_else_matches()
-  local db = database({}, {}, {}, nil, {
-    { "(removed)", "os", "",
-      "os is not available: time is cosmic.time, the environment is " ..
-      "cosmic.env, and processes are cosmic.proc", "core/surface.c", "23" },
-  })
-  local found, _, exact = docs.lookup(view({ db }), "os")
-  assert(found ~= nil)
-  assert(exact, "a catalog symbol match was not exact")
-  assert(#found == 1 and found[1].module == "(removed)" and
-    found[1].symbol == "os", tostring(#found))
-  local lines = docs.render(view({ db }), found[1])
-  assert(lines[1] == "(removed) os (core/surface.c:23)", lines[1])
-  assert(lines[2] == "  os is not available: time is cosmic.time, the " ..
-    "environment is cosmic.env, and processes are cosmic.proc", lines[2])
-end
-
---- A real symbol's own doc comment always wins over a catalog row
---- that happens to share its name.
-local function test_a_documented_symbol_outranks_a_same_named_catalog_row()
-  local rows: {{string}} = {
-    { "project.os", "os", "function", "function os(): string",
-      "The project's own os() helper.", "project/os.tl", "5" },
-  }
-  local db = database(rows, {}, {}, nil, {
-    { "(removed)", "os", "", "os is not available.", "core/surface.c", "23" },
-  })
-  local found, _, exact = docs.lookup(view({ db }), "os")
-  assert(found ~= nil and exact)
-  assert(#found == 1 and found[1].module == "project.os", tostring(#found))
-end
-
---- Words that name no symbol or doc comment still find a catalog
---- row's guidance, through the same free-text search as everything
---- else.
-local function test_catalog_guidance_is_found_by_searching_its_words()
-  local db = database({}, {}, {}, nil, {
-    { "(errno)", "ENOENT", "No such file or directory",
-      "the path does not exist -- check it is spelled right",
-      "core/fail.h", "0" },
-  })
-  local found, _, exact = docs.lookup(view({ db }), "spelled right")
-  assert(found ~= nil)
-  assert(not exact)
-  assert(#found == 1 and found[1].symbol == "ENOENT", tostring(#found))
-  local lines = docs.render(view({ db }), found[1])
-  assert(lines[1] == "(errno) ENOENT (core/fail.h)", lines[1])
-end
-
---- An extracted catalog row (a function's own `return nil, ...`, kept
---- with no `text` of its own -- see `build.writer`'s
---- `insert_catalog_extracted`) is reachable by its function's own name
---- through `named` already; the catalog fallback answers only for a
---- hand-authored row, so it must not also surface this one, under its
---- placeholder module, as a second and lesser copy.
-local function test_an_extracted_catalog_row_with_no_text_is_not_shown()
-  local db = database({}, {}, {}, nil, {
-    { "cosmic.fs", "Fs.read", "no such file", "", "cosmic/fs.tl", "23" },
-  })
-  local found = assert(docs.lookup(view({ db }), "Fs.read"))
-  assert(#found == 0, tostring(#found))
 end
