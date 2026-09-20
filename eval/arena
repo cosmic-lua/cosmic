@@ -1,0 +1,21 @@
+#!/bin/sh
+# Lays out an arena for one eval: the binary at bin/cosmic, the task at
+# project/TASK.md. The agent runs in project/ with bin/ first on PATH.
+#
+#   eval/arena <task> <cosmic-binary> <dir>
+#
+# <task> names eval/task/<task>.md; eval/journal.md is appended to it.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+task=${1:?usage: eval/arena <task> <cosmic-binary> <dir>}
+binary=${2:?usage: eval/arena <task> <cosmic-binary> <dir>}
+dir=${3:?usage: eval/arena <task> <cosmic-binary> <dir>}
+[ -f "$here/task/$task.md" ] || { echo "arena: no task eval/task/$task.md" >&2; exit 2; }
+[ -x "$binary" ] || { echo "arena: $binary is not an executable" >&2; exit 2; }
+case $dir in "$here"/*|"$(dirname "$here")"/*) echo "arena: $dir is inside the repository; put the arena outside it" >&2; exit 2;; esac
+rm -rf "$dir"
+mkdir -p "$dir/bin" "$dir/project"
+cp "$binary" "$dir/bin/cosmic"
+chmod 755 "$dir/bin/cosmic"
+cat "$here/task/$task.md" "$here/journal.md" > "$dir/project/TASK.md"
+echo "arena: $dir (task $task)"
