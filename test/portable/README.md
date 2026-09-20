@@ -30,15 +30,25 @@ trusted `build.artifact` prefix capability keep reading the retained artifact
 descriptor. It selects one complete immutable file. Writing that same inode in
 place remains unsupported and is deliberately not presented as safe.
 
-`runtime_build.sh OUTPUT [PREBUILT_PREFIX]` requires a booted checkout with
-`o/bin/cosmic` and `o/cosmic.portable.db`. With no prebuilt prefix it invokes
+`runtime_build.sh OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` normally
+uses a booted checkout's `o/bin/cosmic` and `o/cosmic.portable.db`. With no
+prebuilt prefix it invokes
 `bin/zig build portable-fixture-cores` once in a temporary directory, sharing
 one patched-vendor graph across the three release cores, three fixture-hook
 cores, and the distinct sanitized core. A supplied prefix must contain
 `targets.tsv`, release cores under `core/<target>/cosmic-core`, hook cores under
 `portable-fixture/core/<target>/cosmic-core`, and the checked core at
 `portable-fixture/sanitized/cosmic-core`; every input is checked before output
-is generated.
+is generated. The explicit four-argument form lets CI combine the x86
+producer's release/hooked cores and writer/database with the checked core that
+the sanitized job already tested, without compiling that core a second time.
+
+`product_build.sh` makes the per-host provenance bundle from a booted tree. It
+copies portable Cosmic, extracts its exact prefix and manifest, and uses those
+same local portable bytes to build the hello and second standalone fixtures.
+`product_test.sh` verifies every recorded transported hash, exact prefix reuse,
+the selected manifest range's length and digest, and both applications. On the
+macOS host it also sends that extracted range to strict `codesign` verification.
 
 The generated launcher uses POSIX shell builtins plus `uname`, `stat`, `id`,
 `mkdir`, `chmod`, `mktemp`, `dd`, `head`, `ln`, `rm`, and either `sha256sum` or
@@ -83,6 +93,11 @@ Both test phases retain the 30-second suite limit when `timeout` or `gtimeout`
 is available. On macOS without either command, the workflow reports that it is
 relying on the existing 20-minute job bound. A local run without either timeout
 command refuses to start the suite rather than running without a bound.
+`prepare` accepts an optional portable artifact, and `snapshot_work_db.sh`
+accepts an optional Cosmic verifier. Normal CI uses both forms to run one
+downloaded canonical artifact in a fresh checkout with no booted executable,
+copied working database, verdicts, or cache. Both drivers are POSIX shell so
+the same checks run under stock Alpine BusyBox.
 
 `snapshot_work_db.sh DIAGNOSTICS-DIRECTORY LABEL` is also independently
 runnable. It copies and hashes the raw working database and any journal before

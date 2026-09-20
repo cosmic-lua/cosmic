@@ -33,12 +33,8 @@ else
   cp "$fixture/runtime_test.tl.in" "$project/runtime_test.tl"
   cp "$fixture/hello_main.tl.in" "$project/cmd/hello/main.tl"
   mkdir -p "$project/cmd/second"
-  cat > "$project/cmd/second/main.tl" <<'TL'
-return function(): integer
-  print("second portable application")
-  return 0
-end
-TL
+  cp "$root/test/portable/fixture/cmd/second/main.tl.in" \
+    "$project/cmd/second/main.tl"
 fi
 counter=$project/test-runs
 cache=$work/cache

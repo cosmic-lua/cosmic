@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: $0 {prepare|native|native-boundary|portable|portable-boundary} DIAGNOSTICS-DIRECTORY" >&2
+if [ "$#" -ne 2 ] && [ "$#" -ne 3 ]; then
+  echo "usage: $0 {prepare|native|native-boundary|portable|portable-boundary} DIAGNOSTICS-DIRECTORY [PORTABLE_ARTIFACT]" >&2
   exit 2
 fi
 
@@ -10,6 +10,7 @@ phase=$1
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 checkout=$(CDPATH= cd -- "$script_dir/../.." && pwd -P)
 diagnostics=$2
+portable_input=${3-}
 
 canonical_directory_path() {
   path=$1
@@ -68,11 +69,9 @@ cache="$diagnostics/portable-full-suite-cache"
 snapshot="$script_dir/snapshot_work_db.sh"
 
 hash_value() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
+  if command -v sha256sum >/dev/null 2>&1; then value=$(sha256sum "$1") || return
+  else value=$(shasum -a 256 "$1") || return; fi
+  printf '%s\n' "${value%% *}"
 }
 
 run_bounded() {
@@ -126,11 +125,17 @@ case "$phase" in
       echo "prepare requires fresh portable artifact and cache paths in $diagnostics" >&2
       exit 1
     fi
-    if [ ! -x "$checkout/o/bin/cosmic-portable" ]; then
-      echo "boot did not stage o/bin/cosmic-portable" >&2
+    if [ -z "$portable_input" ]; then
+      portable_input=$checkout/o/bin/cosmic-portable
+    else
+      case $portable_input in /*) ;; *) portable_input=$PWD/$portable_input ;; esac
+    fi
+    if [ ! -x "$portable_input" ]; then
+      echo "portable artifact is not executable: $portable_input" >&2
       exit 1
     fi
-    cp "$checkout/o/bin/cosmic-portable" "$portable"
+    cp "$portable_input" "$portable"
+    chmod 755 "$portable"
     hash_value "$portable" > \
       "$diagnostics/portable-artifact.before.sha256"
     wc -c < "$portable" > \
@@ -151,7 +156,7 @@ case "$phase" in
     cat "$native_err" >&2
     report_suite_failure native "$status"
     set +e
-    "$snapshot" "$diagnostics" native-immediate
+    "$snapshot" "$diagnostics" native-immediate "$cosmic"
     snapshot_status=$?
     set -e
     if [ "$snapshot_status" -ne 0 ]; then
@@ -164,7 +169,7 @@ case "$phase" in
     ;;
 
   native-boundary)
-    "$snapshot" "$diagnostics" native-boundary
+    "$snapshot" "$diagnostics" native-boundary "$cosmic"
     cmp "$diagnostics/native-immediate/hashes.sha256" \
       "$diagnostics/native-boundary/hashes.sha256"
     ;;
@@ -189,7 +194,8 @@ case "$phase" in
     fi
     report_suite_failure portable "$status"
     set +e
-    "$snapshot" "$diagnostics" portable-immediate
+    COSMIC_PORTABLE_CACHE="$cache" \
+      "$snapshot" "$diagnostics" portable-immediate "$portable"
     snapshot_status=$?
     hash_value "$portable" > \
       "$diagnostics/portable-artifact.after.sha256"
@@ -215,7 +221,8 @@ case "$phase" in
     ;;
 
   portable-boundary)
-    "$snapshot" "$diagnostics" portable-boundary
+    COSMIC_PORTABLE_CACHE="$cache" \
+      "$snapshot" "$diagnostics" portable-boundary "$portable"
     if [ "${PORTABLE_OUTCOME:-}" = success ]; then
       cmp "$diagnostics/portable-immediate/hashes.sha256" \
         "$diagnostics/portable-boundary/hashes.sha256"

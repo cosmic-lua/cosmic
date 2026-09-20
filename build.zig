@@ -174,6 +174,10 @@ pub fn build(b: *std.Build) void {
 
     const cores = b.step("cores", "build the core for every target");
     const boot = b.step("boot", "build the host core, then bridge into Teal");
+    const portable_hook_cores = b.step(
+        "portable-hook-cores",
+        "build release and retained-artifact test fixture cores",
+    );
     const portable_fixture_cores = b.step(
         "portable-fixture-cores",
         "build release, retained-artifact test, and checked fixture cores",
@@ -212,7 +216,7 @@ pub fn build(b: *std.Build) void {
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
         );
-        portable_fixture_cores.dependOn(&hooked_out.step);
+        portable_hook_cores.dependOn(&hooked_out.step);
 
         if (std.mem.eql(u8, t.name, hostName(b))) {
             const bridge = b.addRunArtifact(exe);
@@ -259,7 +263,8 @@ pub fn build(b: *std.Build) void {
         checked.getEmittedBin(),
         "portable-fixture/sanitized/cosmic-core",
     );
-    portable_fixture_cores.dependOn(cores);
+    portable_hook_cores.dependOn(cores);
+    portable_fixture_cores.dependOn(portable_hook_cores);
     portable_fixture_cores.dependOn(&checked_fixture_install.step);
 
     b.getInstallStep().dependOn(cores);

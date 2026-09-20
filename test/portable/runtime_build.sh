@@ -3,8 +3,14 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-out=${1:?usage: runtime_build.sh OUTPUT_DIRECTORY [PREBUILT_PREFIX]}
+if [ "$#" -ne 1 ] && [ "$#" -ne 2 ] && [ "$#" -ne 4 ]; then
+  echo 'usage: runtime_build.sh OUTPUT_DIRECTORY [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]' >&2
+  exit 2
+fi
+out=$1
 prebuilt=${2-}
+writer=${3-}
+database=${4-}
 if [ -e "$out" ]; then
   printf 'portable runtime build: output already exists: %s\n' "$out" >&2
   exit 2
@@ -26,16 +32,25 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-if [ ! -x "$root/o/bin/cosmic" ] || [ ! -f "$root/o/cosmic.portable.db" ]; then
-  echo 'portable runtime build: run bin/zig build boot first' >&2
-  exit 2
-fi
 if [ -z "$prebuilt" ]; then
   owned_prebuilt=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-portable-cores.XXXXXXXX")
   prebuilt=$owned_prebuilt
   "$root/bin/zig" build portable-fixture-cores --prefix "$prebuilt"
 else
   case $prebuilt in /*) ;; *) prebuilt=$PWD/$prebuilt ;; esac
+fi
+if [ -z "$writer" ]; then writer=$root/o/bin/cosmic; fi
+if [ -z "$database" ]; then database=$root/o/cosmic.portable.db; fi
+case $writer in /*) ;; *) writer=$PWD/$writer ;; esac
+case $database in /*) ;; *) database=$PWD/$database ;; esac
+if [ ! -x "$writer" ]; then
+  printf 'portable runtime build: writer is not executable: %s\n' "$writer" >&2
+  exit 2
+fi
+if [ ! -f "$database" ]; then
+  printf 'portable runtime build: portable database is missing: %s\n' \
+    "$database" >&2
+  exit 2
 fi
 
 targets=$prebuilt/targets.tsv
@@ -66,25 +81,25 @@ cp -R "$hooked_cores" "$out/hooked-build/core"
 cp "$targets" "$out/hooked-build/targets.tsv"
 mkdir -p "$out/sanitized-build/sanitized"
 cp "$sanitized_core" "$out/sanitized-build/sanitized/cosmic-core"
-cp "$root/o/cosmic.portable.db" "$out/old.db"
-cp "$root/o/cosmic.portable.db" "$out/new.db"
-cp "$root/o/cosmic.portable.db" "$out/basis.db"
-cp "$root/o/cosmic.portable.db" "$out/missing.db"
-"$root/o/bin/cosmic" "$root/test/portable/prepare_runtime_databases.tl" \
+cp "$database" "$out/old.db"
+cp "$database" "$out/new.db"
+cp "$database" "$out/basis.db"
+cp "$database" "$out/missing.db"
+"$writer" "$root/test/portable/prepare_runtime_databases.tl" \
   "$out/old.db" "$out/new.db" "$out/basis.db" "$out/missing.db"
 
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$targets" "$release_cores" "$out/old.db" "$out/runtime.release"
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$targets" "$out/hooked-build/core" "$out/old.db" \
   "$out/runtime.old" test
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$targets" "$out/hooked-build/core" "$out/new.db" \
   "$out/runtime.new" test
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$targets" "$out/hooked-build/core" "$out/basis.db" \
   "$out/runtime.basis" test
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$targets" "$out/hooked-build/core" "$out/missing.db" \
   "$out/runtime.missing" test
 
@@ -113,7 +128,7 @@ done < "$targets"
 mkdir -p "$out/sanitized-cores/$sanitized_name"
 cp "$out/sanitized-build/sanitized/cosmic-core" \
   "$out/sanitized-cores/$sanitized_name/cosmic-core"
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$out/sanitized-targets.tsv" "$out/sanitized-cores" "$out/old.db" \
   "$out/runtime.sanitized" test
 printf '%s\n' "$target_id" > "$out/sanitized-target-id"
@@ -128,14 +143,14 @@ while IFS="$tab" read -r target_id configuration_id configuration target uname_o
   printf X | dd of="$out/incompatible-cores/$target/cosmic-core" \
     bs=1 seek=128 conv=notrunc 2>/dev/null
 done < "$targets"
-"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+"$writer" "$root/test/portable/write_runtime_fixture.tl" \
   "$targets" "$out/incompatible-cores" "$out/new.db" \
   "$out/runtime.incompatible" test
 
 # Make the second complete artifact's prefix observably different without
 # changing its valid launcher or manifest. This byte is padding in the final
 # shell comment, outside all core ranges.
-"$root/o/bin/cosmic" "$root/test/portable/prepare_runtime_artifacts.tl" \
+"$writer" "$root/test/portable/prepare_runtime_artifacts.tl" \
   "$out" "$targets"
 
 cp "$root/test/portable/fixture/retained_probe.tl.in" "$out/probe.tl"

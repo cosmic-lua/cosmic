@@ -95,6 +95,38 @@ jobs:
           ls -l o/bin o/cosmic.db
           file o/bin/cosmic-*
 
+      - name: package this host's portable Cosmic and applications
+        run: test/portable/product_build.sh "$RUNNER_TEMP/portable-product"
+
+      - name: build shared x86 portable contract inputs
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          bin/zig build portable-hook-cores \
+            --prefix "$RUNNER_TEMP/portable-prebuilt"
+          test/portable/format.sh "$RUNNER_TEMP/portable-contract/format"
+          test/portable/launcher_build.sh \
+            "$RUNNER_TEMP/portable-contract/launcher"
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: portable-product-${{ matrix.name }}
+          path: ${{ runner.temp }}/portable-product
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: matrix.name == 'linux-x86_64'
+        with:
+          name: portable-prebuilt-x86
+          path: ${{ runner.temp }}/portable-prebuilt
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: matrix.name == 'linux-x86_64'
+        with:
+          name: portable-contract-x86
+          path: ${{ runner.temp }}/portable-contract
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: binaries-${{ matrix.name }}
@@ -129,6 +161,228 @@ jobs:
           # that, so this keeps real margin rather than matching the
           # ordinary suite's tighter limit.
           timeout 90 o/sanitized/bin/cosmic test
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: portable-checked-core-x86
+          path: o/sanitized/cosmic-core
+          if-no-files-found: error
+
+  portable-fixtures:
+    needs: [ci, sanitized]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-product-linux-x86_64
+          path: ${{ runner.temp }}/portable-product
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-prebuilt-x86
+          path: ${{ runner.temp }}/portable-prebuilt
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-checked-core-x86
+          path: ${{ runner.temp }}/checked
+      - name: combine tested checked and hooked cores without rebuilding
+        run: |
+          mkdir -p "$RUNNER_TEMP/portable-prebuilt/portable-fixture/sanitized"
+          cp "$RUNNER_TEMP/checked/cosmic-core" \
+            "$RUNNER_TEMP/portable-prebuilt/portable-fixture/sanitized/cosmic-core"
+          chmod +x "$RUNNER_TEMP/portable-product/writer"
+          test/portable/runtime_build.sh \
+            "$RUNNER_TEMP/portable-runtime" \
+            "$RUNNER_TEMP/portable-prebuilt" \
+            "$RUNNER_TEMP/portable-product/writer" \
+            "$RUNNER_TEMP/portable-product/portable.db"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: portable-runtime-x86
+          path: ${{ runner.temp }}/portable-runtime
+          if-no-files-found: error
+
+  portable-canonical:
+    needs: [ci, portable-fixtures]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-linux-musl
+            races: true
+            codesign: false
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-linux-musl
+            races: false
+            codesign: false
+          - name: macos-aarch64
+            runner: macos-15
+            target: aarch64-macos
+            races: true
+            codesign: true
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-product-linux-x86_64
+          path: ${{ runner.temp }}/portable-product
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-runtime-x86
+          path: ${{ runner.temp }}/portable-runtime
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-contract-x86
+          path: ${{ runner.temp }}/portable-contract
+      - name: restore only transported executable modes
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          chmod +x "$RUNNER_TEMP/portable-product/cosmic" \
+            "$RUNNER_TEMP/portable-product/apps/hello" \
+            "$RUNNER_TEMP/portable-product/apps/second"
+          chmod +x "$RUNNER_TEMP"/portable-runtime/runtime.*
+          chmod +x "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET"
+          chmod +x "$RUNNER_TEMP/portable-contract/launcher/launcher.test" \
+            "$RUNNER_TEMP/portable-contract/launcher/payloads/socket-$TARGET"
+          test ! -e o
+      - name: verify canonical bytes and this host's exact selected core
+        env:
+          TARGET: ${{ matrix.target }}
+          VERIFY_CODESIGN: ${{ matrix.codesign }}
+        run: |
+          if [ "$VERIFY_CODESIGN" = true ]; then set -- --codesign; else set --; fi
+          "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET" \
+            "$RUNNER_TEMP/portable-contract/format/program"
+          test/portable/product_test.sh "$RUNNER_TEMP/portable-product" \
+            "$TARGET" \
+            "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET" "$@"
+      - name: prepare canonical Cosmic without boot or inherited state
+        shell: sh
+        run: |
+          test ! -e o
+          test/portable/full_suite.sh prepare \
+            "$RUNNER_TEMP/canonical-diagnostics" \
+            "$RUNNER_TEMP/portable-product/cosmic"
+      - name: run the complete suite through canonical Cosmic
+        id: canonical-suite
+        shell: sh
+        run: test/portable/full_suite.sh portable "$RUNNER_TEMP/canonical-diagnostics"
+      - name: verify the delayed database and artifact boundary
+        if: always()
+        shell: sh
+        env:
+          PORTABLE_OUTCOME: ${{ steps.canonical-suite.outcome }}
+        run: test/portable/full_suite.sh portable-boundary "$RUNNER_TEMP/canonical-diagnostics"
+      - name: verify deterministic self-rebuild and retained prefix
+        run: |
+          mkdir -p "$RUNNER_TEMP/cosmic-self-rebuild-diagnostics"
+          TMPDIR="$RUNNER_TEMP/cosmic-self-rebuild-diagnostics" \
+            test/portable/self_rebuild.sh "$RUNNER_TEMP/portable-runtime"
+      - name: run mutation and replacement races on distinct kernels
+        if: matrix.races
+        env:
+          TARGET: ${{ matrix.target }}
+          COSMIC_PORTABLE_DIAGNOSTICS: ${{ runner.temp }}/runtime-diagnostics
+        run: |
+          test/portable/launcher_test.sh \
+            "$RUNNER_TEMP/portable-contract/launcher/launcher.test" \
+            "$RUNNER_TEMP/portable-contract/launcher/payloads/socket-$TARGET"
+          test/portable/runtime_test.sh "$RUNNER_TEMP/portable-runtime"
+      - name: verify checked configuration, cache, and verdict identity
+        if: matrix.target == 'x86_64-linux-musl'
+        run: test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime"
+      - name: prove canonical product bytes remain unchanged
+        env:
+          TARGET: ${{ matrix.target }}
+          VERIFY_CODESIGN: ${{ matrix.codesign }}
+        run: |
+          if [ "$VERIFY_CODESIGN" = true ]; then set -- --codesign; else set --; fi
+          test/portable/product_test.sh "$RUNNER_TEMP/portable-product" \
+            "$TARGET" \
+            "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET" "$@"
+      - name: preserve canonical failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: portable-canonical-diagnostics-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/canonical-diagnostics
+            ${{ runner.temp }}/cosmic-self-rebuild-diagnostics
+            ${{ runner.temp }}/runtime-diagnostics
+          if-no-files-found: ignore
+
+  portable-alpine:
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-product-linux-x86_64
+          path: ${{ runner.temp }}/portable-product
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-contract-x86
+          path: ${{ runner.temp }}/portable-contract
+      - name: restore transported modes and assert a fresh checkout
+        run: |
+          chmod +x "$RUNNER_TEMP/portable-product/cosmic" \
+            "$RUNNER_TEMP/portable-product/apps/hello" \
+            "$RUNNER_TEMP/portable-product/apps/second" \
+            "$RUNNER_TEMP/portable-contract/format/format-test-x86_64-linux-musl"
+          test ! -e o
+          sha256sum "$RUNNER_TEMP/portable-product/cosmic" > \
+            "$RUNNER_TEMP/alpine-cosmic.before.sha256"
+      - name: run cold BusyBox product and complete-suite checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/alpine-diagnostics" "$RUNNER_TEMP/alpine-home"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
+            -v "$GITHUB_WORKSPACE:/work" -w /work \
+            -v "$RUNNER_TEMP:/runner" alpine:3.24.2 /bin/sh -eu -c '
+              /runner/portable-contract/format/format-test-x86_64-linux-musl \
+                /runner/portable-contract/format/program
+              test/portable/product_test.sh /runner/portable-product \
+                x86_64-linux-musl \
+                /runner/portable-contract/format/format-test-x86_64-linux-musl
+              test/portable/full_suite.sh prepare \
+                /runner/alpine-diagnostics/full \
+                /runner/portable-product/cosmic
+              test/portable/full_suite.sh portable \
+                /runner/alpine-diagnostics/full
+            '
+      - name: run warm read-only cache and delayed integrity checks
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
+            -v "$GITHUB_WORKSPACE:/work" -w /work \
+            -v "$RUNNER_TEMP:/runner" alpine:3.24.2 /bin/sh -eu -c '
+              cache=/runner/alpine-diagnostics/full/portable-full-suite-cache
+              chmod 500 "$cache"
+              COSMIC_PORTABLE_CACHE="$cache" \
+                /runner/alpine-diagnostics/full/cosmic-portable help
+              chmod 700 "$cache"
+              PORTABLE_OUTCOME=success test/portable/full_suite.sh \
+                portable-boundary /runner/alpine-diagnostics/full
+              test/portable/product_test.sh /runner/portable-product \
+                x86_64-linux-musl \
+                /runner/portable-contract/format/format-test-x86_64-linux-musl
+            '
+          sha256sum -c "$RUNNER_TEMP/alpine-cosmic.before.sha256"
+      - name: preserve Alpine failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: portable-alpine-diagnostics
+          path: ${{ runner.temp }}/alpine-diagnostics
+          if-no-files-found: ignore
 
   # The provenance gate: three unrelated hosts -- different kernels,
   # different system libraries, different checkout paths by
