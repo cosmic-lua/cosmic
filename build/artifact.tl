@@ -7,6 +7,7 @@
 --- the repository's existing atomic file writer.
 
 local Hash = require("cosmic.hash")
+local launcher_template = require("build.launcher")
 
 local record artifact
 end
@@ -99,27 +100,19 @@ local function hex(bytes: string): string
   return Hash.hex(bytes)
 end
 
-local function launcher(targets: {Target}): string | nil, string
-  local lines: {string} = {
-    "#!/bin/sh",
-    "# Cosmic portable artifact format v1.",
-    "# The cache and retained-descriptor policy replaces this transition stub.",
-    "case \"$(uname -s):$(uname -m)\" in",
-  }
+local function launcher(targets: {Target}, test_hooks: boolean): string | nil, string
+  local arms: {string} = {}
   for _, target in ipairs(targets) do
-    lines[#lines + 1] = string.format(
-      "  %s:%s) cosmic_target_id=%d; cosmic_configuration_id=%d; " ..
-      "cosmic_offset=%d; cosmic_length=%d; cosmic_sha256=%s;;",
-      target.uname_os, target.uname_arch, target.target_id,
-      target.configuration_id, target.offset, target.length,
+    arms[#arms + 1] = string.format(
+      "  %s:%s) cosmic_os=%s; cosmic_target_id=%d; " ..
+      "cosmic_configuration_id=%d; cosmic_offset=%d; cosmic_block=%d; " ..
+      "cosmic_length=%d; cosmic_sha256=%s ;;",
+      target.uname_os, target.uname_arch, target.uname_os, target.target_id,
+      target.configuration_id, target.offset, target.offset // core_alignment,
+      target.length,
       hex(target.digest))
   end
-  lines[#lines + 1] = "  *) echo 'cosmic: unsupported portable target' >&2; exit 126;;"
-  lines[#lines + 1] = "esac"
-  lines[#lines + 1] =
-    "echo 'cosmic: portable launcher is not connected yet' >&2"
-  lines[#lines + 1] = "exit 126"
-  local script = table.concat(lines, "\n") .. "\n"
+  local script = launcher_template.render(table.concat(arms, "\n"), test_hooks)
   if #script + 2 > shell_length then
     return nil, "generated shell header exceeds its fixed capacity"
   end
@@ -141,7 +134,7 @@ function artifact.prefix(records: string, cores: {string:string}): string | nil,
   end
   local manifest_offset = at
   local prefix_length = manifest_offset + manifest_length
-  local shell, shell_trouble = launcher(targets)
+  local shell, shell_trouble = launcher(targets, false)
   if shell == nil then
     return nil, shell_trouble
   end
@@ -179,6 +172,22 @@ function artifact.prefix(records: string, cores: {string:string}): string | nil,
   local prefix = table.concat(parts)
   assert(#prefix == prefix_length)
   return prefix, ""
+end
+
+--- Fixture-only constructor with deterministic FIFO synchronization points.
+--- The ordinary `prefix` output contains no hook code or hook field names.
+function artifact.test_prefix(records: string, cores: {string:string}): string | nil, string
+  local targets, trouble = parse(records, cores)
+  if targets == nil then return nil, trouble end
+  local at = shell_length
+  for _, target in ipairs(targets) do
+    target.offset = at
+    at = align(at + target.length, core_alignment)
+  end
+  local shell, shell_trouble = launcher(targets, true)
+  if shell == nil then return nil, shell_trouble end
+  local release = assert(artifact.prefix(records, cores))
+  return shell .. release:sub(shell_length + 1), ""
 end
 
 --- Appends a database and the v1 trailer to prefix bytes made by `prefix`.

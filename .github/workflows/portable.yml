@@ -19,6 +19,8 @@ jobs:
       - run: timeout 30 o/bin/cosmic test
       - name: validate portable format writer and decoder
         run: test/portable/format.sh o/portable/format
+      - name: build the cross-host launcher contract fixture
+        run: test/portable/launcher_build.sh o/portable/launcher
       - run: experiments/portable/pack.sh
       - name: build loader probes for each target
         run: |
@@ -34,6 +36,7 @@ jobs:
             o/portable/payload-*
             o/portable/probe-*
             o/portable/format/*
+            o/portable/launcher/*
   execute:
     needs: build
     strategy:
@@ -83,3 +86,12 @@ jobs:
         run: |
           experiments/portable/check.sh "$PWD/portable/cosmic"
           test/portable/characterize.sh "$PWD/portable/cosmic"
+      - name: validate the production launcher contract on this host
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          chmod +x portable/launcher/launcher.test
+          chmod +x portable/launcher/payloads/socket-$TARGET
+          test/portable/launcher_test.sh \
+            "$PWD/portable/launcher/launcher.test" \
+            "$PWD/portable/launcher/payloads/socket-$TARGET"
