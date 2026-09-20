@@ -1,0 +1,41 @@
+#!/bin/sh
+# Lays out an arena for one eval: the binary at bin/cosmic, the task at
+# project/TASK.md. The agent runs in project/ with bin/ first on PATH.
+#
+#   eval/arena <task> <cosmic-binary> <dir>
+#
+# <task> names eval/task/<task>.md; eval/journal.md is appended to it.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+task=${1:?usage: eval/arena <task> <cosmic-binary> <dir>}
+binary=${2:?usage: eval/arena <task> <cosmic-binary> <dir>}
+dir=${3:?usage: eval/arena <task> <cosmic-binary> <dir>}
+[ -f "$here/task/$task.md" ] || { echo "arena: no task eval/task/$task.md" >&2; exit 2; }
+[ -x "$binary" ] || { echo "arena: $binary is not an executable" >&2; exit 2; }
+case $dir in "$here"/*|"$(dirname "$here")"/*) echo "arena: $dir is inside the repository; put the arena outside it" >&2; exit 2;; esac
+# Resolve the parent physically before checking the repository boundary.
+parent=$(dirname "$dir")
+mkdir -p "$parent"
+dir=$(cd "$parent" && pwd -P)/$(basename "$dir")
+case $dir in "$(dirname "$here")"|"$(dirname "$here")"/*) echo "arena: put the arena outside the repository" >&2; exit 2;; esac
+mkdir "$dir" || { echo "arena: destination must be new: $dir" >&2; exit 2; }
+mkdir "$dir/bin" "$dir/project"
+cp "$binary" "$dir/bin/cosmic"
+chmod 755 "$dir/bin/cosmic"
+cat "$here/task/$task.md" "$here/journal.md" > "$dir/project/TASK.md"
+cat > "$dir/PROMPT.md" <<EOF
+Your working directory is $dir/project. Set that working directory explicitly
+for every shell call, and prepend $dir/bin to PATH in every shell call.
+Read TASK.md there and do exactly what it says. Work independently without
+sub-agents or coaching. Use the binary as your only source about cosmic.
+EOF
+# These records are for the evaluator, not the solver.
+python3 - "$dir" <<'HASHES' > "$dir/inputs.sha256"
+import hashlib
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1])
+for name in ("bin/cosmic", "project/TASK.md", "PROMPT.md"):
+    print(hashlib.sha256((root / name).read_bytes()).hexdigest(), " " + name)
+HASHES
+echo "arena: $dir (task $task)"

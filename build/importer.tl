@@ -27,6 +27,7 @@ local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
+local symbols = require("build.symbols")
 local work = require("build.work")
 local type compiler = require("build.compiler")
 
@@ -704,12 +705,70 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
-local function complain(file: string, result: compiler.Result): string
+--- tl's own checker (`vendor/tl/tl.tl`'s `var_name:sub(1, 1) == "_"`
+--- check) already treats a name starting with `_` as intentionally
+--- unused and never warns about it -- but says so nowhere in the
+--- warning it raises for every other name, and every warning is a
+--- refused compile on cosmic's paths (see `complain`'s own doc
+--- comment), so a fresh agent hits this as a hard build failure with
+--- no hint of the one-character fix. Appended once, at the one place
+--- every message is rendered, rather than patching the vendored
+--- checker's own text.
+local function with_unused_hint(msg: string): string
+  if msg:match("^unused variable ") or msg:match("^unused argument ") then
+    return msg .. " -- name it _ or _<name> to mark it intentionally unused"
+  end
+  return msg
+end
+
+--- The bare name tl's checker names in a message reporting that
+--- nothing by that name exists: "unknown variable: NAME" (a global
+--- reference -- `os.time()`, once `build.teal` strips `os` from the
+--- checker's own environment for exactly this) or "module not found:
+--- 'NAME'" (a `require` of a literal string nothing provides). `nil`
+--- for any other message, since only these two name a single missing
+--- word worth looking up.
+local function unresolved_name(msg: string): string
+  return msg:match("^unknown variable: (.+)$") or
+    msg:match("^module not found: '(.+)'$")
+end
+
+--- Appends a pointer at whatever `cosmic docs` already answers for the
+--- name a resolution failure names, when `symbols.named` finds it
+--- exactly -- the same rule `cosmic docs <word>` itself matches by, so
+--- this can never point somewhere that command would disagree with.
+--- Only the symbol's name, never its documentation: the error already
+--- says where to read that in full (`cosmic docs <name>`), and a
+--- compile failure is not the place to reprint it.
+local function with_docs_hint(msg: string, databases: {Sqlite.Handle},
+                              public: {boolean}): string
+  local name = unresolved_name(msg)
+  if name == nil then
+    return msg
+  end
+  local found = symbols.named(databases, public, name)
+  if #found == 0 then
+    return msg
+  end
+  return msg .. " -- see also in docs: " .. table.concat(found, ", ")
+end
+
+--- Every hint a checker message earns, appended once, at the one place
+--- every message is rendered, rather than patched into the vendored
+--- checker's own text or duplicated at each call site.
+local function with_hint(msg: string, databases: {Sqlite.Handle},
+                         public: {boolean}): string
+  return with_docs_hint(with_unused_hint(msg), databases, public)
+end
+
+local function complain(file: string, result: compiler.Result,
+                        databases: {Sqlite.Handle}, public: {boolean}): string
   local lines: {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. e.msg
+      lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " ..
+        with_hint(e.msg, databases, public)
     end
   end
   return table.concat(lines, "\n")
@@ -830,8 +889,9 @@ end
 
 --- Compiles one module: the checker over its source, the test tail
 --- when it is a test, and the bytecode.
-local function generate(m: Module, built: compiler,
-                        env: compiler.Env): string | nil, string, string
+local function generate(m: Module, built: compiler, env: compiler.Env,
+                        databases: {Sqlite.Handle},
+                        public: {boolean}): string | nil, string, string
   local code, result = built.gen(m.source, env, nil, "tl")
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
@@ -839,7 +899,7 @@ local function generate(m: Module, built: compiler,
   if m.generated and result ~= nil then
     result = discount_doctest_shadow_warnings(result)
   end
-  local complaint = result ~= nil and complain(m.file, result) or ""
+  local complaint = result ~= nil and complain(m.file, result, databases, public) or ""
   if code == nil or complaint ~= "" then
     return nil, "", m.file .. ": the compiler refused it\n" .. complaint
   end
@@ -925,6 +985,21 @@ function importer.compile(handle: work.Handle, built: compiler,
   local db = handle.db
   local failure = ""
 
+  -- Where a refused module's own hint (`with_docs_hint`) looks up the
+  -- name it could not resolve: this build's own working database
+  -- first -- unrestricted, the way a project's own `o/cosmic.db` is
+  -- for `cosmic docs` too -- then the running binary's own, which is
+  -- where a stdlib symbol like `cosmic.removed`'s own fields actually
+  -- live for any tree but cosmic's -- see `docs.databases`, the same
+  -- shape built for the same reason.
+  local own_tree = importer.is_own_tree(handle.root)
+  local hint_databases: {Sqlite.Handle} = { db }
+  local hint_public: {boolean} = { false }
+  for _, store_db in ipairs(Store.databases()) do
+    hint_databases[#hint_databases + 1] = store_db
+    hint_public[#hint_public + 1] = not own_tree
+  end
+
   local compile_all = function(): boolean, string
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
     if not cleared then
@@ -963,7 +1038,8 @@ function importer.compile(handle: work.Handle, built: compiler,
         if lua ~= nil then
           result.cached = result.cached + 1
         else
-          local code, made_bytecode, generate_trouble = generate(m, built, env)
+          local code, made_bytecode, generate_trouble =
+            generate(m, built, env, hint_databases, hint_public)
           if code == nil then
             failure = generate_trouble
             break

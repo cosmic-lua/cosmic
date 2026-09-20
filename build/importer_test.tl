@@ -532,3 +532,69 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   -- A different analyzer: everything derived is gone and re-derived.
   assert(derived_with("tool-two", false) == 0, "a changed analyzer kept stale rows")
 end
+
+--- tl's checker silently accepts a `_`-prefixed name as intentionally
+--- unused (`vendor/tl/tl.tl`'s own `var_name:sub(1, 1) == "_"` check),
+--- but says nothing about that escape hatch in the warning it raises
+--- for every other name -- and cosmic refuses the whole compile over
+--- any warning (see `complain`). A fresh agent hit this three times in
+--- one eval run before generalizing the fix; `with_unused_hint` names
+--- it in the message itself instead.
+local function test_unused_variable_warning_names_its_own_fix()
+  local root = assert(write_fixture("unused-hint", {
+    ["thing.tl"] = "local function f(x: integer): integer\n  return 0\nend\nreturn f\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the unused argument to refuse the compile")
+  assert(compile_trouble:find(
+    "name it _ or _<name> to mark it intentionally unused", 1, true) ~= nil,
+    compile_trouble)
+end
+
+--- `build.teal` strips `os` (and `io`, `debug`, `dofile`, `loadfile`)
+--- from the checker's own globals, so a bare reference is tl's own
+--- "unknown variable" -- not left to fail only once a built program
+--- actually runs and reaches `core/surface.c`'s replacement text. The
+--- message earns the same hint an unused variable does: a pointer at
+--- `cosmic.removed`'s own field for the name, found by `symbols.named`
+--- the same way `cosmic docs os` would find it.
+local function test_unresolved_removed_global_names_its_own_replacement()
+  local root = assert(write_fixture("removed-global-hint", {
+    ["thing.tl"] = "return function(): integer\n  return os.time()\nend\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the bare `os` reference to refuse the compile")
+  assert(compile_trouble:find("unknown variable: os", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("see also in docs: Removed.os", 1, true) ~= nil,
+    compile_trouble)
+end
+
+--- The same hint, for a literal `require` of a removed name: tl
+--- resolves `require("io")` against `env.modules`, which `build.teal`
+--- strips `io` from too, so this fails as an ordinary unresolvable
+--- module rather than a bare global.
+local function test_unresolved_removed_require_names_its_own_replacement()
+  local root = assert(write_fixture("removed-require-hint", {
+    ["thing.tl"] = 'local _io = require("io")\nreturn function(): integer\n  return 0\nend\n',
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected `require(\"io\")` to refuse the compile")
+  assert(compile_trouble:find("module not found: 'io'", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("see also in docs: Removed.io", 1, true) ~= nil,
+    compile_trouble)
+end
+
+--- An ordinary undeclared-name typo, unrelated to anything the
+--- database documents, earns no hint: `symbols.named` is an exact
+--- match, never the free-text search `cosmic docs` falls back to, so
+--- a name that happens to share words with unrelated prose is never
+--- printed as though it explained this failure.
+local function test_an_unrelated_unknown_name_earns_no_hint()
+  local root = assert(write_fixture("unrelated-unknown-name", {
+    ["thing.tl"] = "return function(): integer\n  return pritn(1)\nend\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the undeclared name to refuse the compile")
+  assert(compile_trouble:find("unknown variable: pritn", 1, true) ~= nil, compile_trouble)
+  assert(compile_trouble:find("see also in docs", 1, true) == nil, compile_trouble)
+end

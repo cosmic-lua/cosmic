@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
+local symbols = require("build.symbols")
 
 local record docs
   --- One ordered database view and the owner of every module in it.
@@ -107,23 +108,6 @@ local EXAMPLE_BOUNDARY_SQL =
   "(e.text || ' ' || e.source || ' ') GLOB " ..
   "('*' || d.source_symbol || '[^A-Za-z0-9_]*')"
 
---- Whether a module is the public standard library's own: what a
---- public source answers for.
-local function is_public_module(module: string): boolean
-  return module:sub(1, 7) == "cosmic." and module:sub(1, 16) ~= "cosmic.internal." and
-    module:sub(-5) ~= "_test"
-end
-
---- The rows a public source answers with, as a condition on the
---- module `column` names; `1` when the source is not public.
-local function public_only(column: string, public: boolean): string
-  if not public then
-    return "1"
-  end
-  return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
-    " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
-end
-
 local columns =
   "d.module, d.symbol, d.source_symbol, d.exported, d.kind, d.signature, " ..
   "d.text, d.file, d.line, " ..
@@ -164,7 +148,7 @@ local function examples_for(db: Sqlite.Handle, public: boolean, module: string,
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "WHERE e.module = ?1 AND examples_fts MATCH ?2 " ..
     "AND (e.text || ' ' || e.source || ' ') GLOB ?3 " ..
-    "AND " .. public_only("e.module", public) .. " " ..
+    "AND " .. symbols.public_only("e.module", public) .. " " ..
     "ORDER BY e.line",
     { text(module), text(example_phrase(symbol)), text(example_boundary(symbol)) })
   if rows == nil then
@@ -183,12 +167,8 @@ end
 --- `X:read`), or a module's own row (`cosmic.fs`).
 local function named(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. columns .. " FROM docs d WHERE (d.symbol = ?1 " ..
-    "OR d.source_symbol = ?1 " ..
-    "OR substr(d.symbol, -length(?1) - 1) = '.' || ?1 " ..
-    "OR substr(d.symbol, -length(?1) - 1) = ':' || ?1 " ..
-    "OR (d.symbol = '' AND d.module = ?1)) AND " ..
-    public_only("d.module", public) .. " ORDER BY d.module, d.id",
+    "SELECT " .. columns .. " FROM docs d WHERE " .. symbols.named_where("d") ..
+    " AND " .. symbols.public_only("d.module", public) .. " ORDER BY d.module, d.id",
     { text(query) })
   if rows == nil then
     return nil, trouble
@@ -202,7 +182,7 @@ local function declared_in(db: Sqlite.Handle, public: boolean, module: string): 
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
     "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') AND " ..
-    public_only("d.module", public) .. " ORDER BY d.id",
+    symbols.public_only("d.module", public) .. " ORDER BY d.id",
     { text(module) })
   if rows == nil then
     return nil, trouble
@@ -225,7 +205,7 @@ end
 local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
-    "WHERE docs_fts MATCH ?1 AND " .. public_only("d.module", public) ..
+    "WHERE docs_fts MATCH ?1 AND " .. symbols.public_only("d.module", public) ..
     " ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
     { text(fts) })
   if rows == nil then
@@ -246,13 +226,21 @@ local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string
     "SELECT " .. columns .. " FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
     "JOIN docs d ON d.module = e.module AND d.symbol = '' " ..
-    "WHERE examples_fts MATCH ?1 AND " .. public_only("d.module", public) ..
+    "WHERE examples_fts MATCH ?1 AND " .. symbols.public_only("d.module", public) ..
     " ORDER BY bm25(examples_fts), d.module, d.id LIMIT 20",
     { text(fts) })
   if rows == nil then
     return nil, trouble
   end
   return entries_of(rows)
+end
+
+--- Whether `db` holds the shipped tables at all: a database built
+--- before they existed answers no query here.
+local function has_docs(db: Sqlite.Handle): boolean
+  local rows = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
+  return rows ~= nil and #rows > 0
 end
 
 --- `searched_docs` and `searched_examples` together, a symbol kept
@@ -294,7 +282,8 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
     "SELECT module, symbol, from_module, from_file, line FROM uses " ..
     "WHERE (symbol = ?1 OR substr(symbol, -length(?1) - 1) = '.' || ?1 " ..
     "OR substr(symbol, -length(?1) - 1) = ':' || ?1 OR symbol = ?2) AND " ..
-    public_only("module", public) .. " AND " .. public_only("from_module", public) ..
+    symbols.public_only("module", public) .. " AND " ..
+    symbols.public_only("from_module", public) ..
     " ORDER BY module, symbol, from_file, line", { text(query), text(canonical) })
   if rows == nil then
     return nil, trouble
@@ -305,14 +294,6 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
       from_file = row[4], line = math.tointeger(tonumber(row[5])) or 0 }
   end
   return out
-end
-
---- Whether `db` holds the shipped tables at all: a database built
---- before they existed answers no query here.
-local function has_docs(db: Sqlite.Handle): boolean
-  local rows = Sqlite.text_rows(db,
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
-  return rows ~= nil and #rows > 0
 end
 
 --- The databases a lookup reads, in order: the working directory's own
@@ -418,7 +399,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
       end
       for _, row in ipairs(rows) do
         local counted = not scope[index] or
-          (is_public_module(row[1]) and is_public_module(row[3]))
+          (symbols.is_public_module(row[1]) and symbols.is_public_module(row[3]))
         if counted and owners[row[3]] == index then
           local position = table.concat(row, "\n")
           if not seen[position] then

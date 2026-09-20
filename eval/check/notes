@@ -1,0 +1,69 @@
+#!/bin/sh
+# Grades the notes task in an arena: the project's tests and format
+# check pass, cosmic builds it, and the executable runs on its own,
+# including its own `help`.
+#
+#   eval/check/notes <dir>
+#
+# The executable is copied alone into an empty directory and run with an
+# empty environment, so nothing beside it and nothing on PATH can help.
+set -u
+here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+dir=${1:?usage: eval/check/notes <dir>}
+project=$dir/project
+cosmic=$dir/bin/cosmic
+fail=0
+step_count=0
+say() { echo "check: $*"; }
+step() {
+  step_count=$((step_count + 1))
+  log=$dir/check-$step_count.out
+  if "$@" > "$log" 2>&1; then say "ok   $*"; else say "FAIL $*"; sed 's/^/check:   /' "$log"; fail=1; fi
+}
+expect() {
+  want=$1; shift
+  got=$("$@" 2>&1); status=$?
+  if [ "$status" -eq 0 ] && [ "$got" = "$want" ]; then say "ok   $* -> $(printf %s "$want" | head -1)"; else say "FAIL $*: exit $status, got '$got', wanted '$want'"; fail=1; fi
+  return $status
+}
+[ -d "$project" ] || { say "FAIL no project at $project"; echo "check: FAIL"; exit 1; }
+cd "$project" || exit 1
+rm -f notes.db
+step python3 "$here/evidence" reset "$project/o/build.db"
+step "$cosmic" test
+step python3 "$here/evidence" check "$project/o/build.db"
+step "$cosmic" fix --check
+step "$cosmic" build
+exe=$project/o/bin/notes
+if [ ! -x "$exe" ]; then
+  say "FAIL cosmic build did not produce o/bin/notes; a binary is cmd/<name>/main.tl"
+  fail=1
+else
+  empty=$dir/empty
+  rm -rf "$empty"; mkdir "$empty"; cp "$exe" "$empty/notes"
+  cd "$empty" || exit 1
+  expect "1" env -i ./notes add hello world
+  expect "2" env -i ./notes add second note
+  expect "$(printf '1\thello world\n2\tsecond note')" env -i ./notes list
+  expect "$(printf '2\tsecond note')" env -i ./notes search second
+  expect "" env -i ./notes rm 1
+  if env -i ./notes rm 9 > /dev/null 2> "$dir/check.err"; then say "FAIL rm of an unknown id exited 0"; fail=1
+  elif [ -s "$dir/check.err" ]; then say "ok   rm 9 -> non-zero exit, stderr: $(head -1 "$dir/check.err")"
+  else say "FAIL rm of an unknown id said nothing on stderr"; fail=1; fi
+  expect "$(printf '2\tsecond note')" env -i ./notes list
+  rm -f "$empty/notes.db"
+  expect "1" env -i NOTES_DB=other.db ./notes add elsewhere
+  [ -f "$empty/other.db" ] && say "ok   NOTES_DB names the file" || { say "FAIL NOTES_DB was not honored"; fail=1; }
+  help_out=$(env -i ./notes help 2>"$dir/check.err"); help_status=$?
+  if [ $help_status -ne 0 ]; then say "FAIL notes help exited $help_status"; fail=1
+  elif [ -z "$help_out" ]; then say "FAIL notes help printed nothing"; fail=1
+  else
+    missing=""
+    for word in add list rm search; do
+      case "$help_out" in *"$word"*) ;; *) missing="$missing $word" ;; esac
+    done
+    if [ -n "$missing" ]; then say "FAIL notes help did not mention:$missing"; fail=1
+    else say "ok   notes help -> mentions add, list, rm, search"; fi
+  fi
+fi
+if [ $fail -eq 0 ]; then echo "check: PASS"; else echo "check: FAIL"; exit 1; fi

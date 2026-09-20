@@ -108,7 +108,7 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local images = rows_of(path, "SELECT count(*) FROM images")
   assert(images[1][1] == "0", "no core image: a program is not a builder")
   local guidance = rows_of(path,
-    "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'file'")
+    "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
   assert(tonumber(guidance[1][1]) > 0, "the error catalog is in, and indexed")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")

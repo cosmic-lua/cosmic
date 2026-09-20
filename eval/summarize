@@ -1,0 +1,25 @@
+#!/bin/sh
+# One line of numbers from a Claude Code stream-json transcript: turns,
+# tool calls, minutes, cost. Another agent's transcript needs its own
+# reader.
+#
+#   eval/summarize <transcript.jsonl>
+set -eu
+transcript=${1:?usage: eval/summarize <transcript.jsonl>}
+python3 - "$transcript" <<'PY'
+import json, sys
+tools = 0
+for line in open(sys.argv[1]):
+    try:
+        event = json.loads(line)
+    except ValueError:
+        continue
+    if event.get("type") == "assistant":
+        for part in event["message"]["content"]:
+            if part["type"] == "tool_use":
+                tools += 1
+    if event.get("type") == "result":
+        print("turns=%s tools=%d minutes=%.1f cost=$%.2f" % (
+            event.get("num_turns"), tools, event.get("duration_ms", 0) / 60000,
+            event.get("total_cost_usd", 0)))
+PY

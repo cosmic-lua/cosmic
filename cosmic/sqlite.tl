@@ -71,6 +71,15 @@ function Sqlite.memory(): raw_sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
+--- Runs sql against handle directly, with no parameter binding: schema
+--- DDL, PRAGMAs, or several `;`-separated statements in one call --
+--- the one thing `run`/`rows`/`text_rows` cannot do, since each of
+--- those prepares exactly one statement. Yields no rows and binds no
+--- values; reach for `Sqlite.run` instead once a value needs one.
+function Sqlite.exec(handle: raw_sqlite.Handle, sql: string): boolean, string
+  return handle:exec(sql)
+end
+
 --- Binds SQLite parameters positionally. Parameter keys must be
 --- positional (1..N, matching the statement's own placeholders), and
 --- each value must be a table with exactly one field named integer,
@@ -252,6 +261,26 @@ function Sqlite.transact(handle: raw_sqlite.Handle,
     return false, failure
   end
   return true, ""
+end
+
+--- Closes the handle. Idempotent: closing an already-closed handle
+--- still returns true.
+function Sqlite.close(handle: raw_sqlite.Handle): boolean, string
+  return handle:close()
+end
+
+--- Rows changed by the most recent INSERT, UPDATE, or DELETE on this
+--- connection -- not the whole database, and not other statements
+--- that happened to touch the same table concurrently.
+function Sqlite.changes(handle: raw_sqlite.Handle): integer
+  return handle:changes()
+end
+
+--- The rowid SQLite assigned the most recent successful INSERT on this
+--- connection. 0 before any INSERT has ever run on it; a table
+--- declared `WITHOUT ROWID` never changes it.
+function Sqlite.last_insert_rowid(handle: raw_sqlite.Handle): integer
+  return handle:last_insert_rowid()
 end
 
 Sqlite.version = sqlite.version

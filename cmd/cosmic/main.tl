@@ -5,6 +5,7 @@
 --- database is the only module source at run time, so running a file
 --- and building a project are one path.
 
+local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -19,40 +20,44 @@ local test = require("build.test")
 local work = require("build.work")
 local writer = require("build.writer")
 
-local help = [[
-cosmic -- a runtime for self-contained command-line software
+local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 
-  cosmic <file.tl>   build the tree the file sits in -- the working
-                     directory when the file is under it, so a file
-                     of a project reaches the rest of it; the file's
-                     own directory otherwise -- then run it: require
-                     the file, and if what it returns is a function,
-                     call it with the file's own arguments -- argv[0]
-                     its path, the rest from argv[1] -- and exit with
-                     the integer it returns, or 0
-  cosmic test        build the tree in the working directory, then
-                     run every test it defines: each top-level
-                     `local function test_*` of a *_test.tl file, and
-                     each function of the `Example` record a
-                     *_example.tl file returns, which `cosmic docs`
-                     also shows under every symbol it calls
-  cosmic fix         rewrite every Teal source in the working
-                     directory structurally, then write it back out
-                     as canonical text, in place
-  cosmic fix --check the same, writing nothing: name the files a fix
-                     would change, and fail if there are any
-  cosmic build       build the tree in the working directory, then
-                     write one executable under o/bin/ for each
-                     cmd/<name>/main.tl it holds: o/bin/<name>, which
-                     runs on its own, with nothing beside it
-  cosmic db          what the two databases under o/ hold, table by
-                     table -- rows, pages, bytes -- and how the last
-                     few builds went
-  cosmic docs <q>    what the database says about q: a symbol
-                     (Fs.read, read), a module (cosmic.fs), or words
-                     to search the documentation for
-  cosmic uses <sym>  every place that refers to a symbol, as file:line
-  cosmic help        this
+--- The one-line-per-verb usage block `cosmic help` prints, generated
+--- from `cosmic.cli`'s own fields (`Cli.run`, `Cli.test`, ...) so this
+--- wording is never a second, hand-kept copy of what `cosmic docs
+--- build` (or fix, db, docs, uses, help, run, test) already answers.
+--- Falls back to naming the lookup that failed, rather than silently
+--- dropping a verb from its own help, if `cosmic.cli`'s own database
+--- row is ever missing.
+local function verb_help(): string
+  local handles, public = docs.databases()
+  local view, view_trouble = docs.view(handles, public)
+  if view == nil then
+    return "(cosmic.cli: " .. view_trouble .. ")"
+  end
+  local lines: {string} = {}
+  for _, verb in ipairs(Cli.order) do
+    local found, trouble = docs.lookup(view, "Cli." .. verb)
+    if found == nil then
+      lines[#lines + 1] = "(cosmic.cli.Cli." .. verb .. ": " .. trouble .. ")"
+    elseif #found == 0 then
+      lines[#lines + 1] = "(cosmic.cli.Cli." .. verb .. ": not found)"
+    else
+      lines[#lines + 1] = found[1].text
+    end
+    lines[#lines + 1] = ""
+  end
+  return table.concat(lines, "\n")
+end
+
+local help_suffix = [[
+Lua's `io`, `os`, and `debug` are not present; code that reaches for
+one is told its replacement by name, the moment it does. `io` is
+`cosmic.fs`: `Fs.stdout`, `.stderr`, `.stdin` are descriptors, written
+and read with `Fs.put`/`Fs.take`. `os` is `cosmic.time`, `cosmic.env`,
+and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still
+works, an ordinary global written over the same syscall table
+`cosmic.fs` uses.
 
 A verb takes paths to narrow it. `fix` rebuilds each file from its own
 parsed tree. It decides everything a line holds -- every keyword,
@@ -141,11 +146,15 @@ end
 
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, and if what it returns is a function, that function is
---- called with the file's own arguments -- `argv[0]` the file's path
---- as it was named, everything after it from `argv[1]` on -- the shape
---- C, Lua and every shell give a program, so `#argv` and `ipairs` see
---- exactly the arguments. An integer it returns is the exit code;
---- anything else, or no function at all, is 0.
+--- called with one argument: an array of the arguments after the
+--- file's own path on the command line, indexed from 1 like any
+--- ordinary Lua array, so `#argv` and `ipairs(argv)` see exactly
+--- those and nothing before them. The file's own path is there too,
+--- at `argv[0]`, the way C, Lua and every shell give a program its
+--- own name -- but nothing ordinary reaches it, since no length or
+--- loop starts before 1; a caller that wants its own name reads
+--- `argv[0]` directly. An integer the function returns is the exit
+--- code; anything else, or no function at all, is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
@@ -276,7 +285,7 @@ end
 local function main(argv: {integer:string}): integer
   local verb = argv[1]
   if verb == nil or verb == "help" or verb == "-h" or verb == "--help" then
-    say(help)
+    say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
     return 0
   end
   if verb == "test" then
