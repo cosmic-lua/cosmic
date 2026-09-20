@@ -1,0 +1,4 @@
+return function(): integer
+  print("hello from the portable fixture")
+  return 0
+end

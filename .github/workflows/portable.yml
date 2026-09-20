@@ -59,4 +59,6 @@ jobs:
           mkdir portable/probe-work
           portable/probe-$TARGET "$PWD/portable/payload-$TARGET" "$PWD/portable/probe-work"
       - name: execute identical portable bytes on this host
-        run: experiments/portable/check.sh "$PWD/portable/cosmic"
+        run: |
+          experiments/portable/check.sh "$PWD/portable/cosmic"
+          test/portable/characterize.sh "$PWD/portable/cosmic"

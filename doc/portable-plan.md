@@ -1,8 +1,19 @@
 # Portable artifact implementation plan
 
-Status: plan only. This document does not authorize implementation, publication,
-or merge. It describes the reviewable commits needed to turn the experiment on
-PR #1903 into the default artifact after each dependency is in place.
+Status: implementation of the full ordered plan is authorized. Publication
+still follows the sequential author, adversarial review, fast-forward, and CI
+gates below; merge remains excluded.
+
+Progress: step 1 is implemented as a local candidate from
+`076e55daa98bfcf76e14cbab29528fee5ea895dc`. The non-experimental
+`test/portable/` characterization records the packed prototype's build failure,
+missing runtime metadata, first test execution, and same-verdict reuse after
+target/runtime fixture inputs change. It is also wired after the existing host
+smoke on all three experimental workflow hosts. Local Linux x86_64 evidence:
+fresh boot passed with 134 files staged and 82 modules compiled; the bounded
+ordinary suite passed with 300 ran/0 stood in 9 seconds; the existing host smoke
+passed; and the fixture observed build exit 1, test 1 ran then 1 stood, missing
+runtime metadata, and an unchanged verdict key. Later steps remain pending.
 
 ## Goal and evidence
 

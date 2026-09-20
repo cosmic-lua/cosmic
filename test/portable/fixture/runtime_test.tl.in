@@ -1,0 +1,10 @@
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+
+local function test_runtime_identity_change_runs_again()
+  local counter = assert(Env.get("COSMIC_FIXTURE_COUNTER"))
+  local target = assert(Env.get("COSMIC_FIXTURE_TARGET"))
+  local runtime = assert(Env.get("COSMIC_FIXTURE_RUNTIME"))
+  local before = Fs.read(counter) or ""
+  assert(Fs.write(counter, before .. target .. " " .. runtime .. "\n"))
+end
