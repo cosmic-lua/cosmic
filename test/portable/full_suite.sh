@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -ne 2 ] && [ "$#" -ne 3 ]; then
-  echo "usage: $0 {prepare|native|native-boundary|portable|portable-boundary} DIAGNOSTICS-DIRECTORY [PORTABLE_ARTIFACT]" >&2
+  echo "usage: $0 {prepare|local|local-boundary|portable|portable-boundary} DIAGNOSTICS-DIRECTORY [PORTABLE_ARTIFACT]" >&2
   exit 2
 fi
 
@@ -126,7 +126,7 @@ case "$phase" in
       exit 1
     fi
     if [ -z "$portable_input" ]; then
-      portable_input=$checkout/o/bin/cosmic-portable
+      portable_input=$checkout/o/bin/cosmic
     else
       case $portable_input in /*) ;; *) portable_input=$PWD/$portable_input ;; esac
     fi
@@ -144,34 +144,34 @@ case "$phase" in
       "$diagnostics/portable-artifact.before.listing"
     ;;
 
-  native)
-    native_out="$diagnostics/native-test.out"
-    native_err="$diagnostics/native-test.err"
+  local)
+    local_out="$diagnostics/local-test.out"
+    local_err="$diagnostics/local-test.err"
     set +e
-    run_bounded "$cosmic" "$native_out" "$native_err" native
+    run_bounded "$cosmic" "$local_out" "$local_err" local
     status=$?
     set -e
-    mv "$diagnostics/test.status" "$diagnostics/native-test.status"
-    cat "$native_out"
-    cat "$native_err" >&2
-    report_suite_failure native "$status"
+    mv "$diagnostics/test.status" "$diagnostics/local-test.status"
+    cat "$local_out"
+    cat "$local_err" >&2
+    report_suite_failure local "$status"
     set +e
-    "$snapshot" "$diagnostics" native-immediate "$cosmic"
+    "$snapshot" "$diagnostics" local-immediate "$cosmic"
     snapshot_status=$?
     set -e
     if [ "$snapshot_status" -ne 0 ]; then
-      printf 'native suite: immediate snapshot/integrity failed (status %s)\n' \
+      printf 'local suite: immediate snapshot/integrity failed (status %s)\n' \
         "$snapshot_status" >&2
     fi
     if [ "$status" -ne 0 ]; then exit "$status"; fi
     if [ "$snapshot_status" -ne 0 ]; then exit "$snapshot_status"; fi
-    check_test_result "$status" "$native_out"
+    check_test_result "$status" "$local_out"
     ;;
 
-  native-boundary)
-    "$snapshot" "$diagnostics" native-boundary "$cosmic"
-    cmp "$diagnostics/native-immediate/hashes.sha256" \
-      "$diagnostics/native-boundary/hashes.sha256"
+  local-boundary)
+    "$snapshot" "$diagnostics" local-boundary "$cosmic"
+    cmp "$diagnostics/local-immediate/hashes.sha256" \
+      "$diagnostics/local-boundary/hashes.sha256"
     ;;
 
   portable)

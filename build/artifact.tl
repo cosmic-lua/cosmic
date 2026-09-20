@@ -68,7 +68,6 @@ end
 local function parse(records: string, cores: {string:string}): {Target} | nil, string
   local targets: {Target} = {}
   local identities: {string:boolean} = {}
-  local systems: {string:boolean} = {}
   for line in records:gmatch("[^\n]+") do
     local id_text, configuration_id_text, configuration, target, uname_os, uname_arch =
       line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
@@ -82,19 +81,14 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
       return nil, "generated target id is outside the v1 range"
     end
     local identity = target_id .. ":" .. configuration_id
-    local system = uname_os .. ":" .. uname_arch
     if identities[identity] then
       return nil, "duplicate generated target/configuration record"
-    end
-    if systems[system] then
-      return nil, "duplicate generated uname record"
     end
     local image = cores[target]
     if image == nil or #image == 0 then
       return nil, "no raw core for " .. target
     end
     identities[identity] = true
-    systems[system] = true
     targets[#targets + 1] = {
       target_id = target_id,
       configuration_id = configuration_id,
@@ -117,17 +111,30 @@ local function hex(bytes: string): string
   return Hash.hex(bytes)
 end
 
-local function launcher(targets: {Target}, test_hooks: boolean): string | nil, string
+local function launcher(targets: {Target}, test_hooks: boolean,
+                        selected_configuration?: integer): string | nil, string
   local arms: {string} = {}
+  local systems: {string:boolean} = {}
   for _, target in ipairs(targets) do
-    arms[#arms + 1] = string.format(
-      "  %s:%s) cosmic_os=%s; cosmic_target_id=%d; " ..
-      "cosmic_configuration_id=%d; cosmic_offset=%d; cosmic_block=%d; " ..
-      "cosmic_length=%d; cosmic_sha256=%s ;;",
-      target.uname_os, target.uname_arch, target.uname_os, target.target_id,
-      target.configuration_id, target.offset, target.offset // core_alignment,
-      target.length,
-      hex(target.digest))
+    if selected_configuration == nil or
+       target.configuration_id == selected_configuration then
+      local system = target.uname_os .. ":" .. target.uname_arch
+      if systems[system] then
+        return nil, "duplicate generated uname record for launcher configuration"
+      end
+      systems[system] = true
+      arms[#arms + 1] = string.format(
+        "  %s:%s) cosmic_os=%s; cosmic_target_id=%d; " ..
+        "cosmic_configuration_id=%d; cosmic_offset=%d; cosmic_block=%d; " ..
+        "cosmic_length=%d; cosmic_sha256=%s ;;",
+        target.uname_os, target.uname_arch, target.uname_os, target.target_id,
+        target.configuration_id, target.offset, target.offset // core_alignment,
+        target.length,
+        hex(target.digest))
+    end
+  end
+  if #arms == 0 then
+    return nil, "launcher configuration has no generated target record"
   end
   local script = launcher_template.render(table.concat(arms, "\n"), test_hooks)
   if #script + 2 > shell_length then
@@ -138,7 +145,8 @@ end
 
 --- Builds reusable prefix bytes from build.zig's generated TSV and exact raw
 --- core bytes, keyed by the target-name column.
-function artifact.prefix(records: string, cores: {string:string}): string | nil, string
+function artifact.prefix(records: string, cores: {string:string},
+                         selected_configuration?: integer): string | nil, string
   local targets, trouble = parse(records, cores)
   if targets == nil then
     return nil, trouble
@@ -151,7 +159,7 @@ function artifact.prefix(records: string, cores: {string:string}): string | nil,
   end
   local manifest_offset = at
   local prefix_length = manifest_offset + manifest_length
-  local shell, shell_trouble = launcher(targets, false)
+  local shell, shell_trouble = launcher(targets, false, selected_configuration)
   if shell == nil then
     return nil, shell_trouble
   end
@@ -193,7 +201,8 @@ end
 
 --- Fixture-only constructor with deterministic FIFO synchronization points.
 --- The ordinary `prefix` output contains no hook code or hook field names.
-function artifact.test_prefix(records: string, cores: {string:string}): string | nil, string
+function artifact.test_prefix(records: string, cores: {string:string},
+                              selected_configuration?: integer): string | nil, string
   local targets, trouble = parse(records, cores)
   if targets == nil then return nil, trouble end
   local at = shell_length
@@ -201,9 +210,9 @@ function artifact.test_prefix(records: string, cores: {string:string}): string |
     target.offset = at
     at = align(at + target.length, core_alignment)
   end
-  local shell, shell_trouble = launcher(targets, true)
+  local shell, shell_trouble = launcher(targets, true, selected_configuration)
   if shell == nil then return nil, shell_trouble end
-  local release = assert(artifact.prefix(records, cores))
+  local release = assert(artifact.prefix(records, cores, selected_configuration))
   return shell .. release:sub(shell_length + 1), ""
 end
 

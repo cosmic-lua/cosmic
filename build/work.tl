@@ -6,7 +6,7 @@
 --- is a log of what happened on one host -- the tree as it was last
 --- read, what a stat said about each file, test verdicts, coverage --
 --- and is allowed, expected even, to differ the next time. It never
---- ships and is never attached to the tree's own database.
+--- ships and is never copied into the tree's own database.
 ---
 --- Staging comes first: every input the build consumes is read off
 --- disk into the `files` table before anything transforms it, so the
@@ -15,7 +15,6 @@
 --- the bytes and the hash on the row are still right and the file is
 --- not read again.
 
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
@@ -44,7 +43,7 @@ local record work
   --- What the tool is made of, as two hashes: everything, and the
   --- part the C core is built from. A binary carries both; a tree
   --- whose `boot` differs but whose `image` matches needs only a new
-  --- database attached to the image the binary already carries, and
+  --- database combined with the exact portable prefix the binary carries, and
   --- the tool can do that to itself.
   record Fingerprint
     boot: string
@@ -61,14 +60,11 @@ local record work
   --- from recompiling everything. `runtime_basis` is the host-independent
   --- hash of the Teal and Lua pins and patches. Portable startup combines
   --- it with the validated target, configuration and exact raw-core digest.
-  --- `runtime` keeps the legacy hash of the host image and those same pins
-  --- for attached native outputs during the transition. All three are
-  --- computed over the tree being built and carried by the appropriate
+  --- Both are computed over the tree being built and carried by its portable
   --- projection, so a tool always names what it actually is.
   record Identities
     compiler: string
     runtime_basis: string
-    runtime: string
   end
 
   --- The statements that create the database, in order. `IF NOT
@@ -81,7 +77,7 @@ local record work
   version: string
 end
 
-work.version = "14"
+work.version = "15"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -116,10 +112,9 @@ work.version = "14"
 --- function of the bytes alone, so a rename costs nothing and a row
 --- can never be stale.
 ---
---- `images` is the core executable for every target, deflated at
---- rest, which a boot puts here and every later build carries into
---- the database it writes. The compiler is the same kind of thing and
---- lives in `derived`, the one row there with no file behind it.
+--- Raw cores remain build outputs under `o/core`; they are never copied into
+--- this working database. The compiler lives in `derived`, the one row there
+--- with no file behind it.
 ---
 --- `compiled` is one compile of one module, keyed by the module's key
 --- -- the hash of its kind, its source, its import closure's keys and
@@ -258,11 +253,6 @@ work.schema = {
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS images (target TEXT PRIMARY KEY,
-                                       sha256 BLOB NOT NULL,
-                                       size INTEGER NOT NULL,
-                                       encoding TEXT NOT NULL,
-                                       data BLOB NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
@@ -832,20 +822,12 @@ function work.identities(handle: work.Handle): work.Identities | nil, string
   if bases == nil then
     return nil, basis_trouble
   end
-  local runtimes, runtime_trouble = Sqlite.text_rows(db,
-    "SELECT lower(hex(sha256(coalesce((SELECT value FROM meta " ..
-    "WHERE key = 'host_image'), '') || char(10) || " .. pins .. ")))")
-  if runtimes == nil then
-    return nil, runtime_trouble
-  end
   local identities: work.Identities = {
     compiler = compilers[1][1],
     runtime_basis = bases[1][1],
-    runtime = runtimes[1][1],
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },
-                          { "runtime_basis", identities.runtime_basis },
-                          { "runtime", identities.runtime } }) do
+                          { "runtime_basis", identities.runtime_basis } }) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair[1]), text(pair[2]) })
@@ -854,56 +836,6 @@ function work.identities(handle: work.Handle): work.Identities | nil, string
     end
   end
   return identities
-end
-
---- Names the target the binary being built runs on and hashes the
---- image it actually runs, for the projection to carry: the target is
---- how a binary later finds its own image among the three it holds,
---- and the hash is what tells a checked image from the release one
---- the working database holds for the same target.
-function work.put_host(handle: work.Handle, host: string,
-                       image: string): boolean, string
-  local named, name_trouble = Sqlite.run(handle.db,
-    "INSERT OR REPLACE INTO meta (key, value) VALUES ('host', ?1)",
-    { text(host) })
-  if not named then
-    return false, name_trouble
-  end
-  return Sqlite.run(handle.db,
-    "INSERT OR REPLACE INTO meta (key, value) " ..
-    "VALUES ('host_image', lower(hex(sha256(?1))))", { { blob = image } })
-end
-
---- One target's core image, as the bytes a boot put in.
-function work.image(handle: work.Handle, target: string): string | nil, string
-  local rows, trouble = Sqlite.text_rows(handle.db,
-    "SELECT size, data FROM images WHERE target = ?1", { text(target) })
-  if rows == nil then
-    return nil, trouble
-  end
-  if #rows == 0 then
-    return nil, "no image for " .. target .. " in the working database"
-  end
-  local size = math.tointeger(tonumber(rows[1][1]) or 0) or 0
-  local image, inflate_trouble = Compress.inflate(rows[1][2], size)
-  if image == nil then
-    return nil, target .. ": " .. inflate_trouble
-  end
-  return image
-end
-
---- Puts one target's core image in, deflated, for every later build
---- to carry.
-function work.put_image(handle: work.Handle, target: string,
-                        image: string): boolean, string
-  local packed, deflate_trouble = Compress.deflate(image)
-  if packed == nil then
-    return false, target .. ": " .. deflate_trouble
-  end
-  return Sqlite.run(handle.db,
-    "INSERT OR REPLACE INTO images (target, sha256, size, encoding, data) " ..
-    "VALUES (?1, sha256(?2), ?3, 'deflate', ?4)",
-    { text(target), { blob = image }, integer(#image), { blob = packed } })
 end
 
 --- Puts the vendored compiler in, as the one input with no file behind

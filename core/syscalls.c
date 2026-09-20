@@ -10,7 +10,7 @@
 
 #include "fail.h"
 #include "lauxlib.h"
-#include "locate.h"
+#include "executable.h"
 #include "miniz.h"
 #include "crypto.h"
 #include "syscalls.h"

@@ -79,17 +79,17 @@ runs the Linux binary under WSL2. Intel Macs are not a target: Apple
 has named macOS 26 the last release for them, and no runner can test
 them without Rosetta.
 
-every cosmic binary carries the core image for all three targets, so
-any host builds any target offline with nothing fetched. a program
-`cosmic build` writes carries none: its database holds its own
-modules, the standard library, and the error catalog, behind the
-image of the host it was built on.
+every cosmic binary carries the raw core for all three targets, so any
+host builds any target offline with nothing fetched. the POSIX launcher selects
+one by `uname`, verifies its exact range and digest, retains the artifact
+descriptor, and executes a cached copy. a program `cosmic build` writes has the
+same portable prefix and its own database suffix.
 
 a target exists when three things hold: zig links it, a CI lane runs
 its full suite on it, and the sandbox conformance matrix runs on it.
 nothing ships that nothing has run. a BSD that meets the three is a
-target; the syscall table is POSIX and the attach is plain ELF, so
-the work is the lane, not the code.
+target; the syscall table and launcher are POSIX, so the work is the lane, not
+another executable format writer.
 
 ## the stack
 
@@ -106,8 +106,8 @@ kernel                               Linux; macOS
     modules in a sqlite database     the only module source
     teal compiler + checker          vendored tl, carried patches
     cosmic.* stdlib in teal          typed wrappers, honest returns
-    docs, the three core images,     rows in the same database
-    CA roots
+    docs, CA roots                    rows in the same database
+    three raw cores                  manifest ranges before the database
 ```
 
 ### toolchain
@@ -199,8 +199,8 @@ keeps Mach services out of the macOS sandbox profile.
 
 Teal by default: filesystem policy (walk, find, atomic write), child
 processes above spawn and wait, sandbox policy over raw enforcement
-syscalls, URL, SSE, tar, the zip directory, JSON, the whole build
-including the Mach-O writer and ad-hoc signer. C when a benchmark on
+syscalls, URL, SSE, tar, the zip directory, JSON, and the whole artifact build.
+C when a benchmark on
 a real scenario says the Teal is too slow and a fuzzed, vendorable C
 implementation exists. HTTP/1.1 framing starts in C on the second
 half of that rule, a fuzzed implementation existing; JSON starts in
@@ -300,8 +300,6 @@ input to the build, never to the runtime. one database holds:
   assertion mechanism for code, not a second, output-diffing one only
   doc guides need.
 - **payload**: for an embed-built executable, the user's files.
-- **images**: the core executable for every target, deflated at
-  rest; two of the three are inert on any host.
 - **roots**: Mozilla's CA bundle.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
@@ -332,36 +330,44 @@ was staged, read, and compiled; and records, meaning test verdicts
 and coverage. it never ships: it moves by host, and a shipped file
 must not.
 
-all three targets are little-endian 64-bit, so one bytecode column
-serves them all, verified by a test that each image loads it, and
-it keeps line information so a runtime error names its line; the
-bytecode header check is the safety net. the core image column is
-the only per-target data.
+all three targets are little-endian 64-bit, so one bytecode column serves them
+all, verified by a test that each raw core loads it, and it keeps line
+information so a runtime error names its line; the bytecode header check is
+the safety net. target-specific bytes live only in manifest ranges, outside
+the database.
 
-the binary carries its database attached to the executable. on ELF
-it is appended and located by a trailer at end of file. on Mach-O it
-sits inside an extended `__LINKEDIT` segment, followed by a fresh
-ad-hoc code signature that covers it, because arm64 macOS refuses a
-binary with bytes after its signature. the runtime opens it through
-its own small VFS, a ~300-line shim that reads the executable at an
-explicit offset; the offset comes from a ten-line locator per
-format, the ELF trailer or the Mach-O signature's data offset, and
-nothing else in the VFS knows which format it is in. the VFS honors
-exactly that one path, offset, and length, registered once at
-startup, and refuses any other open. the executable
-is opened once, its size taken, and the handle cached. the Mach-O
-writer touches `__LINKEDIT`'s size, the signature's offset, and the
-signature itself, and nothing else in the file. the last partial
-page is hashed over its real length, never zero-padded.
+the binary is a versioned portable artifact: a POSIX shell launcher, aligned
+raw core ranges, a fixed manifest, one SQLite database, and a fixed trailer.
+the manifest is the sole authority for target/configuration, byte range, and
+sha256. the launcher retains an open descriptor before executing the selected
+core; startup validates the complete manifest and trailer against that same
+descriptor. the runtime's VFS reads only the validated database range from the
+retained descriptor. it never reopens the logical pathname, so rename, unlink,
+and atomic replacement after adoption cannot mix files. the last partial range
+is hashed over its real length, never zero-padded.
 
-the database is read-only, and the runtime never writes it: Linux
-refuses to open a running executable for writing, and macOS kills a
-process whose signed pages change. it is opened with `immutable=1`
+the database is read-only, and the runtime never writes it. it is opened with `immutable=1`
 so SQLite skips locks and staleness checks on a file no one else can
 change. mutable state lives in an ordinary file. a program that
 ships a dataset it updates copies it out once with `VACUUM INTO`, or
 attaches the embedded database read-only beside a writable one and
 queries across both.
+
+the launcher's cache leaf is untrusted until its owner, mode, link count,
+contents, length, and digest all match the manifest. its parent directory is
+the user's trust boundary. a cold launch writes and publishes a verified core
+atomically; a warm launch repeats the complete hash before execution. the
+launcher uses POSIX utilities available on the supported systems and reserves
+`COSMIC_PORTABLE_*` for its descriptor handoff. startup requires the complete
+set, validates it, adopts the descriptors, and clears those names before Teal
+runs. `COSMIC_PORTABLE_CACHE` alone is public configuration.
+
+ordinary artifacts have exactly three release entries and select configuration
+1. the checked artifact retains those required release entries and adds one
+configuration-2 entry for the real build host; its private launcher selects
+only that entry. target/configuration pairs are unique across the manifest and
+system identities are unique in the selected configuration. the production
+decoder's required-release mask is unchanged.
 
 a project's own build database, `o/cosmic.db`, is read ahead of the
 binary's: when cosmic runs or tests a project, `require` answers from
@@ -383,10 +389,9 @@ tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
 vendored tree's `PIN`, `build.zig` and the zig wrapper. a vendored
 tree is a function of its pin and its patch records and is never
 edited in place, so those are its inputs and the tree is not walked.
-on a mismatch the tool refuses with `the tool is stale; run bin/zig
-build boot` and exit 3. the three images and the compiler are what a boot
-alone puts in the working database, and every later build carries
-them into the database it writes, as rows, without unpacking them.
+on a mismatch the tool refuses with `the tool is stale; run bin/zig build
+boot` and exit 3. raw cores remain build outputs under `o/core`; the working
+database carries the compiler source needed for a later database-only rebuild.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
 problem and are fixed first: a typo'd or overlong parameter table
@@ -405,8 +410,8 @@ database: compile, check, record, embed. `build.zig` owns the C.
 `zig build` produces the patch applier, the patched vendor tree
 under `o/vendor/`, and the core for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
-importer with the vendored `tl.lua`, writes `o/cosmic.db`, and
-attaches it as `o/bin/cosmic`. a fresh clone and CI run `boot`; a
+importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
+portable `o/bin/cosmic`. a fresh clone and CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
@@ -414,8 +419,8 @@ and a stale tool is the bug to design against. `boot` stores two
 fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
 cosmic's own tree fingerprints the tree first. when only Teal
-differs, the tool rebuilds itself -- compiles the tree, projects the
-database, attaches it to the host image it already carries -- and
+differs, the tool rebuilds itself -- compiles the tree, projects the database,
+combines it with the exact retained portable prefix -- and
 re-execs into the result, once, refusing a second round by name;
 when the C core's inputs differ, only zig can build it, and the tool
 says so. the binary also carries two identities: the compiler it is,
@@ -462,31 +467,15 @@ isolation is planned below, not implemented:
   child process each, for a fresh temp directory, a deadline, and
   captured streams; a child never opens a database, it reports its
   result over a pipe and the one build process writes it.
-- *reproducible*: the shipped database is a pure function of the
-  tree, apart from three `meta` rows that name the host that
-  attached it -- `host` and `host_image` name the target and image
-  the attaching build matched, and `runtime` folds in the same pins,
-  so `build/reboot.tl` can find a stale tool's own image back on a
-  later run. left as the one host that happened to run `bin/zig
-  build boot`, those three rows would make the same target,
-  cross-compiled on two different hosts, differ by nothing else --
-  so `build/boot.tl` retags them per target before attaching: the
-  target matching this build's own host reuses the database as
-  written, and each of the other two gets its own projection first,
-  `host`/`host_image`/`runtime` naming ITS target, everything else
-  identical. `o/cosmic.db` itself, the one file left over for this
-  host's own project tooling, still names this host -- correctly,
-  since that is what it is for. what the database is a projection
-  of: the working database, a fresh schema attached in memory,
-  filled in one transaction from the rows the build already holds,
-  every table `WITHOUT ROWID` on a natural key so insertion order
-  cannot reach the bytes, and the file produced by `VACUUM INTO`.
-  `bin/zig build cores` cross-compiles every target from any host,
-  so with retagging making the database side host-independent too,
-  each of the three shipped binaries is byte-identical regardless of
-  which host produced it -- CI's provenance job asserts exactly
-  that, three unrelated kernels and system libraries agreeing rather
-  than one host asked twice.
+- *reproducible*: the shipped database is a host-neutral projection of the
+  working database into a fresh schema, filled in one transaction, with every
+  table `WITHOUT ROWID` on a natural key and the file produced by `VACUUM
+  INTO`. target identity comes from the selected, validated manifest entry;
+  it is absent from database rows. `bin/zig build cores` cross-compiles every
+  target from any host, so the complete artifact, its database and both test
+  applications are byte-identical regardless of which host produced them.
+  CI asserts that with three unrelated kernels and system libraries agreeing,
+  then runs one transported artifact unchanged on all three targets.
 
 three lanes, one per target -- Linux x86_64, Linux aarch64 on an arm
 runner, macOS aarch64 on an arm Mac runner -- each independently

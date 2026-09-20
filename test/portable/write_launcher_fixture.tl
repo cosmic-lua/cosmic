@@ -1,5 +1,5 @@
 --- Builds executable launcher fixtures around small native contract payloads.
---- Real Cosmic core adoption starts in portable-plan step 5.
+--- The test form adds synchronization hooks to the production artifact layout.
 
 local Fs = require("cosmic.fs")
 local artifact = require("build.artifact")

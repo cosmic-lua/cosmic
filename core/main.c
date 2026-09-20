@@ -1,8 +1,7 @@
 /*
- * The entry. It finds the database attached to the running executable,
- * opens it through the offset VFS, and hands control to the `main`
- * module inside it. With no database attached it can bridge into Teal
- * from the tree instead, which is how the first binary gets built.
+ * The entry. A portable launch opens the database range from its retained
+ * artifact descriptor. A raw core has no database and can only bridge into
+ * Teal from a source tree through `--boot`.
  */
 
 #include <ctype.h>
@@ -15,7 +14,7 @@
 #include "boot.h"
 #include "crypto.h"
 #include "lauxlib.h"
-#include "locate.h"
+#include "executable.h"
 #include "sqlite.h"
 #include "sqlite3.h"
 #include "store.h"
@@ -32,9 +31,9 @@ static int complain(const char *what, const char *detail) {
   return 2;
 }
 
-static sqlite3 *open_attached(const char *path, int retained_fd,
-                              const struct cosmic_attachment *at) {
-  if (cosmic_vfs_register(path, retained_fd, at->offset, at->length) !=
+static sqlite3 *open_artifact(const char *path, int retained_fd,
+                              int64_t offset, int64_t length) {
+  if (cosmic_vfs_register(path, retained_fd, offset, length) !=
       SQLITE_OK) {
     return NULL;
   }
@@ -457,8 +456,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
 
   char self[4096];
-  if (startup->kind == COSMIC_STARTUP_PORTABLE ||
-      startup->kind == COSMIC_STARTUP_LEGACY_ARTIFACT) {
+  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
     if (snprintf(self, sizeof self, "%s", startup->artifact_path) >=
         (int)sizeof self) {
       cosmic_artifact_close(&artifact);
@@ -469,24 +467,6 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     return complain("cannot find my own path", NULL);
   }
 
-  struct cosmic_attachment attached;
-  int found;
-  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
-    attached.offset = (int64_t)artifact.portable.database_offset;
-    attached.length = (int64_t)artifact.portable.database_length;
-    found = 1;
-  } else {
-    found = cosmic_locate_path(self, &attached);
-  }
-  if (found < 0) {
-    cosmic_artifact_close(&artifact);
-    return complain("cannot read my own file", self);
-  }
-  if (startup->kind != COSMIC_STARTUP_NATIVE && found != 1) {
-    cosmic_artifact_close(&artifact);
-    return complain("portable artifact has no database", self);
-  }
-
   lua_State *L = cosmic_surface_open(self);
   if (L == NULL) {
     cosmic_artifact_close(&artifact);
@@ -494,11 +474,10 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
   }
 
   sqlite3 *db = NULL;
-  if (found == 1) {
-    db = open_attached(self,
-                       startup->kind == COSMIC_STARTUP_PORTABLE ? artifact.fd :
-                                                                  -1,
-                       &attached);
+  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+    db = open_artifact(self, artifact.fd,
+                       (int64_t)artifact.portable.database_offset,
+                       (int64_t)artifact.portable.database_length);
     if (db == NULL) {
       lua_close(L);
       cosmic_artifact_close(&artifact);
@@ -507,8 +486,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_OPENED);
   }
   cosmic_store_install(L, db,
-                       startup->kind == COSMIC_STARTUP_PORTABLE ? &artifact :
-                                                                  NULL);
+                       startup->kind == COSMIC_STARTUP_PORTABLE ? &artifact : NULL);
   cosmic_open_sqlite(L); /* leaves the module table on the stack */
   cosmic_store_set_raw(L, "cosmic.internal.sqlite");
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);

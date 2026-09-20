@@ -78,15 +78,11 @@ if [ "${1-}" = --case ]; then
   cache=$case_root/cache
   mkdir -p "$tree/o/bin"
   git -C "$root" archive HEAD | tar -xf - -C "$tree"
-  cp "$fixture/runtime.old" "$tree/o/bin/cosmic-portable"
-  chmod 755 "$tree/o/bin/cosmic-portable"
-  program=$tree/o/bin/cosmic-portable
+  cp "$fixture/runtime.old" "$tree/o/bin/cosmic"
+  chmod 755 "$tree/o/bin/cosmic"
+  program=$tree/o/bin/cosmic
   original_hash=$(hash_value "$program")
   prefix_length=$(cat "$fixture/runtime.old.prefix-length")
-  printf 'legacy output sentinel\n' > "$tree/o/bin/cosmic"
-  chmod 755 "$tree/o/bin/cosmic"
-  legacy_hash=$(hash_value "$tree/o/bin/cosmic")
-
   # The disposable edit makes the tool stale. The code reached after re-entry
   # inspects the exact arguments and an ordinary environment value.
   awk '
@@ -154,7 +150,6 @@ if [ "${1-}" = --case ]; then
   entries_after=$(cache_entries "$cache")
   [ "$entries_after" -eq "$entries_before" ]
   [ "$(hash_value "$program")" != "$original_hash" ]
-  [ "$(hash_value "$tree/o/bin/cosmic")" = "$legacy_hash" ]
 
   # A core input cannot be represented by a database-only rebuild.
   printf '\n/* step-8 core-change fixture */\n' >> "$tree/core/startup.h"
@@ -172,7 +167,6 @@ if [ "${1-}" = --case ]; then
   grep -F 'the tool is stale; run bin/zig build boot' \
     "$case_root/core.err" >/dev/null
   [ "$(hash_value "$program")" = "$before_refusal" ]
-  [ "$(hash_value "$tree/o/bin/cosmic")" = "$legacy_hash" ]
   [ "$(cache_entries "$cache")" -eq "$entries_before" ]
   exit 0
 fi
@@ -236,4 +230,4 @@ exercise_prefix_comparison
 run_bounded_case rename
 run_bounded_case unlink
 
-printf 'portable self-rebuild: PASS (one re-entry, exact argv/env, retained prefix after rename/unlink, one cache entry, legacy preserved, core refusal)\n'
+printf 'portable self-rebuild: PASS (one re-entry, exact argv/env, retained prefix after rename/unlink, one cache entry, core refusal)\n'

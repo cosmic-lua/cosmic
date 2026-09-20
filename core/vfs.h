@@ -1,8 +1,7 @@
 /*
  * The VFS that reads a database sitting at an offset inside another
- * file. It is how the runtime opens the database attached to its own
- * executable, and it knows nothing about ELF or Mach-O: the caller hands
- * it an offset and a length.
+ * file. The caller hands it the retained descriptor, offset, and length from
+ * the validated portable artifact.
  */
 
 #ifndef COSMIC_VFS_H

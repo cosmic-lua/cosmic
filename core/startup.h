@@ -34,8 +34,6 @@
 enum cosmic_startup_kind {
   COSMIC_STARTUP_NATIVE = 1,
   COSMIC_STARTUP_PORTABLE = 2,
-  /* Temporary compatibility for experiments/portable's old pathname entry. */
-  COSMIC_STARTUP_LEGACY_ARTIFACT = 3,
 };
 
 enum cosmic_startup_test_phase {
@@ -71,8 +69,6 @@ struct cosmic_startup {
 void cosmic_startup_native(struct cosmic_startup *startup);
 void cosmic_startup_portable(struct cosmic_startup *startup,
                              const char *artifact_path);
-void cosmic_startup_legacy_artifact(struct cosmic_startup *startup,
-                                    const char *artifact_path);
 int cosmic_startup_has_private_environment(void);
 const char *cosmic_startup_validate(const struct cosmic_startup *startup);
 int cosmic_startup_adopt(const struct cosmic_startup *startup,

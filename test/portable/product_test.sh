@@ -27,7 +27,7 @@ hash_value() {
   printf '%s\n' "${value%% *}"
 }
 check_hashes() {
-  for name in cosmic prefix manifest apps/hello apps/second writer portable.db \
+  for name in cosmic prefix manifest apps/hello apps/second cosmic.db \
       targets.tsv; do
     expected=$(awk -v name="$name" '$2 == name { print $1; found = 1 } END { if (!found) exit 1 }' \
       "$product/hashes.sha256") || return

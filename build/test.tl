@@ -1,7 +1,7 @@
 --- Runs every test the tree defines that a stored verdict does not
 --- already answer for, in-process, and records each verdict into the
 --- working database, `o/build.db`, which never ships and is never
---- attached to `o/cosmic.db`.
+--- carried in `o/cosmic.db`.
 ---
 --- A verdict is a function of the test module's key -- its source,
 --- its import closure, the tool -- and of every file under the root
@@ -679,9 +679,7 @@ function test.run(argv: {integer:string}): integer
     complain(compile_trouble)
     return 1
   end
-  local written, write_trouble =
-    writer.write_result(handle, database, result,
-      Store.meta("runtime_context") == "portable-v1")
+  local written, write_trouble = writer.write_result(handle, database, result)
   work.record(handle, elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then

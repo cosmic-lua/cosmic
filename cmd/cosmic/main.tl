@@ -237,9 +237,7 @@ local function run(file: string, argv: {integer:string}): integer
     complain("cosmic: " .. compile_trouble)
     return 1
   end
-  local written, write_trouble =
-    writer.write_result(handle, database, result,
-      Store.meta("runtime_context") == "portable-v1")
+  local written, write_trouble = writer.write_result(handle, database, result)
   work.record(handle, elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   work.close(handle)

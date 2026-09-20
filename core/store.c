@@ -17,9 +17,9 @@
 #endif
 
 /* A prepare or a step that fails for a reason other than "no such row"
- * means the attached database itself cannot be trusted -- truncated,
- * corrupted, or not a database at all past whatever let `locate` find
- * it. There is no caller to hand that to: the process exits. */
+ * means the artifact database itself cannot be trusted -- truncated,
+ * corrupted, or not a database at all despite its validated range. There is
+ * no caller to hand that to: the process exits. */
 static void die_unreadable(sqlite3 *db) {
   fprintf(stderr, "cosmic: the attached database is unreadable: %s\n",
           sqlite3_errmsg(db));
@@ -401,10 +401,9 @@ static int push_binary_meta(lua_State *L, int list, const char *key) {
   return 1;
 }
 
-/* One entry of runtime metadata. Portable values overlay every SQL database,
- * because they describe the validated process context rather than whichever
- * project database happens to be searched first. Native artifacts retain the
- * legacy SQL lookup unchanged. */
+/* One entry of metadata. Runtime values come only from the validated artifact
+ * context and its own final database, never from a project database searched
+ * ahead of it. Other build metadata keeps ordinary database search order. */
 static int store_meta(lua_State *L) {
   const char *key = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -420,7 +419,13 @@ static int store_meta(lua_State *L) {
       lua_pushnil(L);
     return 1;
   }
-  if (artifact != NULL && artifact->fd >= 0) {
+  if (strcmp(key, "host") == 0 || strcmp(key, "host_image") == 0 ||
+      strcmp(key, "runtime") == 0 || strcmp(key, "runtime_basis") == 0 ||
+      strcmp(key, "artifact") == 0) {
+    if (artifact == NULL || artifact->fd < 0) {
+      lua_pushnil(L);
+      return 1;
+    }
     if (strcmp(key, "host") == 0) {
       lua_pushliteral(L, COSMIC_TARGET_NAME);
       return 1;
@@ -434,10 +439,8 @@ static int store_meta(lua_State *L) {
       return push_portable_runtime(L, artifact, list);
     if (strcmp(key, "runtime_basis") == 0)
       return push_binary_meta(L, list, "runtime_basis");
-    if (strcmp(key, "artifact") == 0) {
-      lua_pushstring(L, artifact->logical_path);
-      return 1;
-    }
+    lua_pushstring(L, artifact->logical_path);
+    return 1;
   }
 
   for (lua_Integer i = 1; i <= count; i++) {

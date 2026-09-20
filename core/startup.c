@@ -11,7 +11,7 @@
 #include <unistd.h>
 
 #include "crypto.h"
-#include "locate.h"
+#include "executable.h"
 
 #ifndef COSMIC_TARGET_ID
 #error "build.zig must define COSMIC_TARGET_ID"
@@ -138,18 +138,12 @@ void cosmic_startup_portable(struct cosmic_startup *startup,
     unsetenv(portable_environment[i]);
 }
 
-void cosmic_startup_legacy_artifact(struct cosmic_startup *startup,
-                                    const char *artifact_path) {
-  compiled_startup(startup, COSMIC_STARTUP_LEGACY_ARTIFACT, artifact_path);
-}
-
 const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
   if (startup == NULL) return "startup record is missing";
   if (startup->version != COSMIC_STARTUP_VERSION)
     return "startup record has an unsupported version";
   if (startup->kind != COSMIC_STARTUP_NATIVE &&
-      startup->kind != COSMIC_STARTUP_PORTABLE &&
-      startup->kind != COSMIC_STARTUP_LEGACY_ARTIFACT)
+      startup->kind != COSMIC_STARTUP_PORTABLE)
     return "startup record has an unknown kind";
   if (startup->target_id != COSMIC_TARGET_ID ||
       startup->target_name == NULL ||

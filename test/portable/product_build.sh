@@ -9,15 +9,15 @@ if [ -e "$out" ]; then
   printf 'portable product build: output already exists: %s\n' "$out" >&2
   exit 2
 fi
-for required in "$root/o/bin/cosmic" "$root/o/bin/cosmic-portable" \
-    "$root/o/cosmic.portable.db" "$root/o/targets.tsv"; do
+for required in "$root/o/bin/cosmic" "$root/o/cosmic.db" \
+    "$root/o/targets.tsv"; do
   if [ ! -f "$required" ]; then
     printf 'portable product build: boot output is missing: %s\n' \
       "$required" >&2
     exit 2
   fi
 done
-if [ ! -x "$root/o/bin/cosmic" ] || [ ! -x "$root/o/bin/cosmic-portable" ]; then
+if [ ! -x "$root/o/bin/cosmic" ]; then
   echo 'portable product build: boot executables are not executable' >&2
   exit 2
 fi
@@ -43,7 +43,7 @@ cp "$root/test/portable/fixture/cmd/second/main.tl.in" \
   "$project/cmd/second/main.tl"
 (
   cd "$project"
-  COSMIC_PORTABLE_CACHE="$work/cache" "$root/o/bin/cosmic-portable" build
+  COSMIC_PORTABLE_CACHE="$work/cache" "$root/o/bin/cosmic" build
 ) > "$work/build.out" 2> "$work/build.err"
 grep -F 'build: PASS (o/bin/hello, o/bin/second' "$work/build.out" >/dev/null
 for application in hello second; do
@@ -58,11 +58,10 @@ grep -F 'hello from the portable fixture' "$work/applications.out" >/dev/null
 grep -F 'second portable application' "$work/applications.out" >/dev/null
 
 mkdir -p "$out/apps" "$out/cores"
-cp "$root/o/bin/cosmic-portable" "$out/cosmic"
+cp "$root/o/bin/cosmic" "$out/cosmic"
 cp "$project/o/bin/hello" "$out/apps/hello"
 cp "$project/o/bin/second" "$out/apps/second"
-cp "$root/o/bin/cosmic" "$out/writer"
-cp "$root/o/cosmic.portable.db" "$out/portable.db"
+cp "$root/o/cosmic.db" "$out/cosmic.db"
 cp "$root/o/targets.tsv" "$out/targets.tsv"
 tab=$(printf '\t')
 while IFS="$tab" read -r _ _ configuration target _ _; do
@@ -75,7 +74,7 @@ done < "$out/targets.tsv"
   "$out/cosmic" "$out/prefix" "$out/manifest" "$out/targets.tsv" \
   "$out/cores" \
   "$out/apps/hello" "$out/apps/second"
-chmod 755 "$out/cosmic" "$out/writer" "$out/apps/hello" "$out/apps/second"
+chmod 755 "$out/cosmic" "$out/apps/hello" "$out/apps/second"
 
 hash_value() {
   if command -v sha256sum >/dev/null 2>&1; then value=$(sha256sum "$1") || return
@@ -83,7 +82,7 @@ hash_value() {
   printf '%s\n' "${value%% *}"
 }
 : > "$out/hashes.sha256"
-for name in cosmic prefix manifest apps/hello apps/second writer portable.db \
+for name in cosmic prefix manifest apps/hello apps/second cosmic.db \
     targets.tsv; do
   value=$(hash_value "$out/$name")
   printf '%s  %s\n' "$value" "$name" >> "$out/hashes.sha256"

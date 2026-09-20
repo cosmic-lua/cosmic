@@ -97,3 +97,35 @@ local function test_writer_rejects_ambiguous_or_incomplete_inputs()
     assert(artifact.prefix(records, cores)), "not sqlite")
   assert(program == nil and database_trouble:find("SQLite", 1, true) ~= nil)
 end
+
+local function test_checked_manifest_keeps_release_entries_but_selects_checked()
+  local checked_records = records ..
+    "1\t2\tsanitized\tsanitized-x86\tLinux\tx86_64\n"
+  local checked_cores: {string:string} = {
+    x86 = cores.x86,
+    arm = cores.arm,
+    mac = cores.mac,
+    ["sanitized-x86"] = "ELF-checked-x86-contents",
+  }
+  local prefix = assert(artifact.prefix(checked_records, checked_cores, 2))
+  assert(prefix:find("cosmic_configuration_id=2", 1, true) ~= nil)
+  assert(prefix:find("cosmic_configuration_id=1", 1, true) == nil)
+  local manifest_at = #prefix - 4096 + 1
+  local _, _, _, count = string.unpack(">I4I4I8I4", prefix,
+    manifest_at + 8)
+  assert(count == 4)
+  for _, image in pairs(checked_cores) do
+    assert(occurrences(prefix, image) == 1)
+  end
+
+  local absent, absent_trouble = artifact.prefix(records, cores, 2)
+  assert(absent == nil and
+    absent_trouble:find("has no generated", 1, true) ~= nil)
+  local duplicate_system = checked_records ..
+    "2\t2\tsanitized\tsanitized-arm\tLinux\tx86_64\n"
+  checked_cores["sanitized-arm"] = "ELF-other-checked-contents"
+  local ambiguous, ambiguous_trouble =
+    artifact.prefix(duplicate_system, checked_cores, 2)
+  assert(ambiguous == nil and
+    ambiguous_trouble:find("duplicate generated uname", 1, true) ~= nil)
+end

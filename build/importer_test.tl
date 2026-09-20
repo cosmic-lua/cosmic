@@ -275,19 +275,17 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
     assert(work.stage(handle, true))
     local found = assert(work.identities(handle))
     work.close(handle)
-    return { found.compiler, found.runtime_basis, found.runtime }
+    return { found.compiler, found.runtime_basis }
   end
   local original = identities()
   assert(Fs.write(root .. "/cosmic/fs.tl", "local record Fs\nend\nreturn Fs\n-- edited\n"))
   local after_stdlib = identities()
   assert(after_stdlib[1] == original[1], "a stdlib edit moved the compiler identity")
   assert(after_stdlib[2] == original[2], "a stdlib edit moved the runtime basis")
-  assert(after_stdlib[3] == original[3], "a stdlib edit moved the legacy runtime identity")
   assert(Fs.write(root .. "/patch/tl/01.txt", "another record"))
   local after_patch = identities()
   assert(after_patch[1] ~= original[1], "a compiler patch did not move the compiler identity")
   assert(after_patch[2] ~= original[2], "a compiler patch did not move the runtime basis")
-  assert(after_patch[3] ~= original[3], "a compiler patch did not move the legacy runtime identity")
 end
 
 --- Embedded library code and tests must invalidate the self-tree guard,

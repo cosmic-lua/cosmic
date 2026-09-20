@@ -96,8 +96,7 @@ run_sanitized() {
 
 if [ -z "$state" ]; then
   # Run just build/embed_test.tl under the real portable runtime. Its four
-  # cases cover the explicit legacy/portable expectations without claiming
-  # the full portable Cosmic suite before the step-8 reboot migration.
+  # cases cover the portable database and retained-prefix expectations.
   focused=$work/focused-embed
   mkdir "$focused"
   cp -R "$root/build" "$focused/build"

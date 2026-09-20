@@ -1,13 +1,4 @@
-# Portable characterization fixture
-
-`characterize.sh` runs a copied standalone project against the packed portable
-prototype. The checked-in Teal sources end in `.tl.in`, so Cosmic's own build
-does not stage them as project modules or tests.
-
-`characterize.sh` deliberately keeps the old packed prototype visible. Its
-`build` still exits 1 with `this binary names no host target` and `build: FAIL`.
-Its database has no `runtime` metadata, which is now rejected before a test or
-verdict can be recorded instead of being treated as the empty identity.
+# Portable artifact fixtures
 
 `identity_test.sh` exercises the production retained-artifact route. It builds
 two portable applications from the retained prefix, executes canonical Linux
@@ -31,7 +22,7 @@ descriptor. It selects one complete immutable file. Writing that same inode in
 place remains unsupported and is deliberately not presented as safe.
 
 `runtime_build.sh OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` normally
-uses a booted checkout's `o/bin/cosmic` and `o/cosmic.portable.db`. With no
+uses a booted checkout's `o/bin/cosmic` and `o/cosmic.db`. With no
 prebuilt prefix it invokes
 `bin/zig build portable-fixture-cores` once in a temporary directory, sharing
 one patched-vendor graph across the three release cores, three fixture-hook
@@ -40,7 +31,7 @@ cores, and the distinct sanitized core. A supplied prefix must contain
 `portable-fixture/core/<target>/cosmic-core`, and the checked core at
 `portable-fixture/sanitized/cosmic-core`; every input is checked before output
 is generated. The explicit four-argument form lets CI combine the x86
-producer's release/hooked cores and writer/database with the checked core that
+producer's release/hooked cores and Cosmic/database with the checked core that
 the sanitized job already tested, without compiling that core a second time.
 
 `product_build.sh` makes the per-host provenance bundle from a booted tree. It
@@ -78,19 +69,19 @@ actual host must run under its selected raw core, while an immediate repeat on
 that host stands. This identity chain complements the independent per-host
 product builds and the canonical full-suite run on every host.
 
-`full_suite.sh` runs the normal CI full-suite diagnostics locally as five
-explicit phases: `prepare`, `native`, `native-boundary`, `portable`, and
+`full_suite.sh` runs the CI full-suite diagnostics locally as five
+explicit phases: `prepare`, `local`, `local-boundary`, `portable`, and
 `portable-boundary`. Give every phase the same absolute diagnostics directory
 outside the checkout. For example, after `bin/zig build cores boot`:
 
 ```sh
 diagnostics=/tmp/cosmic-work-db-diagnostics
-test/portable/full_suite.sh prepare "$diagnostics"
-test/portable/full_suite.sh native "$diagnostics"
-test/portable/full_suite.sh native-boundary "$diagnostics"
-test/portable/full_suite.sh portable "$diagnostics"
+test/portable/full_suite.sh local "$diagnostics"
+test/portable/full_suite.sh local-boundary "$diagnostics"
+test/portable/full_suite.sh prepare "$diagnostics/transported" o/bin/cosmic
+test/portable/full_suite.sh portable "$diagnostics/transported"
 PORTABLE_OUTCOME=success \
-  test/portable/full_suite.sh portable-boundary "$diagnostics"
+  test/portable/full_suite.sh portable-boundary "$diagnostics/transported"
 ```
 
 Both test phases retain the 30-second suite limit when `timeout` or `gtimeout`

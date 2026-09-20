@@ -29,12 +29,6 @@ local tables: {{string}} = {
                   requires TEXT NOT NULL,
                   PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
-  { "images", [[(target TEXT PRIMARY KEY,
-                 sha256 BLOB NOT NULL,
-                 size INTEGER NOT NULL,
-                 encoding TEXT NOT NULL,
-                 data BLOB NOT NULL) WITHOUT ROWID]] },
-
   { "decls", [[(path TEXT PRIMARY KEY,
                 source TEXT NOT NULL) WITHOUT ROWID]] },
 

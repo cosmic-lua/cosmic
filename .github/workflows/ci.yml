@@ -46,31 +46,14 @@ jobs:
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
 
-      - name: prepare the unchanged portable runtime and integrity probe
+      - name: run every test through default Cosmic and snapshot the working database
+        id: default-test
         shell: bash
-        run: test/portable/full_suite.sh prepare "$RUNNER_TEMP/work-db-diagnostics"
+        run: test/portable/full_suite.sh local "$RUNNER_TEMP/work-db-diagnostics"
 
-      - name: run every native test and snapshot the working database
-        id: native-test
+      - name: verify the default snapshot survives the workflow boundary
         shell: bash
-        run: test/portable/full_suite.sh native "$RUNNER_TEMP/work-db-diagnostics"
-
-      - name: verify the native snapshot survives the workflow boundary
-        shell: bash
-        run: test/portable/full_suite.sh native-boundary "$RUNNER_TEMP/work-db-diagnostics"
-
-      - name: run every test through unchanged portable Cosmic
-        id: portable-test
-        shell: bash
-        run: test/portable/full_suite.sh portable "$RUNNER_TEMP/work-db-diagnostics"
-
-      - name: snapshot the final workflow boundary
-        id: final-work-db
-        if: always()
-        shell: bash
-        env:
-          PORTABLE_OUTCOME: ${{ steps.portable-test.outcome }}
-        run: test/portable/full_suite.sh portable-boundary "$RUNNER_TEMP/work-db-diagnostics"
+        run: test/portable/full_suite.sh local-boundary "$RUNNER_TEMP/work-db-diagnostics"
 
       - name: preserve working-database failure evidence
         if: failure()
@@ -83,17 +66,15 @@ jobs:
       - name: the tree renders exactly as `cosmic fix` would write it
         run: o/bin/cosmic fix --check .
 
-      # The only place the signature `build/attach.tl` wrote is judged
-      # by the system that has to accept it. A no-op everywhere but
-      # macOS -- see bin/verify-codesign -- so this is the same step on
-      # every leg of the matrix, checking each binary against itself.
-      - name: the macOS binary's signature, if this host can judge it
-        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
+      # Zig signs the raw macOS core. Judge those exact bytes on macOS before
+      # the portable writer includes them in every artifact.
+      - name: the raw macOS core's signature, if this host can judge it
+        run: bin/verify-codesign o/core/aarch64-macos/cosmic-core
 
       - name: what the build produced
         run: |
-          ls -l o/bin o/cosmic.db
-          file o/bin/cosmic-*
+          ls -l o/bin o/cosmic.db o/core/*/cosmic-core
+          file o/bin/cosmic o/core/*/cosmic-core
 
       - name: package this host's portable Cosmic and applications
         run: test/portable/product_build.sh "$RUNNER_TEMP/portable-product"
@@ -127,16 +108,6 @@ jobs:
           path: ${{ runner.temp }}/portable-contract
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: binaries-${{ matrix.name }}
-          path: |
-            o/bin/cosmic-x86_64-linux-musl
-            o/bin/cosmic-aarch64-linux-musl
-            o/bin/cosmic-aarch64-macos
-            o/cosmic.db
-          if-no-files-found: error
-
   # A fourth core, built with undefined-behavior checking on, running the
   # whole build and test suite. It is not a shipped artifact; it is the
   # run that would report what the release build would only do quietly.
@@ -154,8 +125,30 @@ jobs:
         run: bin/zig build sanitized
       - name: run every test with the checked core
         run: |
-          cmp -n "$(wc -c < o/sanitized/cosmic-core)" \
-            o/sanitized/cosmic-core o/sanitized/bin/cosmic
+          target_id=$(awk -F '\t' \
+            '$2 == 2 && $3 == "sanitized" { print $1; count++ } END { if (count != 1) exit 1 }' \
+            o/sanitized/targets.tsv)
+          target=$(awk -F '\t' -v id="$target_id" \
+            '$1 == id && $2 == 1 && $3 == "release" { print $4; count++ } END { if (count != 1) exit 1 }' \
+            o/sanitized/targets.tsv)
+          entry=$(o/sanitized/bin/cosmic test/portable/manifest_entry.tl \
+            o/sanitized/bin/cosmic "$target_id" 2)
+          set -- $entry
+          test "$#" -eq 3
+          offset=$1
+          length=$2
+          digest=$3
+          test "$length" -eq "$(wc -c < o/sanitized/cosmic-core)"
+          test $((offset % 16384)) -eq 0
+          blocks=$(( (length + 16383) / 16384 ))
+          dd if=o/sanitized/bin/cosmic of="$RUNNER_TEMP/checked.blocks" \
+            bs=16384 skip=$((offset / 16384)) count="$blocks" 2>/dev/null
+          head -c "$length" "$RUNNER_TEMP/checked.blocks" > \
+            "$RUNNER_TEMP/checked.core"
+          test "$(sha256sum "$RUNNER_TEMP/checked.core" | awk '{print $1}')" = "$digest"
+          cmp o/sanitized/cosmic-core "$RUNNER_TEMP/checked.core"
+          o/sanitized/bin/cosmic test/portable/checked_context.tl \
+            o/sanitized/cosmic-core "$target"
           # Measured at ~29.7s locally even after the coverage/formatter
           # performance stack; a shared CI runner has less headroom than
           # that, so this keeps real margin rather than matching the
@@ -190,12 +183,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/portable-prebuilt/portable-fixture/sanitized"
           cp "$RUNNER_TEMP/checked/cosmic-core" \
             "$RUNNER_TEMP/portable-prebuilt/portable-fixture/sanitized/cosmic-core"
-          chmod +x "$RUNNER_TEMP/portable-product/writer"
+          chmod +x "$RUNNER_TEMP/portable-product/cosmic"
           test/portable/runtime_build.sh \
             "$RUNNER_TEMP/portable-runtime" \
             "$RUNNER_TEMP/portable-prebuilt" \
-            "$RUNNER_TEMP/portable-product/writer" \
-            "$RUNNER_TEMP/portable-product/portable.db"
+            "$RUNNER_TEMP/portable-product/cosmic" \
+            "$RUNNER_TEMP/portable-product/cosmic.db"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: portable-runtime-x86
@@ -446,32 +439,14 @@ jobs:
           path: ${{ runner.temp }}/alpine-diagnostics
           if-no-files-found: ignore
 
-  # The provenance gate: three unrelated hosts -- different kernels,
-  # different system libraries, different checkout paths by
-  # construction -- cross-compiling the same commit must produce the
-  # same three shipped binaries, byte for byte. build/boot.tl makes
-  # this true by construction: `host`/`host_image` in the database
-  # `build/attach.tl` embeds name whichever target the attaching
-  # host's own build matched (`build/reboot.tl` reads them back to
-  # find a stale tool's own image), so each of the three binaries is
-  # retagged with ITS OWN target's name and image hash before it is
-  # attached, never the building machine's -- attaching o/cosmic.db
-  # verbatim to all three would make two of them misname themselves
-  # AND make the same target cross-compiled on two different hosts
-  # differ by nothing but that. o/cosmic.db itself is excluded from
-  # this comparison on purpose: it is this build's own project
-  # database, not a shipped target, and correctly names this specific
-  # host. Nothing here rebuilds anything; it only diffs what the
-  # matrix above already made, so this costs a download, not a build.
+  # Three unrelated hosts independently build the same complete portable
+  # product. Nothing here rebuilds anything; this gate compares every shipped
+  # byte and verifies every manifest range against its raw core.
   provenance:
     needs: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: binaries-*
-          path: binaries
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: portable-product-*
@@ -480,19 +455,6 @@ jobs:
         with:
           name: portable-contract-x86
           path: contract
-      - name: every host produces the same three binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
-          first=${hosts[0]}
-          for host in "${hosts[@]:1}"; do
-            for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-              cmp "binaries/binaries-$first/bin/cosmic-$target" \
-                  "binaries/binaries-$host/bin/cosmic-$target"
-            done
-          done
-          echo "provenance: PASS (linux-x86_64, linux-aarch64 and macos-aarch64 produce byte-identical binaries for every target)"
       - name: every host produces the same complete portable products
         shell: bash
         run: |
@@ -502,7 +464,7 @@ jobs:
           baseline="products/portable-product-$first"
           for host in "${hosts[@]:1}"; do
             product="products/portable-product-$host"
-            for name in cosmic prefix manifest targets.tsv apps/hello apps/second; do
+            for name in cosmic cosmic.db prefix manifest targets.tsv hashes.sha256 apps/hello apps/second; do
               cmp "$baseline/$name" "$product/$name"
             done
             while IFS=$'\t' read -r _ _ configuration target _; do
@@ -541,4 +503,4 @@ jobs:
               cmp "$product/cores/$target/cosmic-core" "$extracted"
             done < "$product/targets.tsv"
           done
-          echo "portable provenance: PASS (complete Cosmic, prefix, manifest, applications, and exact raw cores from all three hosts)"
+          echo "portable provenance: PASS (complete Cosmic, database, prefix, manifest, applications, and exact raw cores from all three hosts)"

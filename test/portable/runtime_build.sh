@@ -40,7 +40,7 @@ else
   case $prebuilt in /*) ;; *) prebuilt=$PWD/$prebuilt ;; esac
 fi
 if [ -z "$writer" ]; then writer=$root/o/bin/cosmic; fi
-if [ -z "$database" ]; then database=$root/o/cosmic.portable.db; fi
+if [ -z "$database" ]; then database=$root/o/cosmic.db; fi
 case $writer in /*) ;; *) writer=$PWD/$writer ;; esac
 case $database in /*) ;; *) database=$PWD/$database ;; esac
 if [ ! -x "$writer" ]; then

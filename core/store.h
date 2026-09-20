@@ -3,7 +3,7 @@
  * on disk is input to the build, never to the runtime.
  *
  * More than one database can be in play. A project's own build database
- * is searched ahead of the one attached to the binary, which is how the
+ * is searched ahead of the one carried by the portable artifact, which is how the
  * tool builds and runs a tree other than its own.
  */
 
@@ -17,7 +17,7 @@ struct cosmic_artifact;
 
 /* Installs the searcher, with `binary` as the last database searched.
  * `binary` may be NULL, which leaves the list empty until something is
- * attached. The raw `cosmic.internal.store` value goes in the registry,
+ * opened. The raw `cosmic.internal.store` value goes in the registry,
  * never in package.preload: only a caller the searcher itself trusts
  * ever gets it back. */
 int cosmic_store_install(lua_State *L, sqlite3 *binary,
@@ -31,7 +31,7 @@ void cosmic_store_set_raw(lua_State *L, const char *name);
 
 /* Puts the raw value already registered under `name` (see
  * cosmic_store_set_raw) into package.preload, unconditionally. Boot mode
- * is the only caller: before any database is attached, the whole tree is
+ * is the only caller: before any artifact database is opened, the whole tree is
  * trusted source, and the bridge's own searcher does not go through the
  * trust-gated store searcher at all. A shipped binary never calls this. */
 void cosmic_store_preload_raw(lua_State *L, const char *name);

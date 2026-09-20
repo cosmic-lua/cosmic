@@ -122,7 +122,7 @@ const core_sources = [_][]const u8{
     "boot.c",
     "coverage.c",
     "crypto.c",
-    "locate.c",
+    "executable.c",
     "sqlite.c",
     "store.c",
     "surface.c",
@@ -135,7 +135,6 @@ const core_sources = [_][]const u8{
 };
 
 pub fn build(b: *std.Build) void {
-    const portable_probe = b.option(bool, "portable-probe", "build the experimental external-artifact entry") orelse false;
     // The applier is a host tool, built before anything it feeds.
     const applier = b.addExecutable(.{
         .name = "patch",
@@ -183,8 +182,8 @@ pub fn build(b: *std.Build) void {
         "build release, retained-artifact test, and checked fixture cores",
     );
 
-    // Both the boot bridge and the prototype packer consume this generated
-    // projection. The Target array above remains the only target list.
+    // The boot bridge and portable writer consume this generated projection.
+    // The Target array above remains the only target list.
     var records: []const u8 = "";
     for (targets) |t| {
         records = b.fmt("{s}{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n", .{
@@ -204,14 +203,14 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe, false);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe, true);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, true);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -225,7 +224,7 @@ pub fn build(b: *std.Build) void {
             bridge.addDirectoryArg(tl);
             bridge.addArg(t.name);
             bridge.addFileArg(target_records);
-            // The bridge reads every core image and writes the database
+            // The bridge reads every raw core and writes the database
             // beside them, so it runs after both.
             bridge.step.dependOn(cores);
             bridge.step.dependOn(vendored);
@@ -235,15 +234,32 @@ pub fn build(b: *std.Build) void {
     }
 
     // A fourth core, checked for undefined behavior: same sources, built
-    // for the host only, and installed beside the others rather than over
-    // them. Both boot and the attached host executable use this image;
-    // checked artifacts stay under o/sanitized.
+    // for the host only, and installed beside the release cores. Its portable
+    // artifact still carries all three required release entries, plus this
+    // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, portable_probe, false);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, false);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
+    );
+    const checked_name = b.fmt("sanitized-{s}", .{checked_target.name});
+    const checked_records = generated.add("sanitized-targets.tsv", b.fmt(
+        "{s}{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n",
+        .{
+            records,
+            checked_target.id,
+            sanitized_configuration.id,
+            sanitized_configuration.name,
+            checked_name,
+            checked_target.uname_os,
+            checked_target.uname_arch,
+        },
+    ));
+    const checked_records_install = b.addInstallFile(
+        checked_records,
+        "sanitized/targets.tsv",
     );
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
@@ -253,10 +269,12 @@ pub fn build(b: *std.Build) void {
     checked_boot.addFileArg(target_records);
     checked_boot.addArg(b.getInstallPath(.prefix, "sanitized"));
     checked_boot.addFileArg(checked.getEmittedBin());
+    checked_boot.addFileArg(checked_records);
     checked_boot.step.dependOn(cores);
     checked_boot.step.dependOn(vendored);
     checked_boot.has_side_effects = true;
     sanitized.dependOn(&checked_install.step);
+    sanitized.dependOn(&checked_records_install.step);
     sanitized.dependOn(&checked_boot.step);
 
     const checked_fixture_install = b.addInstallFile(
@@ -316,7 +334,6 @@ fn core(
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
-    portable_probe: bool,
     portable_startup_test_hooks: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
@@ -359,7 +376,7 @@ fn core(
     // table and index costs in pages and bytes, which `cosmic db`
     // reports. `fts5` is on: it backs the shipped catalog an uncaught
     // error and `cosmic docs` search against, and costs ~222 KB per
-    // core image (three images per binary).
+    // raw core (three raw cores per portable artifact).
     const sqlite_flags: []const []const u8 = &.{
         "-std=c11",
         "-DSQLITE_THREADSAFE=0",
@@ -452,7 +469,7 @@ fn core(
         .flags = &core_flags,
     });
     mod.addCSourceFile(.{
-        .file = b.path(if (portable_probe) "experiments/portable/entry.c" else "core/entry.c"),
+        .file = b.path("core/entry.c"),
         .flags = &core_flags,
     });
     mod.addIncludePath(b.path("core"));

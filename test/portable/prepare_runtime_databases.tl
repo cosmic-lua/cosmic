@@ -31,13 +31,14 @@ return function(argv: {string}): integer
   local rows = assert(Sqlite.text_rows(db, "SELECT key FROM meta"))
   local keys: {string:boolean} = {}
   for _, row in ipairs(rows) do keys[row[1]] = true end
-  local images = assert(Sqlite.text_rows(db, "SELECT count(*) FROM images"))
+  local images = assert(Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_schema WHERE name = 'images'"))
   assert(db:close())
   for _, forbidden in ipairs({ "host", "host_image", "runtime" }) do
     assert(not keys[forbidden],
       "portable runtime build: per-host metadata survived: " .. forbidden)
   end
   assert(keys["runtime_basis"] and images[1][1] == "0",
-    "portable runtime build: projection lacks basis or carries images")
+    "portable runtime build: projection lacks basis or has an images table")
   return 0
 end
