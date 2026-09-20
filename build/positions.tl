@@ -585,7 +585,7 @@ local function canonicalize_docs(entries: {positions.DocEntry}, parsed: ast.Pars
   table.sort(public_sources)
   for _, public_source in ipairs(public_sources) do
     local implementation_name = members[public_source]
-    local implementations = by_source[implementation_name]
+    local implementations = implementation_name ~= "" and by_source[implementation_name] or nil
     local implementation = implementations ~= nil and implementations[#implementations] or nil
     local candidates = by_source[public_source] or {}
     local public: positions.DocEntry = nil

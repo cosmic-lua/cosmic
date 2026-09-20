@@ -765,6 +765,22 @@ local function test_table_return_alias_points_to_implementation()
   assert(private ~= nil and not private.exported)
 end
 
+--- An unsupported scalar value has no declaration identity. The empty
+--- sentinel must never resolve to the module's own empty-symbol doc row.
+local function test_unresolved_table_export_does_not_inherit_module_doc()
+  local found = assert(positions.analyze(built, lines({
+    "--- Public version.",
+    "local version = \"1\"",
+    "return { version = version, make = function(): string return \"x\" end }",
+  }), "fixture.tl"))
+  for _, entry in ipairs(found.docs) do
+    assert(entry.symbol ~= "version", "scalar export inherited a declaration")
+    assert(entry.symbol ~= "make", "function expression inherited a declaration")
+  end
+  assert(found.docs[1].symbol == "" and found.docs[1].kind == "module")
+  assert(found.docs[1].text == "Public version.")
+end
+
 --- A chunk that returns nothing, or an expression that is not a plain
 --- name, exports no name.
 local function test_export_is_empty_without_a_named_return()
