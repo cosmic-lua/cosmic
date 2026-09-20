@@ -60,8 +60,10 @@ int main(int argc, char **argv) {
 
   const char *expected_cwd = getenv("PORTABLE_EXPECT_CWD");
   if (expected_cwd != NULL) {
-    char cwd[4096];
-    if (getcwd(cwd, sizeof cwd) == NULL || strcmp(cwd, expected_cwd) != 0)
+    struct stat expected;
+    struct stat actual;
+    if (stat(expected_cwd, &expected) != 0 || stat(".", &actual) != 0 ||
+        expected.st_dev != actual.st_dev || expected.st_ino != actual.st_ino)
       fail("current directory");
   }
   if (getenv("PORTABLE_CHECK_IO") != NULL) {

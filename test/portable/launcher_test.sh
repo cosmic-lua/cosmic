@@ -10,12 +10,25 @@ if [ -n "$socket_helper" ]; then
 fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-launcher.XXXXXXXX")
 cleanup() {
+  status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    for diagnostic in "$work"/*.err; do
+      if [ -s "$diagnostic" ]; then
+        printf '%s:\n' "$diagnostic" >&2
+        cat "$diagnostic" >&2
+      fi
+    done
+  fi
   chmod -R u+w "$work" 2>/dev/null || :
   rm -rf "$work"
+  exit "$status"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 126' HUP INT TERM
 
 mkdir -p "$work/program space" "$work/run space"
+ln -s "$work/run space" "$work/run alias"
 artifact=$work/program\ space/launcher.test
 cp "$artifact_input" "$artifact"
 chmod 755 "$artifact"
@@ -67,7 +80,7 @@ expect_failure() {
 basic_cache="$work/cache \\ override"
 marker=$work/basic.marker
 printf 'input stays intact\n' > "$work/input"
-cd "$work/run space"
+cd "$work/run alias"
 env "$ordinary" COSMIC_PORTABLE_CACHE="$basic_cache" \
   PORTABLE_PAYLOAD_MARKER="$marker" PORTABLE_EXPECT_CWD="$PWD" \
   PORTABLE_CHECK_IO=1 "$artifact" 'a b' '' --literal \
