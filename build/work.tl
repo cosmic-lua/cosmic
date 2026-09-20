@@ -143,18 +143,22 @@ work.version = "14"
 --- invocation that produced it, and `seen` the last run that relied on
 --- it: while a key stands and its verdict passed, the test is not run
 --- again, and an edit undone finds its old key again. One no run has
---- relied on in the last hundred is dropped, and with it the
---- `coverage_by_test` rows no verdict credits any more.
+--- relied on in the last ten (`build.test`'s `kept_runs`) is dropped,
+--- and with it the `coverage_by_test` rows no verdict credits any
+--- more.
 ---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
---- one snapshot per `cosmic test` invocation, never overwritten, each
---- run identified by its own start time in nanoseconds (`ran_at_ns`)
---- rather than an autoincrement id -- `cosmic.sqlite` has no
---- `last_insert_rowid` helper, and a nanosecond timestamp is already
---- how `runs.ran_at_ns` identifies things above, so reusing that
---- convention needs no new sqlite API surface. Rows here are expected
---- to accumulate across many runs over time; this database is dev-only
---- and never shipped, so that growth is accepted, not pruned.
+--- one snapshot per `cosmic test` invocation, each run identified by
+--- its own start time in nanoseconds (`ran_at_ns`) rather than an
+--- autoincrement id -- `cosmic.sqlite` has no `last_insert_rowid`
+--- helper, and a nanosecond timestamp is already how `runs.ran_at_ns`
+--- identifies things above, so reusing that convention needs no new
+--- sqlite API surface. This database is dev-only and never shipped,
+--- but its growth is still bounded: `build.test`'s `prune_history`
+--- runs in the same transaction as every write here and keeps
+--- `coverage` to the newest `kept_snapshots` runs, `coverage_by_test`
+--- to what a standing verdict still credits, and `test_runs` to what
+--- either of those still references.
 ---
 --- `test_runs` holds one row per `cosmic test` invocation, so a run's
 --- own `ran_at_ns` can be confirmed to exist (or listed, or joined
@@ -166,7 +170,7 @@ work.version = "14"
 --- hit = 1`, and a specific never-hit line in a specific run can be
 --- pointed at directly rather than only counted. A new run adds rows
 --- rather than replacing the last run's, so a file's coverage trend
---- over time is a plain query away.
+--- over the kept window of runs is a plain query away.
 ---
 --- `coverage_by_test` answers a narrower question `coverage` cannot:
 --- which specific test(s) hit a given line in a given run -- the input
