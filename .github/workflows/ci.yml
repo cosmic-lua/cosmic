@@ -121,15 +121,15 @@ jobs:
           snapshot="$diagnostics/native-immediate"
           mkdir -p "$snapshot"
           if command -v timeout >/dev/null 2>&1; then
-            bound=(timeout 30)
+            set -- timeout 30
           elif command -v gtimeout >/dev/null 2>&1; then
-            bound=(gtimeout 30)
+            set -- gtimeout 30
           else
-            bound=()
+            set --
             echo "::notice::timeout is unavailable; the native suite runs once under the existing 20-minute job bound"
           fi
           set +e
-          "${bound[@]}" o/bin/cosmic test > \
+          "$@" o/bin/cosmic test > \
             "$diagnostics/native-test.out" 2>"$diagnostics/native-test.err"
           status=$?
           set -e
@@ -166,16 +166,16 @@ jobs:
           cache="$RUNNER_TEMP/portable-full-suite-cache"
           mkdir -p "$snapshot"
           if command -v timeout >/dev/null 2>&1; then
-            bound=(timeout 30)
+            set -- timeout 30
           elif command -v gtimeout >/dev/null 2>&1; then
-            bound=(gtimeout 30)
+            set -- gtimeout 30
           else
-            bound=()
+            set --
             echo "::notice::timeout is unavailable; the portable suite runs once under the existing 20-minute job bound"
           fi
           set +e
           COSMIC_PORTABLE_CACHE="$cache" \
-            "${bound[@]}" "$RUNNER_TEMP/cosmic-portable" test > \
+            "$@" "$RUNNER_TEMP/cosmic-portable" test > \
               "$diagnostics/portable-test.out" \
               2>"$diagnostics/portable-test.err"
           status=$?
