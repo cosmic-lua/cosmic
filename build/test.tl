@@ -154,18 +154,39 @@ local function record_verdict(handle: Sqlite.Handle, key: string, passed: boolea
 end
 
 --- How many runs a verdict stays after the last one that relied on it.
-local kept_runs = 100
+local kept_runs = 10
 
---- Drops every verdict no run has relied on lately, and the coverage
---- rows that only such verdicts credited.
-local function prune_verdicts(handle: Sqlite.Handle, run: integer): boolean, string
+--- How many of the newest `test_runs` a `coverage` snapshot is kept for.
+local kept_snapshots = 10
+
+--- Drops every verdict no run has relied on lately, the
+--- `coverage_by_test` rows that only such verdicts credited, every
+--- `coverage` snapshot older than the newest `kept_snapshots` runs,
+--- and any `test_runs` row neither table references any more. A
+--- standing verdict's `coverage_by_test` rows are never dropped out
+--- from under it: only a verdict already gone can lose them.
+local function prune_history(handle: Sqlite.Handle, run: integer): boolean, string
   local dropped, drop_trouble = Sqlite.run(handle,
     "DELETE FROM verdicts WHERE seen < ?1", { { integer = run - kept_runs } })
   if not dropped then
     return false, drop_trouble
   end
-  return handle:exec("DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
+  local pruned_credits, credits_trouble = handle:exec(
+    "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
     "(SELECT run_at_ns FROM verdicts)")
+  if not pruned_credits then
+    return false, credits_trouble
+  end
+  local pruned_snapshots, snapshots_trouble = handle:exec(
+    "DELETE FROM coverage WHERE ran_at_ns NOT IN " ..
+    "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
+    kept_snapshots .. ")")
+  if not pruned_snapshots then
+    return false, snapshots_trouble
+  end
+  return handle:exec(
+    "DELETE FROM test_runs WHERE ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage) " ..
+    "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
 end
 
 --- The staged tree's hashes by path, which is where a read of a
@@ -352,18 +373,19 @@ local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
 end
 
 --- Every line `build.coverage.report` found for every non-vendor module
---- `modules` holds, added as a new snapshot for `run_at_ns`: nothing in
---- `test_runs`/`coverage`/`coverage_by_test` is ever deleted, so a
---- file's coverage trend over many runs is a plain query away rather
---- than only the latest run's numbers. Also writes, for every test
---- that ran, which of the lines it hit into `coverage_by_test`, tagged
---- with that test's own identity (`by_test`, keyed by "path name" the
---- same way a failure line already identifies a test elsewhere in this
---- file); a test whose verdict stood is not in `by_test`, since its
---- rows from the run that produced them still stand for it. Two
---- statements, prepared once, since this is a hundred thousand rows a
---- run. Returns the overall hit and executable-line counts, over every
---- module written for this run, for the run's own verdict line.
+--- `modules` holds, added as a new snapshot for `run_at_ns`: rows here
+--- are never replaced, only later pruned by `prune_history`, so a
+--- file's coverage trend over the kept window of runs is a plain
+--- query away rather than only the latest run's numbers. Also writes,
+--- for every test that ran, which of the lines it hit into
+--- `coverage_by_test`, tagged with that test's own identity (`by_test`,
+--- keyed by "path name" the same way a failure line already identifies
+--- a test elsewhere in this file); a test whose verdict stood is not
+--- in `by_test`, since its rows from the run that produced them still
+--- stand for it. Two statements, prepared once, since this is a
+--- hundred thousand rows a run. Returns the overall hit and
+--- executable-line counts, over every module written for this run,
+--- for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               hits: Coverage.Hits,
@@ -759,7 +781,7 @@ function test.run(argv: {integer:string}): integer
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
-  local pruned, prune_trouble = prune_verdicts(records, handle.run)
+  local pruned, prune_trouble = prune_history(records, handle.run)
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
   end
