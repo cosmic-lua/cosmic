@@ -103,6 +103,9 @@ end
 --- reaches over the syscall table, and nothing else. `io.type` is not
 --- in it, because the compiler names it only inside the declaration
 --- text it carries for Lua's own standard library and never calls it.
+--- This is the compiler's private bootstrap environment, not a program's
+--- runtime surface: `environment_for` removes io, os and debug from the
+--- checker, and `core/surface.c` removes the same names at execution.
 function teal.environment(): {string:any}
   local environment: {string:any} = {
     io = {

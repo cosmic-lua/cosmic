@@ -26,6 +26,16 @@ local record docs
     use_counts: {string: integer}
   end
 
+  --- One worked example, matched to a symbol by content rather than by
+  --- name -- see `examples_for`.
+  record Example
+    name: string
+    text: string
+    file: string
+    line: integer
+    source: string
+  end
+
   --- One row of `docs`, with where it came from.
   record Entry
     module: string
@@ -43,16 +53,9 @@ local record docs
     --- listing count, not the examples themselves: `render` fetches
     --- those separately, only for the one entry it is showing.
     examples: integer
-  end
-
-  --- One worked example, matched to a symbol by content rather than by
-  --- name -- see `examples_for`.
-  record Example
-    name: string
-    text: string
-    file: string
-    line: integer
-    source: string
+    --- Examples whose comments or checked source matched a free-text
+    --- search. Kept on the result only; the database remains unchanged.
+    related: {Example}
   end
 
   --- One row of `uses`.
@@ -127,6 +130,7 @@ local function entries_of(rows: {{string}}): {docs.Entry}
       text = row[7], file = row[8], line = math.tointeger(tonumber(row[9])) or 0,
       uses = math.tointeger(tonumber(row[10])) or 0,
       examples = math.tointeger(tonumber(row[11])) or 0,
+      related = {},
     }
   end
   return out
@@ -214,25 +218,32 @@ local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string): {
   return entries_of(rows)
 end
 
---- The module row of every module whose worked example carries every
---- word of `query`, best match first, for a module `searched_docs`
---- did not already find on a doc comment -- a `cosmic docs "sha256
---- hex"` that only an example's own code mentions still finds
---- `cosmic.fs`, whichever of its symbols the example turns out to be
---- for; the module's own listing shows each symbol's own example
---- count (`examples_for`, by name this time) to narrow from there.
+--- Every worked example whose own name, comment, or checked source carries
+--- every word of `query`. An example is its own honest search result: source
+--- text cannot reliably say which one of several calls is its subject.
 local function searched_examples(db: Sqlite.Handle, public: boolean, fts: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT " .. columns .. " FROM examples_fts " ..
+    "SELECT e.module, e.name, e.text, e.file, e.line, e.source FROM examples_fts " ..
     "JOIN examples e ON e.id = examples_fts.rowid " ..
-    "JOIN docs d ON d.module = e.module AND d.symbol = '' " ..
-    "WHERE examples_fts MATCH ?1 AND " .. symbols.public_only("d.module", public) ..
-    " ORDER BY bm25(examples_fts), d.module, d.id LIMIT 20",
+    "WHERE examples_fts MATCH ?1 AND " .. symbols.public_only("e.module", public) ..
+    -- Names and prose describe intent; source often mentions incidental APIs.
+    " ORDER BY bm25(examples_fts, 3.0, 2.0, 0.2), e.module, e.line LIMIT 20",
     { text(fts) })
   if rows == nil then
     return nil, trouble
   end
-  return entries_of(rows)
+  local out: {docs.Entry} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = { module = row[1], symbol = "Example." .. row[2],
+      source_symbol = "Example." .. row[2], exported = true, kind = "example",
+      signature = "", text = row[3],
+      file = row[4], line = math.tointeger(tonumber(row[5])) or 0,
+      uses = 0, examples = 0,
+      related = { { name = row[2], text = row[3], file = row[4],
+        line = math.tointeger(tonumber(row[5])) or 0, source = row[6] } },
+    }
+  end
+  return out
 end
 
 --- Whether `db` holds the shipped tables at all: a database built
@@ -243,10 +254,8 @@ local function has_docs(db: Sqlite.Handle): boolean
   return rows ~= nil and #rows > 0
 end
 
---- `searched_docs` and `searched_examples` together, a symbol kept
---- once: a doc-comment match outranks an example-only one, since
---- `searched_docs`'s own rows come first and a later duplicate is
---- dropped.
+--- `searched_docs` and `searched_examples` together. Each example is kept once
+--- as itself; documentation rows retain their real symbol identity.
 local function searched(db: Sqlite.Handle, public: boolean, query: string): {docs.Entry} | nil, string
   local fts = fts_query(query)
   if fts == "" then
@@ -260,17 +269,9 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   if from_examples == nil then
     return nil, examples_trouble
   end
-  local seen: {string: boolean} = {}
   local out: {docs.Entry} = {}
-  for _, group in ipairs({ from_docs, from_examples }) do
-    for _, entry in ipairs(group) do
-      local key = entry.module .. "\n" .. entry.symbol
-      if not seen[key] then
-        seen[key] = true
-        out[#out + 1] = entry
-      end
-    end
-  end
+  for _, entry in ipairs(from_docs) do out[#out + 1] = entry end
+  for _, entry in ipairs(from_examples) do out[#out + 1] = entry end
   return out
 end
 
@@ -468,12 +469,37 @@ end
 --- A module's row lists the symbols it declares instead of a signature.
 function docs.render(view: docs.View, entry: docs.Entry): {string}
   local lines: {string} = {}
+  if entry.kind == "example" then
+    local ex = entry.related[1]
+    lines[#lines + 1] = entry.module .. " example " .. ex.name .. " (" ..
+      ex.file .. ":" .. ex.line .. ")"
+    for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = #line > 0 and "  " .. line or ""
+    end
+    for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = #line > 0 and "    " .. line or ""
+    end
+    return lines
+  end
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
   else
     lines[#lines + 1] = entry.module .. " " .. entry.source_symbol .. " (" ..
       entry.file .. ":" .. entry.line .. ")"
     lines[#lines + 1] = "  " .. entry.signature
+  end
+  if #entry.related > 0 then
+    lines[#lines + 1] = "  related search examples:"
+    for _, ex in ipairs(entry.related) do
+      lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
+        ex.line .. "):"
+      for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = #line > 0 and "  " .. line or ""
+      end
+      for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = #line > 0 and "    " .. line or ""
+      end
+    end
   end
   for line in (entry.text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
@@ -546,6 +572,10 @@ function docs.run(argv: {integer:string}): integer
   if #found == 0 then
     report("docs: FAIL (nothing named or documented as '" .. query .. "')")
     return 1
+  end
+  if not exact then
+    report("No exact symbol match; showing related documentation:")
+    report("")
   end
   for index, entry in ipairs(found) do
     if index > 1 then

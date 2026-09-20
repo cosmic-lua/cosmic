@@ -215,9 +215,7 @@ end
 
 --- A word only a worked example's own code or its own doc comment
 --- mentions -- never in `Fs.read`'s own doc comment -- still finds
---- `cosmic.fs`, through `examples_fts` rather than `docs_fts`, since
---- an example is matched to a module first and a symbol only once
---- its own name is the query.
+--- `cosmic.fs`, and renders the matching comment and checked source.
 local function test_searches_finds_a_word_only_in_an_example()
   local db = database(fs_rows, fs_uses, {
     { "cosmic.fs", "read", "", "cosmic/fs_example.tl", "3",
@@ -226,16 +224,57 @@ local function test_searches_finds_a_word_only_in_an_example()
   local found, _, exact = docs.lookup(view({ db }), "hex_sha256")
   assert(found ~= nil)
   assert(not exact)
-  assert(#found == 1 and found[1].module == "cosmic.fs" and found[1].symbol == "",
+  assert(#found == 1 and found[1].module == "cosmic.fs" and
+    found[1].symbol == "Example.read",
     tostring(#found))
+  local lines = docs.render(view({ db }), found[1])
+  assert(lines[1] == "cosmic.fs example read (cosmic/fs_example.tl:3)", lines[1])
+  assert(table.concat(lines, "\n"):find("Hash.hex_sha256(Fs.read", 1, true) ~= nil)
 
   local db2 = database(fs_rows, fs_uses, {
     { "cosmic.fs", "read", "Demonstrates reading a config file.",
       "cosmic/fs_example.tl", "3", "function Example.read()\nend" },
   })
   local by_text = assert(docs.lookup(view({ db2 }), "config"))
-  assert(#by_text == 1 and by_text[1].module == "cosmic.fs" and by_text[1].symbol == "",
+  assert(#by_text == 1 and by_text[1].module == "cosmic.fs" and
+    by_text[1].symbol == "Example.read",
     tostring(#by_text))
+  local text_lines = docs.render(view({ db2 }), by_text[1])
+  assert(table.concat(text_lines, "\n"):find(
+    "Demonstrates reading a config file.", 1, true) ~= nil)
+end
+
+--- A documentation comment ranks first, while the matching worked example is
+--- also returned under its own identity and rendered only there.
+local function test_search_keeps_docs_and_example_identities()
+  local db = database(fs_rows, fs_uses, {
+    { "cosmic.fs", "read_config", "Reads a whole config file.",
+      "cosmic/fs_example.tl", "3",
+      "function Example.read_config()\n  Fs.read(\"config\")\nend" },
+  })
+  local found = assert(docs.lookup(view({ db }), "whole config"))
+  assert(#found == 1, "expected one example result")
+  assert(found[1].symbol == "Example.read_config", found[1].symbol)
+  local rendered = table.concat(docs.render(view({ db }), found[1]), "\n")
+  assert(rendered:find("function Example.read_config()", 1, true) ~= nil, rendered)
+end
+
+--- Examples obey the same whole-module project precedence as docs: a
+--- project's replacement is shown and the binary's older example is hidden.
+local function test_example_search_obeys_module_ownership()
+  local project = database(fs_rows, {}, {
+    { "cosmic.fs", "new_read", "current sentinel contract",
+      "cosmic/fs_example.tl", "3", "function Example.new_read()\nend" },
+  })
+  local binary = database(fs_rows, {}, {
+    { "cosmic.fs", "old_read", "legacy sentinel contract",
+      "cosmic/fs_example.tl", "3", "function Example.old_read()\nend" },
+  })
+  local current = assert(docs.lookup(view({ project, binary }), "current sentinel"))
+  assert(#current == 1)
+  assert(table.concat(docs.render(view({ project, binary }), current[1]), "\n"):
+    find("Example.new_read", 1, true) ~= nil)
+  assert(#assert(docs.lookup(view({ project, binary }), "legacy sentinel")) == 0)
 end
 
 --- The uses of a symbol, by either name.

@@ -7,14 +7,17 @@
 --- surface only once a built program actually runs and reaches
 --- `core/surface.c`'s own replacement text. `cosmic docs os` (or any
 --- field below) answers the same thing directly, any time.
+--- Language-library help remains in the checked examples returned by ordinary
+--- documentation search; this record inventories removed globals only.
 local record Removed
-  --- files are cosmic.fs, and the standard streams are
-  --- cosmic.fs.stdout, .stderr and .stdin
+  --- unavailable; see cosmic.fs for byte/file operations and standard-stream
+  --- descriptors. There is no io handle layer or io.popen equivalent
   io: string
-  --- time is cosmic.time, the environment is cosmic.env, and
-  --- processes are cosmic.proc
+  --- unavailable; see cosmic.time, cosmic.env, cosmic.proc, and cosmic.fs.
+  --- There is no os.date, os.difftime, os.setlocale, or os.tmpname equivalent
   os: string
-  --- a traceback is cosmic.errors.trace
+  --- a traceback is cosmic.errors.trace. The debug library and hooks,
+  --- registry, locals/upvalues and debug.getinfo are unavailable
   debug: string
   --- a module comes from require, and a file's bytes come from
   --- cosmic.fs.read
