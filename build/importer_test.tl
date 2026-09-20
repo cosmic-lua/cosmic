@@ -530,3 +530,21 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   -- A different analyzer: everything derived is gone and re-derived.
   assert(derived_with("tool-two", false) == 0, "a changed analyzer kept stale rows")
 end
+
+--- tl's checker silently accepts a `_`-prefixed name as intentionally
+--- unused (`vendor/tl/tl.tl`'s own `var_name:sub(1, 1) == "_"` check),
+--- but says nothing about that escape hatch in the warning it raises
+--- for every other name -- and cosmic refuses the whole compile over
+--- any warning (see `complain`). A fresh agent hit this three times in
+--- one eval run before generalizing the fix; `with_unused_hint` names
+--- it in the message itself instead.
+local function test_unused_variable_warning_names_its_own_fix()
+  local root = assert(write_fixture("unused-hint", {
+    ["thing.tl"] = "local function f(x: integer): integer\n  return 0\nend\nreturn f\n",
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected the unused argument to refuse the compile")
+  assert(compile_trouble:find(
+    "name it _ or _<name> to mark it intentionally unused", 1, true) ~= nil,
+    compile_trouble)
+end

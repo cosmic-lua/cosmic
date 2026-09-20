@@ -128,7 +128,7 @@ local record CatalogSeedRow
 end
 
 --- Hand-authored catalog rows, seeded ahead of the extracted ones, in
---- two groups:
+--- three groups:
 ---
 --- The errno rows carry guidance for the handful of `strerror()`
 --- messages cosmic's own syscalls can plausibly raise --
@@ -152,8 +152,26 @@ end
 --- columns); only the reactive path needs `message` set, and these
 --- rows opt out of it on purpose.
 ---
---- Neither group is generated; both are small and rarely change, kept
---- in sync by hand with the C source named in each row's own `file`.
+--- The convention rows carry cosmic's own vocabulary and file-layout
+--- rules that no single function's doc comment states on its own,
+--- because no single function IS the rule -- `Example` is a name
+--- `build/positions.tl` compares literally, `cmd/<name>/main.tl` is a
+--- path shape `build/embed.tl` matches, and so on. Fresh-agent eval
+--- runs kept re-deriving these from other modules' already-written
+--- examples rather than being told outright, and separately kept
+--- naming these exact words (`tree`, `argv`, `cmd`, `main`, `Example`)
+--- among what `cosmic docs` answered worst: nothing named them, so a
+--- search fell through to whichever unrelated module's prose happened
+--- to share the word, `cosmic.coverage`'s most often. An exact match
+--- here answers the word directly and short-circuits that fallback
+--- (`docs.lookup` never reaches `searched`/`searched_examples` once
+--- `named`/`named_catalog` found something). `message` stays empty,
+--- the same as the removed-global rows and for the same reason: none
+--- of these name a real error `catalog_guidance` would ever be asked
+--- to explain.
+---
+--- No group is generated; all three are small and rarely change, kept
+--- in sync by hand with the source named in each row's own `file`.
 local catalog_seed: {CatalogSeedRow} = {
   { module = "(errno)", symbol = "ENOENT",
     message = "No such file or directory",
@@ -209,6 +227,51 @@ local catalog_seed: {CatalogSeedRow} = {
     hint = "loadfile is not available: a module comes from require, " ..
            "and a file's bytes come from cosmic.fs.read",
     file = "core/surface.c", line = 28 },
+  { module = "(convention)", symbol = "tree", message = "",
+    hint = "the tree: a project's own working directory and everything " ..
+           "under it, once a verb stages it. `cosmic <file.tl>` builds " ..
+           "the tree the file sits in -- the working directory when the " ..
+           "file is under it, the file's own directory otherwise; " ..
+           "`cosmic test` and `cosmic build` always build the tree in " ..
+           "the working directory",
+    file = "cmd/cosmic/main.tl", line = 124 },
+  { module = "(convention)", symbol = "argv", message = "",
+    hint = "the file's own entry point -- what `require`ing it returns, " ..
+           "when that is a function -- is called with one argument: an " ..
+           "array of the arguments after the file's own path on the " ..
+           "command line, indexed from 1 like any ordinary Lua array, " ..
+           "so #argv and ipairs(argv) see exactly those. The file's own " ..
+           "path is at argv[0] too, for a caller that wants it, but " ..
+           "nothing ordinary reaches it: no length or loop starts before 1",
+    file = "cmd/cosmic/main.tl", line = 166 },
+  { module = "(convention)", symbol = "cmd", message = "",
+    hint = "a binary is cmd/<name>/main.tl, its own directory under " ..
+           "cmd/. `cosmic build` writes o/bin/<name> for each one a " ..
+           "tree holds, requiring the file and calling what it returns " ..
+           "-- see argv -- with the tree built the same way `cosmic " ..
+           "test` builds it",
+    file = "build/embed.tl", line = 127 },
+  { module = "(convention)", symbol = "main", message = "",
+    hint = "cmd/<name>/main.tl is a binary's own file: `cosmic build` " ..
+           "writes o/bin/<name> from it -- see cmd -- and if what it " ..
+           "returns is a function, that function is the entry point " ..
+           "called with the command line -- see argv",
+    file = "build/embed.tl", line = 127 },
+  { module = "(convention)", symbol = "Example", message = "",
+    hint = "a worked example: a `<name>_example.tl` file must return a " ..
+           "record literally named `Example`, one field per example -- " ..
+           "`function Example.<name>(): ... end`. `cosmic test` runs " ..
+           "each one as a test; `cosmic docs <symbol>` shows the ones " ..
+           "whose own code calls that symbol, matched by content, not " ..
+           "by the example's own name",
+    file = "build/positions.tl", line = 438 },
+  { module = "(convention)", symbol = "test", message = "",
+    hint = "a `<name>_test.tl` file's own top-level `local function " ..
+           "test_*` functions -- direct elements of the file, never " ..
+           "inside another statement -- are discovered and run by " ..
+           "`cosmic test`. No return value and no registration; the " ..
+           "name alone is the rule",
+    file = "build/positions.tl", line = 928 },
 }
 
 --- Rebuilds each FTS5 index from its content table's current rows: the
