@@ -507,22 +507,91 @@ end
 --- `Fs.read` and a renamed `Public.read` are the canonical member `read`.
 --- Declarations outside that returned surface stay indexed under their source
 --- spelling and are explicitly private.
-local function canonicalize_docs(entries: {positions.DocEntry}, export: string)
-  if export == "" then
-    return
-  end
+local function canonicalize_docs(entries: {positions.DocEntry}, parsed: ast.Parsed,
+                                 export: string, returned: ast.Node | nil)
   local dot = export .. "."
   local colon = export .. ":"
+  local by_source: {string: positions.DocEntry} = {}
   for _, entry in ipairs(entries) do
     local source = entry.source_symbol
-    if source == export then
+    by_source[source] = entry
+    if export ~= "" and source == export then
       entry.exported = true
-    elseif source:sub(1, #dot) == dot then
+    elseif export ~= "" and source:sub(1, #dot) == dot then
       entry.symbol = source:sub(#dot + 1)
       entry.exported = true
-    elseif source:sub(1, #colon) == colon then
+    elseif export ~= "" and source:sub(1, #colon) == colon then
       entry.symbol = source:sub(#colon + 1)
       entry.exported = true
+    end
+  end
+
+  local aliases: {string: string} = {}
+  local reassigned: {string: boolean} = {}
+  local member_writes: {string: integer} = {}
+  ast.walk(parsed.node, function(node: ast.Node)
+    if node.kind == "assignment" and node.vars ~= nil then
+      for _, lhs in ipairs(node.vars) do
+        if lhs.kind == "variable" and lhs.tk ~= nil then
+          reassigned[lhs.tk] = true
+        elseif lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "."
+               and lhs.e1 ~= nil and lhs.e1.kind == "variable"
+               and lhs.e1.tk ~= nil and lhs.e2 ~= nil and lhs.e2.tk ~= nil then
+          local path = lhs.e1.tk .. "." .. lhs.e2.tk
+          member_writes[path] = (member_writes[path] or 0) + 1
+        end
+      end
+    end
+  end)
+  if export ~= "" then
+    for _, stmt in ipairs(parsed.node) do
+      if stmt.kind == "assignment" and stmt.vars ~= nil and stmt.exps ~= nil then
+        for index, lhs in ipairs(stmt.vars) do
+          local rhs = stmt.exps[index]
+          if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "."
+             and lhs.e1 ~= nil and lhs.e1.kind == "variable"
+             and lhs.e1.tk == export and lhs.e2 ~= nil and lhs.e2.tk ~= nil
+             and rhs ~= nil and rhs.kind == "variable" and rhs.tk ~= nil
+             and not reassigned[rhs.tk]
+             and member_writes[export .. "." .. lhs.e2.tk] == 1 then
+            aliases[export .. "." .. lhs.e2.tk] = rhs.tk
+          end
+        end
+      end
+    end
+  elseif returned ~= nil and returned.kind == "literal_table" then
+    for _, item in ipairs(returned) do
+      if item.kind == "literal_table_item" and item.key_parsed ~= "implicit"
+         and item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil
+         and item.value.kind == "variable" and item.value.tk ~= nil
+         and not reassigned[item.value.tk] then
+        aliases[item.key.conststr] = item.value.tk
+      end
+    end
+  end
+
+  local public_sources: {string} = {}
+  for public_source in pairs(aliases) do public_sources[#public_sources + 1] = public_source end
+  table.sort(public_sources)
+  for _, public_source in ipairs(public_sources) do
+    local implementation_name = aliases[public_source]
+    local implementation = by_source[implementation_name]
+    if implementation ~= nil then
+      local public = by_source[public_source]
+      local symbol = export ~= "" and public_source:sub(#export + 2) or public_source
+      if public == nil then
+        public = { symbol = symbol, source_symbol = public_source, exported = true,
+          kind = implementation.kind, signature = implementation.signature,
+          text = implementation.text, line = implementation.line }
+        entries[#entries + 1] = public
+      else
+        public.symbol = symbol
+        public.exported = true
+        public.kind = implementation.kind
+        public.signature = implementation.signature
+        public.text = implementation.text
+        public.line = implementation.line
+      end
     end
   end
 end
@@ -754,7 +823,13 @@ local function references_of(built: compiler, parsed: ast.Parsed): {positions.Re
         end
         if stmt.body ~= nil then process_block(stmt.body) end
         scopes[#scopes] = nil
-      elseif stmt.kind == "while" or stmt.kind == "repeat" or stmt.kind == "do" then
+      elseif stmt.kind == "repeat" then
+        -- Lua keeps the repeat body's locals in scope through `until`.
+        scopes[#scopes + 1] = {}
+        if stmt.body ~= nil then process_block(stmt.body) end
+        if stmt.exp ~= nil then walk_expression(stmt.exp) end
+        scopes[#scopes] = nil
+      elseif stmt.kind == "while" or stmt.kind == "do" then
         if stmt.exp ~= nil then walk_expression(stmt.exp) end
         scopes[#scopes + 1] = {}
         if stmt.body ~= nil then process_block(stmt.body) end
@@ -789,6 +864,7 @@ function positions.analysis_of(built: compiler, parsed: ast.Parsed,
   local names: {string} = {}
   local has_return = false
   local export = ""
+  local returned: ast.Node = nil
   for _, stmt in ipairs(parsed.node) do
     if stmt.kind == "local_function" then
       local fn_name = stmt.name
@@ -799,7 +875,7 @@ function positions.analysis_of(built: compiler, parsed: ast.Parsed,
     elseif stmt.kind == "return" then
       has_return = true
       local exps = stmt.exps
-      local returned = exps ~= nil and exps[1] or nil
+      returned = exps ~= nil and exps[1] or nil
       if returned ~= nil and returned.kind == "variable" and returned.tk ~= nil then
         export = returned.tk
       end
@@ -815,7 +891,7 @@ function positions.analysis_of(built: compiler, parsed: ast.Parsed,
   end
   local lines = lines_of(source)
   local doc_entries = docs_of(lines, parsed)
-  canonicalize_docs(doc_entries, export)
+  canonicalize_docs(doc_entries, parsed, export, returned)
   return {
     tests = names, has_top_level_return = has_return, export = export,
     catalog = catalog, docs = doc_entries,

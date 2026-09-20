@@ -607,6 +607,18 @@ local function test_references_respect_shadowing_loops_and_reassignment()
   assert(found.references[2].line == 13, tostring(found.references[2].line))
 end
 
+--- A repeat body's locals remain in scope in its `until` condition. A local
+--- with the import's spelling must therefore suppress that apparent member.
+local function test_repeat_condition_uses_the_body_scope()
+  local found = assert(positions.analyze(built, lines({
+    'local Fs = require("cosmic.fs")',
+    "repeat",
+    "  local Fs = {}",
+    "until Fs.done",
+  }), "fixture.tl"))
+  assert(#found.references == 0, tostring(#found.references))
+end
+
 --- Local import spellings are not target identity: two aliases of the same
 --- module produce the same canonical module/member pair.
 local function test_distinct_import_aliases_share_canonical_identity()
@@ -636,6 +648,53 @@ local function test_export_record_name_is_not_symbol_identity()
   assert(first.docs[2].source_symbol == "First.read")
   assert(second.docs[2].source_symbol == "Renamed.read")
   assert(first.docs[2].line == 3 and second.docs[2].line == 3)
+end
+
+--- A public record field assigned a documented local implementation is the
+--- exported identity, but points at the implementation's docs and location.
+--- The local declaration remains available for private inspection.
+local function test_export_alias_points_to_implementation_definition()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public",
+    "  run: function(string): boolean",
+    "end",
+    "--- Runs the operation.",
+    "local function implementation(value: string): boolean",
+    "  return value ~= \"\"",
+    "end",
+    "Public.run = implementation",
+    "return Public",
+  }), "fixture.tl"))
+  local by_symbol: {string: positions.DocEntry} = {}
+  for _, entry in ipairs(found.docs) do by_symbol[entry.symbol] = entry end
+  local public = assert(by_symbol["run"])
+  assert(public.source_symbol == "Public.run")
+  assert(public.kind == "function" and public.exported)
+  assert(public.text == "Runs the operation.")
+  assert(public.line == 5, tostring(public.line))
+  local private = assert(by_symbol["implementation"])
+  assert(not private.exported and private.line == 5)
+end
+
+--- A keyed table return is an equally explicit export surface even without a
+--- named record. Its member aliases the local implementation canonically.
+local function test_table_return_alias_points_to_implementation()
+  local found = assert(positions.analyze(built, lines({
+    "--- Runs the operation.",
+    "local function implementation(): boolean",
+    "  return true",
+    "end",
+    "return { run = implementation }",
+  }), "fixture.tl"))
+  local exported: positions.DocEntry = nil
+  local private: positions.DocEntry = nil
+  for _, entry in ipairs(found.docs) do
+    if entry.symbol == "run" then exported = entry end
+    if entry.symbol == "implementation" then private = entry end
+  end
+  assert(exported ~= nil and exported.exported and exported.line == 2)
+  assert(exported.source_symbol == "run" and exported.text == "Runs the operation.")
+  assert(private ~= nil and not private.exported)
 end
 
 --- A chunk that returns nothing, or an expression that is not a plain

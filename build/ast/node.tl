@@ -183,7 +183,7 @@ local record Node is {Node}
 
   -- "local_type": the name it binds, and what it binds to -- a
   -- "newtype" node for a declaration or alias, any other expression for
-  -- a `local type x = require(...)`.
+  -- a `local type x = require(...)`; also a "literal_table_item"'s value.
   var: Node | nil
   value: Node | nil
 
