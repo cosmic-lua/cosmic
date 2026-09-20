@@ -676,6 +676,74 @@ local function test_export_alias_points_to_implementation_definition()
   assert(not private.exported and private.line == 5)
 end
 
+--- Export assignment captures the function value at that point. Reassigning
+--- the local later does not change the member that already received it.
+local function test_export_alias_survives_later_local_reassignment()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public", "  run: function(): boolean", "end",
+    "--- The captured implementation.",
+    "local function implementation(): boolean", "  return true", "end",
+    "Public.run = implementation",
+    "implementation = function(): boolean return false end",
+    "return Public",
+  }), "fixture.tl"))
+  local exported: positions.DocEntry = nil
+  for _, entry in ipairs(found.docs) do
+    if entry.exported and entry.symbol == "run" then exported = entry end
+  end
+  assert(exported ~= nil and exported.line == 5)
+  assert(exported.text == "The captured implementation.")
+end
+
+--- An assignment to a nested binding with the same spelling is unrelated to
+--- the outer implementation captured by the public member.
+local function test_nested_shadow_does_not_invalidate_export_alias()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public", "  run: function(): boolean", "end",
+    "--- The outer implementation.",
+    "local function implementation(): boolean", "  return true", "end",
+    "Public.run = implementation",
+    "do",
+    "  local implementation = function(): boolean return false end",
+    "  implementation = function(): boolean return false end",
+    "end",
+    "return Public",
+  }), "fixture.tl"))
+  local exported: positions.DocEntry = nil
+  for _, entry in ipairs(found.docs) do
+    if entry.exported and entry.symbol == "run" then exported = entry end
+  end
+  assert(exported ~= nil and exported.line == 5)
+  assert(exported.text == "The outer implementation.")
+end
+
+--- The last supported member write controls the public definition. An
+--- unknown final value leaves only the truthful declared field exported;
+--- earlier callable definitions remain private inspection rows.
+local function test_final_unknown_member_write_removes_stale_callable_export()
+  local found = assert(positions.analyze(built, lines({
+    "local record Public", "  run: function(): boolean", "end",
+    "--- The original callable.",
+    "function Public.run(): boolean", "  return true", "end",
+    "Public.run = unknown_value",
+    "return Public",
+  }), "fixture.tl"))
+  local exported = 0
+  local private_callable = 0
+  for _, entry in ipairs(found.docs) do
+    if entry.exported and entry.symbol == "run" then
+      exported = exported + 1
+      assert(entry.kind == "field", entry.kind)
+      assert(entry.line == 2, tostring(entry.line))
+    elseif not entry.exported and entry.source_symbol == "Public.run"
+           and entry.kind == "function" then
+      private_callable = private_callable + 1
+    end
+  end
+  assert(exported == 1, tostring(exported))
+  assert(private_callable == 1, tostring(private_callable))
+end
+
 --- A keyed table return is an equally explicit export surface even without a
 --- named record. Its member aliases the local implementation canonically.
 local function test_table_return_alias_points_to_implementation()

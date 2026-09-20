@@ -511,10 +511,11 @@ local function canonicalize_docs(entries: {positions.DocEntry}, parsed: ast.Pars
                                  export: string, returned: ast.Node | nil)
   local dot = export .. "."
   local colon = export .. ":"
-  local by_source: {string: positions.DocEntry} = {}
+  local by_source: {string: {positions.DocEntry}} = {}
   for _, entry in ipairs(entries) do
     local source = entry.source_symbol
-    by_source[source] = entry
+    by_source[source] = by_source[source] or {}
+    by_source[source][#by_source[source] + 1] = entry
     if export ~= "" and source == export then
       entry.exported = true
     elseif export ~= "" and source:sub(1, #dot) == dot then
@@ -526,67 +527,91 @@ local function canonicalize_docs(entries: {positions.DocEntry}, parsed: ast.Pars
     end
   end
 
-  local aliases: {string: string} = {}
-  local reassigned: {string: boolean} = {}
-  local member_writes: {string: integer} = {}
-  ast.walk(parsed.node, function(node: ast.Node)
-    if node.kind == "assignment" and node.vars ~= nil then
-      for _, lhs in ipairs(node.vars) do
-        if lhs.kind == "variable" and lhs.tk ~= nil then
-          reassigned[lhs.tk] = true
-        elseif lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "."
-               and lhs.e1 ~= nil and lhs.e1.kind == "variable"
-               and lhs.e1.tk ~= nil and lhs.e2 ~= nil and lhs.e2.tk ~= nil then
-          local path = lhs.e1.tk .. "." .. lhs.e2.tk
-          member_writes[path] = (member_writes[path] or 0) + 1
+  -- A deliberately small value model for the module's top-level execution.
+  -- A binding holds the source identity of the declaration value currently in
+  -- it, or "" when an expression is not one of the supported direct values.
+  -- Assigning that binding into an export member copies the identity at that
+  -- point; later reassignment of the local cannot retroactively change it.
+  local values: {string: string} = {}
+  local members: {string: string} = {}
+  for _, stmt in ipairs(parsed.node) do
+    if stmt.kind == "local_function" and stmt.name ~= nil and stmt.name.tk ~= nil then
+      values[stmt.name.tk] = stmt.name.tk
+    elseif stmt.kind == "local_declaration" and stmt.vars ~= nil then
+      for index, lhs in ipairs(stmt.vars) do
+        local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
+        if lhs.tk ~= nil then
+          values[lhs.tk] = rhs ~= nil and rhs.kind == "variable"
+            and rhs.tk ~= nil and (values[rhs.tk] or "") or ""
+        end
+      end
+    elseif export ~= "" and stmt.kind == "record_function" and stmt.fn_owner ~= nil
+           and stmt.fn_owner.tk == export and stmt.name ~= nil
+           and stmt.name.tk ~= nil then
+      local public_source = export .. "." .. stmt.name.tk
+      members[public_source] = public_source
+    elseif stmt.kind == "assignment" and stmt.vars ~= nil then
+      local rhs_values: {string} = {}
+      for index in ipairs(stmt.vars) do
+        local rhs = stmt.exps ~= nil and stmt.exps[index] or nil
+        rhs_values[index] = rhs ~= nil and rhs.kind == "variable"
+          and rhs.tk ~= nil and (values[rhs.tk] or "") or ""
+      end
+      for index, lhs in ipairs(stmt.vars) do
+        if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "."
+           and lhs.e1 ~= nil and lhs.e1.kind == "variable"
+           and export ~= "" and lhs.e1.tk == export
+           and lhs.e2 ~= nil and lhs.e2.tk ~= nil
+        then
+          members[export .. "." .. lhs.e2.tk] = rhs_values[index]
+        elseif lhs.kind == "variable" and lhs.tk ~= nil then
+          values[lhs.tk] = rhs_values[index]
         end
       end
     end
-  end)
-  if export ~= "" then
-    for _, stmt in ipairs(parsed.node) do
-      if stmt.kind == "assignment" and stmt.vars ~= nil and stmt.exps ~= nil then
-        for index, lhs in ipairs(stmt.vars) do
-          local rhs = stmt.exps[index]
-          if lhs.kind == "op" and lhs.op ~= nil and lhs.op.op == "."
-             and lhs.e1 ~= nil and lhs.e1.kind == "variable"
-             and lhs.e1.tk == export and lhs.e2 ~= nil and lhs.e2.tk ~= nil
-             and rhs ~= nil and rhs.kind == "variable" and rhs.tk ~= nil
-             and not reassigned[rhs.tk]
-             and member_writes[export .. "." .. lhs.e2.tk] == 1 then
-            aliases[export .. "." .. lhs.e2.tk] = rhs.tk
-          end
-        end
-      end
-    end
-  elseif returned ~= nil and returned.kind == "literal_table" then
+  end
+  if export == "" and returned ~= nil and returned.kind == "literal_table" then
     for _, item in ipairs(returned) do
       if item.kind == "literal_table_item" and item.key_parsed ~= "implicit"
          and item.key ~= nil and item.key.conststr ~= nil and item.value ~= nil
-         and item.value.kind == "variable" and item.value.tk ~= nil
-         and not reassigned[item.value.tk] then
-        aliases[item.key.conststr] = item.value.tk
+         and item.value.kind == "variable" and item.value.tk ~= nil then
+        members[item.key.conststr] = values[item.value.tk] or ""
       end
     end
   end
 
   local public_sources: {string} = {}
-  for public_source in pairs(aliases) do public_sources[#public_sources + 1] = public_source end
+  for public_source in pairs(members) do public_sources[#public_sources + 1] = public_source end
   table.sort(public_sources)
   for _, public_source in ipairs(public_sources) do
-    local implementation_name = aliases[public_source]
-    local implementation = by_source[implementation_name]
-    if implementation ~= nil then
-      local public = by_source[public_source]
-      local symbol = export ~= "" and public_source:sub(#export + 2) or public_source
-      if public == nil then
-        public = { symbol = symbol, source_symbol = public_source, exported = true,
-          kind = implementation.kind, signature = implementation.signature,
-          text = implementation.text, line = implementation.line }
-        entries[#entries + 1] = public
-      else
-        public.symbol = symbol
-        public.exported = true
+    local implementation_name = members[public_source]
+    local implementations = by_source[implementation_name]
+    local implementation = implementations ~= nil and implementations[#implementations] or nil
+    local candidates = by_source[public_source] or {}
+    local public: positions.DocEntry = nil
+    -- A declared record field is the stable surface row. When a callable
+    -- implementation is known it lends this row its docs and location; every
+    -- overwritten callable declaration remains inspectable but private.
+    for _, candidate in ipairs(candidates) do
+      candidate.exported = false
+      candidate.symbol = candidate.source_symbol
+      if public == nil and candidate.kind == "field" then public = candidate end
+    end
+    if public == nil and implementation_name ~= "" then
+      for _, candidate in ipairs(candidates) do
+        if candidate == implementation then public = candidate end
+      end
+    end
+    local symbol = export ~= "" and public_source:sub(#export + 2) or public_source
+    if public == nil and implementation ~= nil then
+      public = { symbol = symbol, source_symbol = public_source, exported = true,
+        kind = implementation.kind, signature = implementation.signature,
+        text = implementation.text, line = implementation.line }
+      entries[#entries + 1] = public
+    elseif public ~= nil then
+      public.symbol = symbol
+      public.exported = true
+      if implementation ~= nil then
         public.kind = implementation.kind
         public.signature = implementation.signature
         public.text = implementation.text
