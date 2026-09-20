@@ -17,6 +17,8 @@ jobs:
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
       - run: bin/zig build boot -Dportable-probe=true
       - run: timeout 30 o/bin/cosmic test
+      - name: validate portable format writer and decoder
+        run: test/portable/format.sh o/portable/format
       - run: experiments/portable/pack.sh
       - name: build loader probes for each target
         run: |
@@ -31,6 +33,7 @@ jobs:
             o/portable/cosmic
             o/portable/payload-*
             o/portable/probe-*
+            o/portable/format/*
   execute:
     needs: build
     strategy:
@@ -58,6 +61,24 @@ jobs:
           chmod +x portable/*
           mkdir portable/probe-work
           portable/probe-$TARGET "$PWD/portable/payload-$TARGET" "$PWD/portable/probe-work"
+      - name: reject malformed portable format fields
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          chmod +x portable/format/format-test-$TARGET
+          portable/format/format-test-$TARGET portable/format/program
+      - name: verify the manifest's exact macOS core slice
+        if: runner.os == 'macOS'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          portable/format/format-test-$TARGET --inspect portable/format/program > portable/format/inspection
+          target_id=$(awk -F '\t' -v target="$TARGET" '$4 == target { print $1 }' portable/format/targets.tsv)
+          set -- $(awk -v target="$target_id" '$1 == "entry" && $2 == target { print }' portable/format/inspection)
+          blocks=$(( ($5 + 16383) / 16384 ))
+          dd if=portable/format/program bs=16384 skip=$(( $4 / 16384 )) count="$blocks" 2>/dev/null | head -c "$5" > portable/format/macos-core
+          test "$(wc -c < portable/format/macos-core | tr -d ' ')" = "$5"
+          codesign --verify --strict --verbose=2 portable/format/macos-core
       - name: execute identical portable bytes on this host
         run: |
           experiments/portable/check.sh "$PWD/portable/cosmic"

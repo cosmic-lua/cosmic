@@ -1,0 +1,99 @@
+--- Proves the portable writer's deterministic byte layout before any product
+--- build path consumes it. The production C decoder is exercised separately
+--- by test/portable/format_test.c against these same writer bytes.
+
+local Hash = require("cosmic.hash")
+local artifact = require("build.artifact")
+
+local records = table.concat({
+  "1\t1\trelease\tx86\tLinux\tx86_64",
+  "2\t1\trelease\tarm\tLinux\taarch64",
+  "3\t1\trelease\tmac\tDarwin\tarm64",
+}, "\n") .. "\n"
+
+local cores: {string:string} = {
+  x86 = "ELF-x86\0CosmicM1-in-core",
+  arm = "ELF-arm-contents",
+  mac = "MACHO-signed-core-contents",
+}
+
+local function occurrences(haystack: string, needle: string): integer
+  local count = 0
+  local at = 1
+  while true do
+    local found = haystack:find(needle, at, true)
+    if found == nil then return count end
+    count = count + 1
+    at = found + #needle
+  end
+end
+
+local function test_prefix_is_deterministic_and_holds_each_exact_core_once()
+  local one = assert(artifact.prefix(records, cores))
+  local two = assert(artifact.prefix(records, cores))
+  assert(one == two)
+  assert(#one % 4096 == 0)
+  assert(one:sub(1, 10) == "#!/bin/sh\n")
+  for name, image in pairs(cores) do
+    assert(occurrences(one, image) == 1, name .. " core is not present once")
+    assert(one:find(Hash.hex_sha256(image), 1, true) ~= nil,
+      name .. " digest is absent from the generated shell arm")
+  end
+end
+
+local function test_manifest_ranges_name_the_exact_core_bytes()
+  local prefix = assert(artifact.prefix(records, cores))
+  local manifest_at = #prefix - 4096 + 1
+  assert(prefix:sub(manifest_at, manifest_at + 7) == "CosmicM1")
+  local version, encoded, prefix_length, count, entry_size, at =
+    string.unpack(">I4I4I8I4I4", prefix, manifest_at + 8)
+  assert(version == 1 and encoded == 4096 and prefix_length == #prefix)
+  assert(count == 3 and entry_size == 56)
+  local names = { "x86", "arm", "mac" }
+  for i = 1, count do
+    local target: integer
+    local configuration: integer
+    local offset: integer
+    local length: integer
+    target, configuration, offset, length, at =
+      string.unpack(">I4I4I8I8", prefix, at)
+    local digest = prefix:sub(at, at + 31)
+    at = at + 32
+    local image = cores[names[i]] as string
+    assert(target == i and configuration == 1)
+    assert(length == #image)
+    assert(prefix:sub(offset + 1, offset + length) == image)
+    assert(digest == Hash.sha256(image))
+  end
+  assert(prefix:sub(at, at + 31) == string.rep("\0", 32),
+    "unused manifest bytes are zero")
+end
+
+local function test_programs_share_the_prefix_and_have_distinct_suffixes()
+  local prefix = assert(artifact.prefix(records, cores))
+  local db_one = "SQLite format 3\0one database"
+  local db_two = "SQLite format 3\0two database"
+  local one = assert(artifact.program(prefix, db_one))
+  local two = assert(artifact.program(prefix, db_two))
+  assert(one:sub(1, #prefix) == prefix and two:sub(1, #prefix) == prefix)
+  assert(one:sub(#prefix + 1) ~= two:sub(#prefix + 1))
+  assert(one:sub(-48, -41) == "CosmicT1")
+  local version, length, manifest_offset, manifest_length,
+    database_offset, database_length = string.unpack(">I4I4I8I8I8I8", one, #one - 39)
+  assert(version == 1 and length == 48)
+  assert(manifest_offset == #prefix - 4096 and manifest_length == 4096)
+  assert(database_offset == #prefix and database_length == #db_one)
+end
+
+local function test_writer_rejects_ambiguous_or_incomplete_inputs()
+  local missing, trouble = artifact.prefix(records, { x86 = cores.x86 })
+  assert(missing == nil and trouble:find("no raw core", 1, true) ~= nil)
+  local duplicate = records .. "1\t1\trelease\tother\tOther\tarch\n"
+  local bad, duplicate_trouble = artifact.prefix(duplicate, {
+    x86 = cores.x86, arm = cores.arm, mac = cores.mac, other = "core",
+  })
+  assert(bad == nil and duplicate_trouble:find("duplicate", 1, true) ~= nil)
+  local program, database_trouble = artifact.program(
+    assert(artifact.prefix(records, cores)), "not sqlite")
+  assert(program == nil and database_trouble:find("SQLite", 1, true) ~= nil)
+end

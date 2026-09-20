@@ -130,6 +130,7 @@ const core_sources = [_][]const u8{
     "syscalls_fs.c",
     "vfs.c",
     "main.c",
+    "portable.c",
     "startup.c",
 };
 
@@ -436,6 +437,14 @@ fn core(
     mod.addCMacro("COSMIC_TARGET_NAME", b.fmt("\"{s}\"", .{target_record.name}));
     mod.addCMacro("COSMIC_CONFIGURATION_ID", b.fmt("{d}", .{configuration.id}));
     mod.addCMacro("COSMIC_CONFIGURATION_NAME", b.fmt("\"{s}\"", .{configuration.name}));
+
+    var required_target_mask: u64 = 0;
+    for (targets) |required| {
+        if (required.id >= 64) @panic("portable target id does not fit the v1 required-target mask");
+        required_target_mask |= @as(u64, 1) << @intCast(required.id);
+    }
+    mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{required_target_mask}));
+    mod.addCMacro("COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID", b.fmt("{d}", .{release_configuration.id}));
 
     return b.addExecutable(.{
         .name = "cosmic-core",
