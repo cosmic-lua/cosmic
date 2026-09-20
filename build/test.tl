@@ -414,7 +414,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   local write_rows = function(): boolean, string
     for _, m in ipairs(modules) do
       if m.kind ~= "vendor" then
-        local per_line, lines_trouble = coverage_report.lines_of(built, m, hits)
+        local per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
         if per_line == nil then
           return false, m.file .. ": " .. lines_trouble
         end
