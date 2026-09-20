@@ -355,10 +355,16 @@ local function test_project_keeps_uses_of_bundled_symbols()
   local root = assert(write_fixture("stdlib-uses", {
     ["main.tl"] = table.concat({
       'local disk = require("cosmic.fs")',
-      "local function check(path: string): boolean",
-      "  return disk.exists(path)",
+      "local record Main",
       "end",
-      "return check",
+      "--- Checks whether a path exists.",
+      "function Main.check(path: string): boolean, string",
+      "  if not disk.exists(path) then",
+      "    return false, \"the project path does not exist\"",
+      "  end",
+      "  return true, \"\"",
+      "end",
+      "return Main",
       "",
     }, "\n"),
   }))
@@ -372,7 +378,12 @@ local function test_project_keeps_uses_of_bundled_symbols()
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
   assert(#rows == 1, tostring(#rows))
   assert(rows[1][1] == "cosmic.fs" and rows[1][2] == "exists")
-  assert(rows[1][3] == "main" and rows[1][4] == "3")
+  assert(rows[1][3] == "main" and rows[1][4] == "6")
+  local guidance = assert(Sqlite.text_rows(shipped,
+    "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
+    "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
+    "FROM catalog c WHERE c.module = 'main' AND c.symbol = 'Main.check'"))
+  assert(#guidance == 1 and guidance[1][1] == "Checks whether a path exists.")
   local databases: {Sqlite.Handle} = { shipped }
   for _, database in ipairs(Store.databases()) do
     databases[#databases + 1] = database
@@ -383,7 +394,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
   local uses = assert(docs.uses(effective, "Fs.exists"))
   local found_main = false
   for _, use in ipairs(uses) do
-    if use.from_module == "main" and use.line == 3 then found_main = true end
+    if use.from_module == "main" and use.line == 6 then found_main = true end
   end
   assert(found_main, "effective uses dropped the project's bundled reference")
   assert(shipped:close())

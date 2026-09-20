@@ -293,3 +293,48 @@ local function test_uses_merge_active_calling_modules()
   local entry = assert(docs.lookup(view({ project, binary }), "Api.call"))[1]
   assert(entry ~= nil and entry.uses == 2, tostring(entry and entry.uses))
 end
+
+--- From outside cosmic's own tree, the binary's database is a public
+--- source: it answers for the standard library's own modules and for
+--- nothing behind them -- not the build, not `cosmic.internal.*`, not
+--- a test -- and counts only the uses those modules make.
+local function test_a_public_source_answers_only_for_the_standard_library()
+  local rows: {{string}} = {
+    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
+    { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string | nil, string",
+      "The whole of a file.", "cosmic/fs.tl", "23" },
+    { "build.importer", "", "module", "", "The tree, read by position.", "build/importer.tl", "1" },
+    { "build.importer", "importer.read", "function", "function importer.read(path: string): string",
+      "The whole of a file, staged.", "build/importer.tl", "9" },
+    { "cosmic.internal.sqlite", "", "module", "", "SQLite at the Lua boundary.",
+      "cosmic/internal/sqlite.d.tl", "1" },
+    { "cosmic.internal.sqlite", "sqlite.read", "function", "read: function(Statement): string",
+      "A raw read.", "cosmic/internal/sqlite.d.tl", "8" },
+    { "cosmic.coverage_test", "", "module", "", "Proves coverage.", "cosmic/coverage_test.tl", "1" },
+    { "cosmic.coverage_test", "test_read", "function", "local function test_read()",
+      "Reads the whole of a file.", "cosmic/coverage_test.tl", "4" },
+  }
+  local uses: {{string}} = {
+    { "cosmic.fs", "Fs.read", "build.boot", "build/boot.tl", "56" },
+    { "cosmic.fs", "Fs.read", "cosmic.hash", "cosmic/hash.tl", "12" },
+  }
+  local modules = { "cosmic.fs", "build.importer", "cosmic.internal.sqlite",
+    "cosmic.coverage_test", "build.boot", "cosmic.hash" }
+  local db = database(rows, uses, {}, modules)
+
+  local everything = assert(docs.view({ db }))
+  assert(#assert(docs.lookup(everything, "read")) == 3)
+  assert(#assert(docs.uses(everything, "read")) == 2)
+
+  local public = assert(docs.view({ db }, { true }))
+  local found = assert(docs.lookup(public, "read"))
+  assert(#found == 1 and found[1].module == "cosmic.fs", tostring(#found))
+  assert(found[1].uses == 1, "only the standard library's own use counts: " .. found[1].uses)
+  assert(#assert(docs.lookup(public, "build.importer")) == 0, "the build is not a public module")
+  local searched = assert(docs.lookup(public, "whole file"))
+  assert(#searched == 1 and searched[1].module == "cosmic.fs", tostring(#searched))
+  local referring = assert(docs.uses(public, "Fs.read"))
+  assert(#referring == 1 and referring[1].from_module == "cosmic.hash")
+  local listed = docs.render(public, assert(docs.lookup(public, "cosmic.fs"))[1])
+  assert(listed[#listed]:find("Fs.read", 1, true) ~= nil, listed[#listed])
+end

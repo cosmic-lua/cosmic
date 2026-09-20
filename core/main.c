@@ -138,38 +138,81 @@ static void catalog_query(const char *message, char *out, size_t outsz) {
   }
 }
 
-/* How many of `message`'s significant (non-stopword) words appear
- * literally in `candidate`, case-insensitively -- a cheap confirmation
- * pass over the ONE row `catalog_guidance` already chose, not a second
- * search. FTS5's own ranking already prefers a row sharing more, or
- * rarer, words, but bm25 alone does not reliably separate a real match
- * from one accidental shared word (found by hand: an "io is not
- * available" message and the unrelated EMFILE row's "Too many open
+/* The next alphanumeric word of `*at`, advancing past it: its start,
+ * and its length in `*len`, 0 at the end of the text. */
+static const char *next_word(const char **at, size_t *len) {
+  const char *p = *at;
+  while (*p != '\0' && !isalnum((unsigned char)*p)) {
+    p++;
+  }
+  const char *start = p;
+  while (isalnum((unsigned char)*p)) {
+    p++;
+  }
+  *at = p;
+  *len = (size_t)(p - start);
+  return start;
+}
+
+/* Whether `text` holds `word` as a whole word, case-insensitively:
+ * "os" is not in "cosmic", and "cosmic" is one word of "cosmic.time". */
+static bool has_word(const char *text, const char *word, size_t len) {
+  const char *at = text;
+  for (;;) {
+    size_t found_len = 0;
+    const char *found = next_word(&at, &found_len);
+    if (found_len == 0) {
+      return false;
+    }
+    if (found_len == len && strncasecmp(found, word, len) == 0) {
+      return true;
+    }
+  }
+}
+
+/* How many DISTINCT significant (non-stopword) words of `message`
+ * appear as whole words in `candidate`, case-insensitively -- a cheap
+ * confirmation pass over the ONE row `catalog_guidance` already chose,
+ * not a second search. FTS5's own ranking already prefers a row sharing
+ * more, or rarer, words, but bm25 alone does not reliably separate a
+ * real match from one accidental shared word (found by hand: an "io is
+ * not available" message and the unrelated EMFILE row's "Too many open
  * files" share nothing meaningful except the word "files", and nothing
  * in `stopwords` catches an ordinary content word like that one). The
- * caller requires at least two before trusting the match. */
+ * caller requires at least two before trusting the match. Distinct and
+ * whole, because one word said three times is still one word (found by
+ * hand: "os is not available: time is cosmic.time, the environment is
+ * cosmic.env, and processes are cosmic.proc" met the bar against a row
+ * about "cosmic's own tree" on "cosmic" alone, counted per mention,
+ * and on "os" found inside "cosmic"). */
 static int count_shared_words(const char *message, const char *candidate) {
   int shared = 0;
-  const char *p = message;
-  while (*p != '\0') {
-    while (*p != '\0' && !isalnum((unsigned char)*p)) {
-      p++;
-    }
-    const char *start = p;
-    while (isalnum((unsigned char)*p)) {
-      p++;
-    }
-    size_t len = (size_t)(p - start);
+  const char *at = message;
+  for (;;) {
+    size_t len = 0;
+    const char *word = next_word(&at, &len);
     if (len == 0) {
       break;
     }
-    if (!is_stopword(start, len)) {
-      for (const char *c = candidate; *c != '\0'; c++) {
-        if (strncasecmp(c, start, len) == 0) {
-          shared++;
-          break;
-        }
+    if (is_stopword(word, len) || !has_word(candidate, word, len)) {
+      continue;
+    }
+    /* Already counted, as an earlier word of the message? */
+    bool seen = false;
+    const char *before = message;
+    for (;;) {
+      size_t earlier_len = 0;
+      const char *earlier = next_word(&before, &earlier_len);
+      if (earlier == word || earlier_len == 0) {
+        break;
       }
+      if (earlier_len == len && strncasecmp(earlier, word, len) == 0) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) {
+      shared++;
     }
   }
   return shared;
@@ -223,7 +266,8 @@ static bool catalog_guidance(sqlite3 *db, const char *message) {
   sqlite3_stmt *stmt = NULL;
   const char *sql =
       "SELECT coalesce(catalog.text, (SELECT d.text FROM docs d "
-      "WHERE d.module = catalog.module AND d.symbol = catalog.symbol)), "
+      "WHERE d.module = catalog.module AND "
+      "d.source_symbol = catalog.symbol)), "
       "catalog.message, catalog.symbol, catalog.file, catalog.line "
       "FROM catalog_fts JOIN catalog ON catalog.id = catalog_fts.rowid "
       "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1";

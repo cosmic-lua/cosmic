@@ -80,7 +80,10 @@ has named macOS 26 the last release for them, and no runner can test
 them without Rosetta.
 
 every cosmic binary carries the core image for all three targets, so
-any host builds any target offline with nothing fetched.
+any host builds any target offline with nothing fetched. a program
+`cosmic build` writes carries none: its database holds its own
+modules, the standard library, and the error catalog, behind the
+image of the host it was built on.
 
 a target exists when three things hold: zig links it, a CI lane runs
 its full suite on it, and the sandbox conformance matrix runs on it.
@@ -618,11 +621,18 @@ a claim.
 ### the command line
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
-`cosmic check`, `cosmic fix`, `cosmic docs`, `cosmic embed`; `cosmic
-file.tl` runs a file; `-e` stays as Lua's one-liner idiom. every verb
+`cosmic check`, `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
+file; `-e` stays as Lua's one-liner idiom. `build` builds the tree and
+writes an executable for each `cmd/<name>/` in it, so a library tree
+builds too and a tree with binaries ships from the one verb. every verb
 takes paths to narrow it, ends in a verdict line and an exit code,
 and `cosmic help <verb>` is the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
+
+from a project, `docs` and `uses` answer for the project's own code
+and for the public standard library, `cosmic.*` less `internal` and
+tests: what a builder reads, never the build that made the binary.
+inside cosmic's own tree they answer for everything.
 
 `fix` rather than `format`, because there is one verb and not two: it
 parses, applies whatever structural rewrites the lint has earned, and
