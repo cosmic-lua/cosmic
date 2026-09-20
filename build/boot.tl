@@ -10,7 +10,6 @@ local Time = require("cosmic.time")
 local artifact = require("build.artifact")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -151,12 +150,6 @@ local function boot(root: string, argv: {integer:string}): integer
     report("boot: FAIL (" .. print_trouble .. ")")
     return 1
   end
-  local env, trouble = teal.environment_for(compiler, handle)
-  if env == nil then
-    work.close(handle)
-    report("boot: FAIL (" .. trouble .. ")")
-    return 1
-  end
   local kept, keep_trouble = work.put_compiler(handle, teal_source)
   if not kept then
     work.close(handle)
@@ -181,7 +174,7 @@ local function boot(root: string, argv: {integer:string}): integer
   end
 
   local result, compile_trouble =
-    importer.compile(handle, compiler, env, identities.compiler)
+    importer.compile(handle, compiler, identities.compiler)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)

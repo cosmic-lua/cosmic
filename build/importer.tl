@@ -28,6 +28,8 @@ local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
 local symbols = require("build.symbols")
+local teal = require("build.teal")
+local tree = require("build.tree")
 local work = require("build.work")
 local type compiler = require("build.compiler")
 
@@ -52,16 +54,12 @@ local record importer
   end
 end
 
---- Whether `root` is cosmic's own tree, structurally: `core/` and
---- `build/` both exist, and `build/` holds the importer itself rather
---- than just a directory of that name. `cosmic.*` is reserved to this
---- one tree; nothing else may claim it, by directory or by import path.
---- Exposed so a caller can gate other cosmic's-own-tree behavior on the
---- same test the importer itself uses.
+--- Whether `root` is cosmic's own tree, structurally. Exposed so a
+--- caller can gate other cosmic's-own-tree behavior on the same test
+--- the importer itself uses; see `build.tree`, which holds the real
+--- check so answering it never costs loading the rest of `build`.
 function importer.is_own_tree(root: string): boolean
-  return Fs.is_dir(root .. "/core") and Fs.is_dir(root .. "/build") and
-    Fs.exists(root .. "/build/importer.tl") and
-    not Fs.is_dir(root .. "/build/importer.tl")
+  return tree.is_own(root)
 end
 
 --- The bytecode header every target must agree on. One column of
@@ -753,12 +751,38 @@ local function with_docs_hint(msg: string, databases: {Sqlite.Handle},
   return msg .. " -- see also in docs: " .. table.concat(found, ", ")
 end
 
+--- Checker forms that reliably identify a language topic. Argument failures
+--- point to the general checked function-contract guide; a diagnostic does
+--- not carry enough AST binding information here to claim a particular call.
+local function diagnostic_docs(msg: string): string | nil
+  if msg:match("^wrong number of arguments %(") or
+      msg:match("^argument %d+: got .+, expected ") then
+    return "generics_functions_returns"
+  elseif msg:match("^invalid key '.-' in record ") then
+    return "records_interfaces_methods"
+  elseif msg:match("^cannot use operator '.-' for types ") and
+      msg:find(" | ", 1, true) ~= nil then
+    return "unions_narrowing_casts"
+  end
+  return nil
+end
+
+local function with_diagnostic_docs(msg: string, databases: {Sqlite.Handle},
+                                    public: {boolean}): string
+  local query = diagnostic_docs(msg)
+  if query == nil or not symbols.has_example_query(databases, public, query) then
+    return msg
+  end
+  return msg .. " -- see also: cosmic docs " .. query
+end
+
 --- Every hint a checker message earns, appended once, at the one place
 --- every message is rendered, rather than patched into the vendored
 --- checker's own text or duplicated at each call site.
 local function with_hint(msg: string, databases: {Sqlite.Handle},
                          public: {boolean}): string
-  return with_docs_hint(with_unused_hint(msg), databases, public)
+  return with_diagnostic_docs(
+    with_docs_hint(with_unused_hint(msg), databases, public), databases, public)
 end
 
 local function complain(file: string, result: compiler.Result,
@@ -954,13 +978,17 @@ end
 --- transaction, kept even when a later module refuses, so a run that
 --- fails still pays for each module once; a compile another tool
 --- made, or one no run has used lately, is dropped.
+---
+--- The checker's environment (`build.teal`'s `environment_for`) is made
+--- on first use, right before the first module that actually needs one
+--- to compile, rather than up front: `new_env` parses and type-checks
+--- tl's own prelude and stdlib declarations, so a build that finds
+--- every module already cached never pays for it.
 --- @param handle the working database the tree is staged in
 --- @param built the compiler, loaded and ready
---- @param env the checker's environment, already pointed at the tree
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
 function importer.compile(handle: work.Handle, built: compiler,
-                          env: compiler.Env,
                           tool: string): importer.Result | nil, string
   local modules, trouble = collect(handle, importer.is_own_tree(handle.root), built)
   if modules == nil then
@@ -984,6 +1012,10 @@ function importer.compile(handle: work.Handle, built: compiler,
   }
   local db = handle.db
   local failure = ""
+  -- Made on first use, by whichever module first fails to find a
+  -- cached compile below: a run that compiles nothing never pays for
+  -- `new_env`'s parse and type-check of tl's own prelude and stdlib.
+  local env: compiler.Env | nil = nil
 
   -- Where a refused module's own hint (`with_docs_hint`) looks up the
   -- name it could not resolve: this build's own working database
@@ -1038,6 +1070,14 @@ function importer.compile(handle: work.Handle, built: compiler,
         if lua ~= nil then
           result.cached = result.cached + 1
         else
+          if env == nil then
+            local made_env, env_trouble = teal.environment_for(built, handle)
+            if made_env == nil then
+              failure = env_trouble
+              break
+            end
+            env = made_env
+          end
           local code, made_bytecode, generate_trouble =
             generate(m, built, env, hint_databases, hint_public)
           if code == nil then

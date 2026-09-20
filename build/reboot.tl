@@ -45,7 +45,7 @@ end
 
 --- Rebuilds the tool from the tree and replaces this process with it,
 --- running `argv` again. Returns only when it cannot, saying why.
-function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
+function reboot.into(handle: work.Handle, built: compiler,
                      argv: {integer:string}): string
   if sys.getenv(marker) ~= nil then
     return "the tool is still stale after a reboot"
@@ -82,7 +82,7 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
     return identity_trouble
   end
   local result, compile_trouble =
-    importer.compile(handle, built, env, identities.compiler)
+    importer.compile(handle, built, identities.compiler)
   if result == nil then
     return compile_trouble
   end

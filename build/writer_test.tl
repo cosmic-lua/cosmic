@@ -1,0 +1,108 @@
+--- Regression test for `build.writer`: `write_result` must trust only
+--- the projection already sitting at `out`, never a record kept
+--- somewhere else. The working database's own `meta` table -- what
+--- the fix in this file replaces -- can drift from the file on disk:
+--- `build/boot.tl` reuses one working database across several output
+--- paths, and a snapshot of `o/build.db` restored after `o/cosmic.db`
+--- moved on both leave a row that no longer describes the file it
+--- once did.
+
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local importer = require("build.importer")
+local teal = require("build.teal")
+local work = require("build.work")
+local writer = require("build.writer")
+
+local built, load_trouble = teal.load()
+if built == nil then
+  error("could not load the compiler: " .. tostring(load_trouble))
+end
+
+--- Writes a minimal one-module project at `root`, greeting `whom`, so
+--- two projects built from a different `whom` compile to different
+--- module keys and so a different signature.
+local function write_project(root: string, whom: string)
+  assert(Fs.mkdirs(root .. "/cmd/hello"))
+  assert(Fs.write(root .. "/cmd/hello/main.tl", table.concat({
+    'local greet = require("greet")',
+    "return function(): integer",
+    "  print(greet.hello())",
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/greet.tl", table.concat({
+    "local record greet",
+    "end",
+    "function greet.hello(): string",
+    '  return "hello, ' .. whom .. '"',
+    "end",
+    "return greet",
+    "",
+  }, "\n")))
+end
+
+--- Compiles the project at `root` and writes it to `out`, returning the
+--- open working handle and its compiled result so the caller can write
+--- again against it.
+local function build_and_write(root: string, whom: string, out: string): work.Handle, importer.Result
+  write_project(root, whom)
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "writer-test"))
+  assert(writer.write_result(handle, out, result))
+  return handle, result
+end
+
+--- The signature a projection at `path` carries in its own `meta`
+--- table, or "" when it has none.
+local function projected(path: string): string
+  local db = assert(Sqlite.open(path, false))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT value FROM meta WHERE key = 'projected'"))
+  assert(db:close())
+  if #rows == 0 then
+    return ""
+  end
+  return rows[1][1]
+end
+
+--- A file at `out` that some other write replaced -- a different
+--- tree's projection entirely, standing in for a restored working
+--- database or a stray copy -- is never mistaken for the current
+--- signature just because a working database still agrees with it:
+--- write_result must render and write a fresh file.
+local function test_a_drifted_file_is_rewritten(tmp: string)
+  local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  local original = projected(tmp .. "/out.db")
+  assert(original ~= "", "the file must carry its own signature")
+
+  -- A second, different tree's projection lands at the same path,
+  -- behind the first handle's back -- the drift itself.
+  local other_handle = build_and_write(tmp .. "/b", "moon", tmp .. "/out.db")
+  assert(work.close(other_handle))
+  local drifted = projected(tmp .. "/out.db")
+  assert(drifted ~= original, "the fixture must actually differ")
+
+  -- The original handle still names the original signature; the file
+  -- now holds a different one. write_result must not trust that they
+  -- once agreed and must write the current projection back.
+  assert(writer.write_result(handle, tmp .. "/out.db", result))
+  assert(work.close(handle))
+  assert(projected(tmp .. "/out.db") == original,
+    "a drifted file must be rewritten back to the current projection")
+end
+
+--- Once the file at `out` already is the current projection, a second
+--- `write_result` call for the same inputs leaves it untouched.
+local function test_an_unchanged_file_is_not_rewritten(tmp: string)
+  local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  local before = assert(Fs.stat(tmp .. "/out.db"))
+
+  assert(writer.write_result(handle, tmp .. "/out.db", result))
+  assert(work.close(handle))
+  local after = assert(Fs.stat(tmp .. "/out.db"))
+  assert(before.mtime_ns == after.mtime_ns and before.size == after.size,
+    "an unchanged projection must not be rewritten")
+end

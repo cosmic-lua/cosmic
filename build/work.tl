@@ -112,6 +112,17 @@ work.version = "15"
 --- function of the bytes alone, so a rename costs nothing and a row
 --- can never be stale.
 ---
+--- `executable` is `build.coverage.lines.executable`'s answer for one
+--- source, keyed by content hash the same way as `parsed`: which lines
+--- could ever be hit is a pure function of the bytes alone, so a row
+--- can never be stale and, like `parsed`, is never pruned. `lines` is
+--- every executable line number in ascending order, joined by single
+--- spaces (e.g. "1 3 4 9"), rather than one row per line, since a
+--- caller always wants the whole set back at once. A row is a
+--- function of the bytes and of that module's rule for what counts as
+--- executable, so a change to the rule bumps `work.version`, as a
+--- change to what a parse records does for `parsed`.
+---
 --- Raw cores remain build outputs under `o/core`; they are never copied into
 --- this working database. The compiler lives in `derived`, the one row there
 --- with no file behind it.
@@ -141,18 +152,22 @@ work.version = "15"
 --- invocation that produced it, and `seen` the last run that relied on
 --- it: while a key stands and its verdict passed, the test is not run
 --- again, and an edit undone finds its old key again. One no run has
---- relied on in the last hundred is dropped, and with it the
---- `coverage_by_test` rows no verdict credits any more.
+--- relied on in the last ten (`build.test`'s `kept_runs`) is dropped,
+--- and with it the `coverage_by_test` rows no verdict credits any
+--- more.
 ---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
---- one snapshot per `cosmic test` invocation, never overwritten, each
---- run identified by its own start time in nanoseconds (`ran_at_ns`)
---- rather than an autoincrement id -- `cosmic.sqlite` has no
---- `last_insert_rowid` helper, and a nanosecond timestamp is already
---- how `runs.ran_at_ns` identifies things above, so reusing that
---- convention needs no new sqlite API surface. Rows here are expected
---- to accumulate across many runs over time; this database is dev-only
---- and never shipped, so that growth is accepted, not pruned.
+--- one snapshot per `cosmic test` invocation, each run identified by
+--- its own start time in nanoseconds (`ran_at_ns`) rather than an
+--- autoincrement id -- `cosmic.sqlite` has no `last_insert_rowid`
+--- helper, and a nanosecond timestamp is already how `runs.ran_at_ns`
+--- identifies things above, so reusing that convention needs no new
+--- sqlite API surface. This database is dev-only and never shipped,
+--- but its growth is still bounded: `build.test`'s `prune_history`
+--- runs in the same transaction as every write here and keeps
+--- `coverage` to the newest `kept_snapshots` runs, `coverage_by_test`
+--- to what a standing verdict still credits, and `test_runs` to what
+--- either of those still references.
 ---
 --- `test_runs` holds one row per `cosmic test` invocation, so a run's
 --- own `ran_at_ns` can be confirmed to exist (or listed, or joined
@@ -164,7 +179,7 @@ work.version = "15"
 --- hit = 1`, and a specific never-hit line in a specific run can be
 --- pointed at directly rather than only counted. A new run adds rows
 --- rather than replacing the last run's, so a file's coverage trend
---- over time is a plain query away.
+--- over the kept window of runs is a plain query away.
 ---
 --- `coverage_by_test` answers a narrower question `coverage` cannot:
 --- which specific test(s) hit a given line in a given run -- the input
@@ -216,6 +231,8 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
                                        has_return INTEGER NOT NULL,
                                        export TEXT NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
+                                           lines TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
                                          ordinal INTEGER NOT NULL,
                                          name TEXT NOT NULL,

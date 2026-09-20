@@ -6,6 +6,7 @@
 --- and does not care how many separate windows fed into it.
 
 local Coverage = require("cosmic.coverage")
+local Sqlite = require("cosmic.sqlite")
 local lines = require("build.coverage.lines")
 local importer = require("build.importer")
 local type compiler = require("build.compiler")
@@ -24,15 +25,20 @@ end
 --- the result (`hit`/`#total`). A module whose source no longer parses
 --- here, which should not happen since `m` only ever holds source that
 --- already compiled once earlier in the same run, reports the parse
---- failure rather than a fabricated count.
+--- failure rather than a fabricated count. The executable-line set
+--- itself comes from `lines.executable_cached`, keyed by `m.source_hash`
+--- in `db`'s `executable` table, so a module whose source has not
+--- changed since a previous run is not reparsed here.
+--- @param db Sqlite.Handle The working database (`work.open`'s `.db`)
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param m Module The module to compute lines for
 --- @param hits Coverage.Hits Every line hit, by module import path
 --- @return LineHits | nil Every executable line, hit (true) or not (false)
 --- @return string Error message on a parse failure
-function report.lines_of(built: compiler, m: Module,
+function report.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
                          hits: Coverage.Hits): report.LineHits | nil, string
-  local executable, trouble = lines.executable(built, m.source, m.file)
+  local executable, trouble =
+    lines.executable_cached(db, built, m.source_hash, m.source, m.file)
   if executable == nil then
     return nil, trouble
   end

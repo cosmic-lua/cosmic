@@ -49,12 +49,7 @@ local function requires_of_fixture(root: string, path: string): {string} | nil, 
     work.close(handle)
     return nil, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return nil, env_trouble
-  end
-  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  local result, compile_trouble = importer.compile(handle, built, "importer-test")
   work.close(handle)
   if result == nil then
     return nil, compile_trouble
@@ -79,12 +74,7 @@ local function compile_fixture(root: string): importer.Result | nil, string
     work.close(handle)
     return nil, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return nil, env_trouble
-  end
-  local result, compile_trouble = importer.compile(handle, built, env,
+  local result, compile_trouble = importer.compile(handle, built,
     "declaration-cache-test")
   work.close(handle)
   return result, compile_trouble
@@ -370,8 +360,7 @@ local function test_project_keeps_uses_of_bundled_symbols()
   }))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local env = assert(teal.environment_for(built, handle))
-  local result = assert(importer.compile(handle, built, env, "importer-test"))
+  local result = assert(importer.compile(handle, built, "importer-test"))
   assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
   local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
   local rows = assert(Sqlite.text_rows(shipped,
@@ -466,8 +455,7 @@ local function test_generated_lua_keeps_teal_line_numbers()
   assert(Fs.write(root .. "/lines.tl", source))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local env = assert(teal.environment_for(built, handle))
-  local result, compile_trouble = importer.compile(handle, built, env, "importer-test")
+  local result, compile_trouble = importer.compile(handle, built, "importer-test")
   assert(result ~= nil, tostring(compile_trouble))
   local lua: string = nil
   for _, m in ipairs(result.modules) do
@@ -595,4 +583,71 @@ local function test_an_unrelated_unknown_name_earns_no_hint()
   assert(result == nil, "expected the undeclared name to refuse the compile")
   assert(compile_trouble:find("unknown variable: pritn", 1, true) ~= nil, compile_trouble)
   assert(compile_trouble:find("see also in docs", 1, true) == nil, compile_trouble)
+  assert(compile_trouble:find("cosmic docs", 1, true) == nil, compile_trouble)
+end
+
+--- Concrete checker families point at checked language examples. These are
+--- real project compiles, so the original position and diagnostic remain in
+--- the output and every advertised query is present in the binary's docs.
+local function test_language_errors_name_relevant_checked_docs()
+  local cases: {string:{string}} = {
+    wrong_arguments = {
+      "return function(): integer\n  return string.find(\"abc\")\nend\n",
+      "wrong number of arguments", "generics_functions_returns",
+    },
+    record_field = {
+      "local record R\n  x: integer\nend\nreturn function(): integer\n" ..
+        "  local r: R = { x = 1 }\n  return r.y\nend\n",
+      "invalid key 'y' in record", "records_interfaces_methods",
+    },
+    union_operator = {
+      "return function(x: string | integer): integer\n  return x + 1\nend\n",
+      "cannot use operator '+'", "unions_narrowing_casts",
+    },
+    builtin_argument_type = {
+      "return function(): string\n  return table.concat(123)\nend\n",
+      "argument 1: got integer", "generics_functions_returns",
+    },
+  }
+  for name, case in pairs(cases) do
+    local root = assert(write_fixture("language-hint-" .. name,
+      { ["thing.tl"] = case[1] }))
+    local result, trouble = compile_fixture(root)
+    assert(result == nil, "expected " .. name .. " to refuse the compile")
+    assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
+    assert(trouble:find(case[2], 1, true) ~= nil, trouble)
+    assert(trouble:find("cosmic docs " .. case[3], 1, true) ~= nil, trouble)
+    local found = assert(docs.lookup(assert(docs.view(docs.databases())), case[3]))
+    assert(#found > 0, "hint query has no docs: " .. case[3])
+  end
+end
+
+--- Syntax rejected while constructing the checker environment still keeps its
+--- original diagnostic. Its corresponding language guide is independently
+--- available rather than being promised by a code path compilation never reaches.
+local function test_malformed_type_keeps_error_and_has_searchable_guide()
+  local root = assert(write_fixture("language-guide-malformed-type", {
+    ["thing.tl"] = "local x: {string = integer} = {}\nreturn x\n",
+  }))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil)
+  assert(trouble:find("expected a type list", 1, true) ~= nil, trouble)
+  local found = assert(docs.lookup(assert(docs.view(docs.databases())),
+    "enums_arrays_maps_tuples"))
+  assert(#found > 0, "the type-shape guide must remain searchable")
+end
+
+--- An incidental API name elsewhere on the line cannot make an argument
+--- diagnostic claim that API is the failed call.
+local function test_argument_hint_does_not_sniff_the_whole_source_line()
+  local root = assert(write_fixture("language-hint-no-line-sniff", {
+    ["thing.tl"] = "return function(): integer\n" ..
+      "  return string.find(\"abc\") -- table.concat\nend\n",
+  }))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil)
+  assert(trouble:find("wrong number of arguments", 1, true) ~= nil, trouble)
+  assert(trouble:find("cosmic docs generics_functions_returns", 1, true) ~= nil,
+    trouble)
+  assert(trouble:find("cosmic docs table.concat", 1, true) == nil, trouble)
 end

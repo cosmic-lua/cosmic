@@ -3,6 +3,7 @@
 --- parse rather than a text scan that cannot tell a blank line, a
 --- comment, or a bare `end` from a real statement.
 
+local Sqlite = require("cosmic.sqlite")
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
 
@@ -97,6 +98,62 @@ function lines.executable(built: compiler, source: string,
     end
   end)
   return out, ""
+end
+
+local function text(value: string): Sqlite.Value
+  return { text = value }
+end
+
+--- `lines.executable`'s answer for `source`, read back from `db`'s
+--- `executable` table when a row for `source_hash` already stands
+--- there, or computed and stored when it does not -- the cache
+--- `build.work`'s schema comment documents next to `parsed`. A parse
+--- failure is returned exactly as `lines.executable` returns it, and
+--- nothing is written: only a successful parse is a function of the
+--- hash alone worth keeping.
+--- @param db Sqlite.Handle The working database (`work.open`'s `.db`)
+--- @param built compiler The loaded compiler capsule (`build.teal.load()`)
+--- @param source_hash string The module source's content hash, `executable`'s key
+--- @param source string The module's own Teal source
+--- @param name string Filename for parse diagnostics
+--- @return {integer: boolean} | nil Every executable line, or nil on a parse failure
+--- @return string Error message on failure
+function lines.executable_cached(db: Sqlite.Handle, built: compiler,
+                                 source_hash: string, source: string,
+                                 name: string): {integer: boolean} | nil, string
+  local cached, select_trouble = Sqlite.text_rows(db,
+    "SELECT lines FROM executable WHERE source_hash = ?1", { text(source_hash) })
+  if cached == nil then
+    return nil, select_trouble
+  end
+  if #cached > 0 then
+    local out: {integer: boolean} = {}
+    for piece in cached[1][1]:gmatch("%d+") do
+      out[math.tointeger(tonumber(piece)) as integer] = true
+    end
+    return out, ""
+  end
+
+  local executable, trouble = lines.executable(built, source, name)
+  if executable == nil then
+    return nil, trouble
+  end
+  local numbers: {integer} = {}
+  for line in pairs(executable) do
+    numbers[#numbers + 1] = line
+  end
+  table.sort(numbers)
+  local joined: {string} = {}
+  for i, line in ipairs(numbers) do
+    joined[i] = tostring(line)
+  end
+  local inserted, insert_trouble = Sqlite.run(db,
+    "INSERT OR IGNORE INTO executable (source_hash, lines) VALUES (?1, ?2)",
+    { text(source_hash), text(table.concat(joined, " ")) })
+  if not inserted then
+    return nil, insert_trouble
+  end
+  return executable, ""
 end
 
 return lines

@@ -9,16 +9,10 @@ local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
-local databases = require("build.databases")
-local docs = require("build.docs")
-local embed = require("build.embed")
-local fix = require("build.fix")
-local importer = require("build.importer")
-local reboot = require("build.reboot")
-local teal = require("build.teal")
-local test = require("build.test")
-local work = require("build.work")
-local writer = require("build.writer")
+
+-- The build modules are required lazily, inside the verb that needs
+-- them: every verb used to load the whole build system before
+-- dispatch, and `help` needs only build.docs.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 
@@ -30,20 +24,35 @@ local help_prefix = "cosmic -- a runtime for self-contained command-line softwar
 --- dropping a verb from its own help, if `cosmic.cli`'s own database
 --- row is ever missing.
 local function verb_help(): string
+  local docs = require("build.docs")
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
   if view == nil then
     return "(cosmic.cli: " .. view_trouble .. ")"
   end
+  local names: {string} = {}
+  for _, verb in ipairs(Cli.order) do
+    names[#names + 1] = "Cli." .. verb
+  end
+  local found, trouble = docs.named_all(view, names)
   local lines: {string} = {}
   for _, verb in ipairs(Cli.order) do
-    local found, trouble = docs.lookup(view, "Cli." .. verb)
+    local symbol = "Cli." .. verb
+    local text: string | nil = nil
+    if found ~= nil then
+      for _, entry in ipairs(found) do
+        if entry.symbol == symbol then
+          text = entry.text
+          break
+        end
+      end
+    end
     if found == nil then
-      lines[#lines + 1] = "(cosmic.cli.Cli." .. verb .. ": " .. trouble .. ")"
-    elseif #found == 0 then
-      lines[#lines + 1] = "(cosmic.cli.Cli." .. verb .. ": not found)"
+      lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": " .. trouble .. ")"
+    elseif text == nil then
+      lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": not found)"
     else
-      lines[#lines + 1] = found[1].text
+      lines[#lines + 1] = text
     end
     lines[#lines + 1] = ""
   end
@@ -159,6 +168,11 @@ end
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
 local function run(file: string, argv: {integer:string}): integer
+  local importer = require("build.importer")
+  local reboot = require("build.reboot")
+  local teal = require("build.teal")
+  local work = require("build.work")
+  local writer = require("build.writer")
   local root, trouble = root_of(file)
   if root == nil then
     complain("cosmic: " .. trouble)
@@ -184,18 +198,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  local built, load_trouble = teal.load()
-  if built == nil then
-    work.close(handle)
-    complain("cosmic: " .. load_trouble)
-    return 1
-  end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    complain("cosmic: " .. env_trouble)
-    return 1
-  end
+  local built = teal.lazy()
 
   -- A stale tool: this binary's source inputs no longer match what
   -- it was booted from. Running on would compile the tree with a
@@ -217,7 +220,7 @@ local function run(file: string, argv: {integer:string}): integer
     end
     if state == "teal" then
       complain("cosmic: the tool is stale; rebuilding it from the tree")
-      local reboot_trouble = reboot.into(handle, built, env, argv)
+      local reboot_trouble = reboot.into(handle, built, argv)
       complain("cosmic: " .. reboot_trouble)
       return 3
     end
@@ -230,7 +233,7 @@ local function run(file: string, argv: {integer:string}): integer
 
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, tool)
+  local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
@@ -287,21 +290,27 @@ local function main(argv: {integer:string}): integer
     return 0
   end
   if verb == "test" then
+    local test = require("build.test")
     return test.run(argv)
   end
   if verb == "fix" then
+    local fix = require("build.fix")
     return fix.run(argv)
   end
   if verb == "db" then
+    local databases = require("build.databases")
     return databases.run()
   end
   if verb == "build" then
+    local embed = require("build.embed")
     return embed.run()
   end
   if verb == "docs" then
+    local docs = require("build.docs")
     return docs.run(argv)
   end
   if verb == "uses" then
+    local docs = require("build.docs")
     return docs.run_uses(argv)
   end
   if verb:sub(1, 1) == "-" then

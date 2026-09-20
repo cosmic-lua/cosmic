@@ -103,6 +103,9 @@ end
 --- reaches over the syscall table, and nothing else. `io.type` is not
 --- in it, because the compiler names it only inside the declaration
 --- text it carries for Lua's own standard library and never calls it.
+--- This is the compiler's private bootstrap environment, not a program's
+--- runtime surface: `environment_for` removes io, os and debug from the
+--- checker, and `core/surface.c` removes the same names at execution.
 function teal.environment(): {string:any}
   local environment: {string:any} = {
     io = {
@@ -160,6 +163,51 @@ function teal.load(): compiler | nil, string
   return produced as compiler
 end
 
+--- A capsule that puts off `teal.load`'s ~5ms, ~291KB bytecode load
+--- until something actually touches the compiler. Most runs never do:
+--- when `build.importer` answers every module and every coverage line
+--- from its own caches, nothing ever asks the compiler to parse, check
+--- or generate anything, and loading it up front is pure waste on
+--- exactly that (common) run. The capsule is an empty table whose
+--- metatable loads the compiler on the first field anything reads or
+--- writes and remembers it afterward, so the load happens at most
+--- once. A write goes onto the loaded compiler itself, never onto the
+--- capsule: tl reaches its own `search_module` and `path` through its
+--- module table, so `serve`'s override below has to land there for
+--- the checker to see it, and a capsule that kept the write for itself
+--- would leave tl searching the filesystem. A load failure raises the
+--- exact message `teal.load` would have returned, with `error(_, 0)`
+--- so it reaches the top unprefixed by a location naming this line
+--- rather than the real cause: a broken binary still says "the
+--- compiler is not in this binary: ..." instead of a nil-index
+--- traceback.
+--- @return compiler a capsule usable everywhere `teal.load`'s own
+---   result is: the same one boundary, an untyped table cast to the
+---   declared surface, just deferred to the first real use
+function teal.lazy(): compiler
+  local loaded: {any:any}
+  local function real(): {any:any}
+    if loaded == nil then
+      local built, trouble = teal.load()
+      if built == nil then
+        error(trouble, 0)
+      end
+      loaded = built as {any:any}
+    end
+    return loaded
+  end
+  local capsule: any = {}
+  setmetatable(capsule, {
+    __index = function(_self: any, key: any): any
+      return real()[key]
+    end,
+    __newindex = function(_self: any, key: any, value: any)
+      real()[key] = value
+    end,
+  })
+  return capsule as compiler
+end
+
 --- What the checker gets when it asks for a module by name: the source
 --- as one string, then a close. It reads `inputs` rows and nothing
 --- else; a path never enters into it.
@@ -181,29 +229,21 @@ local function served(text: string): Served
   }
 end
 
---- The compiler's own module search, before this module replaced it,
---- so that a compiler pointed at one tree and then another chains to
---- the original each time rather than to the last tree's stage.
-local disk_search: {compiler:function(string, boolean): (string | nil, any)} = {}
-
 --- Points the checker at a staged tree: every module it asks for by
 --- name is answered from the working database's `inputs`, a
 --- declaration ahead of a source of the same name, under the name the
 --- module would have on disk. A `cosmic.*` name the stage does not
 --- hold is answered by the binary's own rows, which is how a project
 --- outside this tree types its `require` of the standard library.
---- Nothing is read from a path; what neither holds falls through to
---- the compiler's own search, which is what the bridge uses at boot
---- for modules the stage does not exist for yet.
+--- Nothing is read from a path, and nothing falls through to the
+--- compiler's own search of the filesystem: a name neither the stage
+--- nor the binary holds is not found, however a file of that name
+--- may sit on disk, so a module reaches a build only by being staged.
 local function serve(built: compiler, handle: work.Handle)
-  if disk_search[built] == nil then
-    disk_search[built] = built.search_module
-  end
-  local original = disk_search[built]
   local db = handle.db
   local root = handle.root
   built.path = ""
-  built.search_module = function(name: string, search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local rows = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
       "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
@@ -219,7 +259,7 @@ local function serve(built: compiler, handle: work.Handle)
         return root .. "/" .. stem .. ".tl", served(source)
       end
     end
-    return original(name, search_all)
+    return nil
   end
 end
 

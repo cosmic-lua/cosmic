@@ -66,8 +66,11 @@ local record test
     run_at_ns: integer
   end
 
-  --- What each run this run credits recorded, by test then module.
-  type Credited = {integer: {string: Coverage.Hits}}
+  --- Every test id (`"path name"`) whose standing verdict credits a
+  --- given run, by that run's `run_at_ns`: what this run still owes
+  --- `hits`, gathered while replaying verdicts and resolved against
+  --- `coverage_by_test` in one query per run credited, after the loop.
+  type Credited = {integer: {string}}
 
   --- How many tests this run ran, and how many it answered from a
   --- verdict that still stood.
@@ -154,18 +157,39 @@ local function record_verdict(handle: Sqlite.Handle, key: string, passed: boolea
 end
 
 --- How many runs a verdict stays after the last one that relied on it.
-local kept_runs = 100
+local kept_runs = 10
 
---- Drops every verdict no run has relied on lately, and the coverage
---- rows that only such verdicts credited.
-local function prune_verdicts(handle: Sqlite.Handle, run: integer): boolean, string
+--- How many of the newest `test_runs` a `coverage` snapshot is kept for.
+local kept_snapshots = 10
+
+--- Drops every verdict no run has relied on lately, the
+--- `coverage_by_test` rows that only such verdicts credited, every
+--- `coverage` snapshot older than the newest `kept_snapshots` runs,
+--- and any `test_runs` row neither table references any more. A
+--- standing verdict's `coverage_by_test` rows are never dropped out
+--- from under it: only a verdict already gone can lose them.
+local function prune_history(handle: Sqlite.Handle, run: integer): boolean, string
   local dropped, drop_trouble = Sqlite.run(handle,
     "DELETE FROM verdicts WHERE seen < ?1", { { integer = run - kept_runs } })
   if not dropped then
     return false, drop_trouble
   end
-  return handle:exec("DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
+  local pruned_credits, credits_trouble = handle:exec(
+    "DELETE FROM coverage_by_test WHERE ran_at_ns NOT IN " ..
     "(SELECT run_at_ns FROM verdicts)")
+  if not pruned_credits then
+    return false, credits_trouble
+  end
+  local pruned_snapshots, snapshots_trouble = handle:exec(
+    "DELETE FROM coverage WHERE ran_at_ns NOT IN " ..
+    "(SELECT ran_at_ns FROM test_runs ORDER BY ran_at_ns DESC LIMIT " ..
+    kept_snapshots .. ")")
+  if not pruned_snapshots then
+    return false, snapshots_trouble
+  end
+  return handle:exec(
+    "DELETE FROM test_runs WHERE ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage) " ..
+    "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
 end
 
 --- The staged tree's hashes by path, which is where a read of a
@@ -238,7 +262,8 @@ end
 --- other is read for it here, and one that is gone says so.
 local function verdict_key(root: string, hashes: {string:string}, id: string,
                            module_key: string, runtime: string,
-                           reads: {observations.Observation}):
+                           reads: {observations.Observation},
+                           key_parts: {string:string}):
                            string, boolean
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
@@ -281,42 +306,54 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
     if answers[identified] ~= nil and answers[identified] ~= current then
       stable = false
     end
-    lines[#lines + 1] = observations.key_part(kind, relative, answer)
+    -- The same (kind, relative, answer) triple recurs across the run's
+    -- tests constantly -- module loads and shared fixtures are read by
+    -- most of them -- so its encoded line, which does not depend on
+    -- anything but the triple itself, is worth remembering once.
+    local memo_key = kind .. "\0" .. relative .. "\0" .. answer
+    local part = key_parts[memo_key]
+    if part == nil then
+      part = observations.key_part(kind, relative, answer)
+      key_parts[memo_key] = part
+    end
+    lines[#lines + 1] = part
   end
   return Hash.hex_sha256(table.concat(lines, "\n")), stable
 end
 
---- The lines every test hit in one run, by test, read once per run
---- credited rather than once per test: a run's rows number in the
---- hundred thousands.
-local function credited_hits(handle: Sqlite.Handle, credited: test.Credited,
-                             run_at_ns: integer): {string: Coverage.Hits} | nil, string
-  local have = credited[run_at_ns]
-  if have ~= nil then
-    return have
-  end
-  local rows, trouble = Sqlite.text_rows(handle,
-    "SELECT test, path, line FROM coverage_by_test WHERE ran_at_ns = ?1",
-    { { integer = run_at_ns } })
-  if rows == nil then
-    return nil, trouble
-  end
-  local out: {string: Coverage.Hits} = {}
-  for _, row in ipairs(rows) do
-    local by_module = out[row[1]]
-    if by_module == nil then
-      by_module = {}
-      out[row[1]] = by_module
+--- Resolves every run `credited` names against `coverage_by_test`,
+--- folding the distinct lines its named tests hit into `hits`: only the
+--- run-wide union of hit lines per module matters to `write_coverage`,
+--- never which test hit which line, so this asks for exactly that
+--- instead of loading every row of a credited run (a run's rows number
+--- in the hundred thousands) to re-derive it in Lua. One query per run
+--- credited, each naming only the tests this run actually still owes
+--- it, rather than one per standing verdict.
+local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
+                           hits: Coverage.Hits): string
+  for run_at_ns, tests in pairs(credited) do
+    local placeholders: {string} = {}
+    local args: {Sqlite.Value} = { { integer = run_at_ns } }
+    for index, id in ipairs(tests) do
+      placeholders[index] = "?" .. (index + 1)
+      args[#args + 1] = text(id)
     end
-    local per_line = by_module[row[2]]
-    if per_line == nil then
-      per_line = {}
-      by_module[row[2]] = per_line
+    local rows, trouble = Sqlite.text_rows(handle,
+      "SELECT DISTINCT path, line FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
+      "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
+    if rows == nil then
+      return trouble
     end
-    per_line[math.tointeger(tonumber(row[3]) or 0) or 0] = true
+    for _, row in ipairs(rows) do
+      local per_line = hits[row[1]]
+      if per_line == nil then
+        per_line = {}
+        hits[row[1]] = per_line
+      end
+      per_line[math.tointeger(tonumber(row[2]) or 0) or 0] = true
+    end
   end
-  credited[run_at_ns] = out
-  return out
+  return ""
 end
 
 --- The two coverage tables share their first three fields. Reuse their
@@ -351,19 +388,133 @@ local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
   return statement:reset()
 end
 
+--- How many rows one multi-row INSERT carries before it steps. Modest
+--- on purpose: SQLite's parameter ceiling is far higher, but a longer
+--- statement costs its own parse time, and the win is already in
+--- trading six Lua-to-C calls per row for a fraction of one.
+local insert_batch = 100
+
+--- `n` value groups `(<run_at_ns>, ?, ?, ?)`, indexed contiguously from
+--- 1, for a batch insert into either coverage table. `ran_at_ns` is the
+--- same for every row one run writes, so it is a literal rather than a
+--- parameter rebound once per row for nothing.
+local function batch_values(run_at_ns: integer, n: integer): string
+  local groups: {string} = {}
+  for row = 0, n - 1 do
+    groups[row + 1] = string.format("(%d, ?%d, ?%d, ?%d)",
+      run_at_ns, row * 3 + 1, row * 3 + 2, row * 3 + 3)
+  end
+  return table.concat(groups, ", ")
+end
+
+--- Rows waiting for one of the coverage tables: a full `insert_batch`
+--- of them goes in one step of `whole`, and whatever is left when the
+--- caller is done goes through `single`, one row at a time. Both
+--- tables share their first three columns; the last is `hit` for
+--- `coverage` and `test` for `coverage_by_test`.
+local record Batch
+  whole: Sqlite.Statement
+  single: Sqlite.Statement
+  run_at_ns: integer
+  paths: {string}
+  lines: {integer}
+  lasts: {integer | string}
+  pending: integer
+end
+
+local function batch_for(handle: Sqlite.Handle, single: Sqlite.Statement,
+                         run_at_ns: integer, into: string,
+                         last_column: string): Batch | nil, string
+  local whole, trouble = handle:prepare("INSERT INTO " .. into ..
+    " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
+    batch_values(run_at_ns, insert_batch))
+  if whole == nil then
+    return nil, trouble
+  end
+  return { whole = whole, single = single, run_at_ns = run_at_ns,
+           paths = {}, lines = {}, lasts = {}, pending = 0 }
+end
+
+--- Steps `whole` once over a full batch, then empties it.
+local function flush(batch: Batch): boolean, string
+  local statement = batch.whole
+  for row = 1, batch.pending do
+    local base = (row - 1) * 3
+    local ok, trouble = statement:bind_text(base + 1, batch.paths[row])
+    if ok then
+      ok, trouble = statement:bind_integer(base + 2, batch.lines[row])
+    end
+    if ok then
+      local last = batch.lasts[row]
+      if last is integer then
+        ok, trouble = statement:bind_integer(base + 3, last)
+      else
+        ok, trouble = statement:bind_text(base + 3, last)
+      end
+    end
+    if not ok then
+      return false, trouble
+    end
+  end
+  local state, failure = statement:step()
+  if state == nil then
+    return false, failure
+  end
+  batch.pending = 0
+  return statement:reset()
+end
+
+--- Queues one row, writing the batch out when it fills.
+local function add(batch: Batch, path: string, line: integer,
+                   last: integer | string): boolean, string
+  local n = batch.pending + 1
+  batch.paths[n] = path
+  batch.lines[n] = line
+  batch.lasts[n] = last
+  batch.pending = n
+  if n == insert_batch then
+    return flush(batch)
+  end
+  return true, ""
+end
+
+--- Writes the rows short of a full batch, one at a time.
+local function drain(batch: Batch): boolean, string
+  for row = 1, batch.pending do
+    local ok, trouble = insert_coverage(batch.single, batch.run_at_ns,
+      batch.paths[row], batch.lines[row], batch.lasts[row])
+    if not ok then
+      return false, trouble
+    end
+  end
+  batch.pending = 0
+  return true, ""
+end
+
+--- The keys of `set`, ascending.
+local function sorted_lines(set: {integer: any}): {integer}
+  local out: {integer} = {}
+  for line in pairs(set) do
+    out[#out + 1] = line
+  end
+  table.sort(out)
+  return out
+end
+
 --- Every line `build.coverage.report` found for every non-vendor module
---- `modules` holds, added as a new snapshot for `run_at_ns`: nothing in
---- `test_runs`/`coverage`/`coverage_by_test` is ever deleted, so a
---- file's coverage trend over many runs is a plain query away rather
---- than only the latest run's numbers. Also writes, for every test
---- that ran, which of the lines it hit into `coverage_by_test`, tagged
---- with that test's own identity (`by_test`, keyed by "path name" the
---- same way a failure line already identifies a test elsewhere in this
---- file); a test whose verdict stood is not in `by_test`, since its
---- rows from the run that produced them still stand for it. Two
---- statements, prepared once, since this is a hundred thousand rows a
---- run. Returns the overall hit and executable-line counts, over every
---- module written for this run, for the run's own verdict line.
+--- `modules` holds, added as a new snapshot for `run_at_ns`: rows here
+--- are never replaced, only later pruned by `prune_history`, so a
+--- file's coverage trend over the kept window of runs is a plain
+--- query away rather than only the latest run's numbers. Also writes,
+--- for every test that ran, which of the lines it hit into
+--- `coverage_by_test`, tagged with that test's own identity (`by_test`,
+--- keyed by "path name" the same way a failure line already identifies
+--- a test elsewhere in this file); a test whose verdict stood is not
+--- in `by_test`, since its rows from the run that produced them still
+--- stand for it. Two statements, prepared once, since this is a
+--- hundred thousand rows a run. Returns the overall hit and
+--- executable-line counts, over every module written for this run,
+--- for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               hits: Coverage.Hits,
@@ -389,38 +540,95 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     coverage:finalize()
     return 0, 0, test_trouble
   end
+  local coverage_rows, coverage_batch_trouble =
+    batch_for(handle, coverage, run_at_ns, "coverage", "hit")
+  if coverage_rows == nil then
+    coverage:finalize()
+    per_test:finalize()
+    return 0, 0, coverage_batch_trouble
+  end
+  local per_test_rows, per_test_batch_trouble =
+    batch_for(handle, per_test, run_at_ns, "coverage_by_test", "test")
+  if per_test_rows == nil then
+    coverage:finalize()
+    per_test:finalize()
+    coverage_rows.whole:finalize()
+    return 0, 0, per_test_batch_trouble
+  end
+  -- Both tables are WITHOUT ROWID, keyed (ran_at_ns, path, line[, test]):
+  -- rows written in key order append at the right edge of the B-tree
+  -- instead of splitting pages at random positions, which alone is
+  -- most of the cost of writing them in hash order.
+  local sorted_modules: {importer.Module} = {}
+  for _, m in ipairs(modules) do
+    if m.kind ~= "vendor" then
+      sorted_modules[#sorted_modules + 1] = m
+    end
+  end
+  table.sort(sorted_modules, function(a: importer.Module, b: importer.Module): boolean
+    return a.path < b.path
+  end)
+  -- `by_test` is test-major; `coverage_by_test`'s key is path-major.
+  -- Regrouped once, touching every hit as often as the insert would.
+  local by_path: {string: {integer: {string}}} = {}
+  for test_name, test_hits in pairs(by_test) do
+    for path, per_line in pairs(test_hits) do
+      local lines_here = by_path[path]
+      if lines_here == nil then
+        lines_here = {}
+        by_path[path] = lines_here
+      end
+      for line in pairs(per_line) do
+        local tests_here = lines_here[line]
+        if tests_here == nil then
+          tests_here = {}
+          lines_here[line] = tests_here
+        end
+        tests_here[#tests_here + 1] = test_name
+      end
+    end
+  end
+  local paths_by_test: {string} = {}
+  for path in pairs(by_path) do
+    paths_by_test[#paths_by_test + 1] = path
+  end
+  table.sort(paths_by_test)
   local write_rows = function(): boolean, string
-    for _, m in ipairs(modules) do
-      if m.kind ~= "vendor" then
-        local per_line, lines_trouble = coverage_report.lines_of(built, m, hits)
-        if per_line == nil then
-          return false, m.file .. ": " .. lines_trouble
+    for _, m in ipairs(sorted_modules) do
+      local per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
+      if per_line == nil then
+        return false, m.file .. ": " .. lines_trouble
+      end
+      for _, line in ipairs(sorted_lines(per_line)) do
+        local was_hit = per_line[line]
+        local ok, write_trouble = add(coverage_rows, m.path, line, was_hit and 1 or 0)
+        if not ok then
+          return false, write_trouble
         end
-        for line, was_hit in pairs(per_line) do
-          local ok, write_trouble = insert_coverage(coverage, run_at_ns,
-            m.path, line, was_hit and 1 or 0)
+        total_lines = total_lines + 1
+        if was_hit then
+          total_hit = total_hit + 1
+        end
+      end
+    end
+    local drained, drain_trouble = drain(coverage_rows)
+    if not drained then
+      return false, drain_trouble
+    end
+    for _, path in ipairs(paths_by_test) do
+      local lines_here = by_path[path]
+      for _, line in ipairs(sorted_lines(lines_here)) do
+        local tests_here = lines_here[line]
+        table.sort(tests_here)
+        for _, test_name in ipairs(tests_here) do
+          local ok, write_trouble = add(per_test_rows, path, line, test_name)
           if not ok then
             return false, write_trouble
-          end
-          total_lines = total_lines + 1
-          if was_hit then
-            total_hit = total_hit + 1
           end
         end
       end
     end
-    for test_name, test_hits in pairs(by_test) do
-      for path, per_line in pairs(test_hits) do
-        for line in pairs(per_line) do
-          local ok, write_trouble = insert_coverage(per_test, run_at_ns,
-            path, line, test_name)
-          if not ok then
-            return false, write_trouble
-          end
-        end
-      end
-    end
-    return true, ""
+    return drain(per_test_rows)
   end
   -- Keep the prepared statements from escaping when reporting a module's
   -- lines itself throws. Turn that exception into the same infrastructure
@@ -429,6 +637,8 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   local called, made, trouble = pcall(write_rows)
   coverage:finalize()
   per_test:finalize()
+  coverage_rows.whole:finalize()
+  per_test_rows.whole:finalize()
   if not called then
     return 0, 0, tostring(made)
   end
@@ -485,7 +695,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
                           hashes: {string:string}, runtime: string,
                           run_at_ns: integer, run: integer, tally: test.Tally,
                           process_reads: {observations.Observation},
-                          process_seen: {string:{string:{string:boolean}}})
+                          process_seen: {string:{string:{string:boolean}}},
+                          key_parts: {string:string})
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -532,19 +743,20 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
     local key = ""
     local prior_stable = false
     if was ~= nil then
-      key, prior_stable = verdict_key(root, hashes, id, m.key, runtime, prior_reads)
+      key, prior_stable = verdict_key(root, hashes, id, m.key, runtime, prior_reads,
+        key_parts)
     end
     local stood = prior_stable and verdicts[key] or nil
     if was ~= nil and stood ~= nil and stood.passed then
       -- The verdict stands: what the test read last time still hashes
       -- the same, and so does everything it was compiled from.
       tally.cached = tally.cached + 1
-      local by_id, credit_trouble = credited_hits(records, credited, stood.run_at_ns)
-      if by_id == nil then
-        errors[#errors + 1] = id .. ": coverage credit: " .. credit_trouble
-      else
-        merge_hits(hits, by_id[id] or {})
+      local owed = credited[stood.run_at_ns]
+      if owed == nil then
+        owed = {}
+        credited[stood.run_at_ns] = owed
       end
+      owed[#owed + 1] = id
       local kept, keep_trouble = record_run(records, m.path, name, true, "",
         Time.now_ns() or 0, prior_reads, key, stood.run_at_ns)
       if not kept then
@@ -574,7 +786,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
           by_test[id] = collected
         end
       end
-      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads)
+      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads,
+        key_parts)
       local saved, trouble = record_run(records, m.path, name, passed, message,
         Time.now_ns() or 0, reads, reached, run_at_ns, stable)
       if not saved then
@@ -621,18 +834,7 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
 
-  local built, load_trouble = teal.load()
-  if built == nil then
-    work.close(handle)
-    complain(load_trouble)
-    return 1
-  end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    complain(env_trouble)
-    return 1
-  end
+  local built = teal.lazy()
 
   -- Same staleness guard `cosmic <file.tl>` applies when the tree under
   -- test is cosmic's own: a stale tool would check and compile it with
@@ -654,7 +856,7 @@ function test.run(argv: {integer:string}): integer
     end
     if state == "teal" then
       complain("the tool is stale; rebuilding it from the tree")
-      local reboot_trouble = reboot.into(handle, built, env, argv)
+      local reboot_trouble = reboot.into(handle, built, argv)
       complain(reboot_trouble)
       return 3
     end
@@ -672,7 +874,7 @@ function test.run(argv: {integer:string}): integer
   end
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, tool)
+  local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
@@ -754,22 +956,30 @@ function test.run(argv: {integer:string}): integer
   -- input to later code that receives that already-loaded helper.
   local process_reads: {observations.Observation} = {}
   local process_seen: {string:{string:{string:boolean}}} = {}
+  -- The same (kind, relative, answer) triple's encoded key line recurs
+  -- across most of the run's tests; see `verdict_key`.
+  local key_parts: {string:string} = {}
   for _, m in ipairs(result.modules) do
     if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
         verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
-        process_reads, process_seen)
+        process_reads, process_seen, key_parts)
     end
   end
   local total = tally.ran + tally.cached
+
+  local credit_trouble = credit_hits(records, credited, hits)
+  if credit_trouble ~= "" then
+    errors[#errors + 1] = "coverage credit: " .. credit_trouble
+  end
 
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
   if cov_trouble ~= "" then
     errors[#errors + 1] = "coverage: " .. cov_trouble
   end
-  local pruned, prune_trouble = prune_verdicts(records, handle.run)
+  local pruned, prune_trouble = prune_history(records, handle.run)
   if not pruned then
     errors[#errors + 1] = "prune: " .. prune_trouble
   end

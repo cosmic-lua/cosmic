@@ -21,6 +21,26 @@ local function text(value: string): Sqlite.Value
   return { text = value }
 end
 
+--- The signature already recorded inside the projection at `path`, or
+--- `""` when there is none to trust: no file there, a file that is not
+--- a database, or a database with no `projected` row. Read straight
+--- from the file itself rather than from any record kept elsewhere, so
+--- a file that drifted from that other record is never mistaken for
+--- what it describes.
+local function projected_signature(path: string): string
+  local handle = Sqlite.open(path, false)
+  if handle == nil then
+    return ""
+  end
+  local rows = Sqlite.text_rows(handle,
+    "SELECT value FROM meta WHERE key = 'projected'")
+  handle:close()
+  if rows == nil or #rows == 0 then
+    return ""
+  end
+  return rows[1][1]
+end
+
 --- The shipped modules: this run's plan joined to the inputs it named
 --- and the compiles it found or made, with a test or example module's
 --- own names alongside.
@@ -187,9 +207,20 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
-    return Sqlite.run(db,
+    local carried_main, main_trouble = Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
       { text(result.main or "") })
+    if not carried_main then
+      return false, main_trouble
+    end
+    local signed, sign_trouble = Sqlite.text_rows(db, signature_sql(),
+      { text(result.main or ""), text("portable-v1") })
+    if signed == nil then
+      return false, sign_trouble
+    end
+    return Sqlite.run(db,
+      "INSERT INTO out.meta (key, value) VALUES ('projected', ?1)",
+      { text(signed[1][1]) })
   end)
   if not made then
     return false, refused
@@ -220,12 +251,7 @@ function writer.write_result(handle: work.Handle, out: string,
     return false, sign_trouble
   end
   local signature = signed[1][1]
-  local last, last_trouble = Sqlite.text_rows(db,
-    "SELECT value FROM meta WHERE key = 'projected'")
-  if last == nil then
-    return false, last_trouble
-  end
-  if #last > 0 and last[1][1] == signature and Fs.exists(out) then
+  if projected_signature(out) == signature then
     return true, ""
   end
 
@@ -238,13 +264,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if not projected then
     return false, trouble
   end
-  local renamed, rename_trouble = Fs.rename(out .. ".building", out)
-  if not renamed then
-    return false, rename_trouble
-  end
-  return Sqlite.run(db,
-    "INSERT OR REPLACE INTO meta (key, value) VALUES ('projected', ?1)",
-    { text(signature) })
+  return Fs.rename(out .. ".building", out)
 end
 
 return writer

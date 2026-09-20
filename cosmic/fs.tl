@@ -19,7 +19,8 @@ end
 
 local chunk_size = 1 << 16
 
---- The whole of a file.
+--- The whole of a file as bytes. Use this for the common io.open/io.read or
+--- io.lines case when streaming and Lua file handles are unnecessary.
 function Fs.read(path: string): string | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
@@ -56,7 +57,8 @@ local function write_all(fd: integer, data: string): boolean, string
   return true, ""
 end
 
---- Replaces a file atomically for readers, and leaves the old contents in
+--- Writes all bytes, replacing the path. This is the whole-file alternative
+--- to io.open/io.write. Replaces a file atomically for readers, and leaves the old contents in
 --- place if anything before the rename fails. This provides atomic visibility,
 --- not crash durability: neither the file nor its directory is synchronized.
 function Fs.write(path: string, data: string, mode?: integer): boolean, string
@@ -138,7 +140,8 @@ function Fs.mkdtemp(prefix: string): string | nil, string
   return path
 end
 
---- Removes a name. A name that is already gone is not a failure.
+--- Removes a name: the path operation corresponding to os.remove. A name that
+--- is already gone is not a failure.
 function Fs.remove(path: string): boolean, string
   local gone, trouble = sys.unlink(path)
   if not gone and sys.stat(path) ~= nil then
@@ -206,7 +209,8 @@ function Fs.absolute(path: string): string | nil, string
   return resolved
 end
 
---- Moves a name, replacing the destination if it is there.
+--- Moves a name, replacing the destination if it is there; this corresponds
+--- to os.rename.
 function Fs.rename(from: string, to: string): boolean, string
   local moved, trouble = sys.rename(from, to)
   if not moved then
@@ -215,8 +219,9 @@ function Fs.rename(from: string, to: string): boolean, string
   return true, ""
 end
 
---- Opens a file for reading and returns its descriptor. Most callers
---- want `read` instead; this is for one that reads in pieces.
+--- The Lua io module and io.open handles are unavailable. This opens a file
+--- for reading and returns an integer descriptor instead. Most callers want
+--- `Fs.read`; use Fs.take and Fs.close when a file must be read in pieces.
 function Fs.open_read(path: string): integer | nil, string
   local fd, trouble = sys.open(path, sys.O_RDONLY)
   if fd == nil then
@@ -225,7 +230,9 @@ function Fs.open_read(path: string): integer | nil, string
   return fd
 end
 
---- Opens a file for writing, creating it and emptying it.
+--- Opens a file for writing, creating it and emptying it, and returns an
+--- integer descriptor rather than an io.open file handle. Use Fs.put and
+--- Fs.close; Fs.write is safer when the whole replacement is available.
 function Fs.open_write(path: string, mode?: integer): integer | nil, string
   local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
   local fd, trouble = sys.open(path, flags, mode or 0x1a4)
@@ -235,8 +242,8 @@ function Fs.open_write(path: string, mode?: integer): integer | nil, string
   return fd
 end
 
---- Reads up to `count` bytes from a descriptor. An empty string is the
---- end of the file.
+--- Reads up to `count` bytes from a descriptor. This is the streaming byte
+--- operation in place of io.read; an empty string is the end of the file.
 function Fs.take(fd: integer, count: integer): string | nil, string
   local data, trouble = sys.read(fd, count)
   if data == nil then
@@ -245,7 +252,8 @@ function Fs.take(fd: integer, count: integer): string | nil, string
   return data
 end
 
---- Closes a descriptor.
+--- Closes a descriptor returned by Fs.open_read or Fs.open_write; it does not
+--- accept a Lua io.close file handle.
 function Fs.close(fd: integer): boolean, string
   local ok, trouble = sys.close(fd)
   if not ok then
@@ -254,7 +262,8 @@ function Fs.close(fd: integer): boolean, string
   return true, ""
 end
 
---- Writes bytes to a stream, without a newline.
+--- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
+--- are the standard-stream descriptors used instead of io.write/io.output.
 function Fs.put(fd: integer, data: string): boolean, string
   return write_all(fd, data)
 end
