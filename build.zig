@@ -108,7 +108,6 @@ const core_sources = [_][]const u8{
     "coverage.c",
     "crypto.c",
     "locate.c",
-    "main.c",
     "sqlite.c",
     "store.c",
     "surface.c",
@@ -118,6 +117,7 @@ const core_sources = [_][]const u8{
 };
 
 pub fn build(b: *std.Build) void {
+    const portable_probe = b.option(bool, "portable-probe", "build the experimental external-artifact entry") orelse false;
     // The applier is a host tool, built before anything it feeds.
     const applier = b.addExecutable(.{
         .name = "patch",
@@ -142,8 +142,8 @@ pub fn build(b: *std.Build) void {
     // bridge reads the Teal compiler from.
     const vendored = b.step("vendor", "write the patched vendor trees");
     for ([_]struct { []const u8, std.Build.LazyPath }{
-        .{ "lua", lua },   .{ "sqlite", sqlite },
-        .{ "tl", tl },     .{ "miniz", miniz },
+        .{ "lua", lua },         .{ "sqlite", sqlite },
+        .{ "tl", tl },           .{ "miniz", miniz },
         .{ "mbedtls", mbedtls },
     }) |pair| {
         const install = b.addInstallDirectory(.{
@@ -159,7 +159,7 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, resolved, false, lua, sqlite, miniz, mbedtls);
+        const exe = core(b, resolved, false, lua, sqlite, miniz, mbedtls, portable_probe);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
@@ -186,7 +186,7 @@ pub fn build(b: *std.Build) void {
     // them. Both boot and the attached host executable use this image;
     // checked artifacts stay under o/sanitized.
     const sanitized = b.step("sanitized", "build and boot the checked core");
-    const checked = core(b, b.graph.host, true, lua, sqlite, miniz, mbedtls);
+    const checked = core(b, b.graph.host, true, lua, sqlite, miniz, mbedtls, portable_probe);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -252,6 +252,7 @@ fn core(
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
+    portable_probe: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
@@ -364,9 +365,9 @@ fn core(
         .flags = &mbedtls_flags,
     });
     for ([_][]const u8{
-        "include",  "core",      "drivers/builtin/include",
-        "drivers/builtin/src",   "dispatch", "utilities",
-        "platform", "extras",
+        "include",             "core",     "drivers/builtin/include",
+        "drivers/builtin/src", "dispatch", "utilities",
+        "platform",            "extras",
     }) |dir| {
         mod.addIncludePath(crypto.path(b, dir));
     }
@@ -383,6 +384,10 @@ fn core(
     mod.addCSourceFiles(.{
         .root = b.path("core"),
         .files = &core_sources,
+        .flags = &core_flags,
+    });
+    mod.addCSourceFile(.{
+        .file = b.path(if (portable_probe) "experiments/portable/entry.c" else "core/main.c"),
         .flags = &core_flags,
     });
     mod.addIncludePath(b.path("core"));

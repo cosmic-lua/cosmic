@@ -1,0 +1,62 @@
+name: portable experiment
+on:
+  push:
+    branches: [explore/portable-launch]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - run: bin/zig build boot -Dportable-probe=true
+      - run: timeout 30 o/bin/cosmic test
+      - run: experiments/portable/pack.sh
+      - name: build loader probes for each target
+        run: |
+          for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
+            bin/zig cc -target "$target" -O2 experiments/portable/payload.c -o "o/portable/payload-$target"
+            bin/zig cc -target "$target" -O2 -Wall -Wextra -Werror experiments/portable/probe.c -o "o/portable/probe-$target"
+          done
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: portable-experiment
+          path: |
+            o/portable/cosmic
+            o/portable/payload-*
+            o/portable/probe-*
+  execute:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-linux-musl
+          - runner: macos-15
+            target: aarch64-macos
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: portable-experiment
+          path: portable
+      - name: inspect kernel loading behavior
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          chmod +x portable/*
+          mkdir portable/probe-work
+          portable/probe-$TARGET "$PWD/portable/payload-$TARGET" "$PWD/portable/probe-work"
+      - name: execute identical portable bytes on this host
+        run: experiments/portable/check.sh "$PWD/portable/cosmic"
