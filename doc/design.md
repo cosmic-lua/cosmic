@@ -338,6 +338,8 @@ the database.
 
 the binary is a versioned portable artifact: a POSIX shell launcher, aligned
 raw core ranges, a fixed manifest, one SQLite database, and a fixed trailer.
+[The portable runtime implementation guide](guides/portable-runtime.md) follows
+those bytes through startup, project embedding, self-rebuild, and CI.
 the manifest is the sole authority for target/configuration, byte range, and
 sha256. the launcher retains an open descriptor before executing the selected
 core; startup validates the complete manifest and trailer against that same

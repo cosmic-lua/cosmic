@@ -1,0 +1,263 @@
+# portable runtime implementation
+
+Cosmic ships one file that starts on every supported host. An ordinary release
+artifact contains a POSIX shell launcher, three release cores, a manifest, a
+SQLite database, and a fixed trailer. A checked artifact adds one
+configuration-2 core for its build host. This guide follows those bytes from
+the build graph to a running program. [The design](../design.md) defines the
+format and trust rules; this guide explains where the implementation enforces
+them.
+
+The implementation passes control through four narrow stages:
+
+1. Zig builds the native cores and Teal boot assembles the portable artifact.
+2. The shell launcher selects and caches one core without reading the database.
+3. C startup validates the artifact and retains its descriptors before Lua runs.
+4. The immutable SQLite VFS exposes the validated database to the module store.
+
+Each handoff limits what the next stage must trust. The build graph produces raw
+inputs. Teal assembles the format. C checks the shell's selection against the
+artifact. SQLite reads only the validated database range.
+
+## build the raw inputs
+
+[`build.zig`](../../build.zig) owns native compilation. Its `cores` step builds
+the same C sources for `x86_64-linux-musl`, `aarch64-linux-musl`, and
+`aarch64-macos`. It also writes `o/targets.tsv`. Each record gives a stable
+numeric identity, configuration, target name, and `uname` pair.
+
+The generated records are the authority shared by Zig, the artifact writer,
+the launcher, and tests. A release build requires all three release records.
+The `sanitized` step adds one configuration-2 core for the build host. That
+checked core is a test artifact, not a fourth shipped target.
+
+The `boot` step runs the new host core in bridge mode. The C bridge loads the
+vendored Teal compiler from the staged tree, then calls
+[`build.boot`](../../build/boot.tl). This is the path that works when no older
+Cosmic executable exists.
+
+## separate working and shipped state
+
+Boot opens `o/build.db` through [`build.work`](../../build/work.tl). This is a
+mutable working database. It holds staged source, parsed forms, compiled
+modules, test verdicts, coverage, and recent build records. Raw cores remain
+files under `o/core`; they are never database rows.
+
+[`build.importer`](../../build/importer.tl) derives generated modules and
+compiles the staged tree. [`build.writer`](../../build/writer.tl) projects the
+result into `o/cosmic.db`, a fresh host-neutral database. The projection has a
+smaller schema, deterministic insertion order, natural keys, and no working
+history.
+
+The writer hashes the planned modules, declarations, build identities, main
+module, and format name. It stores that signature inside the projection. A
+later write skips work only when the file at the output path carries the same
+signature. A side record in `o/build.db` cannot make a replaced output look
+current.
+
+The running projection exposes its identities through
+[`cosmic.store`](../../cosmic/store.tl). This example runs with the guide:
+
+```teal
+local Store = require("cosmic.store")
+
+assert(Store.meta("compiler") ~= nil)
+assert(Store.meta("runtime_basis") ~= nil)
+assert(Store.meta("projected") ~= nil)
+print("projection identities: present")
+```
+
+```output
+projection identities: present
+```
+
+The database stays host-neutral. The selected system and core identity come
+from the validated manifest. `runtime_basis` comes from the projection and
+covers the Lua and Teal pins and patches. Together they prevent a test verdict
+from one runtime context from standing in another.
+
+## write the portable layout
+
+[`build.artifact`](../../build/artifact.tl) parses `targets.tsv`, reads each raw
+core, and renders launcher arms with
+[`build.launcher`](../../build/launcher.tl). It aligns every core range, hashes
+the exact bytes, and writes one fixed-size manifest entry per target and
+configuration. Unused manifest space is zero.
+
+`artifact.program` appends a projected database and fixed trailer to the shared
+prefix:
+
+The regions appear in this order; their sizes are not to scale:
+
+| Region | Role |
+| --- | --- |
+| Shell launcher | Select a generated target and prepare a verified core. |
+| Aligned core ranges | Hold the exact native bytes named by the manifest. |
+| 4 KiB manifest | Bind identities to core offsets, lengths, and digests. |
+| SQLite database | Hold the host-neutral module projection. |
+| Fixed trailer | Locate the manifest and database and bind the file size. |
+
+Manifest and trailer offsets are relative to the whole file. Integer range
+checks happen before addition. Core ranges cannot overlap. Identities must be
+unique. The database must begin with the SQLite header.
+[`core/portable.c`](../../core/portable.c) checks these rules again before the
+runtime trusts a range.
+
+The running build receives a private capability for its validated artifact.
+`build.artifact.trusted_prefix` reads the reusable prefix through that
+capability and never reopens the executable pathname. This tested example
+observes the prefix's shell header and manifest marker:
+
+```teal
+local artifact = require("build.artifact")
+
+local prefix = assert(artifact.trusted_prefix())
+assert(prefix:sub(1, 10) == "#!/bin/sh\n")
+assert(prefix:find("CosmicM1", 1, true) ~= nil)
+print("retained portable prefix: valid")
+```
+
+```output
+retained portable prefix: valid
+```
+
+The stronger retention guarantee comes from
+[`core/store.c`](../../core/store.c), which rehashes every manifest core range
+before returning retained prefix bytes. `runtime_test.sh` and
+`self_rebuild.sh` exercise that guarantee across rename, unlink, replacement,
+and database-only rebuilds.
+
+## select and cache one core
+
+The generated shell in [`build.launcher`](../../build/launcher.tl) maps
+`uname -s` and `uname -m` to a generated release record. It opens the artifact
+before changing the cache. It validates the cache leaf's kind, owner, mode,
+and contents. The cache parent is the user's trust boundary.
+
+On a cold start, the launcher copies the selected manifest range to a private
+temporary file, verifies its length and SHA-256 digest, sets its mode, and
+publishes it atomically. On a warm start it hashes the complete cached core
+again. A symlink, unexpected entry, wrong owner or mode, short core, or digest
+mismatch stops before execution.
+
+The launcher reserves two unused descriptors: one for the complete artifact
+and one for the selected core. It passes their numbers, the selected identity,
+ranges, and digests in a bounded `COSMIC_PORTABLE_*` environment.
+`COSMIC_PORTABLE_CACHE` is the only public setting in that namespace.
+
+## validate before Lua starts
+
+[`core/startup.c`](../../core/startup.c) consumes the private launch contract.
+It rejects a missing, partial, or malformed field, then clears the private
+environment names before Lua runs. The manifest decoder separately rejects
+duplicate target and configuration identities.
+
+Startup decodes the trailer and complete manifest from the retained artifact
+descriptor. It proves that the selected entry matches the core compiled for
+this process. It hashes the retained core descriptor and compares its device
+and inode with the executing image. The shell's choice is a request, not
+authority.
+
+Startup keeps the artifact descriptor for the process lifetime. Rename,
+unlink, or atomic replacement of the logical pathname cannot change the bytes
+used by this process. Editing the same inode in place is unsupported. Failures
+name the violated contract, close adopted descriptors, and exit before the
+module store opens.
+
+## expose one immutable database
+
+[`core/vfs.c`](../../core/vfs.c) registers a small SQLite virtual file system.
+Its only main file is the validated database range on the retained artifact
+descriptor. Reads outside that range fail. The logical executable path is an
+opaque SQLite key; the VFS never reopens it.
+
+SQLite opens the range read-only with `immutable=1`. The runtime creates no
+journal beside the artifact. [`core/store.c`](../../core/store.c) installs the
+database as the last module source and derives runtime metadata from validated
+startup context plus the projection's `runtime_basis`.
+
+This immutable shipped database is distinct from `o/build.db`. The latter is
+ordinary mutable developer state and can have SQLite journals. Investigation
+of delayed cold-journal materialization for that working database remains a
+follow-up. It has no established cause or fix, and does not change the
+portable artifact's immutable database contract.
+
+## build a project with the same prefix
+
+`cosmic build` enters [`build.embed`](../../build/embed.tl). It stages and
+compiles the project into the project's `o/cosmic.db`. The projection copies
+needed standard-library modules, then adds project modules, files, and a main
+entry.
+
+The output database contains no raw cores. `embed.tree` obtains the exact
+retained prefix and calls `artifact.program` for each application. Applications
+built together share launcher, core, and manifest bytes while their database
+suffixes differ. Output appears only after the complete database and program
+are written. A library tree with no `cmd/<name>/main.tl` produces no executable.
+
+## rebuild without replacing cores
+
+Two own-tree paths compare fingerprints through
+[`build.reboot`](../../build/reboot.tl): `cosmic test` and direct execution of a
+Teal source file. A Teal-only change can reuse the validated prefix. The
+rebuild projects a new database, combines it with that prefix, atomically
+replaces the logical artifact, and re-executes the original arguments and
+environment once.
+
+A marker rejects a second rebuild loop. A core-input change cannot reuse the
+prefix and exits with the instruction to run `bin/zig build boot`. This keeps a
+database-only rebuild fast without claiming old native code matches new C,
+Zig, or vendor inputs. Retained-descriptor access also lets a database-only
+rebuild finish after the starting artifact is renamed or unlinked.
+
+## test identity and transport
+
+[`build.test`](../../build/test.tl) keys a verdict by the compiled test, every
+observed file and directory answer, and runtime identity. An unchanged
+application database cannot hide a changed core or runtime basis. Verdict and
+coverage history live only in `o/build.db` and are bounded.
+
+The fixtures under [`test/portable`](../../test/portable/) divide the runtime
+contract into observable boundaries:
+
+- `format.sh` and `format_test.c` reject malformed lengths, offsets,
+  identities, overlap, padding, and database headers.
+- `launcher_test.sh` covers cache policy, digest failures, descriptor pressure,
+  signals, and publication races.
+- `runtime_test.sh` covers retained descriptors, replacement and unlink,
+  immutable database reads, and mismatch rejection.
+- `self_rebuild.sh` proves one re-entry, exact prefix reuse, and core-change
+  refusal.
+- `identity_test.sh` moves one working database through release and checked
+  contexts and proves which verdicts run or stand.
+- `full_suite.sh` snapshots the raw working database immediately and across a
+  workflow boundary. Integrity checks use disposable copies, so inspection
+  cannot recover or alter captured bytes.
+
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
+the release product independently on Linux x86-64, Linux ARM64, and macOS
+ARM64. A checked core runs the suite with undefined-behavior checking.
+Canonical jobs execute one transported artifact unchanged on each host. Alpine
+exercises the POSIX launcher offline. The provenance job compares the complete
+artifact, database, applications, manifest, and raw cores from all producers.
+
+These lanes express the support rule: a target exists only when Zig builds it,
+its native runner executes the suite, and the portable boundary tests pass.
+
+## trust boundaries and limits
+
+- Generated target records authorize identities. Host strings alone do not.
+- The cache parent belongs to the user. The cache leaf is checked every start.
+- C validates the shell handoff against retained bytes and compiled identity.
+- A retained descriptor, not a pathname, identifies the running artifact.
+- The VFS exposes only the validated database range and never writes it.
+- The working database is mutable local state. It never ships.
+- Atomic replacement after adoption is supported. In-place mutation is not.
+- Release artifacts select configuration 1. Checked artifacts select their
+  single configuration-2 host entry and exist for tests.
+
+These divisions keep failures local. The shell can refuse an unsafe cache
+without parsing SQLite. Startup can reject a forged handoff without trusting
+the shell. SQLite can read an immutable range without knowing the portable
+format. The build can replace a database suffix without rebuilding native
+cores.
