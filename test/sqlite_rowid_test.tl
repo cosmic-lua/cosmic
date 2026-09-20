@@ -28,3 +28,15 @@ local function test_close_is_idempotent()
   assert(Sqlite.close(db))
   assert(Sqlite.close(db))
 end
+
+local function test_exec_runs_several_statements_one_run_cannot()
+  local db = assert(Sqlite.memory())
+  assert(Sqlite.exec(db,
+    "CREATE TABLE a (value TEXT); CREATE TABLE b (value TEXT)"))
+  assert(Sqlite.exec(db, "INSERT INTO a VALUES ('x'); INSERT INTO b VALUES ('y')"))
+  local a = assert(Sqlite.text_rows(db, "SELECT value FROM a"))
+  local b = assert(Sqlite.text_rows(db, "SELECT value FROM b"))
+  assert(#a == 1 and a[1][1] == "x")
+  assert(#b == 1 and b[1][1] == "y")
+  db:close()
+end
