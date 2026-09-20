@@ -46,8 +46,191 @@ jobs:
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
 
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
+      - name: prepare the unchanged portable runtime and integrity probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          diagnostics="$RUNNER_TEMP/work-db-diagnostics"
+          mkdir -p "$diagnostics"
+          cp test/portable/work_db_integrity.tl.in \
+            "$RUNNER_TEMP/work_db_integrity.tl"
+          cat > "$RUNNER_TEMP/snapshot-work-db" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          label=${1:?usage: snapshot-work-db LABEL}
+          snapshot="$RUNNER_TEMP/work-db-diagnostics/$label"
+          mkdir -p "$snapshot"
+          cp "$GITHUB_WORKSPACE/o/build.db" "$snapshot/build.db"
+          if [ -e "$GITHUB_WORKSPACE/o/build.db-journal" ]; then
+            cp "$GITHUB_WORKSPACE/o/build.db-journal" \
+              "$snapshot/build.db-journal"
+          fi
+          wc -c "$snapshot/build.db" > "$snapshot/build.db.bytes"
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$snapshot" && sha256sum build.db > build.db.sha256)
+            if [ -e "$snapshot/build.db-journal" ]; then
+              (cd "$snapshot" && sha256sum build.db-journal > \
+                build.db-journal.sha256)
+            fi
+          else
+            (cd "$snapshot" && shasum -a 256 build.db > build.db.sha256)
+            if [ -e "$snapshot/build.db-journal" ]; then
+              (cd "$snapshot" && shasum -a 256 build.db-journal > \
+                build.db-journal.sha256)
+            fi
+          fi
+          if [ -e "$snapshot/build.db-journal" ]; then
+            wc -c "$snapshot/build.db-journal" > \
+              "$snapshot/build.db-journal.bytes"
+          fi
+          set +e
+          (
+            cd "$RUNNER_TEMP"
+            "$GITHUB_WORKSPACE/o/bin/cosmic" work_db_integrity.tl \
+              "$snapshot/build.db"
+          ) >"$snapshot/integrity.out" 2>"$snapshot/integrity.err"
+          status=$?
+          set -e
+          cat "$snapshot/integrity.out"
+          cat "$snapshot/integrity.err" >&2
+          exit "$status"
+          SH
+          chmod 755 "$RUNNER_TEMP/snapshot-work-db"
+          o/bin/cosmic test/portable/write_runtime_fixture.tl \
+            o/targets.tsv o/core o/cosmic.portable.db \
+            "$RUNNER_TEMP/cosmic-portable"
+          chmod 755 "$RUNNER_TEMP/cosmic-portable"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$RUNNER_TEMP/cosmic-portable" > \
+              "$diagnostics/portable-artifact.before.sha256"
+          else
+            shasum -a 256 "$RUNNER_TEMP/cosmic-portable" > \
+              "$diagnostics/portable-artifact.before.sha256"
+          fi
+          wc -c "$RUNNER_TEMP/cosmic-portable" > \
+            "$diagnostics/portable-artifact.before.bytes"
+          ls -l "$RUNNER_TEMP/cosmic-portable" > \
+            "$diagnostics/portable-artifact.before.listing"
+
+      - name: run every native test and snapshot the working database
+        id: native-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          diagnostics="$RUNNER_TEMP/work-db-diagnostics"
+          snapshot="$diagnostics/native-immediate"
+          mkdir -p "$snapshot"
+          if command -v timeout >/dev/null 2>&1; then
+            bound=(timeout 30)
+          elif command -v gtimeout >/dev/null 2>&1; then
+            bound=(gtimeout 30)
+          else
+            bound=()
+            echo "::notice::timeout is unavailable; the native suite runs once under the existing 20-minute job bound"
+          fi
+          set +e
+          "${bound[@]}" o/bin/cosmic test > \
+            "$diagnostics/native-test.out" 2>"$diagnostics/native-test.err"
+          status=$?
+          set -e
+          cat "$diagnostics/native-test.out"
+          cat "$diagnostics/native-test.err" >&2
+          "$RUNNER_TEMP/snapshot-work-db" native-immediate
+          [ "$status" -eq 0 ]
+          grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood\)' \
+            "$diagnostics/native-test.out" >/dev/null
+
+      - name: verify the native snapshot survives the workflow boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          diagnostics="$RUNNER_TEMP/work-db-diagnostics"
+          immediate="$diagnostics/native-immediate"
+          boundary="$diagnostics/native-boundary"
+          "$RUNNER_TEMP/snapshot-work-db" native-boundary
+          cmp "$immediate/build.db.sha256" "$boundary/build.db.sha256"
+          if [ -e "$immediate/build.db-journal" ] || \
+             [ -e "$boundary/build.db-journal" ]; then
+            [ -e "$immediate/build.db-journal" ]
+            [ -e "$boundary/build.db-journal" ]
+            cmp "$immediate/build.db-journal" "$boundary/build.db-journal"
+          fi
+
+      - name: run every test through unchanged portable Cosmic
+        id: portable-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          diagnostics="$RUNNER_TEMP/work-db-diagnostics"
+          snapshot="$diagnostics/portable-immediate"
+          cache="$RUNNER_TEMP/portable-full-suite-cache"
+          mkdir -p "$snapshot"
+          if command -v timeout >/dev/null 2>&1; then
+            bound=(timeout 30)
+          elif command -v gtimeout >/dev/null 2>&1; then
+            bound=(gtimeout 30)
+          else
+            bound=()
+            echo "::notice::timeout is unavailable; the portable suite runs once under the existing 20-minute job bound"
+          fi
+          set +e
+          COSMIC_PORTABLE_CACHE="$cache" \
+            "${bound[@]}" "$RUNNER_TEMP/cosmic-portable" test > \
+              "$diagnostics/portable-test.out" \
+              2>"$diagnostics/portable-test.err"
+          status=$?
+          set -e
+          cat "$diagnostics/portable-test.out"
+          cat "$diagnostics/portable-test.err" >&2
+          if [ -d "$cache" ]; then
+            find "$cache" -maxdepth 1 -type f -exec ls -l {} \; | sort > \
+              "$diagnostics/portable-cache-files.txt"
+          else
+            printf 'cache directory was not created\n' > \
+              "$diagnostics/portable-cache-files.txt"
+          fi
+          "$RUNNER_TEMP/snapshot-work-db" portable-immediate
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c "$diagnostics/portable-artifact.before.sha256"
+          else
+            shasum -a 256 -c "$diagnostics/portable-artifact.before.sha256"
+          fi
+          [ "$status" -eq 0 ]
+          grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood\)' \
+            "$diagnostics/portable-test.out" >/dev/null
+
+      - name: snapshot the final workflow boundary
+        id: final-work-db
+        if: always()
+        shell: bash
+        env:
+          PORTABLE_OUTCOME: ${{ steps.portable-test.outcome }}
+        run: |
+          set -euo pipefail
+          diagnostics="$RUNNER_TEMP/work-db-diagnostics"
+          immediate="$diagnostics/portable-immediate"
+          boundary="$diagnostics/portable-boundary"
+          [ -f o/build.db ]
+          "$RUNNER_TEMP/snapshot-work-db" portable-boundary
+          if [ "$PORTABLE_OUTCOME" = success ]; then
+            cmp "$immediate/build.db.sha256" "$boundary/build.db.sha256"
+            if [ -e "$immediate/build.db-journal" ] || \
+               [ -e "$boundary/build.db-journal" ]; then
+              [ -e "$immediate/build.db-journal" ]
+              [ -e "$boundary/build.db-journal" ]
+              cmp "$immediate/build.db-journal" "$boundary/build.db-journal"
+            fi
+          fi
+
+      - name: preserve working-database failure evidence
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: work-db-diagnostics-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/work-db-diagnostics
+            ${{ runner.temp }}/cosmic-portable
+          if-no-files-found: ignore
 
       - name: the tree renders exactly as `cosmic fix` would write it
         run: o/bin/cosmic fix --check .
