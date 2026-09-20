@@ -262,7 +262,8 @@ end
 --- other is read for it here, and one that is gone says so.
 local function verdict_key(root: string, hashes: {string:string}, id: string,
                            module_key: string, runtime: string,
-                           reads: {observations.Observation}):
+                           reads: {observations.Observation},
+                           key_parts: {string:string}):
                            string, boolean
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
@@ -305,7 +306,17 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
     if answers[identified] ~= nil and answers[identified] ~= current then
       stable = false
     end
-    lines[#lines + 1] = observations.key_part(kind, relative, answer)
+    -- The same (kind, relative, answer) triple recurs across the run's
+    -- tests constantly -- module loads and shared fixtures are read by
+    -- most of them -- so its encoded line, which does not depend on
+    -- anything but the triple itself, is worth remembering once.
+    local memo_key = kind .. "\0" .. relative .. "\0" .. answer
+    local part = key_parts[memo_key]
+    if part == nil then
+      part = observations.key_part(kind, relative, answer)
+      key_parts[memo_key] = part
+    end
+    lines[#lines + 1] = part
   end
   return Hash.hex_sha256(table.concat(lines, "\n")), stable
 end
@@ -512,7 +523,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
                           hashes: {string:string}, runtime: string,
                           run_at_ns: integer, run: integer, tally: test.Tally,
                           process_reads: {observations.Observation},
-                          process_seen: {string:{string:{string:boolean}}})
+                          process_seen: {string:{string:{string:boolean}}},
+                          key_parts: {string:string})
   -- A module's own top-level code -- `local record X ... end`, `local Y
   -- = require(...)` and the like -- runs exactly once, right here, at
   -- first require, not once per test below. Left outside every
@@ -559,7 +571,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
     local key = ""
     local prior_stable = false
     if was ~= nil then
-      key, prior_stable = verdict_key(root, hashes, id, m.key, runtime, prior_reads)
+      key, prior_stable = verdict_key(root, hashes, id, m.key, runtime, prior_reads,
+        key_parts)
     end
     local stood = prior_stable and verdicts[key] or nil
     if was ~= nil and stood ~= nil and stood.passed then
@@ -601,7 +614,8 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
           by_test[id] = collected
         end
       end
-      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads)
+      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads,
+        key_parts)
       local saved, trouble = record_run(records, m.path, name, passed, message,
         Time.now_ns() or 0, reads, reached, run_at_ns, stable)
       if not saved then
@@ -766,12 +780,15 @@ function test.run(argv: {integer:string}): integer
   -- input to later code that receives that already-loaded helper.
   local process_reads: {observations.Observation} = {}
   local process_seen: {string:{string:{string:boolean}}} = {}
+  -- The same (kind, relative, answer) triple's encoded key line recurs
+  -- across most of the run's tests; see `verdict_key`.
+  local key_parts: {string:string} = {}
   for _, m in ipairs(result.modules) do
     if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
       modules_run = modules_run + 1
       run_module(records, m, failures, errors, hits, by_test, root, previous,
         verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
-        process_reads, process_seen)
+        process_reads, process_seen, key_parts)
     end
   end
   local total = tally.ran + tally.cached

@@ -44,10 +44,16 @@ function observations.join(first: {observations.Observation},
   return joined
 end
 
+--- Every byte's two-digit lowercase hex, built once: `gsub` accepts this
+--- table directly as its replacement, so encoding a string costs one
+--- table lookup per byte instead of one closure call.
+local hex_byte: {string:string} = {}
+for byte = 0, 255 do
+  hex_byte[string.char(byte)] = string.format("%02x", byte)
+end
+
 local function hex(data: string): string
-  return (data:gsub(".", function(byte: string): string
-    return string.format("%02x", string.byte(byte))
-  end))
+  return (data:gsub(".", hex_byte))
 end
 
 --- One framed contribution to a verdict key.
