@@ -14,7 +14,10 @@ local record Layout
   --- a `<name>_test.tl` file's own top-level `local function test_*`
   --- functions -- direct elements of the file, never inside another
   --- statement -- are discovered and run by `cosmic test`. No return
-  --- value and no registration; the name alone is the rule
+  --- value and no registration; the name alone is the rule. Its
+  --- verdict line's "N ran, M stood" is `test.Tally`: ran counts
+  --- tests actually executed this time, stood the ones answered from
+  --- an unchanged prior verdict instead
   test: string
 end
 
