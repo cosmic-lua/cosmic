@@ -624,6 +624,11 @@ takes paths to narrow it, ends in a verdict line and an exit code,
 and `cosmic help <verb>` is the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
 
+from a project, `docs` and `uses` answer for the project's own code
+and for the public standard library, `cosmic.*` less `internal` and
+tests: what a builder reads, never the build that made the binary.
+inside cosmic's own tree they answer for everything.
+
 `fix` rather than `format`, because there is one verb and not two: it
 parses, applies whatever structural rewrites the lint has earned, and
 renders the result rather than splicing it, so a fix reads the same as
