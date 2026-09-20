@@ -116,6 +116,10 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   if database == nil then
     return read_trouble
   end
+  local closed, close_trouble = work.close(handle)
+  if not closed then
+    return close_trouble
+  end
   local out = root .. "/o/bin/cosmic"
   local attached, attach_trouble = attach.write(out .. ".new", host, image, database)
   if not attached then
@@ -125,7 +129,6 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   if not renamed then
     return rename_trouble
   end
-  work.close(handle)
 
   local arguments: {string} = {}
   local at = 0
