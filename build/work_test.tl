@@ -44,3 +44,27 @@ local function test_assertion_failure_records_atomically(tmp: string)
   assert(count(reopened, "coverage") == 1)
   assert(reopened:close())
 end
+
+--- A warm database from the previous symbol schema is recreated before any
+--- cached parse or reference row can be trusted under the new semantics.
+local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
+  local old = assert(work.open(tmp))
+  assert(work.commit(old))
+  assert(Sqlite.run(old.db,
+    "UPDATE meta SET value = '13' WHERE key = 'schema'"))
+  assert(Sqlite.run(old.db,
+    "INSERT INTO parsed (source_hash, has_return, export) VALUES ('old', 1, 'Old')"))
+  assert(Sqlite.run(old.db,
+    "INSERT INTO refs (source_hash, ordinal, module, member, line) " ..
+    "VALUES ('old', 1, 'cosmic.fs', 'read', 1)"))
+  assert(old.db:close())
+
+  local upgraded = assert(work.open(tmp))
+  assert(count(upgraded.db, "parsed") == 0)
+  assert(count(upgraded.db, "refs") == 0)
+  local columns = assert(Sqlite.text_rows(upgraded.db, "PRAGMA table_info(docs)"))
+  local names: {string: boolean} = {}
+  for _, row in ipairs(columns) do names[row[2]] = true end
+  assert(names["source_symbol"] and names["exported"])
+  assert(work.close(upgraded))
+end

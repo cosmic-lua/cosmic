@@ -513,25 +513,26 @@ local function test_documents_a_record_and_its_fields()
   assert(by_symbol["Thing"].kind == "record", by_symbol["Thing"].kind)
   assert(by_symbol["Thing"].signature == "local record Thing", by_symbol["Thing"].signature)
   assert(by_symbol["Thing"].text == "A thing.")
-  assert(by_symbol["Thing.path"].kind == "field")
-  assert(by_symbol["Thing.path"].signature == "path: string", by_symbol["Thing.path"].signature)
-  assert(by_symbol["Thing.path"].text == "Where it is.")
-  assert(by_symbol["Thing.Options"].kind == "record")
-  assert(by_symbol["Thing.Options"].text == "How it is opened.", by_symbol["Thing.Options"].text)
-  assert(by_symbol["Thing.Options.create"].kind == "field")
-  assert(by_symbol["Thing.Options.create"].text == "Whether to create it.")
-  assert(by_symbol["Thing.Kind"].kind == "enum")
-  assert(by_symbol["Thing.Kind.file"].kind == "value")
-  assert(by_symbol["Thing.Kind.file"].signature == "\"file\"")
-  assert(by_symbol["Thing:read"].kind == "method")
-  assert(by_symbol["Thing:read"].text == "Reads it.")
+  assert(by_symbol["path"].kind == "field")
+  assert(by_symbol["path"].source_symbol == "Thing.path")
+  assert(by_symbol["path"].signature == "path: string", by_symbol["path"].signature)
+  assert(by_symbol["path"].text == "Where it is.")
+  assert(by_symbol["Options"].kind == "record")
+  assert(by_symbol["Options"].text == "How it is opened.", by_symbol["Options"].text)
+  assert(by_symbol["Options.create"].kind == "field")
+  assert(by_symbol["Options.create"].text == "Whether to create it.")
+  assert(by_symbol["Kind"].kind == "enum")
+  assert(by_symbol["Kind.file"].kind == "value")
+  assert(by_symbol["Kind.file"].signature == "\"file\"")
+  assert(by_symbol["read"].kind == "method")
+  assert(by_symbol["read"].text == "Reads it.")
   local order: {string} = {}
   for _, entry in ipairs(all) do
     order[#order + 1] = entry.symbol
   end
   assert(table.concat(order, " ") ==
-    "Thing Thing.path Thing.Options Thing.Options.create Thing.Kind " ..
-    "Thing.Kind.dir Thing.Kind.file Thing:read", table.concat(order, " "))
+    "Thing path Options Options.create Kind Kind.dir Kind.file read",
+    table.concat(order, " "))
 end
 
 --- A type alias is a symbol of kind `type`; a documented top-level
@@ -577,6 +578,64 @@ local function test_finds_the_export_and_the_references()
   assert(table.concat(seen, ", ") ==
     "cosmic.fs read 6, cosmic.fs read 7, cosmic.hash hex 7, cosmic.hash sha256 7",
     table.concat(seen, ", "))
+end
+
+--- Reference identity follows the lexical binding, not the spelling. Every
+--- shadow hides the import only in its own scope, while reassignment makes
+--- later uses uncertain and therefore absent.
+local function test_references_respect_shadowing_loops_and_reassignment()
+  local source = lines({
+    "local Fs = require(\"cosmic.fs\")",
+    "Fs.read(\"before\")",
+    "local function parameter(Fs: any)",
+    "  Fs.read(\"shadowed parameter\")",
+    "end",
+    "do",
+    "  local Fs = {}",
+    "  Fs.read(\"shadowed block\")",
+    "end",
+    "for Fs in values do",
+    "  Fs.read(\"shadowed loop\")",
+    "end",
+    "Fs.read(\"after scopes\")",
+    "Fs = replacement",
+    "Fs.read(\"after reassignment\")",
+  })
+  local found = assert(positions.analyze(built, source, "fixture.tl"))
+  assert(#found.references == 2, tostring(#found.references))
+  assert(found.references[1].line == 2, tostring(found.references[1].line))
+  assert(found.references[2].line == 13, tostring(found.references[2].line))
+end
+
+--- Local import spellings are not target identity: two aliases of the same
+--- module produce the same canonical module/member pair.
+local function test_distinct_import_aliases_share_canonical_identity()
+  local found = assert(positions.analyze(built, lines({
+    'local Fs = require("cosmic.fs")',
+    'local disk = require("cosmic.fs")',
+    'Fs.read("one")',
+    'disk.read("two")',
+  }), "fixture.tl"))
+  assert(#found.references == 2)
+  for _, reference in ipairs(found.references) do
+    assert(reference.module == "cosmic.fs" and reference.member == "read")
+  end
+end
+
+--- The returned record name is display spelling. Renaming it leaves the same
+--- canonical exported member and its original definition location.
+local function test_export_record_name_is_not_symbol_identity()
+  local first = assert(positions.analyze(built, lines({
+    "local record First", "end", "function First.read()", "end", "return First",
+  }), "first.tl"))
+  local second = assert(positions.analyze(built, lines({
+    "local record Renamed", "end", "function Renamed.read()", "end", "return Renamed",
+  }), "second.tl"))
+  assert(first.docs[2].symbol == "read", first.docs[2].symbol)
+  assert(second.docs[2].symbol == "read", second.docs[2].symbol)
+  assert(first.docs[2].source_symbol == "First.read")
+  assert(second.docs[2].source_symbol == "Renamed.read")
+  assert(first.docs[2].line == 3 and second.docs[2].line == 3)
 end
 
 --- A chunk that returns nothing, or an expression that is not a plain

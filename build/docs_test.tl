@@ -28,8 +28,9 @@ local function database(rows: {{string}}, uses: {{string}},
   end
   for _, row in ipairs(rows) do
     assert(Sqlite.run(db,
-      "INSERT INTO docs (module, symbol, kind, signature, text, file, line) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+      "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
+      "signature, text, file, line) " ..
+      "VALUES (?1, ?2, ?2, 1, ?3, ?4, ?5, ?6, ?7)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { text = row[5] }, { text = row[6] }, { integer = math.tointeger(tonumber(row[7])) } }))
   end

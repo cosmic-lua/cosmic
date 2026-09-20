@@ -22,6 +22,8 @@ local record docs
   record Entry
     module: string
     symbol: string
+    source_symbol: string
+    exported: boolean
     kind: string
     signature: string
     text: string
@@ -95,25 +97,28 @@ local function example_boundary(symbol: string): string
 end
 
 local EXAMPLE_BOUNDARY_SQL =
-  "(e.text || ' ' || e.source || ' ') GLOB ('*' || d.symbol || '[^A-Za-z0-9_]*')"
+  "(e.text || ' ' || e.source || ' ') GLOB " ..
+  "('*' || d.source_symbol || '[^A-Za-z0-9_]*')"
 
 local columns =
-  "d.module, d.symbol, d.kind, d.signature, d.text, d.file, d.line, " ..
+  "d.module, d.symbol, d.source_symbol, d.exported, d.kind, d.signature, " ..
+  "d.text, d.file, d.line, " ..
   "(SELECT count(*) FROM uses u WHERE u.module = d.module AND u.symbol = d.symbol), " ..
   "CASE WHEN d.symbol = '' THEN 0 ELSE (SELECT count(*) FROM examples_fts " ..
   "JOIN examples e ON e.id = examples_fts.rowid " ..
   "WHERE e.module = d.module AND examples_fts MATCH " ..
-  "('\"' || replace(replace(d.symbol, '.', ' '), ':', ' ') || '\"') " ..
+  "('\"' || replace(replace(d.source_symbol, '.', ' '), ':', ' ') || '\"') " ..
   "AND " .. EXAMPLE_BOUNDARY_SQL .. ") END"
 
 local function entries_of(rows: {{string}}): {docs.Entry}
   local out: {docs.Entry} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
-      module = row[1], symbol = row[2], kind = row[3], signature = row[4],
-      text = row[5], file = row[6], line = math.tointeger(tonumber(row[7])) or 0,
-      uses = math.tointeger(tonumber(row[8])) or 0,
-      examples = math.tointeger(tonumber(row[9])) or 0,
+      module = row[1], symbol = row[2], source_symbol = row[3],
+      exported = row[4] == "1", kind = row[5], signature = row[6],
+      text = row[7], file = row[8], line = math.tointeger(tonumber(row[9])) or 0,
+      uses = math.tointeger(tonumber(row[10])) or 0,
+      examples = math.tointeger(tonumber(row[11])) or 0,
     }
   end
   return out
@@ -154,6 +159,7 @@ end
 local function named(db: Sqlite.Handle, query: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.symbol = ?1 " ..
+    "OR d.source_symbol = ?1 " ..
     "OR substr(d.symbol, -length(?1) - 1) = '.' || ?1 " ..
     "OR substr(d.symbol, -length(?1) - 1) = ':' || ?1 " ..
     "OR (d.symbol = '' AND d.module = ?1) ORDER BY d.module, d.id",
@@ -254,11 +260,12 @@ end
 --- The places that refer to `symbol` as declared, or to any symbol
 --- whose last name is `symbol`.
 local function uses_of(db: Sqlite.Handle, query: string): {docs.Use} | nil, string
+  local canonical = query:match("([^%.:]+)$") or query
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line FROM uses " ..
     "WHERE symbol = ?1 OR substr(symbol, -length(?1) - 1) = '.' || ?1 " ..
-    "OR substr(symbol, -length(?1) - 1) = ':' || ?1 " ..
-    "ORDER BY module, symbol, from_file, line", { text(query) })
+    "OR substr(symbol, -length(?1) - 1) = ':' || ?1 OR symbol = ?2 " ..
+    "ORDER BY module, symbol, from_file, line", { text(query), text(canonical) })
   if rows == nil then
     return nil, trouble
   end
@@ -436,7 +443,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
   else
-    lines[#lines + 1] = entry.module .. " " .. entry.symbol .. " (" ..
+    lines[#lines + 1] = entry.module .. " " .. entry.source_symbol .. " (" ..
       entry.file .. ":" .. entry.line .. ")"
     lines[#lines + 1] = "  " .. entry.signature
   end
@@ -459,7 +466,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
           marks[#marks + 1] = item.examples .. " example" ..
             (item.examples == 1 and "" or "s")
         end
-        lines[#lines + 1] = "  " .. item.kind .. " " .. item.symbol ..
+        lines[#lines + 1] = "  " .. item.kind .. " " .. item.source_symbol ..
           (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
       end
     end
@@ -470,7 +477,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
     end
     local examples = across(view,
       function(db: Sqlite.Handle): {docs.Example} | nil, string
-        return examples_for(db, entry.module, entry.symbol)
+        return examples_for(db, entry.module, entry.source_symbol)
       end, function(_: docs.Example): string return entry.module end)
     if examples ~= nil then
       for _, ex in ipairs(examples) do

@@ -35,8 +35,14 @@ local record positions
   --- type alias and each field or value it declares, a documented
   --- top-level value, or the module itself -- see `docs_of`.
   record DocEntry
-    --- `"Fs.read"`, `"Sqlite.Value.text"`; `""` for the module.
+    --- Canonical exported path (`"read"`, `"Value.text"`), or the
+    --- declaration spelling for a private entry; `""` for the module.
     symbol: string
+    --- The declaration spelling (`"Fs.read"`) retained for display and
+    --- source navigation. This is not identity.
+    source_symbol: string
+    --- Whether `symbol` is reachable through the returned module value.
+    exported: boolean
     --- `"module"`, `"function"`, `"method"`, `"record"`, `"interface"`,
     --- `"enum"`, `"type"`, `"field"`, `"value"`.
     kind: string
@@ -382,7 +388,9 @@ local function record_docs(lines: {string}, symbol: string,
           text = doc_before(comments, comments[#comments].y + 1)
         end
       end
-      out[#out + 1] = { symbol = symbol .. "." .. value, kind = "value",
+      local full = symbol .. "." .. value
+      out[#out + 1] = { symbol = full, source_symbol = full, exported = false,
+        kind = "value",
         signature = string.format("%q", value), text = text, line = def.y }
     end
     return
@@ -407,12 +415,14 @@ local function record_docs(lines: {string}, symbol: string,
       local nested = field.typename == "typedecl" and definition_of(field) or nil
       if nested ~= nil and (nested.typename == "record"
          or nested.typename == "interface" or nested.typename == "enum") then
-        out[#out + 1] = { symbol = field_symbol, kind = nested.typename,
+        out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
+          exported = false, kind = nested.typename,
           signature = line_at(lines, field.y),
           text = doc_before(comments, field.y), line = field.y }
         record_docs(lines, field_symbol, nested, out)
       else
-        out[#out + 1] = { symbol = field_symbol, kind = "field",
+        out[#out + 1] = { symbol = field_symbol, source_symbol = field_symbol,
+          exported = false, kind = "field",
           signature = line_at(lines, field.y),
           text = doc_before(comments, field.y), line = field.y }
       end
@@ -442,13 +452,14 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {positions.DocEntry
   local out: {positions.DocEntry} = {}
   local opening = module_doc(parsed)
   if #opening > 0 then
-    out[#out + 1] = { symbol = "", kind = "module", signature = "",
-      text = opening, line = 1 }
+    out[#out + 1] = { symbol = "", source_symbol = "", exported = true,
+      kind = "module", signature = "", text = opening, line = 1 }
   end
   for _, stmt in ipairs(parsed.node) do
     if (stmt.kind == "local_function" or stmt.kind == "record_function"
         or stmt.kind == "global_function") and not is_example_function(stmt) then
-      out[#out + 1] = { symbol = symbol_of(stmt),
+      local symbol = symbol_of(stmt)
+      out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
         kind = stmt.is_method and "method" or "function",
         signature = function_signature(lines, stmt),
         text = doc_before(stmt.comments, stmt.y), line = stmt.y }
@@ -464,7 +475,8 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {positions.DocEntry
            or def.typename == "interface" or def.typename == "enum") then
           kind = def.typename
         end
-        out[#out + 1] = { symbol = symbol, kind = kind,
+        out[#out + 1] = { symbol = symbol, source_symbol = symbol, exported = false,
+          kind = kind,
           signature = line_at(lines, stmt.y),
           text = doc_before(stmt.comments, stmt.y), line = stmt.y }
         if kind ~= "type" and def ~= nil then
@@ -480,12 +492,39 @@ local function docs_of(lines: {string}, parsed: ast.Parsed): {positions.DocEntry
         text = ""
       end
       if #text > 0 then
-        out[#out + 1] = { symbol = stmt.vars[1].tk or "", kind = "value",
+        local symbol = stmt.vars[1].tk or ""
+        out[#out + 1] = { symbol = symbol, source_symbol = symbol,
+          exported = false, kind = "value",
           signature = line_at(lines, stmt.y), text = text, line = stmt.y }
       end
     end
   end
   return out
+end
+
+--- Gives every declaration its stable address within the value returned by
+--- the module. The record name is a local implementation detail: both
+--- `Fs.read` and a renamed `Public.read` are the canonical member `read`.
+--- Declarations outside that returned surface stay indexed under their source
+--- spelling and are explicitly private.
+local function canonicalize_docs(entries: {positions.DocEntry}, export: string)
+  if export == "" then
+    return
+  end
+  local dot = export .. "."
+  local colon = export .. ":"
+  for _, entry in ipairs(entries) do
+    local source = entry.source_symbol
+    if source == export then
+      entry.exported = true
+    elseif source:sub(1, #dot) == dot then
+      entry.symbol = source:sub(#dot + 1)
+      entry.exported = true
+    elseif source:sub(1, #colon) == colon then
+      entry.symbol = source:sub(#colon + 1)
+      entry.exported = true
+    end
+  end
 end
 
 --- The source from one top-level statement's own start up to just
@@ -543,36 +582,60 @@ local function examples_of(lines: {string}, parsed: ast.Parsed): {positions.Exam
   return out
 end
 
---- The names a chunk binds at its top level to a `require`, each to
---- the module it names: `local Fs = require("cosmic.fs")` binds `Fs`.
---- Only this narrow shape, sitting directly among the top-level
---- statements -- the same slice `build.ast.requires` draws, for every
---- prefix rather than `cosmic.` alone.
-local function aliases_of(built: compiler, parsed: ast.Parsed): {string: string}, string
+--- Direct `local name = require("module")` bindings, keyed by the local
+--- declaration node. Scope and lifetime are handled by `references_of`;
+--- this pattern only recognizes the one import form whose identity is sure.
+local function aliases_of(built: compiler, parsed: ast.Parsed): {ast.Node: string}, string
   local pattern, trouble = ast.compile_pattern(built, "local $ALIAS = require($M)")
   if pattern == nil then
     return {}, trouble
   end
-  local top_level: {ast.Node: boolean} = {}
-  for _, stmt in ipairs(parsed.node) do
-    top_level[stmt] = true
-  end
-  local out: {string: string} = {}
+  local out: {ast.Node: string} = {}
   for _, hit in ipairs(ast.find_all(parsed.node, pattern)) do
     local alias = hit.caps["_ALIAS"]
     local named = hit.caps["_M"]
-    if top_level[hit.node] and alias ~= nil and alias.tk ~= nil
-       and named ~= nil and named.kind == "string" and named.conststr ~= nil then
-      out[alias.tk] = named.conststr
+    if alias ~= nil and alias.tk ~= nil and named ~= nil
+       and named.kind == "string" and named.conststr ~= nil then
+      out[hit.node] = named.conststr
     end
   end
   return out, ""
 end
 
---- Every `alias.member` a chunk reads, where `alias` is one of its
---- top-level require aliases: a reference from this module to that
---- member of the module the alias names, at the line it sits on. One
---- entry per member per line, in source order.
+local type Scopes = {{string: string}}
+
+local function binding(scopes: Scopes, name: string): string | nil
+  for index = #scopes, 1, -1 do
+    local value = scopes[index][name]
+    if value ~= nil then
+      return value ~= "" and value or nil
+    end
+  end
+  return nil
+end
+
+local function bind(scopes: Scopes, name: string, value: string)
+  scopes[#scopes][name] = value
+end
+
+--- Assignment changes the nearest lexical binding. An import binding never
+--- becomes definite again through ordinary assignment: propagation through
+--- arbitrary values would require checker identities, so uncertainty is
+--- represented by omitting later edges.
+local function invalidate(scopes: Scopes, name: string)
+  for index = #scopes, 1, -1 do
+    if scopes[index][name] ~= nil then
+      scopes[index][name] = ""
+      return
+    end
+  end
+end
+
+--- Every `alias.member` whose `alias` still resolves to a lexical direct
+--- require binding. Parameters, locals and loop variables shadow bindings;
+--- reassignment in any possibly-executed branch invalidates the outer alias.
+--- This is deliberately bounded: indirect aliases and unknown receiver types
+--- produce no edge rather than one guessed from spelling.
 local function references_of(built: compiler, parsed: ast.Parsed): {positions.Reference}, string
   local aliases, trouble = aliases_of(built, parsed)
   if trouble ~= "" then
@@ -580,11 +643,20 @@ local function references_of(built: compiler, parsed: ast.Parsed): {positions.Re
   end
   local seen: {string: boolean} = {}
   local out: {positions.Reference} = {}
-  ast.walk(parsed.node, function(n: ast.Node)
+  local scopes: Scopes = { {} }
+  local process_block: function(ast.Node)
+  local process_function: function(ast.Node)
+  local walk_expression: function(ast.Node)
+
+  walk_expression = function(n: ast.Node)
+    if n.kind == "function" then
+      process_function(n)
+      return
+    end
     if n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil
        and n.e2 ~= nil and n.e1.kind == "variable" and n.e1.tk ~= nil
        and n.e2.tk ~= nil then
-      local module = aliases[n.e1.tk]
+      local module = binding(scopes, n.e1.tk)
       if module ~= nil then
         local id = module .. "\n" .. n.e2.tk .. "\n" .. n.e1.y
         if not seen[id] then
@@ -593,7 +665,106 @@ local function references_of(built: compiler, parsed: ast.Parsed): {positions.Re
         end
       end
     end
-  end)
+    local raw = n as {any: any}
+    for key, value in pairs(raw) do
+      if key ~= "if_parent" and value is {any: any} then
+        local map = value as {any: any}
+        local kind = map["kind"]
+        if kind is string then
+          walk_expression(map as ast.Node)
+        else
+          for _, child in ipairs(map as {any}) do
+            if child is {any: any} then
+              local child_map = child as {any: any}
+              local child_kind = child_map["kind"]
+              if child_kind is string then
+                walk_expression(child as ast.Node)
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  process_function = function(fn: ast.Node)
+    scopes[#scopes + 1] = {}
+    if fn.args ~= nil then
+      for _, parameter in ipairs(fn.args) do
+        if parameter.tk ~= nil then
+          bind(scopes, parameter.tk, "")
+        end
+      end
+    end
+    if fn.body ~= nil then
+      process_block(fn.body)
+    end
+    scopes[#scopes] = nil
+  end
+
+  process_block = function(block: ast.Node)
+    for _, stmt in ipairs(block) do
+      if stmt.kind == "local_declaration" then
+        if stmt.exps ~= nil then
+          walk_expression(stmt.exps)
+        end
+        if stmt.vars ~= nil then
+          for _, var in ipairs(stmt.vars) do
+            if var.tk ~= nil then
+              bind(scopes, var.tk, aliases[stmt] or "")
+            end
+          end
+        end
+      elseif stmt.kind == "local_function" then
+        if stmt.name ~= nil and stmt.name.tk ~= nil then
+          bind(scopes, stmt.name.tk, "")
+        end
+        process_function(stmt)
+      elseif stmt.kind == "record_function" or stmt.kind == "global_function" then
+        process_function(stmt)
+      elseif stmt.kind == "assignment" then
+        if stmt.exps ~= nil then
+          walk_expression(stmt.exps)
+        end
+        if stmt.vars ~= nil then
+          for _, var in ipairs(stmt.vars) do
+            if var.kind == "variable" and var.tk ~= nil then
+              invalidate(scopes, var.tk)
+            end
+          end
+        end
+      elseif stmt.kind == "if" and stmt.if_blocks ~= nil then
+        for _, branch in ipairs(stmt.if_blocks) do
+          if branch.exp ~= nil then walk_expression(branch.exp) end
+          scopes[#scopes + 1] = {}
+          if branch.body ~= nil then process_block(branch.body) end
+          scopes[#scopes] = nil
+        end
+      elseif stmt.kind == "fornum" or stmt.kind == "forin" then
+        if stmt.from ~= nil then walk_expression(stmt.from) end
+        if stmt.to ~= nil then walk_expression(stmt.to) end
+        if stmt.step ~= nil then walk_expression(stmt.step) end
+        if stmt.exps ~= nil then walk_expression(stmt.exps) end
+        scopes[#scopes + 1] = {}
+        if stmt.var ~= nil and stmt.var.tk ~= nil then bind(scopes, stmt.var.tk, "") end
+        if stmt.vars ~= nil then
+          for _, var in ipairs(stmt.vars) do
+            if var.tk ~= nil then bind(scopes, var.tk, "") end
+          end
+        end
+        if stmt.body ~= nil then process_block(stmt.body) end
+        scopes[#scopes] = nil
+      elseif stmt.kind == "while" or stmt.kind == "repeat" or stmt.kind == "do" then
+        if stmt.exp ~= nil then walk_expression(stmt.exp) end
+        scopes[#scopes + 1] = {}
+        if stmt.body ~= nil then process_block(stmt.body) end
+        scopes[#scopes] = nil
+      elseif stmt.kind == "return" or stmt.kind == "op" then
+        walk_expression(stmt)
+      end
+    end
+  end
+  process_block(parsed.node)
   table.sort(out, function(p: positions.Reference, q: positions.Reference): boolean
     if p.line ~= q.line then
       return p.line < q.line
@@ -643,9 +814,11 @@ function positions.analysis_of(built: compiler, parsed: ast.Parsed,
     return nil, reference_trouble
   end
   local lines = lines_of(source)
+  local doc_entries = docs_of(lines, parsed)
+  canonicalize_docs(doc_entries, export)
   return {
     tests = names, has_top_level_return = has_return, export = export,
-    catalog = catalog, docs = docs_of(lines, parsed),
+    catalog = catalog, docs = doc_entries,
     examples = examples_of(lines, parsed), references = references,
   }, ""
 end

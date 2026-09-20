@@ -224,9 +224,11 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
     end
     for ordinal, entry in ipairs(found.docs) do
       ok, why = Sqlite.run(db,
-        "INSERT INTO docs (source_hash, ordinal, symbol, kind, signature, " ..
-        "text, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
+        "exported, kind, signature, text, line) " ..
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         { text(source_hash), { integer = ordinal }, text(entry.symbol),
+          text(entry.source_symbol), { integer = entry.exported and 1 or 0 },
           text(entry.kind), text(entry.signature), text(entry.text),
           { integer = entry.line } })
       if not ok then
