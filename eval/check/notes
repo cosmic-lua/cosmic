@@ -1,0 +1,51 @@
+#!/bin/sh
+# Grades the notes task in an arena: the project's tests and format
+# check pass, cosmic builds it, and the executable runs on its own.
+#
+#   eval/check/notes <dir>
+#
+# The executable is copied alone into an empty directory and run with an
+# empty environment, so nothing beside it and nothing on PATH can help.
+set -u
+dir=${1:?usage: eval/check/notes <dir>}
+project=$dir/project
+cosmic=$dir/bin/cosmic
+fail=0
+say() { echo "check: $*"; }
+step() {
+  if "$@" > "$dir/check.out" 2>&1; then say "ok   $*"; else say "FAIL $*"; sed 's/^/check:   /' "$dir/check.out"; fail=1; fi
+}
+expect() {
+  want=$1; shift
+  got=$("$@" 2>&1); status=$?
+  if [ "$got" = "$want" ]; then say "ok   $* -> $(printf %s "$want" | head -1)"; else say "FAIL $*: got '$got', wanted '$want'"; fail=1; fi
+  return $status
+}
+[ -d "$project" ] || { say "FAIL no project at $project"; echo "check: FAIL"; exit 1; }
+cd "$project" || exit 1
+rm -f notes.db
+step "$cosmic" test
+step "$cosmic" fix --check
+step "$cosmic" build
+exe=$(ls "$project"/o/bin/* 2>/dev/null | head -1)
+if [ -z "$exe" ]; then
+  say "FAIL cosmic build wrote nothing under o/bin/; a binary is cmd/<name>/main.tl"
+  fail=1
+else
+  empty=$dir/empty
+  rm -rf "$empty"; mkdir "$empty"; cp "$exe" "$empty/notes"
+  cd "$empty" || exit 1
+  expect "1" env -i ./notes add hello world
+  expect "2" env -i ./notes add second note
+  expect "$(printf '1\thello world\n2\tsecond note')" env -i ./notes list
+  expect "$(printf '2\tsecond note')" env -i ./notes search second
+  expect "" env -i ./notes rm 1
+  if env -i ./notes rm 9 > /dev/null 2> "$dir/check.err"; then say "FAIL rm of an unknown id exited 0"; fail=1
+  elif [ -s "$dir/check.err" ]; then say "ok   rm 9 -> non-zero exit, stderr: $(head -1 "$dir/check.err")"
+  else say "FAIL rm of an unknown id said nothing on stderr"; fail=1; fi
+  expect "$(printf '2\tsecond note')" env -i ./notes list
+  rm -f "$empty/notes.db"
+  expect "1" env -i NOTES_DB=other.db ./notes add elsewhere
+  [ -f "$empty/other.db" ] && say "ok   NOTES_DB names the file" || { say "FAIL NOTES_DB was not honored"; fail=1; }
+fi
+if [ $fail -eq 0 ]; then echo "check: PASS"; else echo "check: FAIL"; exit 1; fi
