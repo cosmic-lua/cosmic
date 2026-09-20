@@ -66,8 +66,11 @@ local record test
     run_at_ns: integer
   end
 
-  --- What each run this run credits recorded, by test then module.
-  type Credited = {integer: {string: Coverage.Hits}}
+  --- Every test id (`"path name"`) whose standing verdict credits a
+  --- given run, by that run's `run_at_ns`: what this run still owes
+  --- `hits`, gathered while replaying verdicts and resolved against
+  --- `coverage_by_test` in one query per run credited, after the loop.
+  type Credited = {integer: {string}}
 
   --- How many tests this run ran, and how many it answered from a
   --- verdict that still stood.
@@ -307,37 +310,39 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
   return Hash.hex_sha256(table.concat(lines, "\n")), stable
 end
 
---- The lines every test hit in one run, by test, read once per run
---- credited rather than once per test: a run's rows number in the
---- hundred thousands.
-local function credited_hits(handle: Sqlite.Handle, credited: test.Credited,
-                             run_at_ns: integer): {string: Coverage.Hits} | nil, string
-  local have = credited[run_at_ns]
-  if have ~= nil then
-    return have
-  end
-  local rows, trouble = Sqlite.text_rows(handle,
-    "SELECT test, path, line FROM coverage_by_test WHERE ran_at_ns = ?1",
-    { { integer = run_at_ns } })
-  if rows == nil then
-    return nil, trouble
-  end
-  local out: {string: Coverage.Hits} = {}
-  for _, row in ipairs(rows) do
-    local by_module = out[row[1]]
-    if by_module == nil then
-      by_module = {}
-      out[row[1]] = by_module
+--- Resolves every run `credited` names against `coverage_by_test`,
+--- folding the distinct lines its named tests hit into `hits`: only the
+--- run-wide union of hit lines per module matters to `write_coverage`,
+--- never which test hit which line, so this asks for exactly that
+--- instead of loading every row of a credited run (a run's rows number
+--- in the hundred thousands) to re-derive it in Lua. One query per run
+--- credited, each naming only the tests this run actually still owes
+--- it, rather than one per standing verdict.
+local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
+                           hits: Coverage.Hits): string
+  for run_at_ns, tests in pairs(credited) do
+    local placeholders: {string} = {}
+    local args: {Sqlite.Value} = { { integer = run_at_ns } }
+    for index, id in ipairs(tests) do
+      placeholders[index] = "?" .. (index + 1)
+      args[#args + 1] = text(id)
     end
-    local per_line = by_module[row[2]]
-    if per_line == nil then
-      per_line = {}
-      by_module[row[2]] = per_line
+    local rows, trouble = Sqlite.text_rows(handle,
+      "SELECT DISTINCT path, line FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
+      "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
+    if rows == nil then
+      return trouble
     end
-    per_line[math.tointeger(tonumber(row[3]) or 0) or 0] = true
+    for _, row in ipairs(rows) do
+      local per_line = hits[row[1]]
+      if per_line == nil then
+        per_line = {}
+        hits[row[1]] = per_line
+      end
+      per_line[math.tointeger(tonumber(row[2]) or 0) or 0] = true
+    end
   end
-  credited[run_at_ns] = out
-  return out
+  return ""
 end
 
 --- The two coverage tables share their first three fields. Reuse their
@@ -561,12 +566,12 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       -- The verdict stands: what the test read last time still hashes
       -- the same, and so does everything it was compiled from.
       tally.cached = tally.cached + 1
-      local by_id, credit_trouble = credited_hits(records, credited, stood.run_at_ns)
-      if by_id == nil then
-        errors[#errors + 1] = id .. ": coverage credit: " .. credit_trouble
-      else
-        merge_hits(hits, by_id[id] or {})
+      local owed = credited[stood.run_at_ns]
+      if owed == nil then
+        owed = {}
+        credited[stood.run_at_ns] = owed
       end
+      owed[#owed + 1] = id
       local kept, keep_trouble = record_run(records, m.path, name, true, "",
         Time.now_ns() or 0, prior_reads, key, stood.run_at_ns)
       if not kept then
@@ -775,6 +780,11 @@ function test.run(argv: {integer:string}): integer
     end
   end
   local total = tally.ran + tally.cached
+
+  local credit_trouble = credit_hits(records, credited, hits)
+  if credit_trouble ~= "" then
+    errors[#errors + 1] = "coverage credit: " .. credit_trouble
+  end
 
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
