@@ -45,7 +45,7 @@ static int run(const char *label, const char *path, int fd, int want) {
   int result = WIFEXITED(status) ? WEXITSTATUS(status) : -WTERMSIG(status);
   printf("%s: status=%d (%s)\n", label, result,
          result == 42 ? "native payload ran" : "payload did not run");
-  if ((want == 42 && result != 42) || (want == 111 && result != 111)) {
+  if (result < 0 || (want == 42 && result != 42) || (want == 111 && result != 111)) {
     fprintf(stderr, "unexpected result for %s\n", label);
     return 1;
   }
@@ -88,12 +88,12 @@ int main(int argc, char **argv) {
   fd = open(argv[1], O_RDONLY);
   if (fd < 0 || lseek(fd, 64, SEEK_SET) < 0) fail("seek native");
   snprintf(descriptor, sizeof descriptor, "/dev/fd/%d", fd);
-  /* Linux fexecve ignores the seek position. macOS /dev/fd behavior is
-   * observed, not assumed: it may reject descriptor execution entirely. */
+  /* Linux fexecve ignores the seek position. The macOS runner rejects
+   * /dev/fd execution, even when the underlying file is native. */
 #ifdef __linux__
   bad |= run("seeked descriptor of native image", descriptor, fd, 42);
 #else
-  bad |= run("seeked descriptor of native image", descriptor, fd, 0);
+  bad |= run("seeked descriptor of native image", descriptor, fd, 111);
 #endif
   close(fd);
   int pipefd[2];

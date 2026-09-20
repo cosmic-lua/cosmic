@@ -18,13 +18,31 @@ Can shell `exec` select a native image inside a larger file without copying?
 - a Mach-O fat header that describes a native slice at offset 16384.
 
 A payload exits 42; a returned exec error exits 111. Unexpected signals fail.
-The native-descriptor path on macOS is observed without requiring success:
-macOS does not supply Linux's fexecve path, so the probe uses `/dev/fd`.
+macOS does not supply Linux's fexecve path, so the probe uses `/dev/fd`;
+the Mac runner rejects that path, including for an ordinary native file.
 
 Linux locally: only the native file, the seeked native-file descriptor, and
 copied memfd execute. The seek does not move the loader's origin. The prefixed
 image is ENOEXEC, including through a seeked descriptor; a pipe is EACCES.
-macOS results are recorded by the `portable experiment` workflow.
+The [first CI run](https://github.com/cosmic-lua/cosmic/actions/runs/35479752740)
+confirmed those results on both Linux architectures and produced these Mac
+observations:
+
+| Probe | Linux x86-64 / ARM64 | macOS ARM64 |
+| --- | --- | --- |
+| Native file | runs | runs |
+| Native image behind an arbitrary prefix | ENOEXEC | ENOEXEC |
+| Seeked descriptor of prefixed file | ENOEXEC | EACCES |
+| Seeked descriptor of native file | runs from byte zero | EACCES |
+| Pipe descriptor | EACCES | EACCES |
+| Copied native image in memfd | runs | not provided by this probe |
+| Native slice in Mach-O fat envelope | ENOEXEC | runs without extraction |
+
+All three hosts also passed the portable shared-database smoke test. macOS
+verified the extracted core with `codesign --verify --strict`, then compiled
+and ran user Teal code from the same shared artifact as both Linux hosts.
+The initial artifact is 9,576,473 bytes. This validates the loading experiment,
+not the unfinished production build/rebuild and update semantics below.
 
 A shell exec supplies a pathname, not an offset. A native executable needs a
 recognized header at the loader's origin. Linux checks ELF magic and machine;
