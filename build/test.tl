@@ -648,12 +648,7 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
 
-  local built, load_trouble = teal.load()
-  if built == nil then
-    work.close(handle)
-    complain(load_trouble)
-    return 1
-  end
+  local built = teal.lazy()
 
   -- Same staleness guard `cosmic <file.tl>` applies when the tree under
   -- test is cosmic's own: a stale tool would check and compile it with
