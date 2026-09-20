@@ -15,11 +15,13 @@
 #define COSMIC_STARTUP_VERSION 1u
 
 /*
- * Private portable launcher environment contract. The launcher first selects
- * two unused descriptors from its bounded candidate set, then leaves
- * the artifact and verified standalone core open on them across its one exec.
- * Startup must validate and clear exactly these bounded fields before Lua can
- * inspect or propagate the environment. Adoption begins in portable step 5.
+ * Private portable launcher environment contract. The entire
+ * COSMIC_PORTABLE_ prefix is reserved for the launcher and runtime; callers
+ * configure only COSMIC_PORTABLE_CACHE. The launcher first selects two unused
+ * descriptors from its bounded candidate set, then leaves the artifact and
+ * verified standalone core open on them across its one exec. Startup must
+ * validate and clear exactly these bounded fields before Lua can inspect or
+ * propagate the environment. Adoption begins in portable step 5.
  */
 #define COSMIC_PORTABLE_ENV_ARTIFACT_FD "COSMIC_PORTABLE_ARTIFACT_FD"
 #define COSMIC_PORTABLE_ENV_CORE_FD "COSMIC_PORTABLE_CORE_FD"
@@ -34,6 +36,18 @@ enum cosmic_startup_kind {
   COSMIC_STARTUP_PORTABLE = 2,
   /* Temporary compatibility for experiments/portable's old pathname entry. */
   COSMIC_STARTUP_LEGACY_ARTIFACT = 3,
+};
+
+enum cosmic_startup_test_phase {
+  COSMIC_STARTUP_TEST_ARTIFACT_ADOPTED,
+  COSMIC_STARTUP_TEST_STARTUP_RELEASED,
+  COSMIC_STARTUP_TEST_DATABASE_OPENED,
+  COSMIC_STARTUP_TEST_STORE_INSTALLED,
+  COSMIC_STARTUP_TEST_MAIN_ENTERING,
+  COSMIC_STARTUP_TEST_MAIN_RETURNED,
+  COSMIC_STARTUP_TEST_LUA_CLOSED,
+  COSMIC_STARTUP_TEST_DATABASE_CLOSED,
+  COSMIC_STARTUP_TEST_ARTIFACT_CLOSED,
 };
 
 struct cosmic_startup {
@@ -64,12 +78,10 @@ const char *cosmic_startup_validate(const struct cosmic_startup *startup);
 int cosmic_startup_adopt(const struct cosmic_startup *startup,
                          struct cosmic_artifact *artifact,
                          const char **error);
-int cosmic_startup_test_pause(const char **error);
-#if defined(COSMIC_PORTABLE_STARTUP_TEST_HOOKS)
-void cosmic_startup_test_phase(const char *phase);
-#else
-#define cosmic_startup_test_phase(phase) ((void)(phase))
-#endif
+int cosmic_startup_test_pause(const struct cosmic_startup *startup,
+                              const char **error);
+void cosmic_startup_test_phase(const struct cosmic_startup *startup,
+                               enum cosmic_startup_test_phase phase);
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
                          char **argv);
 

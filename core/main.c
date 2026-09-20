@@ -449,15 +449,12 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
                                               adoption_error,
                     NULL);
   }
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("artifact adopted");
-  if (startup->kind == COSMIC_STARTUP_PORTABLE &&
-      !cosmic_startup_test_pause(&adoption_error)) {
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_ARTIFACT_ADOPTED);
+  if (!cosmic_startup_test_pause(startup, &adoption_error)) {
     cosmic_artifact_close(&artifact);
     return complain(adoption_error, NULL);
   }
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("startup released");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
 
   char self[4096];
   if (startup->kind == COSMIC_STARTUP_PORTABLE ||
@@ -507,16 +504,14 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
       cosmic_artifact_close(&artifact);
       return complain("cannot open my own database", self);
     }
-    if (startup->kind == COSMIC_STARTUP_PORTABLE)
-      cosmic_startup_test_phase("database opened");
+    cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_OPENED);
   }
   cosmic_store_install(L, db,
                        startup->kind == COSMIC_STARTUP_PORTABLE ? &artifact :
                                                                   NULL);
   cosmic_open_sqlite(L); /* leaves the module table on the stack */
   cosmic_store_set_raw(L, "cosmic.internal.sqlite");
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("store installed");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);
 
   if (db == NULL) {
     /* No database: the tree is the only source, so this is a build
@@ -547,19 +542,14 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     return complain("no database attached, and no tree to boot from", self);
   }
 
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("main entering");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
   int status = run_main(L, db, argc, argv);
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("main returned");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);
   lua_close(L);
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("lua closed");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_LUA_CLOSED);
   sqlite3_close_v2(db);
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("database closed");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_CLOSED);
   cosmic_artifact_close(&artifact);
-  if (startup->kind == COSMIC_STARTUP_PORTABLE)
-    cosmic_startup_test_phase("artifact closed");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_ARTIFACT_CLOSED);
   return status;
 }

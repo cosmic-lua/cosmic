@@ -136,7 +136,6 @@ const core_sources = [_][]const u8{
 
 pub fn build(b: *std.Build) void {
     const portable_probe = b.option(bool, "portable-probe", "build the experimental external-artifact entry") orelse false;
-    const portable_startup_test_hooks = b.option(bool, "portable-startup-test-hooks", "compile deterministic retained-artifact test hooks") orelse false;
     // The applier is a host tool, built before anything it feeds.
     const applier = b.addExecutable(.{
         .name = "patch",
@@ -175,6 +174,10 @@ pub fn build(b: *std.Build) void {
 
     const cores = b.step("cores", "build the core for every target");
     const boot = b.step("boot", "build the host core, then bridge into Teal");
+    const portable_fixture_cores = b.step(
+        "portable-fixture-cores",
+        "build release, retained-artifact test, and checked fixture cores",
+    );
 
     // Both the boot bridge and the prototype packer consume this generated
     // projection. The Target array above remains the only target list.
@@ -197,12 +200,19 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe, portable_startup_test_hooks);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe, false);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
+
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, portable_probe, true);
+        const hooked_out = b.addInstallFile(
+            hooked.getEmittedBin(),
+            b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
+        );
+        portable_fixture_cores.dependOn(&hooked_out.step);
 
         if (std.mem.eql(u8, t.name, hostName(b))) {
             const bridge = b.addRunArtifact(exe);
@@ -226,7 +236,7 @@ pub fn build(b: *std.Build) void {
     // checked artifacts stay under o/sanitized.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, portable_probe, portable_startup_test_hooks);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, portable_probe, false);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -244,6 +254,13 @@ pub fn build(b: *std.Build) void {
     checked_boot.has_side_effects = true;
     sanitized.dependOn(&checked_install.step);
     sanitized.dependOn(&checked_boot.step);
+
+    const checked_fixture_install = b.addInstallFile(
+        checked.getEmittedBin(),
+        "portable-fixture/sanitized/cosmic-core",
+    );
+    portable_fixture_cores.dependOn(cores);
+    portable_fixture_cores.dependOn(&checked_fixture_install.step);
 
     b.getInstallStep().dependOn(cores);
 }
@@ -447,8 +464,13 @@ fn core(
     }
     mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{required_target_mask}));
     mod.addCMacro("COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID", b.fmt("{d}", .{release_configuration.id}));
-    if (portable_startup_test_hooks)
-        mod.addCMacro("COSMIC_PORTABLE_STARTUP_TEST_HOOKS", "1");
+    mod.addCSourceFile(.{
+        .file = b.path(if (portable_startup_test_hooks)
+            "test/portable/startup_hook.c"
+        else
+            "core/startup_hook.c"),
+        .flags = &core_flags,
+    });
 
     return b.addExecutable(.{
         .name = "cosmic-core",

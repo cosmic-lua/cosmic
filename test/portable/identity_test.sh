@@ -68,29 +68,9 @@ run_release() {
 }
 
 entry_fields() {
-  python3 - "$1" "$2" "$3" <<'PY'
-import struct
-import sys
-path, wanted_target, wanted_configuration = sys.argv[1:]
-wanted_target = int(wanted_target)
-wanted_configuration = int(wanted_configuration)
-with open(path, "rb") as source:
-    data = source.read()
-trailer = data[-48:]
-if trailer[:8] != b"CosmicT1":
-    raise SystemExit("identity fixture: trailer is missing")
-manifest_offset = struct.unpack(">Q", trailer[16:24])[0]
-manifest = data[manifest_offset:manifest_offset + 4096]
-count = struct.unpack(">I", manifest[24:28])[0]
-for index in range(count):
-    entry = manifest[32 + index * 56:32 + (index + 1) * 56]
-    target, configuration, offset, length = struct.unpack(">IIQQ", entry[:24])
-    if target == wanted_target and configuration == wanted_configuration:
-        print(offset, length, entry[24:56].hex())
-        break
-else:
-    raise SystemExit("identity fixture: selected manifest entry is missing")
-PY
+  COSMIC_PORTABLE_CACHE="$work/entry-cache" \
+    "$fixture/runtime.old" "$root/test/portable/manifest_entry.tl" \
+    "$1" "$2" "$3"
 }
 
 run_sanitized() {
@@ -262,36 +242,18 @@ if [ -z "$state" ]; then
 
   # A project database is searched ahead of the binary after attachment. Its
   # rows must not override validated portable context or the binary's basis.
-  python3 - "$project/o/cosmic.db" <<'PY'
-import sqlite3
-import sys
-db = sqlite3.connect(sys.argv[1])
-for key, value in (
-    ("host", "spoofed"), ("host_image", "spoofed"),
-    ("runtime", "f" * 64), ("runtime_basis", "spoofed"),
-    ("artifact", "/spoofed"), ("runtime_context", "legacy-spoof")):
-    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-               (key, value))
-db.commit()
-db.close()
-PY
+  COSMIC_PORTABLE_CACHE="$cache" \
+    "$fixture/runtime.old" "$root/test/portable/spoof_runtime_database.tl" \
+    "$project/o/cosmic.db"
 
   run_release "$fixture/runtime.basis" "$work/basis.out"
   expect_tally "$work/basis.out" 1 0
   run_sanitized
   expect_tally "$work/sanitized.out" 1 0
 
-  python3 - "$project/o/build.db" "$counter" <<'PY'
-import sqlite3
-import sys
-db = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
-keys = db.execute("SELECT key FROM verdicts ORDER BY key").fetchall()
-db.close()
-with open(sys.argv[2], encoding="utf-8") as source:
-    lines = [line.rstrip("\n") for line in source]
-if len(keys) != 3 or len(lines) != 3 or len(set(lines)) != 3:
-    raise SystemExit("identity fixture: expected three distinct runtime verdicts")
-PY
+  COSMIC_PORTABLE_CACHE="$cache" \
+    "$fixture/runtime.old" "$root/test/portable/verify_runtime_verdicts.tl" \
+    "$project/o/build.db" "$counter"
 
   missing=$work/missing-project
   mkdir -p "$missing"

@@ -95,13 +95,11 @@ if [ "${1-}" = --case ]; then
       print "local step8_sys = require(\"cosmic.sys\")"
     }
     $0 == "function test.run(argv: {integer:string}): integer" {
-      print "  if step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") ~= nil then"
-      print "    assert(argv[1] == \"test\")"
-      print "    assert(argv[2] == \"\")"
-      print "    assert(argv[3] == \"argument with spaces\")"
-      print "    assert(argv[4] == nil)"
-      print "    assert(step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") == \"kept with spaces\")"
-      print "  end"
+      print "  assert(argv[1] == \"test\")"
+      print "  assert(argv[2] == \"\")"
+      print "  assert(argv[3] == \"argument with spaces\")"
+      print "  assert(argv[4] == nil)"
+      print "  assert(step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") == \"kept with spaces\")"
     }
   ' "$tree/build/test.tl" > "$tree/build/test.tl.new"
   mv "$tree/build/test.tl.new" "$tree/build/test.tl"
@@ -164,7 +162,9 @@ if [ "${1-}" = --case ]; then
   set +e
   (
     cd "$tree"
-    COSMIC_PORTABLE_CACHE="$cache" "$program" test
+    COSMIC_PORTABLE_CACHE="$cache" \
+      COSMIC_STEP8_REENTRY="kept with spaces" \
+      "$program" test "" "argument with spaces"
   ) > "$case_root/core.out" 2> "$case_root/core.err"
   core_status=$?
   set -e

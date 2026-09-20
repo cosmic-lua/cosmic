@@ -3,13 +3,24 @@
 # sources use .tl.in so the repository's own compiler never stages them.
 set -eu
 
-artifact=${1:?usage: test/portable/characterize.sh /absolute/path/to/portable-cosmic}
+artifact=${1:?usage: test/portable/characterize.sh /absolute/path/to/portable-cosmic TEAL_RUNTIME}
+runtime_helper=${2:?usage: test/portable/characterize.sh /absolute/path/to/portable-cosmic TEAL_RUNTIME}
 case $artifact in
   /*) ;;
   *) printf 'portable characterization: artifact path must be absolute\n' >&2; exit 2;;
 esac
+case $runtime_helper in
+  /*) ;;
+  *) printf 'portable characterization: helper runtime path must be absolute\n' >&2; exit 2;;
+esac
+[ -x "$runtime_helper" ] || {
+  printf 'portable characterization: helper runtime is not executable: %s\n' \
+    "$runtime_helper" >&2
+  exit 2
+}
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$here/../.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-portable-characterization.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT
 trap 'exit 1' HUP INT TERM
@@ -21,33 +32,11 @@ counter=$work/test-runs
 # Read the database embedded in the prototype itself, rather than trusting the
 # packer's intermediate shared.db. This parser is intentionally limited to the
 # current experimental 17-byte marker plus 8-byte big-endian trailer.
-runtime=$(python3 - "$artifact" "$work/embedded.db" <<'PY'
-import sqlite3
-import struct
-import sys
-
-artifact = sys.argv[1]
-with open(artifact, "rb") as source:
-    data = source.read()
-marker = b"Start-Of-Cosmic--"
-trailer = len(marker) + 8
-if len(data) < trailer or data[-trailer:-8] != marker:
-    raise SystemExit("portable characterization: prototype trailer is missing")
-offset = struct.unpack(">Q", data[-8:])[0]
-if offset >= len(data) - trailer:
-    raise SystemExit("portable characterization: prototype database range is invalid")
-database = sys.argv[2]
-with open(database, "wb") as output:
-    output.write(data[offset:-trailer])
-try:
-    connection = sqlite3.connect("file:" + database + "?mode=ro", uri=True)
-    row = connection.execute("SELECT value FROM meta WHERE key = 'runtime'").fetchone()
-    connection.close()
-finally:
-    import os
-    os.unlink(database)
-print("<missing>" if row is None else row[0])
-PY
+runtime=$(
+  cd "$root"
+  COSMIC_PORTABLE_CACHE="$work/helper-cache" \
+    "$runtime_helper" test/portable/characterize_fixture.tl \
+    runtime "$artifact" "$work/embedded.db"
 )
 [ "$runtime" = '<missing>' ] || {
   printf 'portable characterization: expected missing runtime metadata, got %s\n' "$runtime" >&2
@@ -83,16 +72,12 @@ grep -F 'build: FAIL' "$work/build.out" >/dev/null
 run_test "$work/test-a.out"
 [ ! -e "$counter" ]
 
-python3 - "$work/project/o/build.db" <<'PY'
-import sqlite3
-import sys
-
-connection = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
-rows = connection.execute("SELECT key FROM verdicts").fetchall()
-connection.close()
-if rows:
-    raise SystemExit("portable characterization: missing runtime wrote a verdict")
-PY
+(
+  cd "$root"
+  COSMIC_PORTABLE_CACHE="$work/helper-cache" \
+    "$runtime_helper" test/portable/characterize_fixture.tl \
+    verdicts "$work/project/o/build.db"
+)
 run_test "$work/test-b.out"
 [ ! -e "$counter" ]
 

@@ -30,6 +30,26 @@ trusted `build.artifact` prefix capability keep reading the retained artifact
 descriptor. It selects one complete immutable file. Writing that same inode in
 place remains unsupported and is deliberately not presented as safe.
 
+`runtime_build.sh OUTPUT [PREBUILT_PREFIX]` requires a booted checkout with
+`o/bin/cosmic` and `o/cosmic.portable.db`. With no prebuilt prefix it invokes
+`bin/zig build portable-fixture-cores` once in a temporary directory, sharing
+one patched-vendor graph across the three release cores, three fixture-hook
+cores, and the distinct sanitized core. A supplied prefix must contain
+`targets.tsv`, release cores under `core/<target>/cosmic-core`, hook cores under
+`portable-fixture/core/<target>/cosmic-core`, and the checked core at
+`portable-fixture/sanitized/cosmic-core`; every input is checked before output
+is generated.
+
+The generated launcher uses POSIX shell builtins plus `uname`, `stat`, `id`,
+`mkdir`, `chmod`, `mktemp`, `dd`, `head`, `ln`, `rm`, and either `sha256sum` or
+`shasum`. The directory containing the cache leaf is the user's trust boundary;
+the launcher rejects a linked leaf, unexpected owner or mode, and unexpected
+entries. A warm launch still stats and hashes the complete cached core before
+execution. `COSMIC_PORTABLE_CACHE` is the public cache setting. The remaining
+`COSMIC_PORTABLE_*` fields are a reserved launcher-to-core contract: startup
+requires the complete set, adopts its descriptors, and clears it before Lua
+runs.
+
 `self_rebuild.sh` uses that fixture-only startup pause to rename and unlink the
 artifact after descriptor adoption. In each case a deterministic Teal edit
 causes exactly one database-only rebuild and re-entry at the same logical

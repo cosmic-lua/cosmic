@@ -67,6 +67,23 @@ cp "$fixture/runtime.release" "$work/bin/cosmic-runtime"
 cp "$fixture/probe.tl" "$work/run space/probe.tl"
 chmod 755 "$work/bin/cosmic-runtime"
 
+# The selectable fixture TU owns every diagnostic phase, including the one
+# after the retained artifact has closed. Production cores carry none of it.
+COSMIC_PORTABLE_CACHE="$work/cache-phases" \
+  "$fixture/runtime.old" help > "$work/phases.out" 2> "$work/phases.err"
+cat > "$work/phases.expected" <<'EOF'
+cosmic portable test phase: artifact adopted
+cosmic portable test phase: startup released
+cosmic portable test phase: database opened
+cosmic portable test phase: store installed
+cosmic portable test phase: main entering
+cosmic portable test phase: main returned
+cosmic portable test phase: lua closed
+cosmic portable test phase: database closed
+cosmic portable test phase: artifact closed
+EOF
+cmp "$work/phases.expected" "$work/phases.err"
+
 # Absolute, relative, PATH, and symlink logical names all open the same retained
 # descriptor. Help, docs, and a real compiled script read the artifact DB.
 COSMIC_PORTABLE_CACHE="$work/cache-release" \
@@ -181,37 +198,9 @@ grep -Eq 'executing core (length|digest) differs from manifest' \
 # is corrupt. Prefix reuse verifies every manifest range lazily and returns no
 # bytes on failure; a cold launch still rejects corruption in the selected
 # range while extracting it.
-python3 - "$fixture/runtime.release" "$work" "$offset" <<'PY'
-import os
-import shutil
-import struct
-import sys
-
-source, out, selected = sys.argv[1], sys.argv[2], int(sys.argv[3])
-with open(source, "rb") as artifact:
-    data = artifact.read()
-trailer = data[-48:]
-if trailer[:8] != b"CosmicT1":
-    raise SystemExit("runtime corruption fixture: missing trailer")
-manifest = struct.unpack(">Q", trailer[16:24])[0]
-count = struct.unpack(">I", data[manifest + 24:manifest + 28])[0]
-with open(os.path.join(out, "corrupt-ranges"), "w") as listing:
-    for index in range(count):
-        entry = manifest + 32 + index * 56
-        offset = struct.unpack(">Q", data[entry + 8:entry + 16])[0]
-        path = os.path.join(out, "corrupt-range-%d" % (index + 1))
-        shutil.copyfile(source, path)
-        with open(path, "r+b") as corrupt:
-            corrupt.seek(offset)
-            original = corrupt.read(1)
-            if not original:
-                raise SystemExit("runtime corruption fixture: empty core range")
-            corrupt.seek(offset)
-            corrupt.write(bytes([original[0] ^ 1]))
-        os.chmod(path, 0o755)
-        kind = "selected" if offset == selected else "nonselected"
-        listing.write("%s %s\n" % (path, kind))
-PY
+COSMIC_PORTABLE_CACHE="$work/cache-release" \
+  "$fixture/runtime.release" "$root/test/portable/corrupt_runtime_ranges.tl" \
+  "$fixture/runtime.release" "$work" "$offset"
 
 selected_corrupt=
 nonselected_ranges=0
@@ -328,30 +317,21 @@ set -e
 grep -q 'extracted core digest differs' "$work/paused.err"
 if grep -q 'no tree to boot' "$work/paused.err"; then exit 1; fi
 
-# Record real runtime.release help cost independently of the tiny launcher
+# Record real runtime.release entry cost independently of the tiny launcher
 # payload timings. These observations are informational and set no threshold.
 runtime_timing_cache="$work/runtime-timing-cache"
 runtime_bytes=$(wc -c < "$fixture/runtime.release")
-python3 - "$fixture/runtime.release" "$runtime_timing_cache" \
-  "$work/runtime-cold.time" "$work/runtime-warm.time" <<'PY'
-import os
-import subprocess
-import sys
-import time
-
-artifact, cache, cold_path, warm_path = sys.argv[1:]
-environment = os.environ.copy()
-environment["COSMIC_PORTABLE_CACHE"] = cache
-for path in (cold_path, warm_path):
-    started = time.monotonic()
-    subprocess.run([artifact, "help"], env=environment,
-                   stdout=subprocess.DEVNULL, check=True)
-    with open(path, "w") as result:
-        result.write("real %.6f\n" % (time.monotonic() - started))
-PY
-printf 'portable runtime.release help cold timing (%s bytes): ' "$runtime_bytes"
+COSMIC_PORTABLE_CACHE="$work/runtime-timing-driver-cache" \
+  "$fixture/runtime.release" "$root/test/portable/time_runtime.tl" \
+  "$fixture/runtime.release" "$runtime_timing_cache" \
+  > "$work/runtime-cold.time"
+COSMIC_PORTABLE_CACHE="$work/runtime-timing-driver-cache" \
+  "$fixture/runtime.release" "$root/test/portable/time_runtime.tl" \
+  "$fixture/runtime.release" "$runtime_timing_cache" \
+  > "$work/runtime-warm.time"
+printf 'portable runtime.release entry cold timing (%s bytes): ' "$runtime_bytes"
 tr '\n' ' ' < "$work/runtime-cold.time"
-printf '\nportable runtime.release help warm timing (%s bytes): ' "$runtime_bytes"
+printf '\nportable runtime.release entry warm timing (%s bytes): ' "$runtime_bytes"
 tr '\n' ' ' < "$work/runtime-warm.time"
 printf '\n'
 

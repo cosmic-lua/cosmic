@@ -94,7 +94,9 @@ jobs:
       - name: execute identical portable bytes on this host
         run: |
           experiments/portable/check.sh "$RUNNER_TEMP/portable/cosmic"
-          test/portable/characterize.sh "$RUNNER_TEMP/portable/cosmic"
+          chmod +x "$RUNNER_TEMP/portable/runtime/runtime.release"
+          test/portable/characterize.sh "$RUNNER_TEMP/portable/cosmic" \
+            "$RUNNER_TEMP/portable/runtime/runtime.release"
       - name: validate the production launcher contract on this host
         env:
           TARGET: ${{ matrix.target }}
