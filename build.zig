@@ -226,7 +226,7 @@ pub fn build(b: *std.Build) void {
     // checked artifacts stay under o/sanitized.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, b.graph.host, lua, sqlite, miniz, mbedtls, portable_probe, portable_startup_test_hooks);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, portable_probe, portable_startup_test_hooks);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -458,6 +458,25 @@ fn core(
 
 fn hostName(b: *std.Build) []const u8 {
     return hostTarget(b).name;
+}
+
+/// Keeps the sanitizer's native OS, ABI, and version while making its CPU
+/// instruction set safe to transport between different machines of that
+/// architecture. `b.graph.host` includes features detected on the build
+/// machine, which an exported checked core cannot assume on its runner.
+fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
+    var query = b.graph.host.query;
+    query.cpu_model = .baseline;
+    query.cpu_features_add = .empty;
+    query.cpu_features_sub = .empty;
+    const resolved = b.resolveTargetQuery(query);
+    const expected = std.Target.Cpu.Model.baseline(
+        resolved.result.cpu.arch,
+        resolved.result.os,
+    );
+    if (resolved.result.cpu.model != expected)
+        @panic("checked core did not resolve the baseline host CPU");
+    return resolved;
 }
 
 fn hostTarget(b: *std.Build) Target {
