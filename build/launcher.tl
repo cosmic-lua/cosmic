@@ -19,14 +19,26 @@ portable_die() {
   exit 126
 }
 
-# Try both duplication directions in child shells. A readability-only probe
-# misses writable descriptors; these two probes also catch inherited sockets.
-if (: <&8) 2>/dev/null || (: >&8) 2>/dev/null; then
-  portable_die 'reserved artifact descriptor 8 is already open'
-fi
-if (: <&9) 2>/dev/null || (: >&9) 2>/dev/null; then
-  portable_die 'reserved core descriptor 9 is already open'
-fi
+# Select two unused descriptors before opening anything or mutating the cache.
+# Each literal candidate is probed in both directions in child shells: a
+# readability-only probe misses writable descriptors, while the pair also
+# catches inherited sockets. Only the controlled numeric left-hand side of a
+# redirection is evaluated below; path strings stay quoted variable references.
+cosmic_artifact_fd=
+cosmic_core_fd=
+for portable_candidate in 3 4 5 6 7 8 9; do
+  if ! (: <&"$portable_candidate") 2>/dev/null &&
+     ! (: >&"$portable_candidate") 2>/dev/null; then
+    if [ -z "$cosmic_artifact_fd" ]; then
+      cosmic_artifact_fd=$portable_candidate
+    else
+      cosmic_core_fd=$portable_candidate
+      break
+    fi
+  fi
+done
+[ -n "$cosmic_core_fd" ] ||
+  portable_die 'fewer than two private descriptors are available in 3 through 9'
 
 case $0 in
   /*) cosmic_artifact=$0 ;;
@@ -41,7 +53,8 @@ esac
 
 # Keep this open across extraction and exec. Step 5 adopts this descriptor;
 # extraction deliberately reads it rather than reopening the pathname.
-exec 8<"$cosmic_artifact" || portable_die 'cannot open the portable artifact'
+eval 'exec '"$cosmic_artifact_fd"'<"$cosmic_artifact"' ||
+  portable_die 'cannot open the portable artifact'
 @ADOPT_HOOK@
 
 if [ "${COSMIC_PORTABLE_CACHE+x}" = x ]; then
@@ -282,7 +295,8 @@ if [ "$portable_entry_state" != valid ]; then
   # `head` trims the final aligned block. POSIX sh has no pipefail, so pipeline
   # success cannot prove dd supplied the requested input: the exact size check
   # detects truncation, while SHA-256 separately detects equal-length corruption.
-  dd bs=16384 skip="$cosmic_block" count="$cosmic_blocks" <&8 2>/dev/null |
+  dd bs=16384 skip="$cosmic_block" count="$cosmic_blocks" \
+    <&"$cosmic_artifact_fd" 2>/dev/null |
     head -c "$cosmic_length" > "$cosmic_stage"
   portable_bytes=$(wc -c < "$cosmic_stage") || portable_die 'cannot size extracted core'
   [ "$portable_bytes" -eq "$cosmic_length" ] || portable_die 'extracted core is truncated'
@@ -305,11 +319,12 @@ fi
 # A warm winner is hashed once above. A cold publisher has already hashed its
 # stage and linked that same inode; a losing publisher hashes the winner once.
 [ "$cosmic_core_verified" = 1 ] || portable_die 'selected core was not verified'
-exec 9<"$cosmic_core" || portable_die 'cannot open verified core descriptor'
+eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"' ||
+  portable_die 'cannot open verified core descriptor'
 
 # This is the complete bounded private launcher/startup environment contract.
-COSMIC_PORTABLE_ARTIFACT_FD=8
-COSMIC_PORTABLE_CORE_FD=9
+COSMIC_PORTABLE_ARTIFACT_FD=$cosmic_artifact_fd
+COSMIC_PORTABLE_CORE_FD=$cosmic_core_fd
 COSMIC_PORTABLE_TARGET_ID=$cosmic_target_id
 COSMIC_PORTABLE_CONFIGURATION_ID=$cosmic_configuration_id
 COSMIC_PORTABLE_CORE_OFFSET=$cosmic_offset

@@ -293,33 +293,66 @@ stale_lock=$(find "$interrupted" -name '.repair-*' -type f)
 rm -f "$stale_lock"
 run_plain "$interrupted" > /dev/null 2> "$work/repair-after-stale.err"
 
-# Caller descriptors are refused before redirecting either reserved number.
-guard=$work/fd8.guard
+# Caller read, write, and socket descriptors are preserved simultaneously,
+# including the old fixed 8/9 pair; the launcher chooses two other slots.
+guard=$work/caller-write.guard
+if [ -n "$socket_helper" ]; then
+  chmod 755 "$socket_helper"
+  (
+    exec 3< "$artifact"
+    exec 8> "$guard"
+    printf 'before\n' >&8
+    env "$ordinary" COSMIC_PORTABLE_CACHE="$work/mixed-fd-cache" \
+      "$socket_helper" 9 "$artifact" > /dev/null
+    printf 'after\n' >&8
+  )
+  [ "$(cat "$guard")" = "before
+after" ]
+fi
+
+# Descriptor exhaustion is diagnosed before opening the artifact or creating a
+# cache. Both the one-free and zero-free cases leave caller guards usable.
+one_guard=$work/one-free.guard
 set +e
 (
-  exec 8> "$guard"
+  exec 3< "$artifact" 4< "$artifact" 5< "$artifact" 6< "$artifact"
+  exec 7< "$artifact" 8> "$one_guard"
   printf 'before\n' >&8
-  env "$ordinary" COSMIC_PORTABLE_CACHE="$work/fd8-cache" "$artifact" 2> "$work/fd8.err"
+  env "$ordinary" COSMIC_PORTABLE_CACHE="$work/one-free-cache" "$artifact" \
+    > /dev/null 2> "$work/one-free.err"
   result=$?
   printf 'after\n' >&8
   exit "$result"
 )
-fd8_status=$?
+one_free_status=$?
 set -e
-[ "$fd8_status" -ne 0 ]
-grep -q 'reserved artifact descriptor 8 is already open' "$work/fd8.err"
-[ "$(cat "$guard")" = "before
+[ "$one_free_status" -ne 0 ]
+grep -q 'fewer than two private descriptors are available in 3 through 9' \
+  "$work/one-free.err"
+[ "$(cat "$one_guard")" = "before
 after" ]
-if [ -n "$socket_helper" ]; then
-  chmod 755 "$socket_helper"
-  set +e
-  env "$ordinary" COSMIC_PORTABLE_CACHE="$work/fd9-cache" \
-    "$socket_helper" 9 "$artifact" > /dev/null 2> "$work/fd9.err"
-  fd9_status=$?
-  set -e
-  [ "$fd9_status" -ne 0 ]
-  grep -q 'reserved core descriptor 9 is already open' "$work/fd9.err"
-fi
+[ ! -e "$work/one-free-cache" ]
+
+zero_guard=$work/zero-free.guard
+set +e
+(
+  exec 3< "$artifact" 4< "$artifact" 5< "$artifact" 6< "$artifact"
+  exec 7< "$artifact" 8< "$artifact" 9> "$zero_guard"
+  printf 'before\n' >&9
+  env "$ordinary" COSMIC_PORTABLE_CACHE="$work/zero-free-cache" "$artifact" \
+    > /dev/null 2> "$work/zero-free.err"
+  result=$?
+  printf 'after\n' >&9
+  exit "$result"
+)
+zero_free_status=$?
+set -e
+[ "$zero_free_status" -ne 0 ]
+grep -q 'fewer than two private descriptors are available in 3 through 9' \
+  "$work/zero-free.err"
+[ "$(cat "$zero_guard")" = "before
+after" ]
+[ ! -e "$work/zero-free-cache" ]
 
 # Nonzero exit and signal each append one marker and are never retried.
 exit_marker=$work/exit.marker

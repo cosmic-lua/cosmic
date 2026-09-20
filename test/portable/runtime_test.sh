@@ -72,6 +72,14 @@ chmod 755 "$work/bin/cosmic-runtime"
 COSMIC_PORTABLE_CACHE="$work/cache-release" \
   "$work/bin/cosmic-runtime" help > "$work/help"
 grep -q '^cosmic -- a runtime' "$work/help"
+# Occupied 8 and 9 no longer conflict with the portable contract: the shell
+# chooses another pair and the real runtime adopts the exported numbers.
+(
+  exec 8< "$fixture/runtime.release"
+  exec 9< "$fixture/runtime.release"
+  COSMIC_PORTABLE_CACHE="$work/cache-release" \
+    "$work/bin/cosmic-runtime" help > /dev/null
+)
 COSMIC_PORTABLE_CACHE="$work/cache-release" \
   "$work/bin/cosmic-runtime" docs Fs.read > "$work/docs"
 grep -q 'Fs.read' "$work/docs"
@@ -117,6 +125,39 @@ set -e
 [ "$partial_status" -ne 0 ]
 grep -q 'portable startup names no artifact' "$work/partial.err"
 
+expect_contract_error() {
+  contract_name=$1
+  artifact_field=$2
+  core_field=$3
+  contract_pattern=$4
+  set +e
+  (
+    exec 8< "$fixture/runtime.release"
+    exec 9< "$wrong_core"
+    COSMIC_PORTABLE_ARTIFACT_FD="$artifact_field" \
+      COSMIC_PORTABLE_CORE_FD="$core_field" \
+      COSMIC_PORTABLE_TARGET_ID="$target_id" \
+      COSMIC_PORTABLE_CONFIGURATION_ID="$configuration_id" \
+      COSMIC_PORTABLE_CORE_OFFSET="$offset" \
+      COSMIC_PORTABLE_CORE_LENGTH="$length" \
+      COSMIC_PORTABLE_CORE_SHA256="$digest" \
+      "$wrong_core" --artifact "$fixture/runtime.release" help
+  ) > "$work/contract-$contract_name.out" \
+    2> "$work/contract-$contract_name.err"
+  contract_status=$?
+  set -e
+  [ "$contract_status" -ne 0 ]
+  grep -q "$contract_pattern" "$work/contract-$contract_name.err"
+}
+
+# Startup accepts representable nonstandard descriptors, while standard,
+# equal, and unrepresentable fields are rejected before descriptor adoption.
+expect_contract_error standard 2 9 \
+  'portable artifact descriptor field is invalid'
+expect_contract_error equal 8 8 'portable descriptor fields are equal'
+expect_contract_error unrepresentable 2147483648 9 \
+  'portable artifact descriptor field is invalid'
+
 # A different build of the same target/configuration is the executing inode and
 # FD9, but differs from the manifest's exact core bytes and is rejected.
 set +e
@@ -135,6 +176,74 @@ set -e
 [ "$wrong_core_status" -ne 0 ]
 grep -Eq 'executing core (length|digest) differs from manifest' \
   "$work/wrong-core.err"
+
+# A warm cached core remains independently usable when any artifact core range
+# is corrupt. Prefix reuse verifies every manifest range lazily and returns no
+# bytes on failure; a cold launch still rejects corruption in the selected
+# range while extracting it.
+python3 - "$fixture/runtime.release" "$work" "$offset" <<'PY'
+import os
+import shutil
+import struct
+import sys
+
+source, out, selected = sys.argv[1], sys.argv[2], int(sys.argv[3])
+with open(source, "rb") as artifact:
+    data = artifact.read()
+trailer = data[-48:]
+if trailer[:8] != b"CosmicT1":
+    raise SystemExit("runtime corruption fixture: missing trailer")
+manifest = struct.unpack(">Q", trailer[16:24])[0]
+count = struct.unpack(">I", data[manifest + 24:manifest + 28])[0]
+with open(os.path.join(out, "corrupt-ranges"), "w") as listing:
+    for index in range(count):
+        entry = manifest + 32 + index * 56
+        offset = struct.unpack(">Q", data[entry + 8:entry + 16])[0]
+        path = os.path.join(out, "corrupt-range-%d" % (index + 1))
+        shutil.copyfile(source, path)
+        with open(path, "r+b") as corrupt:
+            corrupt.seek(offset)
+            original = corrupt.read(1)
+            if not original:
+                raise SystemExit("runtime corruption fixture: empty core range")
+            corrupt.seek(offset)
+            corrupt.write(bytes([original[0] ^ 1]))
+        os.chmod(path, 0o755)
+        kind = "selected" if offset == selected else "nonselected"
+        listing.write("%s %s\n" % (path, kind))
+PY
+
+selected_corrupt=
+nonselected_ranges=0
+while read -r corrupt_program corrupt_kind; do
+  COSMIC_PORTABLE_CACHE="$work/cache-release" \
+    "$corrupt_program" help > /dev/null
+  set +e
+  (
+    cd "$root"
+    COSMIC_PORTABLE_CACHE="$work/cache-release" "$corrupt_program" \
+      test/portable/retained_prefix_probe.tl "$release_hash" corrupt
+  ) > "$work/prefix-$corrupt_kind.out" 2> "$work/prefix-$corrupt_kind.err"
+  prefix_status=$?
+  set -e
+  [ "$prefix_status" -ne 0 ]
+  grep -q 'retained portable core range .* digest differs from manifest' \
+    "$work/prefix-$corrupt_kind.err"
+  if [ "$corrupt_kind" = selected ]; then
+    selected_corrupt=$corrupt_program
+  else
+    nonselected_ranges=$((nonselected_ranges + 1))
+  fi
+done < "$work/corrupt-ranges"
+[ -n "$selected_corrupt" ]
+[ "$nonselected_ranges" -ge 1 ]
+set +e
+COSMIC_PORTABLE_CACHE="$work/cache-selected-corrupt" \
+  "$selected_corrupt" help > /dev/null 2> "$work/cold-corrupt.err"
+cold_corrupt_status=$?
+set -e
+[ "$cold_corrupt_status" -ne 0 ]
+grep -q 'extracted core digest differs' "$work/cold-corrupt.err"
 
 run_paused() {
   hook=$1
@@ -172,8 +281,9 @@ release_paused() {
   wait "$paused_pid"
 }
 
-# Once FD8 is open, atomic replacement cannot mix the new pathname's database
-# or prefix into the paused process. A subsequent launch selects all-new bytes.
+# Once the artifact descriptor is open, atomic replacement cannot mix the new
+# pathname's database or prefix into the paused process. A subsequent launch
+# selects all-new bytes.
 mkdir -p "$work/replace space"
 program=$work/replace\ space/cosmic
 cp "$fixture/runtime.old" "$program"
@@ -191,7 +301,8 @@ grep -q "^old $old_hash$" "$work/paused.out"
 )
 grep -q "^new $new_hash$" "$work/new.out"
 
-# Unlink after adoption also leaves database and private prefix reads on FD8.
+# Unlink after adoption also leaves database and private prefix reads on the
+# retained descriptor.
 unlinked=$work/unlinked
 cp "$fixture/runtime.old" "$unlinked"
 chmod 755 "$unlinked"
@@ -216,5 +327,32 @@ set -e
 [ "$mismatch_status" -ne 0 ]
 grep -q 'extracted core digest differs' "$work/paused.err"
 if grep -q 'no tree to boot' "$work/paused.err"; then exit 1; fi
+
+# Record real runtime.release help cost independently of the tiny launcher
+# payload timings. These observations are informational and set no threshold.
+runtime_timing_cache="$work/runtime-timing-cache"
+runtime_bytes=$(wc -c < "$fixture/runtime.release")
+python3 - "$fixture/runtime.release" "$runtime_timing_cache" \
+  "$work/runtime-cold.time" "$work/runtime-warm.time" <<'PY'
+import os
+import subprocess
+import sys
+import time
+
+artifact, cache, cold_path, warm_path = sys.argv[1:]
+environment = os.environ.copy()
+environment["COSMIC_PORTABLE_CACHE"] = cache
+for path in (cold_path, warm_path):
+    started = time.monotonic()
+    subprocess.run([artifact, "help"], env=environment,
+                   stdout=subprocess.DEVNULL, check=True)
+    with open(path, "w") as result:
+        result.write("real %.6f\n" % (time.monotonic() - started))
+PY
+printf 'portable runtime.release help cold timing (%s bytes): ' "$runtime_bytes"
+tr '\n' ' ' < "$work/runtime-cold.time"
+printf '\nportable runtime.release help warm timing (%s bytes): ' "$runtime_bytes"
+tr '\n' ' ' < "$work/runtime-warm.time"
+printf '\n'
 
 printf 'portable runtime: PASS (real help/docs/script, logical paths, retained replacement/unlink, mismatch rejection)\n'

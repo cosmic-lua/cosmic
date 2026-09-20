@@ -21,12 +21,13 @@ static const char *need(const char *name) {
   return value;
 }
 
-static void check_descriptor(const char *name, int expected) {
+static int check_descriptor(const char *name) {
   char *end = NULL;
   long value = strtol(need(name), &end, 10);
-  if (end == NULL || *end != '\0' || value != expected) fail(name);
+  if (end == NULL || *end != '\0' || value < 3 || value > 9) fail(name);
   struct stat st;
-  if (fstat(expected, &st) != 0 || !S_ISREG(st.st_mode)) fail(name);
+  if (fstat((int)value, &st) != 0 || !S_ISREG(st.st_mode)) fail(name);
+  return (int)value;
 }
 
 static void append_marker(void) {
@@ -39,8 +40,9 @@ static void append_marker(void) {
 }
 
 int main(int argc, char **argv) {
-  check_descriptor("COSMIC_PORTABLE_ARTIFACT_FD", 8);
-  check_descriptor("COSMIC_PORTABLE_CORE_FD", 9);
+  int artifact_fd = check_descriptor("COSMIC_PORTABLE_ARTIFACT_FD");
+  int core_fd = check_descriptor("COSMIC_PORTABLE_CORE_FD");
+  if (artifact_fd == core_fd) fail("descriptor fields are equal");
   need("COSMIC_PORTABLE_TARGET_ID");
   need("COSMIC_PORTABLE_CONFIGURATION_ID");
   need("COSMIC_PORTABLE_CORE_OFFSET");
@@ -50,7 +52,7 @@ int main(int argc, char **argv) {
     fail("artifact arguments");
 
   char header[10];
-  if (pread(8, header, sizeof header, 0) != (ssize_t)sizeof header ||
+  if (pread(artifact_fd, header, sizeof header, 0) != (ssize_t)sizeof header ||
       memcmp(header, "#!/bin/sh\n", sizeof header) != 0)
     fail("artifact descriptor bytes");
   if (strcmp(need("PORTABLE_ORDINARY_ENV"), "preserved") != 0)

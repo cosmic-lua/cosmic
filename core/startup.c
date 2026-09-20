@@ -3,6 +3,7 @@
 #include "startup.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -105,12 +106,12 @@ void cosmic_startup_portable(struct cosmic_startup *startup,
     values[i] = getenv(portable_environment[i]);
 
   uint64_t artifact_fd, core_fd, target, configuration, offset, length;
-  if (!decimal(values[0], INT32_MAX, &artifact_fd) ||
-      artifact_fd != COSMIC_PORTABLE_ARTIFACT_FD)
-    startup->contract_error = "portable artifact descriptor field differs";
-  else if (!decimal(values[1], INT32_MAX, &core_fd) ||
-           core_fd != COSMIC_PORTABLE_CORE_FD)
-    startup->contract_error = "portable core descriptor field differs";
+  if (!decimal(values[0], INT_MAX, &artifact_fd) || artifact_fd < 3)
+    startup->contract_error = "portable artifact descriptor field is invalid";
+  else if (!decimal(values[1], INT_MAX, &core_fd) || core_fd < 3)
+    startup->contract_error = "portable core descriptor field is invalid";
+  else if (artifact_fd == core_fd)
+    startup->contract_error = "portable descriptor fields are equal";
   else if (!decimal(values[2], UINT32_MAX, &target) || target == 0)
     startup->contract_error = "portable launcher target field is invalid";
   else if (!decimal(values[3], UINT32_MAX, &configuration) ||
@@ -233,15 +234,6 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          "selected core digest differs from launcher");
 
-  unsigned char digest[COSMIC_DIGEST_MAX];
-  size_t digest_length = 0;
-  if (cosmic_digest_fd("sha256", artifact->fd, selected->offset,
-                       selected->length, digest, &digest_length) != 0 ||
-      digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
-      memcmp(digest, selected->sha256, digest_length) != 0)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
-                         "artifact core range digest differs from manifest");
-
   struct stat core_stat;
   if (startup->core_fd < 0 || fstat(startup->core_fd, &core_stat) != 0 ||
       !S_ISREG(core_stat.st_mode) || core_stat.st_size < 0)
@@ -250,7 +242,8 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
   if ((uint64_t)core_stat.st_size != selected->length)
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          "executing core length differs from manifest");
-  digest_length = 0;
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_length = 0;
   if (cosmic_digest_fd("sha256", startup->core_fd, 0, selected->length,
                        digest, &digest_length) != 0 ||
       digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||

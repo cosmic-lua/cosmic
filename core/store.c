@@ -484,6 +484,26 @@ static int store_trusted_prefix(lua_State *L) {
     lua_pushliteral(L, "retained portable prefix is too large");
     return 2;
   }
+  /* Startup binds the executing cached core to its manifest identity. Prefix
+   * reuse has a stronger requirement: every raw core will be copied into a
+   * future artifact, so verify every exact retained range before exposing any
+   * prefix bytes. This stays lazy so an otherwise valid warm cached core can
+   * run commands that do not reuse a corrupt artifact prefix. */
+  for (uint32_t i = 0; i < artifact->portable.entry_count; i++) {
+    const struct cosmic_portable_entry *entry = &artifact->portable.entries[i];
+    unsigned char digest[COSMIC_DIGEST_MAX];
+    size_t digest_length = 0;
+    if (cosmic_digest_fd("sha256", artifact->fd, entry->offset, entry->length,
+                         digest, &digest_length) != 0 ||
+        digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
+        memcmp(digest, entry->sha256, digest_length) != 0) {
+      lua_pushnil(L);
+      lua_pushfstring(L,
+                      "retained portable core range %d digest differs from manifest",
+                      (int)i + 1);
+      return 2;
+    }
+  }
   luaL_Buffer buffer;
   char *bytes = luaL_buffinitsize(L, &buffer, (size_t)length);
   if (!cosmic_artifact_read(artifact, bytes, (size_t)length, 0)) {

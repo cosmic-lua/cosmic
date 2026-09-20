@@ -15,14 +15,12 @@
 #define COSMIC_STARTUP_VERSION 1u
 
 /*
- * Private portable launcher environment contract. The launcher first refuses
- * inherited descriptors 8 and 9 in either access direction, then leaves the
- * artifact and verified standalone core open on them across its one exec.
+ * Private portable launcher environment contract. The launcher first selects
+ * two unused descriptors from its bounded candidate set, then leaves
+ * the artifact and verified standalone core open on them across its one exec.
  * Startup must validate and clear exactly these bounded fields before Lua can
  * inspect or propagate the environment. Adoption begins in portable step 5.
  */
-#define COSMIC_PORTABLE_ARTIFACT_FD 8
-#define COSMIC_PORTABLE_CORE_FD 9
 #define COSMIC_PORTABLE_ENV_ARTIFACT_FD "COSMIC_PORTABLE_ARTIFACT_FD"
 #define COSMIC_PORTABLE_ENV_CORE_FD "COSMIC_PORTABLE_CORE_FD"
 #define COSMIC_PORTABLE_ENV_TARGET_ID "COSMIC_PORTABLE_TARGET_ID"

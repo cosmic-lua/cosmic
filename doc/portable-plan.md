@@ -239,19 +239,23 @@ constructs a native/legacy record. A portable-marked startup that fails
 validation exits with a precise error and never falls back into `--boot`.
 
 Reserve an artifact descriptor and a transient cached-core descriptor in the
-launcher contract. Before redirecting either, the shell must test whether the
-caller already has it open; if so, fail clearly without closing or replacing
-it. Do not treat documentation as permission to clobber caller state. The shell
-opens the selected artifact once, uses that descriptor for extraction, opens
-the verified cache entry on the second descriptor, and executes that path with
-only a bounded set of private environment fields naming the descriptors and
-selected entry. The core checks both descriptors and clears those fields before
+launcher contract. Before opening the artifact or mutating the cache, the shell
+scans literal descriptors 3 through 9 with two-direction child-shell probes and
+selects two unused numbers. Fewer than two fails without changing caller state.
+Only a controlled numeric redirection left-hand side uses `eval`; path strings
+remain quoted variable references. The shell opens the selected artifact once,
+uses that descriptor for extraction, opens the verified cache entry on the
+second descriptor, and executes that path with only a bounded set of private
+environment fields naming the chosen descriptors and selected entry. The core
+accepts distinct representable nonstandard descriptor integers, rejects
+standard, equal, invalid, or unrepresentable values, checks both descriptors,
+and clears those fields before
 Lua can inspect or propagate the environment. It closes the core descriptor
 after binding actual-executable identity and sets close-on-exec on the retained
 artifact descriptor so application subprocesses and a relaunch do not inherit
-stale state. File descriptors 0, 1 and 2 remain untouched. Tests cover the free
-reserved-descriptor path and refusal, without clobbering, when either is already
-open.
+stale state. File descriptors 0, 1 and 2 remain untouched. Tests keep inherited
+read, write, and socket descriptors open simultaneously and cover one-free and
+zero-free exhaustion without clobbering caller guards.
 
 Validation, manifest inspection, trailer/database location, and the offset VFS
 all use that retained open file. Change `cosmic_locate`/`cosmic_vfs_register`
@@ -266,13 +270,22 @@ different file.
 
 Before any Teal consumer needs to write another program, expose the validated
 prefix bytes through a private trusted build API implemented in `core/store.c`
-and the startup/artifact context. It reads `[0, prefix_length)` with `pread` from
-the retained descriptor. Hand it only to the trusted `build.artifact` module in
+and the startup/artifact context. Startup verifies the actual executing cached
+core's exact length, digest, and inode binding, but does not hash the selected
+artifact core range a third time. On each prefix request, the private API first
+verifies every manifest core digest over its exact retained-descriptor range;
+any failure returns no usable prefix and a precise error. It then reads
+`[0, prefix_length)` with `pread` from the retained descriptor. Hand it only to
+the trusted `build.artifact` module in
 the same way raw store capabilities are restricted today; do not add it to the
 public `cosmic.store` wrapper. `build/embed.tl` and `build/reboot.tl` request the
 prefix from that module and never reopen `Proc.executable()` or the logical
 pathname. Rename-over and unlink-after-open tests must still let those consumers
-write an artifact from the originally retained prefix.
+write an artifact from the originally retained prefix. A valid warm cached core
+can run commands that do not request the prefix when an unused artifact core
+range is corrupt; prefix reuse rejects corruption in any range, while cold
+extraction rejects corruption in the selected range. In-place writes remain
+unsupported.
 
 ### Cache
 
