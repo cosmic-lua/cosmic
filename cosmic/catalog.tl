@@ -176,6 +176,37 @@ Catalog.rows = {
            "`cosmic test`. No return value and no registration; the " ..
            "name alone is the rule",
     file = "build/positions.tl", line = 928 },
+  { module = "(convention)", symbol = "build", message = "",
+    hint = "`cosmic build`: builds the tree in the working directory, " ..
+           "then writes one executable under o/bin/ for each " ..
+           "cmd/<name>/main.tl it holds -- o/bin/<name>, which runs " ..
+           "on its own, with nothing beside it -- see cmd",
+    file = "build/embed.tl", line = 365 },
+  { module = "(convention)", symbol = "fix", message = "",
+    hint = "`cosmic fix`: rewrites every Teal source in the working " ..
+           "directory structurally, then writes it back out as " ..
+           "canonical text, in place. `cosmic fix --check` does the " ..
+           "same, writing nothing: names the files a fix would " ..
+           "change, and fails if there are any",
+    file = "build/fix/init.tl", line = 199 },
+  { module = "(convention)", symbol = "db", message = "",
+    hint = "`cosmic db`: what the two databases under o/ hold, table " ..
+           "by table -- rows, pages, bytes -- and how the last few " ..
+           "builds went",
+    file = "build/databases.tl", line = 98 },
+  { module = "(convention)", symbol = "docs", message = "",
+    hint = "`cosmic docs <q>`: what the database says about q -- a " ..
+           "symbol (Fs.read, read), a module (cosmic.fs), or words to " ..
+           "search the documentation for",
+    file = "build/docs.tl", line = 638 },
+  { module = "(convention)", symbol = "uses", message = "",
+    hint = "`cosmic uses <sym>`: every place that refers to a symbol, " ..
+           "as file:line",
+    file = "build/docs.tl", line = 676 },
+  { module = "(convention)", symbol = "help", message = "",
+    hint = "`cosmic help`: prints the whole discovery surface -- every " ..
+           "verb, one line of prose each",
+    file = "cmd/cosmic/main.tl", line = 289 },
 }
 
 return Catalog
