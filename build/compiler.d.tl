@@ -28,6 +28,7 @@ local record compiler
   end
 
   record Env
+    globals: {string:any}
     modules: {string:any}
     module_filenames: {string:string}
     loaded: {string:any}
