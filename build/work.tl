@@ -58,13 +58,16 @@ local record work
   --- the importer runs on is plumbing, not transformation -- a bug
   --- there breaks the build loudly rather than changing bytecode
   --- quietly -- and is left out, which is what keeps an edit to it
-  --- from recompiling everything. `runtime` is the hash of the image
-  --- the binary actually runs and the same pins: what runs a test
-  --- beyond the modules its own key already covers. Both are computed over the tree being
-  --- built, carried in the binary, and read from there, so a tool
-  --- always names what it actually is.
+  --- from recompiling everything. `runtime_basis` is the host-independent
+  --- hash of the Teal and Lua pins and patches. Portable startup combines
+  --- it with the validated target, configuration and exact raw-core digest.
+  --- `runtime` keeps the legacy hash of the host image and those same pins
+  --- for attached native outputs during the transition. All three are
+  --- computed over the tree being built and carried by the appropriate
+  --- projection, so a tool always names what it actually is.
   record Identities
     compiler: string
+    runtime_basis: string
     runtime: string
   end
 
@@ -801,8 +804,8 @@ function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   return { boot = boot, image = image }
 end
 
---- The two identities, computed over the tree and kept in `meta` for
---- the projection to carry. See `Identities` for what each is over.
+--- The identities, computed over the tree and kept in `meta` for the
+--- projections to carry. See `Identities` for what each is over.
 --- The compiler's closes over `requires`, so the tree must be parsed
 --- (`build.importer.derive`) first: on a fresh working database the
 --- closure would otherwise stop at `build.importer` itself, and keys
@@ -824,6 +827,11 @@ function work.identities(handle: work.Handle): work.Identities | nil, string
   if compilers == nil then
     return nil, compiler_trouble
   end
+  local bases, basis_trouble = Sqlite.text_rows(db,
+    "SELECT lower(hex(sha256(" .. pins .. ")))")
+  if bases == nil then
+    return nil, basis_trouble
+  end
   local runtimes, runtime_trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(coalesce((SELECT value FROM meta " ..
     "WHERE key = 'host_image'), '') || char(10) || " .. pins .. ")))")
@@ -832,9 +840,11 @@ function work.identities(handle: work.Handle): work.Identities | nil, string
   end
   local identities: work.Identities = {
     compiler = compilers[1][1],
+    runtime_basis = bases[1][1],
     runtime = runtimes[1][1],
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },
+                          { "runtime_basis", identities.runtime_basis },
                           { "runtime", identities.runtime } }) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",

@@ -7,17 +7,40 @@ out=${1:?usage: runtime_build.sh OUTPUT_DIRECTORY}
 mkdir -p "$out"
 "$root/bin/zig" build cores -Dportable-startup-test-hooks=true \
   --prefix "$out/hooked-build"
-cp "$root/o/cosmic.db" "$out/old.db"
-cp "$root/o/cosmic.db" "$out/new.db"
-python3 - "$out/old.db" "$out/new.db" <<'PY'
+"$root/bin/zig" build sanitized --prefix "$out/sanitized-build"
+cp "$root/o/cosmic.portable.db" "$out/old.db"
+cp "$root/o/cosmic.portable.db" "$out/new.db"
+cp "$root/o/cosmic.portable.db" "$out/basis.db"
+cp "$root/o/cosmic.portable.db" "$out/missing.db"
+python3 - "$out/old.db" "$out/new.db" "$out/basis.db" "$out/missing.db" <<'PY'
+import hashlib
 import sqlite3
 import sys
-for path, marker in zip(sys.argv[1:], ("old", "new")):
+for path, marker in zip(sys.argv[1:], ("old", "new", "basis", "missing")):
     db = sqlite3.connect(path)
     db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                ("retained_fixture", marker))
+    if marker == "basis":
+        db.execute("UPDATE meta SET value = ? WHERE key = 'runtime_basis'",
+                   (hashlib.sha256(b"portable fixture basis variant").hexdigest(),))
+    elif marker == "missing":
+        db.execute("DELETE FROM meta WHERE key = 'runtime_basis'")
     db.commit()
     db.close()
+PY
+
+python3 - "$out/old.db" <<'PY'
+import sqlite3
+import sys
+db = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
+keys = {row[0] for row in db.execute("SELECT key FROM meta")}
+images = db.execute("SELECT count(*) FROM images").fetchone()[0]
+db.close()
+for forbidden in ("host", "host_image", "runtime"):
+    if forbidden in keys:
+        raise SystemExit("portable runtime build: per-host metadata survived: " + forbidden)
+if "runtime_basis" not in keys or images != 0:
+    raise SystemExit("portable runtime build: projection lacks basis or carries images")
 PY
 
 "$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
@@ -28,6 +51,45 @@ PY
 "$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
   "$root/o/targets.tsv" "$out/hooked-build/core" "$out/new.db" \
   "$out/runtime.new" test
+"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+  "$root/o/targets.tsv" "$out/hooked-build/core" "$out/basis.db" \
+  "$out/runtime.basis" test
+"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+  "$root/o/targets.tsv" "$out/hooked-build/core" "$out/missing.db" \
+  "$out/runtime.missing" test
+
+# A fixture-only fourth manifest entry binds the real host sanitized core. Its
+# synthetic uname tuple is deliberately unreachable from the launcher; the
+# identity test executes that raw core with descriptors 8 and 9 populated from
+# this manifest entry, exercising the production startup contract without
+# making sanitized the ordinary shell selection.
+host_system=$(uname -s)
+host_arch=$(uname -m)
+tab=$(printf '\t')
+host_record=$(awk -F "$tab" -v sysname="$host_system" -v arch="$host_arch" \
+  '$5 == sysname && $6 == arch { print; exit }' "$root/o/targets.tsv")
+[ -n "$host_record" ]
+target_id=$(printf '%s\n' "$host_record" | awk -F "$tab" '{ print $1 }')
+target=$(printf '%s\n' "$host_record" | awk -F "$tab" '{ print $4 }')
+sanitized_name="sanitized-$target"
+cat "$root/o/targets.tsv" > "$out/sanitized-targets.tsv"
+printf '%s\t2\tsanitized\t%s\tFixture\tSanitized\n' \
+  "$target_id" "$sanitized_name" >> "$out/sanitized-targets.tsv"
+mkdir -p "$out/sanitized-cores"
+while IFS="$tab" read -r _ _ _ release_target _ _; do
+  mkdir -p "$out/sanitized-cores/$release_target"
+  cp "$out/hooked-build/core/$release_target/cosmic-core" \
+    "$out/sanitized-cores/$release_target/cosmic-core"
+done < "$root/o/targets.tsv"
+mkdir -p "$out/sanitized-cores/$sanitized_name"
+cp "$out/sanitized-build/sanitized/cosmic-core" \
+  "$out/sanitized-cores/$sanitized_name/cosmic-core"
+"$root/o/bin/cosmic" "$root/test/portable/write_runtime_fixture.tl" \
+  "$out/sanitized-targets.tsv" "$out/sanitized-cores" "$out/old.db" \
+  "$out/runtime.sanitized" test
+printf '%s\n' "$target_id" > "$out/sanitized-target-id"
+printf '%s\n' "$target" > "$out/sanitized-target"
+printf '%s\n' "$sanitized_name" > "$out/sanitized-core-name"
 
 mkdir -p "$out/incompatible-cores"
 tab=$(printf '\t')
@@ -62,7 +124,8 @@ import os
 import struct
 import sys
 root = sys.argv[1]
-for name in ("runtime.release", "runtime.old", "runtime.new"):
+for name in ("runtime.release", "runtime.old", "runtime.new", "runtime.basis",
+             "runtime.missing", "runtime.sanitized"):
     path = os.path.join(root, name)
     with open(path, "rb") as source:
         data = source.read()
@@ -75,6 +138,9 @@ for name in ("runtime.release", "runtime.old", "runtime.new"):
 PY
 
 cp "$root/test/portable/fixture/retained_probe.tl.in" "$out/probe.tl"
+cp "$root/test/portable/fixture/runtime_test.tl.in" "$out/runtime_test.tl.in"
+cp "$root/test/portable/fixture/cmd/hello/main.tl.in" "$out/hello_main.tl.in"
 chmod 755 "$out/runtime.release" "$out/runtime.old" "$out/runtime.new" \
+  "$out/runtime.basis" "$out/runtime.missing" "$out/runtime.sanitized" \
   "$out/runtime.incompatible"
-printf 'portable runtime build: PASS (real cores, Cosmic database, distinct complete artifacts)\n'
+printf 'portable runtime build: PASS (host-independent projection, real release/sanitized cores, distinct complete artifacts)\n'

@@ -171,6 +171,19 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
+  -- The non-default portable fixture consumes the one host-independent
+  -- projection. Its runtime target/core identity comes from validated startup,
+  -- so it carries neither compressed core copies nor per-host metadata. The
+  -- ordinary output below remains the legacy projection until the default
+  -- cutover.
+  local portable_written, portable_write_trouble =
+    writer.write_result(handle, output .. "/cosmic.portable.db", result, true)
+  if not portable_written then
+    work.close(handle)
+    report("boot: FAIL\n" .. portable_write_trouble)
+    return 1
+  end
+
   local database, read_trouble = Fs.read(database_path)
   if database == nil then
     work.close(handle)

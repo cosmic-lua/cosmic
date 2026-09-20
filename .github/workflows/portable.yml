@@ -100,3 +100,67 @@ jobs:
             "$PWD/portable/launcher/payloads/socket-$TARGET"
       - name: validate retained artifact bytes with the real runtime
         run: test/portable/runtime_test.sh "$PWD/portable/runtime"
+  identity-x86:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: portable-experiment
+          path: portable
+      - name: start one work database with release, basis, and sanitized contexts
+        run: |
+          chmod +x portable/runtime/runtime.*
+          COSMIC_PORTABLE_IDENTITY_STATE_OUT="$PWD/identity-state" \
+            test/portable/identity_test.sh "$PWD/portable/runtime"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: portable-identity-x86
+          path: identity-state
+          include-hidden-files: true
+  identity-linux-arm:
+    needs: [build, identity-x86]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: portable-experiment
+          path: portable
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: portable-identity-x86
+          path: identity-in
+      - name: reuse the transported work database under the real arm Linux core
+        run: |
+          chmod +x portable/runtime/runtime.*
+          COSMIC_PORTABLE_IDENTITY_STATE_OUT="$PWD/identity-state" \
+            test/portable/identity_test.sh "$PWD/portable/runtime" \
+              "$PWD/identity-in"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: portable-identity-linux-arm
+          path: identity-state
+          include-hidden-files: true
+  identity-macos-arm:
+    needs: [build, identity-linux-arm]
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: portable-experiment
+          path: portable
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: portable-identity-linux-arm
+          path: identity-in
+      - name: reuse the transported work database under the real macOS core
+        run: |
+          chmod +x portable/runtime/runtime.*
+          test/portable/identity_test.sh "$PWD/portable/runtime" \
+            "$PWD/identity-in"

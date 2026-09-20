@@ -72,7 +72,11 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   if image == nil then
     return image_trouble .. "; run bin/zig build boot"
   end
-  if Hash.hex_sha256(image) ~= (Store.meta("host_image") or "") then
+  local host_image = Store.meta("host_image")
+  if host_image == nil or host_image == "" then
+    return "the running binary names no host image; run bin/zig build boot"
+  end
+  if Hash.hex_sha256(image) ~= host_image then
     return "the running image is not the one the working database " ..
       "holds; run bin/zig build boot"
   end
@@ -100,7 +104,11 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
     return compile_trouble
   end
   local database_path = root .. "/o/cosmic.db"
-  local written, write_trouble = writer.write_result(handle, database_path, result)
+  -- Portable self-rebuild switches to the retained prefix writer in step 8.
+  -- Until then this compatibility route deliberately still writes a legacy
+  -- attached executable and therefore requires the legacy projection.
+  local written, write_trouble =
+    writer.write_result(handle, database_path, result, false)
   if not written then
     return write_trouble
   end

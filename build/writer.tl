@@ -191,22 +191,30 @@ local rebuild_fts: {string} = {
 --- add nothing here: an extracted row changes only with the source it
 --- was parsed from, which moves that module's key, and the seed rows
 --- change only with this module, which moves `boot_hash`.
-local signature_sql =
-  "SELECT lower(hex(sha256(" ..
+local function signature_sql(portable: boolean): string
+  local images = portable and "''" or
+    "coalesce((SELECT group_concat(target || ' ' || hex(sha256), char(10) " ..
+    "ORDER BY target) FROM images), '')"
+  local metadata = portable and
+    "('boot_hash', 'image_hash', 'compiler', 'runtime_basis')" or
+    "('boot_hash', 'image_hash', 'host', 'host_image', 'compiler', " ..
+    "'runtime_basis', 'runtime')"
+  return "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
   "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
   "WHERE i.kind <> 'decl'), '') || char(10) || " ..
   "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
   "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(target || ' ' || hex(sha256), char(10) " ..
-  "ORDER BY target) FROM images), '') || char(10) || " ..
+  images .. " || char(10) || " ..
   "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
-  "FROM meta WHERE key IN ('boot_hash', 'image_hash', 'host', 'host_image', " ..
-  "'compiler', 'runtime')), '') || char(10) || ?1)))"
+  "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || ?1 || " ..
+  "char(10) || ?2)))"
+end
 
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
-                       result: importer.Result): boolean, string
+                       result: importer.Result,
+                       portable: boolean): boolean, string
   local db = handle.db
   for _, statement in ipairs(schema.settings("out.")) do
     local ok, failure = db:exec(statement)
@@ -225,19 +233,24 @@ local function project(handle: work.Handle, path: string,
     statements[#statements + 1] =
       "INSERT INTO out.decls (path, source) SELECT path, source FROM inputs " ..
       "WHERE kind = 'decl' ORDER BY path"
-    statements[#statements + 1] =
-      "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
-      "SELECT target, sha256, size, encoding, data FROM images ORDER BY target"
+    if not portable then
+      statements[#statements + 1] =
+        "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
+        "SELECT target, sha256, size, encoding, data FROM images ORDER BY target"
+    end
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure
       end
     end
+    local metadata = portable and
+      "('boot_hash', 'image_hash', 'compiler', 'runtime_basis')" or
+      "('boot_hash', 'image_hash', 'host', 'host_image', 'compiler', " ..
+      "'runtime_basis', 'runtime')"
     local carried, meta_trouble = db:exec(
       "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
-      "WHERE key IN ('boot_hash', 'image_hash', 'host', 'host_image', " ..
-      "'compiler', 'runtime')")
+      "WHERE key IN " .. metadata)
     if not carried then
       return false, meta_trouble
     end
@@ -278,12 +291,17 @@ local function project(handle: work.Handle, path: string,
 end
 
 --- Writes an already-compiled result into a fresh database and leaves
---- it at `out`, unless the file there already is that projection. This
---- ends the run's transaction first: SQLite attaches and vacuums
---- outside one only.
+--- it at `out`, unless the file there already is that projection. A portable
+--- projection carries the host-independent runtime basis and no core images
+--- or per-host metadata; legacy projections retain all transition rows. The
+--- projection kind is part of the signature, so changing routes can never
+--- reuse a result from the other route. This ends the run's transaction
+--- first: SQLite attaches and vacuums outside one only.
 function writer.write_result(handle: work.Handle, out: string,
-                             result: importer.Result): boolean, string
+                             result: importer.Result,
+                             portable?: boolean): boolean, string
   local db = handle.db
+  local portable_projection = portable == true
   local committed, commit_trouble = work.commit(handle)
   if not committed then
     return false, commit_trouble
@@ -292,8 +310,10 @@ function writer.write_result(handle: work.Handle, out: string,
   if identities == nil then
     return false, identity_trouble
   end
-  local signed, sign_trouble = Sqlite.text_rows(db, signature_sql,
-    { text(result.main or "") })
+  local signed, sign_trouble = Sqlite.text_rows(db,
+    signature_sql(portable_projection),
+    { text(result.main or ""),
+      text(portable_projection and "portable-v1" or "legacy") })
   if signed == nil then
     return false, sign_trouble
   end
@@ -311,7 +331,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if not attached then
     return false, attach_trouble
   end
-  local projected, trouble = project(handle, out, result)
+  local projected, trouble = project(handle, out, result, portable_projection)
   db:exec("DETACH out")
   if not projected then
     return false, trouble

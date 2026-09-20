@@ -158,6 +158,14 @@ function embed.database(project: string, main: string): string | nil, string
   if binary == nil then
     return nil, "no database is attached to this binary"
   end
+  local host = Store.meta("host")
+  if host == nil or host == "" then
+    return nil, "the running binary names no host target"
+  end
+  local runtime = Store.meta("runtime")
+  if runtime == nil or runtime == "" then
+    return nil, "the running binary names no runtime identity"
+  end
   local building = project .. ".embed"
   Fs.remove(building)
   Fs.remove(building .. ".vacuumed")
@@ -237,9 +245,9 @@ function embed.database(project: string, main: string): string | nil, string
       end
     end
     local meta: {{string}} = {
-      { "host", Store.meta("host") or "" },
+      { "host", host },
       { "compiler", Store.meta("compiler") or "" },
-      { "runtime", Store.meta("runtime") or "" },
+      { "runtime", runtime },
       { "main", main },
     }
     for _, pair in ipairs(meta) do
@@ -311,7 +319,8 @@ function embed.tree(root: string): {string} | nil, string
     work.close(handle)
     return nil, compile_trouble
   end
-  local written, write_trouble = writer.write_result(handle, project, result)
+  local written, write_trouble = writer.write_result(handle, project, result,
+    Store.meta("runtime_context") == "portable-v1")
   work.record(handle, elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   work.close(handle)

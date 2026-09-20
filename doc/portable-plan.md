@@ -30,6 +30,16 @@ probe rejected mismatched target and configuration records; and the portable
 smoke and characterization passed. Cross-host CI and adversarial review remain
 the publication gate. Later steps remain pending.
 
+Steps 3 through 5 are implemented on the branch. The step 6 candidate adds the
+validated runtime-v2 metadata overlay and host-independent portable projection
+while preserving legacy projections and outputs. Local Linux x86_64 evidence:
+fresh boot passed with 147 files staged and 90 modules compiled; ordinary and
+sanitized suites each passed 305 tests; retained-runtime, legacy-transition and
+identity fixtures passed, including one work database across real release,
+changed-basis and sanitized contexts. Cross-host transported-work-database CI
+and adversarial review remain the publication gate. Steps 7 through 10 remain
+pending.
+
 ## Goal and evidence
 
 The finished artifact is one unchanged, self-contained file that runs offline on

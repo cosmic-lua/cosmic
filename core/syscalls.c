@@ -24,6 +24,9 @@ extern char **environ;
 #endif
 
 COSMIC_SYSCALL(executable, 0) {
+  lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
+  if (lua_isstring(L, -1)) return 1;
+  lua_pop(L, 1);
   char resolved[PATH_MAX];
   if (!cosmic_executable_path(resolved, sizeof resolved)) {
     return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);

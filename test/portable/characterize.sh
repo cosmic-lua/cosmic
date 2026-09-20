@@ -55,17 +55,18 @@ PY
 }
 
 run_test() {
-  target=$1
-  identity=$2
-  output=$3
+  output=$1
+  set +e
   (
     cd "$work/project"
     COSMIC_PORTABLE_CACHE=$work/cache \
     COSMIC_FIXTURE_COUNTER=$counter \
-    COSMIC_FIXTURE_TARGET=$target \
-    COSMIC_FIXTURE_RUNTIME=$identity \
       "$artifact" test
   ) >"$output" 2>&1
+  status=$?
+  set -e
+  [ "$status" -eq 1 ]
+  grep -F 'the running binary names no runtime identity' "$output" >/dev/null
 }
 
 set +e
@@ -79,48 +80,21 @@ set -e
 grep -F 'this binary names no host target' "$work/build.out" >/dev/null
 grep -F 'build: FAIL' "$work/build.out" >/dev/null
 
-run_test target-a runtime-a "$work/test-a.out"
-grep -F 'test: PASS (1 tests, 1 modules; 1 ran, 0 stood)' "$work/test-a.out" >/dev/null
-[ "$(cat "$counter")" = 'target-a runtime-a' ]
+run_test "$work/test-a.out"
+[ ! -e "$counter" ]
 
-first_verdict=$(python3 - "$work/project/o/build.db" <<'PY'
+python3 - "$work/project/o/build.db" <<'PY'
 import sqlite3
 import sys
 
 connection = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
-rows = connection.execute(
-    "SELECT key, passed, run_at_ns FROM verdicts ORDER BY key"
-).fetchall()
+rows = connection.execute("SELECT key FROM verdicts").fetchall()
 connection.close()
-if len(rows) != 1 or rows[0][1] != 1:
-    raise SystemExit("portable characterization: expected one passing verdict")
-print(rows[0][0] + " " + str(rows[0][2]))
+if rows:
+    raise SystemExit("portable characterization: missing runtime wrote a verdict")
 PY
-)
+run_test "$work/test-b.out"
+[ ! -e "$counter" ]
 
-# These labels stand in for the target/runtime context that commit 6 will
-# supply from the validated physical core. Today the packed binary supplies an
-# empty runtime to build/test.tl, so the changed context silently reuses the
-# first passing verdict and the observable test counter does not advance.
-run_test target-b runtime-b "$work/test-b.out"
-grep -F 'test: PASS (1 tests, 1 modules; 0 ran, 1 stood)' "$work/test-b.out" >/dev/null
-[ "$(cat "$counter")" = 'target-a runtime-a' ]
-
-second_verdict=$(python3 - "$work/project/o/build.db" <<'PY'
-import sqlite3
-import sys
-
-connection = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
-rows = connection.execute(
-    "SELECT key, passed, run_at_ns FROM verdicts ORDER BY key"
-).fetchall()
-connection.close()
-if len(rows) != 1 or rows[0][1] != 1:
-    raise SystemExit("portable characterization: expected one reused verdict")
-print(rows[0][0] + " " + str(rows[0][2]))
-PY
-)
-[ "$second_verdict" = "$first_verdict" ]
-
-printf 'portable characterization: PASS (build exit 1/missing host; test 1 ran then 1 stood; runtime %s; unchanged verdict %s)\n' \
-  "$runtime" "${first_verdict%% *}"
+printf 'portable characterization: PASS (legacy prototype build lacks host; missing runtime %s is rejected before verdict)\n' \
+  "$runtime"

@@ -122,7 +122,7 @@ static void clear_field(lua_State *L, const char *table, const char *field) {
   lua_pop(L, 1);
 }
 
-lua_State *cosmic_surface_open(void) {
+lua_State *cosmic_surface_open(const char *logical_executable) {
   lua_State *L = luaL_newstate();
   if (L == NULL) {
     return NULL;
@@ -130,6 +130,10 @@ lua_State *cosmic_surface_open(void) {
 
   lua_newtable(L);
   lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
+  if (logical_executable != NULL) {
+    lua_pushstring(L, logical_executable);
+    lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
+  }
 
   open_library(L, LUA_GNAME, luaopen_base, 1);
   open_library(L, LUA_LOADLIBNAME, luaopen_package, 1);

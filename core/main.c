@@ -486,7 +486,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     return complain("portable artifact has no database", self);
   }
 
-  lua_State *L = cosmic_surface_open();
+  lua_State *L = cosmic_surface_open(self);
   if (L == NULL) {
     cosmic_artifact_close(&artifact);
     return complain("no memory for a Lua state", NULL);

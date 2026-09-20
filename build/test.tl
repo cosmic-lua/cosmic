@@ -664,7 +664,12 @@ function test.run(argv: {integer:string}): integer
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
   local tool = Store.meta("compiler") or ""
-  local runtime = Store.meta("runtime") or ""
+  local runtime = Store.meta("runtime")
+  if runtime == nil or runtime == "" then
+    work.close(handle)
+    complain("the running binary names no runtime identity")
+    return 1
+  end
   local database = root .. "/o/cosmic.db"
 
   local result, compile_trouble = importer.compile(handle, built, env, tool)
@@ -675,7 +680,8 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
   local written, write_trouble =
-    writer.write_result(handle, database, result)
+    writer.write_result(handle, database, result,
+      Store.meta("runtime_context") == "portable-v1")
   work.record(handle, elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then

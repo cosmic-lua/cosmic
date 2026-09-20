@@ -1,5 +1,6 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local sys = require("cosmic.sys")
@@ -12,6 +13,9 @@ return function(argv: {string}): integer
   local prefix = assert(artifact.trusted_prefix())
   assert(Hash.hex(Hash.sha256(prefix)) == expected_prefix)
   assert(Store.meta("retained_fixture") == expected_marker)
+  local executable = assert(Store.meta("artifact"))
+  assert(Proc.executable() == executable)
+  assert(sys.executable() == executable)
   local private = {
     "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
     "COSMIC_PORTABLE_TARGET_ID", "COSMIC_PORTABLE_CONFIGURATION_ID",

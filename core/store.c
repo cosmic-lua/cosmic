@@ -5,10 +5,16 @@
 #include <string.h>
 
 #include "lauxlib.h"
+#include "crypto.h"
 #include "portable.h"
 #include "sqlite.h"
 
 #define STORE_LIST "cosmic.store.databases"
+#define STORE_ARTIFACT "cosmic.store.artifact"
+
+#ifndef COSMIC_TARGET_NAME
+#error "build.zig must define COSMIC_TARGET_NAME"
+#endif
 
 /* A prepare or a step that fails for a reason other than "no such row"
  * means the attached database itself cannot be trusted -- truncated,
@@ -285,36 +291,158 @@ static int store_source(lua_State *L) {
   return 2;
 }
 
-/* One entry of the meta table, which is where the build records what it
- * decided: the main module's name, the hash of the tool. */
+/* Pushes one database's meta value and returns 1, or pushes nothing and
+ * returns 0 when that key has no row. */
+static int database_meta(lua_State *L, sqlite3 *db, const char *key) {
+  static const char *query = "SELECT value FROM meta WHERE key = ?1";
+  sqlite3_stmt *stmt = NULL;
+  if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK)
+    die_unreadable(db);
+  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+  int rc = sqlite3_step(stmt);
+  if (rc == SQLITE_ROW) {
+    lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
+                    (size_t)sqlite3_column_bytes(stmt, 0));
+    sqlite3_finalize(stmt);
+    return 1;
+  }
+  if (rc != SQLITE_DONE) {
+    sqlite3_finalize(stmt);
+    die_unreadable(db);
+  }
+  sqlite3_finalize(stmt);
+  return 0;
+}
+
+static void big_endian_32(unsigned char *out, uint32_t value) {
+  out[0] = (unsigned char)(value >> 24);
+  out[1] = (unsigned char)(value >> 16);
+  out[2] = (unsigned char)(value >> 8);
+  out[3] = (unsigned char)value;
+}
+
+static void big_endian_64(unsigned char *out, uint64_t value) {
+  for (unsigned i = 0; i < 8; i++)
+    out[i] = (unsigned char)(value >> (56 - 8 * i));
+}
+
+static void push_hex(lua_State *L, const unsigned char *bytes, size_t length) {
+  static const char hex[] = "0123456789abcdef";
+  luaL_Buffer buffer;
+  char *text = luaL_buffinitsize(L, &buffer, length * 2);
+  for (size_t i = 0; i < length; i++) {
+    text[i * 2] = hex[bytes[i] >> 4];
+    text[i * 2 + 1] = hex[bytes[i] & 15];
+  }
+  luaL_pushresultsize(&buffer, length * 2);
+}
+
+/* Portable runtime-v2 is an unambiguous, domain-separated encoding of the
+ * validated physical core and the host-independent runtime basis:
+ *
+ *   "cosmic-runtime-v2" NUL, target:u32be, configuration:u32be,
+ *   exact-raw-core-sha256[32], basis-length:u64be, basis bytes.
+ */
+static int push_portable_runtime(lua_State *L,
+                                 const struct cosmic_artifact *artifact,
+                                 int list) {
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
+  if (binary == NULL || !database_meta(L, binary, "runtime_basis")) {
+    lua_pushnil(L);
+    return 1;
+  }
+  size_t basis_length = 0;
+  const char *basis = lua_tolstring(L, -1, &basis_length);
+  static const char domain[] = "cosmic-runtime-v2";
+  size_t fixed = sizeof domain + 4 + 4 + COSMIC_PORTABLE_SHA256_LENGTH + 8;
+  if (basis == NULL || basis_length == 0 || basis_length > SIZE_MAX - fixed) {
+    lua_pop(L, 1);
+    lua_pushnil(L);
+    return 1;
+  }
+  size_t encoded_length = fixed + basis_length;
+  unsigned char *encoded = malloc(encoded_length);
+  if (encoded == NULL) return luaL_error(L, "runtime identity: out of memory");
+  size_t at = 0;
+  memcpy(encoded + at, domain, sizeof domain);
+  at += sizeof domain;
+  big_endian_32(encoded + at, artifact->portable.selected.target_id);
+  at += 4;
+  big_endian_32(encoded + at,
+                artifact->portable.selected.configuration_id);
+  at += 4;
+  memcpy(encoded + at, artifact->portable.selected.sha256,
+         COSMIC_PORTABLE_SHA256_LENGTH);
+  at += COSMIC_PORTABLE_SHA256_LENGTH;
+  big_endian_64(encoded + at, (uint64_t)basis_length);
+  at += 8;
+  memcpy(encoded + at, basis, basis_length);
+
+  unsigned char digest[COSMIC_DIGEST_MAX];
+  size_t digest_length = 0;
+  int status = cosmic_digest("sha256", encoded, encoded_length, digest,
+                             &digest_length);
+  free(encoded);
+  lua_pop(L, 1);
+  if (status != 0 || digest_length != COSMIC_PORTABLE_SHA256_LENGTH) {
+    lua_pushnil(L);
+    return 1;
+  }
+  push_hex(L, digest, digest_length);
+  return 1;
+}
+
+static int push_binary_meta(lua_State *L, int list, const char *key) {
+  lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
+  if (binary != NULL && database_meta(L, binary, key)) return 1;
+  lua_pushnil(L);
+  return 1;
+}
+
+/* One entry of runtime metadata. Portable values overlay every SQL database,
+ * because they describe the validated process context rather than whichever
+ * project database happens to be searched first. Native artifacts retain the
+ * legacy SQL lookup unchanged. */
 static int store_meta(lua_State *L) {
   const char *key = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
 
-  static const char *query = "SELECT value FROM meta WHERE key = ?1";
-  for (lua_Integer i = 1; i <= count; i++) {
-    sqlite3 *db = database_at(L, list, i);
-    if (db == NULL) {
-      continue;
-    }
-    sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
-      die_unreadable(db);
-    }
-    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
-    int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
-      lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
-                      (size_t)sqlite3_column_bytes(stmt, 0));
-      sqlite3_finalize(stmt);
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_ARTIFACT);
+  const struct cosmic_artifact *artifact = lua_touserdata(L, -1);
+  lua_pop(L, 1);
+  if (strcmp(key, "runtime_context") == 0) {
+    if (artifact != NULL && artifact->fd >= 0)
+      lua_pushliteral(L, "portable-v1");
+    else
+      lua_pushnil(L);
+    return 1;
+  }
+  if (artifact != NULL && artifact->fd >= 0) {
+    if (strcmp(key, "host") == 0) {
+      lua_pushliteral(L, COSMIC_TARGET_NAME);
       return 1;
     }
-    if (rc != SQLITE_DONE) {
-      sqlite3_finalize(stmt);
-      die_unreadable(db);
+    if (strcmp(key, "host_image") == 0) {
+      push_hex(L, artifact->portable.selected.sha256,
+               COSMIC_PORTABLE_SHA256_LENGTH);
+      return 1;
     }
-    sqlite3_finalize(stmt);
+    if (strcmp(key, "runtime") == 0)
+      return push_portable_runtime(L, artifact, list);
+    if (strcmp(key, "runtime_basis") == 0)
+      return push_binary_meta(L, list, "runtime_basis");
+    if (strcmp(key, "artifact") == 0) {
+      lua_pushstring(L, artifact->logical_path);
+      return 1;
+    }
+  }
+
+  for (lua_Integer i = 1; i <= count; i++) {
+    sqlite3 *db = database_at(L, list, i);
+    if (db != NULL && database_meta(L, db, key)) return 1;
   }
   lua_pushnil(L);
   return 1;
@@ -418,6 +546,9 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary,
   }
   lua_pushvalue(L, -1);
   lua_setfield(L, LUA_REGISTRYINDEX, STORE_LIST);
+  if (artifact == NULL) lua_pushnil(L);
+  else lua_pushlightuserdata(L, (void *)artifact);
+  lua_setfield(L, LUA_REGISTRYINDEX, STORE_ARTIFACT);
 
   /* package.searchers keeps the preload searcher and gains ours; the
    * two that read the filesystem go away with package.path. */
