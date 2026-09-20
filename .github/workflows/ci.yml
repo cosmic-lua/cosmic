@@ -396,10 +396,12 @@ jobs:
           test ! -e o
           sha256sum "$RUNNER_TEMP/portable-product/cosmic" > \
             "$RUNNER_TEMP/alpine-cosmic.before.sha256"
+      - name: prefetch Alpine image
+        run: docker pull alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
       - name: run cold BusyBox product and complete-suite checks
         run: |
           mkdir -p "$RUNNER_TEMP/alpine-diagnostics" "$RUNNER_TEMP/alpine-home"
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
             -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
             -v "$GITHUB_WORKSPACE:/work" -w /work \
             -v "$RUNNER_TEMP:/runner" \
@@ -418,7 +420,7 @@ jobs:
             '
       - name: run warm read-only cache and delayed integrity checks
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
             -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
             -v "$GITHUB_WORKSPACE:/work" -w /work \
             -v "$RUNNER_TEMP:/runner" \
