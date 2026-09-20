@@ -46,9 +46,13 @@ the sanitized job already tested, without compiling that core a second time.
 `product_build.sh` makes the per-host provenance bundle from a booted tree. It
 copies portable Cosmic, extracts its exact prefix and manifest, and uses those
 same local portable bytes to build the hello and second standalone fixtures.
-`product_test.sh` verifies every recorded transported hash, exact prefix reuse,
-the selected manifest range's length and digest, and both applications. On the
-macOS host it also sends that extracted range to strict `codesign` verification.
+The bundle also carries every generated release target's raw core. Extraction
+checks that each core occurs exactly once, at its manifest range, in Cosmic and
+both applications. `product_test.sh` verifies every recorded transported hash,
+exact prefix reuse, the selected manifest range's length, digest, and raw-core
+bytes, and both applications. On the macOS host it also sends that extracted
+range to strict `codesign` verification. Normal CI compares the complete bundle
+from independent x86 Linux, ARM Linux, and ARM macOS producers.
 
 The generated launcher uses POSIX shell builtins plus `uname`, `stat`, `id`,
 `mkdir`, `chmod`, `mktemp`, `dd`, `head`, `ln`, `rm`, and either `sha256sum` or
@@ -68,11 +72,11 @@ an ordinary environment value reaches the re-entered tests. A subsequent core
 input edit is refused with the named `bin/zig build boot` remedy and does not
 change the artifact.
 
-The portable workflow transports the identity fixture's whole project,
-including its one `o/build.db`, from x86_64 Linux to aarch64 Linux and then
-aarch64 macOS. Each actual host must run under its selected raw core, while an
-immediate repeat on that host stands. This is focused identity evidence; the
-normal portable full-suite and provenance workflow remains step 9.
+Normal CI transports the identity fixture's whole project, including its one
+`o/build.db`, from x86_64 Linux to aarch64 Linux and then aarch64 macOS. Each
+actual host must run under its selected raw core, while an immediate repeat on
+that host stands. This identity chain complements the independent per-host
+product builds and the canonical full-suite run on every host.
 
 `full_suite.sh` runs the normal CI full-suite diagnostics locally as five
 explicit phases: `prepare`, `native`, `native-boundary`, `portable`, and

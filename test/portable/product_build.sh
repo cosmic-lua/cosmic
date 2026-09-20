@@ -57,15 +57,23 @@ done
 grep -F 'hello from the portable fixture' "$work/applications.out" >/dev/null
 grep -F 'second portable application' "$work/applications.out" >/dev/null
 
-mkdir -p "$out/apps"
+mkdir -p "$out/apps" "$out/cores"
 cp "$root/o/bin/cosmic-portable" "$out/cosmic"
 cp "$project/o/bin/hello" "$out/apps/hello"
 cp "$project/o/bin/second" "$out/apps/second"
 cp "$root/o/bin/cosmic" "$out/writer"
 cp "$root/o/cosmic.portable.db" "$out/portable.db"
 cp "$root/o/targets.tsv" "$out/targets.tsv"
+tab=$(printf '\t')
+while IFS="$tab" read -r _ _ configuration target _ _; do
+  [ "$configuration" = release ]
+  mkdir -p "$out/cores/$target"
+  cp "$root/o/core/$target/cosmic-core" \
+    "$out/cores/$target/cosmic-core"
+done < "$out/targets.tsv"
 "$root/o/bin/cosmic" "$root/test/portable/product_extract.tl" \
-  "$out/cosmic" "$out/prefix" "$out/manifest" \
+  "$out/cosmic" "$out/prefix" "$out/manifest" "$out/targets.tsv" \
+  "$out/cores" \
   "$out/apps/hello" "$out/apps/second"
 chmod 755 "$out/cosmic" "$out/writer" "$out/apps/hello" "$out/apps/second"
 
@@ -80,4 +88,10 @@ for name in cosmic prefix manifest apps/hello apps/second writer portable.db \
   value=$(hash_value "$out/$name")
   printf '%s  %s\n' "$value" "$name" >> "$out/hashes.sha256"
 done
+while IFS="$tab" read -r _ _ configuration target _ _; do
+  [ "$configuration" = release ]
+  name=cores/$target/cosmic-core
+  value=$(hash_value "$out/$name")
+  printf '%s  %s\n' "$value" "$name" >> "$out/hashes.sha256"
+done < "$out/targets.tsv"
 printf 'portable product build: PASS (Cosmic, prefix, manifest, and two local portable applications)\n'

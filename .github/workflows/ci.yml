@@ -296,7 +296,16 @@ jobs:
           test/portable/runtime_test.sh "$RUNNER_TEMP/portable-runtime"
       - name: verify checked configuration, cache, and verdict identity
         if: matrix.target == 'x86_64-linux-musl'
-        run: test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime"
+        run: |
+          COSMIC_PORTABLE_IDENTITY_STATE_OUT="$RUNNER_TEMP/identity-state" \
+            test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: matrix.target == 'x86_64-linux-musl'
+        with:
+          name: portable-identity-x86
+          path: ${{ runner.temp }}/identity-state
+          include-hidden-files: true
+          if-no-files-found: error
       - name: prove canonical product bytes remain unchanged
         env:
           TARGET: ${{ matrix.target }}
@@ -316,6 +325,53 @@ jobs:
             ${{ runner.temp }}/cosmic-self-rebuild-diagnostics
             ${{ runner.temp }}/runtime-diagnostics
           if-no-files-found: ignore
+
+  portable-identity-linux-arm:
+    needs: portable-canonical
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-runtime-x86
+          path: ${{ runner.temp }}/portable-runtime
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-identity-x86
+          path: ${{ runner.temp }}/identity-in
+      - name: run once for the ARM identity, then stand unchanged
+        run: |
+          chmod +x "$RUNNER_TEMP"/portable-runtime/runtime.*
+          COSMIC_PORTABLE_IDENTITY_STATE_OUT="$RUNNER_TEMP/identity-state" \
+            test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime" \
+              "$RUNNER_TEMP/identity-in"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: portable-identity-linux-arm
+          path: ${{ runner.temp }}/identity-state
+          include-hidden-files: true
+          if-no-files-found: error
+
+  portable-identity-macos-arm:
+    needs: portable-identity-linux-arm
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-runtime-x86
+          path: ${{ runner.temp }}/portable-runtime
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-identity-linux-arm
+          path: ${{ runner.temp }}/identity-in
+      - name: run once for the macOS identity, then stand unchanged
+        run: |
+          chmod +x "$RUNNER_TEMP"/portable-runtime/runtime.*
+          test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime" \
+            "$RUNNER_TEMP/identity-in"
 
   portable-alpine:
     needs: ci
@@ -346,7 +402,9 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" \
             -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
             -v "$GITHUB_WORKSPACE:/work" -w /work \
-            -v "$RUNNER_TEMP:/runner" alpine:3.24.2 /bin/sh -eu -c '
+            -v "$RUNNER_TEMP:/runner" \
+            alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
+            /bin/sh -eu -c '
               /runner/portable-contract/format/format-test-x86_64-linux-musl \
                 /runner/portable-contract/format/program
               test/portable/product_test.sh /runner/portable-product \
@@ -363,7 +421,9 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" \
             -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
             -v "$GITHUB_WORKSPACE:/work" -w /work \
-            -v "$RUNNER_TEMP:/runner" alpine:3.24.2 /bin/sh -eu -c '
+            -v "$RUNNER_TEMP:/runner" \
+            alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
+            /bin/sh -eu -c '
               cache=/runner/alpine-diagnostics/full/portable-full-suite-cache
               chmod 500 "$cache"
               COSMIC_PORTABLE_CACHE="$cache" \
@@ -409,23 +469,74 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: binaries-*
-          path: dl
+          path: binaries
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: portable-product-*
+          path: products
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: portable-contract-x86
+          path: contract
       - name: every host produces the same three binaries
         shell: bash
         run: |
           set -euo pipefail
-          # Each artifact lands zipped in its own subdirectory; extracted
-          # there, in place, so three artifacts that all hold a file
-          # named bin/cosmic-x86_64-linux-musl never collide.
-          for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" "$(dirname "$z")"
-          done
           hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
           first=${hosts[0]}
           for host in "${hosts[@]:1}"; do
             for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-              cmp "dl/binaries-$first/bin/cosmic-$target" \
-                  "dl/binaries-$host/bin/cosmic-$target"
+              cmp "binaries/binaries-$first/bin/cosmic-$target" \
+                  "binaries/binaries-$host/bin/cosmic-$target"
             done
           done
           echo "provenance: PASS (linux-x86_64, linux-aarch64 and macos-aarch64 produce byte-identical binaries for every target)"
+      - name: every host produces the same complete portable products
+        shell: bash
+        run: |
+          set -euo pipefail
+          hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
+          first=${hosts[0]}
+          baseline="products/portable-product-$first"
+          for host in "${hosts[@]:1}"; do
+            product="products/portable-product-$host"
+            for name in cosmic prefix manifest targets.tsv apps/hello apps/second; do
+              cmp "$baseline/$name" "$product/$name"
+            done
+            while IFS=$'\t' read -r _ _ configuration target _; do
+              test "$configuration" = release
+              cmp "$baseline/cores/$target/cosmic-core" \
+                "$product/cores/$target/cosmic-core"
+            done < "$baseline/targets.tsv"
+          done
+
+          decoder=contract/format/format-test-x86_64-linux-musl
+          chmod +x "$decoder"
+          for host in "${hosts[@]}"; do
+            product="products/portable-product-$host"
+            inspection="$RUNNER_TEMP/$host.inspection"
+            "$decoder" --inspect "$product/cosmic" > "$inspection"
+            release_targets=$(awk -F '\t' '$3 == "release" { count++ } END { print count + 0 }' \
+              "$product/targets.tsv")
+            entries=$(awk '$1 == "entry" { count++ } END { print count + 0 }' \
+              "$inspection")
+            test "$entries" -eq "$release_targets"
+            while IFS=$'\t' read -r target_id configuration_id configuration target _; do
+              test "$configuration" = release
+              entry=$(awk -v target="$target_id" -v configuration="$configuration_id" \
+                '$1 == "entry" && $2 == target && $3 == configuration { print $4, $5, $6; count++ } END { if (count != 1) exit 1 }' \
+                "$inspection")
+              read -r offset length digest <<< "$entry"
+              blocks=$(( (length + 16383) / 16384 ))
+              test $((offset % 16384)) -eq 0
+              block_file="$RUNNER_TEMP/$host-$target.blocks"
+              extracted="$RUNNER_TEMP/$host-$target.core"
+              dd if="$product/cosmic" of="$block_file" bs=16384 \
+                skip=$((offset / 16384)) count="$blocks" 2>/dev/null
+              head -c "$length" "$block_file" > "$extracted"
+              test "$(wc -c < "$extracted" | tr -d ' ')" -eq "$length"
+              test "$(sha256sum "$extracted" | awk '{print $1}')" = "$digest"
+              cmp "$product/cores/$target/cosmic-core" "$extracted"
+            done < "$product/targets.tsv"
+          done
+          echo "portable provenance: PASS (complete Cosmic, prefix, manifest, applications, and exact raw cores from all three hosts)"

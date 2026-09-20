@@ -37,6 +37,18 @@ check_hashes() {
       return 1
     }
   done
+  tab=$(printf '\t')
+  while IFS="$tab" read -r _ _ configuration core_target _ _; do
+    [ "$configuration" = release ] || return
+    name=cores/$core_target/cosmic-core
+    expected=$(awk -v name="$name" '$2 == name { print $1; found = 1 } END { if (!found) exit 1 }' \
+      "$product/hashes.sha256") || return
+    actual=$(hash_value "$product/$name") || return
+    [ "$actual" = "$expected" ] || {
+      printf 'portable product: transported hash differs: %s\n' "$name" >&2
+      return 1
+    }
+  done < "$product/targets.tsv"
 }
 check_hashes
 
@@ -66,6 +78,7 @@ dd if="$product/cosmic" of="$work/core.blocks" bs=16384 \
 head -c "$length" "$work/core.blocks" > "$work/core"
 [ "$(wc -c < "$work/core" | tr -d ' ')" = "$length" ]
 [ "$(hash_value "$work/core")" = "$expected_digest" ]
+cmp "$product/cores/$target/cosmic-core" "$work/core"
 
 prefix_record=$(awk '$1 == "prefix" { print $2, $4, $5; found = 1 } END { if (!found) exit 1 }' \
   "$work/inspection")
