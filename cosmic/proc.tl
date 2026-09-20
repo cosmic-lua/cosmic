@@ -5,7 +5,8 @@ local sys = require("cosmic.sys")
 local record Proc
 end
 
---- Ends the process. It does not return.
+--- Ends the process with a status. This is the explicit replacement for
+--- os.exit; it does not run finalizers and does not return.
 function Proc.exit(status: integer)
   sys.exit(status) -- exits: a process boundary has no caller to return to
 end
@@ -29,7 +30,10 @@ function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
 end
 
---- Replaces this process with another program: the same process id,
+--- Replaces this process with another program. This is lower-level than
+--- os.execute: it does not invoke a shell, wait for a child, or return command
+--- status. There is no io.popen stream API. On success the process keeps the
+--- same process id,
 --- the given arguments with the program's own name first, and the
 --- given environment. It returns only when it fails.
 function Proc.exec(path: string, argv: {string},

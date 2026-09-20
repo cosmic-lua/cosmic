@@ -753,12 +753,38 @@ local function with_docs_hint(msg: string, databases: {Sqlite.Handle},
   return msg .. " -- see also in docs: " .. table.concat(found, ", ")
 end
 
+--- Checker forms that reliably identify a language topic. Argument failures
+--- point to the general checked function-contract guide; a diagnostic does
+--- not carry enough AST binding information here to claim a particular call.
+local function diagnostic_docs(msg: string): string | nil
+  if msg:match("^wrong number of arguments %(") or
+      msg:match("^argument %d+: got .+, expected ") then
+    return "generics_functions_returns"
+  elseif msg:match("^invalid key '.-' in record ") then
+    return "records_interfaces_methods"
+  elseif msg:match("^cannot use operator '.-' for types ") and
+      msg:find(" | ", 1, true) ~= nil then
+    return "unions_narrowing_casts"
+  end
+  return nil
+end
+
+local function with_diagnostic_docs(msg: string, databases: {Sqlite.Handle},
+                                    public: {boolean}): string
+  local query = diagnostic_docs(msg)
+  if query == nil or not symbols.has_example_query(databases, public, query) then
+    return msg
+  end
+  return msg .. " -- see also: cosmic docs " .. query
+end
+
 --- Every hint a checker message earns, appended once, at the one place
 --- every message is rendered, rather than patched into the vendored
 --- checker's own text or duplicated at each call site.
 local function with_hint(msg: string, databases: {Sqlite.Handle},
                          public: {boolean}): string
-  return with_docs_hint(with_unused_hint(msg), databases, public)
+  return with_diagnostic_docs(
+    with_docs_hint(with_unused_hint(msg), databases, public), databases, public)
 end
 
 local function complain(file: string, result: compiler.Result,

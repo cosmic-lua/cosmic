@@ -73,4 +73,43 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
   return out
 end
 
+--- Whether a worked-example name, comment, or checked source answers a query
+--- in any visible database.
+--- Compiler diagnostics use this before printing a docs command, so an old or
+--- incomplete binary never advertises documentation it cannot answer. Query
+--- failures are deliberately just false: a secondary hint cannot replace the
+--- compiler's original diagnostic.
+function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean},
+                                   name: string): boolean
+  local owners: {string: integer} = {}
+  for index, db in ipairs(databases) do
+    local modules = Sqlite.text_rows(db, "SELECT path FROM modules")
+    if modules ~= nil then
+      for _, row in ipairs(modules) do
+        if owners[row[1]] == nil then owners[row[1]] = index end
+      end
+    end
+  end
+  local words: {string} = {}
+  for word in name:gmatch("[%w_]+") do words[#words + 1] = word end
+  local phrase = '"' .. table.concat(words, " ") .. '"'
+  for index, db in ipairs(databases) do
+    for _, lookup in ipairs({
+      { "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
+          symbols.public_only("e.module", public[index] == true), name },
+      { "SELECT e.module FROM examples_fts JOIN examples e " ..
+          "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
+          symbols.public_only("e.module", public[index] == true), phrase },
+    }) do
+      local rows = Sqlite.text_rows(db, lookup[1], { { text = lookup[2] } })
+      if rows ~= nil then
+        for _, row in ipairs(rows) do
+          if owners[row[1]] == index then return true end
+        end
+      end
+    end
+  end
+  return false
+end
+
 return symbols
