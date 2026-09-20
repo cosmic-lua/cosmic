@@ -113,6 +113,17 @@ work.version = "14"
 --- function of the bytes alone, so a rename costs nothing and a row
 --- can never be stale.
 ---
+--- `executable` is `build.coverage.lines.executable`'s answer for one
+--- source, keyed by content hash the same way as `parsed`: which lines
+--- could ever be hit is a pure function of the bytes alone, so a row
+--- can never be stale and, like `parsed`, is never pruned. `lines` is
+--- every executable line number in ascending order, joined by single
+--- spaces (e.g. "1 3 4 9"), rather than one row per line, since a
+--- caller always wants the whole set back at once. A row is a
+--- function of the bytes and of that module's rule for what counts as
+--- executable, so a change to the rule bumps `work.version`, as a
+--- change to what a parse records does for `parsed`.
+---
 --- `images` is the core executable for every target, deflated at
 --- rest, which a boot puts here and every later build carries into
 --- the database it writes. The compiler is the same kind of thing and
@@ -222,6 +233,8 @@ work.schema = {
   [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,
                                        has_return INTEGER NOT NULL,
                                        export TEXT NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS executable (source_hash TEXT PRIMARY KEY,
+                                           lines TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS requires (source_hash TEXT NOT NULL,
                                          ordinal INTEGER NOT NULL,
                                          name TEXT NOT NULL,
