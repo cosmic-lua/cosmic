@@ -109,6 +109,17 @@ check_test_result() {
     "$output" >/dev/null
 }
 
+report_suite_failure() {
+  name=$1
+  status=$2
+  if [ "$status" -eq 124 ]; then
+    printf '%s suite: bounded command timed out (status 124)\n' "$name" >&2
+  elif [ "$status" -ne 0 ]; then
+    printf '%s suite: bounded command failed (status %s)\n' \
+      "$name" "$status" >&2
+  fi
+}
+
 case "$phase" in
   prepare)
     if [ -e "$portable" ] || [ -e "$cache" ]; then
@@ -138,7 +149,17 @@ case "$phase" in
     mv "$diagnostics/test.status" "$diagnostics/native-test.status"
     cat "$native_out"
     cat "$native_err" >&2
+    report_suite_failure native "$status"
+    set +e
     "$snapshot" "$diagnostics" native-immediate
+    snapshot_status=$?
+    set -e
+    if [ "$snapshot_status" -ne 0 ]; then
+      printf 'native suite: immediate snapshot/integrity failed (status %s)\n' \
+        "$snapshot_status" >&2
+    fi
+    if [ "$status" -ne 0 ]; then exit "$status"; fi
+    if [ "$snapshot_status" -ne 0 ]; then exit "$snapshot_status"; fi
     check_test_result "$status" "$native_out"
     ;;
 
@@ -166,11 +187,30 @@ case "$phase" in
       printf 'cache directory was not created\n' > \
         "$diagnostics/portable-cache-files.txt"
     fi
+    report_suite_failure portable "$status"
+    set +e
     "$snapshot" "$diagnostics" portable-immediate
+    snapshot_status=$?
     hash_value "$portable" > \
       "$diagnostics/portable-artifact.after.sha256"
-    cmp "$diagnostics/portable-artifact.before.sha256" \
-      "$diagnostics/portable-artifact.after.sha256"
+    hash_status=$?
+    if [ "$hash_status" -eq 0 ]; then
+      cmp "$diagnostics/portable-artifact.before.sha256" \
+        "$diagnostics/portable-artifact.after.sha256"
+      hash_status=$?
+    fi
+    set -e
+    if [ "$snapshot_status" -ne 0 ]; then
+      printf 'portable suite: immediate snapshot/integrity failed (status %s)\n' \
+        "$snapshot_status" >&2
+    fi
+    if [ "$hash_status" -ne 0 ]; then
+      printf 'portable suite: artifact integrity failed (status %s)\n' \
+        "$hash_status" >&2
+    fi
+    if [ "$status" -ne 0 ]; then exit "$status"; fi
+    if [ "$snapshot_status" -ne 0 ]; then exit "$snapshot_status"; fi
+    if [ "$hash_status" -ne 0 ]; then exit "$hash_status"; fi
     check_test_result "$status" "$portable_out"
     ;;
 
