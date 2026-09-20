@@ -39,12 +39,7 @@ local function try_build(tmp: string, name: string, source: string): boolean, st
     work.close(handle)
     return false, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return false, env_trouble
-  end
-  local result, trouble = importer.compile(handle, built, env, "narrowing-test")
+  local result, trouble = importer.compile(handle, built, "narrowing-test")
   work.close(handle)
   if result == nil then
     return false, trouble

@@ -58,12 +58,7 @@ local function try_build(root: string): boolean, string
     work.close(handle)
     return false, stage_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return false, env_trouble
-  end
-  local result, trouble = importer.compile(handle, built, env, "visibility-test")
+  local result, trouble = importer.compile(handle, built, "visibility-test")
   work.close(handle)
   if result == nil then
     return false, trouble

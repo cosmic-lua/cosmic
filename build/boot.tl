@@ -10,7 +10,6 @@ local Time = require("cosmic.time")
 local attach = require("build.attach")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
-local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -99,11 +98,6 @@ local function boot(root: string, argv: {integer:string}): integer
     report("boot: FAIL (" .. name_trouble .. ")")
     return 1
   end
-  local env, trouble = teal.environment_for(compiler, handle)
-  if env == nil then
-    report("boot: FAIL (" .. trouble .. ")")
-    return 1
-  end
 
   -- What a boot alone puts in the working database, for every later
   -- build to carry: the three images and the compiler.
@@ -136,7 +130,7 @@ local function boot(root: string, argv: {integer:string}): integer
 
   local database_path = output .. "/cosmic.db"
   local result, compile_trouble =
-    importer.compile(handle, compiler, env, identities.compiler)
+    importer.compile(handle, compiler, identities.compiler)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)

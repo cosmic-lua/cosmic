@@ -297,14 +297,9 @@ function embed.tree(root: string): {string} | nil, string
     work.close(handle)
     return nil, load_trouble
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    return nil, env_trouble
-  end
   local project = root .. "/o/cosmic.db"
   local result, compile_trouble =
-    importer.compile(handle, built, env, Store.meta("compiler") or "")
+    importer.compile(handle, built, Store.meta("compiler") or "")
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)

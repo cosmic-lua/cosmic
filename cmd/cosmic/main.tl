@@ -204,12 +204,6 @@ local function run(file: string, argv: {integer:string}): integer
     complain("cosmic: " .. load_trouble)
     return 1
   end
-  local env, env_trouble = teal.environment_for(built, handle)
-  if env == nil then
-    work.close(handle)
-    complain("cosmic: " .. env_trouble)
-    return 1
-  end
 
   -- A stale tool: this binary's source inputs no longer match what
   -- it was booted from. Running on would compile the tree with a
@@ -231,7 +225,7 @@ local function run(file: string, argv: {integer:string}): integer
     end
     if state == "teal" then
       complain("cosmic: the tool is stale; rebuilding it from the tree")
-      local reboot_trouble = reboot.into(handle, built, env, argv)
+      local reboot_trouble = reboot.into(handle, built, argv)
       complain("cosmic: " .. reboot_trouble)
       return 3
     end
@@ -244,7 +238,7 @@ local function run(file: string, argv: {integer:string}): integer
 
   local database = root .. "/o/cosmic.db"
 
-  local result, compile_trouble = importer.compile(handle, built, env, tool)
+  local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
     work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
