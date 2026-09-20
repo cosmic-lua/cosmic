@@ -14,28 +14,26 @@ sha() {
 # A fixed-size shell header followed by block-aligned raw cores and one DB.
 block=1
 : > o/portable/targets
-for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-  case $target in
-    x86_64-linux-musl) host=Linux:x86_64;;
-    aarch64-linux-musl) host=Linux:aarch64;;
-    aarch64-macos) host=Darwin:arm64;;
-  esac
+tab=$(printf '\t')
+while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
+  [ "$configuration" = release ] || { echo "unexpected target configuration" >&2; exit 1; }
+  host=$uname_os:$uname_arch
   core=o/core/$target/cosmic-core
   length=$(wc -c < "$core" | tr -d ' ')
   blocks=$(( (length + 16383) / 16384 ))
   printf '  %s) block=%s; blocks=%s; length=%s; digest=%s;;\n' \
     "$host" "$block" "$blocks" "$length" "$(sha "$core")" >> o/portable/targets
   block=$((block + blocks))
-done
+done < o/targets.tsv
 awk 'FILENAME == ARGV[1] { arms = arms $0 "\n"; next }
      $0 == "@TARGETS@" { printf "%s", arms; next } { print }' \
   o/portable/targets experiments/portable/launcher.sh > o/portable/cosmic
 header=$(wc -c < o/portable/cosmic)
 [ "$header" -lt 16384 ]
 dd if=/dev/zero bs=1 count=$((16384 - header)) 2>/dev/null >> o/portable/cosmic
-for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
+while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
   dd if="o/core/$target/cosmic-core" bs=16384 conv=sync 2>/dev/null >> o/portable/cosmic
-done
+done < o/targets.tsv
 cat o/portable/shared.db >> o/portable/cosmic
 # The existing locator expects its 17-byte marker, then an eight-byte
 # big-endian absolute offset. Offsets fit in 32 bits here.

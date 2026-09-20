@@ -1,32 +1,30 @@
-/* Experimental entry only: normal builds still compile core/main.c.
- * Reuse the real entry and VFS, changing only where main finds its database.
- * Proc.executable still truthfully names the native core. */
+/* Experimental entry only: normal builds use core/entry.c. The runtime entry
+ * receives the same explicit startup record in both modes. */
 #define _XOPEN_SOURCE 700
-#define main cosmic_native_main
-#define cosmic_executable_path cosmic_artifact_path
-#include "../../core/main.c"
-#undef cosmic_executable_path
-#undef main
 
-extern int cosmic_executable_path(char *, size_t);
-static const char *artifact;
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-int cosmic_artifact_path(char *into, size_t room) {
-  if (artifact == NULL) return cosmic_executable_path(into, room);
-  size_t n = strlen(artifact);
-  if (n >= room) return 0;
-  memcpy(into, artifact, n + 1);
-  return 1;
-}
+#include "startup.h"
 
 int main(int argc, char **argv) {
-  char resolved[4096];
-  if (argc >= 3 && strcmp(argv[1], "--artifact") == 0) {
-    if (realpath(argv[2], resolved) == NULL)
-      return complain("cannot resolve artifact", argv[2]);
-    artifact = resolved;
-    argc -= 2;
-    argv += 2;
+  struct cosmic_startup startup;
+  if (argc < 2 || strcmp(argv[1], "--artifact") != 0) {
+    cosmic_startup_native(&startup);
+    return cosmic_runtime_entry(&startup, argc, argv);
   }
-  return cosmic_native_main(argc, argv);
+  if (argc < 3) {
+    fprintf(stderr, "cosmic: portable startup names no artifact\n");
+    return 2;
+  }
+
+  char artifact[4096];
+  if (realpath(argv[2], artifact) == NULL) {
+    fprintf(stderr, "cosmic: cannot resolve artifact: %s\n", argv[2]);
+    return 2;
+  }
+
+  cosmic_startup_portable(&startup, artifact);
+  return cosmic_runtime_entry(&startup, argc - 2, argv + 2);
 }

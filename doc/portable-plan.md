@@ -15,6 +15,21 @@ ordinary suite passed with 300 ran/0 stood in 9 seconds; the existing host smoke
 passed; and the fixture observed build exit 1, test 1 ran then 1 stood, missing
 runtime metadata, and an unchanged verdict key. Later steps remain pending.
 
+Step 2 is implemented as a local candidate from
+`0a02a14b493230c915f733849ec1891e0243f410`. `build.zig` now owns stable
+target/configuration ids and `uname` tuples, emits the one target-record
+projection consumed by boot and the prototype packer, and compiles matching
+metadata into each core. Native and experimental entries construct the same
+validated startup record and call one runtime entry; no translation unit is
+included or macro-renamed as an entry substitute. Local Linux x86_64 evidence:
+fresh boot passed with 137 files staged and 82 modules compiled; the ordinary
+suite passed with 300 ran/0 stood in 10 seconds; the sanitized suite passed
+under its existing 90-second bound with 300 ran/0 stood in 25 seconds; all
+release cores and the sanitized core carried the expected metadata; a focused
+probe rejected mismatched target and configuration records; and the portable
+smoke and characterization passed. Cross-host CI and adversarial review remain
+the publication gate. Later steps remain pending.
+
 ## Goal and evidence
 
 The finished artifact is one unchanged, self-contained file that runs offline on

@@ -14,13 +14,6 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
---- The targets every binary carries an image for.
-local targets = {
-  "x86_64-linux-musl",
-  "aarch64-linux-musl",
-  "aarch64-macos",
-}
-
 local function elapsed_ms(from: integer): integer
   local now = Time.monotonic_ns()
   if now == nil then
@@ -34,8 +27,9 @@ local function report(line: string)
 end
 
 --- @param root the tree to build
---- @param argv the command line: slot 4 is the host target, slots 5 and 6
---- optionally set the output directory and host core image for checked builds
+--- @param argv the command line: slot 4 is the host target, slot 5 is the
+--- generated target record file, and slots 6 and 7 optionally set the output
+--- directory and host core image for checked builds
 local function boot(root: string, argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local host = argv[4]
@@ -44,7 +38,31 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local output = argv[5] or root .. "/o"
+  local records_path = argv[5]
+  if records_path == nil or records_path == "" then
+    report("boot: FAIL (the command line names no target records)")
+    return 1
+  end
+  local records, records_trouble = Fs.read(records_path)
+  if records == nil then
+    report("boot: FAIL (" .. records_trouble .. ")")
+    return 1
+  end
+  local targets: {string} = {}
+  for line in records:gmatch("[^\n]+") do
+    local target = line:match("^%d+\t%d+\trelease\t([^\t]+)\t[^\t]+\t[^\t]+$")
+    if target == nil then
+      report("boot: FAIL (invalid generated target record)")
+      return 1
+    end
+    table.insert(targets, target)
+  end
+  if #targets == 0 then
+    report("boot: FAIL (the generated target list is empty)")
+    return 1
+  end
+
+  local output = argv[6] or root .. "/o"
   local made, mkdir_trouble = Fs.mkdirs(output .. "/bin")
   if not made then
     report("boot: FAIL (" .. mkdir_trouble .. ")")
@@ -64,8 +82,8 @@ local function boot(root: string, argv: {integer:string}): integer
   -- Checked boot changes the running host prefix, not the reusable images
   -- in the shared working database. Later ordinary builds read those images.
   local host_image = images[host]
-  if argv[6] ~= nil then
-    local checked, checked_trouble = Fs.read(argv[6])
+  if argv[7] ~= nil then
+    local checked, checked_trouble = Fs.read(argv[7])
     if checked == nil then
       report("boot: FAIL (" .. checked_trouble .. ")")
       return 1

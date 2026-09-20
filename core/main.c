@@ -19,6 +19,7 @@
 #include "sqlite.h"
 #include "sqlite3.h"
 #include "store.h"
+#include "startup.h"
 #include "surface.h"
 #include "vfs.h"
 
@@ -428,14 +429,25 @@ static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
   return (int)luaL_optinteger(L, -1, 0);
 }
 
-int main(int argc, char **argv) {
+int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
+                         char **argv) {
+  const char *startup_trouble = cosmic_startup_validate(startup);
+  if (startup_trouble != NULL) {
+    return complain(startup_trouble, NULL);
+  }
+
   sqlite3_initialize();
   if (cosmic_crypto_init() != 0) {
     return complain("the crypto library would not start", NULL);
   }
 
   char self[4096];
-  if (!cosmic_executable_path(self, sizeof self)) {
+  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+    if (snprintf(self, sizeof self, "%s", startup->artifact_path) >=
+        (int)sizeof self) {
+      return complain("artifact path is too long", NULL);
+    }
+  } else if (!cosmic_executable_path(self, sizeof self)) {
     return complain("cannot find my own path", NULL);
   }
 
@@ -443,6 +455,9 @@ int main(int argc, char **argv) {
   int found = cosmic_locate(self, &attached);
   if (found < 0) {
     return complain("cannot read my own file", self);
+  }
+  if (startup->kind == COSMIC_STARTUP_PORTABLE && found != 1) {
+    return complain("portable artifact has no database", self);
   }
 
   lua_State *L = cosmic_surface_open();
