@@ -388,6 +388,119 @@ local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
   return statement:reset()
 end
 
+--- How many rows one multi-row INSERT carries before it steps. Modest
+--- on purpose: SQLite's parameter ceiling is far higher, but a longer
+--- statement costs its own parse time, and the win is already in
+--- trading six Lua-to-C calls per row for a fraction of one.
+local insert_batch = 100
+
+--- `n` value groups `(<run_at_ns>, ?, ?, ?)`, indexed contiguously from
+--- 1, for a batch insert into either coverage table. `ran_at_ns` is the
+--- same for every row one run writes, so it is a literal rather than a
+--- parameter rebound once per row for nothing.
+local function batch_values(run_at_ns: integer, n: integer): string
+  local groups: {string} = {}
+  for row = 0, n - 1 do
+    groups[row + 1] = string.format("(%d, ?%d, ?%d, ?%d)",
+      run_at_ns, row * 3 + 1, row * 3 + 2, row * 3 + 3)
+  end
+  return table.concat(groups, ", ")
+end
+
+--- Rows waiting for one of the coverage tables: a full `insert_batch`
+--- of them goes in one step of `whole`, and whatever is left when the
+--- caller is done goes through `single`, one row at a time. Both
+--- tables share their first three columns; the last is `hit` for
+--- `coverage` and `test` for `coverage_by_test`.
+local record Batch
+  whole: Sqlite.Statement
+  single: Sqlite.Statement
+  run_at_ns: integer
+  paths: {string}
+  lines: {integer}
+  lasts: {integer | string}
+  pending: integer
+end
+
+local function batch_for(handle: Sqlite.Handle, single: Sqlite.Statement,
+                         run_at_ns: integer, into: string,
+                         last_column: string): Batch | nil, string
+  local whole, trouble = handle:prepare("INSERT INTO " .. into ..
+    " (ran_at_ns, path, line, " .. last_column .. ") VALUES " ..
+    batch_values(run_at_ns, insert_batch))
+  if whole == nil then
+    return nil, trouble
+  end
+  return { whole = whole, single = single, run_at_ns = run_at_ns,
+           paths = {}, lines = {}, lasts = {}, pending = 0 }
+end
+
+--- Steps `whole` once over a full batch, then empties it.
+local function flush(batch: Batch): boolean, string
+  local statement = batch.whole
+  for row = 1, batch.pending do
+    local base = (row - 1) * 3
+    local ok, trouble = statement:bind_text(base + 1, batch.paths[row])
+    if ok then
+      ok, trouble = statement:bind_integer(base + 2, batch.lines[row])
+    end
+    if ok then
+      local last = batch.lasts[row]
+      if last is integer then
+        ok, trouble = statement:bind_integer(base + 3, last)
+      else
+        ok, trouble = statement:bind_text(base + 3, last)
+      end
+    end
+    if not ok then
+      return false, trouble
+    end
+  end
+  local state, failure = statement:step()
+  if state == nil then
+    return false, failure
+  end
+  batch.pending = 0
+  return statement:reset()
+end
+
+--- Queues one row, writing the batch out when it fills.
+local function add(batch: Batch, path: string, line: integer,
+                   last: integer | string): boolean, string
+  local n = batch.pending + 1
+  batch.paths[n] = path
+  batch.lines[n] = line
+  batch.lasts[n] = last
+  batch.pending = n
+  if n == insert_batch then
+    return flush(batch)
+  end
+  return true, ""
+end
+
+--- Writes the rows short of a full batch, one at a time.
+local function drain(batch: Batch): boolean, string
+  for row = 1, batch.pending do
+    local ok, trouble = insert_coverage(batch.single, batch.run_at_ns,
+      batch.paths[row], batch.lines[row], batch.lasts[row])
+    if not ok then
+      return false, trouble
+    end
+  end
+  batch.pending = 0
+  return true, ""
+end
+
+--- The keys of `set`, ascending.
+local function sorted_lines(set: {integer: any}): {integer}
+  local out: {integer} = {}
+  for line in pairs(set) do
+    out[#out + 1] = line
+  end
+  table.sort(out)
+  return out
+end
+
 --- Every line `build.coverage.report` found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`: rows here
 --- are never replaced, only later pruned by `prune_history`, so a
@@ -427,38 +540,95 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     coverage:finalize()
     return 0, 0, test_trouble
   end
+  local coverage_rows, coverage_batch_trouble =
+    batch_for(handle, coverage, run_at_ns, "coverage", "hit")
+  if coverage_rows == nil then
+    coverage:finalize()
+    per_test:finalize()
+    return 0, 0, coverage_batch_trouble
+  end
+  local per_test_rows, per_test_batch_trouble =
+    batch_for(handle, per_test, run_at_ns, "coverage_by_test", "test")
+  if per_test_rows == nil then
+    coverage:finalize()
+    per_test:finalize()
+    coverage_rows.whole:finalize()
+    return 0, 0, per_test_batch_trouble
+  end
+  -- Both tables are WITHOUT ROWID, keyed (ran_at_ns, path, line[, test]):
+  -- rows written in key order append at the right edge of the B-tree
+  -- instead of splitting pages at random positions, which alone is
+  -- most of the cost of writing them in hash order.
+  local sorted_modules: {importer.Module} = {}
+  for _, m in ipairs(modules) do
+    if m.kind ~= "vendor" then
+      sorted_modules[#sorted_modules + 1] = m
+    end
+  end
+  table.sort(sorted_modules, function(a: importer.Module, b: importer.Module): boolean
+    return a.path < b.path
+  end)
+  -- `by_test` is test-major; `coverage_by_test`'s key is path-major.
+  -- Regrouped once, touching every hit as often as the insert would.
+  local by_path: {string: {integer: {string}}} = {}
+  for test_name, test_hits in pairs(by_test) do
+    for path, per_line in pairs(test_hits) do
+      local lines_here = by_path[path]
+      if lines_here == nil then
+        lines_here = {}
+        by_path[path] = lines_here
+      end
+      for line in pairs(per_line) do
+        local tests_here = lines_here[line]
+        if tests_here == nil then
+          tests_here = {}
+          lines_here[line] = tests_here
+        end
+        tests_here[#tests_here + 1] = test_name
+      end
+    end
+  end
+  local paths_by_test: {string} = {}
+  for path in pairs(by_path) do
+    paths_by_test[#paths_by_test + 1] = path
+  end
+  table.sort(paths_by_test)
   local write_rows = function(): boolean, string
-    for _, m in ipairs(modules) do
-      if m.kind ~= "vendor" then
-        local per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
-        if per_line == nil then
-          return false, m.file .. ": " .. lines_trouble
+    for _, m in ipairs(sorted_modules) do
+      local per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
+      if per_line == nil then
+        return false, m.file .. ": " .. lines_trouble
+      end
+      for _, line in ipairs(sorted_lines(per_line)) do
+        local was_hit = per_line[line]
+        local ok, write_trouble = add(coverage_rows, m.path, line, was_hit and 1 or 0)
+        if not ok then
+          return false, write_trouble
         end
-        for line, was_hit in pairs(per_line) do
-          local ok, write_trouble = insert_coverage(coverage, run_at_ns,
-            m.path, line, was_hit and 1 or 0)
+        total_lines = total_lines + 1
+        if was_hit then
+          total_hit = total_hit + 1
+        end
+      end
+    end
+    local drained, drain_trouble = drain(coverage_rows)
+    if not drained then
+      return false, drain_trouble
+    end
+    for _, path in ipairs(paths_by_test) do
+      local lines_here = by_path[path]
+      for _, line in ipairs(sorted_lines(lines_here)) do
+        local tests_here = lines_here[line]
+        table.sort(tests_here)
+        for _, test_name in ipairs(tests_here) do
+          local ok, write_trouble = add(per_test_rows, path, line, test_name)
           if not ok then
             return false, write_trouble
-          end
-          total_lines = total_lines + 1
-          if was_hit then
-            total_hit = total_hit + 1
           end
         end
       end
     end
-    for test_name, test_hits in pairs(by_test) do
-      for path, per_line in pairs(test_hits) do
-        for line in pairs(per_line) do
-          local ok, write_trouble = insert_coverage(per_test, run_at_ns,
-            path, line, test_name)
-          if not ok then
-            return false, write_trouble
-          end
-        end
-      end
-    end
-    return true, ""
+    return drain(per_test_rows)
   end
   -- Keep the prepared statements from escaping when reporting a module's
   -- lines itself throws. Turn that exception into the same infrastructure
@@ -467,6 +637,8 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   local called, made, trouble = pcall(write_rows)
   coverage:finalize()
   per_test:finalize()
+  coverage_rows.whole:finalize()
+  per_test_rows.whole:finalize()
   if not called then
     return 0, 0, tostring(made)
   end
