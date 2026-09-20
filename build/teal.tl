@@ -10,6 +10,7 @@
 
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local work = require("build.work")
@@ -223,7 +224,16 @@ local function serve(built: compiler, handle: work.Handle)
 end
 
 --- A checker environment pointed at a staged tree, with the strictness
---- this project holds itself to.
+--- this project holds itself to -- and without the names cosmic's own
+--- runtime surface removes (`cosmic.removed`'s own fields): tl's
+--- bundled standard-library declarations still carry `io`, `os` and
+--- `debug` as ordinary globals, since tl has no way to know cosmic's
+--- runtime does not, so a program that reaches for one would otherwise
+--- type-check clean and only fail once it actually runs. Stripped from
+--- both `globals` (a bare reference: `os.time()`) and `modules` (a
+--- `require("io")`: `env.modules` is where `new_env` puts every global
+--- that is itself a module, for `require` to resolve statically), each
+--- becomes tl's own "unknown variable" or "module not found" instead.
 function teal.environment_for(built: compiler, handle: work.Handle): compiler.Env | nil, string
   serve(built, handle)
   local env, trouble = built.new_env({
@@ -235,6 +245,10 @@ function teal.environment_for(built: compiler, handle: work.Handle): compiler.En
   })
   if env == nil then
     return nil, trouble
+  end
+  for _, name in ipairs(Removed.order) do
+    env.globals[name] = nil
+    env.modules[name] = nil
   end
   return env
 end
