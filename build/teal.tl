@@ -184,29 +184,21 @@ local function served(text: string): Served
   }
 end
 
---- The compiler's own module search, before this module replaced it,
---- so that a compiler pointed at one tree and then another chains to
---- the original each time rather than to the last tree's stage.
-local disk_search: {compiler:function(string, boolean): (string | nil, any)} = {}
-
 --- Points the checker at a staged tree: every module it asks for by
 --- name is answered from the working database's `inputs`, a
 --- declaration ahead of a source of the same name, under the name the
 --- module would have on disk. A `cosmic.*` name the stage does not
 --- hold is answered by the binary's own rows, which is how a project
 --- outside this tree types its `require` of the standard library.
---- Nothing is read from a path; what neither holds falls through to
---- the compiler's own search, which is what the bridge uses at boot
---- for modules the stage does not exist for yet.
+--- Nothing is read from a path, and nothing falls through to the
+--- compiler's own search of the filesystem: a name neither the stage
+--- nor the binary holds is not found, however a file of that name
+--- may sit on disk, so a module reaches a build only by being staged.
 local function serve(built: compiler, handle: work.Handle)
-  if disk_search[built] == nil then
-    disk_search[built] = built.search_module
-  end
-  local original = disk_search[built]
   local db = handle.db
   local root = handle.root
   built.path = ""
-  built.search_module = function(name: string, search_all: boolean): string | nil, any
+  built.search_module = function(name: string, _search_all: boolean): string | nil, any
     local rows = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
       "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
@@ -222,7 +214,7 @@ local function serve(built: compiler, handle: work.Handle)
         return root .. "/" .. stem .. ".tl", served(source)
       end
     end
-    return original(name, search_all)
+    return nil
   end
 end
 
