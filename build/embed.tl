@@ -119,7 +119,8 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
 end
 
 local module_columns = { "path", "file", "kind", "source_hash", "key",
-                         "source", "lua", "bytecode", "tests" }
+                         "bytecode", "tests", "source", "lua" }
+local module_column_list = table.concat(module_columns, ", ")
 local catalog_columns = { "kind", "module", "symbol", "message", "text",
                           "file", "line" }
 
@@ -185,9 +186,8 @@ function embed.database(project: string, main: string): string | nil, string
     -- for a `cosmic.*` module; then the project, whole.
     local copied, copy_trouble = copy_rows(binary, out, "modules",
       module_columns,
-      "SELECT path, file, kind, source_hash, key, source, lua, bytecode, " ..
-      "tests FROM modules WHERE kind = 'module' AND path LIKE 'cosmic.%' " ..
-      "ORDER BY path")
+      "SELECT " .. module_column_list .. " FROM modules WHERE kind = " ..
+      "'module' AND path LIKE 'cosmic.%' ORDER BY path")
     if not copied then
       return false, copy_trouble
     end
@@ -218,7 +218,8 @@ function embed.database(project: string, main: string): string | nil, string
       return false, attach_trouble
     end
     for _, statement in ipairs({
-      "INSERT OR IGNORE INTO modules SELECT * FROM project.modules " ..
+      "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
+        "SELECT " .. module_column_list .. " FROM project.modules " ..
         "ORDER BY path",
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
         "ORDER BY path, requires",

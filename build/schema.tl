@@ -15,15 +15,19 @@ end
 local tables: {{string}} = {
   { "meta", "(key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID" },
 
+  -- bytecode comes before source and lua: every require reads it, and
+  -- SQLite reaches a column by walking the row's overflow-page chain
+  -- past every earlier one, so putting it first keeps a require from
+  -- paging through the much larger source text to get there.
   { "modules", [[(path TEXT PRIMARY KEY,
                   file TEXT NOT NULL,
                   kind TEXT NOT NULL,
                   source_hash BLOB NOT NULL,
                   key BLOB NOT NULL,
-                  source TEXT NOT NULL,
-                  lua TEXT NOT NULL,
                   bytecode BLOB NOT NULL,
-                  tests TEXT NOT NULL) WITHOUT ROWID]] },
+                  tests TEXT NOT NULL,
+                  source TEXT NOT NULL,
+                  lua TEXT NOT NULL) WITHOUT ROWID]] },
 
   { "imports", [[(path TEXT NOT NULL,
                   requires TEXT NOT NULL,
