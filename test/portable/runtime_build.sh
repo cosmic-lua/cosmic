@@ -118,12 +118,13 @@ with open(path, "r+b") as artifact:
     artifact.write(b"X")
 PY
 
-python3 - "$out" <<'PY'
+python3 - "$out" "$root/o/targets.tsv" <<'PY'
 import hashlib
 import os
 import struct
 import sys
 root = sys.argv[1]
+targets_path = sys.argv[2]
 for name in ("runtime.release", "runtime.old", "runtime.new", "runtime.basis",
              "runtime.missing", "runtime.sanitized"):
     path = os.path.join(root, name)
@@ -135,6 +136,34 @@ for name in ("runtime.release", "runtime.old", "runtime.new", "runtime.basis",
     prefix = struct.unpack(">Q", trailer[32:40])[0]
     with open(path + ".prefix-sha256", "w") as output:
         output.write(hashlib.sha256(data[:prefix]).hexdigest() + "\n")
+
+with open(os.path.join(root, "runtime.old"), "rb") as source:
+    original = source.read()
+trailer = original[-48:]
+manifest_offset = struct.unpack(">Q", trailer[16:24])[0]
+prefix_length = struct.unpack(">Q", trailer[32:40])[0]
+manifest = original[manifest_offset:manifest_offset + 4096]
+count = struct.unpack(">I", manifest[24:28])[0]
+entries = []
+for index in range(count):
+    entry = manifest[32 + index * 56:32 + (index + 1) * 56]
+    target_id, configuration_id, offset, length = struct.unpack(">IIQQ", entry[:24])
+    if configuration_id == 1:
+        entries.append((target_id, offset, length))
+with open(targets_path, encoding="utf-8") as source:
+    target_names = {int(line.split("\t")[0]): line.split("\t")[3]
+                    for line in source if line.strip()}
+with open(os.path.join(root, "runtime.old.prefix"), "wb") as output:
+    output.write(original[:prefix_length])
+with open(os.path.join(root, "runtime.old.prefix-length"), "w") as output:
+    output.write(str(prefix_length) + "\n")
+for selected, _, _ in entries:
+    other = next(entry for entry in entries if entry[0] != selected)
+    changed = bytearray(original)
+    changed[other[1] + min(128, other[2] - 1)] ^= 1
+    name = "runtime.corrupt-" + target_names[selected]
+    with open(os.path.join(root, name), "wb") as output:
+        output.write(changed)
 PY
 
 cp "$root/test/portable/fixture/retained_probe.tl.in" "$out/probe.tl"
@@ -142,5 +171,6 @@ cp "$root/test/portable/fixture/runtime_test.tl.in" "$out/runtime_test.tl.in"
 cp "$root/test/portable/fixture/cmd/hello/main.tl.in" "$out/hello_main.tl.in"
 chmod 755 "$out/runtime.release" "$out/runtime.old" "$out/runtime.new" \
   "$out/runtime.basis" "$out/runtime.missing" "$out/runtime.sanitized" \
-  "$out/runtime.incompatible"
+  "$out/runtime.incompatible" "$out"/runtime.corrupt-*
+cp "$root/o/targets.tsv" "$out/targets.tsv"
 printf 'portable runtime build: PASS (host-independent projection, real release/sanitized cores, distinct complete artifacts)\n'

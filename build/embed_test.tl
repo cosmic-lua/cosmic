@@ -6,6 +6,8 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local artifact = require("build.artifact")
 local embed = require("build.embed")
 
 local main_source = [[
@@ -52,9 +54,18 @@ local function test_a_project_becomes_an_executable(tmp: string)
   local out = tmp .. "/o/bin/hello"
   local st = assert(Fs.stat(out))
   assert(st.mode & 0x49 == 0x49, "the executable bit is set for everyone")
-  local head = assert(Fs.read(out)):sub(1, 4)
-  assert(head == "\127ELF" or head == "\207\250\237\254",
-    "the file opens as the host's own image")
+  local bytes = assert(Fs.read(out))
+  local head = bytes:sub(1, 4)
+  if Store.meta("runtime_context") == "portable-v1" then
+    local prefix = assert(artifact.trusted_prefix())
+    assert(bytes:sub(1, 10) == "#!/bin/sh\n",
+      "the portable file has its script entry")
+    assert(bytes:sub(1, #prefix) == prefix,
+      "the portable file reuses the exact retained prefix")
+  else
+    assert(head == "\127ELF" or head == "\207\250\237\254",
+      "the legacy file opens as the host's own image")
+  end
 end
 
 local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
@@ -69,7 +80,16 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     meta[row[1]] = row[2]
   end
   assert(meta["main"] == "cmd.hello.main", "main names the module to run")
-  assert(meta["host"] ~= nil and meta["host"] ~= "", "the host is named")
+  if Store.meta("runtime_context") == "portable-v1" then
+    assert(meta["host"] == nil, "a portable database carries no host")
+    assert(meta["runtime"] == nil, "a portable database carries no runtime")
+    assert(meta["runtime_basis"] ~= nil and meta["runtime_basis"] ~= "",
+      "a portable database carries the runtime basis")
+  else
+    assert(meta["host"] ~= nil and meta["host"] ~= "", "the host is named")
+    assert(meta["runtime"] ~= nil and meta["runtime"] ~= "",
+      "the legacy runtime is named")
+  end
 
   local modules: {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT path, kind FROM modules")) do

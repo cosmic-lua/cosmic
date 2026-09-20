@@ -9,12 +9,16 @@ does not stage them as project modules or tests.
 Its database has no `runtime` metadata, which is now rejected before a test or
 verdict can be recorded instead of being treated as the empty identity.
 
-`identity_test.sh` exercises the production retained-artifact route. It uses
+`identity_test.sh` exercises the production retained-artifact route. It builds
+two portable applications from the retained prefix, executes canonical Linux
+application bytes unchanged on all three hosts, checks logical executable
+paths, prefix reuse, suffix-only application edits, one shared cache entry,
+unlink-after-startup builds, and rejection of a corrupt nonselected core before
+an application is published. It also uses
 one work database successively with real release and sanitized cores, a changed
 runtime basis, an unchanged repeat, and an application-database-only change.
 Changed runtime contexts run, while unchanged and application-only contexts
-stand. The target overlay lets portable `build` reach the expected absent
-legacy-image boundary; portable build does not pass until step 7.
+stand.
 
 `runtime_build.sh` and `runtime_test.sh` retain step 5 coverage with real Cosmic
 cores and now use step 6's host-independent projection. A fixture-only core

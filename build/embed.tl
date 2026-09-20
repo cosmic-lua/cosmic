@@ -22,6 +22,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local attach = require("build.attach")
+local artifact = require("build.artifact")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -166,6 +167,11 @@ function embed.database(project: string, main: string): string | nil, string
   if runtime == nil or runtime == "" then
     return nil, "the running binary names no runtime identity"
   end
+  local portable = Store.meta("runtime_context") == "portable-v1"
+  local runtime_basis = Store.meta("runtime_basis")
+  if portable and (runtime_basis == nil or runtime_basis == "") then
+    return nil, "the running binary names no runtime basis"
+  end
   local building = project .. ".embed"
   Fs.remove(building)
   Fs.remove(building .. ".vacuumed")
@@ -244,7 +250,11 @@ function embed.database(project: string, main: string): string | nil, string
         return false, failure
       end
     end
-    local meta: {{string}} = {
+    local meta: {{string}} = portable and {
+      { "compiler", Store.meta("compiler") or "" },
+      { "runtime_basis", runtime_basis as string },
+      { "main", main },
+    } or {
       { "host", host },
       { "compiler", Store.meta("compiler") or "" },
       { "runtime", runtime },
@@ -339,10 +349,22 @@ function embed.tree(root: string): {string} | nil, string
     return {}
   end
 
-  local databases = Store.databases()
-  local image, image_trouble = image_of(databases[#databases], host)
-  if image == nil then
-    return nil, image_trouble
+  local portable = Store.meta("runtime_context") == "portable-v1"
+  local prefix: string | nil = nil
+  local image: string | nil = nil
+  if portable then
+    local prefix_trouble: string
+    prefix, prefix_trouble = artifact.trusted_prefix()
+    if prefix == nil then
+      return nil, prefix_trouble
+    end
+  else
+    local databases = Store.databases()
+    local image_trouble: string
+    image, image_trouble = image_of(databases[#databases], host)
+    if image == nil then
+      return nil, image_trouble
+    end
   end
   local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
   if not made then
@@ -359,9 +381,21 @@ function embed.tree(root: string): {string} | nil, string
       return nil, name .. ": " .. database_trouble
     end
     local out = root .. "/o/bin/" .. name
-    local attached, attach_trouble = attach.write(out, host, image, database)
-    if not attached then
-      return nil, out .. ": " .. attach_trouble
+    if portable then
+      local program, program_trouble = artifact.program(prefix as string, database)
+      if program == nil then
+        return nil, out .. ": " .. program_trouble
+      end
+      local published, publish_trouble = Fs.write(out, program, 0x1ed)
+      if not published then
+        return nil, publish_trouble
+      end
+    else
+      local attached, attach_trouble =
+        attach.write(out, host, image as string, database)
+      if not attached then
+        return nil, out .. ": " .. attach_trouble
+      end
     end
     names[#names + 1] = name
   end

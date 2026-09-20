@@ -119,7 +119,7 @@ jobs:
         with:
           name: portable-experiment
           path: portable
-      - name: start one work database with release, basis, and sanitized contexts
+      - name: build canonical portable apps and start the shared identity database
         run: |
           chmod +x portable/runtime/runtime.*
           COSMIC_PORTABLE_IDENTITY_STATE_OUT="$PWD/identity-state" \
@@ -143,7 +143,7 @@ jobs:
         with:
           name: portable-identity-x86
           path: identity-in
-      - name: reuse the transported work database under the real arm Linux core
+      - name: execute unchanged apps and reuse the database under the arm Linux core
         run: |
           chmod +x portable/runtime/runtime.*
           COSMIC_PORTABLE_IDENTITY_STATE_OUT="$PWD/identity-state" \
@@ -168,7 +168,7 @@ jobs:
         with:
           name: portable-identity-linux-arm
           path: identity-in
-      - name: reuse the transported work database under the real macOS core
+      - name: execute unchanged apps and reuse the database under the macOS core
         run: |
           chmod +x portable/runtime/runtime.*
           test/portable/identity_test.sh "$PWD/portable/runtime" \
