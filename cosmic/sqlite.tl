@@ -254,6 +254,26 @@ function Sqlite.transact(handle: raw_sqlite.Handle,
   return true, ""
 end
 
+--- Closes the handle. Idempotent: closing an already-closed handle
+--- still returns true.
+function Sqlite.close(handle: raw_sqlite.Handle): boolean, string
+  return handle:close()
+end
+
+--- Rows changed by the most recent INSERT, UPDATE, or DELETE on this
+--- connection -- not the whole database, and not other statements
+--- that happened to touch the same table concurrently.
+function Sqlite.changes(handle: raw_sqlite.Handle): integer
+  return handle:changes()
+end
+
+--- The rowid SQLite assigned the most recent successful INSERT on this
+--- connection. 0 before any INSERT has ever run on it; a table
+--- declared `WITHOUT ROWID` never changes it.
+function Sqlite.last_insert_rowid(handle: raw_sqlite.Handle): integer
+  return handle:last_insert_rowid()
+end
+
 Sqlite.version = sqlite.version
 
 return Sqlite

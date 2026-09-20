@@ -36,6 +36,7 @@ local record sqlite
     prepare: function(Handle, sql: string): Statement | nil, string
     close: function(Handle): boolean, string
     changes: function(Handle): integer
+    last_insert_rowid: function(Handle): integer
   end
 
   -- `writable` opens for reading and writing, creating the file when it
