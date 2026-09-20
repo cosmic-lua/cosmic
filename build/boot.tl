@@ -7,6 +7,7 @@
 
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
+local artifact = require("build.artifact")
 local attach = require("build.attach")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
@@ -181,6 +182,34 @@ local function boot(root: string, argv: {integer:string}): integer
   if not portable_written then
     work.close(handle)
     report("boot: FAIL\n" .. portable_write_trouble)
+    return 1
+  end
+
+  local portable_database, portable_read_trouble =
+    Fs.read(output .. "/cosmic.portable.db")
+  if portable_database == nil then
+    work.close(handle)
+    report("boot: FAIL (" .. portable_read_trouble .. ")")
+    return 1
+  end
+  local prefix, prefix_trouble = artifact.prefix(records, images)
+  if prefix == nil then
+    work.close(handle)
+    report("boot: FAIL (" .. prefix_trouble .. ")")
+    return 1
+  end
+  local portable, portable_trouble =
+    artifact.program(prefix, portable_database)
+  if portable == nil then
+    work.close(handle)
+    report("boot: FAIL (" .. portable_trouble .. ")")
+    return 1
+  end
+  local published, publish_trouble =
+    Fs.write(output .. "/bin/cosmic-portable", portable, 0x1ed)
+  if not published then
+    work.close(handle)
+    report("boot: FAIL (" .. publish_trouble .. ")")
     return 1
   end
 

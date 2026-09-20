@@ -18,6 +18,7 @@ local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
+local artifact = require("build.artifact")
 local attach = require("build.attach")
 local importer = require("build.importer")
 local work = require("build.work")
@@ -64,25 +65,54 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
     return "the binary names no host target; run bin/zig build boot"
   end
   local root = handle.root
+  local portable = Store.meta("runtime_context") == "portable-v1"
+  local prefix: string | nil = nil
+  local out: string | nil = nil
 
-  -- The image the tool re-enters is the one the working database
-  -- holds for this target; a binary running another -- a checked one
-  -- booted beside the release -- is not rebuilt from it.
-  local image, image_trouble = work.image(handle, host)
-  if image == nil then
-    return image_trouble .. "; run bin/zig build boot"
-  end
-  local host_image = Store.meta("host_image")
-  if host_image == nil or host_image == "" then
-    return "the running binary names no host image; run bin/zig build boot"
-  end
-  if Hash.hex_sha256(image) ~= host_image then
-    return "the running image is not the one the working database " ..
-      "holds; run bin/zig build boot"
-  end
-  local named, name_trouble = work.put_host(handle, host, image)
-  if not named then
-    return name_trouble
+  local image: string | nil = nil
+  if portable then
+    local prefix_trouble: string
+    prefix, prefix_trouble = artifact.trusted_prefix()
+    if prefix == nil then
+      return prefix_trouble
+    end
+    local executable_trouble: string
+    out, executable_trouble = Proc.executable()
+    if out == nil then
+      return executable_trouble
+    end
+    -- A fresh checkout has no boot-populated compiler row in its working
+    -- database yet. Preserve the exact compiler carried by the trusted
+    -- running artifact so the rebuilt Cosmic remains able to rebuild again.
+    local compiler_source, compiler_trouble = Store.source("vendor.tl")
+    if compiler_source == nil then
+      return "the compiler source is not in this binary: " .. compiler_trouble
+    end
+    local kept, keep_trouble = work.put_compiler(handle, compiler_source)
+    if not kept then
+      return keep_trouble
+    end
+  else
+    -- A legacy tool re-enters the image the working database holds for its
+    -- target. A checked binary running another image is not rebuilt from it.
+    local image_trouble: string
+    image, image_trouble = work.image(handle, host)
+    if image == nil then
+      return image_trouble .. "; run bin/zig build boot"
+    end
+    local host_image = Store.meta("host_image")
+    if host_image == nil or host_image == "" then
+      return "the running binary names no host image; run bin/zig build boot"
+    end
+    if Hash.hex_sha256(image) ~= host_image then
+      return "the running image is not the one the working database " ..
+        "holds; run bin/zig build boot"
+    end
+    local named, name_trouble = work.put_host(handle, host, image)
+    if not named then
+      return name_trouble
+    end
+    out = root .. "/o/bin/cosmic"
   end
 
   -- Compiled and keyed as the tree's own work: the tool that replaces
@@ -104,11 +134,8 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
     return compile_trouble
   end
   local database_path = root .. "/o/cosmic.db"
-  -- Portable self-rebuild switches to the retained prefix writer in step 8.
-  -- Until then this compatibility route deliberately still writes a legacy
-  -- attached executable and therefore requires the legacy projection.
   local written, write_trouble =
-    writer.write_result(handle, database_path, result, false)
+    writer.write_result(handle, database_path, result, portable)
   if not written then
     return write_trouble
   end
@@ -120,14 +147,27 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   if not closed then
     return close_trouble
   end
-  local out = root .. "/o/bin/cosmic"
-  local attached, attach_trouble = attach.write(out .. ".new", host, image, database)
-  if not attached then
-    return attach_trouble
-  end
-  local renamed, rename_trouble = Fs.rename(out .. ".new", out)
-  if not renamed then
-    return rename_trouble
+  if portable then
+    local program, program_trouble =
+      artifact.program(prefix as string, database)
+    if program == nil then
+      return program_trouble
+    end
+    local published, publish_trouble = Fs.write(out as string, program, 0x1ed)
+    if not published then
+      return publish_trouble
+    end
+  else
+    local attached, attach_trouble =
+      attach.write((out as string) .. ".new", host, image as string, database)
+    if not attached then
+      return attach_trouble
+    end
+    local renamed, rename_trouble =
+      Fs.rename((out as string) .. ".new", out as string)
+    if not renamed then
+      return rename_trouble
+    end
   end
 
   local arguments: {string} = {}
@@ -138,7 +178,7 @@ function reboot.into(handle: work.Handle, built: compiler, env: compiler.Env,
   end
   local environment = sys.environ()
   environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(out, arguments, environment)
+  local _, exec_trouble = Proc.exec(out as string, arguments, environment)
   return exec_trouble
 end
 

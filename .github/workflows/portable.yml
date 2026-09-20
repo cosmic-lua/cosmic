@@ -109,12 +109,19 @@ jobs:
         env:
           COSMIC_PORTABLE_DIAGNOSTICS: ${{ runner.temp }}/cosmic-runtime-diagnostics
         run: test/portable/runtime_test.sh "$RUNNER_TEMP/portable/runtime"
+      - name: validate portable self-rebuild and re-entry
+        run: |
+          mkdir -p "$RUNNER_TEMP/cosmic-self-rebuild-diagnostics"
+          TMPDIR="$RUNNER_TEMP/cosmic-self-rebuild-diagnostics" \
+            test/portable/self_rebuild.sh "$RUNNER_TEMP/portable/runtime"
       - name: preserve retained-runtime failure diagnostics
         if: failure()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: portable-runtime-diagnostics-${{ matrix.target }}
-          path: ${{ runner.temp }}/cosmic-runtime-diagnostics
+          path: |
+            ${{ runner.temp }}/cosmic-runtime-diagnostics
+            ${{ runner.temp }}/cosmic-self-rebuild-diagnostics
           if-no-files-found: ignore
   identity-x86:
     needs: build

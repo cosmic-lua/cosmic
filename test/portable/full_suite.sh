@@ -115,10 +115,11 @@ case "$phase" in
       echo "prepare requires fresh portable artifact and cache paths in $diagnostics" >&2
       exit 1
     fi
-    "$cosmic" "$script_dir/write_runtime_fixture.tl" \
-      "$checkout/o/targets.tsv" "$checkout/o/core" \
-      "$checkout/o/cosmic.portable.db" "$portable"
-    chmod 755 "$portable"
+    if [ ! -x "$checkout/o/bin/cosmic-portable" ]; then
+      echo "boot did not stage o/bin/cosmic-portable" >&2
+      exit 1
+    fi
+    cp "$checkout/o/bin/cosmic-portable" "$portable"
     hash_value "$portable" > \
       "$diagnostics/portable-artifact.before.sha256"
     wc -c < "$portable" > \

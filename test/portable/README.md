@@ -30,6 +30,14 @@ trusted `build.artifact` prefix capability keep reading the retained artifact
 descriptor. It selects one complete immutable file. Writing that same inode in
 place remains unsupported and is deliberately not presented as safe.
 
+`self_rebuild.sh` uses that fixture-only startup pause to rename and unlink the
+artifact after descriptor adoption. In each case a deterministic Teal edit
+causes exactly one database-only rebuild and re-entry at the same logical
+portable path. The rebuilt file keeps the retained prefix and cache entry, and
+an ordinary environment value reaches the re-entered tests. A subsequent core
+input edit is refused with the named `bin/zig build boot` remedy and does not
+change the artifact.
+
 The portable workflow transports the identity fixture's whole project,
 including its one `o/build.db`, from x86_64 Linux to aarch64 Linux and then
 aarch64 macOS. Each actual host must run under its selected raw core, while an
