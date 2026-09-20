@@ -67,8 +67,9 @@ below protects that, and the run is invalid without it:
   binary reached by name through `dir/bin` on PATH. The agent may read
   the binary itself: `strings` over it is fair, and one run found the
   standard library that way.
-- **Bounded.** A turn cap on the order of 150 and a wall clock on the
-  order of 40 minutes, so a stuck run ends and its journal says so.
+- **Bounded.** A turn cap on the order of 60 and a wall clock under 10
+  minutes, so a stuck run ends and its journal says so, and a passing
+  run stays quick and cheap to run.
 - **Kept.** The full transcript, so a journal claim can be checked
   against what the agent actually saw.
 - **Named.** The agent and model, in the baseline row: numbers across
@@ -78,13 +79,13 @@ Runs so far used Claude Code with Sonnet, invoked non-interactively;
 this satisfies every condition above:
 
 ```sh
-cd "$dir/project" && PATH="$dir/bin:$PATH" timeout 2400 \
+cd "$dir/project" && PATH="$dir/bin:$PATH" timeout 600 \
   claude -p "Your working directory is $dir/project. Read TASK.md there and do exactly what it says. The 'cosmic' binary is on your PATH." \
   --model sonnet --disable-slash-commands \
   --tools "Bash,Read,Write,Edit,Glob,Grep" \
   --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
   --disallowedTools "Skill,WebSearch,WebFetch,Agent,Task,ToolSearch,SearchSkills,ListSkills,SearchPlugins,ListPlugins,SearchMcpRegistry,Workflow,SendMessage,Artifact,NotebookEdit,SendUserFile" \
-  --max-turns 150 --output-format stream-json --verbose \
+  --max-turns 60 --output-format stream-json --verbose \
   < /dev/null > "$out/transcript.jsonl" 2> "$out/stderr"
 ```
 
