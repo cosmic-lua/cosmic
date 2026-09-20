@@ -113,10 +113,13 @@ local insert_catalog_extracted =
   "JOIN catalog c ON c.source_hash = i.source_hash " ..
   "ORDER BY p.path, c.ordinal"
 
---- One hand-authored catalog row: a `strerror()` message the catalog
---- matches on, the guidance already known for it, and where it comes
+--- One hand-authored catalog row: the message `core/main.c`'s reactive
+--- `catalog_guidance` matches an uncaught error against (verbatim, or
+--- by shared words), the guidance already known for it, the synthetic
+--- module a `cosmic docs` lookup shows it under, and where it comes
 --- from.
 local record CatalogSeedRow
+  module: string
   symbol: string
   message: string
   hint: string
@@ -124,52 +127,88 @@ local record CatalogSeedRow
   line: integer
 end
 
---- Hand-authored catalog rows, seeded ahead of the extracted ones:
---- guidance for the handful of `strerror()` messages cosmic's own
---- syscalls can plausibly raise -- `core/fail.h`'s `cosmic_fail`
---- returns `nil, strerror(errno), errno`, and a stdlib wrapper like
---- `cosmic/fs.tl`'s `path .. ": " .. trouble` stitches that literal
---- text straight into what a program sees, so it is exactly as
---- matchable as an authored message. Every row here has a message: the
---- catalog is matched on message text alone, so a row without one
---- could never be found. `core/surface.c`'s replacement hints for the
---- globals it removes are raised by that C code itself, not looked up.
+--- Hand-authored catalog rows, seeded ahead of the extracted ones, in
+--- two groups:
+---
+--- The errno rows carry guidance for the handful of `strerror()`
+--- messages cosmic's own syscalls can plausibly raise --
+--- `core/fail.h`'s `cosmic_fail` returns `nil, strerror(errno), errno`,
+--- and a stdlib wrapper like `cosmic/fs.tl`'s `path .. ": " .. trouble`
+--- stitches that literal text straight into what a program sees, so
+--- it is exactly as matchable as an authored message. Each needs its
+--- `message` set to that raw text: `catalog_guidance` matches on
+--- message alone, and `cosmic docs` finds these by symbol regardless.
+---
+--- The removed-global rows carry `build/writer.tl`'s only copy of
+--- `core/surface.c`'s `replacements[]` hints, for `cosmic docs
+--- os`/`io`/`debug` to answer proactively what today only shows up
+--- reactively, the moment a script touches one of these names. Their
+--- `message` is deliberately left empty: the hint IS the exact text
+--- `core/surface.c` raises, so a `catalog_guidance` match would only
+--- ever print the one line the script already got, twice. Leaving
+--- `message` empty is not "no message", the general rule above --
+--- `cosmic docs` still finds them, by symbol (`named_catalog`) or by
+--- searching `text` (`searched_catalog`, `catalog_fts` indexing both
+--- columns); only the reactive path needs `message` set, and these
+--- rows opt out of it on purpose.
+---
+--- Neither group is generated; both are small and rarely change, kept
+--- in sync by hand with the C source named in each row's own `file`.
 local catalog_seed: {CatalogSeedRow} = {
-  { symbol = "ENOENT",
+  { module = "(errno)", symbol = "ENOENT",
     message = "No such file or directory",
     hint = "the path does not exist -- check it is spelled right, and " ..
            "that every parent directory already exists; cosmic.fs " ..
            "creates no parent directories on its own",
     file = "core/fail.h", line = 0 },
-  { symbol = "EACCES",
+  { module = "(errno)", symbol = "EACCES",
     message = "Permission denied",
     hint = "the process does not have permission for this path -- " ..
            "check its ownership and mode, cosmic.fs.stat's own fields",
     file = "core/fail.h", line = 0 },
-  { symbol = "EEXIST",
+  { module = "(errno)", symbol = "EEXIST",
     message = "File exists",
     hint = "something is already at this path -- cosmic.fs.remove it " ..
            "first, or use a call that tolerates an existing target",
     file = "core/fail.h", line = 0 },
-  { symbol = "ENOTDIR",
+  { module = "(errno)", symbol = "ENOTDIR",
     message = "Not a directory",
     hint = "a path segment that should be a directory is a plain file " ..
            "instead -- check every component up to the last",
     file = "core/fail.h", line = 0 },
-  { symbol = "EISDIR",
+  { module = "(errno)", symbol = "EISDIR",
     message = "Is a directory",
     hint = "the path names a directory where a file was expected -- " ..
            "reading or writing needs a file path, not a directory",
     file = "core/fail.h", line = 0 },
-  { symbol = "ENOSPC",
+  { module = "(errno)", symbol = "ENOSPC",
     message = "No space left on device",
     hint = "the filesystem holding this path is full",
     file = "core/fail.h", line = 0 },
-  { symbol = "EMFILE",
+  { module = "(errno)", symbol = "EMFILE",
     message = "Too many open files",
     hint = "this process already has too many files open -- close ones " ..
            "no longer needed before opening more",
     file = "core/fail.h", line = 0 },
+  { module = "(removed)", symbol = "io", message = "",
+    hint = "io is not available: files are cosmic.fs, and the " ..
+           "standard streams are cosmic.fs.stdout, .stderr and .stdin",
+    file = "core/surface.c", line = 21 },
+  { module = "(removed)", symbol = "os", message = "",
+    hint = "os is not available: time is cosmic.time, the " ..
+           "environment is cosmic.env, and processes are cosmic.proc",
+    file = "core/surface.c", line = 23 },
+  { module = "(removed)", symbol = "debug", message = "",
+    hint = "debug is not available: a traceback is cosmic.errors.trace",
+    file = "core/surface.c", line = 25 },
+  { module = "(removed)", symbol = "dofile", message = "",
+    hint = "dofile is not available: a module comes from require, " ..
+           "and a file's bytes come from cosmic.fs.read",
+    file = "core/surface.c", line = 26 },
+  { module = "(removed)", symbol = "loadfile", message = "",
+    hint = "loadfile is not available: a module comes from require, " ..
+           "and a file's bytes come from cosmic.fs.read",
+    file = "core/surface.c", line = 28 },
 }
 
 --- Rebuilds each FTS5 index from its content table's current rows: the
@@ -245,7 +284,7 @@ local function project(handle: work.Handle, path: string,
       local ok, failure = Sqlite.run(db,
         "INSERT INTO out.catalog (id, kind, module, symbol, message, " ..
         "text, file, line) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        { integer(id), text("error"), text("(errno)"), text(row.symbol),
+        { integer(id), text("error"), text(row.module), text(row.symbol),
           text(row.message), text(row.hint), text(row.file),
           integer(row.line) })
       if not ok then

@@ -27,9 +27,11 @@ cosmic -- a runtime for self-contained command-line software
                      of a project reaches the rest of it; the file's
                      own directory otherwise -- then run it: require
                      the file, and if what it returns is a function,
-                     call it with the file's own arguments -- argv[0]
-                     its path, the rest from argv[1] -- and exit with
-                     the integer it returns, or 0
+                     call it with one argument: an array of the
+                     arguments after the file's own path on the
+                     command line, indexed from 1 -- #argv and
+                     ipairs(argv) see exactly those, nothing to skip
+                     -- and exit with the integer it returns, or 0
   cosmic test        build the tree in the working directory, then
                      run every test it defines: each top-level
                      `local function test_*` of a *_test.tl file, and
@@ -53,6 +55,14 @@ cosmic -- a runtime for self-contained command-line software
                      to search the documentation for
   cosmic uses <sym>  every place that refers to a symbol, as file:line
   cosmic help        this
+
+Lua's `io`, `os`, and `debug` are not present; code that reaches for
+one is told its replacement by name, the moment it does. `io` is
+`cosmic.fs`: `Fs.stdout`, `.stderr`, `.stdin` are descriptors, written
+and read with `Fs.put`/`Fs.take`. `os` is `cosmic.time`, `cosmic.env`,
+and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still
+works, an ordinary global written over the same syscall table
+`cosmic.fs` uses.
 
 A verb takes paths to narrow it. `fix` rebuilds each file from its own
 parsed tree. It decides everything a line holds -- every keyword,
@@ -141,11 +151,15 @@ end
 
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, and if what it returns is a function, that function is
---- called with the file's own arguments -- `argv[0]` the file's path
---- as it was named, everything after it from `argv[1]` on -- the shape
---- C, Lua and every shell give a program, so `#argv` and `ipairs` see
---- exactly the arguments. An integer it returns is the exit code;
---- anything else, or no function at all, is 0.
+--- called with one argument: an array of the arguments after the
+--- file's own path on the command line, indexed from 1 like any
+--- ordinary Lua array, so `#argv` and `ipairs(argv)` see exactly
+--- those and nothing before them. The file's own path is there too,
+--- at `argv[0]`, the way C, Lua and every shell give a program its
+--- own name -- but nothing ordinary reaches it, since no length or
+--- loop starts before 1; a caller that wants its own name reads
+--- `argv[0]` directly. An integer the function returns is the exit
+--- code; anything else, or no function at all, is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`

@@ -298,6 +298,12 @@ static int handle_changes(lua_State *L) {
   return 1;
 }
 
+static int handle_last_insert_rowid(lua_State *L) {
+  struct handle *h = checked_handle(L);
+  lua_pushinteger(L, (lua_Integer)sqlite3_last_insert_rowid(h->db));
+  return 1;
+}
+
 static int bound(lua_State *L, int rc, sqlite3 *db) {
   if (rc != SQLITE_OK) {
     return failed_effect(L, db, rc);
@@ -450,8 +456,9 @@ static int statement_gc(lua_State *L) {
 }
 
 static const luaL_Reg handle_methods[] = {
-    {"exec", handle_exec},   {"prepare", handle_prepare},
-    {"close", handle_close}, {"changes", handle_changes},
+    {"exec", handle_exec},     {"prepare", handle_prepare},
+    {"close", handle_close},   {"changes", handle_changes},
+    {"last_insert_rowid", handle_last_insert_rowid},
     {NULL, NULL},
 };
 
