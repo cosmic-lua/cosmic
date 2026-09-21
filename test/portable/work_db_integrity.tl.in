@@ -17,12 +17,17 @@ local function scalar(db: Sqlite.Handle, sql: string): string | nil, string
 end
 
 return function(argv: {string}): integer
-  local path = argv[1]
+  local recover = argv[1] == "--recover-copy"
+  local path = recover and argv[2] or argv[1]
   if path == nil or path == "" then
     print("work database integrity: FAIL (usage: work_db_integrity.tl DATABASE)")
     return 2
   end
-  local db, open_trouble = Sqlite.open(path, false)
+  -- A raw snapshot can include a hot rollback journal. CI passes
+  -- --recover-copy only for its second disposable copy, allowing SQLite to
+  -- recover that copy before integrity checks. The preserved bytes remain
+  -- unopened and retain their exact database+journal hashes.
+  local db, open_trouble = Sqlite.open(path, recover)
   if db == nil then
     print("work database integrity: FAIL (open: " .. open_trouble .. ")")
     return 1

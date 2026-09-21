@@ -24,7 +24,7 @@ with `build`/`test` verbs:
 - `product.sh build OUTPUT` / `product.sh test PRODUCT TARGET FORMAT_DECODER [--codesign]`
 - `runtime.sh build OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` / `runtime.sh test RUNTIME_FIXTURE_DIRECTORY`
 
-`format.sh`, `identity_test.sh`, `self_rebuild.sh`, and `full_suite.sh`
+`format.sh`, `identity_test.sh`, and `self_rebuild.sh`
 stay as their own entry points: each is called on its own, independent of
 any sibling build step.
 
@@ -114,34 +114,8 @@ entry, and an ordinary environment value reaches the re-entered tests. A
 subsequent core input edit is refused with the named `bin/zig build boot`
 remedy and does not change the artifact.
 
-`full_suite.sh` runs the CI full-suite diagnostics locally as five
-explicit phases: `prepare`, `local`, `local-boundary`, `portable`, and
-`portable-boundary`. Give every phase the same absolute diagnostics
-directory outside the checkout. For example, after `bin/zig build cores
-boot`:
-
-```sh
-diagnostics=/tmp/cosmic-work-db-diagnostics
-test/portable/full_suite.sh local "$diagnostics"
-test/portable/full_suite.sh local-boundary "$diagnostics"
-test/portable/full_suite.sh prepare "$diagnostics/transported" o/bin/cosmic
-test/portable/full_suite.sh portable "$diagnostics/transported"
-PORTABLE_OUTCOME=success \
-  test/portable/full_suite.sh portable-boundary "$diagnostics/transported"
-```
-
-Both test phases retain the 30-second suite limit when `timeout` or
-`gtimeout` is available (`lib.sh`'s `run_bounded`). On macOS without
-either command, the workflow reports that it is relying on the existing
-job bound. A local run without either timeout command refuses to start the
-suite rather than running without a bound. `prepare` accepts an optional
-portable artifact; `lib.sh`'s `snapshot_work_db` (used by every phase here,
-not run standalone since no CI job calls it on its own) copies and hashes
-the raw working database and any journal, then opens a second, disposable
-copy outside the checkout with `work_db_integrity.tl.in` -- compiled
-outside the checkout, so diagnostics cannot stage a fixture source in the
-product's working database. Normal CI uses both the local and prepare/portable
-forms in every native leg. The portable form runs the locally produced
-artifact from a fresh tracked source export with no booted executable, copied
-working database, verdicts, or cache. Every driver here is POSIX shell, so a
-fourth x86 Linux producer also runs the same product under stock Alpine BusyBox.
+The pinned CI driver owns full-suite execution, retained output, working
+database snapshots, delayed boundaries, and artifact immutability checks.
+It runs portable suites from a fresh tracked-source export and runs the same
+product in an offline, unprivileged Alpine container. Its isolated project
+and command contracts are documented in `test/ci/driver`.
