@@ -294,6 +294,16 @@ the latter took 1s with 361 prior verdicts standing. Full fresh suite execution,
 real-host macOS selection and codesign, Alpine BusyBox execution, timing
 comparison, and final four-lane SHA equality remain hosted acceptance evidence.
 
+Independent review approved Stage 3 after commit `1cbe1c7` fixed stale
+worker-specific helpers by clearing their deterministic output directory before
+installing the current worker's subset. The implementation and review are
+complete locally. Hosted run 35640402366 passed macOS, Linux x86_64, and Linux
+aarch64; the Alpine worker's Ubuntu-side portable suite reached its unchanged
+30-second limit without an assertion failure (the same suite took 23.4s locally,
+versus a typical 10--13s), and cancellation then interrupted a downstream
+database read. A failed-jobs-only retry at the same SHA is pending; this timeout
+is recorded separately and does not expand Stage 3 or change its bounds.
+
 ## Stage 4: cancel superseded runs without coupling branches
 
 File: `.github/workflows/ci.yml`.
@@ -317,6 +327,18 @@ Acceptance/review:
 - Confirm another branch has a distinct group; do not cancel unrelated
   work to test this. Record run IDs and conclusions.
 - Ensure the final evidence run is completed, not a superseded run.
+
+Progress (2026-09-21): workflow-level concurrency is configured as
+`${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`.
+The full ref keeps branches in distinct groups, while push and manual runs for
+the same ref supersede one another. Local YAML parsing and structural checks
+confirmed both existing triggers, the four-entry matrix, `fail-fast: false`,
+all worker steps, and the provenance dependency remain intact. Because
+`provenance` needs the complete `platform` matrix and has no permissive job
+condition, a canceled or failed matrix cannot run a passing partial join; each
+run also downloads artifacts scoped to that run, so it cannot reuse an earlier
+run's attestations. Live cancellation and distinct-branch behavior remain to be
+verified with hosted runs after publication.
 
 ## Stage 5: integrated review and latency comparison
 
@@ -354,6 +376,6 @@ tests ran on a platform based solely on cross-compilation.
 - [x] Inspect baseline and agree on independent-worker architecture.
 - [x] Stage 1: timing implementation and independent review.
 - [x] Stage 2: cacheable fixture builds and independent review.
-- [ ] Stage 3: minimum required fixture targets and independent review.
+- [x] Stage 3: minimum required fixture targets and independent review.
 - [ ] Stage 4: superseded-run cancellation and independent review.
 - [ ] Stage 5: integrated hosted evidence and final independent review.
