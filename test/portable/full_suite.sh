@@ -9,91 +9,27 @@ fi
 phase=$1
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 checkout=$(CDPATH= cd -- "$script_dir/../.." && pwd -P)
-diagnostics=$2
+diagnostics_raw=$2
 portable_input=${3-}
 
-canonical_directory_path() {
-  path=$1
-  suffix=
-  while [ ! -e "$path" ]; do
-    component=${path##*/}
-    [ -n "$component" ] || return 1
-    suffix="/$component$suffix"
-    path=${path%/*}
-    [ -n "$path" ] || path=/
-  done
-  ancestor=$(CDPATH= cd -- "$path" && pwd -P) || return 1
-  if [ "$ancestor" = / ]; then
-    printf '%s\n' "$ancestor${suffix#/}"
-  else
-    printf '%s\n' "$ancestor$suffix"
-  fi
-}
+. "$script_dir/lib.sh"
 
-case "$diagnostics" in
-  /*) ;;
-  *)
-    echo "diagnostics directory must be an absolute path: $diagnostics" >&2
-    exit 2
-    ;;
-esac
-case "/${diagnostics#/}/" in
-  *//*|*/./*|*/../*)
-    echo "diagnostics directory must be a normalized path: $diagnostics" >&2
-    exit 2
-    ;;
-esac
-diagnostics=$(canonical_directory_path "$diagnostics") || {
-  echo "diagnostics path cannot be resolved: $diagnostics" >&2
-  exit 2
-}
-case "$diagnostics/" in
-  "$checkout/"*)
-    echo "diagnostics directory must be outside the checkout: $diagnostics" >&2
-    exit 2
-    ;;
-esac
-mkdir -p "$diagnostics"
-diagnostics=$(CDPATH= cd -- "$diagnostics" && pwd -P)
-case "$diagnostics/" in
-  "$checkout/"*)
-    echo "diagnostics directory must be outside the checkout: $diagnostics" >&2
-    exit 2
-    ;;
-esac
+diagnostics=$(require_diagnostics_dir "$diagnostics_raw" "$checkout")
 cd "$checkout"
 
 cosmic="$checkout/o/bin/cosmic"
 portable="$diagnostics/cosmic-portable"
 cache="$diagnostics/portable-full-suite-cache"
-snapshot="$script_dir/snapshot_work_db.sh"
 
-hash_value() {
-  if command -v sha256sum >/dev/null 2>&1; then value=$(sha256sum "$1") || return
-  else value=$(shasum -a 256 "$1") || return; fi
-  printf '%s\n' "${value%% *}"
-}
-
-run_bounded() {
+run_suite_bounded() {
   suite=$1
   stdout=$2
   stderr=$3
   name=$4
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 30 "$suite" test > "$stdout" 2> "$stderr"
-    status=$?
-  elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout 30 "$suite" test > "$stdout" 2> "$stderr"
-    status=$?
-  elif [ "${GITHUB_ACTIONS:-}" = true ]; then
-    echo "::notice::timeout is unavailable; the $name suite runs once under the existing 20-minute job bound"
-    "$suite" test > "$stdout" 2> "$stderr"
-    status=$?
-  else
-    : > "$stdout"
-    echo "timeout or gtimeout is required outside GitHub Actions" > "$stderr"
-    status=125
-  fi
+  set +e
+  run_bounded "the $name suite" "$suite" test > "$stdout" 2> "$stderr"
+  status=$?
+  set -e
   printf '%s\n' "$status" > "$diagnostics/test.status"
   return "$status"
 }
@@ -136,19 +72,16 @@ case "$phase" in
     fi
     cp "$portable_input" "$portable"
     chmod 755 "$portable"
-    hash_value "$portable" > \
-      "$diagnostics/portable-artifact.before.sha256"
-    wc -c < "$portable" > \
-      "$diagnostics/portable-artifact.before.bytes"
-    ls -l "$portable" > \
-      "$diagnostics/portable-artifact.before.listing"
+    sha256_of "$portable" > "$diagnostics/portable-artifact.before.sha256"
+    wc -c < "$portable" > "$diagnostics/portable-artifact.before.bytes"
+    ls -l "$portable" > "$diagnostics/portable-artifact.before.listing"
     ;;
 
   local)
     local_out="$diagnostics/local-test.out"
     local_err="$diagnostics/local-test.err"
     set +e
-    run_bounded "$cosmic" "$local_out" "$local_err" local
+    run_suite_bounded "$cosmic" "$local_out" "$local_err" local
     status=$?
     set -e
     mv "$diagnostics/test.status" "$diagnostics/local-test.status"
@@ -156,7 +89,7 @@ case "$phase" in
     cat "$local_err" >&2
     report_suite_failure local "$status"
     set +e
-    "$snapshot" "$diagnostics" local-immediate "$cosmic"
+    snapshot_work_db "$diagnostics" local-immediate "$checkout" "$cosmic"
     snapshot_status=$?
     set -e
     if [ "$snapshot_status" -ne 0 ]; then
@@ -169,7 +102,7 @@ case "$phase" in
     ;;
 
   local-boundary)
-    "$snapshot" "$diagnostics" local-boundary "$cosmic"
+    snapshot_work_db "$diagnostics" local-boundary "$checkout" "$cosmic"
     cmp "$diagnostics/local-immediate/hashes.sha256" \
       "$diagnostics/local-boundary/hashes.sha256"
     ;;
@@ -179,7 +112,7 @@ case "$phase" in
     portable_err="$diagnostics/portable-test.err"
     set +e
     COSMIC_PORTABLE_CACHE="$cache" \
-      run_bounded "$portable" "$portable_out" "$portable_err" portable
+      run_suite_bounded "$portable" "$portable_out" "$portable_err" portable
     status=$?
     set -e
     mv "$diagnostics/test.status" "$diagnostics/portable-test.status"
@@ -195,10 +128,9 @@ case "$phase" in
     report_suite_failure portable "$status"
     set +e
     COSMIC_PORTABLE_CACHE="$cache" \
-      "$snapshot" "$diagnostics" portable-immediate "$portable"
+      snapshot_work_db "$diagnostics" portable-immediate "$checkout" "$portable"
     snapshot_status=$?
-    hash_value "$portable" > \
-      "$diagnostics/portable-artifact.after.sha256"
+    sha256_of "$portable" > "$diagnostics/portable-artifact.after.sha256"
     hash_status=$?
     if [ "$hash_status" -eq 0 ]; then
       cmp "$diagnostics/portable-artifact.before.sha256" \
@@ -222,7 +154,7 @@ case "$phase" in
 
   portable-boundary)
     COSMIC_PORTABLE_CACHE="$cache" \
-      "$snapshot" "$diagnostics" portable-boundary "$portable"
+      snapshot_work_db "$diagnostics" portable-boundary "$checkout" "$portable"
     if [ "${PORTABLE_OUTCOME:-}" = success ]; then
       cmp "$diagnostics/portable-immediate/hashes.sha256" \
         "$diagnostics/portable-boundary/hashes.sha256"
