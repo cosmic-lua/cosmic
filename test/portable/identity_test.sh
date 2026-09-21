@@ -6,6 +6,7 @@ fixture=${1:?usage: identity_test.sh RUNTIME_FIXTURE_DIRECTORY [PROJECT_STATE]}
 case $fixture in /*) ;; *) fixture=$PWD/$fixture ;; esac
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 state=${2-}
+. "$root/test/portable/lib.sh"
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-runtime-identity.XXXXXXXX")
 cleanup() {
   status=$?
