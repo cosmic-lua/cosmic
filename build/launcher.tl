@@ -335,6 +335,11 @@ export COSMIC_PORTABLE_TARGET_ID COSMIC_PORTABLE_CONFIGURATION_ID
 export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
 export COSMIC_PORTABLE_CORE_SHA256
 
+# A non-interactive shell exits directly from a failing exec, in the shell's
+# own voice, before this function could run; checking first keeps a refusal
+# (for example a cache mounted noexec) in the tree's voice and exit code.
+[ -x "$cosmic_core" ] || portable_die 'selected core cannot be executed'
+
 trap - EXIT HUP INT TERM
 umask "$cosmic_original_umask" || portable_die 'cannot restore caller umask'
 exec "$cosmic_core" --artifact "$cosmic_artifact" "$@"
