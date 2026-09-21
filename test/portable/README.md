@@ -11,9 +11,9 @@ runtime basis, an unchanged repeat, and an application-database-only change.
 Changed runtime contexts run, while unchanged and application-only contexts
 stand.
 
-`runtime_build.sh` and `runtime_test.sh` retain step 5 coverage with real Cosmic
-cores and now use step 6's host-independent projection. A fixture-only core
-build contains a deterministic
+`runtime_build.sh` and `runtime_test.sh` exercise real Cosmic cores against the
+host-independent projection the build now writes. A fixture-only core build
+contains a deterministic
 FIFO pause after descriptor validation and before SQLite opens the main
 database; ordinary cores contain neither the hook code nor its environment
 names. Atomic replacement and unlink at that pause prove both VFS and the
