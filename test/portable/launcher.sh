@@ -10,7 +10,7 @@ case "$verb" in
   build|test) shift ;;
   *)
     echo "usage: launcher.sh {build|test} ARGS..." >&2
-    echo "  launcher.sh build OUTPUT_DIRECTORY" >&2
+    echo "  launcher.sh build OUTPUT_DIRECTORY TARGET" >&2
     echo "  launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]" >&2
     exit 2
     ;;
@@ -20,18 +20,34 @@ if [ "$verb" = build ]; then
   # Build one identical launcher fixture containing a native TEST payload for
   # every generated target. The fixture verifies only the shell launcher
   # contract.
-  out=${1:?usage: launcher.sh build OUTPUT_DIRECTORY}
+  [ "$#" -eq 2 ] || {
+    echo 'usage: launcher.sh build OUTPUT_DIRECTORY TARGET' >&2
+    exit 2
+  }
+  out=$1
+  worker_target=$2
+  awk -v target="$worker_target" '$4 == target { found = 1 } END { exit !found }' \
+    "$root/o/targets.tsv" || {
+      printf 'portable launcher: unsupported target: %s\n' "$worker_target" >&2
+      exit 2
+    }
   mkdir -p "$out/payloads"
   tab=$(printf '\t')
   while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
     [ "$configuration" = release ]
-    "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
-      "$root/test/portable/launcher_payload.c" -o "$out/payloads/payload-$target"
-    "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
-      "$root/test/portable/launcher_socket_fd.c" -o "$out/payloads/socket-$target"
+    timing_run "launcher payload compilation: $target" \
+      "$root/bin/zig" build "portable-launcher-payload-$target"
+    cp "$root/o/portable-fixture/launcher/payload-$target" \
+      "$out/payloads/payload-$target"
   done < "$root/o/targets.tsv"
+  rm -f "$out/payloads"/socket-*
+  timing_run "launcher socket compilation: $worker_target" \
+    "$root/bin/zig" build "portable-launcher-socket-$worker_target"
+  cp "$root/o/portable-fixture/launcher/socket-$worker_target" \
+    "$out/payloads/socket-$worker_target"
 
-  "$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-launcher-fixture \
+  timing_run 'launcher fixture writing' \
+    "$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-launcher-fixture \
     "$root/o/targets.tsv" "$out/payloads" "$out/launcher"
   chmod 755 "$out/launcher.release" "$out/launcher.test"
   for kind in release test; do
