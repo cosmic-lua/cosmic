@@ -125,6 +125,7 @@ const core_sources = [_][]const u8{
     "executable.c",
     "sqlite.c",
     "store.c",
+    "strnlen.c",
     "surface.c",
     "syscalls.c",
     "syscalls_fs.c",
@@ -200,6 +201,24 @@ pub fn build(b: *std.Build) void {
     const target_records = generated.add("targets.tsv", records);
     const install_target_records = b.addInstallFile(target_records, "targets.tsv");
     cores.dependOn(&install_target_records.step);
+
+    // The core's strnlen stands in for the toolchain's, which reads past
+    // the end of a mapping (core/strnlen.c). The case that tells them
+    // apart runs on the host with every boot.
+    const strnlen_check = b.addExecutable(.{
+        .name = "strnlen-check",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+            .link_libc = true,
+        }),
+    });
+    strnlen_check.root_module.addCSourceFiles(.{
+        .root = b.path("core"),
+        .files = &.{ "strnlen.c", "strnlen_test.c" },
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    boot.dependOn(&b.addRunArtifact(strnlen_check).step);
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
