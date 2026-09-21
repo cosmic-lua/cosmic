@@ -19,6 +19,8 @@ project="$work/driver project"
 state="$work/worker state"
 mkdir -p "$project" "$state"
 cp "$here/driver/driver.tl.in" "$project/driver.tl"
+cp "$here/driver/orchestration.tl.in" "$project/orchestration.tl"
+cp "$here/driver/state.tl.in" "$project/state.tl"
 driver="$project/driver.tl"
 db="$state/operations.db"
 

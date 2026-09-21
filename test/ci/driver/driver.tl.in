@@ -2,44 +2,11 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
-
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
-
-local function integer(value: integer): Sqlite.Value
-  return { integer = value }
-end
-
-local function null(): Sqlite.Value
-  return {}
-end
-
-local schema <const> = [[
-CREATE TABLE IF NOT EXISTS operation_events (
-  id INTEGER PRIMARY KEY,
-  start_id INTEGER,
-  event TEXT NOT NULL CHECK(event IN ('start', 'complete')),
-  worker TEXT NOT NULL,
-  run TEXT NOT NULL,
-  attempt TEXT NOT NULL,
-  phase TEXT NOT NULL,
-  monotonic_ns INTEGER NOT NULL,
-  elapsed_ns INTEGER,
-  status TEXT,
-  exit_code INTEGER,
-  signal INTEGER,
-  timed_out INTEGER,
-  detail TEXT,
-  FOREIGN KEY(start_id) REFERENCES operation_events(id)
-);
-CREATE INDEX IF NOT EXISTS operation_completion ON operation_events(start_id);
-]]
+local Orchestration = require("orchestration")
+local State = require("state")
 
 local function open_database(path: string): Sqlite.Handle
-  local db = assert(Sqlite.open(path, true))
-  assert(db:exec(schema))
-  return db
+  return State.open(path)
 end
 
 local function limited(value: string): string
@@ -47,34 +14,9 @@ local function limited(value: string): string
   return value
 end
 
-local function parent(path: string): string
-  return path:match("^(.*)/[^/]+$") or "."
-end
-
-local function inside(path: string, directory: string): boolean
-  return path == directory or path:sub(1, #directory + 1) == directory .. "/"
-end
-
 local function database_path(path: string, candidate: string,
     driver_path: string): string
-  local directory = assert(Fs.absolute(parent(path)))
-  local leaf = path:match("([^/]+)$") or path
-  local unresolved = directory .. "/" .. leaf
-  local absolute, resolve_trouble = Fs.absolute(unresolved)
-  if not absolute then
-    for _, entry in ipairs(assert(Fs.list(directory))) do
-      assert(entry ~= leaf, "operation database path cannot be resolved: " ..
-        resolve_trouble)
-    end
-    absolute = unresolved
-  end
-  local candidate_absolute = assert(Fs.absolute(candidate))
-  local project_absolute = assert(Fs.absolute(parent(driver_path)))
-  assert(not inside(absolute, candidate_absolute),
-    "operation database must be outside the candidate checkout")
-  assert(not inside(absolute, project_absolute),
-    "operation database must be outside the driver project")
-  return absolute
+  return State.external_path(path, candidate, driver_path)
 end
 
 local function run(argv: {string}): integer
@@ -88,14 +30,7 @@ local function run(argv: {string}): integer
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   database = database_path(database, candidate, assert(argv[0]))
   local started = assert(Time.monotonic_ns())
-  local db = open_database(database)
-  assert(Sqlite.run(db, [[
-    INSERT INTO operation_events
-      (event, worker, run, attempt, phase, monotonic_ns)
-    VALUES ('start', ?1, ?2, ?3, ?4, ?5)
-  ]], { text(worker), text(run_name), text(attempt), text(phase), integer(started) }))
-  local start_id = Sqlite.last_insert_rowid(db)
-  assert(db:close())
+  local start_id = State.start(database, worker, run_name, attempt, phase, started)
 
   local command: {string} = { executable }
   for i = 9, #argv do command[#command + 1] = argv[i] end
@@ -126,20 +61,8 @@ local function run(argv: {string}): integer
       status, return_code = "exit", finished.code or 1
     end
   end
-  db = open_database(database)
-  assert(Sqlite.run(db, [[
-    INSERT INTO operation_events
-      (start_id, event, worker, run, attempt, phase, monotonic_ns,
-       elapsed_ns, status, exit_code, signal, timed_out, detail)
-    VALUES (?1, 'complete', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-  ]], {
-    integer(start_id), text(worker), text(run_name), text(attempt), text(phase),
-    integer(started + elapsed), integer(elapsed), text(status),
-    exit_code ~= nil and integer(exit_code) or null(),
-    signal ~= nil and integer(signal) or null(), integer(timed_out),
-    detail ~= nil and text(detail) or null(),
-  }))
-  assert(db:close())
+  State.complete(database, start_id, worker, run_name, attempt, phase,
+    started + elapsed, elapsed, status, exit_code, signal, timed_out, detail)
   return return_code
 end
 
@@ -184,12 +107,14 @@ end
 local commands: {string:function({string}):integer} = {
   run = run,
   report = report,
+  platform = Orchestration.platform,
+  provenance = Orchestration.provenance,
 }
 
 return function(argv: {string}): integer
   local handler = argv[1] and commands[argv[1]] or nil
   if not handler then
-    Fs.put(Fs.stderr, "usage: driver.tl run|report ...\n")
+    Fs.put(Fs.stderr, "usage: driver.tl run|report|platform|provenance ...\n")
     return 2
   end
   local rest: {string} = { [0] = argv[0] }

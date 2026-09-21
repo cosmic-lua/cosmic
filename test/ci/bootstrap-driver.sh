@@ -64,4 +64,8 @@ verify "$cached"
 cp "$cached" "$runner"
 verify "$runner"
 chmod 755 "$runner"
-cp "$(dirname "$0")/driver/driver.tl.in" "$project/driver.tl"
+for template in "$(dirname "$0")"/driver/*.tl.in; do
+  name=$(basename "$template" .in)
+  test ! -e "$project/$name" && test ! -L "$project/$name"
+  cp "$template" "$project/$name"
+done
