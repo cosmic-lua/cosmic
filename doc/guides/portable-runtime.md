@@ -247,11 +247,12 @@ contract into observable boundaries:
 
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
 the release product independently on Linux x86-64, Linux ARM64, and macOS
-ARM64. Each native leg executes its local product, checked core, runtime
-fixtures, identity proof, and delayed database boundaries. Linux x86 also runs
-the product offline under Alpine. Each producer records the product hash before
-and after execution; the provenance join requires all three uploaded `cosmic`
-files to match those attestations and each other.
+ARM64. A fourth x86 Linux producer also executes its product offline under
+Alpine, after the same host checks. Every matrix leg runs the checked core,
+runtime fixtures, identity proof, and delayed database boundaries. Each
+producer records the product hash before and after execution; the provenance
+join requires all four uploaded `cosmic` files to match those attestations and
+each other.
 
 These lanes express the support rule: a target exists only when Zig builds it,
 its native runner executes the suite, and the portable boundary tests pass.

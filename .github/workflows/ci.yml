@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   # Every leg independently builds the complete product, executes the same
-  # Cosmic bytes on its native host, and uploads those bytes for the join.
+  # Cosmic bytes in its platform environment, and uploads them for the join.
   platform:
     strategy:
       fail-fast: false
@@ -18,7 +18,7 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            alpine: true
+            alpine: false
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
@@ -27,6 +27,10 @@ jobs:
             runner: macos-15
             target: aarch64-macos
             alpine: false
+          - name: alpine-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-linux-musl
+            alpine: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -103,9 +107,10 @@ jobs:
             ${{ runner.temp }}/platform/runtime-diagnostics
           if-no-files-found: ignore
 
-  # Three successful native executions must attest and upload identical Cosmic
-  # bytes. Local product tests retain manifest, range, application, and raw-core
-  # verification, so this join only proves the cross-platform byte identity.
+  # Every successful platform/environment execution must attest and upload
+  # identical Cosmic bytes. Local product tests retain manifest, range,
+  # application, and raw-core verification, so this join only proves the
+  # cross-platform byte identity.
   provenance:
     needs: platform
     runs-on: ubuntu-24.04

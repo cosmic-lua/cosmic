@@ -212,6 +212,23 @@ extract_core_range() {
   fi
 }
 
+# Compares exactly the first LENGTH bytes of LEFT and RIGHT. Extracting both
+# bounded ranges avoids cmp implementations that still report EOF when -n
+# reaches the exact end of one file while the other file continues.
+compare_file_prefixes() {
+  cfp_left=$1
+  cfp_right=$2
+  cfp_length=$3
+  cfp_out=$4
+  head -c "$cfp_length" "$cfp_left" > "$cfp_out.left"
+  head -c "$cfp_length" "$cfp_right" > "$cfp_out.right"
+  [ "$(wc -c < "$cfp_out.left" | tr -d ' ')" = "$cfp_length" ] ||
+    fail "left file is shorter than the compared prefix: $cfp_left"
+  [ "$(wc -c < "$cfp_out.right" | tr -d ' ')" = "$cfp_length" ] ||
+    fail "right file is shorter than the compared prefix: $cfp_right"
+  cmp "$cfp_out.left" "$cfp_out.right"
+}
+
 # Runs "$@" under a 30-second bound via `timeout`/`gtimeout`. On a host with
 # neither, runs unbounded under GitHub Actions (the job's own bound still
 # applies) with a `::notice::` explaining why, using NAME in that notice; off

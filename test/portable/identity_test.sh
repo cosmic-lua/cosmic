@@ -115,7 +115,8 @@ if [ -z "$state" ]; then
     output=$project/o/bin/$application
     [ -x "$output" ]
     head -c 10 "$output" | grep -F '#!/bin/sh' >/dev/null
-    cmp -n "$prefix_length" "$fixture/runtime.old.prefix" "$output"
+    compare_file_prefixes "$fixture/runtime.old.prefix" "$output" \
+      "$prefix_length" "$work/$application-prefix"
   done
   cp "$project/o/bin/hello" "$work/hello-before-edit"
   sed 's/hello from the portable fixture/hello from the edited portable fixture/' \
@@ -125,7 +126,8 @@ if [ -z "$state" ]; then
     COSMIC_PORTABLE_CACHE="$cache" "$fixture/runtime.old" build
   ) > "$work/rebuild.out" 2>&1
   grep -F 'build: PASS (o/bin/hello, o/bin/second' "$work/rebuild.out" >/dev/null
-  cmp -n "$prefix_length" "$work/hello-before-edit" "$project/o/bin/hello"
+  compare_file_prefixes "$work/hello-before-edit" "$project/o/bin/hello" \
+    "$prefix_length" "$work/rebuilt-prefix"
   if cmp "$work/hello-before-edit" "$project/o/bin/hello" >/dev/null; then
     printf 'portable identity: application edit did not change its suffix\n' >&2
     exit 1
@@ -155,8 +157,8 @@ if [ -z "$state" ]; then
   wait "$build_pid"
   grep -F 'build: PASS (o/bin/hello, o/bin/second' \
     "$work/unlinked-build.out" >/dev/null
-  cmp -n "$prefix_length" "$fixture/runtime.old.prefix" \
-    "$project/o/bin/hello"
+  compare_file_prefixes "$fixture/runtime.old.prefix" \
+    "$project/o/bin/hello" "$prefix_length" "$work/unlinked-prefix"
 
   # Atomic replacement of the logical pathname after the same pause also
   # leaves this build on the one retained artifact.
@@ -181,8 +183,8 @@ if [ -z "$state" ]; then
   wait "$renamed_pid"
   grep -F 'build: PASS (o/bin/hello, o/bin/second' \
     "$work/renamed-build.out" >/dev/null
-  cmp -n "$prefix_length" "$fixture/runtime.old.prefix" \
-    "$project/o/bin/hello"
+  compare_file_prefixes "$fixture/runtime.old.prefix" \
+    "$project/o/bin/hello" "$prefix_length" "$work/renamed-prefix"
 
   # A nonselected raw core corruption lets this host start, but the private
   # prefix reader validates every core before output publication.

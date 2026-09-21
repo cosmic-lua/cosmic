@@ -64,8 +64,9 @@ applications. `product.sh test` verifies every recorded transported hash,
 exact prefix reuse, the selected manifest range's length, digest, and raw
 core bytes, and both applications; on the macOS host it also sends that
 extracted range to strict `codesign` verification. Normal CI runs these checks
-in each independent x86 Linux, ARM Linux, and ARM macOS producer. The
-`provenance` job compares the exact `cosmic` bytes all three attest they ran.
+in independent x86 Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux
+producer whose product also runs under Alpine. The `provenance` job compares
+the exact `cosmic` bytes all four attest they ran.
 
 `runtime.sh build` and `runtime.sh test` cover real Cosmic cores end to end
 against the runtime's host-independent projection. A fixture-only core
@@ -103,7 +104,7 @@ change: changed runtime contexts run, while unchanged and
 application-only contexts stand. Normal CI runs that complete identity proof
 independently on every native host. Mutable developer state remains local to
 one runner; cross-platform support is established by executing and attesting
-the same immutable product bytes on all three hosts.
+the same immutable product bytes in all supported platform environments.
 
 `self_rebuild.sh` uses the same fixture-only startup pause to rename and
 unlink the artifact after descriptor adoption. In each case a deterministic
@@ -142,5 +143,5 @@ outside the checkout, so diagnostics cannot stage a fixture source in the
 product's working database. Normal CI uses both the local and prepare/portable
 forms in every native leg. The portable form runs the locally produced
 artifact from a fresh tracked source export with no booted executable, copied
-working database, verdicts, or cache. Every driver here is POSIX shell, so the
-Linux x86 leg also runs the same checks under stock Alpine BusyBox.
+working database, verdicts, or cache. Every driver here is POSIX shell, so a
+fourth x86 Linux producer also runs the same product under stock Alpine BusyBox.

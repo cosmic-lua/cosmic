@@ -50,8 +50,11 @@ while IFS="$tab" read -r target_id configuration_id configuration target uname_o
 done < "$root/o/targets.tsv"
 
 prefix_length=$(awk '$1 == "prefix" { print $2 }' "$work/inspection")
-cmp -n "$prefix_length" "$work/program.a" "$work/program.b"
-cmp -n "$prefix_length" "$work/program.prefix" "$work/program.a"
+[ "$(wc -c < "$work/program.prefix" | tr -d ' ')" = "$prefix_length" ]
+compare_file_prefixes "$work/program.a" "$work/program.b" \
+  "$prefix_length" "$work/programs-prefix"
+compare_file_prefixes "$work/program.prefix" "$work/program.a" \
+  "$prefix_length" "$work/written-prefix"
 if cmp -s "$work/program.a" "$work/program.b"; then
   echo "portable format: fixture programs unexpectedly match" >&2
   exit 1
