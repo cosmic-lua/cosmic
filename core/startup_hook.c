@@ -12,3 +12,8 @@ void cosmic_startup_test_phase(const struct cosmic_startup *startup,
   (void)startup;
   (void)phase;
 }
+
+const char *const *cosmic_startup_test_environment(void) {
+  static const char *const none[] = {NULL};
+  return none;
+}

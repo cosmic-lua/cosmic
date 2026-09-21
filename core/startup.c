@@ -13,6 +13,14 @@
 #include "crypto.h"
 #include "executable.h"
 
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#define COSMIC_ENVIRON (*_NSGetEnviron())
+#else
+extern char **environ;
+#define COSMIC_ENVIRON environ
+#endif
+
 #ifndef COSMIC_TARGET_ID
 #error "build.zig must define COSMIC_TARGET_ID"
 #endif
@@ -69,6 +77,62 @@ static int hex_digest(const char *text,
   return text[COSMIC_PORTABLE_SHA256_LENGTH * 2] == '\0';
 }
 
+/* The whole COSMIC_PORTABLE_ prefix is reserved (design.md); only
+ * COSMIC_PORTABLE_CACHE is public configuration Teal may see.
+ * `portable_environment` names the launcher's own bounded descriptor
+ * fields and is deliberately not this list: unsetenv-ing exactly those
+ * seven leaves any OTHER COSMIC_PORTABLE_* name -- set by an ordinary
+ * native invocation, by a launcher whose contract has drifted, or by
+ * an attacker probing the reserved namespace -- to reach Lua's
+ * cosmic.env untouched. Collected first, then cleared: unsetenv
+ * shifts environ's remaining entries down, so unsetenv-ing while
+ * walking it forward would skip whatever slides into the just-cleared
+ * slot. The linked startup hook may name reserved entries of its own to
+ * keep (the product hook names none): a fixture core reads its pause
+ * FIFOs from them and the tool a self-rebuild re-enters must pause at
+ * the same ones. */
+#define COSMIC_PORTABLE_ENV_PREFIX "COSMIC_PORTABLE_"
+#define COSMIC_PORTABLE_ENV_CACHE "COSMIC_PORTABLE_CACHE"
+#define COSMIC_PORTABLE_MAX_RESERVED_NAMES 32
+#define COSMIC_PORTABLE_MAX_RESERVED_NAME_LENGTH 64
+
+static void clear_reserved_environment(void) {
+  char names[COSMIC_PORTABLE_MAX_RESERVED_NAMES]
+            [COSMIC_PORTABLE_MAX_RESERVED_NAME_LENGTH];
+  size_t count = 0;
+  size_t prefix_length = strlen(COSMIC_PORTABLE_ENV_PREFIX);
+
+  for (char **at = COSMIC_ENVIRON; at != NULL && *at != NULL; at++) {
+    const char *entry = *at;
+    if (strncmp(entry, COSMIC_PORTABLE_ENV_PREFIX, prefix_length) != 0)
+      continue;
+    const char *equals = strchr(entry, '=');
+    if (equals == NULL) continue;
+    size_t name_length = (size_t)(equals - entry);
+    if (name_length == strlen(COSMIC_PORTABLE_ENV_CACHE) &&
+        strncmp(entry, COSMIC_PORTABLE_ENV_CACHE, name_length) == 0)
+      continue;
+    int kept = 0;
+    for (const char *const *keep = cosmic_startup_test_environment();
+         *keep != NULL; keep++) {
+      if (name_length == strlen(*keep) &&
+          strncmp(entry, *keep, name_length) == 0) {
+        kept = 1;
+        break;
+      }
+    }
+    if (kept) continue;
+    if (name_length >= COSMIC_PORTABLE_MAX_RESERVED_NAME_LENGTH ||
+        count >= COSMIC_PORTABLE_MAX_RESERVED_NAMES)
+      continue;
+    memcpy(names[count], entry, name_length);
+    names[count][name_length] = '\0';
+    count++;
+  }
+
+  for (size_t i = 0; i < count; i++) unsetenv(names[i]);
+}
+
 static void compiled_startup(struct cosmic_startup *startup,
                              enum cosmic_startup_kind kind,
                              const char *artifact_path) {
@@ -95,6 +159,7 @@ int cosmic_startup_has_private_environment(void) {
 
 void cosmic_startup_native(struct cosmic_startup *startup) {
   compiled_startup(startup, COSMIC_STARTUP_NATIVE, NULL);
+  clear_reserved_environment();
 }
 
 void cosmic_startup_portable(struct cosmic_startup *startup,
@@ -133,9 +198,7 @@ void cosmic_startup_portable(struct cosmic_startup *startup,
     startup->launcher_core_length = length;
   }
 
-  for (size_t i = 0; i < sizeof portable_environment /
-                              sizeof portable_environment[0]; i++)
-    unsetenv(portable_environment[i]);
+  clear_reserved_environment();
 }
 
 const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
