@@ -143,6 +143,29 @@ to stderr; a focused `sh` and `dash` check confirmed byte-exact redirected
 stdout, a space-containing argument, and status 37. The reviewer otherwise
 approved failure propagation, suite coverage, and provenance semantics.
 
+SQLite timing storage was considered after Stage 1. The primary journal stays
+an external append-only text file because it must work before bootstrap and
+after build failure without depending on `o/build.db`, staged artifacts, or a
+host `sqlite3` command. If later analysis needs SQL, a non-gating post-run step
+can import that journal into a separate runner-temporary database; adding that
+machinery is deferred while the existing summary remains sufficient.
+
+Hosted baseline run 35638810846 passed all four lanes and provenance in about
+7m21s. Compilation dominated format work; writing, mutation, inspection, and
+range/prefix work were 0--1s in every lane:
+
+| Lane | Native decoder | x86 Linux decoder | ARM Linux decoder | macOS decoder | Whole format |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Linux x86_64 | 13s | 17s | 18s | 3s | 51s |
+| Linux aarch64 | 14s | 19s | 23s | 3s | 59s |
+| Alpine x86_64 worker | 15s | 22s | 27s | 3s | 67s |
+| macOS aarch64 | 17s | 89s | 84s | 3s | 194s |
+
+Restored-cache core and checked builds still varied substantially between
+lanes, so a cache restore must not be described as equivalent to an in-job
+warm build. The measured decoder cost confirms Stage 2's priority; the two
+Linux cross-compiles on macOS are also the main Stage 3 scope opportunity.
+
 ## Stage 2: make fixture compilation explicit and cacheable
 
 Files: `build.zig`, `test/portable/format.sh`,
@@ -182,6 +205,28 @@ Acceptance/review:
 - Hosted Linux and macOS evidence demonstrates restored-cache reuse, not
   merely a warm cache inside one job. Review cache inputs and stale-output
   failure modes before proceeding.
+
+Progress (2026-09-21): implementation moves the native and three target format
+decoders plus all three target launcher payloads and socket helpers into named
+Zig build steps. The target records, IDs, masks, configuration IDs, baseline
+cross-target queries, optimization modes, warnings, macros, sources, and
+headers now share `build.zig`'s graph, while the shell scripts retain fixture
+writing and assertions and copy helpers from deterministic paths under
+`o/portable-fixture`. The workflow key now covers the fixture C inputs and its
+existing always-run cache-save step follows these builds. A cold local build
+succeeded; an immediate rebuild reported every fixture compile cached and
+finished in 0.087s. Verbose compiler output confirmed the graph's `Debug` mode
+emits the native decoder's original `-O0` behavior and `ReleaseFast` emits the
+target helpers' original `-O2`, with baseline CPUs. Editing
+`launcher_payload.c` rebuilt only the three payloads;
+editing consumed `core/portable.h` rebuilt only the four format decoders. The
+format malformed cases, exact-range checks, launcher fixture build and launcher
+regression passed, and the ordinary suite passed in 11.1s with 361 ran and 0
+stood. A detached fresh checkout then received only copied `zig-cache` and
+`zig-global` directories: it created and validated its own `o/build.db` (361
+ran, 0 stood), and every fixture compile reported cached when the deterministic
+outputs were installed into the new checkout. Hosted Linux/macOS evidence
+remains for this stage.
 
 ## Stage 3: compile only the fixture variants each worker needs
 

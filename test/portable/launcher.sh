@@ -26,11 +26,13 @@ if [ "$verb" = build ]; then
   while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
     [ "$configuration" = release ]
     timing_run "launcher payload compilation: $target" \
-      "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
-      "$root/test/portable/launcher_payload.c" -o "$out/payloads/payload-$target"
+      "$root/bin/zig" build "portable-launcher-payload-$target"
+    cp "$root/o/portable-fixture/launcher/payload-$target" \
+      "$out/payloads/payload-$target"
     timing_run "launcher socket compilation: $target" \
-      "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
-      "$root/test/portable/launcher_socket_fd.c" -o "$out/payloads/socket-$target"
+      "$root/bin/zig" build "portable-launcher-socket-$target"
+    cp "$root/o/portable-fixture/launcher/socket-$target" \
+      "$out/payloads/socket-$target"
   done < "$root/o/targets.tsv"
 
   timing_run 'launcher fixture writing' \

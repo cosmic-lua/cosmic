@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig-build
-          key: zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'vendor/**', 'patch/**') }}
+          key: zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**') }}
           restore-keys: |
             zig-build-${{ matrix.name }}-
 
@@ -86,8 +86,9 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: test/ci/platform.sh test "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
-      # The last step above to invoke `bin/zig build` (`sanitized` and
-      # `portable-hook-cores`, inside platform.sh's `test` phase); nothing
+      # The last step above to invoke `bin/zig build` (the fixture steps,
+      # `sanitized`, and `portable-hook-cores`, inside platform.sh's `test`
+      # phase); nothing
       # after this point builds native code. Runs even on failure so a
       # partial compile still seeds the next run -- zig's own cache is
       # content-addressed, so a stale or partial entry here can only cost

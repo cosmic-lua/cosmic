@@ -183,6 +183,14 @@ pub fn build(b: *std.Build) void {
         "portable-fixture-cores",
         "build release, retained-artifact test, and checked fixture cores",
     );
+    const portable_format_fixtures = b.step(
+        "portable-format-fixtures",
+        "build native and target portable-format decoders",
+    );
+    const portable_launcher_fixtures = b.step(
+        "portable-launcher-fixtures",
+        "build target launcher payload and socket helpers",
+    );
 
     // The boot bridge and portable writer consume this generated projection.
     // The Target array above remains the only target list.
@@ -202,6 +210,86 @@ pub fn build(b: *std.Build) void {
     const target_records = generated.add("targets.tsv", records);
     const install_target_records = b.addInstallFile(target_records, "targets.tsv");
     cores.dependOn(&install_target_records.step);
+
+    // These test executables used to be direct `zig cc` calls in the shell
+    // fixtures. Keeping them in this graph makes their sources, included
+    // headers, flags, and target definitions inputs to Zig's restored build
+    // cache. Their installed paths are stable inputs to the shell fixture
+    // writers; the scripts still own orchestration and assertions.
+    const native_format_decoder = formatDecoder(
+        b,
+        "format-test-native",
+        b.graph.host,
+        .Debug,
+        null,
+    );
+    const native_format_install = b.addInstallFile(
+        native_format_decoder.getEmittedBin(),
+        "portable-fixture/format/format-test-native",
+    );
+    const portable_format_native = b.step(
+        "portable-format-native",
+        "build the native portable-format decoder",
+    );
+    portable_format_native.dependOn(&native_format_install.step);
+    portable_format_fixtures.dependOn(&native_format_install.step);
+    portable_format_fixtures.dependOn(&install_target_records.step);
+
+    for (targets) |t| {
+        const resolved = b.resolveTargetQuery(t.query);
+        const target_format_decoder = formatDecoder(
+            b,
+            b.fmt("format-test-{s}", .{t.name}),
+            resolved,
+            .ReleaseFast,
+            t,
+        );
+        const target_format_install = b.addInstallFile(
+            target_format_decoder.getEmittedBin(),
+            b.fmt("portable-fixture/format/format-test-{s}", .{t.name}),
+        );
+        const target_format_step = b.step(
+            b.fmt("portable-format-{s}", .{t.name}),
+            b.fmt("build the {s} portable-format decoder", .{t.name}),
+        );
+        target_format_step.dependOn(&target_format_install.step);
+        portable_format_fixtures.dependOn(&target_format_install.step);
+
+        const payload = launcherHelper(
+            b,
+            b.fmt("launcher-payload-{s}", .{t.name}),
+            "test/portable/launcher_payload.c",
+            resolved,
+        );
+        const payload_install = b.addInstallFile(
+            payload.getEmittedBin(),
+            b.fmt("portable-fixture/launcher/payload-{s}", .{t.name}),
+        );
+        const payload_step = b.step(
+            b.fmt("portable-launcher-payload-{s}", .{t.name}),
+            b.fmt("build the {s} launcher payload", .{t.name}),
+        );
+        payload_step.dependOn(&payload_install.step);
+        portable_launcher_fixtures.dependOn(&payload_install.step);
+
+        const socket = launcherHelper(
+            b,
+            b.fmt("launcher-socket-{s}", .{t.name}),
+            "test/portable/launcher_socket_fd.c",
+            resolved,
+        );
+        const socket_install = b.addInstallFile(
+            socket.getEmittedBin(),
+            b.fmt("portable-fixture/launcher/socket-{s}", .{t.name}),
+        );
+        const socket_step = b.step(
+            b.fmt("portable-launcher-socket-{s}", .{t.name}),
+            b.fmt("build the {s} launcher socket helper", .{t.name}),
+        );
+        socket_step.dependOn(&socket_install.step);
+        portable_launcher_fixtures.dependOn(&socket_install.step);
+    }
+    portable_launcher_fixtures.dependOn(&install_target_records.step);
 
     // The core's strnlen stands in for the toolchain's, which reads past
     // the end of a mapping (core/strnlen.c). The case that tells them
@@ -323,6 +411,69 @@ pub fn build(b: *std.Build) void {
     portable_fixture_cores.dependOn(&checked_fixture_install.step);
 
     b.getInstallStep().dependOn(cores);
+}
+
+fn requiredTargetMask() u64 {
+    var mask: u64 = 0;
+    for (targets) |required| {
+        if (required.id >= 64) @panic("portable target id does not fit the v1 required-target mask");
+        mask |= @as(u64, 1) << @intCast(required.id);
+    }
+    return mask;
+}
+
+fn formatDecoder(
+    b: *std.Build,
+    name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    target_record: ?Target,
+) *std.Build.Step.Compile {
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addCSourceFiles(.{
+        .root = b.path("."),
+        .files = &.{ "core/portable.c", "test/portable/format_test.c" },
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    mod.addIncludePath(b.path("core"));
+    mod.addCMacro(
+        "COSMIC_PORTABLE_REQUIRED_TARGET_MASK",
+        b.fmt("UINT64_C({d})", .{requiredTargetMask()}),
+    );
+    mod.addCMacro(
+        "COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID",
+        b.fmt("{d}", .{release_configuration.id}),
+    );
+    if (target_record) |record| {
+        mod.addCMacro("PORTABLE_TEST_TARGET_ID", b.fmt("{d}", .{record.id}));
+        mod.addCMacro(
+            "PORTABLE_TEST_CONFIGURATION_ID",
+            b.fmt("{d}", .{release_configuration.id}),
+        );
+    }
+    return b.addExecutable(.{ .name = name, .root_module = mod });
+}
+
+fn launcherHelper(
+    b: *std.Build,
+    name: []const u8,
+    source: []const u8,
+    target: std.Build.ResolvedTarget,
+) *std.Build.Step.Compile {
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = .ReleaseFast,
+        .link_libc = true,
+    });
+    mod.addCSourceFile(.{
+        .file = b.path(source),
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    return b.addExecutable(.{ .name = name, .root_module = mod });
 }
 
 /// The patched copy of one vendored library, as a directory the core's
@@ -516,12 +667,7 @@ fn core(
     mod.addCMacro("COSMIC_CONFIGURATION_ID", b.fmt("{d}", .{configuration.id}));
     mod.addCMacro("COSMIC_CONFIGURATION_NAME", b.fmt("\"{s}\"", .{configuration.name}));
 
-    var required_target_mask: u64 = 0;
-    for (targets) |required| {
-        if (required.id >= 64) @panic("portable target id does not fit the v1 required-target mask");
-        required_target_mask |= @as(u64, 1) << @intCast(required.id);
-    }
-    mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{required_target_mask}));
+    mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{requiredTargetMask()}));
     mod.addCMacro("COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID", b.fmt("{d}", .{release_configuration.id}));
     mod.addCSourceFile(.{
         .file = b.path(if (portable_startup_test_hooks)

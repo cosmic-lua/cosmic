@@ -14,24 +14,10 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 timing_run 'format fixture writing' \
   "$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-format-fixture \
   "$root/o/targets.tsv" "$root/o/core" "$work/program"
-required_mask=0
-release_configuration=
 tab=$(printf '\t')
-while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
-  [ "$configuration" = release ]
-  required_mask=$((required_mask | (1 << target_id)))
-  if [ -z "$release_configuration" ]; then
-    release_configuration=$configuration_id
-  else
-    [ "$release_configuration" = "$configuration_id" ]
-  fi
-done < "$root/o/targets.tsv"
 timing_run 'format native decoder compilation' \
-  "$root/bin/zig" cc -std=c11 -Wall -Wextra -Werror \
-  -DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C\("$required_mask"\) \
-  -DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID="$release_configuration" \
-  -I "$root/core" "$root/core/portable.c" \
-  "$root/test/portable/format_test.c" -o "$work/format-test"
+  "$root/bin/zig" build portable-format-native
+cp "$root/o/portable-fixture/format/format-test-native" "$work/format-test"
 
 timing_run 'format mutation execution' "$work/format-test" "$work/program.a"
 timing_run 'format inspection' "$work/format-test" --inspect \
@@ -71,13 +57,9 @@ if [ "$publish" != "" ]; then
   cp "$root/o/targets.tsv" "$publish/targets.tsv"
   while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
     timing_run "format target decoder compilation: $target" \
-      "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
-      -DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C\("$required_mask"\) \
-      -DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID="$release_configuration" \
-      -DPORTABLE_TEST_TARGET_ID="$target_id" \
-      -DPORTABLE_TEST_CONFIGURATION_ID="$configuration_id" \
-      -I "$root/core" "$root/core/portable.c" \
-      "$root/test/portable/format_test.c" -o "$publish/format-test-$target"
+      "$root/bin/zig" build "portable-format-$target"
+    cp "$root/o/portable-fixture/format/format-test-$target" \
+      "$publish/format-test-$target"
   done < "$root/o/targets.tsv"
 fi
 printf 'portable format: PASS (generated targets, exact cores, shared prefix, distinct databases)\n'
