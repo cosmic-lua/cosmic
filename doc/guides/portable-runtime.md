@@ -261,3 +261,98 @@ without parsing SQLite. Startup can reject a forged handoff without trusting
 the shell. SQLite can read an immutable range without knowing the portable
 format. The build can replace a database suffix without rebuilding native
 cores.
+
+## check the contract from inside
+
+The contract above is observable from any program the artifact runs, so
+the guide checks it here rather than only in shell fixtures. Every
+identity key answers from the validated startup context, the artifact
+path is the one the launcher was given, and none of the private launcher
+names survive into the environment:
+
+```teal
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
+
+for _, key in ipairs({ "host", "host_image", "runtime", "runtime_basis" }) do
+  assert(Store.meta(key) ~= nil and Store.meta(key) ~= "", key)
+end
+assert(Store.meta("runtime_context") == "portable-v1")
+assert(Store.meta("artifact") == Proc.executable())
+for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
+                        "COSMIC_PORTABLE_CORE_SHA256" }) do
+  assert(Env.get(name) == nil, name .. " escaped startup")
+end
+print("identity: from the validated artifact")
+```
+
+```output
+identity: from the validated artifact
+```
+
+The manifest entry selected for this host names exactly the bytes this
+process runs. `host_image` is the digest of the running core, so the
+entry carrying that digest is the selected one, and hashing its range
+back out of the artifact file gives the same answer:
+
+```teal
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
+local fixture = require("test.portable.artifact_fixture")
+
+local path = assert(Proc.executable())
+local artifact = assert(fixture.read(path))
+local running = assert(Store.meta("host_image"))
+local selected: fixture.Entry = nil
+for _, entry in ipairs(artifact.entries) do
+  if Hash.hex(entry.digest) == running then
+    assert(selected == nil, "two manifest entries carry the running digest")
+    selected = entry
+  end
+end
+assert(selected ~= nil, "no manifest entry carries the running digest")
+local bytes = assert(Fs.read(path))
+local range = bytes:sub(selected.offset + 1, selected.offset + selected.length)
+assert(Hash.hex_sha256(range) == running)
+print("manifest: names the running core")
+```
+
+```output
+manifest: names the running core
+```
+
+A project's own database is searched ahead of the artifact's, but it
+cannot answer for identity. This copies the tree's projection, forges
+every identity row in the copy, attaches it first, and finds the answers
+unchanged:
+
+```teal
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+
+local forged = tmp .. "/forged.db"
+assert(Fs.write(forged, assert(Fs.read("o/cosmic.db"))))
+local db = assert(Sqlite.open(forged, true))
+for _, key in ipairs({ "host", "host_image", "runtime", "runtime_basis",
+                       "artifact", "runtime_context" }) do
+  assert(Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, 'forged')",
+    { { text = key } }))
+end
+assert(db:close())
+local before = { Store.meta("host"), Store.meta("host_image"), Store.meta("runtime"),
+                 Store.meta("runtime_basis"), Store.meta("artifact") }
+assert(Store.attach(forged))
+assert(Store.meta("host") == before[1] and Store.meta("host_image") == before[2])
+assert(Store.meta("runtime") == before[3] and Store.meta("runtime_basis") == before[4])
+assert(Store.meta("artifact") == before[5])
+assert(Store.meta("runtime_context") == "portable-v1")
+print("identity: a project database cannot shadow it")
+```
+
+```output
+identity: a project database cannot shadow it
+```
