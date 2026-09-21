@@ -6,12 +6,21 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
 
 local record databases
 end
 
 local function report(line: string)
   Fs.put(Fs.stdout, line .. "\n")
+end
+
+local function elapsed_ms(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
+  end
+  return (now - from) // 1000000
 end
 
 local function complain(line: string)
@@ -96,6 +105,7 @@ end
 --- Describes `o/cosmic.db` and `o/build.db` under the working
 --- directory, printing a verdict line and returning the exit code.
 function databases.run(): integer
+  local started = Time.monotonic_ns() or 0
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     complain(root_trouble)
@@ -123,10 +133,12 @@ function databases.run(): integer
     end
   end
   if seen == 0 then
-    report("db: FAIL (no database under " .. root .. "/o; build first)")
+    report("db: FAIL (no database under " .. root .. "/o; build first, " ..
+      elapsed_ms(started) .. " ms)")
     return 1
   end
-  report("db: PASS (" .. tables .. " tables in " .. seen .. " databases)")
+  report("db: PASS (" .. tables .. " tables in " .. seen .. " databases, " ..
+    elapsed_ms(started) .. " ms)")
   return 0
 end
 

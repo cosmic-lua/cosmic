@@ -9,6 +9,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local Time = require("cosmic.time")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
@@ -78,6 +79,14 @@ end
 
 local function complain(line: string)
   Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
+end
+
+local function elapsed_ms(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
+  end
+  return (now - from) // 1000000
 end
 
 local function text(value: string): Sqlite.Value
@@ -623,6 +632,7 @@ end
 --- `cosmic docs <query>`: prints what the query names and ends in a
 --- verdict line; fails when nothing matches.
 function docs.run(argv: {integer:string}): integer
+  local started = Time.monotonic_ns() or 0
   local query = table.concat({ table.unpack(argv, 2) }, " ")
   if query == "" then
     complain("docs: what to look up? a symbol (Fs.read), a module " ..
@@ -641,7 +651,8 @@ function docs.run(argv: {integer:string}): integer
     return 1
   end
   if #found == 0 then
-    report("docs: FAIL (nothing named or documented as '" .. query .. "')")
+    report("docs: FAIL (nothing named or documented as '" .. query .. "', " ..
+      elapsed_ms(started) .. " ms)")
     return 1
   end
   if not exact then
@@ -658,13 +669,14 @@ function docs.run(argv: {integer:string}): integer
   end
   report("")
   report("docs: PASS (" .. #found .. (exact and " named" or " found") ..
-    ", " .. #view.databases .. " databases)")
+    ", " .. #view.databases .. " databases, " .. elapsed_ms(started) .. " ms)")
   return 0
 end
 
 --- `cosmic uses <symbol>`: every place that refers to the symbol, one
 --- `file:line` per line, and a verdict line.
 function docs.run_uses(argv: {integer:string}): integer
+  local started = Time.monotonic_ns() or 0
   local query = argv[2] or ""
   if query == "" then
     complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
@@ -685,10 +697,11 @@ function docs.run_uses(argv: {integer:string}): integer
     report(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
   end
   if #found == 0 then
-    report("uses: FAIL (nothing refers to '" .. query .. "')")
+    report("uses: FAIL (nothing refers to '" .. query .. "', " ..
+      elapsed_ms(started) .. " ms)")
     return 1
   end
-  report("uses: PASS (" .. #found .. " places)")
+  report("uses: PASS (" .. #found .. " places, " .. elapsed_ms(started) .. " ms)")
   return 0
 end
 
