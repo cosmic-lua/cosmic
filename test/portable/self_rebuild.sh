@@ -7,13 +7,7 @@ set -eu
 script=$(CDPATH= cd -- "$(dirname "$0")" && pwd)/self_rebuild.sh
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 
-hash_value() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
-}
+. "$root/test/portable/lib.sh"
 
 cache_entries() {
   find "$1" -type f -name 'core-*' | wc -l | tr -d ' '
@@ -81,7 +75,7 @@ if [ "${1-}" = --case ]; then
   cp "$fixture/runtime.old" "$tree/o/bin/cosmic"
   chmod 755 "$tree/o/bin/cosmic"
   program=$tree/o/bin/cosmic
-  original_hash=$(hash_value "$program")
+  original_hash=$(sha256_of "$program")
   prefix_length=$(cat "$fixture/runtime.old.prefix-length")
   # The disposable edit makes the tool stale. The code reached after re-entry
   # inspects the exact arguments and an ordinary environment value.
@@ -149,11 +143,11 @@ if [ "${1-}" = --case ]; then
     "$case_root/rebuilt.prefix"
   entries_after=$(cache_entries "$cache")
   [ "$entries_after" -eq "$entries_before" ]
-  [ "$(hash_value "$program")" != "$original_hash" ]
+  [ "$(sha256_of "$program")" != "$original_hash" ]
 
   # A core input cannot be represented by a database-only rebuild.
   printf '\n/* step-8 core-change fixture */\n' >> "$tree/core/startup.h"
-  before_refusal=$(hash_value "$program")
+  before_refusal=$(sha256_of "$program")
   set +e
   (
     cd "$tree"
@@ -166,7 +160,7 @@ if [ "${1-}" = --case ]; then
   [ "$core_status" -eq 3 ]
   grep -F 'the tool is stale; run bin/zig build boot' \
     "$case_root/core.err" >/dev/null
-  [ "$(hash_value "$program")" = "$before_refusal" ]
+  [ "$(sha256_of "$program")" = "$before_refusal" ]
   [ "$(cache_entries "$cache")" -eq "$entries_before" ]
   exit 0
 fi
@@ -213,17 +207,8 @@ exercise_prefix_comparison() {
 run_bounded_case() {
   action=$1
   mkdir "$work/$action"
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 30 "$script" --case "$action" "$fixture" "$work/$action"
-  elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout 30 "$script" --case "$action" "$fixture" "$work/$action"
-  elif [ "${GITHUB_ACTIONS:-}" = true ]; then
-    echo "::notice::timeout is unavailable; the $action self-rebuild case runs under the existing job bound"
+  run_bounded "the $action self-rebuild case" \
     "$script" --case "$action" "$fixture" "$work/$action"
-  else
-    echo "timeout or gtimeout is required outside GitHub Actions" >&2
-    return 125
-  fi
 }
 
 exercise_prefix_comparison
