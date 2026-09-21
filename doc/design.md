@@ -128,7 +128,7 @@ minimum-version field is not enforced for a root package and is not
 relied on. CI runs the same script, so the pinned bytes are the only
 zig anything runs.
 
-the three shipped images are built ReleaseFast with `.strip = true`,
+the three raw cores are built ReleaseFast with `.strip = true`,
 which is what makes a build byte-identical across build paths on ELF
 and Mach-O alike; debug info carries the absolute path and a
 content-derived Mach-O UUID follows it. the Linux lane builds a
@@ -355,15 +355,25 @@ ships a dataset it updates copies it out once with `VACUUM INTO`, or
 attaches the embedded database read-only beside a writable one and
 queries across both.
 
-the launcher's cache leaf is untrusted until its owner, mode, and contents
-meet the cache policy, and the core's length and digest match the manifest. its
-parent directory is
-the user's trust boundary. a cold launch writes and publishes a verified core
-atomically; a warm launch repeats the complete hash before execution. the
-launcher uses POSIX utilities available on the supported systems and reserves
-`COSMIC_PORTABLE_*` for its descriptor handoff. startup requires the complete
-set, validates it, adopts the descriptors, and clears those names before Teal
-runs. `COSMIC_PORTABLE_CACHE` alone is public configuration.
+the launcher's cache leaf is untrusted until its kind, owner, mode, and
+contents meet the cache policy, and the core's length and digest match the
+manifest. its parent directory is the user's trust boundary. a cold launch
+writes and publishes a verified core atomically; a warm launch repeats the
+complete hash before execution, on the order of tens of milliseconds across
+a dozen-odd forked processes -- `uname`, `id`, `stat` twice, a digest tool,
+and the core itself -- a budget a future sandbox policy over the launcher
+has to allow for. the launcher reaches for whatever `stat`, `ln`, and digest
+utility each supported system offers and branches on `uname` for their
+differing flags; none of `stat`, `ln -T`/`-h`, `mktemp`, or
+`sha256sum`/`shasum` is a POSIX-specified utility, only common enough in
+practice to lean on. the launcher reserves the whole `COSMIC_PORTABLE_*`
+prefix for its descriptor handoff. startup requires the complete seven-name
+set, validates it, adopts the descriptors, and clears every name under the
+prefix but `COSMIC_PORTABLE_CACHE` before Teal runs, whichever kind of
+startup it is; `Store.meta("runtime_context")` then answers `"portable-v1"`
+for the rest of the process's life, read only by the portable test suite,
+never by product code. `COSMIC_PORTABLE_CACHE` alone is public
+configuration.
 
 ordinary artifacts have exactly three release entries and select configuration
 1. the checked artifact retains those required release entries and adds one
@@ -424,7 +434,14 @@ is made of, one over what the C core is built from. every run in
 cosmic's own tree fingerprints the tree first. when only Teal
 differs, the tool rebuilds itself -- compiles the tree, projects the database,
 combines it with the exact retained portable prefix -- and
-re-execs into the result, once, refusing a second round by name;
+re-execs into the result, once, refusing a second round by name. the prefix
+is carried over exactly as the running binary already holds it, never
+regenerated from `build/launcher.tl` or rebuilt cores, so an edit there needs
+`bin/zig build boot` the same as a core change does, even though the file is
+Teal. the rebuild writes the tree's own `o/bin/cosmic` and re-enters that,
+never the path the running process happened to be invoked from, so a copy
+of the tool installed elsewhere and run inside this tree goes stale and is
+re-copied, not rewritten in place;
 when the C core's inputs differ, only zig can build it, and the tool
 says so. the binary also carries two identities: the compiler it is,
 over the build's own modules in the importer's closure and the Teal
@@ -474,15 +491,22 @@ isolation is planned below, not implemented:
   working database into a fresh schema, filled in one transaction, with every
   table `WITHOUT ROWID` on a natural key and the file produced by `VACUUM
   INTO`. target identity comes from the selected, validated manifest entry;
-  it is absent from database rows. `bin/zig build cores` cross-compiles every
-  target from any host, so the complete artifact, its database and both test
-  applications are byte-identical regardless of which host produced them.
-  CI asserts that with three unrelated kernels and system libraries agreeing,
-  then runs one transported artifact unchanged on all three targets.
+  it is absent from database rows. a write is skipped only when the
+  projection's own signature -- the plan, the declarations, the fingerprints,
+  the host-independent identities, and a fixed `"portable-v1"` format tag,
+  all hashed together and read back from the file itself -- already matches,
+  so a future format change bumps that tag rather than leaving a
+  stale-shaped file mistaken for the new one. `bin/zig build cores`
+  cross-compiles every target from any host, so the complete artifact, its
+  database and both test applications are byte-identical regardless of which
+  host produced them. CI's provenance job asserts exactly that, three
+  unrelated kernels and system libraries agreeing rather than one host asked
+  twice; a separate identity chain then runs that one transported artifact
+  unchanged on all three targets in turn.
 
 three lanes, one per target -- Linux x86_64, Linux aarch64 on an arm
 runner, macOS aarch64 on an arm Mac runner -- each independently
-cross-compile every image and run the full suite on the real thing;
+cross-compile every raw core and run the full suite on the real thing;
 a fourth job only diffs what the three already produced. the sandbox
 conformance matrix runs on all three.
 
