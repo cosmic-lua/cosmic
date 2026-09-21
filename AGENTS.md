@@ -21,7 +21,11 @@
    moment it notices, so an edit to Teal needs no boot: `o/bin/cosmic test`
    after the edit is enough. A change under `core/`, to `build.zig`, or to a
    vendored C library's pin or patches still needs `bin/zig build boot`, and
-   the tool says so by name.
+   the tool says so by name. `build/launcher.tl` is the one Teal exception:
+   self-rebuild reuses the exact portable prefix the running binary already
+   carries rather than regenerating it, so an edit there silently ships in
+   the rebuilt tool's database but not in its launcher shell script. Run
+   `bin/zig build boot` after touching it, the same as for a core change.
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key, same contents for every file opened, and same stat and directory
    read answers under the root -- is not run again, so a run after a small edit
