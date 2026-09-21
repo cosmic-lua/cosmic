@@ -379,3 +379,14 @@ tests ran on a platform based solely on cross-compilation.
 - [x] Stage 3: minimum required fixture targets and independent review.
 - [ ] Stage 4: superseded-run cancellation and independent review.
 - [ ] Stage 5: integrated hosted evidence and final independent review.
+
+## Published implementation checkpoints
+
+Stages 1 through 4 have passed separate Sol implementation and independent
+adversarial review. Stage 1 hosted run `35638810846` passed all four
+workers and provenance. Stage 2 run `35640402366` is undergoing a same-SHA
+failed-job retry after the Alpine worker timed out in its Ubuntu portable
+suite; no timeout bound or assertion was changed. Published Stage 3 is
+`6e0f08c`; published Stage 4 is `7c9af0f`. This documentation-only follow-up
+starts the planned same-branch cancellation experiment against active run
+`35641812582`. Hosted completion and final integration review are pending.
