@@ -40,7 +40,7 @@ check_test_result() {
   if [ "$status" -ne 0 ]; then
     return "$status"
   fi
-  grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood\)' \
+  grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood' \
     "$output" >/dev/null
 }
 
