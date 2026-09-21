@@ -42,11 +42,32 @@ jobs:
           path: ~/.cache/cosmic/zig
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
+      # `bin/zig` keeps its compile cache under o/ (see its own comment)
+      # so a fresh checkout starts cold: every leg recompiles vendor/ and
+      # core/ from nothing even when neither changed. This restores that
+      # cache from outside the checkout -- `platform.sh build` requires
+      # a checkout with no o/ yet, so COSMIC_ZIG_CACHE_SEED below only
+      # names where it landed; platform.sh seeds it into o/ itself, once
+      # its own guard has passed -- and saves it back once every native
+      # build this job runs has had a chance to update it. The key omits
+      # `matrix.name`/`matrix.target`: `cores` cross-compiles every target
+      # from any host, so the linux-x86_64 and alpine-x86_64 legs (same
+      # runner.os/arch) share one cache entry.
+      - name: cache zig build outputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/cosmic/zig-build
+          key: zig-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'vendor/**', 'patch/**') }}
+          restore-keys: |
+            zig-build-${{ runner.os }}-${{ runner.arch }}-
+
       - name: build release Cosmic and run its native suite
         id: release-suite
         env:
           TARGET: ${{ matrix.target }}
-        run: test/ci/platform.sh build "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+        run: |
+          export COSMIC_ZIG_CACHE_SEED=~/.cache/cosmic/zig-build
+          test/ci/platform.sh build "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
       - name: verify the delayed native database boundary
         env:
@@ -57,6 +78,20 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: test/ci/platform.sh test "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      # The last step above to invoke `bin/zig build` (`sanitized` and
+      # `portable-hook-cores`, inside platform.sh's `test` phase); nothing
+      # after this point builds native code. Runs even on failure so a
+      # partial compile still seeds the next run -- zig's own cache is
+      # content-addressed, so a stale or partial entry here can only cost
+      # a cache miss later, never produce a wrong build.
+      - name: save zig build outputs for next run
+        if: always()
+        run: |
+          mkdir -p ~/.cache/cosmic/zig-build
+          rm -rf ~/.cache/cosmic/zig-build/zig-cache ~/.cache/cosmic/zig-build/zig-global
+          [ ! -d o/zig-cache ] || cp -a o/zig-cache ~/.cache/cosmic/zig-build/zig-cache
+          [ ! -d o/zig-global ] || cp -a o/zig-global ~/.cache/cosmic/zig-build/zig-global
 
       - name: run the product suite from fresh tracked source
         id: portable-suite
