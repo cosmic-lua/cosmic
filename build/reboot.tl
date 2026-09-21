@@ -2,8 +2,10 @@
 ---
 --- Cosmic builds itself, so the tool is also an artifact of the tree. When
 --- only Teal differs, it projects a new database, combines it with the exact
---- retained portable prefix, atomically replaces the same logical artifact,
---- and re-enters the original argv once. Core-input changes still require Zig.
+--- retained portable prefix, atomically replaces the tree's own
+--- `o/bin/cosmic` -- never wherever this process happens to have been
+--- invoked from -- and re-enters that copy on the original argv once.
+--- Core-input changes still require Zig.
 
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -54,10 +56,11 @@ function reboot.into(handle: work.Handle, built: compiler,
   if prefix == nil then
     return prefix_trouble
   end
-  local out, executable_trouble = Proc.executable()
-  if out == nil then
-    return executable_trouble
-  end
+  -- The tree's own `o/bin/cosmic`, not whatever path this process was
+  -- invoked as: an installed copy elsewhere is left alone, stale, rather
+  -- than silently overwritten with a build this tree produced but nothing
+  -- outside it asked for.
+  local out = handle.root .. "/o/bin/cosmic"
 
   -- A fresh checkout has no boot-populated compiler row in its working
   -- database yet. Preserve the exact compiler carried by the trusted running
