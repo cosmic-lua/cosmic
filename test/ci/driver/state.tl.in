@@ -21,7 +21,9 @@ CREATE INDEX IF NOT EXISTS operation_completion ON operation_events(start_id);
 ]]
 
 local function parent(path: string): string
-  return path:match("^(.*)/[^/]+$") or "."
+  local directory = path:match("^(.*)/[^/]+$")
+  if directory == "" then return "/" end
+  return directory or "."
 end
 
 local function inside(path: string, directory: string): boolean
@@ -38,7 +40,7 @@ function State.external_path(path: string, candidate: string,
     driver_path: string): string
   local directory = State.canonical_directory(parent(path))
   local leaf = path:match("([^/]+)$") or path
-  local unresolved = directory .. "/" .. leaf
+  local unresolved = directory == "/" and "/" .. leaf or directory .. "/" .. leaf
   local absolute, trouble = Fs.absolute(unresolved)
   if not absolute then
     for _, entry in ipairs(assert(Fs.list(directory))) do
