@@ -346,16 +346,18 @@ COSMIC_SYSCALL(kill, 2);
 COSMIC_SYSCALL(guard_child_signals, 0);
 
 /*
- * --- Restores the signal dispositions saved by guard_child_signals.
- * ---@return boolean ok false on failure
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
+ * --- Restores dispositions and returns a signal caught since the last take.
+ * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
+ * ---@return string error what went wrong, when signal is nil
+ * ---@return integer errno the error number, when signal is nil
  */
 COSMIC_SYSCALL(unguard_child_signals, 0);
 
 /*
  * --- Takes a pending supervised SIGINT or SIGTERM, or zero when none arrived.
- * ---@return integer signal the pending signal number, or zero
+ * ---@return integer|nil signal the pending signal number, zero, or nil on failure
+ * ---@return string error what went wrong, when signal is nil
+ * ---@return integer errno the error number, when signal is nil
  */
 COSMIC_SYSCALL(cancelled_child_signal, 0);
 

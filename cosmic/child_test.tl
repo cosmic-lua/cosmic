@@ -29,7 +29,7 @@ local function test_argv_environment_directory_and_file_output()
     { cwd = dir, env = { WORD = "value" }, stdout = fd }))
   assert(Fs.close(fd))
   assert(r.ok)
-  assert(assert(Fs.read(path)) == "a b||value" .. dir .. "\n")
+  assert(assert(Fs.read(path)) == "a b||value" .. assert(Fs.absolute(dir)) .. "\n")
 end
 
 local function test_large_redirect_does_not_depend_on_pipe_capacity()
@@ -83,28 +83,60 @@ end
 
 local function test_run_forwards_parent_cancellation_after_group_cleanup()
   local dir = temporary()
-  local fd, path = output(dir, "descendant")
+  local ready = dir .. "/ready"
+  local descendant_path = dir .. "/descendant"
+  local fixture = dir .. "/driver.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+return function(argv: {string}): integer
+  local result, trouble = Child.run({ "/bin/sh", "-c",
+    "sleep 30 & printf %s $! >\"$1\"; printf ready >\"$2\"; wait",
+    "sh", argv[1], argv[2] })
+  if not result then error(trouble) end
+  local finished = assert(result)
+  return finished.code or 1
+end
+]]))
+  local fd, diagnostic = output(dir, "driver.log")
   local executable = assert(Proc.executable())
-  local driver = assert(Child.start({ executable,
-    "_tool/child_cancel_fixture.tl" },
+  local driver = assert(Child.start({ executable, fixture,
+    descendant_path, ready },
     { stdout = fd, stderr = fd, process_group = false }))
   local deadline = assert(Time.monotonic_ns()) + 3000 * 1000 * 1000
-  while assert(Fs.stat(path)).size == 0 and assert(Time.monotonic_ns()) < deadline do
+  while (not Fs.exists(ready) or Fs.read(ready) ~= "ready") and
+      assert(Time.monotonic_ns()) < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
   end
-  assert(assert(Fs.stat(path)).size > 0, "driver did not report readiness")
+  assert(Fs.exists(ready) and Fs.read(ready) == "ready",
+    "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
   assert(driver:stop(sys.SIGTERM))
   local stopped = assert(driver:wait(2000))
-  -- The test harness may itself have installed a SIGTERM disposition, which
-  -- the nested driver correctly restores. Either signal death or its fixture
-  -- surfacing cancellation as nonzero proves it did not resume normally.
-  assert(not stopped.ok)
   assert(Fs.close(fd))
+  assert(stopped.signal == sys.SIGTERM,
+    "driver cancellation result code=" .. tostring(stopped.code) ..
+    " signal=" .. tostring(stopped.signal) .. " log=" ..
+    (Fs.read(diagnostic) or "<none>"))
   local descendant = assert(math.tointeger(assert(tonumber(
-    assert(Fs.read(path)):match("%d+")))))
+    assert(Fs.read(descendant_path)):match("%d+")))))
   local gone_by = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
   while sys.kill(descendant, 0) and assert(Time.monotonic_ns()) < gone_by do
     Time.sleep_ns(10 * 1000 * 1000)
   end
   assert(not sys.kill(descendant, 0))
+end
+
+local function test_invalid_inputs_do_not_poison_signal_guard()
+  assert(not pcall(Child.run, { "/bin/sh" }, { stdout = "bad" } as Child.Options))
+  assert(not pcall(Child.run, { "/bin/sh\0bad" }))
+  assert(not pcall(Child.run, { "/bin/sh" }, { cwd = "/tmp\0bad" } as Child.Options))
+  assert(not pcall(Child.run, { "/bin/sh" },
+    { env = { ["BAD=NAME"] = "value" } } as Child.Options))
+  assert(not pcall(Child.run, { "/bin/sh" },
+    { env = { NAME = "value\0tail" } } as Child.Options))
+  assert(not pcall(Child.run, { "/bin/sh" },
+    { stdout = 2147483648 } as Child.Options))
+  assert(not pcall(sys.kill, 2147483648, 0))
+  assert(not pcall(sys.waitpid, 2147483648, true))
+  local result = assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
+  assert(result.ok)
 end

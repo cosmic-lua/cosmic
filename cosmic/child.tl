@@ -43,6 +43,7 @@ end
 local POLL_NS <const> = 10 * 1000 * 1000
 local TERM_GRACE_NS <const> = 250 * 1000 * 1000
 local KILL_REAP_NS <const> = 1000 * 1000 * 1000
+local INT_MAX <const> = 2147483647
 
 local function result(status: sys.ChildStatus, timed_out?: boolean): Result
   local r: Result = {
@@ -71,7 +72,8 @@ local function poll_until(self: Handle, deadline?: integer,
     timed_out?: boolean, ignore_cancel?: boolean): Result | nil, string
   while true do
     if not ignore_cancel then
-      local cancelled = sys.cancelled_child_signal()
+      local cancelled, cancel_trouble = sys.cancelled_child_signal()
+      if cancelled == nil then return nil, cancel_trouble end
       if cancelled ~= 0 then return nil, "cancelled:" .. tostring(cancelled) end
     end
     local status, trouble = sys.waitpid(self.pid, true)
@@ -119,6 +121,21 @@ local function terminate(self: Handle): Result | nil, string
     return nil, "child did not reap after SIGKILL: " .. reap_trouble
   end
   return final
+end
+
+local function emergency_cleanup(self: Handle)
+  sys.kill(target(self), sys.SIGKILL)
+  for _ = 1, 100 do
+    local status = sys.waitpid(self.pid, true)
+    if status then
+      local finished = status
+      if finished.pid ~= 0 then
+        self._result, self._closed = result(finished, true), true
+        return
+      end
+    end
+    sys.nanosleep(POLL_NS)
+  end
 end
 
 local handle_mt: metatable<Handle> = {
@@ -186,8 +203,38 @@ end
 
 local function descriptor(value: integer | string, name: string): integer | nil
   if value == nil or value == "inherit" then return nil end
-  if value is integer then return value end
+  if value is integer and value >= 0 and value <= INT_MAX then return value end
   error(name .. " must be a file descriptor or 'inherit'", 3)
+end
+
+local function without_nul(value: string, name: string)
+  if value:find("\0", 1, true) then error(name .. " contains a NUL byte", 3) end
+end
+
+local function validate(argv: {string}, opts: Options): boolean
+  if #argv == 0 then error("argv is empty", 3) end
+  for i, value in ipairs(argv) do
+    if type(value) ~= "string" then error("argv[" .. tostring(i) .. "] must be a string", 3) end
+    without_nul(value, "argv[" .. tostring(i) .. "]")
+  end
+  if opts.cwd ~= nil then without_nul(opts.cwd, "cwd") end
+  if opts.env ~= nil then
+    for name, value in pairs(opts.env) do
+      if type(name) ~= "string" or name == "" or name:find("=", 1, true) then
+        error("environment name is empty, non-string, or contains '='", 3)
+      end
+      if type(value) ~= "string" then error("environment value must be a string", 3) end
+      without_nul(name, "environment name")
+      without_nul(value, "environment value")
+    end
+  end
+  descriptor(opts.stdin, "stdin")
+  descriptor(opts.stdout, "stdout")
+  descriptor(opts.stderr, "stderr")
+  if opts.timeout_ms ~= nil and (opts.timeout_ms < 0 or opts.timeout_ms > INT_MAX) then
+    error("timeout is out of range", 3)
+  end
+  return true
 end
 
 --- Starts one executable and returns an owning handle. argv[1] is an exact
@@ -195,7 +242,7 @@ end
 --- bounded process-group termination; wait(timeout) does the same on expiry.
 function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
-  if #argv == 0 then return nil, "argv is empty" end
+  validate(argv, opts)
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
   local pid, trouble = sys.spawn(argv[1], argv, opts.env, opts.cwd,
@@ -214,27 +261,46 @@ end
 --- forwards SIGINT/SIGTERM, performs bounded group cleanup, restores the
 --- caller's dispositions, and then re-delivers cancellation.
 function Child.run(argv: {string}, opts?: Options): Result | nil, string
+  opts = opts or {}
+  validate(argv, opts)
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then return nil, "signal guard: " .. guard_trouble end
-  local h, trouble = Child.start(argv, opts)
-  if not h then
-    sys.unguard_child_signals()
-    return nil, trouble
+  local h: Handle
+  local function supervised(): Result | nil, string
+    local started, trouble = Child.start(argv, opts)
+    if not started then return nil, trouble end
+    h = started
+    h._guarded = true
+    return h:wait(opts.timeout_ms)
   end
-  h._guarded = true
-  local r, wait_trouble = h:wait(opts and opts.timeout_ms or nil)
-  if wait_trouble and wait_trouble:sub(1, 10) == "cancelled:" then
-    local signal = assert(math.tointeger(assert(tonumber(wait_trouble:sub(11)))))
-    local _, cleanup_trouble = terminate(h)
-    sys.unguard_child_signals()
-    -- Re-deliver after cleanup with the caller's original disposition. The
-    -- ordinary default preserves shell/CI cancellation status; a caller that
-    -- ignored or handled it resumes and receives a useful error.
-    sys.kill(sys.getpid(), signal)
-    return nil, cleanup_trouble or wait_trouble
+  local called, r, wait_trouble = pcall(supervised)
+  local cancellation: integer
+  if called and wait_trouble and wait_trouble:sub(1, 10) == "cancelled:" then
+    cancellation = assert(math.tointeger(assert(tonumber(wait_trouble:sub(11)))))
   end
-  local restored, restore_trouble = sys.unguard_child_signals()
-  if not restored then return nil, "signal restore: " .. restore_trouble end
+  local cleanup_trouble: string
+  if h and not h._closed and (not called or cancellation or not r) then
+    local cleaned, answer, failure = pcall(terminate, h)
+    if not cleaned then
+      cleanup_trouble = tostring(answer)
+      emergency_cleanup(h)
+    else
+      cleanup_trouble = failure
+    end
+  end
+  local late_signal, restore_trouble = sys.unguard_child_signals()
+  if late_signal == nil then
+    if not called then error(r, 0) end
+    return nil, "signal restore: " .. restore_trouble
+  end
+  cancellation = cancellation or (late_signal ~= 0 and late_signal or nil)
+  if cancellation then
+    -- Re-deliver after cleanup with the caller's original disposition.
+    sys.kill(sys.getpid(), cancellation)
+    return nil, cleanup_trouble or wait_trouble or "cancelled"
+  end
+  if not called then error(r, 0) end
+  if cleanup_trouble then return nil, cleanup_trouble end
   return r, wait_trouble
 end
 
