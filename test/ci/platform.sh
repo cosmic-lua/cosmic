@@ -41,6 +41,35 @@ archive_source() {
   [ ! -e "$destination/o" ]
 }
 
+# Suppresses every *_test.tl/*_example.tl under $1 except the ones named in
+# $2..: a test is enrolled by being discovered under that name, so renaming
+# it to .tl.in (test/portable/identity_test.sh's own "focused-embed" trick)
+# drops it from the run without touching source. Used only to narrow the
+# portable phase's rerun of the real tree (see its call site): that rerun's
+# job is proving the portable artifact cold-bootstraps and stages a real,
+# full module graph deterministically -- a property of the mechanism, not
+# of test count -- so a representative slice spanning module resolution,
+# the build pipeline, and the C bindings it compiles against (sqlite,
+# hash, fs, proc, coverage) exercises that mechanism as fully as the whole
+# tree would, at a fraction of the runtime cost. Not used for the alpine
+# phase's own fresh-tree rerun, which runs under a genuinely different
+# environment (a minimal musl/BusyBox userland) and is left at full width
+# for the same reason the sanitized rerun is: a different environment can
+# surface bugs a narrower run would miss.
+focus_tests() {
+  under=$1
+  shift
+  keep=" $* "
+  find "$under" -type f \( -name '*_test.tl' -o -name '*_example.tl' \) -print |
+    while IFS= read -r source; do
+      name=${source##*/}
+      case $keep in
+        *" $name "*) ;;
+        *) mv "$source" "$source.in" ;;
+      esac
+    done
+}
+
 checked_suite() {
   targets=$root/o/sanitized/targets.tsv
   cosmic=$root/o/sanitized/bin/cosmic
@@ -138,6 +167,11 @@ case $phase in
     "$contract/format/format-test-$target" "$contract/format/program"
 
     archive_source "$fresh_source"
+    focus_tests "$fresh_source" \
+      importer_test.tl work_test.tl writer_test.tl teal_test.tl test_test.tl \
+      requires_test.tl fix_test.tl hash_test.tl fs_test.tl proc_test.tl \
+      coverage_test.tl sqlite_transaction_test.tl narrowing_test.tl \
+      sqlite_example.tl hash_example.tl removed_example.tl
     "$fresh_source/test/portable/full_suite.sh" prepare \
       "$portable_diagnostics" "$product/cosmic"
     ;;
