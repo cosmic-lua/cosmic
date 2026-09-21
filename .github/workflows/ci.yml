@@ -8,190 +8,9 @@ permissions:
   contents: read
 
 jobs:
-  # `bin/zig build cores` cross-compiles every target from any host, so
-  # this is not "one job per platform" testing its own build -- it is
-  # the same work, run three times on three unrelated hosts, each
-  # independently producing a complete build of the whole tree (every
-  # image, the database, all three cross-compiled binaries, tested and
-  # packaged). The work is identical by construction, so a matrix says
-  # that once instead of three copies of the same steps -- and nothing
-  # here needs another leg to finish first: three full builds at once,
-  # not one canonical build with the other two waiting on it.
-  ci:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x86_64
-            runs-on: ubuntu-24.04
-          - name: linux-aarch64
-            runs-on: ubuntu-24.04-arm
-          - name: macos-aarch64
-            runs-on: macos-15
-    runs-on: ${{ matrix.runs-on }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      # The pinned compiler is the one thing a fresh clone fetches, and
-      # the pin is the cache key: a bump starts cold. runner.arch keeps
-      # the two Linux legs from colliding on one key for two different
-      # zig tarballs.
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
-
-      - name: run every test through default Cosmic and snapshot the working database
-        id: default-test
-        shell: bash
-        run: test/portable/full_suite.sh local "$RUNNER_TEMP/work-db-diagnostics"
-
-      - name: verify the default snapshot survives the workflow boundary
-        shell: bash
-        run: test/portable/full_suite.sh local-boundary "$RUNNER_TEMP/work-db-diagnostics"
-
-      - name: preserve working-database failure evidence
-        if: failure()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: work-db-diagnostics-${{ matrix.name }}
-          path: ${{ runner.temp }}/work-db-diagnostics
-          if-no-files-found: ignore
-
-      - name: the tree renders exactly as `cosmic fix` would write it
-        run: o/bin/cosmic fix --check .
-
-      # Zig signs the raw macOS core. Judge those exact bytes on macOS before
-      # the portable writer includes them in every artifact.
-      - name: the raw macOS core's signature, if this host can judge it
-        run: bin/verify-codesign o/core/aarch64-macos/cosmic-core
-
-      - name: what the build produced
-        run: |
-          ls -l o/bin o/cosmic.db o/core/*/cosmic-core
-          file o/bin/cosmic o/core/*/cosmic-core
-
-      - name: package this host's portable Cosmic and applications
-        run: test/portable/product.sh build "$RUNNER_TEMP/portable-product"
-
-      - name: build shared x86 portable contract inputs
-        if: matrix.name == 'linux-x86_64'
-        run: |
-          bin/zig build portable-hook-cores \
-            --prefix "$RUNNER_TEMP/portable-prebuilt"
-          test/portable/format.sh "$RUNNER_TEMP/portable-contract/format"
-          test/portable/launcher.sh build \
-            "$RUNNER_TEMP/portable-contract/launcher"
-
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: portable-product-${{ matrix.name }}
-          path: ${{ runner.temp }}/portable-product
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        if: matrix.name == 'linux-x86_64'
-        with:
-          name: portable-prebuilt-x86
-          path: ${{ runner.temp }}/portable-prebuilt
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        if: matrix.name == 'linux-x86_64'
-        with:
-          name: portable-contract-x86
-          path: ${{ runner.temp }}/portable-contract
-          if-no-files-found: error
-
-  # A fourth core, built with undefined-behavior checking on, running the
-  # whole build and test suite. It is not a shipped artifact; it is the
-  # run that would report what the release build would only do quietly.
-  sanitized:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build the tree with the checked core
-        run: bin/zig build sanitized
-      - name: run every test with the checked core
-        run: |
-          . test/portable/lib.sh
-          target_id=$(awk -F '\t' \
-            '$2 == 2 && $3 == "sanitized" { print $1; count++ } END { if (count != 1) exit 1 }' \
-            o/sanitized/targets.tsv)
-          target=$(awk -F '\t' -v id="$target_id" \
-            '$1 == id && $2 == 1 && $3 == "release" { print $4; count++ } END { if (count != 1) exit 1 }' \
-            o/sanitized/targets.tsv)
-          entry=$(o/sanitized/bin/cosmic test/portable/tool.tl entry \
-            o/sanitized/bin/cosmic "$target_id" 2)
-          set -- $entry
-          test "$#" -eq 3
-          offset=$1
-          length=$2
-          digest=$3
-          test "$length" -eq "$(wc -c < o/sanitized/cosmic-core)"
-          extract_core_range o/sanitized/bin/cosmic "$offset" "$length" \
-            "$RUNNER_TEMP/checked.core" "$digest" o/sanitized/cosmic-core
-          o/sanitized/bin/cosmic test/portable/tool.tl checked-context \
-            o/sanitized/cosmic-core "$target"
-          # Measured at ~29.7s locally even after the coverage/formatter
-          # performance stack; a shared CI runner has less headroom than
-          # that, so this keeps real margin rather than matching the
-          # ordinary suite's tighter limit.
-          timeout 90 o/sanitized/bin/cosmic test
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: portable-checked-core-x86
-          path: o/sanitized/cosmic-core
-          if-no-files-found: error
-
-  portable-fixtures:
-    needs: [ci, sanitized]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-product-linux-x86_64
-          path: ${{ runner.temp }}/portable-product
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-prebuilt-x86
-          path: ${{ runner.temp }}/portable-prebuilt
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-checked-core-x86
-          path: ${{ runner.temp }}/checked
-      - name: combine tested checked and hooked cores without rebuilding
-        run: |
-          mkdir -p "$RUNNER_TEMP/portable-prebuilt/portable-fixture/sanitized"
-          cp "$RUNNER_TEMP/checked/cosmic-core" \
-            "$RUNNER_TEMP/portable-prebuilt/portable-fixture/sanitized/cosmic-core"
-          chmod +x "$RUNNER_TEMP/portable-product/cosmic"
-          test/portable/runtime.sh build \
-            "$RUNNER_TEMP/portable-runtime" \
-            "$RUNNER_TEMP/portable-prebuilt" \
-            "$RUNNER_TEMP/portable-product/cosmic" \
-            "$RUNNER_TEMP/portable-product/cosmic.db"
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: portable-runtime-x86
-          path: ${{ runner.temp }}/portable-runtime
-          if-no-files-found: error
-
-  portable-canonical:
-    needs: [ci, portable-fixtures]
+  # Every leg independently builds the complete product, executes the same
+  # Cosmic bytes on its native host, and uploads those bytes for the join.
+  platform:
     strategy:
       fail-fast: false
       matrix:
@@ -199,306 +18,103 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            races: true
-            codesign: false
+            alpine: true
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
-            races: false
-            codesign: false
+            alpine: false
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
-            races: true
-            codesign: true
+            alpine: false
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+
+      - name: cache the pinned zig
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          name: portable-product-linux-x86_64
-          path: ${{ runner.temp }}/portable-product
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-runtime-x86
-          path: ${{ runner.temp }}/portable-runtime
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-contract-x86
-          path: ${{ runner.temp }}/portable-contract
-      - name: restore only transported executable modes
+          path: ~/.cache/cosmic/zig
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+
+      - name: build release Cosmic and run its native suite
+        id: release-suite
         env:
           TARGET: ${{ matrix.target }}
-        run: |
-          chmod +x "$RUNNER_TEMP/portable-product/cosmic" \
-            "$RUNNER_TEMP/portable-product/apps/hello" \
-            "$RUNNER_TEMP/portable-product/apps/second"
-          chmod +x "$RUNNER_TEMP"/portable-runtime/runtime.*
-          chmod +x "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET"
-          chmod +x "$RUNNER_TEMP/portable-contract/launcher/launcher.test" \
-            "$RUNNER_TEMP/portable-contract/launcher/payloads/socket-$TARGET"
-          test ! -e o
-      - name: verify canonical bytes and this host's exact selected core
+        run: test/ci/platform.sh build "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: verify the delayed native database boundary
         env:
           TARGET: ${{ matrix.target }}
-          VERIFY_CODESIGN: ${{ matrix.codesign }}
-        run: |
-          if [ "$VERIFY_CODESIGN" = true ]; then set -- --codesign; else set --; fi
-          "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET" \
-            "$RUNNER_TEMP/portable-contract/format/program"
-          test/portable/product.sh test "$RUNNER_TEMP/portable-product" \
-            "$TARGET" \
-            "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET" "$@"
-      - name: prepare canonical Cosmic without boot or inherited state
-        shell: sh
-        run: |
-          test ! -e o
-          test/portable/full_suite.sh prepare \
-            "$RUNNER_TEMP/canonical-diagnostics" \
-            "$RUNNER_TEMP/portable-product/cosmic"
-      - name: run the complete suite through canonical Cosmic
-        id: canonical-suite
-        shell: sh
-        run: test/portable/full_suite.sh portable "$RUNNER_TEMP/canonical-diagnostics"
-      - name: verify the delayed database and artifact boundary
-        if: always()
-        shell: sh
-        env:
-          PORTABLE_OUTCOME: ${{ steps.canonical-suite.outcome }}
-        run: test/portable/full_suite.sh portable-boundary "$RUNNER_TEMP/canonical-diagnostics"
-      - name: verify deterministic self-rebuild and retained prefix
-        run: |
-          mkdir -p "$RUNNER_TEMP/cosmic-self-rebuild-diagnostics"
-          TMPDIR="$RUNNER_TEMP/cosmic-self-rebuild-diagnostics" \
-            test/portable/self_rebuild.sh "$RUNNER_TEMP/portable-runtime"
-      - name: run mutation and replacement races on distinct kernels
-        if: matrix.races
+        run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" local
+
+      - name: build local portable and checked artifacts
         env:
           TARGET: ${{ matrix.target }}
-          COSMIC_PORTABLE_DIAGNOSTICS: ${{ runner.temp }}/runtime-diagnostics
-        run: |
-          test/portable/launcher.sh test \
-            "$RUNNER_TEMP/portable-contract/launcher/launcher.test" \
-            "$RUNNER_TEMP/portable-contract/launcher/payloads/socket-$TARGET"
-          test/portable/runtime.sh test "$RUNNER_TEMP/portable-runtime"
-      - name: verify checked configuration, cache, and verdict identity
-        if: matrix.target == 'x86_64-linux-musl'
-        run: |
-          COSMIC_PORTABLE_IDENTITY_STATE_OUT="$RUNNER_TEMP/identity-state" \
-            test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime"
+        run: test/ci/platform.sh test "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: run the product suite from fresh tracked source
+        id: portable-suite
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh portable "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: verify the delayed portable database boundary
+        if: always() && steps.portable-suite.outcome != 'skipped'
+        env:
+          TARGET: ${{ matrix.target }}
+          PORTABLE_OUTCOME: ${{ steps.portable-suite.outcome }}
+        run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" portable
+
+      - name: run runtime, launcher, rebuild, and identity regressions
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh fixtures "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: run offline unprivileged BusyBox checks
+        if: matrix.alpine
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh alpine "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: attest the exact executed product bytes
+        env:
+          TARGET: ${{ matrix.target }}
+          EXPECTED_PLATFORMS: ${{ strategy.job-total }}
+        run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" attest
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        if: matrix.target == 'x86_64-linux-musl'
         with:
-          name: portable-identity-x86
-          path: ${{ runner.temp }}/identity-state
-          include-hidden-files: true
+          name: portable-product-${{ matrix.name }}
+          path: ${{ runner.temp }}/platform/product
           if-no-files-found: error
-      - name: prove canonical product bytes remain unchanged
-        env:
-          TARGET: ${{ matrix.target }}
-          VERIFY_CODESIGN: ${{ matrix.codesign }}
-        run: |
-          if [ "$VERIFY_CODESIGN" = true ]; then set -- --codesign; else set --; fi
-          test/portable/product.sh test "$RUNNER_TEMP/portable-product" \
-            "$TARGET" \
-            "$RUNNER_TEMP/portable-contract/format/format-test-$TARGET" "$@"
-      - name: preserve canonical failure diagnostics
+
+      - name: preserve platform failure diagnostics
         if: failure()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: portable-canonical-diagnostics-${{ matrix.name }}
+          name: platform-diagnostics-${{ matrix.name }}
           path: |
-            ${{ runner.temp }}/canonical-diagnostics
-            ${{ runner.temp }}/cosmic-self-rebuild-diagnostics
-            ${{ runner.temp }}/runtime-diagnostics
+            ${{ runner.temp }}/platform/local-diagnostics
+            ${{ runner.temp }}/platform/portable-diagnostics
+            ${{ runner.temp }}/platform/alpine-diagnostics
+            ${{ runner.temp }}/platform/self-rebuild-diagnostics
+            ${{ runner.temp }}/platform/runtime-diagnostics
           if-no-files-found: ignore
 
-  portable-identity-linux-arm:
-    needs: portable-canonical
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-runtime-x86
-          path: ${{ runner.temp }}/portable-runtime
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-identity-x86
-          path: ${{ runner.temp }}/identity-in
-      - name: run once for the ARM identity, then stand unchanged
-        run: |
-          chmod +x "$RUNNER_TEMP"/portable-runtime/runtime.*
-          COSMIC_PORTABLE_IDENTITY_STATE_OUT="$RUNNER_TEMP/identity-state" \
-            test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime" \
-              "$RUNNER_TEMP/identity-in"
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: portable-identity-linux-arm
-          path: ${{ runner.temp }}/identity-state
-          include-hidden-files: true
-          if-no-files-found: error
-
-  portable-identity-macos-arm:
-    needs: portable-identity-linux-arm
-    runs-on: macos-15
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-runtime-x86
-          path: ${{ runner.temp }}/portable-runtime
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-identity-linux-arm
-          path: ${{ runner.temp }}/identity-in
-      - name: run once for the macOS identity, then stand unchanged
-        run: |
-          chmod +x "$RUNNER_TEMP"/portable-runtime/runtime.*
-          test/portable/identity_test.sh "$RUNNER_TEMP/portable-runtime" \
-            "$RUNNER_TEMP/identity-in"
-
-  portable-alpine:
-    needs: ci
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-product-linux-x86_64
-          path: ${{ runner.temp }}/portable-product
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-contract-x86
-          path: ${{ runner.temp }}/portable-contract
-      - name: restore transported modes and assert a fresh checkout
-        run: |
-          chmod +x "$RUNNER_TEMP/portable-product/cosmic" \
-            "$RUNNER_TEMP/portable-product/apps/hello" \
-            "$RUNNER_TEMP/portable-product/apps/second" \
-            "$RUNNER_TEMP/portable-contract/format/format-test-x86_64-linux-musl"
-          test ! -e o
-          sha256sum "$RUNNER_TEMP/portable-product/cosmic" > \
-            "$RUNNER_TEMP/alpine-cosmic.before.sha256"
-      - name: prefetch Alpine image
-        run: docker pull alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
-      - name: run cold BusyBox product and complete-suite checks
-        run: |
-          mkdir -p "$RUNNER_TEMP/alpine-diagnostics" "$RUNNER_TEMP/alpine-home"
-          docker run --rm --network none --user "$(id -u):$(id -g)" \
-            -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
-            -v "$GITHUB_WORKSPACE:/work" -w /work \
-            -v "$RUNNER_TEMP:/runner" \
-            alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
-            /bin/sh -eu -c '
-              /runner/portable-contract/format/format-test-x86_64-linux-musl \
-                /runner/portable-contract/format/program
-              test/portable/product.sh test /runner/portable-product \
-                x86_64-linux-musl \
-                /runner/portable-contract/format/format-test-x86_64-linux-musl
-              test/portable/full_suite.sh prepare \
-                /runner/alpine-diagnostics/full \
-                /runner/portable-product/cosmic
-              test/portable/full_suite.sh portable \
-                /runner/alpine-diagnostics/full
-            '
-      - name: run warm read-only cache and delayed integrity checks
-        run: |
-          docker run --rm --network none --user "$(id -u):$(id -g)" \
-            -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
-            -v "$GITHUB_WORKSPACE:/work" -w /work \
-            -v "$RUNNER_TEMP:/runner" \
-            alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 \
-            /bin/sh -eu -c '
-              cache=/runner/alpine-diagnostics/full/portable-full-suite-cache
-              chmod 500 "$cache"
-              COSMIC_PORTABLE_CACHE="$cache" \
-                /runner/alpine-diagnostics/full/cosmic-portable help
-              chmod 700 "$cache"
-              PORTABLE_OUTCOME=success test/portable/full_suite.sh \
-                portable-boundary /runner/alpine-diagnostics/full
-              test/portable/product.sh test /runner/portable-product \
-                x86_64-linux-musl \
-                /runner/portable-contract/format/format-test-x86_64-linux-musl
-            '
-          sha256sum -c "$RUNNER_TEMP/alpine-cosmic.before.sha256"
-      - name: preserve Alpine failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: portable-alpine-diagnostics
-          path: ${{ runner.temp }}/alpine-diagnostics
-          if-no-files-found: ignore
-
-  # Three unrelated hosts independently build the same complete portable
-  # product. Nothing here rebuilds anything; this gate compares every shipped
-  # byte and verifies every manifest range against its raw core.
+  # Three successful native executions must attest and upload identical Cosmic
+  # bytes. Local product tests retain manifest, range, application, and raw-core
+  # verification, so this join only proves the cross-platform byte identity.
   provenance:
-    needs: ci
+    needs: platform
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: portable-product-*
-          path: products
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: portable-contract-x86
-          path: contract
-      - name: every host produces the same complete portable products
-        shell: bash
-        run: |
-          set -euo pipefail
-          hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
-          first=${hosts[0]}
-          baseline="products/portable-product-$first"
-          for host in "${hosts[@]:1}"; do
-            product="products/portable-product-$host"
-            for name in cosmic cosmic.db prefix manifest targets.tsv hashes.sha256 apps/hello apps/second; do
-              cmp "$baseline/$name" "$product/$name"
-            done
-            while IFS=$'\t' read -r _ _ configuration target _; do
-              test "$configuration" = release
-              cmp "$baseline/cores/$target/cosmic-core" \
-                "$product/cores/$target/cosmic-core"
-            done < "$baseline/targets.tsv"
-          done
-
-          decoder=contract/format/format-test-x86_64-linux-musl
-          chmod +x "$decoder"
-          for host in "${hosts[@]}"; do
-            product="products/portable-product-$host"
-            inspection="$RUNNER_TEMP/$host.inspection"
-            "$decoder" --inspect "$product/cosmic" > "$inspection"
-            release_targets=$(awk -F '\t' '$3 == "release" { count++ } END { print count + 0 }' \
-              "$product/targets.tsv")
-            entries=$(awk '$1 == "entry" { count++ } END { print count + 0 }' \
-              "$inspection")
-            test "$entries" -eq "$release_targets"
-            while IFS=$'\t' read -r target_id configuration_id configuration target _; do
-              test "$configuration" = release
-              entry=$(awk -v target="$target_id" -v configuration="$configuration_id" \
-                '$1 == "entry" && $2 == target && $3 == configuration { print $4, $5, $6; count++ } END { if (count != 1) exit 1 }' \
-                "$inspection")
-              read -r offset length digest <<< "$entry"
-              # This job checks out nothing, only the transported products, so
-              # the extraction is spelled out here rather than sourced from
-              # test/portable/lib.sh's extract_core_range.
-              blocks=$(( (length + 16383) / 16384 ))
-              test $((offset % 16384)) -eq 0
-              block_file="$RUNNER_TEMP/$host-$target.blocks"
-              extracted="$RUNNER_TEMP/$host-$target.core"
-              dd if="$product/cosmic" of="$block_file" bs=16384 \
-                skip=$((offset / 16384)) count="$blocks" 2>/dev/null
-              head -c "$length" "$block_file" > "$extracted"
-              test "$(wc -c < "$extracted" | tr -d ' ')" -eq "$length"
-              test "$(sha256sum "$extracted" | awk '{print $1}')" = "$digest"
-              cmp "$product/cores/$target/cosmic-core" "$extracted"
-            done < "$product/targets.tsv"
-          done
-          echo "portable provenance: PASS (complete Cosmic, database, prefix, manifest, applications, and exact raw cores from all three hosts)"
+          path: ${{ runner.temp }}/products
+      - name: compare the Cosmic bytes executed on every native host
+        run: test/ci/provenance.sh "$RUNNER_TEMP/products"

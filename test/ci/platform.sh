@@ -1,0 +1,231 @@
+#!/bin/sh
+# Shared orchestration for each native CI producer.
+set -eu
+
+usage() {
+  echo "usage: platform.sh {build|test|portable|fixtures|boundary|alpine} ROOT TARGET WORK [BOUNDARY]" >&2
+  exit 2
+}
+
+[ "$#" -ge 4 ] || usage
+phase=$1
+root=$2
+target=$3
+work=$4
+boundary=${5-}
+
+case $root in /*) ;; *) echo "platform CI: ROOT must be absolute" >&2; exit 2;; esac
+case $work in /*) ;; *) echo "platform CI: WORK must be absolute" >&2; exit 2;; esac
+[ -f "$root/AGENTS.md" ] || { echo "platform CI: invalid root: $root" >&2; exit 2; }
+case $target in
+  x86_64-linux-musl|aarch64-linux-musl|aarch64-macos) ;;
+  *) echo "platform CI: unsupported target: $target" >&2; exit 2;;
+esac
+
+. "$root/test/portable/lib.sh"
+product=$work/product
+contract=$work/contract
+runtime=$work/runtime
+local_diagnostics=$work/local-diagnostics
+portable_diagnostics=$work/portable-diagnostics
+fresh_source=$work/portable-source
+
+archive_source() {
+  destination=$1
+  [ ! -e "$destination" ] || {
+    echo "platform CI: tracked-source destination already exists: $destination" >&2
+    exit 1
+  }
+  mkdir -p "$destination"
+  git -C "$root" archive HEAD | tar -x -C "$destination"
+  [ ! -e "$destination/o" ]
+}
+
+checked_suite() {
+  targets=$root/o/sanitized/targets.tsv
+  cosmic=$root/o/sanitized/bin/cosmic
+  core=$root/o/sanitized/cosmic-core
+  target_id=$(awk -F '\t' \
+    '$2 == 2 && $3 == "sanitized" { print $1; count++ } END { if (count != 1) exit 1 }' \
+    "$targets")
+  checked_target=$(awk -F '\t' -v id="$target_id" \
+    '$1 == id && $2 == 1 && $3 == "release" { print $4; count++ } END { if (count != 1) exit 1 }' \
+    "$targets")
+  [ "$checked_target" = "$target" ]
+  set -- $("$cosmic" "$root/test/portable/tool.tl" entry \
+    "$cosmic" "$target_id" 2)
+  [ "$#" -eq 3 ]
+  offset=$1
+  length=$2
+  digest=$3
+  [ "$length" -eq "$(wc -c < "$core")" ]
+  extract_core_range "$cosmic" "$offset" "$length" \
+    "$work/checked.core" "$digest" "$core"
+  "$cosmic" "$root/test/portable/tool.tl" checked-context \
+    "$core" "$target"
+  run_bounded_90() {
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 90 "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+      gtimeout 90 "$@"
+    elif [ "${GITHUB_ACTIONS:-}" = true ]; then
+      echo 'checked suite: timeout command unavailable; relying on the job bound' >&2
+      "$@"
+    else
+      echo 'checked suite: timeout or gtimeout is required outside CI' >&2
+      return 2
+    fi
+  }
+  run_bounded_90 "$cosmic" test
+}
+
+case $phase in
+  build)
+    [ "$#" -eq 4 ] || usage
+    [ ! -e "$root/o" ] || {
+      echo 'platform CI build requires a fresh checkout without o/' >&2
+      exit 1
+    }
+    mkdir -p "$work"
+    cd "$root"
+    bin/zig build cores boot
+    test/portable/full_suite.sh local "$local_diagnostics"
+    ;;
+
+  test)
+    [ "$#" -eq 4 ] || usage
+    [ -x "$root/o/bin/cosmic" ] || {
+      echo 'platform CI test requires the release build' >&2
+      exit 1
+    }
+    [ -f "$local_diagnostics/local-boundary/hashes.sha256" ] || {
+      echo 'platform CI test requires the delayed local boundary' >&2
+      exit 1
+    }
+    cd "$root"
+    o/bin/cosmic fix --check .
+    bin/verify-codesign o/core/aarch64-macos/cosmic-core
+    test/portable/product.sh build "$product"
+    sha256_of "$product/cosmic" > "$work/cosmic.before.sha256"
+    test/portable/format.sh "$contract/format"
+    test/portable/launcher.sh build "$contract/launcher"
+
+    # The checked boot mutates the local working database, so it follows the
+    # release suite's delayed boundary. No other boot writer runs concurrently.
+    bin/zig build sanitized
+    checked_suite
+    bin/zig build portable-hook-cores --prefix "$work/prebuilt"
+    mkdir -p "$work/prebuilt/portable-fixture/sanitized"
+    cp o/sanitized/cosmic-core \
+      "$work/prebuilt/portable-fixture/sanitized/cosmic-core"
+    test/portable/runtime.sh build "$runtime" "$work/prebuilt" \
+      "$product/cosmic" "$product/cosmic.db"
+
+    signature=
+    [ "$target" != aarch64-macos ] || signature=--codesign
+    test/portable/product.sh test "$product" "$target" \
+      "$contract/format/format-test-$target" $signature
+    "$contract/format/format-test-$target" "$contract/format/program"
+
+    archive_source "$fresh_source"
+    "$fresh_source/test/portable/full_suite.sh" prepare \
+      "$portable_diagnostics" "$product/cosmic"
+    ;;
+
+  portable)
+    [ "$#" -eq 4 ] || usage
+    "$fresh_source/test/portable/full_suite.sh" portable \
+      "$portable_diagnostics"
+    ;;
+
+  fixtures)
+    [ "$#" -eq 4 ] || usage
+    cd "$root"
+    signature=
+    [ "$target" != aarch64-macos ] || signature=--codesign
+    mkdir -p "$work/self-rebuild-diagnostics"
+    TMPDIR="$work/self-rebuild-diagnostics" \
+      test/portable/self_rebuild.sh "$runtime"
+    COSMIC_PORTABLE_DIAGNOSTICS="$work/runtime-diagnostics" \
+      test/portable/runtime.sh test "$runtime"
+    test/portable/launcher.sh test "$contract/launcher/launcher.test" \
+      "$contract/launcher/payloads/socket-$target"
+    test/portable/identity_test.sh "$runtime"
+    test/portable/product.sh test "$product" "$target" \
+      "$contract/format/format-test-$target" $signature
+    [ "$(sha256_of "$product/cosmic")" = \
+      "$(cat "$work/cosmic.before.sha256")" ]
+    ;;
+
+  boundary)
+    [ "$#" -eq 5 ] || usage
+    case $boundary in
+      local)
+        "$root/test/portable/full_suite.sh" local-boundary \
+          "$local_diagnostics"
+        ;;
+      portable)
+        PORTABLE_OUTCOME=${PORTABLE_OUTCOME:-} \
+          "$fresh_source/test/portable/full_suite.sh" portable-boundary \
+            "$portable_diagnostics"
+        ;;
+      attest)
+        expected=${EXPECTED_PLATFORMS:?platform CI attest requires EXPECTED_PLATFORMS}
+        before=$(cat "$work/cosmic.before.sha256")
+        after=$(sha256_of "$product/cosmic")
+        portable_before=$(cat "$portable_diagnostics/portable-artifact.before.sha256")
+        portable_after=$(cat "$portable_diagnostics/portable-artifact.after.sha256")
+        [ "$before" = "$after" ]
+        [ "$before" = "$portable_before" ]
+        [ "$before" = "$portable_after" ]
+        printf '%s  cosmic\n' "$before" > "$product/executed-cosmic.sha256"
+        printf '%s\n' "$expected" > "$product/expected-platforms"
+        ;;
+      *) usage ;;
+    esac
+    ;;
+
+  alpine)
+    [ "$#" -eq 4 ] || usage
+    [ "$target" = x86_64-linux-musl ] || {
+      echo 'platform CI Alpine phase is only valid for x86_64-linux-musl' >&2
+      exit 2
+    }
+    image=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+    alpine_source=$work/alpine-source
+    archive_source "$alpine_source"
+    mkdir -p "$work/alpine-diagnostics" "$work/alpine-home"
+    before=$(sha256_of "$product/cosmic")
+    docker pull "$image"
+    docker run --rm --network none --user "$(id -u):$(id -g)" \
+      -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
+      -v "$alpine_source:/work" -w /work -v "$work:/runner" \
+      "$image" /bin/sh -eu -c '
+        test ! -e o
+        /runner/contract/format/format-test-x86_64-linux-musl \
+          /runner/contract/format/program
+        test/portable/product.sh test /runner/product x86_64-linux-musl \
+          /runner/contract/format/format-test-x86_64-linux-musl
+        test/portable/full_suite.sh prepare \
+          /runner/alpine-diagnostics/full /runner/product/cosmic
+        test/portable/full_suite.sh portable /runner/alpine-diagnostics/full
+      '
+    docker run --rm --network none --user "$(id -u):$(id -g)" \
+      -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
+      -v "$alpine_source:/work" -w /work -v "$work:/runner" \
+      "$image" /bin/sh -eu -c '
+        cache=/runner/alpine-diagnostics/full/portable-full-suite-cache
+        chmod 500 "$cache"
+        COSMIC_PORTABLE_CACHE="$cache" \
+          /runner/alpine-diagnostics/full/cosmic-portable help
+        chmod 700 "$cache"
+        PORTABLE_OUTCOME=success test/portable/full_suite.sh \
+          portable-boundary /runner/alpine-diagnostics/full
+        test/portable/product.sh test /runner/product x86_64-linux-musl \
+          /runner/contract/format/format-test-x86_64-linux-musl
+      '
+    [ "$before" = "$(sha256_of "$product/cosmic")" ]
+    ;;
+
+  *) usage ;;
+esac

@@ -63,9 +63,9 @@ each core occurs exactly once, at its manifest range, in Cosmic and both
 applications. `product.sh test` verifies every recorded transported hash,
 exact prefix reuse, the selected manifest range's length, digest, and raw
 core bytes, and both applications; on the macOS host it also sends that
-extracted range to strict `codesign` verification. Normal CI compares the
-complete bundle from independent x86 Linux, ARM Linux, and ARM macOS
-producers (the `provenance` job).
+extracted range to strict `codesign` verification. Normal CI runs these checks
+in each independent x86 Linux, ARM Linux, and ARM macOS producer. The
+`provenance` job compares the exact `cosmic` bytes all three attest they ran.
 
 `runtime.sh build` and `runtime.sh test` cover real Cosmic cores end to end
 against the runtime's host-independent projection. A fixture-only core
@@ -100,12 +100,10 @@ nonselected core before an application is published. It also uses one work
 database successively with real release and sanitized cores, a changed
 runtime basis, an unchanged repeat, and an application-database-only
 change: changed runtime contexts run, while unchanged and
-application-only contexts stand. Normal CI transports this fixture's whole
-project, including its one `o/build.db`, from x86_64 Linux to aarch64
-Linux and then aarch64 macOS; each actual host must run under its selected
-raw core, while an immediate repeat on that host stands. This identity
-chain complements the independent per-host `product.sh` builds and the
-canonical full-suite run on every host.
+application-only contexts stand. Normal CI runs that complete identity proof
+independently on every native host. Mutable developer state remains local to
+one runner; cross-platform support is established by executing and attesting
+the same immutable product bytes on all three hosts.
 
 `self_rebuild.sh` uses the same fixture-only startup pause to rename and
 unlink the artifact after descriptor adoption. In each case a deterministic
@@ -141,8 +139,8 @@ not run standalone since no CI job calls it on its own) copies and hashes
 the raw working database and any journal, then opens a second, disposable
 copy outside the checkout with `work_db_integrity.tl.in` -- compiled
 outside the checkout, so diagnostics cannot stage a fixture source in the
-product's working database. Normal CI uses both the local and prepare/
-portable forms to run one downloaded canonical artifact in a fresh checkout
-with no booted executable, copied working database, verdicts, or cache.
-Every driver here is POSIX shell, so the same checks run under stock
-Alpine BusyBox (the `portable-alpine` job).
+product's working database. Normal CI uses both the local and prepare/portable
+forms in every native leg. The portable form runs the locally produced
+artifact from a fresh tracked source export with no booted executable, copied
+working database, verdicts, or cache. Every driver here is POSIX shell, so the
+Linux x86 leg also runs the same checks under stock Alpine BusyBox.

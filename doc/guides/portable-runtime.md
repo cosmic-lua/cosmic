@@ -247,10 +247,11 @@ contract into observable boundaries:
 
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
 the release product independently on Linux x86-64, Linux ARM64, and macOS
-ARM64. A checked core runs the suite with undefined-behavior checking.
-Canonical jobs execute one transported artifact unchanged on each host. Alpine
-exercises the POSIX launcher offline. The provenance job compares the complete
-artifact, database, applications, manifest, and raw cores from all producers.
+ARM64. Each native leg executes its local product, checked core, runtime
+fixtures, identity proof, and delayed database boundaries. Linux x86 also runs
+the product offline under Alpine. Each producer records the product hash before
+and after execution; the provenance join requires all three uploaded `cosmic`
+files to match those attestations and each other.
 
 These lanes express the support rule: a target exists only when Zig builds it,
 its native runner executes the suite, and the portable boundary tests pass.
