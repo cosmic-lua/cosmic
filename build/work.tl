@@ -782,10 +782,13 @@ end
 
 --- The tool's fingerprints, over `tool`: `boot` over every row, and
 --- `image` over what the C core is built from -- `core/`, the zig
---- build and wrapper, and every vendored tree's pin and patches but
---- the Teal compiler's. Both are kept in `meta` for the projection to
---- carry into the binary, which is how a binary knows what it was
---- built from, so a project reads them rather than computing any.
+--- build and wrapper, and every vendored tree's pin and patches,
+--- the Teal compiler's included: only `bin/zig build boot` applies a
+--- patch record to a pin, so a change under `vendor/tl/PIN` or
+--- `patch/tl/*` needs it too, the same as every other vendored tree.
+--- Both are kept in `meta` for the projection to carry into the
+--- binary, which is how a binary knows what it was built from, so a
+--- project reads them rather than computing any.
 function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   local db = handle.db
   local boot, boot_trouble = hash_over(db, "1")
@@ -794,9 +797,8 @@ function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   end
   local image, image_trouble = hash_over(db,
     "path GLOB 'core/*' OR path IN ('build.zig', 'build.zig.zon', " ..
-    "'bin/zig', 'bin/zig.pin') OR (path GLOB 'vendor/*/PIN' AND " ..
-    "path <> 'vendor/tl/PIN') OR (path GLOB 'patch/*' AND " ..
-    "path NOT GLOB 'patch/tl/*')")
+    "'bin/zig', 'bin/zig.pin') OR path GLOB 'vendor/*/PIN' OR " ..
+    "path GLOB 'patch/*'")
   if image == nil then
     return nil, image_trouble
   end
