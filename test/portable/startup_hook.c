@@ -7,11 +7,24 @@
 #include <string.h>
 #include <unistd.h>
 
+static const char *const hook_environment[] = {
+    "COSMIC_PORTABLE_STARTUP_TEST_READY",
+    "COSMIC_PORTABLE_STARTUP_TEST_GO",
+    NULL,
+};
+
+/* The hook's own names survive startup's sweep of the reserved prefix so
+ * a process this one starts -- the rebuilt tool a self-rebuild re-enters
+ * -- pauses at the same FIFOs. */
+const char *const *cosmic_startup_test_environment(void) {
+  return hook_environment;
+}
+
 int cosmic_startup_test_pause(const struct cosmic_startup *startup,
                               const char **error) {
   if (startup->kind != COSMIC_STARTUP_PORTABLE) return 1;
-  const char *ready = getenv("COSMIC_PORTABLE_STARTUP_TEST_READY");
-  const char *go = getenv("COSMIC_PORTABLE_STARTUP_TEST_GO");
+  const char *ready = getenv(hook_environment[0]);
+  const char *go = getenv(hook_environment[1]);
   if (ready == NULL && go == NULL) return 1;
   if (ready == NULL || go == NULL) {
     if (error != NULL) *error = "startup test hook is incomplete";

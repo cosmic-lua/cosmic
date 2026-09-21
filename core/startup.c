@@ -12,6 +12,8 @@
 
 #include "crypto.h"
 #include "executable.h"
+#include "environment.h"
+
 
 #ifndef COSMIC_TARGET_ID
 #error "build.zig must define COSMIC_TARGET_ID"
@@ -69,6 +71,7 @@ static int hex_digest(const char *text,
   return text[COSMIC_PORTABLE_SHA256_LENGTH * 2] == '\0';
 }
 
+
 static void compiled_startup(struct cosmic_startup *startup,
                              enum cosmic_startup_kind kind,
                              const char *artifact_path) {
@@ -95,6 +98,8 @@ int cosmic_startup_has_private_environment(void) {
 
 void cosmic_startup_native(struct cosmic_startup *startup) {
   compiled_startup(startup, COSMIC_STARTUP_NATIVE, NULL);
+  if (!cosmic_environment_clear_reserved(cosmic_startup_test_environment()))
+    startup->contract_error = "reserved portable environment cannot be cleared";
 }
 
 void cosmic_startup_portable(struct cosmic_startup *startup,
@@ -133,9 +138,8 @@ void cosmic_startup_portable(struct cosmic_startup *startup,
     startup->launcher_core_length = length;
   }
 
-  for (size_t i = 0; i < sizeof portable_environment /
-                              sizeof portable_environment[0]; i++)
-    unsetenv(portable_environment[i]);
+  if (!cosmic_environment_clear_reserved(cosmic_startup_test_environment()))
+    startup->contract_error = "reserved portable environment cannot be cleared";
 }
 
 const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
@@ -158,8 +162,7 @@ const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
   if (startup->kind != COSMIC_STARTUP_NATIVE &&
       (startup->artifact_path == NULL || startup->artifact_path[0] == '\0'))
     return "portable startup names no artifact";
-  if (startup->kind == COSMIC_STARTUP_PORTABLE && startup->contract_error != NULL)
-    return startup->contract_error;
+  if (startup->contract_error != NULL) return startup->contract_error;
   return NULL;
 }
 

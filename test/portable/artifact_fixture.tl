@@ -99,4 +99,22 @@ function fixture.prefix_hash(artifact: fixture.Artifact): string
   return Hash.hex_sha256(fixture.prefix(artifact))
 end
 
+--- Reads a generated target-record TSV and returns one blob per target, read
+--- from MAKE_PATH(target), plus the raw TSV text (which build.artifact's own
+--- writers also take directly). The three fixture writers differ only in
+--- where each target's blob lives (a raw core under a per-target directory,
+--- or a flat native payload file), so they share this loop.
+function fixture.load_by_target(records_path: string,
+                                make_path: function(string): string):
+                                {string:string}, string
+  local records = assert(Fs.read(records_path))
+  local blobs: {string:string} = {}
+  for line in records:gmatch("[^\n]+") do
+    local target = line:match("^%d+\t%d+\t[^\t]+\t([^\t]+)\t")
+    assert(target ~= nil, "invalid generated target record")
+    blobs[target] = assert(Fs.read(make_path(target)))
+  end
+  return blobs, records
+end
+
 return fixture

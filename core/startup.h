@@ -21,7 +21,8 @@
  * descriptors from its bounded candidate set, then leaves the artifact and
  * verified standalone core open on them across its one exec. Startup must
  * validate and clear exactly these bounded fields before Lua can inspect or
- * propagate the environment. Adoption begins in portable step 5.
+ * propagate the environment. cosmic_startup_portable below does the validate
+ * and clear; cosmic_startup_adopt does the adoption once that succeeds.
  */
 #define COSMIC_PORTABLE_ENV_ARTIFACT_FD "COSMIC_PORTABLE_ARTIFACT_FD"
 #define COSMIC_PORTABLE_ENV_CORE_FD "COSMIC_PORTABLE_CORE_FD"
@@ -76,6 +77,11 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
                          const char **error);
 int cosmic_startup_test_pause(const struct cosmic_startup *startup,
                               const char **error);
+/* The names under the reserved COSMIC_PORTABLE_ prefix the linked hook
+ * reads for itself and leaves in place for the processes this one
+ * starts, NULL-terminated; the product hook names none, so startup
+ * clears every reserved name but COSMIC_PORTABLE_CACHE. */
+const char *const *cosmic_startup_test_environment(void);
 void cosmic_startup_test_phase(const struct cosmic_startup *startup,
                                enum cosmic_startup_test_phase phase);
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,

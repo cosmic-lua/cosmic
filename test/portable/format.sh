@@ -9,7 +9,9 @@ publish=${1:-}
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-portable-format.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-"$root/o/bin/cosmic" "$root/test/portable/write_format_fixture.tl" \
+. "$root/test/portable/lib.sh"
+
+"$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-format-fixture \
   "$root/o/targets.tsv" "$root/o/core" "$work/program"
 required_mask=0
 release_configuration=
@@ -43,18 +45,8 @@ while IFS="$tab" read -r target_id configuration_id configuration target uname_o
   digest=$(printf '%s\n' "$line" | awk '{ print $6 }')
   core="$root/o/core/$target/cosmic-core"
   [ "$(wc -c < "$core" | tr -d ' ')" = "$length" ]
-  blocks=$(( (length + 16383) / 16384 ))
-  # `head` bounds the final partial block. cmp and the digest below prove the
-  # pipeline produced the requested bytes even on a shell without pipefail.
-  dd if="$work/program.a" bs=16384 skip=$((offset / 16384)) count="$blocks" \
-    2>/dev/null | head -c "$length" > "$work/extracted"
-  cmp "$core" "$work/extracted"
-  if command -v sha256sum >/dev/null 2>&1; then
-    actual=$(sha256sum "$core" | cut -d ' ' -f1)
-  else
-    actual=$(shasum -a 256 "$core" | cut -d ' ' -f1)
-  fi
-  [ "$actual" = "$digest" ]
+  extract_core_range "$work/program.a" "$offset" "$length" "$work/extracted" \
+    "$digest" "$core"
 done < "$root/o/targets.tsv"
 
 prefix_length=$(awk '$1 == "prefix" { print $2 }' "$work/inspection")

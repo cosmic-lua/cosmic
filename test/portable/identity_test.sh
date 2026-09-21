@@ -6,6 +6,7 @@ fixture=${1:?usage: identity_test.sh RUNTIME_FIXTURE_DIRECTORY [PROJECT_STATE]}
 case $fixture in /*) ;; *) fixture=$PWD/$fixture ;; esac
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 state=${2-}
+. "$root/test/portable/lib.sh"
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-runtime-identity.XXXXXXXX")
 cleanup() {
   status=$?
@@ -39,12 +40,6 @@ fi
 counter=$project/test-runs
 cache=$work/cache
 
-sha_of() {
-  if command -v sha256sum >/dev/null 2>&1; then value=$(sha256sum "$1")
-  else value=$(shasum -a 256 "$1"); fi
-  printf '%s\n' "${value%% *}"
-}
-
 expect_tally() {
   output=$1
   ran=$2
@@ -65,7 +60,7 @@ run_release() {
 
 entry_fields() {
   COSMIC_PORTABLE_CACHE="$work/entry-cache" \
-    "$fixture/runtime.old" "$root/test/portable/manifest_entry.tl" \
+    "$fixture/runtime.old" "$root/test/portable/tool.tl" entry \
     "$1" "$2" "$3"
 }
 
@@ -191,12 +186,7 @@ if [ -z "$state" ]; then
 
   # A nonselected raw core corruption lets this host start, but the private
   # prefix reader validates every core before output publication.
-  host_system=$(uname -s)
-  host_arch=$(uname -m)
-  tab=$(printf '\t')
-  host_target=$(awk -F "$tab" -v sysname="$host_system" -v arch="$host_arch" \
-    '$5 == sysname && $6 == arch { print $4; exit }' "$fixture/targets.tsv")
-  [ -n "$host_target" ]
+  host_target=$(host_target_field "$fixture/targets.tsv" 4)
   corrupt=$fixture/runtime.corrupt-$host_target
   corrupt_project=$work/corrupt-project
   mkdir -p "$corrupt_project/cmd/hello"
@@ -222,8 +212,8 @@ if [ -z "$state" ]; then
   grep -F 'hello from the edited portable fixture' "$work/hello.out" >/dev/null
   grep -F 'second portable application' "$work/second.out" >/dev/null
   [ "$(find "$cache" -type f | wc -l | tr -d ' ')" = 1 ]
-  sha_of "$project/o/bin/hello" > "$project/portable-hello.sha256"
-  sha_of "$project/o/bin/second" > "$project/portable-second.sha256"
+  sha256_of "$project/o/bin/hello" > "$project/portable-hello.sha256"
+  sha256_of "$project/o/bin/second" > "$project/portable-second.sha256"
 
   run_release "$fixture/runtime.old" "$work/release.out"
   expect_tally "$work/release.out" 1 0
@@ -238,7 +228,7 @@ if [ -z "$state" ]; then
   # A project database is searched ahead of the binary after attachment. Its
   # rows must not override validated portable context or the binary's basis.
   COSMIC_PORTABLE_CACHE="$cache" \
-    "$fixture/runtime.old" "$root/test/portable/spoof_runtime_database.tl" \
+    "$fixture/runtime.old" "$root/test/portable/tool.tl" spoof-database \
     "$project/o/cosmic.db"
 
   run_release "$fixture/runtime.basis" "$work/basis.out"
@@ -247,7 +237,7 @@ if [ -z "$state" ]; then
   expect_tally "$work/sanitized.out" 1 0
 
   COSMIC_PORTABLE_CACHE="$cache" \
-    "$fixture/runtime.old" "$root/test/portable/verify_runtime_verdicts.tl" \
+    "$fixture/runtime.old" "$root/test/portable/tool.tl" verify-verdicts \
     "$project/o/build.db" "$counter"
 
   missing=$work/missing-project
@@ -270,18 +260,18 @@ else
   # Cross-host CI transports this exact directory. Each actual host selects a
   # different release core from the unchanged artifact, so the new context
   # must run once and its immediate repeat must stand.
-  projection_before=$(sha_of "$project/o/cosmic.db")
+  projection_before=$(sha256_of "$project/o/cosmic.db")
   run_release "$fixture/runtime.old" "$work/transported.out"
   expect_tally "$work/transported.out" 1 0
   run_release "$fixture/runtime.old" "$work/transported-repeat.out"
   expect_tally "$work/transported-repeat.out" 0 1
-  [ "$(sha_of "$project/o/cosmic.db")" = "$projection_before" ]
+  [ "$(sha256_of "$project/o/cosmic.db")" = "$projection_before" ]
 
   # These are the canonical x86 Linux application bytes transported with the
   # work database. Every host executes them unchanged through its own core.
-  [ "$(sha_of "$project/o/bin/hello")" = \
+  [ "$(sha256_of "$project/o/bin/hello")" = \
     "$(cat "$project/portable-hello.sha256")" ]
-  [ "$(sha_of "$project/o/bin/second")" = \
+  [ "$(sha256_of "$project/o/bin/second")" = \
     "$(cat "$project/portable-second.sha256")" ]
   # GitHub artifact transport normalizes executable modes; restore only the
   # launch permission after proving the transported bytes are unchanged.

@@ -335,6 +335,11 @@ export COSMIC_PORTABLE_TARGET_ID COSMIC_PORTABLE_CONFIGURATION_ID
 export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
 export COSMIC_PORTABLE_CORE_SHA256
 
+# `test -x` also reflects a noexec filesystem on supported hosts. Check before
+# the special-builtin exec: some shells exit immediately on execve failure and
+# never reach the diagnostic after it. Other exec failures retain that backstop.
+[ -x "$cosmic_core" ] ||
+  portable_die 'verified core cannot execute on the cache filesystem'
 trap - EXIT HUP INT TERM
 umask "$cosmic_original_umask" || portable_die 'cannot restore caller umask'
 exec "$cosmic_core" --artifact "$cosmic_artifact" "$@"

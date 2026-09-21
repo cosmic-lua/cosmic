@@ -355,15 +355,18 @@ ships a dataset it updates copies it out once with `VACUUM INTO`, or
 attaches the embedded database read-only beside a writable one and
 queries across both.
 
-the launcher's cache leaf is untrusted until its owner, mode, and contents
+the launcher's cache leaf is untrusted until its kind, owner, mode, and contents
 meet the cache policy, and the core's length and digest match the manifest. its
-parent directory is
-the user's trust boundary. a cold launch writes and publishes a verified core
-atomically; a warm launch repeats the complete hash before execution. the
-launcher uses POSIX utilities available on the supported systems and reserves
-`COSMIC_PORTABLE_*` for its descriptor handoff. startup requires the complete
-set, validates it, adopts the descriptors, and clears those names before Teal
-runs. `COSMIC_PORTABLE_CACHE` alone is public configuration.
+parent directory is the user's trust boundary. a cold launch writes and
+publishes a verified core atomically; a warm launch repeats the complete hash
+before execution. the launcher selects the platform forms of `stat`, `ln`, and
+the SHA-256 utility; these are supported-system interfaces rather than a claim
+that every invoked utility and flag is specified by POSIX. it reserves the
+whole `COSMIC_PORTABLE_*` prefix for its descriptor handoff. startup requires
+the complete handoff, validates it, adopts the descriptors, and clears every
+name under the prefix except `COSMIC_PORTABLE_CACHE` before Teal runs, for both
+portable and native startup. `COSMIC_PORTABLE_CACHE` alone is public
+configuration.
 
 ordinary artifacts have exactly three release entries and select configuration
 1. the checked artifact retains those required release entries and adds one
@@ -423,8 +426,12 @@ fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
 cosmic's own tree fingerprints the tree first. when only Teal
 differs, the tool rebuilds itself -- compiles the tree, projects the database,
-combines it with the exact retained portable prefix -- and
-re-execs into the result, once, refusing a second round by name;
+combines it with the exact retained portable prefix -- and writes and re-execs
+the logical path returned by `Proc.executable()`, once, refusing a second round
+by name. rename and unlink remain supported because retained descriptors carry
+the running artifact. an externally copied tool is therefore rewritten at
+that copied logical path; a read-only logical path fails rather than silently
+redirecting the rebuild into the tree;
 when the C core's inputs differ, only zig can build it, and the tool
 says so. the binary also carries two identities: the compiler it is,
 over the build's own modules in the importer's closure and the Teal

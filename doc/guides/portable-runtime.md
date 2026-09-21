@@ -123,7 +123,7 @@ retained portable prefix: valid
 
 The stronger retention guarantee comes from
 [`core/store.c`](../../core/store.c), which rehashes every manifest core range
-before returning retained prefix bytes. `runtime_test.sh` and
+before returning retained prefix bytes. `runtime.sh test` and
 `self_rebuild.sh` exercise that guarantee across rename, unlink, replacement,
 and database-only rebuilds.
 
@@ -139,6 +139,12 @@ temporary file, verifies its length and SHA-256 digest, sets its mode, and
 publishes it atomically. On a warm start it hashes the complete cached core
 again. A symlink, unexpected entry, wrong owner or mode, short core, or digest
 mismatch stops before execution.
+
+On supported hosts the launcher also checks whether the verified cache entry
+is executable before invoking the shell's `exec` builtin, so a noexec cache
+gets a stable portable diagnostic. The final `exec` failure remains a backstop
+for other denials; the preflight does not claim to predict every `execve`
+failure.
 
 The launcher reserves two unused descriptors: one for the complete artifact
 and one for the selected core. It passes their numbers, the selected identity,
@@ -204,6 +210,11 @@ rebuild projects a new database, combines it with that prefix, atomically
 replaces the logical artifact, and re-executes the original arguments and
 environment once.
 
+The logical artifact is the path returned by `Proc.executable()`. Running a
+copy outside the checkout rewrites that copy; it does not redirect the rebuild
+to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
+remain supported because the running process reads the retained descriptor.
+
 A marker rejects a second rebuild loop. A core-input change cannot reuse the
 prefix and exits with the instruction to run `bin/zig build boot`. This keeps a
 database-only rebuild fast without claiming old native code matches new C,
@@ -222,9 +233,9 @@ contract into observable boundaries:
 
 - `format.sh` and `format_test.c` reject malformed lengths, offsets,
   identities, overlap, padding, and database headers.
-- `launcher_test.sh` covers cache policy, digest failures, descriptor pressure,
+- `launcher.sh test` covers cache policy, digest failures, descriptor pressure,
   signals, and publication races.
-- `runtime_test.sh` covers retained descriptors, replacement and unlink,
+- `runtime.sh test` covers retained descriptors, replacement and unlink,
   immutable database reads, and mismatch rejection.
 - `self_rebuild.sh` proves one re-entry, exact prefix reuse, and core-change
   refusal.
@@ -261,3 +272,65 @@ without parsing SQLite. Startup can reject a forged handoff without trusting
 the shell. SQLite can read an immutable range without knowing the portable
 format. The build can replace a database suffix without rebuilding native
 cores.
+
+## check the contract from inside
+
+The contract above is observable from any program the artifact runs, so
+the guide checks it here rather than only in shell fixtures. Every
+identity key answers from the validated startup context, the artifact
+path is the one the launcher was given, and none of the private launcher
+names survive into the environment:
+
+```teal
+local Env = require("cosmic.env")
+local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
+
+for _, key in ipairs({ "host", "host_image", "runtime", "runtime_basis" }) do
+  assert(Store.meta(key) ~= nil and Store.meta(key) ~= "", key)
+end
+assert(Store.meta("runtime_context") == "portable-v1")
+assert(Store.meta("artifact") == Proc.executable())
+for _, name in ipairs({ "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
+                        "COSMIC_PORTABLE_CORE_SHA256" }) do
+  assert(Env.get(name) == nil, name .. " escaped startup")
+end
+print("identity: from the validated artifact")
+```
+
+```output
+identity: from the validated artifact
+```
+
+The manifest entry selected for this host names exactly the bytes this
+process runs. `host_image` is the digest of the running core, so the
+entry carrying that digest is the selected one, and hashing its range
+back out of the artifact file gives the same answer:
+
+```teal
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
+local fixture = require("test.portable.artifact_fixture")
+
+local path = assert(Proc.executable())
+local artifact = assert(fixture.read(path))
+local running = assert(Store.meta("host_image"))
+local selected: fixture.Entry = nil
+for _, entry in ipairs(artifact.entries) do
+  if Hash.hex(entry.digest) == running then
+    assert(selected == nil, "two manifest entries carry the running digest")
+    selected = entry
+  end
+end
+assert(selected ~= nil, "no manifest entry carries the running digest")
+local bytes = assert(Fs.read(path))
+local range = bytes:sub(selected.offset + 1, selected.offset + selected.length)
+assert(Hash.hex_sha256(range) == running)
+print("manifest: names the running core")
+```
+
+```output
+manifest: names the running core
+```
