@@ -95,7 +95,8 @@ grep -q '^payload stderr$' "$work/basic.err"
 [ "$(wc -l < "$marker")" -eq 1 ]
 [ "$(mode_of "$basic_cache")" = 700 ]
 core=$(core_in "$basic_cache")
-[ -n "$core" ] && [ "$(mode_of "$core")" = 500 ]
+[ -n "$core" ]
+[ "$(mode_of "$core")" = 500 ]
 core_hash=$(sha_of "$core")
 cache_mtime=$(mtime_of "$basic_cache")
 core_mtime=$(mtime_of "$core")
@@ -118,7 +119,8 @@ case $(uname -s) in
   Darwin) default_cache=$home/Library/Caches/cosmic/cores ;;
   *) default_cache=$home/.cache/cosmic/cores ;;
 esac
-[ -d "$default_cache" ] && [ "$(mode_of "$default_cache")" = 700 ]
+[ -d "$default_cache" ]
+[ "$(mode_of "$default_cache")" = 700 ]
 env -u COSMIC_PORTABLE_CACHE XDG_CACHE_HOME="$xdg" HOME="$home" "$ordinary" \
   "$artifact" > /dev/null
 [ -d "$xdg/cosmic/cores" ]
@@ -138,10 +140,14 @@ env -u COSMIC_PORTABLE_CACHE -u XDG_CACHE_HOME -u HOME "$ordinary" \
   "$artifact" > /dev/null 2> "$work/unset-home.err"
 unset_home_status=$?
 set -e
-[ "$empty_status" -ne 0 ] && grep -q 'must be an absolute path' "$work/empty.err"
-[ "$relative_status" -ne 0 ] && grep -q 'must be an absolute path' "$work/relative.err"
-[ "$home_status" -ne 0 ] && grep -q 'no absolute HOME' "$work/home.err"
-[ "$unset_home_status" -ne 0 ] && grep -q 'no absolute HOME' "$work/unset-home.err"
+[ "$empty_status" -ne 0 ]
+grep -q 'must be an absolute path' "$work/empty.err"
+[ "$relative_status" -ne 0 ]
+grep -q 'must be an absolute path' "$work/relative.err"
+[ "$home_status" -ne 0 ]
+grep -q 'no absolute HOME' "$work/home.err"
+[ "$unset_home_status" -ne 0 ]
+grep -q 'no absolute HOME' "$work/unset-home.err"
 
 # Leaf policy rejects symlinks, unsafe modes, and a different owner when this
 # runner can create one. A 0500 cache without the selected core fails clearly.
@@ -361,14 +367,16 @@ env "$ordinary" COSMIC_PORTABLE_CACHE="$basic_cache" PORTABLE_PAYLOAD_MARKER="$e
   PORTABLE_PAYLOAD_EXIT=23 "$artifact" > /dev/null
 exit_status=$?
 set -e
-[ "$exit_status" -eq 23 ] && [ "$(wc -l < "$exit_marker")" -eq 1 ]
+[ "$exit_status" -eq 23 ]
+[ "$(wc -l < "$exit_marker")" -eq 1 ]
 signal_marker=$work/signal.marker
 set +e
 env "$ordinary" COSMIC_PORTABLE_CACHE="$basic_cache" PORTABLE_PAYLOAD_MARKER="$signal_marker" \
   PORTABLE_PAYLOAD_SIGNAL=1 "$artifact" > /dev/null 2> "$work/signal.err"
 signal_status=$?
 set -e
-[ "$signal_status" -ne 0 ] && [ "$(wc -l < "$signal_marker")" -eq 1 ]
+[ "$signal_status" -ne 0 ]
+[ "$(wc -l < "$signal_marker")" -eq 1 ]
 
 # Exercise a noexec cache only when this host exposes one without privilege.
 if [ "$(uname -s)" = Linux ] && [ -d /dev/shm ] && [ -w /dev/shm ]; then
