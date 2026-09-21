@@ -1,10 +1,21 @@
 /* The syscall table's process, time and data half, and the module. */
 
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
 #define _XOPEN_SOURCE 700
 
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <sys/wait.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+/* _XOPEN_SOURCE intentionally hides this libc escape hatch. It is used only
+ * for close_range, whose wrapper musl does not expose. */
+extern long syscall(long, ...);
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -201,6 +212,216 @@ COSMIC_SYSCALL(execve, 3) {
   return cosmic_fail(L, number);
 }
 
+static char **string_array(lua_State *L, int table, lua_Integer *count) {
+  *count = luaL_len(L, table);
+  char **array = calloc((size_t)*count + 1, sizeof *array);
+  if (array == NULL) return NULL;
+  for (lua_Integer i = 1; i <= *count; i++) {
+    lua_geti(L, table, i);
+    array[i - 1] = (char *)luaL_checkstring(L, -1);
+    lua_pop(L, 1);
+  }
+  return array;
+}
+
+/* Leave only stdio and the exec-status descriptor. Cosmic-opened descriptors
+ * are CLOEXEC already; this also closes foreign descriptors that are not. */
+static void close_child_descriptors(long limit) {
+#if defined(__linux__) && defined(SYS_close_range)
+  if (syscall(SYS_close_range, 4u, ~0u, 0u) == 0) return;
+#endif
+  for (int fd = 4; fd < limit; fd++) close(fd);
+}
+
+COSMIC_SYSCALL(spawn, 8) {
+  const char *path = luaL_checkstring(L, 1);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
+  const char *cwd = luaL_optstring(L, 4, NULL);
+  int stdio[3];
+  for (int i = 0; i < 3; i++)
+    stdio[i] = lua_isnoneornil(L, 5 + i) ? i : (int)luaL_checkinteger(L, 5 + i);
+  int process_group = lua_toboolean(L, 8);
+  long descriptor_limit = sysconf(_SC_OPEN_MAX);
+  if (descriptor_limit < 0) descriptor_limit = 1024;
+
+  lua_Integer argc;
+  char **argv = string_array(L, 2, &argc);
+  if (argv == NULL) return cosmic_fail(L, ENOMEM);
+  if (argc == 0) {
+    free(argv);
+    return luaL_argerror(L, 2, "argv is empty");
+  }
+
+  char **envp = COSMIC_ENVIRON;
+  int environment_entries = 0;
+  if (!lua_isnoneornil(L, 3)) {
+    lua_newtable(L);
+    environment_entries = lua_gettop(L);
+    lua_Integer variables = 0;
+    lua_pushnil(L);
+    while (lua_next(L, 3) != 0) {
+      luaL_checktype(L, -2, LUA_TSTRING);
+      lua_pushvalue(L, -2);
+      lua_pushliteral(L, "=");
+      lua_pushvalue(L, -3);
+      lua_concat(L, 3);
+      lua_seti(L, environment_entries, ++variables);
+      lua_pop(L, 1);
+    }
+    envp = calloc((size_t)variables + 1, sizeof *envp);
+    if (envp == NULL) { free(argv); return cosmic_fail(L, ENOMEM); }
+    for (lua_Integer i = 1; i <= variables; i++) {
+      lua_geti(L, environment_entries, i);
+      envp[i - 1] = (char *)lua_tostring(L, -1);
+      lua_pop(L, 1);
+    }
+  }
+
+  int status_pipe[2];
+  if (pipe(status_pipe) != 0) {
+    int number = errno; if (environment_entries) free(envp); free(argv);
+    return cosmic_fail(L, number);
+  }
+  /* Move both ends clear of 0..3. The child reserves fd 3 for its error
+   * report, so closed parent stdio cannot make a pipe end collide with the
+   * remapping below. */
+  int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, 10);
+  int status_write = fcntl(status_pipe[1], F_DUPFD_CLOEXEC, 10);
+  int promote_error = errno;
+  close(status_pipe[0]);
+  close(status_pipe[1]);
+  if (status_read < 0 || status_write < 0) {
+    if (status_read >= 0) close(status_read);
+    if (status_write >= 0) close(status_write);
+    if (environment_entries) free(envp);
+    free(argv);
+    return cosmic_fail(L, promote_error);
+  }
+  pid_t pid = fork();
+  if (pid == 0) {
+    close(status_read);
+    int failure = 0;
+    /* dup2 resolves every source before closing anything. A source in 0..3
+     * may be overwritten by an earlier dup, so first pin those sources. */
+    int pinned[3] = {-1, -1, -1};
+    for (int i = 0; !failure && i < 3; i++) {
+      if (stdio[i] >= 0 && stdio[i] <= 3 && stdio[i] != i) {
+        pinned[i] = fcntl(stdio[i], F_DUPFD_CLOEXEC, 10);
+        if (pinned[i] < 0) failure = errno;
+      }
+    }
+    if (failure) {
+      (void)write(status_write, &failure, sizeof failure);
+      _exit(127);
+    }
+    if (dup2(status_write, 3) < 0) {
+      failure = errno;
+      (void)write(status_write, &failure, sizeof failure);
+      _exit(127);
+    }
+    close(status_write);
+    if (fcntl(3, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
+    if (!failure && process_group && setpgid(0, 0) != 0) failure = errno;
+    if (!failure && cwd != NULL && chdir(cwd) != 0) failure = errno;
+    for (int i = 0; !failure && i < 3; i++) {
+      int source = pinned[i] >= 0 ? pinned[i] : stdio[i];
+      if (source != i && dup2(source, i) < 0) failure = errno;
+    }
+    for (int i = 0; i < 3; i++) if (pinned[i] >= 0) close(pinned[i]);
+    close_child_descriptors(descriptor_limit);
+    if (!failure) execve(path, argv, envp);
+    if (!failure) failure = errno;
+    (void)write(3, &failure, sizeof failure);
+    _exit(127);
+  }
+  int fork_error = errno;
+  close(status_write);
+  if (environment_entries) free(envp);
+  free(argv);
+  if (pid < 0) { close(status_read); return cosmic_fail(L, fork_error); }
+
+  int child_error = 0;
+  ssize_t got;
+  do { got = read(status_read, &child_error, sizeof child_error); }
+  while (got < 0 && errno == EINTR);
+  int read_error = errno;
+  close(status_read);
+  if (got != 0) {
+    int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+    return cosmic_fail(L, got == sizeof child_error ? child_error : read_error);
+  }
+  lua_pushinteger(L, (lua_Integer)pid);
+  return 1;
+}
+
+COSMIC_SYSCALL(waitpid, 2) {
+  pid_t pid = (pid_t)luaL_checkinteger(L, 1);
+  int nohang = lua_toboolean(L, 2);
+  int status;
+  pid_t answer;
+  do { answer = waitpid(pid, &status, nohang ? WNOHANG : 0); }
+  while (answer < 0 && errno == EINTR);
+  if (answer < 0) return cosmic_fail(L, errno);
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, answer); lua_setfield(L, -2, "pid");
+  lua_pushinteger(L, answer > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+  lua_setfield(L, -2, "code");
+  lua_pushinteger(L, answer > 0 && WIFSIGNALED(status) ? WTERMSIG(status) : -1);
+  lua_setfield(L, -2, "signal");
+  return 1;
+}
+
+COSMIC_SYSCALL(kill, 2) {
+  pid_t pid = (pid_t)luaL_checkinteger(L, 1);
+  int signal = (int)luaL_checkinteger(L, 2);
+  if (kill(pid, signal) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+static volatile sig_atomic_t child_cancelled;
+static int child_signals_guarded;
+static struct sigaction previous_int;
+static struct sigaction previous_term;
+
+static void catch_child_cancel(int number) { child_cancelled = number; }
+
+COSMIC_SYSCALL(guard_child_signals, 0) {
+  if (child_signals_guarded) return cosmic_fail_effect(L, EBUSY);
+  struct sigaction action;
+  action.sa_handler = catch_child_cancel;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;
+  if (sigaction(SIGINT, &action, &previous_int) != 0)
+    return cosmic_fail_effect(L, errno);
+  if (sigaction(SIGTERM, &action, &previous_term) != 0) {
+    int number = errno;
+    sigaction(SIGINT, &previous_int, NULL);
+    return cosmic_fail_effect(L, number);
+  }
+  child_cancelled = 0;
+  child_signals_guarded = 1;
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(unguard_child_signals, 0) {
+  if (!child_signals_guarded) return cosmic_ok(L);
+  int first = 0;
+  if (sigaction(SIGINT, &previous_int, NULL) != 0) first = errno;
+  if (sigaction(SIGTERM, &previous_term, NULL) != 0 && first == 0) first = errno;
+  child_signals_guarded = 0;
+  child_cancelled = 0;
+  if (first != 0) return cosmic_fail_effect(L, first);
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(cancelled_child_signal, 0) {
+  int number = child_cancelled;
+  child_cancelled = 0;
+  lua_pushinteger(L, number);
+  return 1;
+}
+
 COSMIC_SYSCALL(deflate, 1) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
@@ -260,7 +481,9 @@ static const luaL_Reg table[] = {
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
     ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
-    ENTRY(inflate),  ENTRY(execve),
+    ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
+    ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
+    ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
     {NULL, NULL},
 };
 
@@ -294,6 +517,8 @@ static const struct constant constants[] = {
     {"EAGAIN", EAGAIN},
     {"EPIPE", EPIPE},
     {"EXDEV", EXDEV},
+    {"SIGTERM", SIGTERM},
+    {"SIGKILL", SIGKILL},
     {NULL, 0},
 };
 
