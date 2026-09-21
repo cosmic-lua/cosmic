@@ -390,3 +390,22 @@ suite; no timeout bound or assertion was changed. Published Stage 3 is
 `6e0f08c`; published Stage 4 is `7c9af0f`. This documentation-only follow-up
 starts the planned same-branch cancellation experiment against active run
 `35641812582`. Hosted completion and final integration review are pending.
+
+The same-SHA retry of run `35640402366` passed all four workers and provenance.
+The retried Alpine worker's Ubuntu portable suite passed in 15.2s with 361
+tests run and 0 prior verdicts standing; its checked suite took 31.4s and its
+actual Alpine portable execution took 15.2s. Provenance compared four products
+at SHA-256 `b12f6e1ae11c1d33d73583521437d62b2b17a7366270baeaa738f5e4c71f7c38`.
+This establishes a successful same-commit retry, not a completely cold all-core
+measurement: the initial fixture compilations were cold, while restored core
+caches varied by lane.
+
+The same-branch supersession experiment also behaved as designed: run
+`35641938581` at `da6c40e` canceled all four workers and provenance in older run
+`35641812582` at `7c9af0f`. The final integration review found no product-byte,
+test-coverage, helper-selection, shell-failure, or cache-invalidation defect.
+It corrected one misleading cache comment: the explicit always-run step stages
+local cache files after a failed build, but the `actions/cache` post action only
+publishes them after a successful job. Completion of the replacement run at
+the final reviewed SHA, including all four executions and provenance, remains
+pending.

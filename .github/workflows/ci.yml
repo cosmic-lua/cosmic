@@ -92,11 +92,10 @@ jobs:
 
       # The last step above to invoke `bin/zig build` (the fixture steps,
       # `sanitized`, and `portable-hook-cores`, inside platform.sh's `test`
-      # phase); nothing
-      # after this point builds native code. Runs even on failure so a
-      # partial compile still seeds the next run -- zig's own cache is
-      # content-addressed, so a stale or partial entry here can only cost
-      # a cache miss later, never produce a wrong build.
+      # phase); nothing after this point builds native code. Runs even on
+      # failure so the complete local cache is staged before diagnostics.
+      # actions/cache publishes it only when the job succeeds; zig's own
+      # content addressing makes restored entries safe to validate and reuse.
       - name: save zig build outputs for next run
         if: always()
         run: |
