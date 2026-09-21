@@ -88,6 +88,16 @@ case $phase in
     }
     mkdir -p "$work"
     cd "$root"
+    # CI keeps bin/zig's compile cache (o/zig-cache, o/zig-global) outside
+    # the checkout between runs, since the guard above requires no o/ yet;
+    # COSMIC_ZIG_CACHE_SEED, when set, names where it restored that cache
+    # to, and this seeds it into place now that the guard has passed.
+    if [ -n "${COSMIC_ZIG_CACHE_SEED:-}" ] && { [ -d "$COSMIC_ZIG_CACHE_SEED/zig-cache" ] ||
+        [ -d "$COSMIC_ZIG_CACHE_SEED/zig-global" ]; }; then
+      mkdir -p o
+      [ ! -d "$COSMIC_ZIG_CACHE_SEED/zig-cache" ] || cp -a "$COSMIC_ZIG_CACHE_SEED/zig-cache" o/zig-cache
+      [ ! -d "$COSMIC_ZIG_CACHE_SEED/zig-global" ] || cp -a "$COSMIC_ZIG_CACHE_SEED/zig-global" o/zig-global
+    fi
     bin/zig build cores boot
     test/portable/full_suite.sh local "$local_diagnostics"
     ;;
