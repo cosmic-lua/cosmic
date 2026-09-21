@@ -265,18 +265,22 @@ COSMIC_SYSCALL(spawn, 8) {
     if (value < 0 || value > INT_MAX)
       return luaL_argerror(L, 5 + i, "descriptor is out of range");
     stdio[i] = (int)value;
+    if (fcntl(stdio[i], F_GETFD) < 0) return cosmic_fail(L, errno);
   }
   int process_group = lua_toboolean(L, 8);
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
 
-  lua_Integer argc = luaL_len(L, 2);
+  size_t argc = lua_rawlen(L, 2);
   if (argc == 0) {
     return luaL_argerror(L, 2, "argv is empty");
   }
+  if (argc > (size_t)LUA_MAXINTEGER ||
+      argc > SIZE_MAX / sizeof(char *) - 1)
+    return luaL_argerror(L, 2, "argv is too large");
   /* Validate everything that can raise before allocating native memory. */
-  for (lua_Integer i = 1; i <= argc; i++) {
-    lua_geti(L, 2, i);
+  for (size_t i = 1; i <= argc; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i);
     plain_string(L, -1, "argv entry");
     lua_pop(L, 1);
   }
@@ -296,8 +300,8 @@ COSMIC_SYSCALL(spawn, 8) {
 
   char **argv = calloc((size_t)argc + 1, sizeof *argv);
   if (argv == NULL) return cosmic_fail(L, ENOMEM);
-  for (lua_Integer i = 1; i <= argc; i++) {
-    lua_geti(L, 2, i);
+  for (size_t i = 1; i <= argc; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i);
     argv[i - 1] = (char *)lua_tostring(L, -1);
     lua_pop(L, 1);
   }
@@ -376,6 +380,17 @@ COSMIC_SYSCALL(spawn, 8) {
     for (int i = 0; !failure && i < 3; i++) {
       int source = pinned[i] >= 0 ? pinned[i] : stdio[i];
       if (source != i && dup2(source, i) < 0) failure = errno;
+    }
+    /* dup2 clears CLOEXEC, but a mapping whose source is already its
+     * destination must be made equally safe for exec. Closed inherited
+     * descriptors remain closed. */
+    for (int i = 0; !failure && i < 3; i++) {
+      int flags = fcntl(i, F_GETFD);
+      if (flags >= 0) {
+        if (fcntl(i, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
+      } else if (errno != EBADF) {
+        failure = errno;
+      }
     }
     for (int i = 0; i < 3; i++) if (pinned[i] >= 0) close(pinned[i]);
     close_child_descriptors(descriptor_limit);
@@ -471,7 +486,7 @@ COSMIC_SYSCALL(guard_child_signals, 0) {
   }
   struct sigaction action;
   action.sa_handler = catch_child_cancel;
-  sigemptyset(&action.sa_mask);
+  child_signal_set(&action.sa_mask);
   action.sa_flags = 0;
   child_cancelled = 0;
   if (sigaction(SIGINT, &action, &previous_int) != 0) {

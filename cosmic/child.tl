@@ -111,6 +111,7 @@ local function terminate(self: Handle): Result | nil, string
     if answer then r = answer
     elseif wait_trouble ~= "timeout" then return nil, wait_trouble end
   end
+  if r and not self.process_group then return r end
   -- Even when the direct child honored TERM, a descendant may have ignored
   -- it. The process group remains addressable until its final member exits.
   local killed, kill_trouble = sys.kill(target(self), sys.SIGKILL)

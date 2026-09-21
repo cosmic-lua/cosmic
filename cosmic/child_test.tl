@@ -1,4 +1,5 @@
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
@@ -11,6 +12,15 @@ end
 local function output(dir: string, name: string): integer, string
   local path = dir .. "/" .. name
   return assert(Fs.open_write(path)), path
+end
+
+local function nested_cosmic_environment(): {string:string}
+  local environment = Env.all()
+  -- These hooks belong to the portable test's outer Cosmic startups. A
+  -- nested fixture has no matching FIFO handshake and must not inherit them.
+  environment.COSMIC_PORTABLE_STARTUP_TEST_READY = nil
+  environment.COSMIC_PORTABLE_STARTUP_TEST_GO = nil
+  return environment
 end
 
 local function test_start_failure_is_not_exit_127()
@@ -81,6 +91,45 @@ local function test_timeout_kills_the_process_group_and_reaps_child()
   assert(not alive)
 end
 
+local function test_non_group_timeout_returns_graceful_term_status()
+  local dir = temporary()
+  local ready = dir .. "/ready"
+  local h = assert(Child.start({ "/bin/sh", "-c",
+    "trap 'exit 19' TERM; printf ready >\"$1\"; while :; do :; done",
+    "sh", ready }, { process_group = false }))
+  local deadline = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
+  while not Fs.exists(ready) and assert(Time.monotonic_ns()) < deadline do
+    Time.sleep_ns(10 * 1000 * 1000)
+  end
+  assert(Fs.exists(ready), "child did not report readiness")
+  local r = assert(h:wait(0))
+  assert(r.code == 19 and r.signal == nil and r.timed_out)
+end
+
+local function test_spawn_validates_fds_and_preserves_cloexec_stdio()
+  local dir = temporary()
+  local fixture = dir .. "/driver.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+return function(): integer
+  Fs.close(11)
+  local invalid = Child.start({ "/bin/true" }, { stdout = 11 })
+  if invalid then invalid:close(); return 20 end
+  assert(Fs.close(0))
+  local fd = assert(Fs.open_read("/dev/null"))
+  assert(fd == 0)
+  local result = assert(Child.run({ "/bin/sh", "-c", "test -e /dev/fd/0" },
+    { stdin = fd, process_group = false }))
+  return result.ok and 0 or 21
+end
+]]))
+  local executable = assert(Proc.executable())
+  local result = assert(Child.run({ executable, fixture },
+    { env = nested_cosmic_environment() }))
+  assert(result.ok, "descriptor fixture exited " .. tostring(result.code))
+end
+
 local function test_run_forwards_parent_cancellation_after_group_cleanup()
   local dir = temporary()
   local ready = dir .. "/ready"
@@ -101,7 +150,8 @@ end
   local executable = assert(Proc.executable())
   local driver = assert(Child.start({ executable, fixture,
     descendant_path, ready },
-    { stdout = fd, stderr = fd, process_group = false }))
+    { env = nested_cosmic_environment(), stdout = fd, stderr = fd,
+      process_group = false }))
   local deadline = assert(Time.monotonic_ns()) + 3000 * 1000 * 1000
   while (not Fs.exists(ready) or Fs.read(ready) ~= "ready") and
       assert(Time.monotonic_ns()) < deadline do
