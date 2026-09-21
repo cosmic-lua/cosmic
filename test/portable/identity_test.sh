@@ -44,7 +44,7 @@ expect_tally() {
   output=$1
   ran=$2
   stood=$3
-  grep -F "test: PASS (1 tests, 1 modules; $ran ran, $stood stood)" \
+  grep -F "test: PASS (1 tests, 1 modules; $ran ran, $stood stood" \
     "$output" >/dev/null
 }
 
@@ -101,7 +101,7 @@ if [ -z "$state" ]; then
     cd "$focused"
     COSMIC_PORTABLE_CACHE="$cache" "$fixture/runtime.old" test
   ) > "$work/focused-embed.out" 2>&1
-  grep -F 'test: PASS (4 tests, 1 modules; 4 ran, 0 stood)' \
+  grep -F 'test: PASS (4 tests, 1 modules; 4 ran, 0 stood' \
     "$work/focused-embed.out" >/dev/null
 
   (

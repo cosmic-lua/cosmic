@@ -1014,7 +1014,7 @@ function test.run(argv: {integer:string}): integer
         "record a *_example.tl file returns")
     end
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
-      tally.ran .. " ran, " .. tally.cached .. " stood)")
+      tally.ran .. " ran, " .. tally.cached .. " stood, " .. elapsed_ms(started) .. " ms)")
     report(cov_line)
     return 0
   end
@@ -1025,7 +1025,8 @@ function test.run(argv: {integer:string}): integer
     report("test: ERROR  " .. records_path .. ": " .. line)
   end
   report("test: FAIL (" .. #failures .. " of " ..
-    (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors)")
+    (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
+    elapsed_ms(started) .. " ms)")
   if #errors == 0 then
     report(cov_line)
   end

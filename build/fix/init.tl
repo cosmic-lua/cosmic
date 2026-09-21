@@ -19,6 +19,7 @@
 --- own files.
 
 local Fs = require("cosmic.fs")
+local Time = require("cosmic.time")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local render_mod = require("build.fix.render")
@@ -140,6 +141,14 @@ local function report(line: string)
   Fs.put(Fs.stdout, line .. "\n")
 end
 
+local function elapsed_ms(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
+  end
+  return (now - from) // 1000000
+end
+
 local function complain(line: string)
   Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
@@ -197,6 +206,7 @@ end
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
+  local started = Time.monotonic_ns() or 0
   local checking = false
   local paths: {string} = {}
   local i = 2
@@ -267,15 +277,17 @@ function fix.run(argv: {integer:string}): integer
     report("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
   if #failures > 0 then
-    report("fix: FAIL (" .. #failures .. " of " .. counted .. " files refused)")
+    report("fix: FAIL (" .. #failures .. " of " .. counted .. " files refused, " ..
+      elapsed_ms(started) .. " ms)")
     return 1
   end
   if checking and #changed > 0 then
-    report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix)")
+    report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
+      elapsed_ms(started) .. " ms)")
     return 1
   end
   report("fix: PASS (" .. counted .. " files, " .. #changed ..
-    (checking and " to fix)" or " fixed)"))
+    (checking and " to fix, " or " fixed, ") .. elapsed_ms(started) .. " ms)")
   return 0
 end
 

@@ -130,7 +130,7 @@ if [ "${1-}" = --case ]; then
   rebuild_pid=
 
   [ -x "$program" ]
-  grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood\)' \
+  grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood' \
     "$case_root/rebuild.out" >/dev/null
   stale_lines=$(awk '/the tool is stale; rebuilding it from the tree/ { count++ } END { print count + 0 }' \
     "$case_root/rebuild.err")
