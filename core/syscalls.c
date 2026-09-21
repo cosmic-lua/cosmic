@@ -1,10 +1,22 @@
 /* The syscall table's process, time and data half, and the module. */
 
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#endif
 #define _XOPEN_SOURCE 700
 
 #include <fcntl.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <sys/wait.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+/* _XOPEN_SOURCE intentionally hides this libc escape hatch. It is used only
+ * for close_range, whose wrapper musl does not expose. */
+extern long syscall(long, ...);
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -201,6 +213,340 @@ COSMIC_SYSCALL(execve, 3) {
   return cosmic_fail(L, number);
 }
 
+static const char *plain_string(lua_State *L, int index, const char *what) {
+  if (lua_type(L, index) != LUA_TSTRING)
+    luaL_error(L, "%s must be a string", what);
+  size_t length;
+  const char *value = lua_tolstring(L, index, &length);
+  if (memchr(value, '\0', length) != NULL)
+    luaL_error(L, "%s contains a NUL byte", what);
+  return value;
+}
+
+static void free_environment(char **envp, lua_Integer count) {
+  if (envp == NULL) return;
+  for (lua_Integer i = 0; i < count; i++) free(envp[i]);
+  free(envp);
+}
+
+static int report_child_error(int fd, int number) {
+  const char *at = (const char *)&number;
+  size_t left = sizeof number;
+  while (left > 0) {
+    ssize_t put = write(fd, at, left);
+    if (put < 0 && errno == EINTR) continue;
+    if (put <= 0) return -1;
+    at += put;
+    left -= (size_t)put;
+  }
+  return 0;
+}
+
+/* Leave only stdio and the exec-status descriptor. Cosmic-opened descriptors
+ * are CLOEXEC already; this also closes foreign descriptors that are not. */
+static void close_child_descriptors(long limit) {
+#if defined(__linux__) && defined(SYS_close_range)
+  if (syscall(SYS_close_range, 4u, ~0u, 0u) == 0) return;
+#endif
+  for (int fd = 4; fd < limit; fd++) close(fd);
+}
+
+COSMIC_SYSCALL(spawn, 8) {
+  const char *path = plain_string(L, 1, "path");
+  luaL_checktype(L, 2, LUA_TTABLE);
+  if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
+  const char *cwd = lua_isnoneornil(L, 4) ? NULL : plain_string(L, 4, "cwd");
+  int stdio[3];
+  for (int i = 0; i < 3; i++) {
+    if (lua_isnoneornil(L, 5 + i)) { stdio[i] = i; continue; }
+    if (!lua_isinteger(L, 5 + i))
+      return luaL_argerror(L, 5 + i, "descriptor must be an integer");
+    lua_Integer value = lua_tointeger(L, 5 + i);
+    if (value < 0 || value > INT_MAX)
+      return luaL_argerror(L, 5 + i, "descriptor is out of range");
+    stdio[i] = (int)value;
+    if (fcntl(stdio[i], F_GETFD) < 0) return cosmic_fail(L, errno);
+  }
+  int process_group = lua_toboolean(L, 8);
+  long descriptor_limit = sysconf(_SC_OPEN_MAX);
+  if (descriptor_limit < 0) descriptor_limit = 1024;
+
+  size_t argc = lua_rawlen(L, 2);
+  if (argc == 0) {
+    return luaL_argerror(L, 2, "argv is empty");
+  }
+  if (argc > (size_t)LUA_MAXINTEGER ||
+      argc > SIZE_MAX / sizeof(char *) - 1)
+    return luaL_argerror(L, 2, "argv is too large");
+  /* Validate everything that can raise before allocating native memory. */
+  for (size_t i = 1; i <= argc; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i);
+    plain_string(L, -1, "argv entry");
+    lua_pop(L, 1);
+  }
+
+  lua_Integer envc = 0;
+  if (!lua_isnoneornil(L, 3)) {
+    lua_pushnil(L);
+    while (lua_next(L, 3) != 0) {
+      const char *name = plain_string(L, -2, "environment name");
+      plain_string(L, -1, "environment value");
+      if (*name == '\0' || strchr(name, '=') != NULL)
+        return luaL_argerror(L, 3, "environment name is empty or contains '='");
+      envc++;
+      lua_pop(L, 1);
+    }
+  }
+
+  char **argv = calloc((size_t)argc + 1, sizeof *argv);
+  if (argv == NULL) return cosmic_fail(L, ENOMEM);
+  for (size_t i = 1; i <= argc; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i);
+    argv[i - 1] = (char *)lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+
+  char **envp = COSMIC_ENVIRON;
+  if (!lua_isnoneornil(L, 3)) {
+    envp = calloc((size_t)envc + 1, sizeof *envp);
+    if (envp == NULL) { free(argv); return cosmic_fail(L, ENOMEM); }
+    lua_Integer at = 0;
+    lua_pushnil(L);
+    while (lua_next(L, 3) != 0) {
+      size_t name_len, value_len;
+      const char *name = lua_tolstring(L, -2, &name_len);
+      const char *value = lua_tolstring(L, -1, &value_len);
+      char *entry = malloc(name_len + value_len + 2);
+      if (entry == NULL) {
+        lua_pop(L, 2);
+        free_environment(envp, at);
+        free(argv);
+        return cosmic_fail(L, ENOMEM);
+      }
+      memcpy(entry, name, name_len);
+      entry[name_len] = '=';
+      memcpy(entry + name_len + 1, value, value_len + 1);
+      envp[at++] = entry;
+      lua_pop(L, 1);
+    }
+  }
+
+  int status_pipe[2];
+  if (pipe(status_pipe) != 0) {
+    int number = errno; if (!lua_isnoneornil(L, 3)) free_environment(envp, envc); free(argv);
+    return cosmic_fail(L, number);
+  }
+  /* Move both ends clear of 0..3. The child reserves fd 3 for its error
+   * report, so closed parent stdio cannot make a pipe end collide with the
+   * remapping below. */
+  int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, 10);
+  int status_write = fcntl(status_pipe[1], F_DUPFD_CLOEXEC, 10);
+  int promote_error = errno;
+  close(status_pipe[0]);
+  close(status_pipe[1]);
+  if (status_read < 0 || status_write < 0) {
+    if (status_read >= 0) close(status_read);
+    if (status_write >= 0) close(status_write);
+    if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+    free(argv);
+    return cosmic_fail(L, promote_error);
+  }
+  pid_t pid = fork();
+  if (pid == 0) {
+    close(status_read);
+    int failure = 0;
+    /* dup2 resolves every source before closing anything. A source in 0..3
+     * may be overwritten by an earlier dup, so first pin those sources. */
+    int pinned[3] = {-1, -1, -1};
+    for (int i = 0; !failure && i < 3; i++) {
+      if (stdio[i] >= 0 && stdio[i] <= 3 && stdio[i] != i) {
+        pinned[i] = fcntl(stdio[i], F_DUPFD_CLOEXEC, 10);
+        if (pinned[i] < 0) failure = errno;
+      }
+    }
+    if (failure) {
+      report_child_error(status_write, failure);
+      _exit(127);
+    }
+    if (dup2(status_write, 3) < 0) {
+      failure = errno;
+      report_child_error(status_write, failure);
+      _exit(127);
+    }
+    close(status_write);
+    if (fcntl(3, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
+    if (!failure && process_group && setpgid(0, 0) != 0) failure = errno;
+    if (!failure && cwd != NULL && chdir(cwd) != 0) failure = errno;
+    for (int i = 0; !failure && i < 3; i++) {
+      int source = pinned[i] >= 0 ? pinned[i] : stdio[i];
+      if (source != i && dup2(source, i) < 0) failure = errno;
+    }
+    /* dup2 clears CLOEXEC, but a mapping whose source is already its
+     * destination must be made equally safe for exec. Closed inherited
+     * descriptors remain closed. */
+    for (int i = 0; !failure && i < 3; i++) {
+      int flags = fcntl(i, F_GETFD);
+      if (flags >= 0) {
+        if (fcntl(i, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
+      } else if (errno != EBADF) {
+        failure = errno;
+      }
+    }
+    for (int i = 0; i < 3; i++) if (pinned[i] >= 0) close(pinned[i]);
+    close_child_descriptors(descriptor_limit);
+    if (!failure) execve(path, argv, envp);
+    if (!failure) failure = errno;
+    report_child_error(3, failure);
+    _exit(127);
+  }
+  int fork_error = errno;
+  close(status_write);
+  if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
+  free(argv);
+  if (pid < 0) { close(status_read); return cosmic_fail(L, fork_error); }
+
+  int child_error = 0;
+  size_t received = 0;
+  int read_error = 0;
+  while (received < sizeof child_error) {
+    ssize_t got = read(status_read, (char *)&child_error + received,
+                       sizeof child_error - received);
+    if (got > 0) { received += (size_t)got; continue; }
+    if (got == 0) break;
+    if (errno == EINTR) continue;
+    read_error = errno;
+    break;
+  }
+  close(status_read);
+  if (received != 0 || read_error != 0) {
+    int ignored; while (waitpid(pid, &ignored, 0) < 0 && errno == EINTR) {}
+    return cosmic_fail(L, received == sizeof child_error ? child_error :
+                       (read_error != 0 ? read_error : EIO));
+  }
+  lua_pushinteger(L, (lua_Integer)pid);
+  return 1;
+}
+
+COSMIC_SYSCALL(waitpid, 2) {
+  lua_Integer value = luaL_checkinteger(L, 1);
+  if (value <= 0 || value > INT_MAX)
+    return luaL_argerror(L, 1, "pid is out of range");
+  pid_t pid = (pid_t)value;
+  int nohang = lua_toboolean(L, 2);
+  int status;
+  pid_t answer;
+  do { answer = waitpid(pid, &status, nohang ? WNOHANG : 0); }
+  while (answer < 0 && errno == EINTR);
+  if (answer < 0) return cosmic_fail(L, errno);
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, answer); lua_setfield(L, -2, "pid");
+  lua_pushinteger(L, answer > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+  lua_setfield(L, -2, "code");
+  lua_pushinteger(L, answer > 0 && WIFSIGNALED(status) ? WTERMSIG(status) : -1);
+  lua_setfield(L, -2, "signal");
+  return 1;
+}
+
+COSMIC_SYSCALL(kill, 2) {
+  lua_Integer pid_value = luaL_checkinteger(L, 1);
+  lua_Integer signal_value = luaL_checkinteger(L, 2);
+  if (pid_value == 0 || pid_value < -INT_MAX || pid_value > INT_MAX)
+    return luaL_argerror(L, 1, "pid is out of range");
+  if (signal_value < 0 || signal_value > INT_MAX)
+    return luaL_argerror(L, 2, "signal is out of range");
+  pid_t pid = (pid_t)pid_value;
+  int signal = (int)signal_value;
+  if (kill(pid, signal) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+static volatile sig_atomic_t child_cancelled;
+static int child_signals_guarded;
+static struct sigaction previous_int;
+static struct sigaction previous_term;
+
+static void catch_child_cancel(int number) {
+  if (child_cancelled == 0) child_cancelled = number;
+}
+
+static void child_signal_set(sigset_t *set) {
+  sigemptyset(set);
+  sigaddset(set, SIGINT);
+  sigaddset(set, SIGTERM);
+}
+
+COSMIC_SYSCALL(guard_child_signals, 0) {
+  sigset_t blocked, previous_mask;
+  child_signal_set(&blocked);
+  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
+    return cosmic_fail_effect(L, errno);
+  if (child_signals_guarded) {
+    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+    return cosmic_fail_effect(L, EBUSY);
+  }
+  struct sigaction action;
+  action.sa_handler = catch_child_cancel;
+  child_signal_set(&action.sa_mask);
+  action.sa_flags = 0;
+  child_cancelled = 0;
+  if (sigaction(SIGINT, &action, &previous_int) != 0) {
+    int number = errno;
+    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+    return cosmic_fail_effect(L, number);
+  }
+  if (sigaction(SIGTERM, &action, &previous_term) != 0) {
+    int number = errno;
+    sigaction(SIGINT, &previous_int, NULL);
+    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+    return cosmic_fail_effect(L, number);
+  }
+  child_signals_guarded = 1;
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0) {
+    int number = errno;
+    sigaction(SIGINT, &previous_int, NULL);
+    sigaction(SIGTERM, &previous_term, NULL);
+    child_signals_guarded = 0;
+    return cosmic_fail_effect(L, number);
+  }
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(unguard_child_signals, 0) {
+  sigset_t blocked, previous_mask;
+  child_signal_set(&blocked);
+  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
+    return cosmic_fail(L, errno);
+  if (!child_signals_guarded) {
+    sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  int first = 0;
+  if (sigaction(SIGINT, &previous_int, NULL) != 0) first = errno;
+  if (sigaction(SIGTERM, &previous_term, NULL) != 0 && first == 0) first = errno;
+  int cancelled = child_cancelled;
+  child_signals_guarded = 0;
+  child_cancelled = 0;
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0 && first == 0)
+    first = errno;
+  if (first != 0) return cosmic_fail(L, first);
+  lua_pushinteger(L, cancelled);
+  return 1;
+}
+
+COSMIC_SYSCALL(cancelled_child_signal, 0) {
+  sigset_t blocked, previous_mask;
+  child_signal_set(&blocked);
+  if (sigprocmask(SIG_BLOCK, &blocked, &previous_mask) != 0)
+    return cosmic_fail(L, errno);
+  int number = child_cancelled;
+  child_cancelled = 0;
+  if (sigprocmask(SIG_SETMASK, &previous_mask, NULL) != 0)
+    return cosmic_fail(L, errno);
+  lua_pushinteger(L, number);
+  return 1;
+}
+
 COSMIC_SYSCALL(deflate, 1) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
@@ -260,7 +606,9 @@ static const luaL_Reg table[] = {
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
     ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
-    ENTRY(inflate),  ENTRY(execve),
+    ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
+    ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
+    ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
     {NULL, NULL},
 };
 
@@ -294,6 +642,8 @@ static const struct constant constants[] = {
     {"EAGAIN", EAGAIN},
     {"EPIPE", EPIPE},
     {"EXDEV", EXDEV},
+    {"SIGTERM", SIGTERM},
+    {"SIGKILL", SIGKILL},
     {NULL, 0},
 };
 

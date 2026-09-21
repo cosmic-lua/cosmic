@@ -178,3 +178,13 @@ jobs:
       - name: summarize provenance timing
         if: always()
         run: test/ci/timing-summary.sh "$RUNNER_TEMP/provenance-timings.tsv" "$GITHUB_STEP_SUMMARY"
+
+  prerelease:
+    needs: provenance
+    if: >-
+      github.repository == 'cosmic-lua/cosmic' &&
+      github.ref == 'refs/heads/next' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+    uses: ./.github/workflows/prerelease.yml

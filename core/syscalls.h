@@ -293,6 +293,75 @@ COSMIC_SYSCALL(getpid, 0);
 COSMIC_SYSCALL(execve, 3);
 
 /*
+ * --- Starts one child with explicit arguments, environment, directory and
+ * --- standard descriptors. The child is reported only after exec succeeds.
+ * ---@param path string the executable path
+ * ---@param argv {string} the arguments, the program's own name first
+ * ---@param environment? {string:string} the exact environment, or nil to inherit
+ * ---@param cwd? string the child's working directory, or nil to inherit
+ * ---@param stdin? integer the child's fd 0 source, or nil to inherit fd 0
+ * ---@param stdout? integer the child's fd 1 source, or nil to inherit fd 1
+ * ---@param stderr? integer the child's fd 2 source, or nil to inherit fd 2
+ * ---@param process_group boolean put the child in a new process group
+ * ---@return integer|nil pid the child process id, or nil when setup or exec failed
+ * ---@return string error what went wrong, when pid is nil
+ * ---@return integer errno the error number, when pid is nil
+ */
+COSMIC_SYSCALL(spawn, 8);
+
+/*
+ * ---@class ChildStatus
+ * ---@field pid integer zero when a nonblocking wait found no finished child
+ * ---@field code integer exit status, or -1 when the child was signaled or unfinished
+ * ---@field signal integer terminating signal, or -1 when it exited or is unfinished
+ */
+
+/*
+ * --- Reaps a child, optionally returning immediately while it is running.
+ * ---@param pid integer the child process id
+ * ---@param nohang boolean true to poll instead of block
+ * ---@return ChildStatus|nil status the child's status, or nil on failure
+ * ---@return string error what went wrong, when status is nil
+ * ---@return integer errno the error number, when status is nil
+ */
+COSMIC_SYSCALL(waitpid, 2);
+
+/*
+ * --- Sends a signal to a process, or to a group when pid is negative.
+ * ---@param pid integer the process id, negated for a process group
+ * ---@param signal integer the signal number
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(kill, 2);
+
+/*
+ * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
+ * --- Only one guard may be active; callers must restore it when done.
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(guard_child_signals, 0);
+
+/*
+ * --- Restores dispositions and returns a signal caught since the last take.
+ * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
+ * ---@return string error what went wrong, when signal is nil
+ * ---@return integer errno the error number, when signal is nil
+ */
+COSMIC_SYSCALL(unguard_child_signals, 0);
+
+/*
+ * --- Takes a pending supervised SIGINT or SIGTERM, or zero when none arrived.
+ * ---@return integer|nil signal the pending signal number, zero, or nil on failure
+ * ---@return string error what went wrong, when signal is nil
+ * ---@return integer errno the error number, when signal is nil
+ */
+COSMIC_SYSCALL(cancelled_child_signal, 0);
+
+/*
  * --- Reads a clock, in nanoseconds.
  * ---@param clock integer one of `syscalls.CLOCK_REALTIME`, `_MONOTONIC`
  * ---@return integer|nil nanoseconds the reading, or nil on failure
@@ -379,6 +448,8 @@ COSMIC_SYSCALL(inflate, 2);
  * ---@field EAGAIN integer nothing is ready yet
  * ---@field EPIPE integer the other end is gone
  * ---@field EXDEV integer the two paths are on different filesystems
+ * ---@field SIGTERM integer request termination
+ * ---@field SIGKILL integer force termination
  */
 
 /* Opens the table as the `cosmic.sys` module. */
