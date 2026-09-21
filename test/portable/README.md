@@ -20,7 +20,7 @@ Three pairs of scripts each build one kind of fixture and then exercise it;
 since they always work on the same fixture, each pair is one entry point
 with `build`/`test` verbs:
 
-- `launcher.sh build OUTPUT` / `launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]`
+- `launcher.sh build OUTPUT TARGET` / `launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]`
 - `product.sh build OUTPUT` / `product.sh test PRODUCT TARGET FORMAT_DECODER [--codesign]`
 - `runtime.sh build OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` / `runtime.sh test RUNTIME_FIXTURE_DIRECTORY`
 

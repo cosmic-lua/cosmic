@@ -265,6 +265,35 @@ Acceptance/review:
 - Full suites still report actual execution (`0 stood` where required),
   and all four independently produced release artifacts compare equal.
 
+Progress (2026-09-21): the consumer audit found that `format.sh`'s native
+decoder owns the full writer round trip and malformed-field mutation cases,
+while the decoder built for the worker target is separately executed against
+the transported product. They differ in optimization and in the target ID and
+configuration macros, so both remain. Only that one target decoder is now
+published. `launcher.sh` still supplies one real payload for every row in the
+three-target manifest: the writer reads all three, and replacing foreign
+payloads would weaken selection and manifest coverage. The socket helper is
+only passed to the launcher regression on the worker that can execute it, so
+only the worker-target socket helper is built and published. The runtime
+writer consumes all three hooked cores in its complete old, new, basis,
+missing, sanitized, and incompatible artifacts; all hooked cores therefore
+remain, as do all three real release cores.
+
+Per worker, the fixture path previously invoked three target-decoder builds
+and three socket-helper builds. It now invokes one of each: two target-decoder
+and two socket-helper invocations disappear, while the native decoder, three
+payloads, three release cores, and three hooked cores remain. Across the four
+independent lanes this removes sixteen fixture build invocations without
+changing any artifact manifest. A focused x86_64 Linux run completed in 2s
+with cached compiler inputs; its journal named only the native and x86_64
+target decoders, all three payloads, and the x86_64 socket helper. The format
+malformed mutations, exact core ranges and shared prefix checks passed, as did
+the complete launcher cache, integrity, race, descriptor, and execution
+regression. Shell syntax, whitespace checks, and the ordinary suite passed;
+the latter took 1s with 361 prior verdicts standing. Full fresh suite execution,
+real-host macOS selection and codesign, Alpine BusyBox execution, timing
+comparison, and final four-lane SHA equality remain hosted acceptance evidence.
+
 ## Stage 4: cancel superseded runs without coupling branches
 
 File: `.github/workflows/ci.yml`.
@@ -323,8 +352,8 @@ tests ran on a platform based solely on cross-compilation.
 ## Progress
 
 - [x] Inspect baseline and agree on independent-worker architecture.
-- [ ] Stage 1: timing implementation and independent review.
-- [ ] Stage 2: cacheable fixture builds and independent review.
+- [x] Stage 1: timing implementation and independent review.
+- [x] Stage 2: cacheable fixture builds and independent review.
 - [ ] Stage 3: minimum required fixture targets and independent review.
 - [ ] Stage 4: superseded-run cancellation and independent review.
 - [ ] Stage 5: integrated hosted evidence and final independent review.

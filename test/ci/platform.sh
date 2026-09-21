@@ -83,8 +83,8 @@ case $phase in
     timing_run 'codesign verification' bin/verify-codesign o/core/aarch64-macos/cosmic-core
     timing_run 'product assembly' test/portable/product.sh build "$product"
     sha256_of "$product/cosmic" > "$work/cosmic.before.sha256"
-    timing_run 'format fixture' test/portable/format.sh "$contract/format"
-    timing_run 'launcher fixture assembly' test/portable/launcher.sh build "$contract/launcher"
+    timing_run 'format fixture' test/portable/format.sh "$contract/format" "$target"
+    timing_run 'launcher fixture assembly' test/portable/launcher.sh build "$contract/launcher" "$target"
 
     # The checked boot mutates the local working database, so it follows the
     # release suite's delayed boundary. No other boot writer runs concurrently.

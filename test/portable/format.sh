@@ -6,6 +6,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 publish=${1:-}
+publish_target=${2:-}
 work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-portable-format.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
@@ -52,14 +53,22 @@ fi
 timing_end 'format range and prefix verification' 0
 
 if [ "$publish" != "" ]; then
+  [ -n "$publish_target" ] || {
+    echo 'usage: format.sh [PUBLISH_DIRECTORY TARGET]' >&2
+    exit 2
+  }
+  awk -v target="$publish_target" '$4 == target { found = 1 } END { exit !found }' \
+    "$root/o/targets.tsv" || {
+      printf 'portable format: unsupported target: %s\n' "$publish_target" >&2
+      exit 2
+    }
   mkdir -p "$publish"
+  rm -f "$publish"/format-test-*
   cp "$work/program.a" "$publish/program"
   cp "$root/o/targets.tsv" "$publish/targets.tsv"
-  while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
-    timing_run "format target decoder compilation: $target" \
-      "$root/bin/zig" build "portable-format-$target"
-    cp "$root/o/portable-fixture/format/format-test-$target" \
-      "$publish/format-test-$target"
-  done < "$root/o/targets.tsv"
+  timing_run "format target decoder compilation: $publish_target" \
+    "$root/bin/zig" build "portable-format-$publish_target"
+  cp "$root/o/portable-fixture/format/format-test-$publish_target" \
+    "$publish/format-test-$publish_target"
 fi
 printf 'portable format: PASS (generated targets, exact cores, shared prefix, distinct databases)\n'
