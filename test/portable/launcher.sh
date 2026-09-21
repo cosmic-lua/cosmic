@@ -1,8 +1,56 @@
 #!/bin/sh
-# Focused integration coverage for the production portable shell launcher.
+# Builds and exercises the step-4 shell launcher contract fixture.
 set -eu
 
-artifact_input=${1:?usage: launcher_test.sh TEST_ARTIFACT [SOCKET_HELPER]}
+root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+. "$root/test/portable/lib.sh"
+
+verb=${1-}
+case "$verb" in
+  build|test) shift ;;
+  *)
+    echo "usage: launcher.sh {build|test} ARGS..." >&2
+    echo "  launcher.sh build OUTPUT_DIRECTORY" >&2
+    echo "  launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$verb" = build ]; then
+  # Build one identical launcher fixture containing a native TEST payload for
+  # every generated target. The fixture verifies only the step-4 shell
+  # contract.
+  out=${1:?usage: launcher.sh build OUTPUT_DIRECTORY}
+  mkdir -p "$out/payloads"
+  tab=$(printf '\t')
+  while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
+    [ "$configuration" = release ]
+    "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
+      "$root/test/portable/launcher_payload.c" -o "$out/payloads/payload-$target"
+    "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
+      "$root/test/portable/launcher_socket_fd.c" -o "$out/payloads/socket-$target"
+  done < "$root/o/targets.tsv"
+
+  "$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-launcher-fixture \
+    "$root/o/targets.tsv" "$out/payloads" "$out/launcher"
+  chmod 755 "$out/launcher.release" "$out/launcher.test"
+  for kind in release test; do
+    dd if="$out/launcher.$kind" of="$out/launcher.$kind.header" \
+      bs=16384 count=1 2>/dev/null
+    /bin/sh -n "$out/launcher.$kind.header"
+  done
+  if grep -a -q 'COSMIC_PORTABLE_TEST_' "$out/launcher.release"; then
+    echo 'release launcher contains fixture hook names' >&2
+    exit 1
+  fi
+  grep -a -q 'COSMIC_PORTABLE_TEST_' "$out/launcher.test"
+  printf 'portable launcher build: PASS (three native TEST payloads, release shell has no hooks)\n'
+  exit 0
+fi
+
+# verb = test. Focused integration coverage for the production portable
+# shell launcher.
+artifact_input=${1:?usage: launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]}
 socket_helper=${2-}
 case $artifact_input in /*) ;; *) artifact_input=$PWD/$artifact_input ;; esac
 if [ -n "$socket_helper" ]; then
@@ -32,8 +80,7 @@ ln -s "$work/run space" "$work/run alias"
 artifact=$work/program\ space/launcher.test
 cp "$artifact_input" "$artifact"
 chmod 755 "$artifact"
-artifact_before=$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$artifact"; else shasum -a 256 "$artifact"; fi)
-artifact_before=${artifact_before%% *}
+artifact_before=$(sha256_of "$artifact")
 ordinary='PORTABLE_ORDINARY_ENV=preserved'
 caller_umask=$(umask)
 PORTABLE_CALLER_LOCALE=preserved
@@ -50,11 +97,6 @@ mtime_of() {
     Darwin) stat -f '%m' "$1" ;;
     *) stat -c '%Y' -- "$1" ;;
   esac
-}
-sha_of() {
-  if command -v sha256sum >/dev/null 2>&1; then value=$(sha256sum "$1")
-  else value=$(shasum -a 256 "$1"); fi
-  printf '%s\n' "${value%% *}"
 }
 core_in() {
   find "$1" -type f ! -name '.*' -print
@@ -95,8 +137,9 @@ grep -q '^payload stderr$' "$work/basic.err"
 [ "$(wc -l < "$marker")" -eq 1 ]
 [ "$(mode_of "$basic_cache")" = 700 ]
 core=$(core_in "$basic_cache")
-[ -n "$core" ] && [ "$(mode_of "$core")" = 500 ]
-core_hash=$(sha_of "$core")
+[ -n "$core" ]
+[ "$(mode_of "$core")" = 500 ]
+core_hash=$(sha256_of "$core")
 cache_mtime=$(mtime_of "$basic_cache")
 core_mtime=$(mtime_of "$core")
 chmod 500 "$basic_cache"
@@ -104,7 +147,7 @@ run_plain "$basic_cache" > "$work/warm.out" 2> "$work/warm.err"
 [ "$(mode_of "$basic_cache")" = 500 ]
 [ "$(mtime_of "$basic_cache")" = "$cache_mtime" ]
 [ "$(mtime_of "$core")" = "$core_mtime" ]
-[ "$(sha_of "$core")" = "$core_hash" ]
+[ "$(sha256_of "$core")" = "$core_hash" ]
 chmod 700 "$basic_cache"
 
 # Default paths: absolute XDG wins; relative XDG falls back to an absolute
@@ -118,7 +161,8 @@ case $(uname -s) in
   Darwin) default_cache=$home/Library/Caches/cosmic/cores ;;
   *) default_cache=$home/.cache/cosmic/cores ;;
 esac
-[ -d "$default_cache" ] && [ "$(mode_of "$default_cache")" = 700 ]
+[ -d "$default_cache" ]
+[ "$(mode_of "$default_cache")" = 700 ]
 env -u COSMIC_PORTABLE_CACHE XDG_CACHE_HOME="$xdg" HOME="$home" "$ordinary" \
   "$artifact" > /dev/null
 [ -d "$xdg/cosmic/cores" ]
@@ -138,10 +182,14 @@ env -u COSMIC_PORTABLE_CACHE -u XDG_CACHE_HOME -u HOME "$ordinary" \
   "$artifact" > /dev/null 2> "$work/unset-home.err"
 unset_home_status=$?
 set -e
-[ "$empty_status" -ne 0 ] && grep -q 'must be an absolute path' "$work/empty.err"
-[ "$relative_status" -ne 0 ] && grep -q 'must be an absolute path' "$work/relative.err"
-[ "$home_status" -ne 0 ] && grep -q 'no absolute HOME' "$work/home.err"
-[ "$unset_home_status" -ne 0 ] && grep -q 'no absolute HOME' "$work/unset-home.err"
+[ "$empty_status" -ne 0 ]
+grep -q 'must be an absolute path' "$work/empty.err"
+[ "$relative_status" -ne 0 ]
+grep -q 'must be an absolute path' "$work/relative.err"
+[ "$home_status" -ne 0 ]
+grep -q 'no absolute HOME' "$work/home.err"
+[ "$unset_home_status" -ne 0 ]
+grep -q 'no absolute HOME' "$work/unset-home.err"
 
 # Leaf policy rejects symlinks, unsafe modes, and a different owner when this
 # runner can create one. A 0500 cache without the selected core fails clearly.
@@ -203,7 +251,7 @@ grep -q 'digest differs and cache is read-only' "$work/read-only-corrupt.err"
 chmod 700 "$basic_cache"
 run_plain "$basic_cache" > /dev/null 2> "$work/warm-corrupt.err"
 grep -q 'digest differs; repairing' "$work/warm-corrupt.err"
-[ "$(sha_of "$core")" = "$core_hash" ]
+[ "$(sha256_of "$core")" = "$core_hash" ]
 chmod 700 "$core"
 dd if="$core" of="$work/short-core" bs=1 count=20 2>/dev/null
 cat "$work/short-core" > "$core"
@@ -361,14 +409,16 @@ env "$ordinary" COSMIC_PORTABLE_CACHE="$basic_cache" PORTABLE_PAYLOAD_MARKER="$e
   PORTABLE_PAYLOAD_EXIT=23 "$artifact" > /dev/null
 exit_status=$?
 set -e
-[ "$exit_status" -eq 23 ] && [ "$(wc -l < "$exit_marker")" -eq 1 ]
+[ "$exit_status" -eq 23 ]
+[ "$(wc -l < "$exit_marker")" -eq 1 ]
 signal_marker=$work/signal.marker
 set +e
 env "$ordinary" COSMIC_PORTABLE_CACHE="$basic_cache" PORTABLE_PAYLOAD_MARKER="$signal_marker" \
   PORTABLE_PAYLOAD_SIGNAL=1 "$artifact" > /dev/null 2> "$work/signal.err"
 signal_status=$?
 set -e
-[ "$signal_status" -ne 0 ] && [ "$(wc -l < "$signal_marker")" -eq 1 ]
+[ "$signal_status" -ne 0 ]
+[ "$(wc -l < "$signal_marker")" -eq 1 ]
 
 # Exercise a noexec cache only when this host exposes one without privilege.
 if [ "$(uname -s)" = Linux ] && [ -d /dev/shm ] && [ -w /dev/shm ]; then
@@ -389,7 +439,7 @@ if [ "$(uname -s)" = Linux ] && [ -d /dev/shm ] && [ -w /dev/shm ]; then
   rm -rf "$noexec_root"
 fi
 
-artifact_after=$(sha_of "$artifact")
+artifact_after=$(sha256_of "$artifact")
 [ "$artifact_after" = "$artifact_before" ]
 
 # Report cost without a pass/fail threshold. This runs on every workflow host.
