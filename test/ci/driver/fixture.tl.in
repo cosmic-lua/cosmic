@@ -1,0 +1,237 @@
+local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Time = require("cosmic.time")
+
+-- Candidate scripts, applications, and decoder executions normally finish in
+-- well under a second. Native decoder compilation opts into its larger bound.
+local default_child_timeout_ms <const> = 30000
+
+local record Fixture
+  record Target
+    id: integer
+    configuration: integer
+    kind: string
+    name: string
+  end
+
+  record Capture
+    out: string
+    err: string
+  end
+
+  record Entry
+    target: integer
+    configuration: integer
+    offset: integer
+    length: integer
+    digest: string
+  end
+
+  record Inspection
+    prefix_length: integer
+    manifest_offset: integer
+    manifest_length: integer
+    database_offset: integer
+    database_length: integer
+    entries: {string:Entry}
+    entry_count: integer
+  end
+end
+
+function Fixture.required(name: string): string
+  return assert(Env.get(name), "fixture environment is missing " .. name)
+end
+
+function Fixture.mkdir(path: string)
+  assert(Fs.mkdirs(path))
+end
+
+function Fixture.read(path: string): string
+  return assert(Fs.read(path))
+end
+
+function Fixture.small(path: string, limit: integer): string
+  local size = assert(Fs.stat(path)).size
+  assert(size <= limit, path .. ": expected at most " .. tostring(limit) ..
+    " bytes, found " .. tostring(size))
+  return Fixture.read(path)
+end
+
+function Fixture.write(path: string, data: string, mode?: integer)
+  assert(Fs.write(path, data, mode))
+end
+
+function Fixture.copy(from: string, to: string, mode?: integer)
+  Fixture.write(to, Fixture.read(from), mode)
+end
+
+function Fixture.hash(path: string): string
+  return Hash.hex_sha256(Fixture.read(path))
+end
+
+function Fixture.environment(extra?: {string:string}): {string:string}
+  local environment = Env.all()
+  if extra then
+    for name, value in pairs(extra) do environment[name] = value end
+  end
+  return environment
+end
+
+local function preview(path: string): string
+  local fd = assert(Fs.open_read(path))
+  local called, answer, trouble = pcall(Fs.take, fd, 8192)
+  local closed, close_trouble = Fs.close(fd)
+  if not called then error(answer) end
+  assert(closed, close_trouble)
+  return assert(answer as string | nil, trouble)
+end
+
+function Fixture.run(label: string, argv: {string}, directory: string,
+    diagnostics: string, extra?: {string:string}, timeout_ms?: integer): Fixture.Capture
+  Fixture.mkdir(diagnostics)
+  local out = diagnostics .. "/" .. label .. ".out"
+  local err = diagnostics .. "/" .. label .. ".err"
+  local out_fd = assert(Fs.open_write(out))
+  local err_fd, open_trouble = Fs.open_write(err)
+  if err_fd == nil then
+    local closed, close_trouble = Fs.close(out_fd)
+    assert(closed, close_trouble)
+    error(open_trouble)
+  end
+  local options: Child.Options = {
+    cwd = directory,
+    env = Fixture.environment(extra),
+    stdout = out_fd,
+    stderr = err_fd,
+    process_group = true,
+  }
+  options.timeout_ms = timeout_ms or default_child_timeout_ms
+  local started = assert(Time.monotonic_ns())
+  local called, answer, trouble = pcall(Child.run, argv, options)
+  local elapsed = (assert(Time.monotonic_ns()) - started) // 1000000
+  local out_closed, out_trouble = Fs.close(out_fd)
+  local err_closed, err_trouble = Fs.close(err_fd)
+  if not called then error(answer) end
+  local result = answer as Child.Result | nil
+  if result == nil then
+    error(label .. ": could not start: " .. tostring(trouble) ..
+      "; stdout=" .. out .. "; stderr=" .. err)
+  end
+  local finished = result as Child.Result
+  if not finished.ok then
+    error(label .. ": failed code=" .. tostring(finished.code) ..
+      " signal=" .. tostring(finished.signal) ..
+      " timed_out=" .. tostring(finished.timed_out) ..
+      "; stdout=" .. out .. "; stderr=" .. err ..
+      "; output preview:\n" .. preview(out) .. preview(err))
+  end
+  assert(out_closed, out_trouble)
+  assert(err_closed, err_trouble)
+  assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": PASS (" ..
+    tostring(elapsed) .. " ms)\n"))
+  return { out = out, err = err }
+end
+
+function Fixture.contains(path: string, expected: string)
+  local text = preview(path)
+  assert(text:find(expected, 1, true),
+    path .. ": missing expected text: " .. expected)
+end
+
+function Fixture.targets(path: string): {Fixture.Target}
+  local targets: {Fixture.Target} = {}
+  local pairs_seen: {string:boolean} = {}
+  local names_seen: {string:boolean} = {}
+  local contents = Fixture.read(path)
+  assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
+    not contents:find("\n\n", 1, true),
+    "generated targets have empty or unterminated records")
+  for line in contents:gmatch("[^\n]+") do
+    local id_text, configuration_text, kind, name, uname_os, uname_arch =
+      line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
+    local id = id_text and math.tointeger(tonumber(id_text)) or nil
+    local configuration = configuration_text and
+      math.tointeger(tonumber(configuration_text)) or nil
+    assert(id and configuration and kind and name and uname_os and uname_arch,
+      "invalid generated target record: " .. line)
+    local pair = tostring(id) .. ":" .. tostring(configuration)
+    assert(not pairs_seen[pair], "duplicate target/configuration: " .. pair)
+    assert(not names_seen[name], "duplicate target name: " .. name)
+    pairs_seen[pair], names_seen[name] = true, true
+    targets[#targets + 1] = {
+      id = id,
+      configuration = configuration,
+      kind = kind,
+      name = name,
+    }
+  end
+  assert(#targets > 0, "generated targets are empty")
+  return targets
+end
+
+function Fixture.inspection(path: string): Fixture.Inspection
+  local prefix_length: integer | nil = nil
+  local manifest_offset: integer | nil = nil
+  local manifest_length: integer | nil = nil
+  local database_offset: integer | nil = nil
+  local database_length: integer | nil = nil
+  local declared_count: integer | nil = nil
+  local entries: {string:Fixture.Entry} = {}
+  local count = 0
+  local contents = Fixture.small(path, 8192)
+  assert(contents:sub(1, 1) ~= "\n" and contents:sub(-1) == "\n" and
+    not contents:find("\n\n", 1, true),
+    "decoder inspection has empty or unterminated records")
+  for line in contents:gmatch("[^\n]+") do
+    if line:sub(1, 7) == "prefix " then
+      assert(prefix_length == nil, "duplicate decoder prefix record")
+      local p, mo, ml, db, dl, ec = line:match(
+        "^prefix (%d+) manifest (%d+) (%d+) database (%d+) (%d+) entries (%d+)$")
+      prefix_length = math.tointeger(assert(tonumber(p)))
+      manifest_offset = math.tointeger(assert(tonumber(mo)))
+      manifest_length = math.tointeger(assert(tonumber(ml)))
+      database_offset = math.tointeger(assert(tonumber(db)))
+      database_length = math.tointeger(assert(tonumber(dl)))
+      declared_count = math.tointeger(assert(tonumber(ec)))
+    elseif line:sub(1, 6) == "entry " then
+      local target_text, configuration_text, offset_text, length_text, digest =
+        line:match("^entry (%d+) (%d+) (%d+) (%d+) ([0-9a-f]+)$")
+      local target = math.tointeger(assert(tonumber(target_text)))
+      local configuration =
+        math.tointeger(assert(tonumber(configuration_text)))
+      local offset = math.tointeger(assert(tonumber(offset_text)))
+      local length = math.tointeger(assert(tonumber(length_text)))
+      assert(target and configuration and offset and length and digest and
+        #digest == 64, "invalid decoder entry record: " .. line)
+      local key = tostring(target) .. ":" .. tostring(configuration)
+      assert(entries[key] == nil, "duplicate decoder entry record: " .. key)
+      entries[key] = { target = target, configuration = configuration,
+        offset = offset, length = length, digest = digest }
+      count = count + 1
+    else
+      error("unexpected decoder inspection record: " .. line)
+    end
+  end
+  assert(prefix_length and manifest_offset and manifest_length and
+    database_offset and database_length and declared_count,
+    "decoder prefix record is missing")
+  assert(count == declared_count, "decoder entry count differs")
+  return { prefix_length = prefix_length, manifest_offset = manifest_offset,
+    manifest_length = manifest_length, database_offset = database_offset,
+    database_length = database_length, entries = entries, entry_count = count }
+end
+
+function Fixture.entry(inspection: Fixture.Inspection, target: integer,
+    configuration: integer): Fixture.Entry | nil
+  return inspection.entries[tostring(target) .. ":" .. tostring(configuration)]
+end
+
+function Fixture.assert_executable(path: string)
+  local st = assert(Fs.stat(path))
+  assert(st.kind == "file" and st.mode & 0x49 == 0x49,
+    "executable mode is missing: " .. path)
+end
+
+return Fixture

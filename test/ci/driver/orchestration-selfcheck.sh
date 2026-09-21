@@ -58,7 +58,7 @@ test ! -e "$work/project/bad.db"
 # suite exit remains primary when its integrity snapshot also fails.
 fake=$work/fake-candidate
 seed=$work/seed
-test ! -e "$work/platform" && test ! -e "$work/state/failure.db"
+test ! -e "$work/platform"
 mkdir -p "$fake/bin" "$fake/test/portable" "$seed/zig-cache" \
   "$seed/zig-global" "$work/tmp"
 printf fixture > "$fake/AGENTS.md"
@@ -83,12 +83,12 @@ chmod 755 "$fake/bin/zig"
 set +e
 TMPDIR="$work/tmp" COSMIC_ZIG_CACHE_SEED="$seed" \
   COSMIC_CI_SELFTEST_REPLAY_FAILURE=true \
-  "$cosmic" "$driver" platform build "$work/state/failure.db" worker run 1 \
+  "$cosmic" "$driver" platform build "$work/platform/operations.db" worker run 1 \
     "$fake" x86_64-linux-musl "$work/platform"
 status=$?
 set -e
 test "$status" -eq 23
-test -d "$work/platform" && test -f "$work/state/failure.db"
+test -d "$work/platform" && test -f "$work/platform/operations.db"
 test ! -e "$fake/o/build.db.build.db"
 test ! -e "$fake/o/poison"
 test -d "$fake/o/zig-cache" && test -d "$fake/o/zig-global"

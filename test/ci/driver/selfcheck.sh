@@ -26,6 +26,28 @@ db="$state/operations.db"
 
 (cd "$project" && "$cosmic" fix driver.tl)
 
+# State's path checks run as a real test in a project that contains no fixture
+# test requiring platform inputs.
+state_project="$work/state test project"
+mkdir "$state_project"
+cp "$here/driver/state.tl.in" "$state_project/state.tl"
+cp "$here/driver/state_test.tl.in" "$state_project/state_test.tl"
+(cd "$state_project" && "$cosmic" test) > "$state/state-test.out"
+grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood' \
+  "$state/state-test.out" >/dev/null
+
+# The shared fixture boundary and timeout behavior run separately, without
+# platform-dependent product inputs or unrelated fixture tests.
+fixture_project="$work/fixture test project"
+fixture_tmp="$state/fixture-test-tmp"
+mkdir "$fixture_project" "$fixture_tmp"
+cp "$here/driver/fixture.tl.in" "$fixture_project/fixture.tl"
+cp "$here/driver/fixture_test.tl.in" "$fixture_project/fixture_test.tl"
+(cd "$fixture_project" && TMPDIR="$fixture_tmp" "$cosmic" test) \
+  > "$state/fixture-test.out"
+grep -E 'test: PASS \([^;]+; [1-9][0-9]* ran, 0 stood' \
+  "$state/fixture-test.out" >/dev/null
+
 "$cosmic" "$driver" run "$db" worker run-1 1 success "$candidate" 1000 \
   /bin/sh -c 'test "$PWD" = "$1"; printf ok > "$2"' sh \
   "$candidate" "$state/path with spaces"
@@ -127,4 +149,4 @@ set -e
 test "$code" -ne 0
 test ! -e "$work/bootstrap runner/cosmic"
 
-echo "ci driver: PASS (success, nonzero, start failure, timeout, interruption, spaces, pin rejection)"
+echo "ci driver: PASS (state and fixture boundaries, success, nonzero, start failure, timeout, interruption, spaces, pin rejection)"

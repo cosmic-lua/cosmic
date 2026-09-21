@@ -16,25 +16,25 @@ artifact, extracting a manifest entry, corrupting a core range, and so on).
 `artifact_fixture.tl` is the small v1 artifact reader/writer-input library
 both `tool.tl` and `build/artifact.tl` fixtures build on.
 
-Three pairs of scripts each build one kind of fixture and then exercise it;
-since they always work on the same fixture, each pair is one entry point
-with `build`/`test` verbs:
+Two scripts each build one kind of fixture and then exercise it; since they
+always work on the same fixture, each pair is one entry point with
+`build`/`test` verbs:
 
 - `launcher.sh build OUTPUT TARGET` / `launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]`
-- `product.sh build OUTPUT` / `product.sh test PRODUCT TARGET FORMAT_DECODER [--codesign]`
 - `runtime.sh build OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` / `runtime.sh test RUNTIME_FIXTURE_DIRECTORY`
 
-`format.sh`, `identity_test.sh`, and `self_rebuild.sh`
-stay as their own entry points: each is called on its own, independent of
-any sibling build step.
+`identity_test.sh` and `self_rebuild.sh` stay as their own entry points: each
+is called on its own, independent of any sibling build step. Product assembly,
+transport validation, and the cross-language format contract are actual Cosmic
+tests generated in the pinned CI driver's isolated fixture projects.
 
 ## What each one covers
 
-`format.sh` is the cross-language format check: the production Teal writer
-makes a prefix from `build.zig`'s generated records and real cores, and the
-production C decoder (`format_test.c`, linked against `core/portable.c`)
-validates it before a battery of focused malformed-field mutations is
-tried against it.
+The driver's `format_test.tl.in` is the cross-language format check: the
+production Teal writer makes a prefix from `build.zig`'s generated records and
+real cores, and the production C decoder (`format_test.c`, linked against
+`core/portable.c`) validates it before a battery of focused malformed-field
+mutations is tried against it.
 
 `launcher.sh build` compiles one native contract payload per generated
 target and writes one launcher fixture containing both a release prefix and
@@ -54,19 +54,19 @@ remaining `COSMIC_PORTABLE_*` fields are a reserved launcher-to-core
 contract that startup requires complete, adopts, and clears before Lua
 runs.
 
-`product.sh build` makes the per-host provenance bundle from a booted
-tree: it copies portable Cosmic, extracts its exact prefix and manifest
-(`tool.tl product-extract`), and uses those same local portable bytes to
-build the `hello` and `second` standalone fixtures. The bundle also
-carries every generated release target's raw core; extraction checks that
-each core occurs exactly once, at its manifest range, in Cosmic and both
-applications. `product.sh test` verifies every recorded transported hash,
-exact prefix reuse, the selected manifest range's length, digest, and raw
-core bytes, and both applications; on the macOS host it also sends that
-extracted range to strict `codesign` verification. Normal CI runs these checks
-in independent x86 Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux
-producer whose product also runs under Alpine. The `provenance` job compares
-the exact `cosmic` bytes all four attest they ran.
+The driver's `product_build_test.tl.in` makes the per-host provenance bundle
+from a booted tree: it copies portable Cosmic, extracts its exact prefix and
+manifest (`tool.tl product-extract`), and uses those same local portable bytes
+to build the `hello` and `second` standalone fixtures. The bundle also carries
+every generated release target's raw core; extraction checks that each core
+occurs exactly once, at its manifest range, in Cosmic and both applications.
+`product_test.tl.in` verifies every recorded transported hash, exact prefix
+reuse, the selected manifest range's length, digest, and raw core bytes, and
+both applications; on the macOS host it also sends that extracted range to
+strict `codesign` verification. Normal CI runs these checks in independent x86
+Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux producer whose
+product also runs under Alpine. The `provenance` job compares the exact
+`cosmic` bytes all four attest they ran.
 
 `runtime.sh build` and `runtime.sh test` cover real Cosmic cores end to end
 against the runtime's host-independent projection. A fixture-only core

@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local State = require("state")
 local Time = require("cosmic.time")
 
@@ -94,6 +95,37 @@ local function capture_small(c: Context, phase: string, command: {string},
   local fd = assert(Fs.open_write(path))
   local status = operation(c, phase, command, timeout, cwd, environment(), fd, Fs.stderr)
   assert(Fs.close(fd)); return status
+end
+
+-- Whole-project guards include compilation and test-runner overhead. The
+-- direct children inside them have the shorter bounds defined by fixture.tl.
+local product_test_timeout_ms <const> = 60000
+local product_build_timeout_ms <const> = 120000
+local format_test_timeout_ms <const> = 300000
+
+local function fixture_test(c: Context, work: string, name: string,
+    source: string, timeout_ms: integer, extra: {string:string}): integer
+  assert(name:match("^[%w-]+$"), "invalid fixture test name")
+  assert(source:match("^[%w_]+$"), "invalid fixture test source")
+  local project = work .. "/fixture-test-" .. name
+  local diagnostics = work .. "/fixture-test-diagnostics/" .. name
+  assert(not Fs.exists(project), "fixture test project already exists: " .. project)
+  mkdir(project); mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
+  local driver_project = c.driver:match("^(.*)/[^/]+$") or "."
+  write(project .. "/fixture.tl", read(driver_project .. "/fixture.tl"))
+  write(project .. "/" .. source .. "_test.tl",
+    read(driver_project .. "/" .. source .. "_test.tl"))
+  local fixture_environment = environment(extra)
+  fixture_environment.TMPDIR = diagnostics .. "/tmp"
+  local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
+  local status = logged(c, "fixture: " .. name,
+    { assert(Proc.executable()), "test" }, out, err, timeout_ms, project,
+    fixture_environment)
+  if status ~= 0 then return status end
+  assert(tail(out, diagnostics .. "/.tail"):match(
+    "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
+    name .. " fixture tests did not run fresh")
+  return 0
 end
 
 local function checked_suite(c: Context, target: string, work: string): integer
@@ -265,32 +297,48 @@ local function platform_impl(a: {string}): integer
     assert(read(local_d .. "/local-immediate/hashes.sha256") == read(local_d .. "/local-boundary/hashes.sha256"), "local database changed across boundary"); return 0
   elseif phase == "assemble" then
     assert(Fs.exists(local_d .. "/local-boundary/hashes.sha256"))
-    local commands: {{string}} = {
-      { root .. "/o/bin/cosmic", "fix", "--check", "." },
-      { root .. "/bin/verify-codesign", root .. "/o/core/aarch64-macos/cosmic-core" },
-      { root .. "/test/portable/product.sh", "build", product },
-    }
-    local labels = { "format check", "codesign verification", "product assembly" }
-    for i, cmd in ipairs(commands) do local s = checked(c, labels[i], cmd); if s ~= 0 then return s end end
+    local s = checked(c, "format check",
+      { root .. "/o/bin/cosmic", "fix", "--check", "." })
+    if s ~= 0 then return s end
+    s = checked(c, "codesign verification",
+      { root .. "/bin/verify-codesign",
+        root .. "/o/core/aarch64-macos/cosmic-core" })
+    if s ~= 0 then return s end
+    s = fixture_test(c, work, "product-construction", "product_build",
+      product_build_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_PRODUCT = product,
+    })
+    if s ~= 0 then return s end
     write(work .. "/cosmic.before.sha256", hash(product .. "/cosmic") .. "\n")
+    s = fixture_test(c, work, "format-contract", "format",
+      format_test_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_FORMAT = contract .. "/format",
+      COSMIC_FIXTURE_TARGET = target,
+    })
+    if s ~= 0 then return s end
     local after_product: {{string}} = {
-      { root .. "/test/portable/format.sh", contract .. "/format", target },
       { root .. "/test/portable/launcher.sh", "build", contract .. "/launcher", target },
       { root .. "/bin/zig", "build", "sanitized" },
     }
-    local after_labels = { "format fixture", "launcher fixture assembly", "checked build" }
+    local after_labels = { "launcher fixture assembly", "checked build" }
     for i, cmd in ipairs(after_product) do
-      local s = checked(c, after_labels[i], cmd); if s ~= 0 then return s end
+      s = checked(c, after_labels[i], cmd); if s ~= 0 then return s end
     end
-    local s = checked_suite(c, target, work)
+    s = checked_suite(c, target, work)
     if s ~= 0 then return s end
     s = checked(c, "hook-core build", { root .. "/bin/zig", "build", "portable-hook-cores", "--prefix", work .. "/prebuilt" }); if s ~= 0 then return s end
     mkdir(work .. "/prebuilt/portable-fixture/sanitized")
     write(work .. "/prebuilt/portable-fixture/sanitized/cosmic-core", read(root .. "/o/sanitized/cosmic-core"))
     s = checked(c, "runtime fixture assembly", { root .. "/test/portable/runtime.sh", "build", runtime, work .. "/prebuilt", product .. "/cosmic", product .. "/cosmic.db" }); if s ~= 0 then return s end
-    local verify = { root .. "/test/portable/product.sh", "test", product, target, contract .. "/format/format-test-" .. target }
-    if target == "aarch64-macos" then verify[#verify + 1] = "--codesign" end
-    s = checked(c, "product verification", verify); if s ~= 0 then return s end
+    s = fixture_test(c, work, "product-verification", "product",
+      product_test_timeout_ms, {
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_TARGET = target,
+      COSMIC_FIXTURE_DECODER = contract .. "/format/format-test-" .. target,
+      COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
+    }); if s ~= 0 then return s end
     s = checked(c, "selected format mutation", { contract .. "/format/format-test-" .. target, contract .. "/format/program" }); if s ~= 0 then return s end
     s = archive(c, fresh); if s ~= 0 then return s end
     mkdir(portable_d); write(portable_d .. "/cosmic-portable", read(product .. "/cosmic"));
@@ -324,14 +372,19 @@ local function platform_impl(a: {string}): integer
     return 0
   elseif phase == "fixtures" then
     mkdir(work .. "/self-rebuild-diagnostics")
-    local signature: {string} = { root .. "/test/portable/product.sh", "test", product, target, contract .. "/format/format-test-" .. target }; if target == "aarch64-macos" then signature[#signature + 1] = "--codesign" end
     local list: {Fixture} = {
       { command = { root .. "/test/portable/self_rebuild.sh", runtime }, label = "self-rebuild regression", env = { TMPDIR = work .. "/self-rebuild-diagnostics" } },
       { command = { root .. "/test/portable/runtime.sh", "test", runtime }, label = "runtime regression", env = { COSMIC_PORTABLE_DIAGNOSTICS = work .. "/runtime-diagnostics" } },
       { command = { root .. "/test/portable/launcher.sh", "test", contract .. "/launcher/launcher.test", contract .. "/launcher/payloads/socket-" .. target }, label = "launcher regression" },
-      { command = { root .. "/test/portable/identity_test.sh", runtime }, label = "identity regression" },
-      { command = signature, label = "product regression" } }
+      { command = { root .. "/test/portable/identity_test.sh", runtime }, label = "identity regression" } }
     for _, one in ipairs(list) do local s = checked(c, one.label, one.command, 0, root, one.env and environment(one.env) or environment()); if s ~= 0 then return s end end
+    local s = fixture_test(c, work, "product-regression", "product",
+      product_test_timeout_ms, {
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_TARGET = target,
+      COSMIC_FIXTURE_DECODER = contract .. "/format/format-test-" .. target,
+      COSMIC_FIXTURE_CODESIGN = target == "aarch64-macos" and "true" or "false",
+    }); if s ~= 0 then return s end
     assert(hash(product .. "/cosmic") .. "\n" == read(work .. "/cosmic.before.sha256"), "product mutated by fixtures"); return 0
   elseif phase == "attest" then
     local before = read(work .. "/cosmic.before.sha256"); local digest = hash(product .. "/cosmic") .. "\n"
@@ -414,9 +467,14 @@ container_command("alpine-readonly")) end
       { contract .. "/format/format-test-x86_64-linux-musl",
        contract .. "/format/program" })
     if s ~= 0 then return s end
-    s = checked(c, "Alpine product verification",
-      { root .. "/test/portable/product.sh", "test", product,
-       "x86_64-linux-musl", contract .. "/format/format-test-x86_64-linux-musl" })
+    s = fixture_test(c, work, "alpine-product", "product",
+      product_test_timeout_ms, {
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_TARGET = "x86_64-linux-musl",
+      COSMIC_FIXTURE_DECODER = contract ..
+        "/format/format-test-x86_64-linux-musl",
+      COSMIC_FIXTURE_CODESIGN = "false",
+    })
     if s ~= 0 then return s end
     local executable = diagnostics .. "/cosmic-portable"
     write(executable, read(product .. "/cosmic"))
@@ -453,9 +511,14 @@ container_command("alpine-readonly")) end
     assert(read(diagnostics .. "/portable-immediate/hashes.sha256") ==
       read(diagnostics .. "/portable-boundary/hashes.sha256"),
       "Alpine database changed across boundary")
-    s = checked(c, "Alpine final product verification",
-      { root .. "/test/portable/product.sh", "test", product,
-       "x86_64-linux-musl", contract .. "/format/format-test-x86_64-linux-musl" })
+    s = fixture_test(c, work, "alpine-product-final", "product",
+      product_test_timeout_ms, {
+      COSMIC_FIXTURE_PRODUCT = product,
+      COSMIC_FIXTURE_TARGET = "x86_64-linux-musl",
+      COSMIC_FIXTURE_DECODER = contract ..
+        "/format/format-test-x86_64-linux-musl",
+      COSMIC_FIXTURE_CODESIGN = "false",
+    })
     if s ~= 0 then return s end
     assert(read(diagnostics .. "/portable-artifact.before.sha256") ==
       read(diagnostics .. "/portable-artifact.after.sha256"),
