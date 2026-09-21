@@ -122,6 +122,27 @@ Acceptance/review:
 - Determine how much of `format.sh` is compilation versus byte processing.
   Stop and revise the optimization priority if compilation is not dominant.
 
+Progress (2026-09-21): implemented on `impl/ci-worker-speed` from
+`0ba3835e0da6c938d146decf2a3b7d329d2211b4`. The worker now writes a POSIX
+one-second, append-only timing journal under its runner-temporary work
+directory and always renders it into the job summary. External commands retain
+their argv, streams, environment, and nonzero status; interrupted grouped
+checks remain visible as unfinished intervals. Major worker phases, individual
+format and launcher fixture compilations, format fixture writing/mutation/
+inspection/range-prefix verification, Alpine execution, and the final
+provenance comparison have stable labels. Local focused checks exercised a
+space-containing argument, success, an internal `set -e` failure (status 1), a
+distinct direct nonzero status (37), and an unfinished interval; shell syntax,
+workflow YAML parsing, and `git diff --check` passed. The ordinary suite was
+not run because this fresh instrumentation-only worktree has no staged
+`o/bin/cosmic`; hosted four-lane cold/warm measurements and their cache
+provenance remain the Stage 1 acceptance evidence to collect after review.
+Independent review found that timing diagnostics followed a command's stdout
+redirection and contaminated the format inspection stream. Diagnostics now go
+to stderr; a focused `sh` and `dash` check confirmed byte-exact redirected
+stdout, a space-containing argument, and status 37. The reviewer otherwise
+approved failure propagation, suite coverage, and provenance semantics.
+
 ## Stage 2: make fixture compilation explicit and cacheable
 
 Files: `build.zig`, `test/portable/format.sh`,

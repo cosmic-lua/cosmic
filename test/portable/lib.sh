@@ -20,6 +20,45 @@ say() {
   printf '%s\n' "$*"
 }
 
+# Lightweight CI timing. COSMIC_TIMING_FILE, when set, must name a file outside
+# the checkout/product. The POSIX date clock has one-second resolution. Records
+# are append-only so an interrupted operation remains visible as an unmatched
+# begin event. Labels are stable strings and must not contain tabs or newlines.
+timing_begin() {
+  tb_label=$1
+  [ -n "${COSMIC_TIMING_FILE:-}" ] || return 0
+  tb_now=$(date +%s) || return
+  printf 'begin\t%s\t%s\n' "$tb_label" "$tb_now" >> "$COSMIC_TIMING_FILE"
+  printf 'timing: START %s (clock resolution 1s)\n' "$tb_label" >&2
+}
+
+timing_end() {
+  te_label=$1
+  te_status=$2
+  [ -n "${COSMIC_TIMING_FILE:-}" ] || return 0
+  te_now=$(date +%s) || return
+  te_elapsed=$((te_now - tb_now))
+  printf 'end\t%s\t%s\t%s\n' "$te_label" "$te_now" "$te_status" >> "$COSMIC_TIMING_FILE"
+  printf 'timing: END %s elapsed=%ss status=%s\n' \
+    "$te_label" "$te_elapsed" "$te_status" >&2
+}
+
+# Run an external command with argv, streams, environment, and exit status
+# unchanged. Do not pass shell functions: placing those in an `if` condition
+# can disable their own set -e behavior on some shells.
+timing_run() {
+  tr_label=$1
+  shift
+  timing_begin "$tr_label"
+  if "$@"; then
+    tr_status=0
+  else
+    tr_status=$?
+  fi
+  timing_end "$tr_label" "$tr_status"
+  return "$tr_status"
+}
+
 # Prints the hex sha256 of $1 on stdout. Preserves the digest command's exit
 # status (a failed sha256sum/shasum fails this function; nothing downstream
 # is fed through a pipe that could swallow that status).

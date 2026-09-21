@@ -2,6 +2,9 @@
 # Prove that every successful native leg executed and uploaded one Cosmic.
 set -eu
 
+root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+. "$root/test/portable/lib.sh"
+
 products=${1:?usage: provenance.sh PRODUCTS_DIRECTORY}
 case $products in /*) ;; *) products=$PWD/$products ;; esac
 [ -d "$products" ] || { echo "provenance: missing products: $products" >&2; exit 2; }
@@ -9,6 +12,7 @@ case $products in /*) ;; *) products=$PWD/$products ;; esac
 count=0
 expected=
 baseline=
+timing_begin 'provenance comparison'
 for product in "$products"/portable-product-*; do
   [ -d "$product" ] || continue
   [ -f "$product/executed-cosmic.sha256" ] && \
@@ -35,3 +39,4 @@ done
 }
 printf 'provenance: PASS (%s native executions uploaded Cosmic %s)\n' \
   "$count" "$(awk '{print $1}' "$baseline")"
+timing_end 'provenance comparison' 0

@@ -11,7 +11,8 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 . "$root/test/portable/lib.sh"
 
-"$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-format-fixture \
+timing_run 'format fixture writing' \
+  "$root/o/bin/cosmic" "$root/test/portable/tool.tl" write-format-fixture \
   "$root/o/targets.tsv" "$root/o/core" "$work/program"
 required_mask=0
 release_configuration=
@@ -25,15 +26,18 @@ while IFS="$tab" read -r target_id configuration_id configuration target uname_o
     [ "$release_configuration" = "$configuration_id" ]
   fi
 done < "$root/o/targets.tsv"
-"$root/bin/zig" cc -std=c11 -Wall -Wextra -Werror \
+timing_run 'format native decoder compilation' \
+  "$root/bin/zig" cc -std=c11 -Wall -Wextra -Werror \
   -DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C\("$required_mask"\) \
   -DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID="$release_configuration" \
   -I "$root/core" "$root/core/portable.c" \
   "$root/test/portable/format_test.c" -o "$work/format-test"
 
-"$work/format-test" "$work/program.a"
-"$work/format-test" --inspect "$work/program.a" > "$work/inspection"
+timing_run 'format mutation execution' "$work/format-test" "$work/program.a"
+timing_run 'format inspection' "$work/format-test" --inspect \
+  "$work/program.a" > "$work/inspection"
 
+timing_begin 'format range and prefix verification'
 while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
   [ "$configuration" = release ]
   line=$(awk -v target="$target_id" -v configuration="$configuration_id" \
@@ -59,13 +63,15 @@ if cmp -s "$work/program.a" "$work/program.b"; then
   echo "portable format: fixture programs unexpectedly match" >&2
   exit 1
 fi
+timing_end 'format range and prefix verification' 0
 
 if [ "$publish" != "" ]; then
   mkdir -p "$publish"
   cp "$work/program.a" "$publish/program"
   cp "$root/o/targets.tsv" "$publish/targets.tsv"
   while IFS="$tab" read -r target_id configuration_id configuration target uname_os uname_arch; do
-    "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
+    timing_run "format target decoder compilation: $target" \
+      "$root/bin/zig" cc -target "$target" -O2 -std=c11 -Wall -Wextra -Werror \
       -DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C\("$required_mask"\) \
       -DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID="$release_configuration" \
       -DPORTABLE_TEST_TARGET_ID="$target_id" \

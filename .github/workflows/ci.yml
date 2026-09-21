@@ -130,6 +130,10 @@ jobs:
           EXPECTED_PLATFORMS: ${{ strategy.job-total }}
         run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" attest
 
+      - name: summarize worker timings
+        if: always()
+        run: test/ci/timing-summary.sh "$RUNNER_TEMP/platform/timings.tsv" "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: portable-product-${{ matrix.name }}
@@ -164,4 +168,9 @@ jobs:
           pattern: portable-product-*
           path: ${{ runner.temp }}/products
       - name: compare the Cosmic bytes executed on every native host
+        env:
+          COSMIC_TIMING_FILE: ${{ runner.temp }}/provenance-timings.tsv
         run: test/ci/provenance.sh "$RUNNER_TEMP/products"
+      - name: summarize provenance timing
+        if: always()
+        run: test/ci/timing-summary.sh "$RUNNER_TEMP/provenance-timings.tsv" "$GITHUB_STEP_SUMMARY"

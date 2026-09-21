@@ -23,6 +23,10 @@ case $target in
 esac
 
 . "$root/test/portable/lib.sh"
+mkdir -p "$work"
+COSMIC_TIMING_FILE=${COSMIC_TIMING_FILE:-$work/timings.tsv}
+export COSMIC_TIMING_FILE
+: >> "$COSMIC_TIMING_FILE"
 product=$work/product
 contract=$work/contract
 runtime=$work/runtime
@@ -39,44 +43,6 @@ archive_source() {
   mkdir -p "$destination"
   git -C "$root" archive HEAD | tar -x -C "$destination"
   [ ! -e "$destination/o" ]
-}
-
-checked_suite() {
-  targets=$root/o/sanitized/targets.tsv
-  cosmic=$root/o/sanitized/bin/cosmic
-  core=$root/o/sanitized/cosmic-core
-  target_id=$(awk -F '\t' \
-    '$2 == 2 && $3 == "sanitized" { print $1; count++ } END { if (count != 1) exit 1 }' \
-    "$targets")
-  checked_target=$(awk -F '\t' -v id="$target_id" \
-    '$1 == id && $2 == 1 && $3 == "release" { print $4; count++ } END { if (count != 1) exit 1 }' \
-    "$targets")
-  [ "$checked_target" = "$target" ]
-  set -- $("$cosmic" "$root/test/portable/tool.tl" entry \
-    "$cosmic" "$target_id" 2)
-  [ "$#" -eq 3 ]
-  offset=$1
-  length=$2
-  digest=$3
-  [ "$length" -eq "$(wc -c < "$core")" ]
-  extract_core_range "$cosmic" "$offset" "$length" \
-    "$work/checked.core" "$digest" "$core"
-  "$cosmic" "$root/test/portable/tool.tl" checked-context \
-    "$core" "$target"
-  run_bounded_90() {
-    if command -v timeout >/dev/null 2>&1; then
-      timeout 90 "$@"
-    elif command -v gtimeout >/dev/null 2>&1; then
-      gtimeout 90 "$@"
-    elif [ "${GITHUB_ACTIONS:-}" = true ]; then
-      echo 'checked suite: timeout command unavailable; relying on the job bound' >&2
-      "$@"
-    else
-      echo 'checked suite: timeout or gtimeout is required outside CI' >&2
-      return 2
-    fi
-  }
-  run_bounded_90 "$cosmic" test
 }
 
 case $phase in
@@ -98,8 +64,8 @@ case $phase in
       [ ! -d "$COSMIC_ZIG_CACHE_SEED/zig-cache" ] || cp -a "$COSMIC_ZIG_CACHE_SEED/zig-cache" o/zig-cache
       [ ! -d "$COSMIC_ZIG_CACHE_SEED/zig-global" ] || cp -a "$COSMIC_ZIG_CACHE_SEED/zig-global" o/zig-global
     fi
-    bin/zig build cores boot
-    test/portable/full_suite.sh local "$local_diagnostics"
+    timing_run 'core build and boot' bin/zig build cores boot
+    timing_run 'local suite' test/portable/full_suite.sh local "$local_diagnostics"
     ;;
 
   test)
@@ -113,38 +79,41 @@ case $phase in
       exit 1
     }
     cd "$root"
-    o/bin/cosmic fix --check .
-    bin/verify-codesign o/core/aarch64-macos/cosmic-core
-    test/portable/product.sh build "$product"
+    timing_run 'format check' o/bin/cosmic fix --check .
+    timing_run 'codesign verification' bin/verify-codesign o/core/aarch64-macos/cosmic-core
+    timing_run 'product assembly' test/portable/product.sh build "$product"
     sha256_of "$product/cosmic" > "$work/cosmic.before.sha256"
-    test/portable/format.sh "$contract/format"
-    test/portable/launcher.sh build "$contract/launcher"
+    timing_run 'format fixture' test/portable/format.sh "$contract/format"
+    timing_run 'launcher fixture assembly' test/portable/launcher.sh build "$contract/launcher"
 
     # The checked boot mutates the local working database, so it follows the
     # release suite's delayed boundary. No other boot writer runs concurrently.
-    bin/zig build sanitized
-    checked_suite
-    bin/zig build portable-hook-cores --prefix "$work/prebuilt"
+    timing_run 'checked build' bin/zig build sanitized
+    timing_run 'checked suite' "$root/test/ci/checked-suite.sh" \
+      "$root" "$target" "$work"
+    timing_run 'hook-core build' bin/zig build portable-hook-cores --prefix "$work/prebuilt"
     mkdir -p "$work/prebuilt/portable-fixture/sanitized"
     cp o/sanitized/cosmic-core \
       "$work/prebuilt/portable-fixture/sanitized/cosmic-core"
-    test/portable/runtime.sh build "$runtime" "$work/prebuilt" \
+    timing_run 'runtime fixture assembly' test/portable/runtime.sh build "$runtime" "$work/prebuilt" \
       "$product/cosmic" "$product/cosmic.db"
 
     signature=
     [ "$target" != aarch64-macos ] || signature=--codesign
-    test/portable/product.sh test "$product" "$target" \
+    timing_run 'product verification' test/portable/product.sh test "$product" "$target" \
       "$contract/format/format-test-$target" $signature
-    "$contract/format/format-test-$target" "$contract/format/program"
+    timing_run 'selected format mutation execution' \
+      "$contract/format/format-test-$target" "$contract/format/program"
 
     archive_source "$fresh_source"
-    "$fresh_source/test/portable/full_suite.sh" prepare \
+    timing_run 'portable suite preparation' \
+      "$fresh_source/test/portable/full_suite.sh" prepare \
       "$portable_diagnostics" "$product/cosmic"
     ;;
 
   portable)
     [ "$#" -eq 4 ] || usage
-    "$fresh_source/test/portable/full_suite.sh" portable \
+    timing_run 'portable suite' "$fresh_source/test/portable/full_suite.sh" portable \
       "$portable_diagnostics"
     ;;
 
@@ -155,13 +124,13 @@ case $phase in
     [ "$target" != aarch64-macos ] || signature=--codesign
     mkdir -p "$work/self-rebuild-diagnostics"
     TMPDIR="$work/self-rebuild-diagnostics" \
-      test/portable/self_rebuild.sh "$runtime"
+      timing_run 'self-rebuild regression' test/portable/self_rebuild.sh "$runtime"
     COSMIC_PORTABLE_DIAGNOSTICS="$work/runtime-diagnostics" \
-      test/portable/runtime.sh test "$runtime"
-    test/portable/launcher.sh test "$contract/launcher/launcher.test" \
+      timing_run 'runtime regression' test/portable/runtime.sh test "$runtime"
+    timing_run 'launcher regression' test/portable/launcher.sh test "$contract/launcher/launcher.test" \
       "$contract/launcher/payloads/socket-$target"
-    test/portable/identity_test.sh "$runtime"
-    test/portable/product.sh test "$product" "$target" \
+    timing_run 'identity regression' test/portable/identity_test.sh "$runtime"
+    timing_run 'product regression' test/portable/product.sh test "$product" "$target" \
       "$contract/format/format-test-$target" $signature
     [ "$(sha256_of "$product/cosmic")" = \
       "$(cat "$work/cosmic.before.sha256")" ]
@@ -206,8 +175,8 @@ case $phase in
     archive_source "$alpine_source"
     mkdir -p "$work/alpine-diagnostics" "$work/alpine-home"
     before=$(sha256_of "$product/cosmic")
-    docker pull "$image"
-    docker run --rm --network none --user "$(id -u):$(id -g)" \
+    timing_run 'Alpine image pull' docker pull "$image"
+    timing_run 'Alpine execution' docker run --rm --network none --user "$(id -u):$(id -g)" \
       -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
       -v "$alpine_source:/work" -w /work -v "$work:/runner" \
       "$image" /bin/sh -eu -c '
@@ -220,7 +189,7 @@ case $phase in
           /runner/alpine-diagnostics/full /runner/product/cosmic
         test/portable/full_suite.sh portable /runner/alpine-diagnostics/full
       '
-    docker run --rm --network none --user "$(id -u):$(id -g)" \
+    timing_run 'Alpine read-only execution' docker run --rm --network none --user "$(id -u):$(id -g)" \
       -e GITHUB_ACTIONS=true -e HOME=/runner/alpine-home \
       -v "$alpine_source:/work" -w /work -v "$work:/runner" \
       "$image" /bin/sh -eu -c '
