@@ -40,6 +40,22 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: cache the pinned CI driver
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/cosmic/ci-driver
+          key: ci-driver-${{ hashFiles('test/ci/cosmic-driver.pin') }}
+
+      - name: bootstrap and check the pinned CI driver
+        shell: bash
+        run: |
+          sh test/ci/bootstrap-driver.sh test/ci/cosmic-driver.pin \
+            "$HOME/.cache/cosmic/ci-driver" \
+            "$RUNNER_TEMP/cosmic-driver-project" \
+            "$RUNNER_TEMP/cosmic-driver"
+          sh test/ci/driver/selfcheck.sh "$RUNNER_TEMP/cosmic-driver" \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/cosmic-driver-selfcheck"
+
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -137,6 +153,32 @@ jobs:
       - name: summarize worker timings
         if: always()
         run: test/ci/timing-summary.sh "$RUNNER_TEMP/platform/timings.tsv" "$GITHUB_STEP_SUMMARY"
+
+      - name: summarize CI driver checks
+        if: always()
+        shell: bash
+        run: |
+          db="$RUNNER_TEMP/cosmic-driver-selfcheck/worker state/operations.db"
+          if [ ! -f "$db" ]; then
+            echo '## Cosmic CI operations' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Driver database unavailable (bootstrap or self-check failed before its first operation).' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          "$RUNNER_TEMP/cosmic-driver" \
+            "$RUNNER_TEMP/cosmic-driver-project/driver.tl" report \
+            "$db" \
+            "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md"
+          cat "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: preserve CI driver database
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: ci-driver-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/cosmic-driver-selfcheck/worker state/operations.db
+            ${{ runner.temp }}/cosmic-driver-selfcheck/driver-report.md
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
