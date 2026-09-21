@@ -49,17 +49,24 @@ jobs:
       # a checkout with no o/ yet, so COSMIC_ZIG_CACHE_SEED below only
       # names where it landed; platform.sh seeds it into o/ itself, once
       # its own guard has passed -- and saves it back once every native
-      # build this job runs has had a chance to update it. The key omits
-      # `matrix.name`/`matrix.target`: `cores` cross-compiles every target
-      # from any host, so the linux-x86_64 and alpine-x86_64 legs (same
-      # runner.os/arch) share one cache entry.
+      # build this job runs has had a chance to update it. The key
+      # includes `matrix.name`, one entry per leg, even though
+      # linux-x86_64 and alpine-x86_64 build the same cross-compiled
+      # `cores` output: sharing a key between two legs that run in
+      # parallel means only one of them can ever win the save (the other
+      # fails with "another job may be creating this cache" and its own
+      # compile is discarded every time), leaving it permanently stuck
+      # restoring a cache some OTHER host produced, which zig reuses far
+      # less effectively than one it built itself. A key per leg costs a
+      # bit of duplicate cache storage in exchange for every leg reliably
+      # saving and reusing its own.
       - name: cache zig build outputs
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig-build
-          key: zig-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'vendor/**', 'patch/**') }}
+          key: zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'vendor/**', 'patch/**') }}
           restore-keys: |
-            zig-build-${{ runner.os }}-${{ runner.arch }}-
+            zig-build-${{ matrix.name }}-
 
       - name: build release Cosmic and run its native suite
         id: release-suite
