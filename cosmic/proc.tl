@@ -16,7 +16,8 @@ function Proc.pid(): integer
   return sys.getpid()
 end
 
---- The path of the running executable.
+--- The logical path that directly relaunches this program. A portable program
+--- returns its artifact path rather than the private cached native core.
 function Proc.executable(): string | nil, string
   local path, trouble = sys.executable()
   if path == nil then

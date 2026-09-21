@@ -1,4 +1,4 @@
---- Deflate, the compression the store uses for the images it carries.
+--- Deflate compression and expansion over the core's miniz binding.
 
 local sys = require("cosmic.sys")
 

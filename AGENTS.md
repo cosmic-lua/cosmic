@@ -19,9 +19,9 @@
    `fix` checks syntax and tree equivalence; compilation checks types.
 3. A tool older than the tree rebuilds itself and re-enters the command the
    moment it notices, so an edit to Teal needs no boot: `o/bin/cosmic test`
-   after the edit is enough. A change under `core/`, to `build.zig`, or to a
-   vendored C library's pin or patches still needs `bin/zig build boot`, and
-   the tool says so by name.
+   after the edit is enough. A change under `core/`, to `build.zig` or
+   `build/launcher.tl`, or to a vendored library's pin or patches still needs
+   `bin/zig build boot`, and the tool says so by name.
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key, same contents for every file opened, and same stat and directory
    read answers under the root -- is not run again, so a run after a small edit

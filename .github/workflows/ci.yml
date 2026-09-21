@@ -8,139 +8,118 @@ permissions:
   contents: read
 
 jobs:
-  # `bin/zig build cores` cross-compiles every target from any host, so
-  # this is not "one job per platform" testing its own build -- it is
-  # the same work, run three times on three unrelated hosts, each
-  # independently producing a complete build of the whole tree (every
-  # image, the database, all three cross-compiled binaries, tested and
-  # packaged). The work is identical by construction, so a matrix says
-  # that once instead of three copies of the same steps -- and nothing
-  # here needs another leg to finish first: three full builds at once,
-  # not one canonical build with the other two waiting on it.
-  ci:
+  # Every leg independently builds the complete product, executes the same
+  # Cosmic bytes in its platform environment, and uploads them for the join.
+  platform:
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux-x86_64
-            runs-on: ubuntu-24.04
+            runner: ubuntu-24.04
+            target: x86_64-linux-musl
+            alpine: false
           - name: linux-aarch64
-            runs-on: ubuntu-24.04-arm
+            runner: ubuntu-24.04-arm
+            target: aarch64-linux-musl
+            alpine: false
           - name: macos-aarch64
-            runs-on: macos-15
-    runs-on: ${{ matrix.runs-on }}
-    timeout-minutes: 20
+            runner: macos-15
+            target: aarch64-macos
+            alpine: false
+          - name: alpine-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-linux-musl
+            alpine: true
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # The pinned compiler is the one thing a fresh clone fetches, and
-      # the pin is the cache key: a bump starts cold. runner.arch keeps
-      # the two Linux legs from colliding on one key for two different
-      # zig tarballs.
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
-      - name: build every core, then the database and the binaries
-        run: bin/zig build cores boot
+      - name: build release Cosmic and run its native suite
+        id: release-suite
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh build "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
-      - name: run every test the tree defines, including doctests
-        run: o/bin/cosmic test
+      - name: verify the delayed native database boundary
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" local
 
-      - name: the tree renders exactly as `cosmic fix` would write it
-        run: o/bin/cosmic fix --check .
+      - name: build local portable and checked artifacts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh test "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
-      # The only place the signature `build/attach.tl` wrote is judged
-      # by the system that has to accept it. A no-op everywhere but
-      # macOS -- see bin/verify-codesign -- so this is the same step on
-      # every leg of the matrix, checking each binary against itself.
-      - name: the macOS binary's signature, if this host can judge it
-        run: bin/verify-codesign o/bin/cosmic-aarch64-macos
+      - name: run the product suite from fresh tracked source
+        id: portable-suite
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh portable "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
-      - name: what the build produced
-        run: |
-          ls -l o/bin o/cosmic.db
-          file o/bin/cosmic-*
+      - name: verify the delayed portable database boundary
+        if: always() && steps.portable-suite.outcome != 'skipped'
+        env:
+          TARGET: ${{ matrix.target }}
+          PORTABLE_OUTCOME: ${{ steps.portable-suite.outcome }}
+        run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" portable
+
+      - name: run runtime, launcher, rebuild, and identity regressions
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh fixtures "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: run offline unprivileged BusyBox checks
+        if: matrix.alpine
+        env:
+          TARGET: ${{ matrix.target }}
+        run: test/ci/platform.sh alpine "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+
+      - name: attest the exact executed product bytes
+        env:
+          TARGET: ${{ matrix.target }}
+          EXPECTED_PLATFORMS: ${{ strategy.job-total }}
+        run: test/ci/platform.sh boundary "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform" attest
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: binaries-${{ matrix.name }}
-          path: |
-            o/bin/cosmic-x86_64-linux-musl
-            o/bin/cosmic-aarch64-linux-musl
-            o/bin/cosmic-aarch64-macos
-            o/cosmic.db
+          name: portable-product-${{ matrix.name }}
+          path: ${{ runner.temp }}/platform/product
           if-no-files-found: error
 
-  # A fourth core, built with undefined-behavior checking on, running the
-  # whole build and test suite. It is not a shipped artifact; it is the
-  # run that would report what the release build would only do quietly.
-  sanitized:
+      - name: preserve platform failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: platform-diagnostics-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/platform/local-diagnostics
+            ${{ runner.temp }}/platform/portable-diagnostics
+            ${{ runner.temp }}/platform/alpine-diagnostics
+            ${{ runner.temp }}/platform/self-rebuild-diagnostics
+            ${{ runner.temp }}/platform/runtime-diagnostics
+          if-no-files-found: ignore
+
+  # Every successful platform/environment execution must attest and upload
+  # identical Cosmic bytes. Local product tests retain manifest, range,
+  # application, and raw-core verification, so this join only proves the
+  # cross-platform byte identity.
+  provenance:
+    needs: platform
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
-      - name: build the tree with the checked core
-        run: bin/zig build sanitized
-      - name: run every test with the checked core
-        run: |
-          cmp -n "$(wc -c < o/sanitized/cosmic-core)" \
-            o/sanitized/cosmic-core o/sanitized/bin/cosmic
-          # Measured at ~29.7s locally even after the coverage/formatter
-          # performance stack; a shared CI runner has less headroom than
-          # that, so this keeps real margin rather than matching the
-          # ordinary suite's tighter limit.
-          timeout 90 o/sanitized/bin/cosmic test
-
-  # The provenance gate: three unrelated hosts -- different kernels,
-  # different system libraries, different checkout paths by
-  # construction -- cross-compiling the same commit must produce the
-  # same three shipped binaries, byte for byte. build/boot.tl makes
-  # this true by construction: `host`/`host_image` in the database
-  # `build/attach.tl` embeds name whichever target the attaching
-  # host's own build matched (`build/reboot.tl` reads them back to
-  # find a stale tool's own image), so each of the three binaries is
-  # retagged with ITS OWN target's name and image hash before it is
-  # attached, never the building machine's -- attaching o/cosmic.db
-  # verbatim to all three would make two of them misname themselves
-  # AND make the same target cross-compiled on two different hosts
-  # differ by nothing but that. o/cosmic.db itself is excluded from
-  # this comparison on purpose: it is this build's own project
-  # database, not a shipped target, and correctly names this specific
-  # host. Nothing here rebuilds anything; it only diffs what the
-  # matrix above already made, so this costs a download, not a build.
-  provenance:
-    needs: ci
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: binaries-*
-          path: dl
-      - name: every host produces the same three binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Each artifact lands zipped in its own subdirectory; extracted
-          # there, in place, so three artifacts that all hold a file
-          # named bin/cosmic-x86_64-linux-musl never collide.
-          for z in $(find dl -type f -name '*.zip'); do
-            python3 -m zipfile -e "$z" "$(dirname "$z")"
-          done
-          hosts=(linux-x86_64 linux-aarch64 macos-aarch64)
-          first=${hosts[0]}
-          for host in "${hosts[@]:1}"; do
-            for target in x86_64-linux-musl aarch64-linux-musl aarch64-macos; do
-              cmp "dl/binaries-$first/bin/cosmic-$target" \
-                  "dl/binaries-$host/bin/cosmic-$target"
-            done
-          done
-          echo "provenance: PASS (linux-x86_64, linux-aarch64 and macos-aarch64 produce byte-identical binaries for every target)"
+          pattern: portable-product-*
+          path: ${{ runner.temp }}/products
+      - name: compare the Cosmic bytes executed on every native host
+        run: test/ci/provenance.sh "$RUNNER_TEMP/products"

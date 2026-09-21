@@ -2,8 +2,8 @@
 ---
 --- `o/cosmic.db` is a projection of the working database: a fresh
 --- schema attached in memory, filled in one transaction by queries
---- over rows the build already holds -- the images a boot put there,
---- this run's plan joined to the inputs and compiles it names, the
+--- over rows the build already holds -- this run's plan joined to the inputs
+--- and compiles it names, the
 --- declarations a checker needs to build a tree against this one --
 --- and produced by `VACUUM INTO`, so a second build of the same tree
 --- is byte-identical.
@@ -140,25 +140,25 @@ local rebuild_fts: {string} = {
 }
 
 --- What the shipped database is a function of: this run's plan with
---- each module's file, the declarations, the images, the fingerprints,
---- identities and host it carries, and the main module, as one hash.
+--- each module's file, the declarations, fingerprints, host-independent
+--- identities, and the main module, as one hash.
 --- When it matches the one the last write left in `meta` and the file
 --- is still there, the file already is the projection of these rows,
 --- and nothing is written. The catalog, docs, examples and references
 --- add nothing here: an extracted row changes only with the source it
 --- was parsed from, which moves that module's key.
-local signature_sql =
-  "SELECT lower(hex(sha256(" ..
+local function signature_sql(): string
+  local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis')"
+  return "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
   "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
   "WHERE i.kind <> 'decl'), '') || char(10) || " ..
   "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
   "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
-  "coalesce((SELECT group_concat(target || ' ' || hex(sha256), char(10) " ..
-  "ORDER BY target) FROM images), '') || char(10) || " ..
   "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
-  "FROM meta WHERE key IN ('boot_hash', 'image_hash', 'host', 'host_image', " ..
-  "'compiler', 'runtime')), '') || char(10) || ?1)))"
+  "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || ?1 || " ..
+  "char(10) || ?2)))"
+end
 
 --- Fills the attached `out` schema and vacuums it into `path`.
 local function project(handle: work.Handle, path: string,
@@ -181,19 +181,16 @@ local function project(handle: work.Handle, path: string,
     statements[#statements + 1] =
       "INSERT INTO out.decls (path, source) SELECT path, source FROM inputs " ..
       "WHERE kind = 'decl' ORDER BY path"
-    statements[#statements + 1] =
-      "INSERT INTO out.images (target, sha256, size, encoding, data) " ..
-      "SELECT target, sha256, size, encoding, data FROM images ORDER BY target"
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure
       end
     end
+    local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis')"
     local carried, meta_trouble = db:exec(
       "INSERT INTO out.meta (key, value) SELECT key, value FROM meta " ..
-      "WHERE key IN ('boot_hash', 'image_hash', 'host', 'host_image', " ..
-      "'compiler', 'runtime')")
+      "WHERE key IN " .. metadata)
     if not carried then
       return false, meta_trouble
     end
@@ -216,8 +213,8 @@ local function project(handle: work.Handle, path: string,
     if not carried_main then
       return false, main_trouble
     end
-    local signed, sign_trouble = Sqlite.text_rows(db, signature_sql,
-      { text(result.main or "") })
+    local signed, sign_trouble = Sqlite.text_rows(db, signature_sql(),
+      { text(result.main or ""), text("portable-v1") })
     if signed == nil then
       return false, sign_trouble
     end
@@ -233,10 +230,10 @@ local function project(handle: work.Handle, path: string,
   return Sqlite.run(db, "VACUUM out INTO ?1", { text(path .. ".building") })
 end
 
---- Writes an already-compiled result into a fresh database and leaves
---- it at `out`, unless the file there already is that projection. This
---- ends the run's transaction first: SQLite attaches and vacuums
---- outside one only.
+--- Writes an already-compiled result into a fresh host-independent database
+--- and leaves it at `out`, unless the file there already is that projection.
+--- This ends the run's transaction first: SQLite attaches and vacuums outside
+--- one only.
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result): boolean, string
   local db = handle.db
@@ -248,8 +245,8 @@ function writer.write_result(handle: work.Handle, out: string,
   if identities == nil then
     return false, identity_trouble
   end
-  local signed, sign_trouble = Sqlite.text_rows(db, signature_sql,
-    { text(result.main or "") })
+  local signed, sign_trouble = Sqlite.text_rows(db,
+    signature_sql(), { text(result.main or ""), text("portable-v1") })
   if signed == nil then
     return false, sign_trouble
   end

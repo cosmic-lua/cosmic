@@ -6,6 +6,7 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local artifact = require("build.artifact")
 local embed = require("build.embed")
 
 local main_source = [[
@@ -52,9 +53,12 @@ local function test_a_project_becomes_an_executable(tmp: string)
   local out = tmp .. "/o/bin/hello"
   local st = assert(Fs.stat(out))
   assert(st.mode & 0x49 == 0x49, "the executable bit is set for everyone")
-  local head = assert(Fs.read(out)):sub(1, 4)
-  assert(head == "\127ELF" or head == "\207\250\237\254",
-    "the file opens as the host's own image")
+  local bytes = assert(Fs.read(out))
+  local prefix = assert(artifact.trusted_prefix())
+  assert(bytes:sub(1, 10) == "#!/bin/sh\n",
+    "the portable file has its script entry")
+  assert(bytes:sub(1, #prefix) == prefix,
+    "the portable file reuses the exact retained prefix")
 end
 
 local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
@@ -69,7 +73,10 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     meta[row[1]] = row[2]
   end
   assert(meta["main"] == "cmd.hello.main", "main names the module to run")
-  assert(meta["host"] ~= nil and meta["host"] ~= "", "the host is named")
+  assert(meta["host"] == nil, "a portable database carries no host")
+  assert(meta["runtime"] == nil, "a portable database carries no runtime")
+  assert(meta["runtime_basis"] ~= nil and meta["runtime_basis"] ~= "",
+    "a portable database carries the runtime basis")
 
   local modules: {string:string} = {}
   for _, row in ipairs(rows_of(path, "SELECT path, kind FROM modules")) do
@@ -85,8 +92,9 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
 
   local decls = rows_of(path, "SELECT path FROM decls WHERE path = 'cosmic.sys'")
   assert(#decls == 1, "the syscall declaration is in")
-  local images = rows_of(path, "SELECT count(*) FROM images")
-  assert(images[1][1] == "0", "no core image: a program is not a builder")
+  local images = rows_of(path,
+    "SELECT count(*) FROM sqlite_schema WHERE name = 'images'")
+  assert(images[1][1] == "0", "portable databases have no images table")
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
   assert(tonumber(guidance[1][1]) > 0, "the error catalog is in, and indexed")

@@ -1,5 +1,5 @@
---- Building a project into executables: one file each, the host's core
---- image with a database behind it that holds the project's modules,
+--- Building a project into portable executables: one file each, the retained
+--- multi-core prefix with a database behind it that holds the project's modules,
 --- the standard library, the error catalog, and the name of the main
 --- module, so it runs on its own with no `cosmic` beside it.
 ---
@@ -13,15 +13,13 @@
 --- database, by handle, so no format of the executable is parsed here.
 ---
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
---- builds the tool, and carries the three images and the compiler that
---- a program of its own never needs.
+--- builds the tool.
 
-local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
-local attach = require("build.attach")
+local artifact = require("build.artifact")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -129,24 +127,6 @@ local function name_of(main: string): string | nil
   return main:match("^cmd%.([^%.]+)%.main$")
 end
 
---- What the binary's own database holds for one target's core image.
-local function image_of(binary: Sqlite.Handle, target: string): string | nil, string
-  local rows, trouble = Sqlite.text_rows(binary,
-    "SELECT size, data FROM images WHERE target = ?1", { text(target) })
-  if rows == nil then
-    return nil, trouble
-  end
-  if #rows == 0 then
-    return nil, "this binary carries no image for " .. target
-  end
-  local size = math.tointeger(tonumber(rows[1][1])) or 0
-  local image, inflate_trouble = Compress.inflate(rows[1][2], size)
-  if image == nil then
-    return nil, target .. ": " .. inflate_trouble
-  end
-  return image
-end
-
 --- The database one executable carries, as bytes: the project's own
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
@@ -157,7 +137,11 @@ function embed.database(project: string, main: string): string | nil, string
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary == nil then
-    return nil, "no database is attached to this binary"
+    return nil, "the running artifact has no database"
+  end
+  local runtime_basis = Store.meta("runtime_basis")
+  if runtime_basis == nil or runtime_basis == "" then
+    return nil, "the running binary names no runtime basis"
   end
   local building = project .. ".embed"
   Fs.remove(building)
@@ -236,9 +220,8 @@ function embed.database(project: string, main: string): string | nil, string
       end
     end
     local meta: {{string}} = {
-      { "host", Store.meta("host") or "" },
       { "compiler", Store.meta("compiler") or "" },
-      { "runtime", Store.meta("runtime") or "" },
+      { "runtime_basis", runtime_basis as string },
       { "main", main },
     }
     for _, pair in ipairs(meta) do
@@ -277,10 +260,6 @@ end
 function embed.tree(root: string): {string} | nil, string
   if importer.is_own_tree(root) then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
-  end
-  local host = Store.meta("host")
-  if host == nil then
-    return nil, "this binary names no host target"
   end
   local started = Time.monotonic_ns() or 0
   local handle, open_trouble = work.open(root)
@@ -324,10 +303,9 @@ function embed.tree(root: string): {string} | nil, string
     return {}
   end
 
-  local databases = Store.databases()
-  local image, image_trouble = image_of(databases[#databases], host)
-  if image == nil then
-    return nil, image_trouble
+  local prefix, prefix_trouble = artifact.trusted_prefix()
+  if prefix == nil then
+    return nil, prefix_trouble
   end
   local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
   if not made then
@@ -344,9 +322,13 @@ function embed.tree(root: string): {string} | nil, string
       return nil, name .. ": " .. database_trouble
     end
     local out = root .. "/o/bin/" .. name
-    local attached, attach_trouble = attach.write(out, host, image, database)
-    if not attached then
-      return nil, out .. ": " .. attach_trouble
+    local program, program_trouble = artifact.program(prefix, database)
+    if program == nil then
+      return nil, out .. ": " .. program_trouble
+    end
+    local published, publish_trouble = Fs.write(out, program, 0x1ed)
+    if not published then
+      return nil, publish_trouble
     end
     names[#names + 1] = name
   end

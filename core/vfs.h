@@ -1,8 +1,7 @@
 /*
  * The VFS that reads a database sitting at an offset inside another
- * file. It is how the runtime opens the database attached to its own
- * executable, and it knows nothing about ELF or Mach-O: the caller hands
- * it an offset and a length.
+ * file. The caller hands it the retained descriptor, offset, and length from
+ * the validated portable artifact.
  */
 
 #ifndef COSMIC_VFS_H
@@ -19,7 +18,8 @@
  * ever open as the main database: `path` must later match exactly, and
  * `offset`/`length` come from here, never from a URI. Safe to call more
  * than once; the triple is replaced and the VFS itself registers once. */
-int cosmic_vfs_register(const char *path, int64_t offset, int64_t length);
+int cosmic_vfs_register(const char *path, int fd, int64_t offset,
+                        int64_t length);
 
 /* Writes the `file:` URI that opens `path` through this VFS, read-only
  * and immutable. `path` must be the one `cosmic_vfs_register` was given.

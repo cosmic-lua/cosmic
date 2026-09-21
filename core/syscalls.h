@@ -21,6 +21,10 @@
 
 #include "lua.h"
 
+/* The process's logical, directly executable relaunch path. Main installs it
+ * per Lua state after portable startup has adopted the artifact descriptor. */
+#define COSMIC_LOGICAL_EXECUTABLE "cosmic.logical_executable"
+
 /* `arity` is the number of parameters the annotation block just above
  * declares -- the generator cross-checks the two against each other, so
  * a `@param` line and this count can never drift apart unnoticed. It is
@@ -244,8 +248,9 @@ COSMIC_SYSCALL(realpath, 1);
 COSMIC_SYSCALL(mkdtemp, 1);
 
 /*
- * --- Returns the path of the running executable.
- * ---@return string|nil path the executable's path, or nil on failure
+ * --- Returns the logical path that directly relaunches this program. For a
+ * --- portable program this is the artifact path, not its cached native core.
+ * ---@return string|nil path the relaunchable program path, or nil on failure
  * ---@return string error what went wrong, when path is nil
  * ---@return integer errno the error number, when path is nil
  */

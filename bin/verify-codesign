@@ -1,6 +1,5 @@
 #!/bin/sh
-# Whether a macOS binary's ad-hoc signature (build/codesign.tl, attached
-# during boot on whichever host built it) is one Apple's own tooling
+# Whether Zig's ad-hoc signature on a raw macOS core is one Apple's own tooling
 # accepts. Only macOS itself can judge that -- codesign is not something
 # a Linux host can run -- so every other host takes this as a no-op: the
 # same CI step runs unchanged on every target's own worker, and only the

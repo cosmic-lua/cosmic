@@ -42,23 +42,38 @@ comptime {
 }
 
 const Target = struct {
+    /// Stable identifier used by portable artifact records. Never renumber.
+    id: u32,
     /// The name the database and `o/bin/` use.
     name: []const u8,
+    /// The pair printed by `uname -s` and `uname -m` on this target.
+    uname_os: []const u8,
+    uname_arch: []const u8,
     query: std.Target.Query,
 };
 
+const Configuration = struct {
+    /// Stable identifier used by portable artifact records. Never renumber.
+    id: u32,
+    name: []const u8,
+    sanitize: bool,
+};
+
+const release_configuration = Configuration{ .id = 1, .name = "release", .sanitize = false };
+const sanitized_configuration = Configuration{ .id = 2, .name = "sanitized", .sanitize = true };
+
 const targets = [_]Target{
-    .{ .name = "x86_64-linux-musl", .query = .{
+    .{ .id = 1, .name = "x86_64-linux-musl", .uname_os = "Linux", .uname_arch = "x86_64", .query = .{
         .cpu_arch = .x86_64,
         .os_tag = .linux,
         .abi = .musl,
     } },
-    .{ .name = "aarch64-linux-musl", .query = .{
+    .{ .id = 2, .name = "aarch64-linux-musl", .uname_os = "Linux", .uname_arch = "aarch64", .query = .{
         .cpu_arch = .aarch64,
         .os_tag = .linux,
         .abi = .musl,
     } },
-    .{ .name = "aarch64-macos", .query = .{
+    .{ .id = 3, .name = "aarch64-macos", .uname_os = "Darwin", .uname_arch = "arm64", .query = .{
         .cpu_arch = .aarch64,
         .os_tag = .macos,
         .abi = .none,
@@ -107,14 +122,18 @@ const core_sources = [_][]const u8{
     "boot.c",
     "coverage.c",
     "crypto.c",
-    "locate.c",
-    "main.c",
+    "environment.c",
+    "executable.c",
     "sqlite.c",
     "store.c",
+    "strnlen.c",
     "surface.c",
     "syscalls.c",
     "syscalls_fs.c",
     "vfs.c",
+    "main.c",
+    "portable.c",
+    "startup.c",
 };
 
 pub fn build(b: *std.Build) void {
@@ -142,8 +161,8 @@ pub fn build(b: *std.Build) void {
     // bridge reads the Teal compiler from.
     const vendored = b.step("vendor", "write the patched vendor trees");
     for ([_]struct { []const u8, std.Build.LazyPath }{
-        .{ "lua", lua },   .{ "sqlite", sqlite },
-        .{ "tl", tl },     .{ "miniz", miniz },
+        .{ "lua", lua },         .{ "sqlite", sqlite },
+        .{ "tl", tl },           .{ "miniz", miniz },
         .{ "mbedtls", mbedtls },
     }) |pair| {
         const install = b.addInstallDirectory(.{
@@ -156,15 +175,84 @@ pub fn build(b: *std.Build) void {
 
     const cores = b.step("cores", "build the core for every target");
     const boot = b.step("boot", "build the host core, then bridge into Teal");
+    const portable_hook_cores = b.step(
+        "portable-hook-cores",
+        "build release and retained-artifact test fixture cores",
+    );
+    const portable_fixture_cores = b.step(
+        "portable-fixture-cores",
+        "build release, retained-artifact test, and checked fixture cores",
+    );
+
+    // The boot bridge and portable writer consume this generated projection.
+    // The Target array above remains the only target list.
+    var records: []const u8 = "";
+    for (targets) |t| {
+        records = b.fmt("{s}{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n", .{
+            records,
+            t.id,
+            release_configuration.id,
+            release_configuration.name,
+            t.name,
+            t.uname_os,
+            t.uname_arch,
+        });
+    }
+    const generated = b.addWriteFiles();
+    const target_records = generated.add("targets.tsv", records);
+    const install_target_records = b.addInstallFile(target_records, "targets.tsv");
+    cores.dependOn(&install_target_records.step);
+
+    // The core's strnlen stands in for the toolchain's, which reads past
+    // the end of a mapping (core/strnlen.c). The case that tells them
+    // apart runs on the host with every boot.
+    const strnlen_check = b.addExecutable(.{
+        .name = "strnlen-check",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+            .link_libc = true,
+        }),
+    });
+    strnlen_check.root_module.addCSourceFiles(.{
+        .root = b.path("core"),
+        .files = &.{ "strnlen.c", "strnlen_test.c" },
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    boot.dependOn(&b.addRunArtifact(strnlen_check).step);
+
+    // Startup's reserved-prefix sweep has no fixed name count or length.
+    const environment_check = b.addExecutable(.{
+        .name = "environment-check",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .optimize = .ReleaseSafe,
+            .link_libc = true,
+        }),
+    });
+    environment_check.root_module.addCSourceFiles(.{
+        .root = b.path("core"),
+        .files = &.{ "environment.c", "environment_test.c" },
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    environment_check.root_module.addIncludePath(b.path("core"));
+    boot.dependOn(&b.addRunArtifact(environment_check).step);
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, resolved, false, lua, sqlite, miniz, mbedtls);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
+
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, true);
+        const hooked_out = b.addInstallFile(
+            hooked.getEmittedBin(),
+            b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
+        );
+        portable_hook_cores.dependOn(&hooked_out.step);
 
         if (std.mem.eql(u8, t.name, hostName(b))) {
             const bridge = b.addRunArtifact(exe);
@@ -172,7 +260,8 @@ pub fn build(b: *std.Build) void {
             bridge.addDirectoryArg(b.path("."));
             bridge.addDirectoryArg(tl);
             bridge.addArg(t.name);
-            // The bridge reads every core image and writes the database
+            bridge.addFileArg(target_records);
+            // The bridge reads every raw core and writes the database
             // beside them, so it runs after both.
             bridge.step.dependOn(cores);
             bridge.step.dependOn(vendored);
@@ -182,27 +271,56 @@ pub fn build(b: *std.Build) void {
     }
 
     // A fourth core, checked for undefined behavior: same sources, built
-    // for the host only, and installed beside the others rather than over
-    // them. Both boot and the attached host executable use this image;
-    // checked artifacts stay under o/sanitized.
+    // for the host only, and installed beside the release cores. Its portable
+    // artifact still carries all three required release entries, plus this
+    // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
-    const checked = core(b, b.graph.host, true, lua, sqlite, miniz, mbedtls);
+    const checked_target = hostTarget(b);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, false);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
+    );
+    const checked_name = b.fmt("sanitized-{s}", .{checked_target.name});
+    const checked_records = generated.add("sanitized-targets.tsv", b.fmt(
+        "{s}{d}\t{d}\t{s}\t{s}\t{s}\t{s}\n",
+        .{
+            records,
+            checked_target.id,
+            sanitized_configuration.id,
+            sanitized_configuration.name,
+            checked_name,
+            checked_target.uname_os,
+            checked_target.uname_arch,
+        },
+    ));
+    const checked_records_install = b.addInstallFile(
+        checked_records,
+        "sanitized/targets.tsv",
     );
     const checked_boot = b.addRunArtifact(checked);
     checked_boot.addArg("--boot");
     checked_boot.addDirectoryArg(b.path("."));
     checked_boot.addDirectoryArg(tl);
-    checked_boot.addArg(hostName(b));
+    checked_boot.addArg(checked_target.name);
+    checked_boot.addFileArg(target_records);
     checked_boot.addArg(b.getInstallPath(.prefix, "sanitized"));
     checked_boot.addFileArg(checked.getEmittedBin());
+    checked_boot.addFileArg(checked_records);
     checked_boot.step.dependOn(cores);
     checked_boot.step.dependOn(vendored);
     checked_boot.has_side_effects = true;
     sanitized.dependOn(&checked_install.step);
+    sanitized.dependOn(&checked_records_install.step);
     sanitized.dependOn(&checked_boot.step);
+
+    const checked_fixture_install = b.addInstallFile(
+        checked.getEmittedBin(),
+        "portable-fixture/sanitized/cosmic-core",
+    );
+    portable_hook_cores.dependOn(cores);
+    portable_fixture_cores.dependOn(portable_hook_cores);
+    portable_fixture_cores.dependOn(&checked_fixture_install.step);
 
     b.getInstallStep().dependOn(cores);
 }
@@ -246,21 +364,23 @@ fn watchTree(b: *std.Build, run: *std.Build.Step.Run, rel: []const u8) void {
 
 fn core(
     b: *std.Build,
+    target_record: Target,
+    configuration: Configuration,
     target: std.Build.ResolvedTarget,
-    sanitize: bool,
     lua: std.Build.LazyPath,
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
+    portable_startup_test_hooks: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
-        .optimize = if (sanitize) .ReleaseSafe else .ReleaseFast,
+        .optimize = if (configuration.sanitize) .ReleaseSafe else .ReleaseFast,
         .link_libc = true,
         // Stripping is what makes two builds at different paths produce
         // the same bytes: debug info carries the absolute path.
-        .strip = !sanitize,
-        .sanitize_c = if (sanitize) .full else .off,
+        .strip = !configuration.sanitize,
+        .sanitize_c = if (configuration.sanitize) .full else .off,
     });
 
     // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
@@ -293,7 +413,7 @@ fn core(
     // table and index costs in pages and bytes, which `cosmic db`
     // reports. `fts5` is on: it backs the shipped catalog an uncaught
     // error and `cosmic docs` search against, and costs ~222 KB per
-    // core image (three images per binary).
+    // raw core (three raw cores per portable artifact).
     const sqlite_flags: []const []const u8 = &.{
         "-std=c11",
         "-DSQLITE_THREADSAFE=0",
@@ -364,9 +484,9 @@ fn core(
         .flags = &mbedtls_flags,
     });
     for ([_][]const u8{
-        "include",  "core",      "drivers/builtin/include",
-        "drivers/builtin/src",   "dispatch", "utilities",
-        "platform", "extras",
+        "include",             "core",     "drivers/builtin/include",
+        "drivers/builtin/src", "dispatch", "utilities",
+        "platform",            "extras",
     }) |dir| {
         mod.addIncludePath(crypto.path(b, dir));
     }
@@ -385,7 +505,31 @@ fn core(
         .files = &core_sources,
         .flags = &core_flags,
     });
+    mod.addCSourceFile(.{
+        .file = b.path("core/entry.c"),
+        .flags = &core_flags,
+    });
     mod.addIncludePath(b.path("core"));
+
+    mod.addCMacro("COSMIC_TARGET_ID", b.fmt("{d}", .{target_record.id}));
+    mod.addCMacro("COSMIC_TARGET_NAME", b.fmt("\"{s}\"", .{target_record.name}));
+    mod.addCMacro("COSMIC_CONFIGURATION_ID", b.fmt("{d}", .{configuration.id}));
+    mod.addCMacro("COSMIC_CONFIGURATION_NAME", b.fmt("\"{s}\"", .{configuration.name}));
+
+    var required_target_mask: u64 = 0;
+    for (targets) |required| {
+        if (required.id >= 64) @panic("portable target id does not fit the v1 required-target mask");
+        required_target_mask |= @as(u64, 1) << @intCast(required.id);
+    }
+    mod.addCMacro("COSMIC_PORTABLE_REQUIRED_TARGET_MASK", b.fmt("UINT64_C({d})", .{required_target_mask}));
+    mod.addCMacro("COSMIC_PORTABLE_RELEASE_CONFIGURATION_ID", b.fmt("{d}", .{release_configuration.id}));
+    mod.addCSourceFile(.{
+        .file = b.path(if (portable_startup_test_hooks)
+            "test/portable/startup_hook.c"
+        else
+            "core/startup_hook.c"),
+        .flags = &core_flags,
+    });
 
     return b.addExecutable(.{
         .name = "cosmic-core",
@@ -394,17 +538,36 @@ fn core(
 }
 
 fn hostName(b: *std.Build) []const u8 {
+    return hostTarget(b).name;
+}
+
+/// Keeps the sanitizer's native OS, ABI, and version while making its CPU
+/// instruction set safe to transport between different machines of that
+/// architecture. `b.graph.host` includes features detected on the build
+/// machine, which an exported checked core cannot assume on its runner.
+fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
+    var query = b.graph.host.query;
+    query.cpu_model = .baseline;
+    query.cpu_features_add = .empty;
+    query.cpu_features_sub = .empty;
+    const resolved = b.resolveTargetQuery(query);
+    const expected = std.Target.Cpu.Model.baseline(
+        resolved.result.cpu.arch,
+        resolved.result.os,
+    );
+    if (resolved.result.cpu.model != expected)
+        @panic("checked core did not resolve the baseline host CPU");
+    return resolved;
+}
+
+fn hostTarget(b: *std.Build) Target {
     const host = b.graph.host.result;
-    return switch (host.os.tag) {
-        .macos => switch (host.cpu.arch) {
-            .aarch64 => "aarch64-macos",
-            else => "unsupported",
-        },
-        .linux => switch (host.cpu.arch) {
-            .x86_64 => "x86_64-linux-musl",
-            .aarch64 => "aarch64-linux-musl",
-            else => "unsupported",
-        },
-        else => "unsupported",
-    };
+    for (targets) |target| {
+        // The sanitized core uses the native host libc, while its target
+        // identity names the shipped OS/architecture pair. ABI is therefore
+        // deliberately not part of this match.
+        if (target.query.os_tag == host.os.tag and
+            target.query.cpu_arch == host.cpu.arch) return target;
+    }
+    @panic("unsupported build host");
 }

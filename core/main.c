@@ -1,8 +1,7 @@
 /*
- * The entry. It finds the database attached to the running executable,
- * opens it through the offset VFS, and hands control to the `main`
- * module inside it. With no database attached it can bridge into Teal
- * from the tree instead, which is how the first binary gets built.
+ * The entry. A portable launch opens the database range from its retained
+ * artifact descriptor. A raw core has no database and can only bridge into
+ * Teal from a source tree through `--boot`.
  */
 
 #include <ctype.h>
@@ -15,10 +14,11 @@
 #include "boot.h"
 #include "crypto.h"
 #include "lauxlib.h"
-#include "locate.h"
+#include "executable.h"
 #include "sqlite.h"
 #include "sqlite3.h"
 #include "store.h"
+#include "startup.h"
 #include "surface.h"
 #include "vfs.h"
 
@@ -31,9 +31,10 @@ static int complain(const char *what, const char *detail) {
   return 2;
 }
 
-static sqlite3 *open_attached(const char *path,
-                              const struct cosmic_attachment *at) {
-  if (cosmic_vfs_register(path, at->offset, at->length) != SQLITE_OK) {
+static sqlite3 *open_artifact(const char *path, int retained_fd,
+                              int64_t offset, int64_t length) {
+  if (cosmic_vfs_register(path, retained_fd, offset, length) !=
+      SQLITE_OK) {
     return NULL;
   }
   char uri[8192];
@@ -428,39 +429,67 @@ static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
   return (int)luaL_optinteger(L, -1, 0);
 }
 
-int main(int argc, char **argv) {
+int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
+                         char **argv) {
+  const char *startup_trouble = cosmic_startup_validate(startup);
+  if (startup_trouble != NULL) {
+    return complain(startup_trouble, NULL);
+  }
+
   sqlite3_initialize();
   if (cosmic_crypto_init() != 0) {
     return complain("the crypto library would not start", NULL);
   }
 
+  struct cosmic_artifact artifact;
+  const char *adoption_error = NULL;
+  if (!cosmic_startup_adopt(startup, &artifact, &adoption_error)) {
+    return complain(adoption_error == NULL ? "portable startup failed" :
+                                              adoption_error,
+                    NULL);
+  }
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_ARTIFACT_ADOPTED);
+  if (!cosmic_startup_test_pause(startup, &adoption_error)) {
+    cosmic_artifact_close(&artifact);
+    return complain(adoption_error, NULL);
+  }
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
+
   char self[4096];
-  if (!cosmic_executable_path(self, sizeof self)) {
+  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+    if (snprintf(self, sizeof self, "%s", startup->artifact_path) >=
+        (int)sizeof self) {
+      cosmic_artifact_close(&artifact);
+      return complain("artifact path is too long", NULL);
+    }
+  } else if (!cosmic_executable_path(self, sizeof self)) {
+    cosmic_artifact_close(&artifact);
     return complain("cannot find my own path", NULL);
   }
 
-  struct cosmic_attachment attached;
-  int found = cosmic_locate(self, &attached);
-  if (found < 0) {
-    return complain("cannot read my own file", self);
-  }
-
-  lua_State *L = cosmic_surface_open();
+  lua_State *L = cosmic_surface_open(self);
   if (L == NULL) {
+    cosmic_artifact_close(&artifact);
     return complain("no memory for a Lua state", NULL);
   }
 
   sqlite3 *db = NULL;
-  if (found == 1) {
-    db = open_attached(self, &attached);
+  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+    db = open_artifact(self, artifact.fd,
+                       (int64_t)artifact.portable.database_offset,
+                       (int64_t)artifact.portable.database_length);
     if (db == NULL) {
       lua_close(L);
+      cosmic_artifact_close(&artifact);
       return complain("cannot open my own database", self);
     }
+    cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_OPENED);
   }
-  cosmic_store_install(L, db);
+  cosmic_store_install(L, db,
+                       startup->kind == COSMIC_STARTUP_PORTABLE ? &artifact : NULL);
   cosmic_open_sqlite(L); /* leaves the module table on the stack */
   cosmic_store_set_raw(L, "cosmic.internal.sqlite");
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);
 
   if (db == NULL) {
     /* No database: the tree is the only source, so this is a build
@@ -483,14 +512,22 @@ int main(int argc, char **argv) {
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);
       lua_close(L);
+      cosmic_artifact_close(&artifact);
       return status;
     }
     lua_close(L);
+    cosmic_artifact_close(&artifact);
     return complain("no database attached, and no tree to boot from", self);
   }
 
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
   int status = run_main(L, db, argc, argv);
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);
   lua_close(L);
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_LUA_CLOSED);
   sqlite3_close_v2(db);
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_CLOSED);
+  cosmic_artifact_close(&artifact);
+  cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_ARTIFACT_CLOSED);
   return status;
 }
