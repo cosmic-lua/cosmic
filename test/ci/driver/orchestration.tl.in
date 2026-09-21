@@ -102,6 +102,8 @@ end
 local product_test_timeout_ms <const> = 60000
 local product_build_timeout_ms <const> = 120000
 local format_test_timeout_ms <const> = 300000
+local launcher_test_timeout_ms <const> = 180000
+local launcher_build_timeout_ms <const> = 600000
 
 local function fixture_test(c: Context, work: string, name: string,
     source: string, timeout_ms: integer, extra: {string:string}): integer
@@ -318,11 +320,17 @@ local function platform_impl(a: {string}): integer
       COSMIC_FIXTURE_TARGET = target,
     })
     if s ~= 0 then return s end
+    s = fixture_test(c, work, "launcher-construction", "launcher_build",
+      launcher_build_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher",
+      COSMIC_FIXTURE_TARGET = target,
+    })
+    if s ~= 0 then return s end
     local after_product: {{string}} = {
-      { root .. "/test/portable/launcher.sh", "build", contract .. "/launcher", target },
       { root .. "/bin/zig", "build", "sanitized" },
     }
-    local after_labels = { "launcher fixture assembly", "checked build" }
+    local after_labels = { "checked build" }
     for i, cmd in ipairs(after_product) do
       s = checked(c, after_labels[i], cmd); if s ~= 0 then return s end
     end
@@ -374,11 +382,19 @@ local function platform_impl(a: {string}): integer
     mkdir(work .. "/self-rebuild-diagnostics")
     local list: {Fixture} = {
       { command = { root .. "/test/portable/self_rebuild.sh", runtime }, label = "self-rebuild regression", env = { TMPDIR = work .. "/self-rebuild-diagnostics" } },
-      { command = { root .. "/test/portable/runtime.sh", "test", runtime }, label = "runtime regression", env = { COSMIC_PORTABLE_DIAGNOSTICS = work .. "/runtime-diagnostics" } },
-      { command = { root .. "/test/portable/launcher.sh", "test", contract .. "/launcher/launcher.test", contract .. "/launcher/payloads/socket-" .. target }, label = "launcher regression" },
-      { command = { root .. "/test/portable/identity_test.sh", runtime }, label = "identity regression" } }
+      { command = { root .. "/test/portable/runtime.sh", "test", runtime }, label = "runtime regression", env = { COSMIC_PORTABLE_DIAGNOSTICS = work .. "/runtime-diagnostics" } } }
     for _, one in ipairs(list) do local s = checked(c, one.label, one.command, 0, root, one.env and environment(one.env) or environment()); if s ~= 0 then return s end end
-    local s = fixture_test(c, work, "product-regression", "product",
+    local s = fixture_test(c, work, "launcher-regression", "launcher",
+      launcher_test_timeout_ms, {
+      COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher/launcher.test",
+      COSMIC_FIXTURE_LAUNCHER_SOCKET = contract ..
+        "/launcher/payloads/socket-" .. target,
+      COSMIC_FIXTURE_TARGET = target,
+    }); if s ~= 0 then return s end
+    s = checked(c, "identity regression",
+      { root .. "/test/portable/identity_test.sh", runtime }, 0, root,
+      environment()); if s ~= 0 then return s end
+    s = fixture_test(c, work, "product-regression", "product",
       product_test_timeout_ms, {
       COSMIC_FIXTURE_PRODUCT = product,
       COSMIC_FIXTURE_TARGET = target,

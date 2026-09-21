@@ -16,17 +16,17 @@ artifact, extracting a manifest entry, corrupting a core range, and so on).
 `artifact_fixture.tl` is the small v1 artifact reader/writer-input library
 both `tool.tl` and `build/artifact.tl` fixtures build on.
 
-Two scripts each build one kind of fixture and then exercise it; since they
-always work on the same fixture, each pair is one entry point with
+The remaining runtime script builds and exercises the same fixture through
 `build`/`test` verbs:
 
-- `launcher.sh build OUTPUT TARGET` / `launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]`
 - `runtime.sh build OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` / `runtime.sh test RUNTIME_FIXTURE_DIRECTORY`
 
 `identity_test.sh` and `self_rebuild.sh` stay as their own entry points: each
 is called on its own, independent of any sibling build step. Product assembly,
-transport validation, and the cross-language format contract are actual Cosmic
-tests generated in the pinned CI driver's isolated fixture projects.
+transport validation, the cross-language format contract, and launcher
+construction and regression checks are actual Cosmic tests generated in the
+pinned CI driver's isolated fixture projects. Runtime, identity, and
+self-rebuild migration remains follow-up work.
 
 ## What each one covers
 
@@ -36,9 +36,9 @@ real cores, and the production C decoder (`format_test.c`, linked against
 `core/portable.c`) validates it before a battery of focused malformed-field
 mutations is tried against it.
 
-`launcher.sh build` compiles one native contract payload per generated
+The driver's `launcher_build_test.tl.in` compiles one native contract payload per generated
 target and writes one launcher fixture containing both a release prefix and
-a test prefix with synchronization hooks compiled in. `launcher.sh test`
+a test prefix with synchronization hooks compiled in. `launcher_test.tl.in`
 is the focused integration coverage for the production portable shell
 launcher: cache leaf policy (mode, ownership, symlinks), repair of a
 corrupted or malformed cached core, concurrent-publisher and

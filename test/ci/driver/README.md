@@ -9,14 +9,15 @@ keeps the pinned Cosmic process responsible for CI control while candidate
 Cosmic, applications, native decoders, and cores remain the explicit subjects
 executed by each fixture case.
 
-Product construction, transport validation, and format validation each run in
-a fresh external Cosmic project containing only `fixture.tl` and the intended
-`*_test.tl`. Candidate and fixture paths enter through named environment
-values. The pinned runner executes `cosmic test`; the driver requires at least
-one test to run and zero verdicts to stand, so a cached result can never supply
-an integration verdict. Its controlled `TMPDIR` is under the worker directory,
-where failed test directories and each direct-child stdout/stderr file remain
-available to the platform diagnostics upload.
+Product construction, transport validation, format validation, and launcher
+construction and regression coverage each run in a fresh external Cosmic
+project containing only `fixture.tl` and the intended `*_test.tl`. Candidate
+and fixture paths enter through named environment values. The pinned runner
+executes `cosmic test`; the driver requires at least one test to run and zero
+verdicts to stand, so a cached result can never supply an integration verdict.
+Its controlled `TMPDIR` is under the worker directory, where failed test
+directories and each direct-child stdout/stderr file remain available to the
+platform diagnostics upload.
 
 The driver writes a committed `start` event before launching each operation and
 a separate `complete` event afterward. A killed driver therefore leaves an

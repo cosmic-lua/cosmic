@@ -21,6 +21,12 @@ local record Fixture
     err: string
   end
 
+  record Outcome
+    result: Child.Result
+    out: string
+    err: string
+  end
+
   record Entry
     target: integer
     configuration: integer
@@ -88,8 +94,9 @@ local function preview(path: string): string
   return assert(answer as string | nil, trouble)
 end
 
-function Fixture.run(label: string, argv: {string}, directory: string,
-    diagnostics: string, extra?: {string:string}, timeout_ms?: integer): Fixture.Capture
+function Fixture.call_with_environment(label: string, argv: {string},
+    directory: string, diagnostics: string, environment: {string:string},
+    timeout_ms?: integer, input?: string): Fixture.Outcome
   Fixture.mkdir(diagnostics)
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
@@ -100,19 +107,30 @@ function Fixture.run(label: string, argv: {string}, directory: string,
     assert(closed, close_trouble)
     error(open_trouble)
   end
+  local input_fd: integer | nil = nil
+  if input then
+    input_fd, open_trouble = Fs.open_read(input)
+    if input_fd == nil then
+      Fs.close(out_fd); Fs.close(err_fd)
+      error(open_trouble)
+    end
+  end
   local options: Child.Options = {
     cwd = directory,
-    env = Fixture.environment(extra),
+    env = environment,
     stdout = out_fd,
     stderr = err_fd,
     process_group = true,
   }
+  if input_fd then options.stdin = input_fd end
   options.timeout_ms = timeout_ms or default_child_timeout_ms
   local started = assert(Time.monotonic_ns())
   local called, answer, trouble = pcall(Child.run, argv, options)
   local elapsed = (assert(Time.monotonic_ns()) - started) // 1000000
   local out_closed, out_trouble = Fs.close(out_fd)
   local err_closed, err_trouble = Fs.close(err_fd)
+  local input_closed, input_trouble = true, ""
+  if input_fd then input_closed, input_trouble = Fs.close(input_fd) end
   if not called then error(answer) end
   local result = answer as Child.Result | nil
   if result == nil then
@@ -120,18 +138,37 @@ function Fixture.run(label: string, argv: {string}, directory: string,
       "; stdout=" .. out .. "; stderr=" .. err)
   end
   local finished = result as Child.Result
+  assert(out_closed, out_trouble)
+  assert(err_closed, err_trouble)
+  assert(input_closed, input_trouble)
+  assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
+    tostring(elapsed) .. " ms; code=" .. tostring(finished.code) ..
+    "; signal=" .. tostring(finished.signal) ..
+    "; timed_out=" .. tostring(finished.timed_out) .. ")\n"))
+  return { result = finished, out = out, err = err }
+end
+
+function Fixture.call(label: string, argv: {string}, directory: string,
+    diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
+    input?: string): Fixture.Outcome
+  return Fixture.call_with_environment(label, argv, directory, diagnostics,
+    Fixture.environment(extra), timeout_ms, input)
+end
+
+function Fixture.run(label: string, argv: {string}, directory: string,
+    diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
+    input?: string): Fixture.Capture
+  local outcome = Fixture.call(label, argv, directory, diagnostics, extra,
+    timeout_ms, input)
+  local finished = outcome.result
   if not finished.ok then
     error(label .. ": failed code=" .. tostring(finished.code) ..
       " signal=" .. tostring(finished.signal) ..
       " timed_out=" .. tostring(finished.timed_out) ..
-      "; stdout=" .. out .. "; stderr=" .. err ..
-      "; output preview:\n" .. preview(out) .. preview(err))
+      "; stdout=" .. outcome.out .. "; stderr=" .. outcome.err ..
+      "; output preview:\n" .. preview(outcome.out) .. preview(outcome.err))
   end
-  assert(out_closed, out_trouble)
-  assert(err_closed, err_trouble)
-  assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": PASS (" ..
-    tostring(elapsed) .. " ms)\n"))
-  return { out = out, err = err }
+  return { out = outcome.out, err = outcome.err }
 end
 
 function Fixture.contains(path: string, expected: string)
