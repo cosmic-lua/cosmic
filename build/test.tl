@@ -260,11 +260,19 @@ end
 --- `Identities` -- and the current hash of every file under the root
 --- it read, by name. A file the stage holds is hashed already; any
 --- other is read for it here, and one that is gone says so.
-local function verdict_key(root: string, hashes: {string:string}, id: string,
-                           module_key: string, runtime: string,
-                           reads: {observations.Observation},
-                           key_parts: {string:string}):
-                           string, boolean
+---
+--- Exposed as `test.verdict_key` (`run_module`'s two call sites use it
+--- the same as any other caller would) so `test_test.tl` can pin two
+--- properties directly, without a compiled tree or a work database to
+--- reach them through: that distinct inputs never collide on the same
+--- key, and that a read whose current answer differs from what was
+--- recorded turns `stable` false -- the two ways a wrong key could let
+--- a verdict stand for a test it does not describe.
+function test.verdict_key(root: string, hashes: {string:string}, id: string,
+                          module_key: string, runtime: string,
+                          reads: {observations.Observation},
+                          key_parts: {string:string}):
+                          string, boolean
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
   local stable = true
@@ -286,8 +294,16 @@ local function verdict_key(root: string, hashes: {string:string}, id: string,
   -- Bump the recording generation when the invariants of a reusable verdict
   -- change. Generation 1 runners could commit a verdict without its coverage
   -- after an infrastructure error, so none of their verdicts can stand.
-  local lines: {string} = { "recording-2", "module-load-reads-v1",
-    id .. " " .. module_key .. " " .. runtime }
+  -- Generation 2 framed this header as a raw `id .. " " .. module_key .. " "
+  -- .. runtime`: every caller today only ever passes a fixed-width hex
+  -- digest for module_key and runtime, so no real collision was reachable,
+  -- but nothing enforced that, and `id` (a test's own "path name") already
+  -- carries a raw space of its own. Framed instead through the same
+  -- `key_part` hex-encoding every read line already uses, so two distinct
+  -- (id, module_key, runtime) triples can never concatenate to the same
+  -- string regardless of what future caller or identity format hands them.
+  local lines: {string} = { "recording-3", "module-load-reads-v1",
+    observations.key_part("i", id, observations.key_part("m", module_key, runtime)) }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -743,7 +759,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
     local key = ""
     local prior_stable = false
     if was ~= nil then
-      key, prior_stable = verdict_key(root, hashes, id, m.key, runtime, prior_reads,
+      key, prior_stable = test.verdict_key(root, hashes, id, m.key, runtime, prior_reads,
         key_parts)
     end
     local stood = prior_stable and verdicts[key] or nil
@@ -786,7 +802,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
           by_test[id] = collected
         end
       end
-      local reached, stable = verdict_key(root, hashes, id, m.key, runtime, reads,
+      local reached, stable = test.verdict_key(root, hashes, id, m.key, runtime, reads,
         key_parts)
       local saved, trouble = record_run(records, m.path, name, passed, message,
         Time.now_ns() or 0, reads, reached, run_at_ns, stable)
