@@ -3,7 +3,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
 local child_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
@@ -330,7 +330,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   assert(assert(Fs.stat(directory_cache .. "/" .. key)).kind == "file")
   local mode_entry = ctx.work .. "/entry-mode-cache"; Fixture.mkdir(mode_entry)
   chmod(mode_entry, 0x1c0); Fixture.write(mode_entry .. "/" .. key,
-    core_bytes, 0x1c0)
+core_bytes, 0x1c0)
   local mode_repair = run(ctx, "entry-mode-repair", mode_entry)
   outcome_ok(mode_repair, "entry mode repair")
   Fixture.contains(mode_repair.err, "mode is not 0500; repairing")

@@ -1,9 +1,10 @@
 local Fs = require("cosmic.fs")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
-local function test_product_construction(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
-  local product = Fixture.required("COSMIC_FIXTURE_PRODUCT")
+local record ProductSetup
+end
+
+function ProductSetup.build(root: string, product: string, tmp: string): string
   local cosmic = root .. "/o/bin/cosmic"
   local targets_path = root .. "/o/targets.tsv"
   assert(not Fs.exists(product), "product already exists: " .. product)
@@ -16,9 +17,9 @@ local function test_product_construction(tmp: string)
   local project = tmp .. "/project"
   Fixture.mkdir(project .. "/cmd/hello")
   Fixture.mkdir(project .. "/cmd/second")
-  Fixture.copy(root .. "/test/portable/fixture/cmd/hello/main.tl.in",
+  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/hello/main.tl",
     project .. "/cmd/hello/main.tl")
-  Fixture.copy(root .. "/test/portable/fixture/cmd/second/main.tl.in",
+  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/second/main.tl",
     project .. "/cmd/second/main.tl")
   local diagnostics = tmp .. "/logs"
   local built = Fixture.run("application-build", { cosmic, "build" }, project,
@@ -67,4 +68,9 @@ local function test_product_construction(tmp: string)
       "  " .. name .. "\n"
   end
   Fixture.write(product .. "/hashes.sha256", table.concat(hashes))
+  assert(assert(Fs.stat(product .. "/cosmic")).kind == "file",
+    "product setup did not produce cosmic")
+  return product
 end
+
+return ProductSetup

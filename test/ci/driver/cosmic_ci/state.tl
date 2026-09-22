@@ -49,7 +49,9 @@ function State.external_path(path: string, candidate: string,
     absolute = unresolved
   end
   local candidate_absolute = State.canonical_directory(candidate)
-  local project_absolute = State.canonical_directory(parent(driver_path))
+  local project = parent(driver_path)
+  if project:match("/cosmic_ci$") then project = parent(project) end
+  local project_absolute = State.canonical_directory(project)
   assert(not inside(absolute, candidate_absolute),
     "path must be outside candidate checkout: " .. absolute)
   assert(not inside(absolute, project_absolute),

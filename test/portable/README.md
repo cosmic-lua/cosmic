@@ -16,15 +16,15 @@ pinned CI driver's isolated fixture projects; see `test/ci/driver`.
 
 ## What each one covers
 
-The driver's `format_test.tl.in` is the cross-language format check: the
+The driver's `format_test.tl` is the cross-language format check: the
 production Teal writer makes a prefix from `build.zig`'s generated records and
 real cores, and the production C decoder (`format_test.c`, linked against
 `core/portable.c`) validates it before a battery of focused malformed-field
 mutations is tried against it.
 
-The driver's `launcher_build_test.tl.in` compiles one native contract payload per generated
+The driver's `launcher_setup.tl` compiles one native contract payload per generated
 target and writes one launcher fixture containing both a release prefix and
-a test prefix with synchronization hooks compiled in. `launcher_test.tl.in`
+a test prefix with synchronization hooks compiled in. `launcher_test.tl`
 is the focused integration coverage for the production portable shell
 launcher: cache leaf policy (mode, ownership, symlinks), repair of a
 corrupted or malformed cached core, concurrent-publisher and
@@ -40,13 +40,13 @@ remaining `COSMIC_PORTABLE_*` fields are a reserved launcher-to-core
 contract that startup requires complete, adopts, and clears before Lua
 runs.
 
-The driver's `product_build_test.tl.in` makes the per-host provenance bundle
+The driver's `product_setup.tl` makes the per-host provenance bundle
 from a booted tree: it copies portable Cosmic, extracts its exact prefix and
 manifest (`tool.tl product-extract`), and uses those same local portable bytes
 to build the `hello` and `second` standalone fixtures. The bundle also carries
 every generated release target's raw core; extraction checks that each core
 occurs exactly once, at its manifest range, in Cosmic and both applications.
-`product_test.tl.in` verifies every recorded transported hash, exact prefix
+`product_test.tl` verifies every recorded transported hash, exact prefix
 reuse, the selected manifest range's length, digest, and raw core bytes, and
 both applications; on the macOS host it also sends that extracted range to
 strict `codesign` verification. Normal CI runs these checks in independent x86
@@ -54,7 +54,7 @@ Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux producer whose
 product also runs under Alpine. The `provenance` job compares the exact
 `cosmic` bytes all four attest they ran.
 
-The driver's `runtime_build_test.tl.in` assembles the runtime fixture
+The driver's `runtime_setup.tl` assembles the runtime fixture
 directory (`COSMIC_FIXTURE_RUNTIME`) from a booted checkout's prebuilt cores
 (`COSMIC_FIXTURE_PREBUILT`), portable writer (`COSMIC_FIXTURE_WRITER`), and
 portable database (`COSMIC_FIXTURE_DATABASE`): it writes the
@@ -67,10 +67,10 @@ pause after descriptor validation and before SQLite opens the main
 database; ordinary release cores contain neither the hook code nor its
 environment names. It also derives a fourth, launcher-unreachable sanitized
 manifest entry that binds the real host sanitized core, and copies
-`probe.tl`, `runtime_test.tl.in`, and `hello_main.tl.in` alongside the
+`probe.tl`, `runtime_test.tl`, and `hello_main.tl` alongside the
 generated `targets.tsv` for the fixtures that follow it.
 
-`runtime_test.tl.in` covers real Cosmic cores end to end against the
+`runtime_test.tl` covers real Cosmic cores end to end against the
 runtime's host-independent projection: the nine-phase startup-diagnostic
 sequence; logical-path and occupied-descriptor reuse across absolute,
 `cwd`-relative, `PATH`, and symlink launches; full `COSMIC_PORTABLE_*`
@@ -86,7 +86,7 @@ artifact descriptor; writing that same inode in place remains unsupported
 and is deliberately not presented as safe. It finishes with informational
 cold/warm entry-timing observations that set no threshold.
 
-`identity_test.tl.in` exercises the production retained-artifact route.
+`identity_test.tl` exercises the production retained-artifact route.
 `test_identity_primary` builds two portable applications from the retained
 prefix (`COSMIC_FIXTURE_RUNTIME`), checks logical executable paths, prefix
 reuse, suffix-only application edits, one shared cache entry,
@@ -106,11 +106,11 @@ Mutable developer state remains local to one runner; cross-platform support
 is established by executing and attesting the same immutable product bytes
 in all supported platform environments.
 
-`self_rebuild_test.tl.in` archives a fresh `git archive HEAD` tree per case
+`self_rebuild_test.tl` archives a fresh `git archive HEAD` tree per case
 (`COSMIC_FIXTURE_ROOT`) and places the fixture-only runtime
-(`COSMIC_FIXTURE_RUNTIME`) at its `o/bin/cosmic`, pruning the archived
-tree's own test suite down to `embed_test.tl` so the rebuilt runtime's
-`test` verb stays cheap. It uses the same fixture-only startup pause to
+(`COSMIC_FIXTURE_RUNTIME`) at its `o/bin/cosmic`. Each child selects only
+`embed_test.tl`, so unrelated tests remain untouched and cannot run. It uses
+the same fixture-only startup pause to
 rename and unlink the artifact after descriptor adoption. In each case a
 deterministic Teal edit causes exactly one database-only rebuild and
 re-entry at the same logical portable path, with the exact re-entered argv

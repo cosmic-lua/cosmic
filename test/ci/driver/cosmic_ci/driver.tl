@@ -1,17 +1,11 @@
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Time = require("cosmic.time")
-local Orchestration = require("orchestration")
-local State = require("state")
+local Orchestration = require("cosmic_ci.orchestration")
+local Runner = require("cosmic_ci.runner")
+local State = require("cosmic_ci.state")
 
 local function open_database(path: string): Sqlite.Handle
   return State.open(path)
-end
-
-local function limited(value: string): string
-  if #value > 1000 then return value:sub(1, 1000) end
-  return value
 end
 
 local function database_path(path: string, candidate: string,
@@ -29,41 +23,13 @@ local function run(argv: {string}): integer
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
   database = database_path(database, candidate, assert(argv[0]))
-  local started = assert(Time.monotonic_ns())
-  local start_id = State.start(database, worker, run_name, attempt, phase, started)
-
   local command: {string} = { executable }
   for i = 9, #argv do command[#command + 1] = argv[i] end
-  local called, result, trouble = pcall(Child.run, command,
-    { cwd = candidate, timeout_ms = timeout, process_group = true })
-  local elapsed = assert(Time.monotonic_ns()) - started
-  local status: string
-  local exit_code: integer
-  local signal: integer
-  local timed_out = 0
-  local detail: string
-  local return_code = 1
-  if not called then
-    status, detail = "error", limited(tostring(result))
-  elseif result == nil then
-    status, detail = "start-error", limited(trouble or "child operation failed")
-  else
-    local finished = result as Child.Result
-    exit_code, signal = finished.code, finished.signal
-    timed_out = finished.timed_out and 1 or 0
-    if finished.timed_out then
-      status, return_code = "timeout", 124
-    elseif finished.ok then
-      status, return_code = "success", 0
-    elseif finished.signal ~= nil then
-      status, return_code = "signal", 128 + finished.signal
-    else
-      status, return_code = "exit", finished.code or 1
-    end
-  end
-  State.complete(database, start_id, worker, run_name, attempt, phase,
-    started + elapsed, elapsed, status, exit_code, signal, timed_out, detail)
-  return return_code
+  local context: Runner.Context = { database = database, worker = worker,
+    run = run_name, attempt = attempt, candidate = candidate,
+    driver = assert(argv[0]) }
+  return Runner.operation(context, phase, { argv = command, cwd = candidate,
+    timeout_ms = timeout }).code
 end
 
 local function clean(value: string): string

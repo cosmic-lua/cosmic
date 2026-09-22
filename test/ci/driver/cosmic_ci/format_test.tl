@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
 local native_build_timeout_ms <const> = 120000
 

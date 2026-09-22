@@ -28,6 +28,10 @@ local function write_fixture(case: string, files: {string:string}): string | nil
     return nil, trouble
   end
   for filename, source in pairs(files) do
+    local parent = filename:match("^(.+)/[^/]+$")
+    if parent and not Fs.mkdirs(root .. "/" .. parent) then
+      return nil, root .. "/" .. parent .. ": could not create fixture directory"
+    end
     local ok: boolean
     ok, trouble = Fs.write(root .. "/" .. filename, source)
     if not ok then
@@ -233,6 +237,50 @@ local function test_finds_a_real_top_level_require()
   assert(requires ~= nil, "compile failed: " .. tostring(trouble))
   assert(#requires == 1, "expected 1 require, got " .. #requires)
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
+end
+
+--- A copied infrastructure project's testdata is inert input even when a
+--- fixture uses a Teal-looking name. Ordinary sources beside it still compile.
+local function test_testdata_is_not_a_module_or_test_source()
+  local root, write_trouble = write_fixture("testdata-classification", {
+    ["suite/pass_test.tl"] = "local function test_pass() assert(true) end\n",
+    ["suite/testdata/hostile_test.tl"] =
+      "this is deliberately not valid Teal\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "testdata entered compilation: " .. tostring(trouble))
+  local found = false
+  for _, module in ipairs(result.modules) do
+    assert(module.file ~= "suite/testdata/hostile_test.tl",
+      "testdata was classified as source")
+    if module.file == "suite/pass_test.tl" and module.kind == "test" then
+      found = true
+    end
+  end
+  assert(found, "ordinary sibling test was not classified")
+end
+
+--- Driver sources are stored inside Cosmic's checkout but are compiled only
+--- after bootstrap copies their namespace to an external project. The copied
+--- path remains ordinary source; only the checkout storage prefix is data.
+local function test_ci_driver_storage_is_not_candidate_source()
+  local root, write_trouble = write_fixture("ci-driver-storage", {
+    ["test/ci/driver/cosmic_ci/hostile_test.tl"] =
+      "this is deliberately not valid Teal\n",
+    ["cosmic_ci/pass_test.tl"] =
+      "local function test_pass() assert(true) end\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "driver storage entered compilation: " .. tostring(trouble))
+  local copied = false
+  for _, module in ipairs(result.modules) do
+    assert(module.file ~= "test/ci/driver/cosmic_ci/hostile_test.tl",
+      "checkout driver storage was classified as source")
+    if module.file == "cosmic_ci/pass_test.tl" then copied = true end
+  end
+  assert(copied, "copied driver namespace was not ordinary source")
 end
 
 --- The tool's hash over a tree, staged fresh: each call is its own

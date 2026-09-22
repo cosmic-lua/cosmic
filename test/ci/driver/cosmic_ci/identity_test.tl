@@ -2,9 +2,9 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
--- identity_test.sh's own default subprocess bound, and the bound each paused
+-- identity test's own default subprocess bound, and the bound each paused
 -- build race and blocking handshake call below stays under.
 local child_wait_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
@@ -25,9 +25,9 @@ end
 
 -- Mirrors lib.sh's `compare_file_prefixes`: exactly the first `length` bytes
 -- of `left` and `right` must be present (both at least `length` bytes) and
--- equal. Unlike self_rebuild_test.tl.in's `compare_prefix`, `left` is not
+-- equal. Unlike self_rebuild_test.tl's `compare_prefix`, `left` is not
 -- required to be exactly `length` bytes -- only that it has at least that
--- many -- which is what identity_test.sh's own `compare_file_prefixes` calls
+-- many -- which is what identity test's own `compare_file_prefixes` calls
 -- for. Operates on bytes already read into memory rather than temporary
 -- files, since every caller here already holds (or cheaply can hold) both
 -- sides as strings.
@@ -43,7 +43,7 @@ local function compare_file_prefixes(left: string, right: string,
     "compared file prefixes differ")
 end
 
--- Mirrors self_rebuild_test.tl.in's `read_prefix_length`: identity_test.sh's
+-- Mirrors self_rebuild_test.tl's `read_prefix_length`: identity test's
 -- own shell `case $length in ''|*[!0-9]*)` validation rejects the whole
 -- value on anything but digits, so this uses the same strict anchored match
 -- rather than a loose `%d+` search.
@@ -55,8 +55,8 @@ local function read_prefix_length(fixture_dir: string): integer
 end
 
 -- Copies a whole directory tree with the standard `cp -R`, matching every
--- other whole-tree copy this migration already relies on (self_rebuild_test
--- .tl.in's `git archive | tar`, this file's own project-state snapshot):
+-- other whole-tree copy this migration already relies on (self_rebuild_test's
+-- `git archive | tar`, this file's own project-state snapshot):
 -- Teal has no bundled recursive-copy primitive, and shelling out to a
 -- standard POSIX utility for it is the established idiom.
 local function copy_tree(label: string, from: string, to: string, cwd: string,
@@ -65,7 +65,7 @@ local function copy_tree(label: string, from: string, to: string, cwd: string,
 end
 
 -- Counts the plain files directly inside `directory`. The portable cache is
--- assumed flat, the same assumption launcher_test.tl.in's `only_core` and
+-- assumed flat, the same assumption launcher_test.tl's `only_core` and
 -- `no_private_entries` make about a cache directory.
 local function count_cache_files(directory: string): integer
   local count = 0
@@ -109,21 +109,6 @@ local function host_target_field(fixture_dir: string, work: string,
   end
   return assert(found, "no generated target matches this host: " ..
     sysname .. " " .. arch)
-end
-
--- The self_rebuild_test.tl.in "focused-embed" trick, verbatim: rename every
--- `*_test.tl` under the copied `build` directory to `*_test.tl.in`, except
--- `embed_test.tl`, so the copy's own `test` verb only exercises that one
--- cheap module.
-local function prune_full_suite(tree: string)
-  local build_dir = tree .. "/build"
-  for _, relative in ipairs(assert(Fs.walk(build_dir))) do
-    if relative:match("_test%.tl$") and
-        relative:match("([^/]+)$") ~= "embed_test.tl" then
-      local path = build_dir .. "/" .. relative
-      assert(Fs.rename(path, path .. ".in"))
-    end
-  end
 end
 
 local record Running
@@ -247,13 +232,13 @@ local function run_build_race(project: string, cache: string,
   end)
 end
 
--- run_release/expect_tally port identity_test.sh's own helpers of the same
+-- run_release/expect_tally port identity test's own helpers of the same
 -- name. The shell captures stdout and stderr together (`2>&1`) purely so a
 -- failure's own diagnostics land in one file; the "test: PASS" line itself
 -- is only ever written to stdout (build/test.tl's `report`), so checking
 -- `.out` alone is equivalent, and is what every other fixture test here
--- already does (orchestration.tl.in's own `fixture_test`, product_test.tl.in
--- , launcher_test.tl.in).
+-- already does (orchestration.tl's own `fixture_test`, product_test.tl
+-- , launcher_test.tl).
 local function run_release(project: string, cache: string, counter: string,
     diagnostics: string, artifact: string, label: string): Fixture.Capture
   return Fixture.run(label, { artifact, "test" }, project, diagnostics,
@@ -266,12 +251,12 @@ local function expect_tally(capture: Fixture.Capture, ran: integer,
     tostring(ran) .. " ran, " .. tostring(stood) .. " stood")
 end
 
--- Ports identity_test.sh's `run_sanitized`: runs the raw sanitized core
+-- Ports identity test's `run_sanitized`: runs the raw sanitized core
 -- directly, outside its own runtime.sanitized wrapper, with the full private
 -- COSMIC_PORTABLE_* contract supplied by hand and the artifact/core opened
 -- on descriptors 8/9. `Child.Options` only redirects stdin/stdout/stderr, so
 -- opening arbitrary extra descriptors before exec needs a real shell
--- wrapper -- the same approach launcher_test.tl.in's
+-- wrapper -- the same approach launcher_test.tl's
 -- `test_launcher_descriptors_exit_and_signal` uses for descriptor-passing.
 local function run_sanitized(fixture_dir: string, root: string,
     project: string, counter: string, work: string,
@@ -289,7 +274,7 @@ local function run_sanitized(fixture_dir: string, root: string,
   local entry_cache = work .. "/entry-cache"
   -- tool.tl's own require("build.artifact")/require("test.portable.
   -- artifact_fixture") resolve relative to the process cwd, so this must
-  -- run from `root`, matching identity_test.sh's own unwrapped invocation
+  -- run from `root`, matching identity test's own unwrapped invocation
   -- (no `cd`, so it inherited the whole script's cwd, which is `root`).
   local entry_out = Fixture.run("sanitized-entry",
     { fixture_dir .. "/runtime.old", root .. "/test/portable/tool.tl",
@@ -301,7 +286,7 @@ local function run_sanitized(fixture_dir: string, root: string,
   chmod(core, 0x1ed)
 
   -- Opens the artifact on fd 8 and the raw core on fd 9, exactly as
-  -- identity_test.sh's `exec 8<...; exec 9<...` does, then execs the core
+  -- identity test's `exec 8<...; exec 9<...` does, then execs the core
   -- directly with the private contract environment already set.
   local script = [[
 exec 8< "$1"
@@ -336,10 +321,10 @@ local function test_identity_primary(tmp: string)
 
   local project = work .. "/project"
   Fixture.mkdir(project .. "/cmd/hello")
-  Fixture.copy(fixture_dir .. "/runtime_test.tl.in", project .. "/runtime_test.tl")
-  Fixture.copy(fixture_dir .. "/hello_main.tl.in", project .. "/cmd/hello/main.tl")
+  Fixture.copy(fixture_dir .. "/runtime_test.tl", project .. "/runtime_test.tl")
+  Fixture.copy(fixture_dir .. "/hello_main.tl", project .. "/cmd/hello/main.tl")
   Fixture.mkdir(project .. "/cmd/second")
-  Fixture.copy(root .. "/test/portable/fixture/cmd/second/main.tl.in",
+  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/second/main.tl",
     project .. "/cmd/second/main.tl")
   local counter = project .. "/test-runs"
   local cache = work .. "/cache"
@@ -350,9 +335,9 @@ local function test_identity_primary(tmp: string)
   Fixture.mkdir(focused)
   copy_tree("copy-build", root .. "/build", focused .. "/build", work,
     diagnostics)
-  prune_full_suite(focused)
   local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
-    "test" }, focused, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
+    "test", "build/embed_test.tl" }, focused, diagnostics,
+    { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(focused_run.out,
     "test: PASS (4 tests, 1 modules; 4 ran, 0 stood")
 
@@ -372,7 +357,7 @@ local function test_identity_primary(tmp: string)
   end
 
   local hello_before_edit = Fixture.read(project .. "/o/bin/hello")
-  local hello_source = Fixture.read(fixture_dir .. "/hello_main.tl.in")
+  local hello_source = Fixture.read(fixture_dir .. "/hello_main.tl")
   local edited = hello_source:gsub("hello from the portable fixture",
     "hello from the edited portable fixture")
   assert(edited ~= hello_source,
@@ -400,7 +385,7 @@ local function test_identity_primary(tmp: string)
   local corrupt = fixture_dir .. "/runtime.corrupt-" .. host_target
   local corrupt_project = work .. "/corrupt-project"
   Fixture.mkdir(corrupt_project .. "/cmd/hello")
-  Fixture.copy(fixture_dir .. "/hello_main.tl.in",
+  Fixture.copy(fixture_dir .. "/hello_main.tl",
     corrupt_project .. "/cmd/hello/main.tl")
   local corrupt_outcome = Fixture.call_with_environment("corrupt-build",
     { corrupt, "build" }, corrupt_project, diagnostics,
@@ -440,7 +425,7 @@ local function test_identity_primary(tmp: string)
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's
   -- basis.
-  -- Both tool.tl calls below run from `root`, matching identity_test.sh's
+  -- Both tool.tl calls below run from `root`, matching identity test's
   -- own unwrapped invocations (no `cd "$project"`, unlike most of this
   -- function): tool.tl's require("build.artifact")/require("test.portable.
   -- artifact_fixture") resolve relative to the process cwd, and `project`
@@ -462,7 +447,7 @@ local function test_identity_primary(tmp: string)
 
   local missing = work .. "/missing-project"
   Fixture.mkdir(missing)
-  Fixture.copy(fixture_dir .. "/runtime_test.tl.in", missing .. "/runtime_test.tl")
+  Fixture.copy(fixture_dir .. "/runtime_test.tl", missing .. "/runtime_test.tl")
   local missing_counter = missing .. "/counter"
   local missing_outcome = Fixture.call_with_environment("missing",
     { fixture_dir .. "/runtime.missing", "test" }, missing, diagnostics,
@@ -478,7 +463,7 @@ local function test_identity_primary(tmp: string)
 
   -- Snapshot the finished project for test_identity_transported. TMPDIR is
   -- one process-wide value every test function in this run shares (it is
-  -- set once, by orchestration.tl.in's fixture_test, for the whole `cosmic
+  -- set once, by orchestration.tl's fixture_test, for the whole `cosmic
   -- test` invocation), so a fixed name under it is the one thing this
   -- function and test_identity_transported -- each called with its own,
   -- otherwise unrelated, `Fs.mkdtemp` directory -- can agree on.
@@ -491,7 +476,7 @@ end
 
 -- The `else` branch of identity_test.sh is written for a directory produced
 -- by a DIFFERENT host and transported here (a cross-host CI hand-off that,
--- as of this port, orchestration.tl.in does not yet actually wire up: it
+-- as of this port, orchestration.tl does not yet actually wire up: it
 -- calls identity_test.sh with only one argument, and never sets
 -- COSMIC_PORTABLE_IDENTITY_STATE_OUT). Its own comment explains why a
 -- different host's copy runs fresh once and then stands: "each actual host
@@ -528,7 +513,7 @@ local function test_identity_transported(tmp: string)
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  -- Mirrors identity_test.sh's own restore exactly: `cp -R "$state"
+  -- Mirrors identity test's own restore exactly: `cp -R "$state"
   -- "$project"` with `$project` not yet existing, so `project` is created
   -- fresh as a full copy of the saved state (not merged into a
   -- pre-existing directory, unlike the snapshot step above).

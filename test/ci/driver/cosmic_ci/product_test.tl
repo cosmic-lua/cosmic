@@ -1,5 +1,5 @@
 local Hash = require("cosmic.hash")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
 local function expected_hashes(product: string): {string:string}
   local hashes: {string:string} = {}

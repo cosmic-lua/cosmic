@@ -1,14 +1,14 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
--- self_rebuild.sh's default `run_bounded` timeout, and the bound each
+-- self-rebuild test's default `run_bounded` timeout, and the bound each
 -- rebuilt-child wait and blocking subprocess call below stays under.
 local child_wait_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
--- which must itself be exactly `length` bytes. Mirrors self_rebuild.sh's
+-- which must itself be exactly `length` bytes. Mirrors self-rebuild test's
 -- shell `compare_prefix`: a length mismatch on either side, or a byte
 -- difference within the compared range, is a failure with a message; a
 -- program longer than `length` still passes, since only its prefix matters.
@@ -84,29 +84,6 @@ local function place_runtime(fixture_dir: string, tree: string): string
   return program
 end
 
--- The identity_test.sh "focused-embed" trick, applied to the whole archived
--- tree rather than just `build/`: identity_test.sh's own version copies
--- only the `build` directory into an otherwise-empty project, so pruning
--- `build`'s own `*_test.tl` files is enough by construction. This fixture
--- needs the complete tracked tree instead (self-rebuild staleness detection
--- and the disposable edits below touch `vendor/tl`, `patch/tl`,
--- `build/launcher.tl`, and `core/startup.h`, well outside `build`), and a
--- real build of this exact tree proved `cosmic/*_test.tl` and
--- `test/*_test.tl` are real, separately-discovered test modules the narrower
--- build-only prune leaves untouched -- running the actual full ~90-test
--- suite instead of the intended 4, which is both slow and, empirically,
--- flaky in a constrained sandbox (two cosmic.child_test process-group
--- cases). Renaming every `*_test.tl` in the tree except `build/embed_test.tl`
--- itself achieves what the comment here always claimed.
-local function prune_full_suite(tree: string)
-  for _, relative in ipairs(assert(Fs.walk(tree))) do
-    if relative:match("_test%.tl$") and relative ~= "build/embed_test.tl" then
-      local path = tree .. "/" .. relative
-      assert(Fs.rename(path, path .. ".in"))
-    end
-  end
-end
-
 -- The disposable edit self_rebuild.sh applies to make the fixture-only
 -- runtime stale and to check the exact argv and an ordinary environment
 -- value reach the re-entered `test` run.
@@ -126,7 +103,7 @@ local function apply_step8_edit(tree: string)
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
--- Mirrors self_rebuild.sh's `compare_prefix` length validation
+-- Mirrors self-rebuild test's `compare_prefix` length validation
 -- (`case $length in ''|*[!0-9]*) ...`), which rejects the whole value if it
 -- is anything but digits: a loose `%d+` search would instead silently
 -- accept and truncate a malformed value (e.g. extra trailing text).
@@ -257,7 +234,6 @@ local function run_rebuild_case(root: string, fixture_dir: string,
   local program = place_runtime(fixture_dir, tree)
   local original_hash = Fixture.hash(program)
   local prefix_length = read_prefix_length(fixture_dir)
-  prune_full_suite(tree)
   apply_step8_edit(tree)
 
   local ready = fifo(case_root, diagnostics, "ready-" .. action)
@@ -383,7 +359,7 @@ local function run_refusal_case(root: string, fixture_dir: string,
 end
 
 -- A pure unit test of `compare_prefix` itself, with the same three synthetic
--- cases self_rebuild.sh's `exercise_prefix_comparison` checked: an exact
+-- cases self-rebuild test's `exercise_prefix_comparison` checked: an exact
 -- match, a program too short to hold the expected prefix, and a mutated
 -- byte within the compared range.
 local function test_self_rebuild_prefix_comparison(_tmp: string)

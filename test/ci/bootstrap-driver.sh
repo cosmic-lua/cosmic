@@ -1,15 +1,19 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 4 ]; then
-  echo "usage: bootstrap-driver.sh PIN CACHE_DIR PROJECT_DIR RUNNER_PATH" >&2
+if [ "$#" -ne 5 ]; then
+  echo "usage: bootstrap-driver.sh PIN SOURCE_ROOT CACHE_DIR PROJECT_DIR RUNNER_PATH" >&2
   exit 2
 fi
 pin=$1
-cache=$2
-project=$3
-runner=$4
-root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd -P)
+root=$2
+cache=$3
+project=$4
+runner=$5
+case "$root" in /*) ;; *) exit 1;; esac
+root=$(CDPATH= cd -- "$root" && pwd -P)
+test -d "$root/test/ci/driver/cosmic_ci"
+test -d "$root/test/ci/driver/testdata"
 case "$cache:$project:$runner" in /*:/*:/*) ;; *) exit 1;; esac
 for destination in "$cache" "$project" "$runner"; do
   case "$destination/" in "$root/"*) exit 1;; esac
@@ -46,8 +50,11 @@ inside_candidate() {
 ! inside_candidate "$cache"
 ! inside_candidate "$project"
 ! inside_candidate "$runner"
-test ! -e "$project/driver.tl" && test ! -L "$project/driver.tl"
-test ! -e "$runner" && test ! -L "$runner"
+if [ -e "$project/cosmic_ci" ] || [ -L "$project/cosmic_ci" ] ||
+   [ -e "$project/testdata" ] || [ -L "$project/testdata" ] ||
+   [ -e "$runner" ] || [ -L "$runner" ]; then
+  exit 1
+fi
 cached="$cache/cosmic-$digest"
 if [ -f "$cached" ] && ! verify "$cached"; then rm -f "$cached"; fi
 if [ ! -f "$cached" ]; then
@@ -64,8 +71,19 @@ verify "$cached"
 cp "$cached" "$runner"
 verify "$runner"
 chmod 755 "$runner"
-for template in "$(dirname "$0")"/driver/*.tl.in; do
-  name=$(basename "$template" .in)
-  test ! -e "$project/$name" && test ! -L "$project/$name"
-  cp "$template" "$project/$name"
+source_root=$root/test/ci/driver
+partial_project="$project/.cosmic-ci-copy.$$"
+if [ -e "$partial_project" ] || [ -L "$partial_project" ]; then exit 1; fi
+trap 'rm -rf "$partial_project" "$project/cosmic_ci" "$project/testdata"' EXIT HUP INT TERM
+mkdir "$partial_project"
+cp -R "$source_root/cosmic_ci" "$source_root/testdata" "$partial_project/"
+for tree in cosmic_ci testdata; do
+  test "$(find "$source_root/$tree" -type f | wc -l | tr -d ' ')" = \
+       "$(find "$partial_project/$tree" -type f | wc -l | tr -d ' ')"
+  (cd "$source_root" && find "$tree" -type f -print) | while IFS= read -r file; do
+    cmp "$source_root/$file" "$partial_project/$file"
+  done
+  mv "$partial_project/$tree" "$project/$tree"
 done
+rmdir "$partial_project"
+trap - EXIT HUP INT TERM

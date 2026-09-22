@@ -1,6 +1,6 @@
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
 local function test_child_timeout_retains_diagnostics(tmp: string)
   local diagnostics = tmp .. "/timeout-logs"
