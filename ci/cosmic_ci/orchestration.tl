@@ -162,6 +162,8 @@ local function checked_suite(c: Context, target: string, work: string): integer
     c.root .. "/test/portable/tool.tl", "checked-context", core, target }, 30000)
   if s ~= 0 then return s end
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
+  -- c.root/o is not cleared: the sanitized binary's runtime identity
+  -- differs from the release one's, so no release verdict can stand.
   s = logged(c, "checked suite", { cosmic, "test" },
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     90000, c.root, environment())

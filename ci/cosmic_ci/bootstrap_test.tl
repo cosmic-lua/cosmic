@@ -182,7 +182,11 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
     assert(text:find(row, 1, true), "report omitted " .. row)
   end
 
-  local sentinel, link = candidate .. "/AGENTS.md", tmp .. "/database-link"
+  -- Inside the candidate, so the boundary check fires on the resolved
+  -- target, but under its gitignored ci/o so a regression can only
+  -- ever touch a throwaway file.
+  local sentinel, link = candidate .. "/ci/o/sentinel.db", tmp .. "/database-link"
+  assert(Fs.mkdirs(candidate .. "/ci/o") and Fs.write(sentinel, "sentinel"))
   local before = Hash.hex_sha256(assert(Fs.read(sentinel)))
   assert(call({ "/bin/ln", "-s", sentinel, link }, tmp, tmp .. "/db-ln.out").ok)
   local linked = call({ runner, driver, "run", link, "worker", "run-1", "1",
