@@ -389,7 +389,20 @@ local function phase_portable_boundary(p: PlatformContext): integer
     attempt = c.attempt, root = fresh, driver = c.driver }
   local s = snapshot(portable_context, portable_d, "portable-boundary",
     portable_d .. "/cosmic-portable"); if s ~= 0 then return s end
-  if a[9] == "success" then assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary") end
+  if a[9] == "success" then
+    assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary")
+    local executable = portable_d .. "/cosmic-portable"
+    local cache = portable_d .. "/portable-full-suite-cache"
+    local locked = checked(portable_context, "portable cache read-only mode",
+      { "/usr/bin/env", "chmod", "500", cache })
+    if locked ~= 0 then return locked end
+    local help = checked(portable_context, "read-only cache execution",
+      { executable, "help" }, 30000, fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
+    local restored = checked(portable_context, "portable cache restore mode",
+      { "/usr/bin/env", "chmod", "700", cache })
+    if help ~= 0 then return help end
+    if restored ~= 0 then return restored end
+  end
   return 0
 end
 
@@ -461,142 +474,6 @@ local function phase_cache_save(p: PlatformContext): integer
   return 0
 end
 
-local function phase_alpine(p: PlatformContext): integer
-  local c = p.operation
-  local target = p.target
-  local work = p.work
-  local product = p.product
-  assert(target == "x86_64-linux-musl", "Alpine requires x86_64-linux-musl")
-  assert(c.db == work .. "/operations.db",
-    "Alpine worker database must be WORK/operations.db")
-  local alpine_source = work .. "/alpine-source"
-  local s = archive(c, alpine_source); if s ~= 0 then return s end
-  local driver_copy = work .. "/alpine-driver"
-  mkdir(driver_copy)
-  local runner = assert(Env.get("COSMIC_CI_RUNNER"), "COSMIC_CI_RUNNER is required")
-  write(driver_copy .. "/cosmic", read(runner))
-  s = checked(c, "Alpine runner mode",
-    { "/usr/bin/env", "chmod", "755", driver_copy .. "/cosmic" })
-  if s ~= 0 then return s end
-  mkdir(work .. "/alpine-home")
-  local image = "alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"
-  s = checked(c, "Alpine image pull", { "/usr/bin/env", "docker", "pull", image })
-  if s ~= 0 then return s end
-  local identity = work .. "/alpine-identity"
-  s = capture_small(c, "Alpine host identity", { "/usr/bin/env", "id", "-u" },
-    identity, 30000)
-  if s ~= 0 then return s end
-  local uid = assert(read(identity):match("(%d+)"))
-  s = capture_small(c, "Alpine host group", { "/usr/bin/env", "id", "-g" },
-    identity, 30000)
-  if s ~= 0 then return s end
-  local gid = assert(read(identity):match("(%d+)"))
-  -- Cosmic is the container command, so give it an init that reaps orphaned
-  -- fixture descendants and forwards signals while Cosmic is PID 1.
-  local common = { "/usr/bin/env", "docker", "run", "--rm", "--init",
-    "--network", "none",
-    "--user", uid .. ":" .. gid,
-    "-e", "GITHUB_ACTIONS=true", "-e", "HOME=/runner/alpine-home",
-    "-v", alpine_source .. ":/work",
-    "-w", "/work/ci",
-    "-v", work .. ":/runner", image,
-    "/runner/alpine-driver/cosmic",
-    "/work/ci/cosmic_ci/driver.tl",
-    "platform" }
-  local function container_command(inner: string): {string}
-    local command: {string} = {}
-    for _, value in ipairs(common) do command[#command + 1] = value end
-    for _, value in ipairs({ inner, "/runner/operations.db", c.worker, c.run,
-      c.attempt, "/work", target, "/runner" }) do command[#command + 1] = value end
-    return command
-  end
-  local before = hash(product .. "/cosmic")
-  s = checked(c, "Alpine execution", container_command("alpine-inner"))
-  if s == 0 then s = checked(c, "Alpine read-only execution",
-container_command("alpine-readonly")) end
-  assert(hash(product .. "/cosmic") == before, "Alpine mutated product")
-  return s
-end
-
-local function phase_alpine_inner(p: PlatformContext): integer
-  local c = p.operation
-  local root = p.root
-  local work = p.work
-  local product = p.product
-  local contract = p.contract
-  assert(not Fs.exists(root .. "/o"), "Alpine source is not fresh")
-  local diagnostics = work .. "/alpine-diagnostics/full"
-  mkdir(work .. "/alpine-diagnostics"); mkdir(diagnostics)
-  local s = checked(c, "Alpine selected format mutation",
-    { contract .. "/format/format-test-x86_64-linux-musl",
-     contract .. "/format/program" })
-  if s ~= 0 then return s end
-  s = fixture_test(c, work, "alpine-product", "product",
-    product_test_timeout_ms, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_TARGET = "x86_64-linux-musl",
-    COSMIC_FIXTURE_DECODER = contract ..
-      "/format/format-test-x86_64-linux-musl",
-    COSMIC_FIXTURE_CODESIGN = "false",
-  })
-  if s ~= 0 then return s end
-  local executable = diagnostics .. "/cosmic-portable"
-  write(executable, read(product .. "/cosmic"))
-  s = checked(c, "Alpine portable mode", { "/bin/chmod", "755", executable })
-  if s ~= 0 then return s end
-  write(diagnostics .. "/portable-artifact.before.sha256", hash(executable) .. "\n")
-  local inner: Context = { db = c.db, worker = c.worker, run = c.run, attempt = c.attempt,
-    root = root, driver = c.driver }
-  s = suite(inner, "portable", executable, diagnostics,
-    { COSMIC_PORTABLE_CACHE = diagnostics .. "/portable-full-suite-cache" }, 30000)
-  local hash_called, hash_error = pcall(function(): boolean
-    write(diagnostics .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
-    assert(read(diagnostics .. "/portable-artifact.before.sha256") ==
-      read(diagnostics .. "/portable-artifact.after.sha256"),
-      "Alpine portable artifact changed")
-    return true
-  end)
-  if not hash_called then Fs.put(Fs.stderr, tostring(hash_error) .. "\n") end
-  if s ~= 0 then return s end
-  if not hash_called then return 1 end
-  return s
-end
-
-local function phase_alpine_readonly(p: PlatformContext): integer
-  local c = p.operation
-  local root = p.root
-  local work = p.work
-  local product = p.product
-  local contract = p.contract
-  local diagnostics = work .. "/alpine-diagnostics/full"
-  local cache = diagnostics .. "/portable-full-suite-cache"
-  local executable = diagnostics .. "/cosmic-portable"
-  local s = checked(c, "Alpine cache read-only mode", { "/bin/chmod", "500", cache })
-  if s ~= 0 then return s end
-  local help = checked(c, "Alpine read-only cache execution", { executable, "help" },
-    30000, root, environment({ COSMIC_PORTABLE_CACHE = cache }))
-  local restored = checked(c, "Alpine cache restore mode", { "/bin/chmod", "700", cache })
-  if help ~= 0 then return help end; if restored ~= 0 then return restored end
-  s = snapshot(c, diagnostics, "portable-boundary", executable)
-  if s ~= 0 then return s end
-  assert(read(diagnostics .. "/portable-immediate/hashes.sha256") ==
-    read(diagnostics .. "/portable-boundary/hashes.sha256"),
-    "Alpine database changed across boundary")
-  s = fixture_test(c, work, "alpine-product-final", "product",
-    product_test_timeout_ms, {
-    COSMIC_FIXTURE_PRODUCT = product,
-    COSMIC_FIXTURE_TARGET = "x86_64-linux-musl",
-    COSMIC_FIXTURE_DECODER = contract ..
-      "/format/format-test-x86_64-linux-musl",
-    COSMIC_FIXTURE_CODESIGN = "false",
-  })
-  if s ~= 0 then return s end
-  assert(read(diagnostics .. "/portable-artifact.before.sha256") ==
-    read(diagnostics .. "/portable-artifact.after.sha256"),
-    "Alpine portable artifact changed")
-  return 0
-end
-
 local function platform_impl(a: {string}): integer
   local phase, db, worker, run_name, attempt, root, target, work =
     a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]
@@ -619,9 +496,6 @@ local function platform_impl(a: {string}): integer
   elseif phase == "fixtures" then return phase_fixtures(p)
   elseif phase == "attest" then return phase_attest(p)
   elseif phase == "cache-save" then return phase_cache_save(p)
-  elseif phase == "alpine" then return phase_alpine(p)
-  elseif phase == "alpine-inner" then return phase_alpine_inner(p)
-  elseif phase == "alpine-readonly" then return phase_alpine_readonly(p)
   end
   error("unknown platform phase: " .. phase)
 end

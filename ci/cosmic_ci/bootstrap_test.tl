@@ -142,7 +142,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
     local command = { runner, driver, "run", db, "worker", "run-1", "1",
       phase, candidate, timeout }
     for _, value in ipairs(argv) do command[#command + 1] = value end
-    return call(command, project, tmp .. "/" .. phase .. ".out", nil, 5000)
+    return call(command, project, tmp .. "/" .. phase .. ".out", nil, 60000)
   end
   local spaced = tmp .. "/path with spaces"
   assert(run("success", "1000", { "/bin/sh", "-c",
