@@ -80,14 +80,14 @@ const targets = [_]Target{
     } },
 };
 
-/// Lua's own sources, minus the two that hold a `main`.
+/// Lua's own sources, minus the two that hold a `main` and the unopened
+/// standard libraries.
 const lua_sources = [_][]const u8{
     "lapi.c",     "lauxlib.c",  "lbaselib.c", "lcode.c",
-    "lcorolib.c", "lctype.c",   "ldblib.c",   "ldebug.c",
-    "ldo.c",      "ldump.c",    "lfunc.c",    "lgc.c",
-    "linit.c",    "liolib.c",   "llex.c",     "lmathlib.c",
-    "lmem.c",     "loadlib.c",  "lobject.c",  "lopcodes.c",
-    "loslib.c",   "lparser.c",  "lstate.c",   "lstring.c",
+    "lcorolib.c", "lctype.c",   "ldebug.c",   "ldo.c",
+    "ldump.c",    "lfunc.c",    "lgc.c",      "llex.c",
+    "lmathlib.c", "lmem.c",     "loadlib.c",  "lobject.c",
+    "lopcodes.c", "lparser.c",  "lstate.c",   "lstring.c",
     "lstrlib.c",  "ltable.c",   "ltablib.c",  "ltm.c",
     "lundump.c",  "lutf8lib.c", "lvm.c",      "lzio.c",
 };

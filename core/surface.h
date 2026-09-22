@@ -10,12 +10,6 @@
 
 #include "lua.h"
 
-/* The registry key holding the libraries that are not globals: `io`,
- * `os`, and `debug`. Each is a strictly more dangerous surface than an
- * ordinary sandboxed program needs, so each is taken out of reach here
- * regardless of whether anything currently fetches it back out. */
-#define COSMIC_PRIVATE "cosmic.private"
-
 /* Creates the state and opens the surface. `logical_executable` is the path a
  * program can execute to relaunch this same logical artifact. Returns NULL
  * when there is no memory for a state at all. */

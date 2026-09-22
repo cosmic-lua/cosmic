@@ -1,55 +1,15 @@
---- Line coverage: which lines of the tree's own modules actually ran,
---- collected by a native, C-side line hook while the tests run
---- (core/coverage.c) -- one hook firing per line executed, entirely in
---- C, with no Lua-level `debug.getinfo` call and no Lua closure
---- invoked per line.
+--- Line coverage collected by the native C line hook in core/coverage.c.
+--- Lua's `debug` library is never opened; the VM's internal debugging
+--- support remains available to the native hook and tracebacks.
 ---
---- The raw module behind this one lives under `cosmic.internal.`, the
---- same reserved namespace `cosmic.store`/`cosmic.sqlite` route
---- through -- see cosmic/store.tl for why a wrapper never gets the raw
---- value by requiring it directly at runtime. What it hands over here
---- is the native collector itself, `{start, stop}` (cosmic/internal/
---- debug.d.tl): this module used to need the real Lua `debug` library
---- instead, back when collection ran through `debug.sethook`/
---- `debug.getinfo` from Lua. `debug` stays hidden the same way and for
---- the same reason regardless -- full debug access can inspect or
---- rewrite any local variable and the whole call stack of a running
---- state, grouped with `io`/`os` under core/surface.c's
---- `make_private` on its own account, not this module's -- nothing
---- fetches it back out any more, this module included, so the raw
---- name it used to occupy now carries the native collector instead.
---- Same trust gate as before, no looser a check: the searcher hands
---- the raw table over only when `cosmic.coverage` is itself loaded,
---- trusted, from the binary's own tree (core/store.c's
---- `store_searcher`), and this module's own API never hands the raw
---- table back out: only `start`/`stop`.
+--- The collector is exposed as `cosmic.internal.debug` only while this
+--- trusted wrapper loads from the binary's own tree. The wrapper keeps
+--- the raw table private and exposes collection windows guarded by an
+--- opaque session token.
 ---
---- That load-time gate answers a narrower question than it looks like
---- it does. `names_trusted_kind` (core/store.c) trusts a load by the
---- LOADED module's own name and kind, not by who is requiring it, and
---- `require` caches the result of the first load process-wide -- so in
---- an ordinary running binary `cosmic.coverage` loads trusted exactly
---- once, and every later `require("cosmic.coverage")`, from `build.test`
---- or from any ordinary test file anywhere in the tree, gets back the
---- SAME already-trusted module table, closing over the SAME shared
---- `collecting` state. The load-time gate keeps a hostile or malformed
---- database from ever handing out a working native collector; it was
---- never a way to keep one legitimate caller's collection window safe
---- from another caller that also holds this module.
----
---- `start`/`stop` close that second gap with a session token, entirely
---- independent of the load-time trust check above. `start` refuses (and
---- touches nothing) when a collection is already open, so a second
---- caller cannot silently reset the window a first caller is still
---- using; the `Session` value it returns on success is an opaque table,
---- compared only by identity. `stop` refuses (and touches nothing) for
---- any session that is not that exact value -- a bare `Coverage.stop()`
---- with no argument, or one holding a session from its own unrelated
---- `start`/`stop` pair, cannot end or corrupt a window it did not open.
---- The only caller today is `build.test`'s own whole-run instrumentation;
---- nothing else in this tree's actual design needs a second one, so this
---- is the one built for that one caller, not a general multi-tenant
---- scheduler.
+--- Only one window may be open. `start` refuses without changing state
+--- while another is active, and `stop` accepts only the exact token that
+--- opened it. All callers share this module's cached state.
 
 local type NativeCoverage = require("cosmic.internal.debug")
 

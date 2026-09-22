@@ -52,11 +52,6 @@ static const struct algorithm algorithms[] = {
     {"sha3-384", PSA_ALG_SHA3_384}, {"sha3-512", PSA_ALG_SHA3_512},
 };
 
-const char *const cosmic_crypto_algorithms[] = {
-    "md5",    "sha1",     "sha224",   "sha256",   "sha384", "sha512",
-    "sha3-224", "sha3-256", "sha3-384", "sha3-512", NULL,
-};
-
 static psa_algorithm_t by_name(const char *name) {
   for (size_t i = 0; i < sizeof algorithms / sizeof *algorithms; i++) {
     if (strcmp(algorithms[i].name, name) == 0) {

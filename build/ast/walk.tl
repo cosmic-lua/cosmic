@@ -33,11 +33,6 @@
 --- `os.execute(cmd)`'s "op" payload rather than assumed from reading
 --- tl's grammar alone.
 ---
---- Adapted from cosmic's own `cosmic.ast.walk`: needs no compiler
---- capsule of its own (it operates on already-parsed `Node` values),
---- so only its `tl.Token` reference moves, to `build.compiler`'s own
---- `Token` -- the same declared shape `build.ast.node` already parses
---- into a `Parsed.tokens`.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
 

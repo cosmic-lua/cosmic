@@ -66,9 +66,8 @@ static int surface_print(lua_State *L) {
   return 0;
 }
 
-/* A traceback, which is the one thing `debug` is kept for above the
- * private binding: a program reporting a failure needs to say where it
- * happened. */
+/* A traceback built from Lua's internal debugging support: a program
+ * reporting a failure needs to say where it happened. */
 static int surface_trace(lua_State *L) {
   const char *message = luaL_optstring(L, 1, NULL);
   int level = (int)luaL_optinteger(L, 2, 1);
@@ -101,20 +100,6 @@ static void open_library(lua_State *L, const char *name, lua_CFunction opener,
   lua_pop(L, 1);
 }
 
-/* Moves a library out of `package.loaded` and into the private table, so
- * neither a global nor `require` can reach it. */
-static void make_private(lua_State *L, const char *name) {
-  lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
-  lua_getfield(L, -1, name);
-  lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
-  lua_pushvalue(L, -2);
-  lua_setfield(L, -2, name);
-  lua_pop(L, 2);
-  lua_pushnil(L);
-  lua_setfield(L, -2, name);
-  lua_pop(L, 1);
-}
-
 static void clear_field(lua_State *L, const char *table, const char *field) {
   lua_getglobal(L, table);
   lua_pushnil(L);
@@ -128,8 +113,6 @@ lua_State *cosmic_surface_open(const char *logical_executable) {
     return NULL;
   }
 
-  lua_newtable(L);
-  lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
   if (logical_executable != NULL) {
     lua_pushstring(L, logical_executable);
     lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
@@ -143,26 +126,8 @@ lua_State *cosmic_surface_open(const char *logical_executable) {
   open_library(L, LUA_MATHLIBNAME, luaopen_math, 1);
   open_library(L, LUA_UTF8LIBNAME, luaopen_utf8, 1);
 
-  /* Opened, then taken out of reach: boot mode and the private binding
-   * are the only callers, and they hold them directly. */
-  open_library(L, LUA_IOLIBNAME, luaopen_io, 0);
-  open_library(L, LUA_OSLIBNAME, luaopen_os, 0);
-  open_library(L, LUA_DBLIBNAME, luaopen_debug, 0);
-  make_private(L, LUA_IOLIBNAME);
-  make_private(L, LUA_OSLIBNAME);
-  make_private(L, LUA_DBLIBNAME);
-
-  /* `debug` was just taken out of reach above and stays there: nothing
-   * ever fetches it back out any more. The coverage collector used to
-   * need the real table for its own `debug.getinfo`-driven line hook;
-   * it now hooks lines in C directly (core/coverage.c) and needs no
-   * Lua-level access to `debug` at all. The native collector goes
-   * behind the raw name that table used to occupy instead --
-   * `cosmic.internal.debug` -- the same trust-gated handoff
-   * `cosmic.store` and `cosmic.sqlite` get through the store
-   * searcher's trust check (core/store.c's store_searcher). This runs
-   * on every open, boot and normal alike, since cosmic_surface_open
-   * runs before either path branches. */
+  /* The native coverage collector hooks lines in C and is exposed only
+   * through the store searcher's trust-gated internal module. */
   cosmic_coverage_install(L);
   cosmic_store_set_raw(L, "cosmic.internal.debug");
 

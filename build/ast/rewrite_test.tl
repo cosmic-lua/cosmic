@@ -1,16 +1,5 @@
---- Correctness probes for `build.ast.rewrite`: a clean splice, and the
---- comment-loss refusal that leaves a hit unmodified rather than
---- silently dropping a comment sitting in the match's own connective
---- tissue.
----
---- The splice is verified byte-exact against the raw spliced text,
---- which is what this module returns: it reflows nothing, and the
---- renderer that would sits one layer out, in `build.fix` (see
---- `rewrite.tl`'s own header comment). What a rule's result looks like
---- once it HAS been rendered is `build.fix.rule_test`'s subject, over
---- fixtures mangled on purpose so that only a rendered result passes.
---- Every fixture below is already well-formed, so the two agree here
---- regardless.
+--- Correctness probes for raw structural splices and comment-loss
+--- refusals in `build.ast.rewrite`.
 local teal = require("build.teal")
 local ast = require("build.ast")
 local ast_match = require("build.ast.match")
