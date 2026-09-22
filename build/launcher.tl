@@ -11,8 +11,9 @@ local template = [=[#!/bin/sh
 # Cosmic portable artifact format v1.
 #
 # The directory containing the managed cache leaf is the trust boundary: it
-# must be controlled by this user. The launcher lstat-checks the leaf and its
-# entries, but does not claim to make a hostile HOME or cache parent safe.
+# must be controlled by this user, or be a sticky temp directory. The launcher
+# lstat-checks the leaf and its entries, but does not claim to make a hostile
+# HOME, TMPDIR or cache parent safe.
 
 portable_die() {
   printf 'cosmic portable: %s\n' "$*" >&2
@@ -68,12 +69,23 @@ else
     /*) cosmic_cache=$XDG_CACHE_HOME/cosmic/cores ;;
     *)
       case ${HOME-} in
-        /*) cosmic_home=$HOME ;;
-        *) portable_die 'no absolute HOME is available for the portable cache' ;;
-      esac
-      case $cosmic_os in
-        Darwin) cosmic_cache=$cosmic_home/Library/Caches/cosmic/cores ;;
-        *) cosmic_cache=$cosmic_home/.cache/cosmic/cores ;;
+        /*)
+          case $cosmic_os in
+            Darwin) cosmic_cache=$HOME/Library/Caches/cosmic/cores ;;
+            *) cosmic_cache=$HOME/.cache/cosmic/cores ;;
+          esac
+          ;;
+        *)
+          # No absolute HOME: a leaf of its own directly in the temp
+          # directory, named for this user. /tmp is sticky, so no one else
+          # can rename the leaf, and one created first by anyone else fails
+          # the owner check below rather than being adopted.
+          cosmic_temp_uid=$(id -u) || portable_die 'cannot determine cache owner'
+          case ${TMPDIR-} in
+            /*) cosmic_cache=$TMPDIR/cosmic-cores-$cosmic_temp_uid ;;
+            *) cosmic_cache=/tmp/cosmic-cores-$cosmic_temp_uid ;;
+          esac
+          ;;
       esac
       ;;
   esac

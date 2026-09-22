@@ -1,6 +1,7 @@
 #!/bin/sh
 # Lays out an arena for one eval: the binary at bin/cosmic, the task at
-# project/TASK.md. The agent runs in project/ with bin/ first on PATH.
+# project/TASK.md, scratch space at tmp/. The agent runs in project/ with
+# bin/ first on PATH and TMPDIR set to tmp/.
 #
 #   eval/arena <task> <cosmic-binary> <dir>
 #
@@ -19,13 +20,14 @@ mkdir -p "$parent"
 dir=$(cd "$parent" && pwd -P)/$(basename "$dir")
 case $dir in "$(dirname "$here")"|"$(dirname "$here")"/*) echo "arena: put the arena outside the repository" >&2; exit 2;; esac
 mkdir "$dir" || { echo "arena: destination must be new: $dir" >&2; exit 2; }
-mkdir "$dir/bin" "$dir/project"
+mkdir "$dir/bin" "$dir/project" "$dir/tmp"
 cp "$binary" "$dir/bin/cosmic"
 chmod 755 "$dir/bin/cosmic"
 cat "$here/task/$task.md" "$here/journal.md" > "$dir/project/TASK.md"
 cat > "$dir/PROMPT.md" <<EOF
 Your working directory is $dir/project. Set that working directory explicitly
-for every shell call, and prepend $dir/bin to PATH in every shell call.
+for every shell call, prepend $dir/bin to PATH, and set TMPDIR=$dir/tmp in
+every shell call.
 Read TASK.md there and do exactly what it says. Work independently without
 sub-agents or coaching. Use the binary as your only source about cosmic.
 EOF

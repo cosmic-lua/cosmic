@@ -6,7 +6,8 @@
 #   eval/check/notes <dir>
 #
 # The executable is copied alone into an empty directory and run with an
-# empty environment, so nothing beside it and nothing on PATH can help.
+# empty environment -- no PATH, no HOME, no TMPDIR -- so nothing beside it
+# and nothing on PATH can help, as the task promises.
 set -u
 here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 dir=${1:?usage: eval/check/notes <dir>}
@@ -47,9 +48,12 @@ else
   expect "$(printf '1\thello world\n2\tsecond note')" env -i ./notes list
   expect "$(printf '2\tsecond note')" env -i ./notes search second
   expect "" env -i ./notes rm 1
+  # The message must be the tool's own: a launcher or runtime failure
+  # also exits non-zero with something on stderr.
   if env -i ./notes rm 9 > /dev/null 2> "$dir/check.err"; then say "FAIL rm of an unknown id exited 0"; fail=1
-  elif [ -s "$dir/check.err" ]; then say "ok   rm 9 -> non-zero exit, stderr: $(head -1 "$dir/check.err")"
-  else say "FAIL rm of an unknown id said nothing on stderr"; fail=1; fi
+  elif [ ! -s "$dir/check.err" ]; then say "FAIL rm of an unknown id said nothing on stderr"; fail=1
+  elif grep -q '^cosmic' "$dir/check.err"; then say "FAIL rm 9 failed in cosmic, not in notes: $(head -1 "$dir/check.err")"; fail=1
+  else say "ok   rm 9 -> non-zero exit, stderr: $(head -1 "$dir/check.err")"; fi
   expect "$(printf '2\tsecond note')" env -i ./notes list
   rm -f "$empty/notes.db"
   expect "1" env -i NOTES_DB=other.db ./notes add elsewhere

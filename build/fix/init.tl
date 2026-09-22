@@ -283,7 +283,7 @@ function fix.run(argv: {integer:string}): integer
   end
   if checking and #changed > 0 then
     report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
-      elapsed_ms(started) .. " ms)")
+      elapsed_ms(started) .. " ms); `cosmic fix` rewrites them in place")
     return 1
   end
   report("fix: PASS (" .. counted .. " files, " .. #changed ..

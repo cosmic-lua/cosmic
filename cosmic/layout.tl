@@ -19,10 +19,17 @@ local record Layout
   --- tests actually executed this time, stood the ones answered from
   --- an unchanged prior verdict instead
   test: string
+  --- a project's own module is named by its path from the project's
+  --- root, the working directory: `notes.tl` is `require("notes")`,
+  --- `store/db.tl` is `require("store.db")`, and `store/init.tl` is
+  --- `require("store")`. No registration and no search path; tests,
+  --- examples and cmd/<name>/main.tl require them the same way.
+  --- `cosmic.*` is the standard library's, never a project's
+  require: string
 end
 
 local layout: Layout = {
-  Example = "Example", test = "test",
+  Example = "Example", test = "test", require = "require",
 }
 
 return layout

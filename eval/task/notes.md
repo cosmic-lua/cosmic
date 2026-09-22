@@ -10,7 +10,8 @@ tells you (help text, error messages, output of any command you can
 think of running against it, or inspecting the file itself) is fair game.
 
 Work only inside this directory. Do not read or write anything outside it
-except the `cosmic` binary.
+except the `cosmic` binary and scratch files under `$TMPDIR`, which is
+yours for anything temporary.
 
 ## What to build
 
@@ -32,16 +33,23 @@ notes tool:
   current directory. Use cosmic's own SQLite support rather than
   implementing storage another way.
 
-The project must have all three of these:
+The project must have all four of these:
 
-1. **Tests** that `cosmic test` discovers, runs, and passes.
+1. **Tests** of the project's own code, which cosmic runs and passes.
+   Show them passing.
 2. **Examples**: worked examples of using the project's own code, in
    whatever form cosmic treats as an example, so that cosmic itself
    checks or runs them.
-3. **A binary**: a single standalone executable named `notes`, produced
-   by cosmic from this project, that runs the tool above on its own,
-   with no `cosmic` on the PATH and no source files beside it. Show it
-   running: `./notes add hello`, `./notes list`.
+3. **Formatting**: every Teal source formatted the way cosmic itself
+   formats Teal.
+4. **A binary**: a single standalone executable named `notes`, produced
+   by cosmic from this project, that runs the tool above on its own:
+   copied alone into an empty directory and run with an empty
+   environment (no `PATH`, no `HOME`, no `cosmic` anywhere), it still
+   works. Show it running: `./notes add hello`, `./notes list`.
+
+How cosmic finds tests and examples, formats code, and produces a
+binary is for you to find out from the binary.
 
 ## Deliverables, all in this directory
 

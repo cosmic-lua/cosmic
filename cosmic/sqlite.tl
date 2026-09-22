@@ -5,6 +5,19 @@
 --- keeps that property and adds the shapes a caller wants: a query that
 --- yields rows, a statement run once, and a transaction that rolls back
 --- when the work inside it fails.
+---
+--- A parameter is a one-field table naming its type, one per `?N`, in
+--- order; a result cell carries its `kind` and the matching field:
+---
+---     local db = assert(Sqlite.open("notes.db", true))
+---     assert(Sqlite.exec(db, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
+---     assert(Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
+---     local rows = assert(Sqlite.rows(db, "SELECT id, body FROM t WHERE id = ?1",
+---       { { integer = Sqlite.last_insert_rowid(db) } }))
+---     print(rows[1][1].integer, rows[1][2].text) -- 1  hi
+---
+--- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
+--- bind those types; `{}` binds NULL.
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace, which never satisfies an ordinary
@@ -24,8 +37,11 @@ else
 end
 
 local record Sqlite
-  Handle: raw_sqlite.Handle
-  Statement: raw_sqlite.Statement
+  --- An open database, as `open` and `memory` return it: the type to
+  --- name for a parameter or field that holds one.
+  type Handle = raw_sqlite.Handle
+  --- One prepared statement.
+  type Statement = raw_sqlite.Statement
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. Exactly one field is allowed;
@@ -62,13 +78,13 @@ end
 --- `hmac(A, K, X)`, the HMAC of X under key K over A; a NULL argument
 --- gives NULL. `lower(hex(sha256(X)))` is the form the build writes
 --- into keys.
-function Sqlite.open(path: string, writable?: boolean): raw_sqlite.Handle | nil, string
+function Sqlite.open(path: string, writable?: boolean): Sqlite.Handle | nil, string
   return sqlite.open(path, writable)
 end
 
 --- A database held in memory, which is where a build assembles one
 --- before writing it out.
-function Sqlite.memory(): raw_sqlite.Handle | nil, string
+function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
 end
 
@@ -77,7 +93,7 @@ end
 --- the one thing `run`/`rows`/`text_rows` cannot do, since each of
 --- those prepares exactly one statement. Yields no rows and binds no
 --- values; reach for `Sqlite.run` instead once a value needs one.
-function Sqlite.exec(handle: raw_sqlite.Handle, sql: string): boolean, string
+function Sqlite.exec(handle: Sqlite.Handle, sql: string): boolean, string
   return handle:exec(sql)
 end
 
@@ -86,7 +102,7 @@ end
 --- each value must be a table with exactly one field named integer,
 --- number, text, or blob (use {} for NULL).
 local function bind(
-  statement: raw_sqlite.Statement, values: {Sqlite.Value}
+  statement: Sqlite.Statement, values: {Sqlite.Value}
 ): boolean, string
   local count = statement:parameters()
   for key in pairs(values as {any: any}) do
@@ -137,7 +153,7 @@ end
 --- its highest index. Repeated named parameters share an index; ?NNN gaps
 --- still need entries (use {}). Missing entries and extra keys are errors.
 --- Runs a statement that yields no rows.
-function Sqlite.run(handle: raw_sqlite.Handle, sql: string,
+function Sqlite.run(handle: Sqlite.Handle, sql: string,
                     values?: {Sqlite.Value}): boolean, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
@@ -159,7 +175,7 @@ end
 --- Parameters follow the same complete-list contract as run.
 --- Every row a query yields, each row a dense list of typed cells in column
 --- order. SQL NULL is an explicit `kind = "null"` cell.
-function Sqlite.rows(handle: raw_sqlite.Handle, sql: string,
+function Sqlite.rows(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): Sqlite.Rows | nil, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
@@ -208,7 +224,7 @@ end
 --- coercion. SQLite's byte representation is returned for every value: NULL,
 --- empty text, and empty blob all become `""`; integers and floats use
 --- SQLite's text formatting; text and blobs remain byte strings, including NUL.
-function Sqlite.text_rows(handle: raw_sqlite.Handle, sql: string,
+function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
                            values?: {Sqlite.Value}): {{string}} | nil, string
   local statement, trouble = handle:prepare(sql)
   if statement == nil then
@@ -241,7 +257,7 @@ function Sqlite.text_rows(handle: raw_sqlite.Handle, sql: string,
 end
 
 --- Runs `work` inside a transaction, rolling back when it fails.
-function Sqlite.transact(handle: raw_sqlite.Handle,
+function Sqlite.transact(handle: Sqlite.Handle,
                           work: function(): boolean, string): boolean, string
   local started, trouble = handle:exec("BEGIN")
   if not started then
@@ -266,21 +282,21 @@ end
 
 --- Closes the handle. Idempotent: closing an already-closed handle
 --- still returns true.
-function Sqlite.close(handle: raw_sqlite.Handle): boolean, string
+function Sqlite.close(handle: Sqlite.Handle): boolean, string
   return handle:close()
 end
 
 --- Rows changed by the most recent INSERT, UPDATE, or DELETE on this
 --- connection -- not the whole database, and not other statements
 --- that happened to touch the same table concurrently.
-function Sqlite.changes(handle: raw_sqlite.Handle): integer
+function Sqlite.changes(handle: Sqlite.Handle): integer
   return handle:changes()
 end
 
 --- The rowid SQLite assigned the most recent successful INSERT on this
 --- connection. 0 before any INSERT has ever run on it; a table
 --- declared `WITHOUT ROWID` never changes it.
-function Sqlite.last_insert_rowid(handle: raw_sqlite.Handle): integer
+function Sqlite.last_insert_rowid(handle: Sqlite.Handle): integer
   return handle:last_insert_rowid()
 end
 

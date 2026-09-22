@@ -279,13 +279,19 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     assert(not answer.result.ok); Fixture.contains(answer.err, case[4])
   end
   for _, name in ipairs({ "relative-home", "unset-home" }) do
+    local temp = ctx.work .. "/" .. name .. "-tmp"; Fixture.mkdir(temp)
     local values = environment(); values.COSMIC_PORTABLE_CACHE = nil
     values.XDG_CACHE_HOME = name == "relative-home" and "relative" or nil
     values.HOME = name == "relative-home" and "relative" or nil
-    local answer = Fixture.call_with_environment(name,
+    values.TMPDIR = temp
+    outcome_ok(Fixture.call_with_environment(name,
       { ctx.artifact }, ctx.work,
-      ctx.diagnostics, values)
-    assert(not answer.result.ok); Fixture.contains(answer.err, "no absolute HOME")
+      ctx.diagnostics, values), name .. " temp fallback")
+    local made = assert(Fs.list(temp))
+    assert(#made == 1 and made[1]:match("^cosmic%-cores%-%d+$") ~= nil,
+      name .. " did not make its own cache leaf in TMPDIR")
+    assert(permissions(temp .. "/" .. made[1]) == 0x1c0,
+      name .. " cache leaf is not private")
   end
 end
 
