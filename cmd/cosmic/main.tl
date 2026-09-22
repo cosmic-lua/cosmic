@@ -68,8 +68,8 @@ and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still
 works, an ordinary global written over the same syscall table
 `cosmic.fs` uses.
 
-A verb takes paths to narrow it. `fix` rebuilds each file from its own
-parsed tree. It decides everything a line holds -- every keyword,
+A verb takes paths to narrow it. `test` accepts exact module names, source
+paths, and directories. `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
 operator and bracket, the spacing around each, and two columns of
 indentation per level of block -- from the tree rather than from
 whichever two tokens ended up adjacent, so `local x <const> = 5` is

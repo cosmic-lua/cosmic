@@ -80,6 +80,31 @@ local record test
   end
 end
 
+--- Whether one test module is named by a selector. A module name and its
+--- source path match exactly; a directory matches only at a `/` boundary.
+--- This keeps `test foo` from also selecting `foobar_test.tl`.
+local function normalized(selector: string): string
+  if selector == "" then return selector end
+  selector = selector:gsub("/+$", "")
+  while selector:sub(1, 2) == "./" do selector = selector:sub(3) end
+  return selector
+end
+
+function test.matches(selector: string, path: string, file: string): boolean
+  selector = normalized(selector)
+  if selector == "." then return true end
+  if selector == path or selector == file then return true end
+  return selector ~= "" and file:sub(1, #selector + 1) == selector .. "/"
+end
+
+local function selected(m: importer.Module, selectors: {string}): boolean
+  if #selectors == 0 then return true end
+  for _, selector in ipairs(selectors) do
+    if test.matches(selector, m.path, m.file) then return true end
+  end
+  return false
+end
+
 local function report(line: string)
   Fs.put(Fs.stdout, line .. "\n")
 end
@@ -836,6 +861,18 @@ function test.run(argv: {integer:string}): integer
     complain(root_trouble)
     return 1
   end
+  local selectors: {string} = {}
+  local slot = 2
+  while argv[slot] ~= nil do
+    local selector = normalized(argv[slot])
+    if selector == root then
+      selector = "."
+    elseif selector:sub(1, #root + 1) == root .. "/" then
+      selector = selector:sub(#root + 2)
+    end
+    selectors[#selectors + 1] = selector
+    slot = slot + 1
+  end
   local started = Time.monotonic_ns() or 0
   local own_tree = importer.is_own_tree(root)
   local handle, open_trouble = work.open(root)
@@ -918,6 +955,19 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
 
+  local selected_modules: {importer.Module} = {}
+  for _, m in ipairs(result.modules) do
+    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 and
+       selected(m, selectors) then
+      selected_modules[#selected_modules + 1] = m
+    end
+  end
+  if #selectors > 0 and #selected_modules == 0 then
+    work.close(handle)
+    complain("no test module matches: " .. table.concat(selectors, ", "))
+    return 1
+  end
+
   -- Every verdict and every coverage row of this run lands together.
   local begun, begin_trouble = work.begin(handle)
   if not begun then
@@ -976,13 +1026,11 @@ function test.run(argv: {integer:string}): integer
   -- The same (kind, relative, answer) triple's encoded key line recurs
   -- across most of the run's tests; see `verdict_key`.
   local key_parts: {string:string} = {}
-  for _, m in ipairs(result.modules) do
-    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
-      modules_run = modules_run + 1
-      run_module(records, m, failures, errors, hits, by_test, root, previous,
-        verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
-        process_reads, process_seen, key_parts)
-    end
+  for _, m in ipairs(selected_modules) do
+    modules_run = modules_run + 1
+    run_module(records, m, failures, errors, hits, by_test, root, previous,
+      verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
+      process_reads, process_seen, key_parts)
   end
   local total = tally.ran + tally.cached
 
