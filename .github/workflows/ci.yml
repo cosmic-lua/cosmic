@@ -15,6 +15,9 @@ jobs:
   # Every leg independently builds the complete product, executes the same
   # Cosmic bytes in its platform environment, and uploads them for the join.
   platform:
+    defaults:
+      run:
+        working-directory: ci
     strategy:
       fail-fast: false
       matrix:
@@ -49,15 +52,12 @@ jobs:
       - name: bootstrap and check the pinned CI driver
         shell: bash
         run: |
-          sh ci/bootstrap-driver.sh ci/cosmic-driver.pin \
+          sh bootstrap-driver.sh cosmic-driver.pin \
             "$HOME/.cache/cosmic/ci-driver" \
             "$RUNNER_TEMP/cosmic-driver"
           mkdir -p "$RUNNER_TEMP/cosmic-driver-selfcheck"
-          (cd ci && TMPDIR="$RUNNER_TEMP/cosmic-driver-selfcheck" \
-            "$RUNNER_TEMP/cosmic-driver" test cosmic_ci/bootstrap_test.tl \
-            cosmic_ci/state_test.tl cosmic_ci/fixture_test.tl \
-            cosmic_ci/runner_test.tl \
-            cosmic_ci/orchestration_test.tl cosmic_ci/setup_test.tl)
+          TMPDIR="$RUNNER_TEMP/cosmic-driver-selfcheck" \
+            "$RUNNER_TEMP/cosmic-driver" test cosmic_ci
           {
             echo "COSMIC_DRIVER=$RUNNER_TEMP/cosmic-driver"
             echo "COSMIC_OPERATIONS_DB=$RUNNER_TEMP/platform/operations.db"
@@ -101,7 +101,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           export COSMIC_ZIG_CACHE_SEED=~/.cache/cosmic/zig-build
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform build \
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform build \
             "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID" \
             "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -109,7 +109,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform local-boundary
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform local-boundary
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -117,7 +117,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform assemble
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform assemble
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -133,7 +133,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           export COSMIC_ZIG_CACHE_SEED="$HOME/.cache/cosmic/zig-build"
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform cache-save \
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform cache-save \
             "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID" \
             "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -142,7 +142,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform portable
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform portable
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -152,7 +152,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           PORTABLE_OUTCOME: ${{ steps.portable-suite.outcome }}
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform portable-boundary
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform portable-boundary
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
           "${{ steps.portable-suite.outcome }}"
@@ -161,7 +161,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform fixtures
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform fixtures
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -171,7 +171,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           COSMIC_CI_RUNNER: ${{ runner.temp }}/cosmic-driver
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform alpine
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform alpine
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -180,7 +180,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           EXPECTED_PLATFORMS: ${{ strategy.job-total }}
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" platform attest
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform attest
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
           "$EXPECTED_PLATFORMS"
@@ -193,7 +193,7 @@ jobs:
             echo 'Operation database unavailable (bootstrap failed).' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" report \
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl report \
             "$COSMIC_OPERATIONS_DB" "$RUNNER_TEMP/platform/operations.md"
           cat "$RUNNER_TEMP/platform/operations.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -207,7 +207,7 @@ jobs:
             echo 'Driver database unavailable (bootstrap or self-check failed before its first operation).' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" report \
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl report \
             "$db" \
             "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md"
           cat "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md" >> "$GITHUB_STEP_SUMMARY"
@@ -248,6 +248,9 @@ jobs:
   # cross-platform byte identity.
   provenance:
     needs: platform
+    defaults:
+      run:
+        working-directory: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -259,7 +262,7 @@ jobs:
           key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
       - name: bootstrap the pinned provenance driver
         run: |
-          sh ci/bootstrap-driver.sh ci/cosmic-driver.pin \
+          sh bootstrap-driver.sh cosmic-driver.pin \
             "$HOME/.cache/cosmic/ci-driver" \
             "$RUNNER_TEMP/cosmic-driver"
           {
@@ -272,7 +275,7 @@ jobs:
           path: ${{ runner.temp }}/products
       - name: compare the Cosmic bytes executed on every native host
         run: >-
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" provenance
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl provenance
           "$COSMIC_OPERATIONS_DB" provenance "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
           "$GITHUB_WORKSPACE" "$RUNNER_TEMP/products"
       - name: summarize provenance operations
@@ -283,7 +286,7 @@ jobs:
             echo 'Provenance operation database unavailable.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sh "$GITHUB_WORKSPACE/ci/run-driver.sh" report \
+          "$COSMIC_DRIVER" cosmic_ci/driver.tl report \
             "$COSMIC_OPERATIONS_DB" "$RUNNER_TEMP/provenance-operations.md"
           cat "$RUNNER_TEMP/provenance-operations.md" >> "$GITHUB_STEP_SUMMARY"
       - name: preserve provenance operations

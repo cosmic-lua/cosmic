@@ -79,9 +79,7 @@ local function parent(path: string): string
   return assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory")
 end
 
-local function fixture_project(c: Context, work: string): string
-  local project = work .. "/fixture-project"
-  local source = parent(c.driver)
+local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
   for _, name in ipairs(assert(Fs.list(source))) do
     assert(name:match("%.tl$") and
@@ -89,14 +87,21 @@ local function fixture_project(c: Context, work: string): string
       "invalid fixture source entry: " .. name)
     names[#names + 1] = name
   end
+  mkdir(destination)
+  for _, name in ipairs(names) do
+    write(destination .. "/" .. name, read(source .. "/" .. name))
+  end
+end
+
+local function fixture_project(c: Context, work: string): string
+  local project = work .. "/fixture-project"
+  local driver_namespace = parent(c.driver)
+  local fixtures_source = parent(driver_namespace) .. "/fixtures"
   local removed = Runner.execute({ argv = { "/bin/rm", "-rf", project },
     cwd = work })
   assert(removed.code == 0, "could not clear fixture project")
-  local namespace = project .. "/cosmic_ci"
-  mkdir(namespace)
-  for _, name in ipairs(names) do
-    write(namespace .. "/" .. name, read(source .. "/" .. name))
-  end
+  copy_flat_tl_dir(driver_namespace, project .. "/cosmic_ci")
+  copy_flat_tl_dir(fixtures_source, project .. "/fixtures")
   return project
 end
 
@@ -112,7 +117,7 @@ local function fixture_test(c: Context, work: string, name: string,
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
   local status = logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
-      "cosmic_ci/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
+      "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
     fixture_environment)
   if status ~= 0 then return status end
   return 0
