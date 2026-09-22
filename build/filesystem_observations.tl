@@ -8,6 +8,7 @@ local record observations
   directory_result_answer: function({string:string} | nil, string, integer): string
   getenv_answer: function(string | nil): string
   environ_answer: function({string:string}): string
+  environ_path: string
 
   record Observation
     kind: string
@@ -146,7 +147,7 @@ function observations.start(): {observations.Observation}, function()
   end
   sys.environ = function(): {string:string}
     local environment = environ()
-    found[#found + 1] = { kind = "e", path = "",
+    found[#found + 1] = { kind = "e", path = observations.environ_path,
       answer = observations.environ_answer(environment) }
     return environment
   end
@@ -224,10 +225,16 @@ function observations.environ_answer(environment: {string:string}): string
   return Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
---- The current answer to an "e" observation: `sys.environ`'s hash for
---- path "", or `sys.getenv`'s answer for a named variable.
+--- The path an "e" observation of the whole environment carries: a
+--- NUL can't start a variable name, so it never collides with one --
+--- not even `getenv("")`.
+observations.environ_path = "\0environ"
+
+--- The current answer to an "e" observation, re-read live rather than
+--- trusted from the row: `sys.environ`'s hash for `environ_path`, or
+--- `sys.getenv`'s answer for a named variable.
 function observations.getenv_current(path: string): string
-  if path == "" then
+  if path == observations.environ_path then
     return observations.environ_answer(sys.environ())
   end
   return observations.getenv_answer(sys.getenv(path))
