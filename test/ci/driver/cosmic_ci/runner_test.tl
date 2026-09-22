@@ -12,7 +12,7 @@ local function test_runner_records_without_aliasing_subject_or_project(tmp: stri
     return Runner.operation(c, phase, { argv = argv, cwd = candidate,
       timeout_ms = timeout or 1000 })
   end
-  assert(execute("success", { "/bin/true" }).code == 0)
+  assert(execute("success", { "/bin/sh", "-c", "exit 0" }).code == 0)
   assert(execute("exit", { "/bin/sh", "-c", "exit 23" }).code == 23)
   assert(execute("start", { "/missing/command" }).status == "start-error")
   assert(execute("timeout", { "/bin/sh", "-c", "sleep 30" }, 20).code == 124)
@@ -22,13 +22,13 @@ local function test_runner_records_without_aliasing_subject_or_project(tmp: stri
     worker = c.worker, run = c.run, attempt = c.attempt,
     candidate = candidate, driver = c.driver }
   assert(not pcall(Runner.operation, bad_candidate, "bad",
-    { argv = { "/bin/true" }, cwd = candidate } as Runner.Request),
+    { argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate } as Runner.Request),
     "candidate database was accepted")
   local bad_project: Runner.Context = { database = project .. "/bad.db",
     worker = c.worker, run = c.run, attempt = c.attempt,
     candidate = candidate, driver = c.driver }
   assert(not pcall(Runner.operation, bad_project, "bad",
-    { argv = { "/bin/true" }, cwd = candidate } as Runner.Request),
+    { argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate } as Runner.Request),
     "driver database was accepted")
 end
 
@@ -44,7 +44,7 @@ local function test_runner_owns_input_and_retained_output(tmp: string)
   local reopened = assert(Fs.open_write(tmp .. "/out"))
   assert(Fs.close(reopened), "retained output descriptor remained open")
   assert(not pcall(Runner.execute, {
-    argv = { "/bin/true" }, cwd = tmp, output = tmp .. "/missing/out",
+    argv = { "/bin/sh", "-c", "exit 0" }, cwd = tmp, output = tmp .. "/missing/out",
   } as Runner.Request), "retained output open failure was hidden")
 end
 
@@ -58,7 +58,7 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
     run = "run", attempt = "1", candidate = candidate,
     driver = project .. "/cosmic_ci/driver.tl" }
   local outcome = Runner.operation(context, "retained-open", {
-    argv = { "/bin/true" }, cwd = candidate,
+    argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate,
     output = tmp .. "/missing/out",
   })
   assert(outcome.status == "error" and outcome.code == 1 and outcome.trouble,

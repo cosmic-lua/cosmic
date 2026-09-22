@@ -270,7 +270,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local before = Hash.hex_sha256(assert(Fs.read(sentinel)))
   assert(call({ "/bin/ln", "-s", sentinel, link }, tmp, tmp .. "/db-ln.out").ok)
   local linked = call({ runner, driver, "run", link, "worker", "run-1", "1",
-      "symlink-db", source_root(), "1000", "/bin/true" }, project,
+      "symlink-db", source_root(), "1000", "/bin/sh", "-c", "exit 0" }, project,
     tmp .. "/symlink-db.out")
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256(assert(Fs.read(sentinel))) == before,
