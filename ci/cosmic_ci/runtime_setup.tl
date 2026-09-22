@@ -20,17 +20,8 @@ local function require_file(path: string)
     "portable runtime build: prebuilt input is missing: " .. path)
 end
 
--- Ports lib.sh's `host_target_field targets.tsv FIELD`: the generated target
--- whose columns 5/6 (uname_os, uname_arch) match this host. Unlike
--- identity_test.tl's own specialized port (which only ever needs column
--- 4, the target name), runtime.sh's `build` verb reads both column 1 (the
--- target id) and column 4 (the target name) off the very same matched row
--- (lines 126-127), so this returns both at once from one scan instead of
--- running the search twice for the same row -- a deliberate simplification
--- versus a literal per-field port. Exactly one generated target is expected
--- to match any real host; more than one match fails loudly rather than
--- silently keeping only the last one, matching identity_test.tl's own
--- port.
+-- Return the id and name from the single target whose uname fields match this
+-- host. Reading both from one row prevents mismatched results.
 local function host_target_row(targets_path: string, work: string,
     diagnostics: string): string, string
   local function host_uname(flag: string, label: string): string
@@ -58,11 +49,7 @@ local function host_target_row(targets_path: string, work: string,
   return found_id, found_name
 end
 
--- Ports runtime.sh's `build` verb (lines 20-173), given that in every real
--- caller (orchestration.tl's "assemble" phase) it always receives all
--- four positional arguments -- the shell's own 1- and 2-argument forms,
--- which build cores locally when no prebuilt prefix is given (lines 50-56),
--- are dead code for this fixture and are not ported.
+-- Assembly always supplies prebuilt cores and all input paths.
 local record RuntimeSetup
 end
 
@@ -184,10 +171,8 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   Fixture.copy(root .. "/ci/testdata/portable/cmd/hello/main.tl",
     out .. "/hello_main.tl")
 
-  -- Belt-and-suspenders, matching the shell's own final `chmod 755` glob:
-  -- prepare_artifacts already writes runtime.corrupt-<target> as 0755
-  -- itself, but every runtime.* complete artifact gets chmod'd here
-  -- regardless of whether an earlier step already set its mode.
+  -- Normalize every finished artifact to an executable mode. Some helpers set
+  -- it already, but callers should not depend on which helper produced a file.
   for _, name in ipairs({ "runtime.release", "runtime.old", "runtime.new",
       "runtime.basis", "runtime.missing", "runtime.sanitized",
       "runtime.incompatible" }) do

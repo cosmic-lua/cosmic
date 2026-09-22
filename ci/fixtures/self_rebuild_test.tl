@@ -84,9 +84,7 @@ local function place_runtime(fixture_dir: string, tree: string): string
   return program
 end
 
--- The disposable edit self_rebuild.sh applies to make the fixture-only
--- runtime stale and to check the exact argv and an ordinary environment
--- value reach the re-entered `test` run.
+-- Make the fixture runtime stale and verify argv and environment on re-entry.
 local function apply_step8_edit(tree: string)
   local path = tree .. "/build/test.tl"
   local lines = split_lines(Fixture.read(path))

@@ -40,8 +40,7 @@ local function run_with_descriptors(label: string, artifact_fd_source: string,
 end
 
 --------------------------------------------------------------------------
--- FIFO pause/release and process-supervision idioms, duplicated verbatim
--- from self_rebuild_test.tl / identity_test.tl.
+-- FIFO pause/release and process supervision.
 --------------------------------------------------------------------------
 
 local record Running
@@ -127,7 +126,7 @@ local function release(work: string, diagnostics: string, label: string,
     diagnostics, nil, handshake_timeout_ms, input)
 end
 
--- Ports runtime.sh's `run_paused`/`release_paused`. `hook == "after_validation"`
+-- `hook == "after_validation"`
 -- pauses through the native `COSMIC_PORTABLE_STARTUP_TEST_READY`/`_GO` hook
 -- (test/portable/startup_hook.c), which fires at one fixed point in real
 -- startup regardless of a hook name, and runs `tool.tl retained-prefix-probe`
@@ -204,8 +203,7 @@ local function selected_header_line(artifact_bytes: string, host: string):
   return assert(line, "no manifest header line selected for host: " .. host)
 end
 
--- Ports the four `sed` extractions from runtime.sh's test verb (lines
--- 315-324) literally: each of the four integer fields is `NAME=DIGITS;` and
+-- Each of the four integer fields is `NAME=DIGITS;` and
 -- the digest is `NAME=HEX ` (space-terminated, not semicolon-terminated).
 local function parse_selected_header(artifact_bytes: string, host: string):
     string, string, integer, integer, string
@@ -239,7 +237,7 @@ local function target_name_for_id(targets_path: string,
 end
 
 --------------------------------------------------------------------------
--- 1. Startup phase probe (runtime.sh lines 241-256).
+-- 1. Startup phase probe.
 --------------------------------------------------------------------------
 
 -- The selectable fixture TU owns every diagnostic phase, including the one
@@ -272,7 +270,7 @@ local function test_runtime_startup_phases(tmp: string)
 end
 
 --------------------------------------------------------------------------
--- 2. Logical-path/descriptor-reuse checks (runtime.sh lines 258-287).
+-- 2. Logical-path/descriptor-reuse checks.
 --------------------------------------------------------------------------
 
 local function test_runtime_logical_paths(tmp: string)
@@ -313,10 +311,8 @@ local function test_runtime_logical_paths(tmp: string)
 
   -- `Child.start`/`Child.run` never do a PATH search of their own ("argv[1]
   -- is used exactly as given: there is no PATH search" -- cosmic.child), so
-  -- PATH-based execution goes through `/usr/bin/env`, the same way every
-  -- other coreutils invocation in this migration already does, with the
-  -- runtime's own directory prepended to PATH instead of naming it
-  -- directly.
+  -- PATH-based execution uses `/usr/bin/env`, with the runtime's directory
+  -- prepended to PATH.
   Fixture.run("help-path", { "/usr/bin/env", "cosmic-runtime", "help" }, work,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache,
       PATH = work .. "/bin:" .. Env.get_or("PATH", "") })
@@ -336,7 +332,7 @@ local function test_runtime_logical_paths(tmp: string)
 end
 
 --------------------------------------------------------------------------
--- 3. Environment-scrubbing check (runtime.sh lines 289-308).
+-- 3. Environment-scrubbing check.
 --------------------------------------------------------------------------
 
 -- Startup removes the whole reserved prefix without a count or length cap,
@@ -383,8 +379,7 @@ local function test_runtime_environment_scrubbing(tmp: string)
 end
 
 --------------------------------------------------------------------------
--- 4. Private-field/descriptor-contract rejection checks
---    (runtime.sh lines 310-388).
+-- 4. Private-field/descriptor-contract rejection checks.
 --------------------------------------------------------------------------
 
 local function expect_contract_error(fixture_dir: string, work: string,
@@ -473,7 +468,7 @@ local function test_runtime_private_contract(tmp: string)
 end
 
 --------------------------------------------------------------------------
--- 5. Corrupt-range checks (runtime.sh lines 389-427).
+-- 5. Corrupt-range checks.
 --------------------------------------------------------------------------
 
 local function test_runtime_corrupt_ranges(tmp: string)
@@ -546,7 +541,7 @@ local function test_runtime_corrupt_ranges(tmp: string)
 end
 
 --------------------------------------------------------------------------
--- 6. Atomic replace/unlink/mismatch races (runtime.sh lines 429-510).
+-- 6. Atomic replace/unlink/mismatch races.
 --------------------------------------------------------------------------
 
 -- Once the artifact descriptor is open, atomic replacement cannot mix the
@@ -671,7 +666,7 @@ local function test_runtime_mismatch_after_select(tmp: string)
 end
 
 --------------------------------------------------------------------------
--- 7. Timing observations (runtime.sh lines 512-528).
+-- 7. Timing observations.
 --------------------------------------------------------------------------
 
 -- Record real runtime.release entry cost independently of the tiny launcher
