@@ -11,7 +11,7 @@ local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 
 -- Require build modules lazily inside the verb that needs them, so `help`
--- remains fast and loads only `build.docs`.
+-- remains fast and loads only `build.docs` and `build.reboot`.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 
@@ -290,6 +290,23 @@ end
 local function main(argv: {integer:string}): integer
   local verb = argv[1]
   if verb == nil or verb == "help" or verb == "-h" or verb == "--help" then
+    -- Same staleness guard `test` applies: cheap (a fingerprint
+    -- compare) when the tool is already fresh, so this keeps help
+    -- fast in the ordinary case, and only rebuilds when an edit to
+    -- build.docs itself would otherwise go unseen.
+    local reboot = require("build.reboot")
+    local root, root_trouble = Fs.absolute(".")
+    if root == nil then
+      complain("cosmic: " .. root_trouble)
+      return 1
+    end
+    local code, trouble = reboot.ensure(root, argv)
+    if code ~= nil then
+      if trouble ~= "" then
+        complain("cosmic: " .. trouble)
+      end
+      return code
+    end
     say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
     return 0
   end
@@ -303,7 +320,7 @@ local function main(argv: {integer:string}): integer
   end
   if verb == "db" then
     local databases = require("build.databases")
-    return databases.run()
+    return databases.run(argv)
   end
   if verb == "build" then
     local embed = require("build.embed")

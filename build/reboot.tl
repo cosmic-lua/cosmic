@@ -11,6 +11,7 @@ local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local importer = require("build.importer")
+local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local type compiler = require("build.compiler")
@@ -119,6 +120,57 @@ function reboot.into(handle: work.Handle, built: compiler,
   environment[marker] = "1"
   local _, exec_trouble = Proc.exec(out, arguments, environment)
   return exec_trouble
+end
+
+--- The staleness guard `cosmic <file.tl>` and `cosmic test` apply
+--- before compiling, for a read-only verb -- `docs`, `uses`, `db`,
+--- `help` -- that never compiles the tree itself but still runs
+--- `build.*` Teal that this binary embedded at its own boot. Inside
+--- cosmic's own tree, an edit to that Teal is otherwise invisible
+--- until `bin/zig build boot`, the way `AGENTS.md`'s claim that "an
+--- edit to Teal needs no boot" promises it should not be.
+---
+--- Returns an exit code the caller should return immediately, with
+--- `trouble` to report first when it is not empty. Returns `nil` to
+--- say the caller may proceed as normal: either the tree is not
+--- cosmic's own, or the fingerprint check already found the tool
+--- fresh, so no rebuild happened.
+--- @param argv the command line, re-entered after a rebuild
+function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
+  local own_tree, own_trouble = importer.is_own_tree(root)
+  if own_tree == nil then
+    return 1, own_trouble
+  end
+  if not own_tree then
+    return nil, ""
+  end
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    return 1, open_trouble
+  end
+  local staged, stage_trouble = work.stage(handle, own_tree)
+  if staged == nil then
+    work.close(handle)
+    return 1, stage_trouble
+  end
+  local state, state_trouble = reboot.state(handle)
+  if state == nil then
+    work.close(handle)
+    return 1, state_trouble
+  end
+  if state == "fresh" then
+    work.close(handle)
+    return nil, ""
+  end
+  if state == "core" then
+    work.close(handle)
+    return 3, "the tool is stale; run bin/zig build boot"
+  end
+  -- state == "teal"
+  Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
+  local built = teal.lazy()
+  local reboot_trouble = reboot.into(handle, built, argv)
+  return 3, reboot_trouble
 end
 
 return reboot

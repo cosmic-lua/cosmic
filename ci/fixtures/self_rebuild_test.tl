@@ -101,6 +101,18 @@ local function apply_step8_edit(tree: string)
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
+-- Marks `build/docs.tl`'s verdict with an extra line, distinguishable from
+-- the runtime's own stale embedded copy -- so a self-rebuilt `docs` verb's
+-- output can be told apart from a docs table it merely read unchanged.
+local function apply_docs_marker_edit(tree: string)
+  local path = tree .. "/build/docs.tl"
+  local lines = split_lines(Fixture.read(path))
+  lines = insert_after(lines,
+    "function docs.run(argv: {integer:string}): integer",
+    { "  Fs.put(Fs.stdout, \"step8-docs-marker\\n\")" })
+  Fixture.write(path, table.concat(lines, "\n") .. "\n")
+end
+
 -- Mirrors self-rebuild test's `compare_prefix` length validation
 -- (`case $length in ''|*[!0-9]*) ...`), which rejects the whole value if it
 -- is anything but digits: a loose `%d+` search would instead silently
@@ -385,4 +397,45 @@ local function test_self_rebuild_refusals(tmp: string)
   for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
     run_refusal_case(root, fixture_dir, tmp, name)
   end
+end
+
+-- `cosmic docs` never compiles the tree itself, unlike `test`, so it relies
+-- entirely on `build.reboot.ensure` to notice a stale embedded copy of
+-- `build.docs` and rebuild before running -- the case `AGENTS.md`'s "an
+-- edit to Teal needs no boot" promise depends on for a verb other than
+-- `test`. A first call against an edited tree rebuilds once and shows the
+-- edit; a second, now-fresh call shows it again without rebuilding again.
+local function test_self_rebuild_docs_verb(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-docs"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local outcome = Fixture.call_with_environment("docs-rebuild",
+    { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+  assert(outcome.result.code == 0, "docs: exit status was " ..
+    tostring(outcome.result.code) .. ", want 0")
+  Fixture.contains(outcome.out, "step8-docs-marker")
+  local stale_lines = count_occurrences(Fixture.read(outcome.err),
+    "the tool is stale; rebuilding it from the tree")
+  assert(stale_lines == 1, "docs: reported " .. tostring(stale_lines) ..
+    " stale-rebuild lines, want 1")
+  assert(Fixture.hash(program) ~= before_hash,
+    "docs: self-rebuild did not change the artifact")
+
+  local second = Fixture.call_with_environment("docs-fresh",
+    { program, "docs", "cosmic.child" }, tree, diagnostics, values)
+  assert(second.result.code == 0, "docs: second exit status was " ..
+    tostring(second.result.code) .. ", want 0")
+  Fixture.contains(second.out, "step8-docs-marker")
+  assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
+    "docs: second invocation reported staleness though the tool is fresh")
 end
