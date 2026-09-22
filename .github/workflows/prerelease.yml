@@ -4,13 +4,13 @@ on:
   workflow_call:
 
 # The caller and this workflow both restrict publication to cosmic-lua/cosmic's
-# next branch. The write permission exists only on the caller job that invokes
+# main branch. The write permission exists only on the caller job that invokes
 # this workflow; the build and provenance jobs remain read-only.
 jobs:
   publish:
     if: >-
       github.repository == 'cosmic-lua/cosmic' &&
-      github.ref == 'refs/heads/next' &&
+      github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

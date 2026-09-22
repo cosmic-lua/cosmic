@@ -1,20 +1,34 @@
 name: ci
 
 on:
+  # The merge queue's own gh-readonly-queue/ branches run as merge_group:
+  # a push run there too would share its concurrency group and cancel it,
+  # which the queue reads as a failed check.
   push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
+  # main takes changes only through the merge queue, which waits on these
+  # checks for the queued merge commit before it lands.
+  merge_group:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push supersedes a branch's run, but every main run finishes: its
+# zig build cache is the one every other branch can restore, and its
+# prerelease is published only from a completed run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # Every leg independently builds the complete product, executes the same
   # Cosmic bytes in its platform environment, and uploads them for the join.
   platform:
+    # The check is the leg's own name (linux-x86_64, ...), so rulesets can
+    # require it without spelling out the matrix.
+    name: ${{ matrix.name }}
     defaults:
       run:
         working-directory: ci
@@ -255,7 +269,7 @@ jobs:
     needs: provenance
     if: >-
       github.repository == 'cosmic-lua/cosmic' &&
-      github.ref == 'refs/heads/next' &&
+      github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
