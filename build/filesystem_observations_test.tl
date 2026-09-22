@@ -125,12 +125,12 @@ local function test_key_part_matches_known_hex_for_edge_bytes()
 end
 
 local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
-  local ok, _, found = observations.call(function()
+  local ok, trouble, found = observations.call(function()
     Env.get("HOME")
     assert(Fs.mkdtemp("cosmic-observed-"))
     assert(Child.run({ "/bin/true" }))
   end, nil)
-  assert(ok)
+  assert(ok, trouble)
   local kinds: {string:integer} = {}
   for _, observation in ipairs(found) do
     kinds[observation.kind] = (kinds[observation.kind] or 0) + 1
