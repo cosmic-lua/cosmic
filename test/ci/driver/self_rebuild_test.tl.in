@@ -378,7 +378,7 @@ end
 -- cases self_rebuild.sh's `exercise_prefix_comparison` checked: an exact
 -- match, a program too short to hold the expected prefix, and a mutated
 -- byte within the compared range.
-local function test_self_rebuild_prefix_comparison(tmp: string)
+local function test_self_rebuild_prefix_comparison(_tmp: string)
   local expected = "abc"
   local matched, mismatch = compare_prefix(expected, "abc-suffix", 3)
   assert(matched, mismatch)
