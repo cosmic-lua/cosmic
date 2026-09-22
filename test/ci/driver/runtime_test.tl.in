@@ -215,12 +215,15 @@ local function parse_selected_header(artifact_bytes: string, host: string):
   local configuration_id = assert(
     line:match("cosmic_configuration_id=(%d+);"),
     "manifest header line is missing cosmic_configuration_id")
-  local offset = math.tointeger(assert(tonumber(
-    assert(line:match("cosmic_offset=(%d+);"),
-      "manifest header line is missing cosmic_offset"))))
-  local length = math.tointeger(assert(tonumber(
-    assert(line:match("cosmic_length=(%d+);"),
-      "manifest header line is missing cosmic_length"))))
+  -- `assert(f(x), "message")` returns BOTH values when it succeeds; passing
+  -- that call directly as tonumber's sole argument leaks "message" in as
+  -- tonumber's base argument. Capture the matched text first instead.
+  local offset_text = assert(line:match("cosmic_offset=(%d+);"),
+    "manifest header line is missing cosmic_offset")
+  local offset = math.tointeger(assert(tonumber(offset_text)))
+  local length_text = assert(line:match("cosmic_length=(%d+);"),
+    "manifest header line is missing cosmic_length")
+  local length = math.tointeger(assert(tonumber(length_text)))
   local digest = assert(line:match("cosmic_sha256=([0-9a-f]+) "),
     "manifest header line is missing cosmic_sha256")
   return target_id, configuration_id, assert(offset), assert(length), digest
@@ -371,7 +374,10 @@ local function test_runtime_environment_scrubbing(tmp: string)
     root .. "/test/portable/tool.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
-  local outcome = Fixture.run("environment-clean", argv, work, diagnostics,
+  -- tool.tl's own require("build.artifact")/require("test.portable.
+  -- artifact_fixture") resolve relative to the process cwd, so this (like
+  -- every other tool.tl invocation here) must run from `root`, not `work`.
+  local outcome = Fixture.run("environment-clean", argv, root, diagnostics,
     values)
   Fixture.contains(outcome.out, "portable environment: clean")
 end
@@ -488,7 +494,7 @@ local function test_runtime_corrupt_ranges(tmp: string)
   local cache = work .. "/cache-release"
   Fixture.run("corrupt-ranges", { fixture_dir .. "/runtime.release",
     root .. "/test/portable/tool.tl", "corrupt-ranges",
-    fixture_dir .. "/runtime.release", work, tostring(offset) }, work,
+    fixture_dir .. "/runtime.release", work, tostring(offset) }, root,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
   local selected_corrupt: string | nil = nil
@@ -685,11 +691,11 @@ local function test_runtime_timing(tmp: string)
 
   local cold = Fixture.run("timing-cold", { fixture_dir .. "/runtime.release",
     root .. "/test/portable/tool.tl", "time-runtime",
-    fixture_dir .. "/runtime.release", timing_cache }, work, diagnostics,
+    fixture_dir .. "/runtime.release", timing_cache }, root, diagnostics,
     { COSMIC_PORTABLE_CACHE = driver_cache })
   local warm = Fixture.run("timing-warm", { fixture_dir .. "/runtime.release",
     root .. "/test/portable/tool.tl", "time-runtime",
-    fixture_dir .. "/runtime.release", timing_cache }, work, diagnostics,
+    fixture_dir .. "/runtime.release", timing_cache }, root, diagnostics,
     { COSMIC_PORTABLE_CACHE = driver_cache })
 
   assert(Fs.put(Fs.stderr, "portable runtime.release entry cold timing (" ..

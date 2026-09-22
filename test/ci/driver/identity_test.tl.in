@@ -287,9 +287,13 @@ local function run_sanitized(fixture_dir: string, root: string,
     "/cosmic-core"
 
   local entry_cache = work .. "/entry-cache"
+  -- tool.tl's own require("build.artifact")/require("test.portable.
+  -- artifact_fixture") resolve relative to the process cwd, so this must
+  -- run from `root`, matching identity_test.sh's own unwrapped invocation
+  -- (no `cd`, so it inherited the whole script's cwd, which is `root`).
   local entry_out = Fixture.run("sanitized-entry",
     { fixture_dir .. "/runtime.old", root .. "/test/portable/tool.tl",
-      "entry", artifact, target_id, "2" }, work, diagnostics,
+      "entry", artifact, target_id, "2" }, root, diagnostics,
     { COSMIC_PORTABLE_CACHE = entry_cache })
   local offset, length, digest = Fixture.small(entry_out.out, 256):match(
     "^(%d+)[ \t]+(%d+)[ \t]+([0-9a-f]+)\n?$")
@@ -436,9 +440,14 @@ local function test_identity_primary(tmp: string)
   -- A project database is searched ahead of the binary after attachment. Its
   -- rows must not override validated portable context or the binary's
   -- basis.
+  -- Both tool.tl calls below run from `root`, matching identity_test.sh's
+  -- own unwrapped invocations (no `cd "$project"`, unlike most of this
+  -- function): tool.tl's require("build.artifact")/require("test.portable.
+  -- artifact_fixture") resolve relative to the process cwd, and `project`
+  -- has no build/ or test/ tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
     root .. "/test/portable/tool.tl", "spoof-database",
-    project .. "/o/cosmic.db" }, project, diagnostics,
+    project .. "/o/cosmic.db" }, root, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   expect_tally(run_release(project, cache, counter, diagnostics,
@@ -448,7 +457,7 @@ local function test_identity_primary(tmp: string)
 
   Fixture.run("verify-verdicts", { fixture_dir .. "/runtime.old",
     root .. "/test/portable/tool.tl", "verify-verdicts",
-    project .. "/o/build.db", counter }, project, diagnostics,
+    project .. "/o/build.db", counter }, root, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
 
   local missing = work .. "/missing-project"
@@ -489,21 +498,25 @@ end
 -- selects a different release core from the unchanged artifact, so the new
 -- context must run once and its immediate repeat must stand."
 --
--- test_identity_primary and this function run on the very same host, in the
--- very same `cosmic test` process, so that premise does not hold here: this
--- is not a new host meeting the project for the first time. By the time
--- test_identity_primary finished, its own last runtime.old-context release
--- run (the "application" run against runtime.new above, which reuses
--- runtime.old's core/basis context) had already made that context stand.
--- Re-deriving the tally rather than copying the shell's "1 ran, 0 stood"
--- verbatim: a fresh, same-host run against the transported project must
--- also observe that context already standing, and its own repeat must
--- stand too. What IS still meaningful to check on one host is exactly what
--- CI's cross-host product transport actually depends on: that a whole
--- project directory, moved wholesale (here: copied on disk; in CI: uploaded
--- and downloaded as a build artifact), keeps its application database
--- content and produces byte-identical, executable application output.
--- That is what this function checks.
+-- An earlier version of this comment argued that, since test_identity_primary
+-- and this function run on the very same host in the very same `cosmic test`
+-- process, the runtime.old context should already stand by the time this
+-- function starts (its last runtime.old-context release, the "application"
+-- run against runtime.new, reuses that same context) -- so both calls below
+-- should observe "0 ran, 1 stood" rather than the shell's "1 ran, 0 stood"
+-- then "0 ran, 1 stood". Running this against a real build proved that
+-- reasoning wrong: `copy_tree`'s restore into a *new* project directory
+-- (below) invalidates the previously cached verdict regardless of runtime
+-- identity -- the very first run here always re-runs once, exactly as the
+-- shell expects, and only its own immediate repeat then stands. The shell's
+-- original tallies were right, just not for the reason its own comment
+-- gives: it isn't specifically a different host selecting a different core
+-- that forces the re-run, it's that the project was copied at all (locally
+-- here; uploaded and downloaded as a build artifact in real CI). That is
+-- also exactly the property worth checking on one host: a transported
+-- project keeps its application database content and produces
+-- byte-identical, executable application output after the one re-run its
+-- own relocation costs.
 local function test_identity_transported(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local state_root = Env.get_or("TMPDIR", "/tmp") .. "/" ..
@@ -527,7 +540,7 @@ local function test_identity_transported(tmp: string)
 
   local projection_before = Fixture.hash(project .. "/o/cosmic.db")
   expect_tally(run_release(project, cache, counter, diagnostics,
-    fixture_dir .. "/runtime.old", "transported"), 0, 1)
+    fixture_dir .. "/runtime.old", "transported"), 1, 0)
   expect_tally(run_release(project, cache, counter, diagnostics,
     fixture_dir .. "/runtime.old", "transported-repeat"), 0, 1)
   assert(Fixture.hash(project .. "/o/cosmic.db") == projection_before,
