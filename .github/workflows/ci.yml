@@ -37,7 +37,12 @@ jobs:
           - name: alpine-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            container: 'alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6'
+            # --init puts a reaper at PID 1: a process-group kill leaves
+            # orphaned descendants, and the suite checks they are gone,
+            # not zombies nobody collects.
+            container:
+              image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+              options: --init
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 45
@@ -197,7 +202,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          db="$(find "$RUNNER_TEMP/cosmic-driver-selfcheck" -name operations.db -type f -print | head -n 1)"
+          db="$(find "$RUNNER_TEMP/cosmic-driver-selfcheck" -name operations.db -type f -print | sed -n 1p)"
           if [ -z "$db" ]; then
             echo '## Cosmic CI operations' >> "$GITHUB_STEP_SUMMARY"
             echo 'Driver database unavailable (bootstrap or self-check failed before its first operation).' >> "$GITHUB_STEP_SUMMARY"
