@@ -604,7 +604,7 @@ local function platform_impl(a: {string}): integer
     "usage: platform PHASE DB WORKER RUN ATTEMPT ROOT TARGET WORK [ARG]")
   assert(targets[target], "unsupported target"); mkdir(work)
   local c: Context = { db = db, worker = worker, run = run_name,
-    attempt = attempt, root = root, driver = assert(a[0]) }
+    attempt = attempt, root = root, driver = assert(Fs.absolute(assert(a[0]))) }
   local p: PlatformContext = { args = a, operation = c, root = root,
     target = target, work = work, product = work .. "/product",
     contract = work .. "/contract", runtime = work .. "/runtime",
@@ -631,7 +631,7 @@ local function provenance_impl(a: {string}): integer
   assert(db and worker and run_name and attempt and root and products,
     "usage: provenance DB WORKER RUN ATTEMPT ROOT PRODUCTS")
   local c: Context = { db = db, worker = worker, run = run_name,
-    attempt = attempt, root = root, driver = assert(a[0]) }
+    attempt = attempt, root = root, driver = assert(Fs.absolute(assert(a[0]))) }
   local entries = assert(Fs.list(products)); local count = 0; local expected: integer|nil = nil; local baseline: string|nil = nil
   for _, name in ipairs(entries) do if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name; local att = p .. "/executed-cosmic.sha256"; local exp = p .. "/expected-platforms"
@@ -674,7 +674,7 @@ function Orchestration.platform(a: {string}): integer
   assert(canonical_work == a[8], "WORK must be an absolute canonical path")
   mkdir(canonical_work)
   local c: Context = { db = a[2], worker = a[3], run = a[4],
-    attempt = a[5], root = a[6], driver = assert(a[0]) }
+    attempt = a[5], root = a[6], driver = assert(Fs.absolute(assert(a[0]))) }
   return logical(c, "platform: " .. a[1], function(): integer
     return platform_impl(a)
   end)
@@ -684,7 +684,7 @@ function Orchestration.provenance(a: {string}): integer
   assert(a[1] and a[2] and a[3] and a[4] and a[5],
     "usage: provenance DB WORKER RUN ATTEMPT ROOT PRODUCTS")
   local c: Context = { db = a[1], worker = a[2], run = a[3],
-    attempt = a[4], root = a[5], driver = assert(a[0]) }
+    attempt = a[4], root = a[5], driver = assert(Fs.absolute(assert(a[0]))) }
   return logical(c, "provenance", function(): integer
     return provenance_impl(a)
   end)
