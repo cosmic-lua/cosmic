@@ -135,8 +135,9 @@ local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
   for _, observation in ipairs(found) do
     kinds[observation.kind] = (kinds[observation.kind] or 0) + 1
   end
-  -- One explicit env read plus `Fs.mkdtemp`'s own `TMPDIR` lookup.
-  assert(kinds.e == 2)
+  -- At least the explicit read; `Fs.mkdtemp` and `Child.run` consult
+  -- a platform-dependent number of variables themselves.
+  assert(kinds.e >= 1)
   assert(kinds.p == 1)
   assert(kinds.m == 1)
 end
