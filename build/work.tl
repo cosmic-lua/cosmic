@@ -77,7 +77,7 @@ local record work
   version: string
 end
 
-work.version = "16"
+work.version = "17"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -147,6 +147,13 @@ work.version = "16"
 --- the hash of every file under the root the test was observed to
 --- read; `reads` is what it opened, as recorded, and `run_at_ns` the
 --- `cosmic test` invocation whose coverage rows credit the verdict.
+--- `elapsed_ns` is how long the test function itself took to run,
+--- from `cosmic.time`'s monotonic clock, wall time not CPU time; for a
+--- test answered from a standing verdict instead of actually running,
+--- it is the elapsed time from the run that produced that verdict, so
+--- `runs` always answers "how long does this test take" even when
+--- most tests are cached, rather than going NULL the moment a suite is
+--- fully verdicted.
 ---
 --- `verdicts` is one row per key ever seen, with its verdict and the
 --- invocation that produced it, and `seen` the last run that relied on
@@ -154,7 +161,9 @@ work.version = "16"
 --- again, and an edit undone finds its old key again. One no run has
 --- relied on in the last ten (`build.test`'s `kept_runs`) is dropped,
 --- and with it the `coverage_by_test` rows no verdict credits any
---- more.
+--- more. `elapsed_ns` carries the duration of the run that reached
+--- this verdict, so a test answered from it without running again
+--- still has a duration to give `runs`.
 ---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
 --- one snapshot per `cosmic test` invocation, each run identified by
@@ -295,11 +304,13 @@ work.schema = {
                                      reads TEXT NOT NULL,
                                      key TEXT NOT NULL,
                                      run_at_ns INTEGER NOT NULL,
+                                     elapsed_ns INTEGER NOT NULL,
                                      PRIMARY KEY (path, test)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY,
                                          passed INTEGER NOT NULL,
                                          run_at_ns INTEGER NOT NULL,
-                                         seen INTEGER NOT NULL) WITHOUT ROWID]],
+                                         seen INTEGER NOT NULL,
+                                         elapsed_ns INTEGER NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS test_runs (ran_at_ns INTEGER NOT NULL
                                           PRIMARY KEY)]],
   [[CREATE TABLE IF NOT EXISTS coverage (ran_at_ns INTEGER NOT NULL,

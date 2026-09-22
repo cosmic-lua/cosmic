@@ -66,6 +66,37 @@ local function test_cli_fails_when_no_module_matches(tmp: string)
   end
 end
 
+--- Regression: `runs.elapsed_ns` must reflect how long the test function
+--- itself actually took, not merely be present. A test that sleeps a known
+--- short duration must be recorded as having taken at least that long, and
+--- comfortably less than a generous upper bound.
+local function test_records_the_tests_elapsed_duration(tmp: string)
+  local program = assert(Proc.executable())
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/timing"))
+  assert(Fs.write(root .. "/timing/sleep_test.tl", [[
+local Time = require("cosmic.time")
+local function test_sleeps_a_known_duration()
+  assert(Time.sleep_ns(50 * 1000 * 1000))
+end
+]]))
+  local output = tmp .. "/sleep.out"
+  local result = invoke(program, root, output, "timing/sleep_test.tl")
+  assert(result.ok, assert(Fs.read(output)))
+  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT elapsed_ns FROM runs WHERE path = 'timing.sleep_test' " ..
+    "AND test = 'test_sleeps_a_known_duration'"))
+  assert(db:close())
+  assert(#rows == 1, "expected exactly one recorded run")
+  local elapsed = math.tointeger(tonumber(rows[1][1]))
+  assert(elapsed ~= nil)
+  assert(elapsed >= 50 * 1000 * 1000,
+    "elapsed_ns " .. tostring(elapsed) .. " is shorter than the sleep")
+  assert(elapsed < 5 * 1000 * 1000 * 1000,
+    "elapsed_ns " .. tostring(elapsed) .. " is implausibly large")
+end
+
 local function test_cli_accepts_relative_and_absolute_project_root(tmp: string)
   local program = assert(Proc.executable())
   for index, selector in ipairs({ ".", "./", "absolute", "absolute-slash" }) do

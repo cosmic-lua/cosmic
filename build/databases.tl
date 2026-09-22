@@ -102,6 +102,36 @@ local function builds(path: string): boolean, string
   return true, ""
 end
 
+--- How many of the slowest tests to name in the report.
+local slowest_kept = 5
+
+--- The slowest tests of the last-run `runs` rows, latest first by
+--- their own duration -- what "which test is dragging the suite out"
+--- costs before this had to be found by timing modules one by one.
+local function slowest(path: string): boolean, string
+  local db, open_trouble = Sqlite.open(path, false)
+  if db == nil then
+    return false, open_trouble
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, test, elapsed_ns FROM runs ORDER BY elapsed_ns DESC LIMIT " ..
+    tostring(slowest_kept))
+  db:close()
+  if rows == nil then
+    return false, trouble
+  end
+  if #rows == 0 then
+    return true, ""
+  end
+  report("slowest tests")
+  for _, row in ipairs(rows) do
+    local ns = math.tointeger(tonumber(row[3]) or 0) or 0
+    report("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row[1] ..
+      " " .. row[2])
+  end
+  return true, ""
+end
+
 --- Describes `o/cosmic.db` and `o/build.db` under the working
 --- directory, printing a verdict line and returning the exit code.
 function databases.run(): integer
@@ -130,6 +160,11 @@ function databases.run(): integer
       tables = tables + counted
       if name == "o/build.db" then
         local ok, build_trouble = builds(path)
+        if not ok then
+          complain(path .. ": " .. build_trouble)
+          return 1
+        end
+        ok, build_trouble = slowest(path)
         if not ok then
           complain(path .. ": " .. build_trouble)
           return 1
