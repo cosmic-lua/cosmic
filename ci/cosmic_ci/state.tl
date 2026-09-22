@@ -36,8 +36,7 @@ function State.canonical_directory(path: string): string
   return absolute
 end
 
-function State.external_path(path: string, candidate: string,
-    driver_path: string): string
+function State.external_path(path: string, candidate: string): string
   local directory = State.canonical_directory(parent(path))
   local leaf = path:match("([^/]+)$") or path
   local unresolved = directory == "/" and "/" .. leaf or directory .. "/" .. leaf
@@ -49,13 +48,8 @@ function State.external_path(path: string, candidate: string,
     absolute = unresolved
   end
   local candidate_absolute = State.canonical_directory(candidate)
-  local project = parent(driver_path)
-  if project:match("/cosmic_ci$") then project = parent(project) end
-  local project_absolute = State.canonical_directory(project)
   assert(not inside(absolute, candidate_absolute),
     "path must be outside candidate checkout: " .. absolute)
-  assert(not inside(absolute, project_absolute),
-    "path must be outside driver project: " .. absolute)
   return absolute
 end
 

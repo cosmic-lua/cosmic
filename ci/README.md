@@ -10,8 +10,8 @@ and is excluded from module and test discovery. Its working database lands
 at `ci/o/build.db` (gitignored).
 
 `bootstrap-driver.sh` downloads and verifies the pinned host, caching it by
-digest, and copies it to a runner path. `run-driver.sh` then runs the
-driver in place: `cd ci && $COSMIC_DRIVER cosmic_ci/driver.tl ...`.
+digest, and copies it to a runner path. CI then runs the driver in place,
+with cwd `ci`: `$COSMIC_DRIVER cosmic_ci/driver.tl ...`.
 
 Orchestration copies `cosmic_ci/` once per fixture into a separate,
 external fixture project, since each fixture needs a fresh working

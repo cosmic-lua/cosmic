@@ -8,11 +8,6 @@ local function open_database(path: string): Sqlite.Handle
   return State.open(path)
 end
 
-local function database_path(path: string, candidate: string,
-    driver_path: string): string
-  return State.external_path(path, candidate, driver_path)
-end
-
 local function run(argv: {string}): integer
   local database, worker, run_name, attempt, phase =
     argv[1], argv[2], argv[3], argv[4], argv[5]
@@ -22,12 +17,11 @@ local function run(argv: {string}): integer
     "usage: driver.tl run DB WORKER RUN ATTEMPT PHASE CANDIDATE TIMEOUT_MS EXECUTABLE [ARG...]")
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
-  database = database_path(database, candidate, assert(argv[0]))
+  database = State.external_path(database, candidate)
   local command: {string} = { executable }
   for i = 9, #argv do command[#command + 1] = argv[i] end
   local context: Runner.Context = { database = database, worker = worker,
-    run = run_name, attempt = attempt, candidate = candidate,
-    driver = assert(argv[0]) }
+    run = run_name, attempt = attempt, candidate = candidate }
   return Runner.operation(context, phase, { argv = command, cwd = candidate,
     timeout_ms = timeout }).code
 end

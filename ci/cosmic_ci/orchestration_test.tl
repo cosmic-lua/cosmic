@@ -16,10 +16,11 @@ end
 --- itself: this copies the namespace into its own tmp project first.
 local function command(tmp: string): {string}, string
   local host = assert(Proc.executable())
-  local source = Fs.absolute(".") .. "/cosmic_ci"
+  local here = assert(Fs.absolute("."))
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
-  assert(assert(Child.run({ "/bin/cp", "-R", source, project })).ok)
+  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci",
+    here .. "/fixtures", project })).ok)
   return { host, project .. "/cosmic_ci/driver.tl" }, project
 end
 
