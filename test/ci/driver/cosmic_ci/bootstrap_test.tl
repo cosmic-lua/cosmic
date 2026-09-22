@@ -59,6 +59,35 @@ local function test_bootstrap_verifies_and_copies_declared_trees_verbatim(tmp: s
   end
 end
 
+local function test_run_entry_loads_copied_namespace_from_a_hostile_cwd(tmp: string)
+  local project, runner = seeded_bootstrap(tmp)
+  local output = tmp .. "/run-entry.out"
+  local result = call({ "/bin/sh", source_root() .. "/test/ci/run-driver.sh" },
+    source_root(), output, {
+      COSMIC_DRIVER = runner,
+      COSMIC_DRIVER_PROJECT = project,
+    })
+  local text = assert(Fs.read(output))
+  assert(result.code == 2, text)
+  assert(text:find("usage: driver.tl", 1, true), text)
+  assert(not text:find("module not found", 1, true), text)
+
+  local fake, captured = tmp .. "/fake-driver", tmp .. "/driver-path"
+  assert(Fs.write(fake, [[#!/bin/sh
+printf '%s' "$1" > "$CAPTURE"
+]]))
+  assert(call({ "/bin/chmod", "755", fake }, tmp, tmp .. "/chmod.out").ok)
+  local forwarded = call({ "/bin/sh", source_root() .. "/test/ci/run-driver.sh" },
+    source_root(), tmp .. "/forwarded.out", {
+      CAPTURE = captured,
+      COSMIC_DRIVER = fake,
+      COSMIC_DRIVER_PROJECT = project,
+    })
+  assert(forwarded.ok, assert(Fs.read(tmp .. "/forwarded.out")))
+  assert(assert(Fs.read(captured)) == project .. "/cosmic_ci/driver.tl",
+    "run entry did not preserve the whole copied-project boundary")
+end
+
 local function test_bootstrap_rejects_corrupt_cache_and_download(tmp: string)
   local cache, fake = tmp .. "/cache", tmp .. "/fake bin"
   assert(Fs.mkdirs(cache) and Fs.mkdirs(fake))

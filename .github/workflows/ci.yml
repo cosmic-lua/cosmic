@@ -101,7 +101,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           export COSMIC_ZIG_CACHE_SEED=~/.cache/cosmic/zig-build
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform build \
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform build \
             "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID" \
             "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -109,7 +109,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform local-boundary
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform local-boundary
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -117,7 +117,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform assemble
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform assemble
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -133,7 +133,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           export COSMIC_ZIG_CACHE_SEED="$HOME/.cache/cosmic/zig-build"
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform cache-save \
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform cache-save \
             "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID" \
             "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -142,7 +142,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform portable
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform portable
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -152,7 +152,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           PORTABLE_OUTCOME: ${{ steps.portable-suite.outcome }}
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform portable-boundary
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform portable-boundary
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
           "${{ steps.portable-suite.outcome }}"
@@ -161,7 +161,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform fixtures
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform fixtures
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -171,7 +171,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           COSMIC_CI_RUNNER: ${{ runner.temp }}/cosmic-driver
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform alpine
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform alpine
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
@@ -180,7 +180,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           EXPECTED_PLATFORMS: ${{ strategy.job-total }}
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" platform attest
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" platform attest
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
           "$EXPECTED_PLATFORMS"
@@ -193,7 +193,7 @@ jobs:
             echo 'Operation database unavailable (bootstrap failed).' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" report \
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" report \
             "$COSMIC_OPERATIONS_DB" "$RUNNER_TEMP/platform/operations.md"
           cat "$RUNNER_TEMP/platform/operations.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -207,8 +207,7 @@ jobs:
             echo 'Driver database unavailable (bootstrap or self-check failed before its first operation).' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          "$RUNNER_TEMP/cosmic-driver" \
-            "$RUNNER_TEMP/cosmic-driver-project/cosmic_ci/driver.tl" report \
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" report \
             "$db" \
             "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md"
           cat "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md" >> "$GITHUB_STEP_SUMMARY"
@@ -276,7 +275,7 @@ jobs:
           path: ${{ runner.temp }}/products
       - name: compare the Cosmic bytes executed on every native host
         run: >-
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" provenance
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" provenance
           "$COSMIC_OPERATIONS_DB" provenance "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
           "$GITHUB_WORKSPACE" "$RUNNER_TEMP/products"
       - name: summarize provenance operations
@@ -287,7 +286,7 @@ jobs:
             echo 'Provenance operation database unavailable.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          "$COSMIC_DRIVER" "$COSMIC_DRIVER_PROJECT/cosmic_ci/driver.tl" report \
+          sh "$GITHUB_WORKSPACE/test/ci/run-driver.sh" report \
             "$COSMIC_OPERATIONS_DB" "$RUNNER_TEMP/provenance-operations.md"
           cat "$RUNNER_TEMP/provenance-operations.md" >> "$GITHUB_STEP_SUMMARY"
       - name: preserve provenance operations
