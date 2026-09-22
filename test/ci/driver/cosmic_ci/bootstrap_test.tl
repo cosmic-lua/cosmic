@@ -84,7 +84,8 @@ printf '%s' "$1" > "$CAPTURE"
       COSMIC_DRIVER_PROJECT = project,
     })
   assert(forwarded.ok, assert(Fs.read(tmp .. "/forwarded.out")))
-  assert(assert(Fs.read(captured)) == project .. "/cosmic_ci/driver.tl",
+  assert(assert(Fs.read(captured)) == assert(Fs.absolute(project)) ..
+    "/cosmic_ci/driver.tl",
     "run entry did not preserve the whole copied-project boundary")
 end
 
