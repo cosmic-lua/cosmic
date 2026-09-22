@@ -261,28 +261,6 @@ local function test_testdata_is_not_a_module_or_test_source()
   assert(found, "ordinary sibling test was not classified")
 end
 
---- Driver sources are stored inside Cosmic's checkout but are compiled only
---- after bootstrap copies their namespace to an external project. The copied
---- path remains ordinary source; only the checkout storage prefix is data.
-local function test_ci_driver_storage_is_not_candidate_source()
-  local root, write_trouble = write_fixture("ci-driver-storage", {
-    ["test/ci/driver/cosmic_ci/hostile_test.tl"] =
-      "this is deliberately not valid Teal\n",
-    ["cosmic_ci/pass_test.tl"] =
-      "local function test_pass() assert(true) end\n",
-  })
-  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
-  assert(result ~= nil, "driver storage entered compilation: " .. tostring(trouble))
-  local copied = false
-  for _, module in ipairs(result.modules) do
-    assert(module.file ~= "test/ci/driver/cosmic_ci/hostile_test.tl",
-      "checkout driver storage was classified as source")
-    if module.file == "cosmic_ci/pass_test.tl" then copied = true end
-  end
-  assert(copied, "copied driver namespace was not ordinary source")
-end
-
 --- The tool's hash over a tree, staged fresh: each call is its own
 --- run, so a file that has gone since the last call is gone from the
 --- fingerprints too.
@@ -698,4 +676,37 @@ local function test_argument_hint_does_not_sniff_the_whole_source_line()
   assert(trouble:find("cosmic docs generics_functions_returns", 1, true) ~= nil,
     trouble)
   assert(trouble:find("cosmic docs table.concat", 1, true) == nil, trouble)
+end
+
+--- `ci/` is the pinned CI driver's own project, walked and built by
+--- the pinned host with cwd `ci/`, never by cosmic's own build: staging
+--- cosmic's own tree must record nothing under `ci/`, and deriving
+--- inputs from what was staged must yield no module from there either.
+local function test_own_tree_staging_skips_the_ci_driver_tree()
+  local root = "/tmp/cosmic-importer-test-skip-ci-" .. tostring(Proc.pid())
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
+                         "patch/lua", "vendor/tl", "vendor/lua", "bin",
+                         "ci/cosmic_ci", "ci/o" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/vendor/tl/PIN", "version 1"))
+  assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
+  assert(Fs.write(root .. "/build/importer.tl",
+    "local record importer\nend\nreturn importer\n"))
+  assert(Fs.write(root .. "/ci/cosmic_ci/probe_test.tl",
+    "local function test_probe()\n  assert(true)\nend\n"))
+  assert(Fs.write(root .. "/ci/o/build.db", "not a real sqlite database"))
+
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local staged = assert(Sqlite.text_rows(handle.db,
+    "SELECT path FROM files WHERE path GLOB 'ci/*'"))
+  assert(#staged == 0, "staging recorded a file under ci/: " .. tostring(staged[1]))
+
+  assert(importer.derive(handle, true, built))
+  local inputs = assert(Sqlite.text_rows(handle.db,
+    "SELECT file FROM inputs WHERE file GLOB 'ci/*'"))
+  assert(#inputs == 0, "derived inputs included a module under ci/: " ..
+    tostring(inputs[1]))
+  work.close(handle)
 end

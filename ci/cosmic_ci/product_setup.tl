@@ -17,9 +17,9 @@ function ProductSetup.build(root: string, product: string, tmp: string): string
   local project = tmp .. "/project"
   Fixture.mkdir(project .. "/cmd/hello")
   Fixture.mkdir(project .. "/cmd/second")
-  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/hello/main.tl",
+  Fixture.copy(root .. "/ci/testdata/portable/cmd/hello/main.tl",
     project .. "/cmd/hello/main.tl")
-  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/second/main.tl",
+  Fixture.copy(root .. "/ci/testdata/portable/cmd/second/main.tl",
     project .. "/cmd/second/main.tl")
   local diagnostics = tmp .. "/logs"
   local built = Fixture.run("application-build", { cosmic, "build" }, project,

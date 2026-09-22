@@ -226,7 +226,6 @@ work.schema = {
              CAST(data AS TEXT) AS source,
              sha256 AS source_hash
         FROM files WHERE path GLOB '*.tl'
-          AND path NOT GLOB 'test/ci/driver/*'
           AND path NOT GLOB 'testdata/*'
           AND path NOT GLOB '*/testdata/*'
       UNION ALL
@@ -489,6 +488,13 @@ local tool_dirs: {string:boolean} = {
   ["vendor"] = true,
 }
 
+--- Trees of their own that sit inside cosmic's: `ci/` is the project
+--- the pinned CI driver runs from, with its own `o/`, so this tree's
+--- build never walks it, let alone reads its modules or tests.
+local foreign_trees: {string:boolean} = {
+  ["ci"] = true,
+}
+
 --- The top-level directory an entry sits under, or the entry itself
 --- at the top. A plain find, since this runs for every entry walked.
 local function first_of(entry: string): string
@@ -539,6 +545,9 @@ local function skip_in_own_tree(entry: string, name: string): boolean
     return true
   end
   local first = first_of(entry)
+  if foreign_trees[first] then
+    return true
+  end
   if first == "vendor" then
     return not is_vendor_pin(entry)
   end

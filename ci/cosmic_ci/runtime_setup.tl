@@ -177,11 +177,11 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   Fixture.run("prepare-artifacts", { writer, root .. "/test/portable/tool.tl",
     "prepare-artifacts", out, targets_path }, root, diagnostics)
 
-  Fixture.copy(root .. "/test/ci/driver/testdata/portable/retained_probe.tl",
+  Fixture.copy(root .. "/ci/testdata/portable/retained_probe.tl",
     out .. "/probe.tl")
-  Fixture.copy(root .. "/test/ci/driver/testdata/portable/runtime_test.tl",
+  Fixture.copy(root .. "/ci/testdata/portable/runtime_test.tl",
     out .. "/runtime_test.tl")
-  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/hello/main.tl",
+  Fixture.copy(root .. "/ci/testdata/portable/cmd/hello/main.tl",
     out .. "/hello_main.tl")
 
   -- Belt-and-suspenders, matching the shell's own final `chmod 755` glob:
