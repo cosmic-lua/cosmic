@@ -15,6 +15,9 @@
 --- and directory listings are observed through the syscall table.
 --- Observations outside the root do not enter the key; the tool's own
 --- hash, in every module key, invalidates everything at once.
+--- Environment variables a test reads are part of its key; a test
+--- that spawns a process or reads outside the tree beyond its own
+--- temporary directories is never answered from a verdict.
 ---
 --- A `local function test_*` at the top level of a `kind = "test"`
 --- module is otherwise unreachable from outside the file it sits in:
@@ -261,7 +264,10 @@ local function append_process_reads(root: string,
                                     seen: {string:{string:{string:boolean}}},
                                     found: {observations.Observation})
   for _, observation in ipairs(found) do
-    if under_root(root, observation.path) ~= nil then
+    local kind = observation.kind
+    if kind == "e" or
+        ((kind == "o" or kind == "s" or kind == "d") and
+          under_root(root, observation.path) ~= nil) then
       local by_path = seen[observation.kind]
       if by_path == nil then
         by_path = {}
@@ -303,16 +309,30 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local stable = true
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
-    local relative = under_root(root, observation.path)
-    local identified = observation.kind .. " " .. (relative or "")
-    if relative ~= nil and not seen[identified] then
-      seen[identified] = true
-      paths[#paths + 1] = identified
-    end
-    if relative ~= nil and observation.answer ~= "" then
-      local before = answers[identified]
-      if before ~= nil and before ~= observation.answer then stable = false end
-      answers[identified] = observation.answer
+    local kind = observation.kind
+    if kind == "e" then
+      local identified = kind .. " " .. observation.path
+      if not seen[identified] then
+        seen[identified] = true
+        paths[#paths + 1] = identified
+      end
+      if observation.answer ~= "" then
+        local before = answers[identified]
+        if before ~= nil and before ~= observation.answer then stable = false end
+        answers[identified] = observation.answer
+      end
+    elseif kind == "o" or kind == "s" or kind == "d" then
+      local relative = under_root(root, observation.path)
+      local identified = kind .. " " .. (relative or "")
+      if relative ~= nil and not seen[identified] then
+        seen[identified] = true
+        paths[#paths + 1] = identified
+      end
+      if relative ~= nil and observation.answer ~= "" then
+        local before = answers[identified]
+        if before ~= nil and before ~= observation.answer then stable = false end
+        answers[identified] = observation.answer
+      end
     end
   end
   table.sort(paths)
@@ -332,7 +352,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
-    if kind == "o" then
+    if kind == "e" then
+      current = observations.getenv_current(relative)
+    elseif kind == "o" then
       current = hashes[relative]
       if current == nil then
         local data = Fs.read(root .. "/" .. relative)
@@ -360,6 +382,52 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     lines[#lines + 1] = part
   end
   return Hash.hex_sha256(table.concat(lines, "\n")), stable
+end
+
+--- Whether a passing verdict over `reads` is safe to reuse later: false
+--- when the run spawned a process -- an input no observation can hash
+--- -- or opened, stat'd, or listed a path outside `root`, `scratch`,
+--- and every directory an "m" observation anywhere in the same list
+--- shows the test made for itself (not only one earlier in the list:
+--- `Fs.mkdirs` stats a directory to see whether it is already there
+--- before the "m" observation that creates it, so the existence check
+--- for a directory a test is about to make of its own would otherwise
+--- count as a foreign read). An environment read is keyable: its
+--- answer enters the verdict key like a file's hash does. Exposed
+--- alongside `test.verdict_key` so `test_test.tl` can exercise it
+--- directly.
+function test.keyable(root: string, scratch: string,
+                      reads: {observations.Observation}): boolean
+  local function under(dir: string, path: string): boolean
+    return dir ~= "" and (path == dir or path:sub(1, #dir + 1) == dir .. "/")
+  end
+  local made: {string} = {}
+  for _, observation in ipairs(reads) do
+    if observation.kind == "p" then
+      return false
+    elseif observation.kind == "m" then
+      made[#made + 1] = observation.path
+    end
+  end
+  for _, observation in ipairs(reads) do
+    local kind = observation.kind
+    if kind == "o" or kind == "s" or kind == "d" then
+      local path = observation.path
+      if path:sub(1, 1) == "/" and not under(root, path) and not under(scratch, path) then
+        local made_here = false
+        for _, dir in ipairs(made) do
+          if under(dir, path) then
+            made_here = true
+            break
+          end
+        end
+        if not made_here then
+          return false
+        end
+      end
+    end
+  end
+  return true
 end
 
 --- Resolves every run `credited` names against `coverage_by_test`,
@@ -709,12 +777,13 @@ end
 --- Calls one test function with a fresh temporary directory as its one
 --- argument, through `pcall`, and reports what it observed opening.
 local function call_test(fn: function(any...): (any...)):
-                         boolean, string, {observations.Observation}
+                         boolean, string, {observations.Observation}, string
   local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
   if tmp == nil then
-    return false, "could not make a temporary directory: " .. tmp_trouble, {}
+    return false, "could not make a temporary directory: " .. tmp_trouble, {}, ""
   end
-  return observations.call(fn, tmp)
+  local ok, message, reads = observations.call(fn, tmp)
+  return ok, message, reads, tmp
 end
 
 --- Runs every test one `kind = "test"` or `kind = "example"` module
@@ -753,6 +822,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
   local ok, produced, newly_read = observations.capture(function(): any
     return require(m.path)
   end)
+  local module_keyable = test.keyable(root, "", newly_read)
   append_process_reads(root, process_reads, process_seen, newly_read)
   if module_session ~= nil then
     local collected, stop_trouble = Coverage.stop(module_session)
@@ -814,8 +884,9 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       if test_session == nil then
         errors[#errors + 1] = id .. ": coverage start: " .. test_start_trouble
       end
-      local passed, message, reads = call_test(fn)
+      local passed, message, reads, tmp = call_test(fn)
       local test_reads = reads
+      local keyable = module_keyable and test.keyable(root, tmp, test_reads)
       reads = observations.join(process_reads, test_reads)
       append_process_reads(root, process_reads, process_seen, test_reads)
       if test_session ~= nil then
@@ -830,7 +901,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       local reached, stable = test.verdict_key(root, hashes, id, m.key, runtime, reads,
         key_parts)
       local saved, trouble = record_run(records, m.path, name, passed, message,
-        Time.now_ns() or 0, reads, reached, run_at_ns, stable)
+        Time.now_ns() or 0, reads, reached, run_at_ns, stable and keyable)
       if not saved then
         errors[#errors + 1] = id .. ": record: " .. trouble
       end

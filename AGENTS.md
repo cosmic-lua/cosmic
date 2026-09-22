@@ -27,6 +27,9 @@
    read answers under the root -- is not run again, so a run after a small edit
    takes seconds; a run after a boot, or on a fresh `o/`, runs everything and
    still finishes in single-digit seconds under the native coverage collector.
+   Environment variables a test reads are part of its key; a test that spawns
+   a process or reads outside the tree beyond its own temporary directories
+   is never answered from a verdict.
    Treat an actual
    timeout as a failure to investigate, and report it separately from an
    assertion failure. Do not silently raise the limit; inspect elapsed time and

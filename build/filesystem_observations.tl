@@ -1,10 +1,13 @@
 --- Filesystem queries whose answers may affect a test verdict.
 
+local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
 local record observations
   stat_result_answer: function(sys.Stat | nil, string, integer): string
   directory_result_answer: function({string:string} | nil, string, integer): string
+  getenv_answer: function(string | nil): string
+  environ_answer: function({string:string}): string
 
   record Observation
     kind: string
@@ -74,7 +77,10 @@ end
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v1" }
   for _, observation in ipairs(found) do
-    lines[#lines + 1] = observation.kind .. " " .. hex(observation.path)
+    local kind = observation.kind
+    if kind == "o" or kind == "s" or kind == "d" or kind == "e" then
+      lines[#lines + 1] = kind .. " " .. hex(observation.path)
+    end
   end
   return table.concat(lines, "\n")
 end
@@ -93,7 +99,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   local found: {observations.Observation} = {}
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v1" then
-      local kind, encoded_path = line:match("^([osd]) ([0-9a-f]*)$")
+      local kind, encoded_path = line:match("^([osde]) ([0-9a-f]*)$")
       local path = encoded_path ~= nil and unhex(encoded_path) or nil
       if kind == nil or path == nil then
         return nil
@@ -111,6 +117,11 @@ function observations.start(): {observations.Observation}, function()
   local open = sys.open
   local stat = sys.stat
   local readdir = sys.readdir
+  local getenv = sys.getenv
+  local environ = sys.environ
+  local spawn = sys.spawn
+  local mkdtemp = sys.mkdtemp
+  local mkdir = sys.mkdir
   sys.open = function(path: string, flags: integer,
                       mode?: integer): integer | nil, string, integer
     found[#found + 1] = { kind = "o", path = path, answer = "" }
@@ -128,10 +139,47 @@ function observations.start(): {observations.Observation}, function()
       answer = observations.directory_result_answer(entries, trouble, errno) }
     return entries, trouble, errno
   end
+  sys.getenv = function(name: string): string | nil
+    local value = getenv(name)
+    found[#found + 1] = { kind = "e", path = name, answer = observations.getenv_answer(value) }
+    return value
+  end
+  sys.environ = function(): {string:string}
+    local environment = environ()
+    found[#found + 1] = { kind = "e", path = "",
+      answer = observations.environ_answer(environment) }
+    return environment
+  end
+  sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                       stderr: integer | nil, process_group: boolean):
+                       integer | nil, string, integer
+    found[#found + 1] = { kind = "p", path = path, answer = "" }
+    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group)
+  end
+  sys.mkdtemp = function(template: string): string | nil, string, integer
+    local path, trouble, errno = mkdtemp(template)
+    if path ~= nil then
+      found[#found + 1] = { kind = "m", path = path, answer = "" }
+    end
+    return path, trouble, errno
+  end
+  sys.mkdir = function(path: string, mode?: integer): boolean, string, integer
+    local ok, trouble, errno = mkdir(path, mode)
+    if ok then
+      found[#found + 1] = { kind = "m", path = path, answer = "" }
+    end
+    return ok, trouble, errno
+  end
   return found, function()
     sys.open = open
     sys.stat = stat
     sys.readdir = readdir
+    sys.getenv = getenv
+    sys.environ = environ
+    sys.spawn = spawn
+    sys.mkdtemp = mkdtemp
+    sys.mkdir = mkdir
   end
 end
 
@@ -152,6 +200,37 @@ function observations.call(fn: function(any...): (any...), argument: any):
     return fn(argument)
   end)
   return ok, ok and "" or tostring(produced), found
+end
+
+--- One environment variable's value, or a marker no real value can equal.
+function observations.getenv_answer(value: string | nil): string
+  if value == nil then
+    return "absent"
+  end
+  return "ok " .. value
+end
+
+--- The whole environment, order-independent: every `NAME=VALUE` pair,
+--- sorted by name, hashed together, so a `sys.environ` read is keyed on
+--- the whole environment rather than on any one variable.
+function observations.environ_answer(environment: {string:string}): string
+  local names: {string} = {}
+  for name in pairs(environment) do names[#names + 1] = name end
+  table.sort(names)
+  local parts: {string} = {}
+  for _, name in ipairs(names) do
+    parts[#parts + 1] = name .. "=" .. environment[name]
+  end
+  return Hash.hex_sha256(table.concat(parts, "\n"))
+end
+
+--- The current answer to an "e" observation: `sys.environ`'s hash for
+--- path "", or `sys.getenv`'s answer for a named variable.
+function observations.getenv_current(path: string): string
+  if path == "" then
+    return observations.environ_answer(sys.environ())
+  end
+  return observations.getenv_answer(sys.getenv(path))
 end
 
 --- Every field exposed by `sys.stat`, including an error result.
