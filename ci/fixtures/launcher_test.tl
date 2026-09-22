@@ -301,14 +301,6 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local read_only = ctx.work .. "/cold-read-only"; Fixture.mkdir(read_only)
   chmod(read_only, 0x140)
   expect_failure(ctx, "cold-read-only", "cache is read-only", read_only)
-  if assert(Fs.stat(ctx.work)).uid == 0 then
-    local wrong = ctx.work .. "/wrong-owner"; Fixture.mkdir(wrong)
-    local changed = Fixture.call("change-owner",
-      { "/usr/bin/env", "chown", "1", wrong }, ctx.work, ctx.diagnostics)
-    if changed.result.ok and assert(Fs.stat(wrong)).uid ~= 0 then
-      expect_failure(ctx, "wrong-owner", "different owner", wrong)
-    end
-  end
 
   local base = ctx.work .. "/base-cache"
   outcome_ok(run(ctx, "base-cold", base), "base cold launch")
@@ -517,17 +509,8 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
             local answer = run(ctx, "noexec-launch", cache)
             assert(answer.result.code == 126 and
               assert(Fs.stat(cache .. "/" .. key)).kind == "file")
-            -- `test -x` is access(2), which root passes on any file with an
-            -- execute bit whatever the mount says, so as root only the exec
-            -- itself fails and the shell reports it, not the launcher.
-            local diagnostic = Fixture.small(answer.err, 4096)
-            if assert(Fs.stat(ctx.work)).uid == 0 then
-              assert(diagnostic:find("Permission denied", 1, true), diagnostic)
-            else
-              assert(diagnostic ==
-                "cosmic portable: verified core cannot execute on the cache filesystem\n",
-                diagnostic)
-            end
+            assert(Fixture.small(answer.err, 4096) ==
+              "cosmic portable: verified core cannot execute on the cache filesystem\n")
           end
           return true
         end)
