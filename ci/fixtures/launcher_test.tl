@@ -509,8 +509,14 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
             local answer = run(ctx, "noexec-launch", cache)
             assert(answer.result.code == 126 and
               assert(Fs.stat(cache .. "/" .. key)).kind == "file")
-            assert(Fixture.small(answer.err, 4096) ==
-              "cosmic portable: verified core cannot execute on the cache filesystem\n")
+            -- `[ -x ]` reflects noexec only where test(1) asks the kernel;
+            -- BusyBox answers from the mode bits, so there the exec itself
+            -- fails and the shell reports it. Either way the launcher
+            -- stops at 126 with the verified core left intact.
+            local diagnostic = Fixture.small(answer.err, 4096)
+            assert(diagnostic ==
+              "cosmic portable: verified core cannot execute on the cache filesystem\n" or
+              diagnostic:find("Permission denied", 1, true), diagnostic)
           end
           return true
         end)
