@@ -101,9 +101,13 @@ end
 -- direct children inside them have the shorter bounds defined by fixture.tl.
 local product_test_timeout_ms <const> = 60000
 local product_build_timeout_ms <const> = 120000
+local runtime_build_timeout_ms <const> = 180000
 local format_test_timeout_ms <const> = 300000
 local launcher_test_timeout_ms <const> = 180000
 local launcher_build_timeout_ms <const> = 600000
+local self_rebuild_test_timeout_ms <const> = 180000
+local runtime_test_timeout_ms <const> = 180000
+local identity_test_timeout_ms <const> = 120000
 
 local function fixture_test(c: Context, work: string, name: string,
     source: string, timeout_ms: integer, extra: {string:string}): integer
@@ -262,12 +266,6 @@ end
 local targets: {string:boolean} = {
  ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
 
-local record Fixture
-  command: {string}
-  label: string
-  env: {string:string} | nil
-end
-
 local function platform_impl(a: {string}): integer
   local phase, db, worker, run_name, attempt, root, target, work =
     a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]
@@ -339,7 +337,14 @@ local function platform_impl(a: {string}): integer
     s = checked(c, "hook-core build", { root .. "/bin/zig", "build", "portable-hook-cores", "--prefix", work .. "/prebuilt" }); if s ~= 0 then return s end
     mkdir(work .. "/prebuilt/portable-fixture/sanitized")
     write(work .. "/prebuilt/portable-fixture/sanitized/cosmic-core", read(root .. "/o/sanitized/cosmic-core"))
-    s = checked(c, "runtime fixture assembly", { root .. "/test/portable/runtime.sh", "build", runtime, work .. "/prebuilt", product .. "/cosmic", product .. "/cosmic.db" }); if s ~= 0 then return s end
+    s = fixture_test(c, work, "runtime-construction", "runtime_build",
+      runtime_build_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_PREBUILT = work .. "/prebuilt",
+      COSMIC_FIXTURE_WRITER = product .. "/cosmic",
+      COSMIC_FIXTURE_DATABASE = product .. "/cosmic.db",
+      COSMIC_FIXTURE_RUNTIME = runtime,
+    }); if s ~= 0 then return s end
     s = fixture_test(c, work, "product-verification", "product",
       product_test_timeout_ms, {
       COSMIC_FIXTURE_PRODUCT = product,
@@ -379,21 +384,28 @@ local function platform_impl(a: {string}): integer
     if a[9] == "success" then assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary") end
     return 0
   elseif phase == "fixtures" then
-    mkdir(work .. "/self-rebuild-diagnostics")
-    local list: {Fixture} = {
-      { command = { root .. "/test/portable/self_rebuild.sh", runtime }, label = "self-rebuild regression", env = { TMPDIR = work .. "/self-rebuild-diagnostics" } },
-      { command = { root .. "/test/portable/runtime.sh", "test", runtime }, label = "runtime regression", env = { COSMIC_PORTABLE_DIAGNOSTICS = work .. "/runtime-diagnostics" } } }
-    for _, one in ipairs(list) do local s = checked(c, one.label, one.command, 0, root, one.env and environment(one.env) or environment()); if s ~= 0 then return s end end
-    local s = fixture_test(c, work, "launcher-regression", "launcher",
+    local s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
+      self_rebuild_test_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_RUNTIME = runtime,
+    }); if s ~= 0 then return s end
+    s = fixture_test(c, work, "runtime-regression", "runtime",
+      runtime_test_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_RUNTIME = runtime,
+    }); if s ~= 0 then return s end
+    s = fixture_test(c, work, "launcher-regression", "launcher",
       launcher_test_timeout_ms, {
       COSMIC_FIXTURE_LAUNCHER = contract .. "/launcher/launcher.test",
       COSMIC_FIXTURE_LAUNCHER_SOCKET = contract ..
         "/launcher/payloads/socket-" .. target,
       COSMIC_FIXTURE_TARGET = target,
     }); if s ~= 0 then return s end
-    s = checked(c, "identity regression",
-      { root .. "/test/portable/identity_test.sh", runtime }, 0, root,
-      environment()); if s ~= 0 then return s end
+    s = fixture_test(c, work, "identity-regression", "identity",
+      identity_test_timeout_ms, {
+      COSMIC_FIXTURE_ROOT = root,
+      COSMIC_FIXTURE_RUNTIME = runtime,
+    }); if s ~= 0 then return s end
     s = fixture_test(c, work, "product-regression", "product",
       product_test_timeout_ms, {
       COSMIC_FIXTURE_PRODUCT = product,

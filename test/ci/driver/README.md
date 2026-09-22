@@ -9,8 +9,9 @@ keeps the pinned Cosmic process responsible for CI control while candidate
 Cosmic, applications, native decoders, and cores remain the explicit subjects
 executed by each fixture case.
 
-Product construction, transport validation, format validation, and launcher
-construction and regression coverage each run in a fresh external Cosmic
+Product construction, transport validation, format validation, launcher
+construction and regression, runtime construction and regression,
+self-rebuild, and identity coverage each run in a fresh external Cosmic
 project containing only `fixture.tl` and the intended `*_test.tl`. Candidate
 and fixture paths enter through named environment values. The pinned runner
 executes `cosmic test`; the driver requires at least one test to run and zero

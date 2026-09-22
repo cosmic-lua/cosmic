@@ -123,9 +123,9 @@ retained portable prefix: valid
 
 The stronger retention guarantee comes from
 [`core/store.c`](../../core/store.c), which rehashes every manifest core range
-before returning retained prefix bytes. `runtime.sh test` and
-`self_rebuild.sh` exercise that guarantee across rename, unlink, replacement,
-and database-only rebuilds.
+before returning retained prefix bytes. `runtime_test.tl.in` and
+`self_rebuild_test.tl.in` exercise that guarantee across rename, unlink,
+replacement, and database-only rebuilds.
 
 ## select and cache one core
 
@@ -228,22 +228,24 @@ observed file and directory answer, and runtime identity. An unchanged
 application database cannot hide a changed core or runtime basis. Verdict and
 coverage history live only in `o/build.db` and are bounded.
 
-The fixtures under [`test/portable`](../../test/portable/) divide the runtime
-contract into observable boundaries:
+The fixtures under [`test/portable`](../../test/portable/) and the pinned CI
+driver's isolated fixture projects (`test/ci/driver`, see its own README)
+divide the runtime contract into observable boundaries:
 
-- `format.sh` and `format_test.c` reject malformed lengths, offsets,
+- `format_test.tl.in` and `format_test.c` reject malformed lengths, offsets,
   identities, overlap, padding, and database headers.
-- `launcher.sh test` covers cache policy, digest failures, descriptor pressure,
-  signals, and publication races.
-- `runtime.sh test` covers retained descriptors, replacement and unlink,
+- `launcher_test.tl.in` covers cache policy, digest failures, descriptor
+  pressure, signals, and publication races.
+- `runtime_test.tl.in` covers retained descriptors, replacement and unlink,
   immutable database reads, and mismatch rejection.
-- `self_rebuild.sh` proves one re-entry, exact prefix reuse, and core-change
-  refusal.
-- `identity_test.sh` moves one working database through release and checked
-  contexts and proves which verdicts run or stand.
-- `full_suite.sh` snapshots the raw working database immediately and across a
-  workflow boundary. Integrity checks use disposable copies, so inspection
-  cannot recover or alter captured bytes.
+- `self_rebuild_test.tl.in` proves one re-entry, exact prefix reuse, and
+  core-change refusal.
+- `identity_test.tl.in` moves one working database through release and
+  checked contexts and proves which verdicts run or stand.
+- the pinned CI driver's own snapshot and boundary checks
+  (`test/ci/driver/orchestration.tl.in`) snapshot the raw working database
+  immediately and across a workflow boundary. Integrity checks use
+  disposable copies, so inspection cannot recover or alter captured bytes.
 
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
 the release product independently on Linux x86-64, Linux ARM64, and macOS

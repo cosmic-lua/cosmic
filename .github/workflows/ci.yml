@@ -239,8 +239,6 @@ jobs:
             ${{ runner.temp }}/platform/portable-diagnostics
             ${{ runner.temp }}/platform/alpine-diagnostics
             ${{ runner.temp }}/platform/fixture-test-diagnostics
-            ${{ runner.temp }}/platform/self-rebuild-diagnostics
-            ${{ runner.temp }}/platform/runtime-diagnostics
           if-no-files-found: ignore
 
   # Every successful platform/environment execution must attest and upload
