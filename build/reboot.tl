@@ -130,11 +130,26 @@ end
 --- until `bin/zig build boot`, the way `AGENTS.md`'s claim that "an
 --- edit to Teal needs no boot" promises it should not be.
 ---
+--- The fresh case -- overwhelmingly the common one for a read-only
+--- verb run again and again while nothing changed -- never walks the
+--- tree: `work.tool_moved` stats only the paths the last stage
+--- already recorded under `tool`, and a file new to the tree does not
+--- register there until something already known requires it, which
+--- edits that known file and so moves its own stat; a row whose file
+--- is gone fails its stat, counted as moved rather than told apart
+--- from an edit. When nothing moved, the `boot_hash` that same last
+--- stage recorded into `meta` (`work.recorded_boot_hash`) still
+--- describes `tool` exactly, so it is read back rather than
+--- recomputed. Only when something did move, or the database has no
+--- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
+--- for), does this fall back to `work.stage`'s directory walk and
+--- `reboot.state`'s full check -- the same path `cosmic test` always
+--- takes.
+---
 --- Returns an exit code the caller should return immediately, with
 --- `trouble` to report first when it is not empty. Returns `nil` to
 --- say the caller may proceed as normal: either the tree is not
---- cosmic's own, or the fingerprint check already found the tool
---- fresh, so no rebuild happened.
+--- cosmic's own, or the tool was found fresh, so no rebuild happened.
 --- @param argv the command line, re-entered after a rebuild
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
@@ -148,6 +163,24 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
   if handle == nil then
     return 1, open_trouble
   end
+
+  local moved, moved_trouble = work.tool_moved(handle)
+  if moved == nil then
+    work.close(handle)
+    return 1, moved_trouble
+  end
+  if not moved then
+    local recorded, recorded_trouble = work.recorded_boot_hash(handle)
+    if recorded == nil and recorded_trouble ~= "" then
+      work.close(handle)
+      return 1, recorded_trouble
+    end
+    if recorded ~= nil and recorded == (Store.meta("boot_hash") or "") then
+      work.close(handle)
+      return nil, ""
+    end
+  end
+
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     work.close(handle)
