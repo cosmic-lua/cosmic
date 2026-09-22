@@ -552,8 +552,6 @@ local function test_runtime_replace_while_paused(tmp: string)
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
-  Fixture.mkdir(work .. "/run space")
-  Fixture.copy(fixture_dir .. "/probe.tl", work .. "/run space/probe.tl")
 
   local old_hash = small_line(fixture_dir .. "/runtime.old.prefix-sha256")
   local new_hash = small_line(fixture_dir .. "/runtime.new.prefix-sha256")
