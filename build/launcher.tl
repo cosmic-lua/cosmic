@@ -346,12 +346,12 @@ umask "$cosmic_original_umask" || portable_die 'cannot restore caller umask'
 # passes the check above and the exec itself fails. ash, dash and mksh still
 # run the EXIT trap as they exit on that failure, and a successful exec
 # replaces the shell before any trap can run. The shell has already printed
-# the errno; 126 is a core that was found but refused, which on a verified
-# 0500 entry most likely means the mount forbids execution.
+# the errno. 126 is any core found but refused (E2BIG and an LSM denial too),
+# so the hint names noexec only as the reading of a Permission denied there.
 portable_exec_failed() {
   trap - EXIT
   case $1 in
-    126) portable_die 'verified core was refused execution; is the cache filesystem mounted noexec?' ;;
+    126) portable_die 'verified core was refused execution; Permission denied here usually means a noexec cache filesystem' ;;
     *) portable_die 'cannot execute verified core' ;;
   esac
 }

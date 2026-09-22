@@ -517,7 +517,7 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
             local diagnostic = Fixture.small(answer.err, 4096)
             local refused =
               "\ncosmic portable: verified core was refused execution; " ..
-              "is the cache filesystem mounted noexec?\n"
+              "Permission denied here usually means a noexec cache filesystem\n"
             assert(diagnostic ==
               "cosmic portable: verified core cannot execute on the cache filesystem\n" or
               diagnostic:sub(-#refused) == refused, diagnostic)
