@@ -1,0 +1,55 @@
+local Fs = require("cosmic.fs")
+local Fixture = require("fixture")
+
+local native_build_timeout_ms <const> = 120000
+
+local function test_launcher_construction(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local output = Fixture.required("COSMIC_FIXTURE_LAUNCHER")
+  local worker_target = Fixture.required("COSMIC_FIXTURE_TARGET")
+  assert(not Fs.exists(output), "launcher output already exists: " .. output)
+  local targets = Fixture.targets(root .. "/o/targets.tsv")
+  local supported = false
+  for _, target in ipairs(targets) do
+    if target.name == worker_target then supported = true end
+  end
+  assert(supported, "unsupported launcher target: " .. worker_target)
+
+  local diagnostics = tmp .. "/logs"
+  Fixture.mkdir(output .. "/payloads")
+  for _, target in ipairs(targets) do
+    assert(target.kind == "release", "launcher target is not release")
+    Fixture.run("payload-" .. target.name,
+      { root .. "/bin/zig", "build",
+        "portable-launcher-payload-" .. target.name },
+      root, diagnostics, nil, native_build_timeout_ms)
+    Fixture.copy(root .. "/o/portable-fixture/launcher/payload-" ..
+      target.name, output .. "/payloads/payload-" .. target.name)
+  end
+  Fixture.run("socket-" .. worker_target,
+    { root .. "/bin/zig", "build",
+      "portable-launcher-socket-" .. worker_target },
+    root, diagnostics, nil, native_build_timeout_ms)
+  Fixture.copy(root .. "/o/portable-fixture/launcher/socket-" .. worker_target,
+    output .. "/payloads/socket-" .. worker_target, 0x1ed)
+  Fixture.run("fixture-write", { root .. "/o/bin/cosmic",
+    root .. "/test/portable/tool.tl", "write-launcher-fixture",
+    root .. "/o/targets.tsv", output .. "/payloads",
+    output .. "/launcher" }, root, diagnostics)
+
+  for _, kind in ipairs({ "release", "test" }) do
+    local path = output .. "/launcher." .. kind
+    local bytes = Fixture.read(path)
+    Fixture.write(path, bytes, 0x1ed)
+    local header = output .. "/launcher." .. kind .. ".header"
+    Fixture.write(header, bytes:sub(1, 16384))
+    Fixture.run("syntax-" .. kind, { "/bin/sh", "-n", header }, root,
+      diagnostics)
+  end
+  assert(not Fixture.read(output .. "/launcher.release"):find(
+    "COSMIC_PORTABLE_TEST_", 1, true),
+    "release launcher contains fixture hook names")
+  assert(Fixture.read(output .. "/launcher.test"):find(
+    "COSMIC_PORTABLE_TEST_", 1, true),
+    "test launcher omits fixture hook names")
+end

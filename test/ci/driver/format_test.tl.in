@@ -1,0 +1,85 @@
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Fixture = require("fixture")
+
+local native_build_timeout_ms <const> = 120000
+
+local function test_decoder_inspection_records_are_exact(tmp: string)
+  local digest = string.rep("a", 64)
+  local prefix = "prefix 100 manifest 20 4096 database 100 10 entries 1\n"
+  local entry = "entry 1 1 10 10 " .. digest .. "\n"
+  local valid = tmp .. "/valid"
+  Fixture.write(valid, prefix .. entry)
+  local parsed = Fixture.inspection(valid)
+  assert(parsed.entry_count == 1 and Fixture.entry(parsed, 1, 1))
+  for name, contents in pairs({
+      suffix = prefix .. entry:sub(1, -2) .. " trailing\n",
+      duplicate = prefix .. entry .. entry,
+      blank = prefix .. "\n" .. entry,
+    }) do
+    local path = tmp .. "/" .. name
+    Fixture.write(path, contents)
+    assert(not pcall(Fixture.inspection, path),
+      "malformed decoder inspection was accepted: " .. name)
+  end
+end
+
+local function test_portable_format_contract(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local publish = Fixture.required("COSMIC_FIXTURE_FORMAT")
+  local publish_target = Fixture.required("COSMIC_FIXTURE_TARGET")
+  local cosmic = root .. "/o/bin/cosmic"
+  local program = tmp .. "/program"
+  local diagnostics = tmp .. "/logs"
+  Fixture.run("fixture-write", { cosmic, root .. "/test/portable/tool.tl",
+    "write-format-fixture", root .. "/o/targets.tsv", root .. "/o/core",
+    program }, root, diagnostics)
+  Fixture.run("native-decoder-build", { root .. "/bin/zig", "build",
+    "portable-format-native" }, root, diagnostics, nil,
+    native_build_timeout_ms)
+  local decoder = tmp .. "/format-test"
+  Fixture.copy(root .. "/o/portable-fixture/format/format-test-native",
+    decoder, 0x1ed)
+  Fixture.run("malformed-mutations", { decoder, program .. ".a" }, root,
+    diagnostics)
+  local inspection = Fixture.run("inspection", { decoder, "--inspect",
+    program .. ".a" }, root, diagnostics)
+  local decoded = Fixture.inspection(inspection.out)
+  local artifact = Fixture.read(program .. ".a")
+  local targets = Fixture.targets(root .. "/o/targets.tsv")
+  assert(decoded.entry_count == #targets, "format entry count differs")
+  for _, target in ipairs(targets) do
+    assert(target.kind == "release", "format target is not release")
+    local entry = assert(Fixture.entry(decoded, target.id, target.configuration),
+      "missing format entry for " .. target.name)
+    local core = Fixture.read(root .. "/o/core/" .. target.name .. "/cosmic-core")
+    assert(#core == entry.length, "format core length differs: " .. target.name)
+    local extracted = artifact:sub(entry.offset + 1,
+      entry.offset + entry.length)
+    assert(extracted == core and Hash.hex_sha256(extracted) == entry.digest,
+      "format core range differs: " .. target.name)
+  end
+  local prefix = Fixture.read(program .. ".prefix")
+  assert(#prefix == decoded.prefix_length, "format prefix length differs")
+  assert(artifact:sub(1, decoded.prefix_length) == prefix,
+    "written program prefix differs")
+  local other = Fixture.read(program .. ".b")
+  assert(other:sub(1, decoded.prefix_length) == prefix,
+    "fixture program prefixes differ")
+  assert(artifact ~= other, "fixture programs unexpectedly match")
+
+  local supported = false
+  for _, target in ipairs(Fixture.targets(root .. "/o/targets.tsv")) do
+    if target.name == publish_target then supported = true end
+  end
+  assert(supported, "unsupported target: " .. publish_target)
+  assert(not Fs.exists(publish), "format output already exists: " .. publish)
+  Fixture.mkdir(publish)
+  Fixture.copy(program .. ".a", publish .. "/program")
+  Fixture.copy(root .. "/o/targets.tsv", publish .. "/targets.tsv")
+  Fixture.run("target-decoder-build", { root .. "/bin/zig", "build",
+    "portable-format-" .. publish_target }, root, diagnostics, nil,
+    native_build_timeout_ms)
+  Fixture.copy(root .. "/o/portable-fixture/format/format-test-" ..
+    publish_target, publish .. "/format-test-" .. publish_target, 0x1ed)
+end

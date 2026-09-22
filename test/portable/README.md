@@ -2,43 +2,29 @@
 
 ## Layout
 
-`lib.sh` is the shared shell library every script here sources: the
-sha256sum/shasum fallback (`sha256_of`), the diagnostics-directory
-validation (`require_diagnostics_dir`), a working-database snapshot and
-integrity check (`snapshot_work_db`), the host-target lookup in
-`targets.tsv` (`host_target_field`), the block-aligned manifest core-range
-extraction recipe (`extract_core_range`), and the `timeout`/`gtimeout`
-bound with its GitHub Actions fallback (`run_bounded`). `tool.tl` is the
-matching Teal counterpart: one module, run as
-`cosmic test/portable/tool.tl SUBCOMMAND ARGS...`, whose subcommands replace
-what used to be over a dozen single-purpose scripts (writing a fixture
-artifact, extracting a manifest entry, corrupting a core range, and so on).
-`artifact_fixture.tl` is the small v1 artifact reader/writer-input library
-both `tool.tl` and `build/artifact.tl` fixtures build on.
+`tool.tl` is one module, run as `cosmic test/portable/tool.tl SUBCOMMAND
+ARGS...`, whose subcommands replace what used to be over a dozen
+single-purpose scripts (writing a fixture artifact, extracting a manifest
+entry, corrupting a core range, and so on). `artifact_fixture.tl` is the
+small v1 artifact reader/writer-input library both `tool.tl` and
+`build/artifact.tl` fixtures build on.
 
-Three pairs of scripts each build one kind of fixture and then exercise it;
-since they always work on the same fixture, each pair is one entry point
-with `build`/`test` verbs:
-
-- `launcher.sh build OUTPUT TARGET` / `launcher.sh test TEST_ARTIFACT [SOCKET_HELPER]`
-- `product.sh build OUTPUT` / `product.sh test PRODUCT TARGET FORMAT_DECODER [--codesign]`
-- `runtime.sh build OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]` / `runtime.sh test RUNTIME_FIXTURE_DIRECTORY`
-
-`format.sh`, `identity_test.sh`, `self_rebuild.sh`, and `full_suite.sh`
-stay as their own entry points: each is called on its own, independent of
-any sibling build step.
+Product assembly, transport validation, the cross-language format contract,
+launcher construction and regression, runtime construction and regression,
+self-rebuild, and identity are all actual Cosmic tests generated in the
+pinned CI driver's isolated fixture projects; see `test/ci/driver`.
 
 ## What each one covers
 
-`format.sh` is the cross-language format check: the production Teal writer
-makes a prefix from `build.zig`'s generated records and real cores, and the
-production C decoder (`format_test.c`, linked against `core/portable.c`)
-validates it before a battery of focused malformed-field mutations is
-tried against it.
+The driver's `format_test.tl.in` is the cross-language format check: the
+production Teal writer makes a prefix from `build.zig`'s generated records and
+real cores, and the production C decoder (`format_test.c`, linked against
+`core/portable.c`) validates it before a battery of focused malformed-field
+mutations is tried against it.
 
-`launcher.sh build` compiles one native contract payload per generated
+The driver's `launcher_build_test.tl.in` compiles one native contract payload per generated
 target and writes one launcher fixture containing both a release prefix and
-a test prefix with synchronization hooks compiled in. `launcher.sh test`
+a test prefix with synchronization hooks compiled in. `launcher_test.tl.in`
 is the focused integration coverage for the production portable shell
 launcher: cache leaf policy (mode, ownership, symlinks), repair of a
 corrupted or malformed cached core, concurrent-publisher and
@@ -54,94 +40,92 @@ remaining `COSMIC_PORTABLE_*` fields are a reserved launcher-to-core
 contract that startup requires complete, adopts, and clears before Lua
 runs.
 
-`product.sh build` makes the per-host provenance bundle from a booted
-tree: it copies portable Cosmic, extracts its exact prefix and manifest
-(`tool.tl product-extract`), and uses those same local portable bytes to
-build the `hello` and `second` standalone fixtures. The bundle also
-carries every generated release target's raw core; extraction checks that
-each core occurs exactly once, at its manifest range, in Cosmic and both
-applications. `product.sh test` verifies every recorded transported hash,
-exact prefix reuse, the selected manifest range's length, digest, and raw
-core bytes, and both applications; on the macOS host it also sends that
-extracted range to strict `codesign` verification. Normal CI runs these checks
-in independent x86 Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux
-producer whose product also runs under Alpine. The `provenance` job compares
-the exact `cosmic` bytes all four attest they ran.
+The driver's `product_build_test.tl.in` makes the per-host provenance bundle
+from a booted tree: it copies portable Cosmic, extracts its exact prefix and
+manifest (`tool.tl product-extract`), and uses those same local portable bytes
+to build the `hello` and `second` standalone fixtures. The bundle also carries
+every generated release target's raw core; extraction checks that each core
+occurs exactly once, at its manifest range, in Cosmic and both applications.
+`product_test.tl.in` verifies every recorded transported hash, exact prefix
+reuse, the selected manifest range's length, digest, and raw core bytes, and
+both applications; on the macOS host it also sends that extracted range to
+strict `codesign` verification. Normal CI runs these checks in independent x86
+Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux producer whose
+product also runs under Alpine. The `provenance` job compares the exact
+`cosmic` bytes all four attest they ran.
 
-`runtime.sh build` and `runtime.sh test` cover real Cosmic cores end to end
-against the runtime's host-independent projection. A fixture-only core
-build contains a deterministic FIFO pause after descriptor validation and
-before SQLite opens the main database; ordinary cores contain neither the
-hook code nor its environment names. Atomic replacement and unlink at that
-pause prove both VFS and the trusted `build.artifact` prefix capability
-keep reading the retained artifact descriptor. `runtime.sh build` selects
-one complete immutable file per fixture; writing that same inode in place
-remains unsupported and is deliberately not presented as safe.
+The driver's `runtime_build_test.tl.in` assembles the runtime fixture
+directory (`COSMIC_FIXTURE_RUNTIME`) from a booted checkout's prebuilt cores
+(`COSMIC_FIXTURE_PREBUILT`), portable writer (`COSMIC_FIXTURE_WRITER`), and
+portable database (`COSMIC_FIXTURE_DATABASE`): it writes the
+`runtime.release`/`.old`/`.new`/`.basis`/`.missing`/`.sanitized`/
+`.incompatible` complete artifacts and one `runtime.corrupt-<target>` file
+per generated target, each with its retained-prefix hash and length
+derived alongside it. The fixture-hook cores it copies in
+(`portable-fixture/core/<target>/cosmic-core`) contain a deterministic FIFO
+pause after descriptor validation and before SQLite opens the main
+database; ordinary release cores contain neither the hook code nor its
+environment names. It also derives a fourth, launcher-unreachable sanitized
+manifest entry that binds the real host sanitized core, and copies
+`probe.tl`, `runtime_test.tl.in`, and `hello_main.tl.in` alongside the
+generated `targets.tsv` for the fixtures that follow it.
 
-`runtime.sh build OUTPUT [PREBUILT_PREFIX [WRITER PORTABLE_DATABASE]]`
-normally uses a booted checkout's `o/bin/cosmic` and `o/cosmic.db`. With no
-prebuilt prefix it invokes `bin/zig build portable-fixture-cores` once in a
-temporary directory, sharing one patched-vendor graph across the three
-release cores, three fixture-hook cores, and the distinct sanitized core.
-A supplied prefix must contain `targets.tsv`, release cores under
-`core/<target>/cosmic-core`, hook cores under
-`portable-fixture/core/<target>/cosmic-core`, and the checked core at
-`portable-fixture/sanitized/cosmic-core`; every input is checked before
-output is generated. The explicit four-argument form lets CI combine the
-x86 producer's release/hooked cores and Cosmic/database with the checked
-core the `sanitized` job already tested, without compiling that core a
-second time.
+`runtime_test.tl.in` covers real Cosmic cores end to end against the
+runtime's host-independent projection: the nine-phase startup-diagnostic
+sequence; logical-path and occupied-descriptor reuse across absolute,
+`cwd`-relative, `PATH`, and symlink launches; full `COSMIC_PORTABLE_*`
+environment scrubbing; rejection of standard, equal, and unrepresentable
+private descriptor fields and of a differing executing core; a warm cache
+staying usable when a nonselected core range is corrupt while a cold launch
+still rejects a corrupt selected range while extracting it; and three
+atomic races at the FIFO pause -- replace, unlink, and a pre-open mismatched
+replacement that must be rejected rather than falling back to "no tree to
+boot". Atomic replacement and unlink at that pause prove both VFS and the
+trusted `build.artifact` prefix capability keep reading the retained
+artifact descriptor; writing that same inode in place remains unsupported
+and is deliberately not presented as safe. It finishes with informational
+cold/warm entry-timing observations that set no threshold.
 
-`identity_test.sh` exercises the production retained-artifact route. It
-builds two portable applications from the retained prefix, executes
-canonical Linux application bytes unchanged on all three hosts, checks
-logical executable paths, prefix reuse, suffix-only application edits, one
-shared cache entry, unlink-after-startup builds, and rejection of a corrupt
+`identity_test.tl.in` exercises the production retained-artifact route.
+`test_identity_primary` builds two portable applications from the retained
+prefix (`COSMIC_FIXTURE_RUNTIME`), checks logical executable paths, prefix
+reuse, suffix-only application edits, one shared cache entry,
+unlink-and-rename-while-building races, and rejection of a corrupt
 nonselected core before an application is published. It also uses one work
 database successively with real release and sanitized cores, a changed
-runtime basis, an unchanged repeat, and an application-database-only
-change: changed runtime contexts run, while unchanged and
-application-only contexts stand. Normal CI runs that complete identity proof
-independently on every native host. Mutable developer state remains local to
-one runner; cross-platform support is established by executing and attesting
-the same immutable product bytes in all supported platform environments.
+runtime basis, an unchanged repeat, a spoofed project database, and a
+missing-runtime-identity refusal: changed runtime contexts run, while
+unchanged and application-only contexts stand. It finishes by snapshotting
+the finished project under the shared process `TMPDIR` for
+`test_identity_transported`, which restores that snapshot fresh -- mirroring
+a cross-host CI artifact hand-off, transported here by copy rather than
+upload -- and proves the transported project keeps its application database
+content and produces byte-identical, executable application output. Normal
+CI runs this complete identity proof independently on every native host.
+Mutable developer state remains local to one runner; cross-platform support
+is established by executing and attesting the same immutable product bytes
+in all supported platform environments.
 
-`self_rebuild.sh` uses the same fixture-only startup pause to rename and
-unlink the artifact after descriptor adoption. In each case a deterministic
-Teal edit causes exactly one database-only rebuild and re-entry at the same
-logical portable path. The rebuilt file keeps the retained prefix and cache
-entry, and an ordinary environment value reaches the re-entered tests. A
-subsequent core input edit is refused with the named `bin/zig build boot`
-remedy and does not change the artifact.
+`self_rebuild_test.tl.in` archives a fresh `git archive HEAD` tree per case
+(`COSMIC_FIXTURE_ROOT`) and places the fixture-only runtime
+(`COSMIC_FIXTURE_RUNTIME`) at its `o/bin/cosmic`, pruning the archived
+tree's own test suite down to `embed_test.tl` so the rebuilt runtime's
+`test` verb stays cheap. It uses the same fixture-only startup pause to
+rename and unlink the artifact after descriptor adoption. In each case a
+deterministic Teal edit causes exactly one database-only rebuild and
+re-entry at the same logical portable path, with the exact re-entered argv
+and an ordinary environment value checked on arrival. The rebuilt file
+keeps the retained prefix and cache entry count, and its bytes change. A
+subsequent core input edit (`core/startup.h`) is refused with the named
+`bin/zig build boot` remedy and touches neither the artifact nor the cache.
+Three further cases -- a pinned `vendor/tl` version, an unapplied
+`patch/tl` entry, and an edited `build/launcher.tl` -- are refused
+outright, before `test.run` or the artifact is ever reached. A last,
+dependency-free case exercises the prefix comparison itself: an exact
+match, a too-short program, and a single mutated byte.
 
-`full_suite.sh` runs the CI full-suite diagnostics locally as five
-explicit phases: `prepare`, `local`, `local-boundary`, `portable`, and
-`portable-boundary`. Give every phase the same absolute diagnostics
-directory outside the checkout. For example, after `bin/zig build cores
-boot`:
-
-```sh
-diagnostics=/tmp/cosmic-work-db-diagnostics
-test/portable/full_suite.sh local "$diagnostics"
-test/portable/full_suite.sh local-boundary "$diagnostics"
-test/portable/full_suite.sh prepare "$diagnostics/transported" o/bin/cosmic
-test/portable/full_suite.sh portable "$diagnostics/transported"
-PORTABLE_OUTCOME=success \
-  test/portable/full_suite.sh portable-boundary "$diagnostics/transported"
-```
-
-Both test phases retain the 30-second suite limit when `timeout` or
-`gtimeout` is available (`lib.sh`'s `run_bounded`). On macOS without
-either command, the workflow reports that it is relying on the existing
-job bound. A local run without either timeout command refuses to start the
-suite rather than running without a bound. `prepare` accepts an optional
-portable artifact; `lib.sh`'s `snapshot_work_db` (used by every phase here,
-not run standalone since no CI job calls it on its own) copies and hashes
-the raw working database and any journal, then opens a second, disposable
-copy outside the checkout with `work_db_integrity.tl.in` -- compiled
-outside the checkout, so diagnostics cannot stage a fixture source in the
-product's working database. Normal CI uses both the local and prepare/portable
-forms in every native leg. The portable form runs the locally produced
-artifact from a fresh tracked source export with no booted executable, copied
-working database, verdicts, or cache. Every driver here is POSIX shell, so a
-fourth x86 Linux producer also runs the same product under stock Alpine BusyBox.
+The pinned CI driver owns full-suite execution, retained output, working
+database snapshots, delayed boundaries, and artifact immutability checks.
+It runs portable suites from a fresh tracked-source export and runs the same
+product in an offline, unprivileged Alpine container. Its isolated project
+and command contracts are documented in `test/ci/driver`.

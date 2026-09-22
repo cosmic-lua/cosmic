@@ -1,0 +1,11 @@
+local Fs = require("cosmic.fs")
+local State = require("state")
+
+local function test_external_path_with_top_level_parent(tmp: string)
+  local candidate = tmp .. "/candidate"
+  local project = tmp .. "/driver"
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(project))
+  assert(State.external_path("/tmp", candidate, project .. "/driver.tl") ==
+    assert(Fs.absolute("/tmp")))
+end

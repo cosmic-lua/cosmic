@@ -1,0 +1,123 @@
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
+local Orchestration = require("orchestration")
+local State = require("state")
+
+local function open_database(path: string): Sqlite.Handle
+  return State.open(path)
+end
+
+local function limited(value: string): string
+  if #value > 1000 then return value:sub(1, 1000) end
+  return value
+end
+
+local function database_path(path: string, candidate: string,
+    driver_path: string): string
+  return State.external_path(path, candidate, driver_path)
+end
+
+local function run(argv: {string}): integer
+  local database, worker, run_name, attempt, phase =
+    argv[1], argv[2], argv[3], argv[4], argv[5]
+  local candidate, timeout_text, executable = argv[6], argv[7], argv[8]
+  assert(database and worker and run_name and attempt and phase and candidate and
+    timeout_text and executable,
+    "usage: driver.tl run DB WORKER RUN ATTEMPT PHASE CANDIDATE TIMEOUT_MS EXECUTABLE [ARG...]")
+  local timeout = math.tointeger(tonumber(timeout_text))
+  assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
+  database = database_path(database, candidate, assert(argv[0]))
+  local started = assert(Time.monotonic_ns())
+  local start_id = State.start(database, worker, run_name, attempt, phase, started)
+
+  local command: {string} = { executable }
+  for i = 9, #argv do command[#command + 1] = argv[i] end
+  local called, result, trouble = pcall(Child.run, command,
+    { cwd = candidate, timeout_ms = timeout, process_group = true })
+  local elapsed = assert(Time.monotonic_ns()) - started
+  local status: string
+  local exit_code: integer
+  local signal: integer
+  local timed_out = 0
+  local detail: string
+  local return_code = 1
+  if not called then
+    status, detail = "error", limited(tostring(result))
+  elseif result == nil then
+    status, detail = "start-error", limited(trouble or "child operation failed")
+  else
+    local finished = result as Child.Result
+    exit_code, signal = finished.code, finished.signal
+    timed_out = finished.timed_out and 1 or 0
+    if finished.timed_out then
+      status, return_code = "timeout", 124
+    elseif finished.ok then
+      status, return_code = "success", 0
+    elseif finished.signal ~= nil then
+      status, return_code = "signal", 128 + finished.signal
+    else
+      status, return_code = "exit", finished.code or 1
+    end
+  end
+  State.complete(database, start_id, worker, run_name, attempt, phase,
+    started + elapsed, elapsed, status, exit_code, signal, timed_out, detail)
+  return return_code
+end
+
+local function clean(value: string): string
+  local without_pipes = value:gsub("|", "\\|")
+  local one_line = without_pipes:gsub("[\r\n]", " ")
+  return one_line
+end
+
+local function report(argv: {string}): integer
+  local database, output = argv[1], argv[2]
+  assert(database and output, "usage: driver.tl report DB OUTPUT")
+  assert(Fs.exists(database), "operation database does not exist: " .. database)
+  local db = open_database(database)
+  local rows = assert(Sqlite.text_rows(db, [[
+    SELECT s.worker, s.run, s.attempt, s.phase,
+           COALESCE(c.status, 'incomplete'),
+           COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),
+           COALESCE(CAST(c.exit_code AS TEXT), ''),
+           COALESCE(CAST(c.signal AS TEXT), ''),
+           COALESCE(c.detail, '')
+      FROM operation_events s
+      LEFT JOIN operation_events c ON c.start_id = s.id AND c.event = 'complete'
+     WHERE s.event = 'start'
+     ORDER BY s.id
+  ]]))
+  assert(db:close())
+  local lines = {
+    "## Cosmic CI operations\n\n",
+    "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n",
+    "|---|---|---|---|---:|---:|---:|---:|---|\n",
+  }
+  for _, row in ipairs(rows) do
+    local cells: {string} = {}
+    for i = 1, 9 do cells[i] = clean(row[i]) end
+    lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
+  end
+  assert(Fs.write(output, table.concat(lines)))
+  return 0
+end
+
+local commands: {string:function({string}):integer} = {
+  run = run,
+  report = report,
+  platform = Orchestration.platform,
+  provenance = Orchestration.provenance,
+}
+
+return function(argv: {string}): integer
+  local handler = argv[1] and commands[argv[1]] or nil
+  if not handler then
+    Fs.put(Fs.stderr, "usage: driver.tl run|report|platform|provenance ...\n")
+    return 2
+  end
+  local rest: {string} = { [0] = argv[0] }
+  for i = 2, #argv do rest[#rest + 1] = argv[i] end
+  return handler(rest)
+end
