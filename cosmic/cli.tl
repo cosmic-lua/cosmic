@@ -1,11 +1,15 @@
---- cosmic's own command-line verbs, one field per verb, in the order
---- `cosmic help` prints them. `cosmic help` itself is generated from
---- these fields (`cmd/cosmic/main.tl`'s `verb_help`) rather than
---- keeping a second, hand-written copy of the same wording -- each
---- verb is dispatched by name in `cmd/cosmic/main.tl` rather than
---- being a symbol of its own, so nothing else would otherwise answer
---- for the word either, and `cosmic docs build` (or fix, db, docs,
---- uses, help, run, test) finds it here directly.
+--- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
+--- and the rest -- one field per verb, so `cosmic docs test` (or
+--- build, fix, db, docs, uses, help, run) answers with what that verb
+--- does. This is not an argument parser for a project's own command
+--- line: a project's cmd/<name>/main.tl gets its arguments as a plain
+--- array and dispatches on them itself -- see argv.
+---
+--- `cosmic help` is generated from these fields (`cmd/cosmic/main.tl`'s
+--- `verb_help`), in the order `order` gives, rather than keeping a
+--- second, hand-written copy of the same wording.
+
+--- One field per verb, each the verb's own line of `cosmic help`.
 local record Cli
   --- `cosmic <file.tl>`: builds the tree the file sits in -- the
   --- working directory when the file is under it, so a file of a
@@ -20,9 +24,9 @@ local record Cli
   test: string
   --- `cosmic fix`: rewrites every Teal source in the working
   --- directory structurally, then writes it back out as canonical
-  --- text, in place. `cosmic fix --check` does the same, writing
-  --- nothing: names the files a fix would change, and fails if there
-  --- are any
+  --- text, in place: run it after editing rather than formatting by
+  --- hand. `cosmic fix --check` is for CI: it writes nothing, only
+  --- names the files a fix would change, and fails if there are any
   fix: string
   --- `cosmic build`: builds the tree in the working directory, then
   --- writes one executable under o/bin/ for each cmd/<name>/main.tl

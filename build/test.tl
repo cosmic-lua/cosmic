@@ -1151,7 +1151,7 @@ function test.run(argv: {integer:string}): integer
   end
 
   local cov_pct = cov_total > 0 and (cov_hit * 100.0 / cov_total) or 0.0
-  local cov_line = string.format("test: coverage %.1f%% (%d/%d lines)",
+  local cov_line = string.format("test: coverage %.1f%% (%d/%d lines; informational, never a failure)",
     cov_pct, cov_hit, cov_total)
 
   if #failures == 0 and #errors == 0 then

@@ -5,6 +5,19 @@
 --- keeps that property and adds the shapes a caller wants: a query that
 --- yields rows, a statement run once, and a transaction that rolls back
 --- when the work inside it fails.
+---
+--- A parameter is a one-field table naming its type, one per `?N`, in
+--- order; a result cell carries its `kind` and the matching field:
+---
+---     local db = assert(Sqlite.open("notes.db", true))
+---     assert(Sqlite.exec(db, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
+---     assert(Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
+---     local rows = assert(Sqlite.rows(db, "SELECT id, body FROM t WHERE id = ?1",
+---       { { integer = Sqlite.last_insert_rowid(db) } }))
+---     print(rows[1][1].integer, rows[1][2].text) -- 1  hi
+---
+--- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
+--- bind those types; `{}` binds NULL.
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace, which never satisfies an ordinary
