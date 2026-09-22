@@ -11,6 +11,20 @@ local Hash = require("cosmic.hash")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 
+local function test_selection_is_exact_or_at_a_directory_boundary()
+  assert(test.matches("build.test_test", "build.test_test", "build/test_test.tl"))
+  assert(test.matches("build/test_test.tl", "build.test_test", "build/test_test.tl"))
+  assert(test.matches("./build", "build.test_test", "build/test_test.tl"))
+  assert(test.matches("./build/", "build.test_test", "build/test_test.tl"))
+  assert(test.matches(".", "build.test_test", "build/test_test.tl"))
+  assert(test.matches("./", "build.test_test", "build/test_test.tl"))
+  assert(not test.matches("", "build.test_test", "build/test_test.tl"))
+  assert(not test.matches("/", "build.test_test", "build/test_test.tl"))
+  assert(not test.matches("test_test", "build.test_test", "build/test_test.tl"))
+  assert(not test.matches("build/test", "build.test_test", "build/test_test.tl"))
+  assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
+end
+
 local function test_identical_inputs_produce_the_same_stable_key(tmp: string)
   local path = tmp .. "/a.txt"
   assert(Fs.write(path, "hello"))

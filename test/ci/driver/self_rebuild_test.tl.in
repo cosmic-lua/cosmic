@@ -118,7 +118,7 @@ local function apply_step8_edit(tree: string)
   lines = insert_after(lines,
     "function test.run(argv: {integer:string}): integer", {
       "  assert(argv[1] == \"test\")",
-      "  assert(argv[2] == \"\")",
+      "  assert(argv[2] == \"build/embed_test.tl\")",
       "  assert(argv[3] == \"argument with spaces\")",
       "  assert(argv[4] == nil)",
       "  assert(step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") == \"kept with spaces\")",
@@ -271,7 +271,7 @@ local function run_rebuild_case(root: string, fixture_dir: string,
       COSMIC_STEP8_REENTRY = "kept with spaces",
     })
     local child = start("rebuild-" .. action,
-      { program, "test", "", "argument with spaces" }, tree, values,
+      { program, "test", "build/embed_test.tl", "argument with spaces" }, tree, values,
       diagnostics)
     active[#active + 1] = child
 
@@ -330,7 +330,7 @@ local function run_rebuild_case(root: string, fixture_dir: string,
       COSMIC_STEP8_REENTRY = "kept with spaces",
     })
     local refused = Fixture.call_with_environment("core-change-" .. action,
-      { program, "test", "", "argument with spaces" }, tree, diagnostics,
+      { program, "test", "build/embed_test.tl", "argument with spaces" }, tree, diagnostics,
       refusal_values)
     assert(refused.result.code == 3,
       action .. ": core-change refusal exit status was " ..
