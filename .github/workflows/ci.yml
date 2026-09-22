@@ -7,14 +7,20 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes a branch's run, but every main run finishes: its
+# zig build cache is the one every other branch can restore, and its
+# prerelease is published only from a completed run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # Every leg independently builds the complete product, executes the same
   # Cosmic bytes in its platform environment, and uploads them for the join.
   platform:
+    # The check is the leg's own name (linux-x86_64, ...), so rulesets can
+    # require it without spelling out the matrix.
+    name: ${{ matrix.name }}
     defaults:
       run:
         working-directory: ci
@@ -255,7 +261,7 @@ jobs:
     needs: provenance
     if: >-
       github.repository == 'cosmic-lua/cosmic' &&
-      github.ref == 'refs/heads/next' &&
+      github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
