@@ -50,7 +50,12 @@ jobs:
       - name: install the tools the actions and the build need
         if: matrix.container
         working-directory: /
-        run: apk add --no-cache bash git tar zstd curl xz
+        # The checkout is owned by the runner's uid and the container runs
+        # as root, so git refuses the repository unless it is registered
+        # here, in the HOME every later step shares.
+        run: |
+          apk add --no-cache bash git tar zstd curl xz
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
