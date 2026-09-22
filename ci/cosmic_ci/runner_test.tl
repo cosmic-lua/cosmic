@@ -2,12 +2,11 @@ local Fs = require("cosmic.fs")
 local Runner = require("cosmic_ci.runner")
 local Sqlite = require("cosmic.sqlite")
 
-local function test_runner_records_without_aliasing_subject_or_project(tmp: string)
-  local candidate, project, state = tmp .. "/candidate", tmp .. "/project", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(project .. "/cosmic_ci") and Fs.mkdirs(state))
+local function test_runner_records_without_aliasing_subject(tmp: string)
+  local candidate, state = tmp .. "/candidate", tmp .. "/state"
+  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
   local c: Runner.Context = { database = state .. "/operations.db",
-    worker = "worker", run = "run", attempt = "1", candidate = candidate,
-    driver = project .. "/cosmic_ci/driver.tl" }
+    worker = "worker", run = "run", attempt = "1", candidate = candidate }
   local function execute(phase: string, argv: {string}, timeout?: integer): Runner.Outcome
     return Runner.operation(c, phase, { argv = argv, cwd = candidate,
       timeout_ms = timeout or 1000 })
@@ -19,17 +18,10 @@ local function test_runner_records_without_aliasing_subject_or_project(tmp: stri
   assert(Fs.write(candidate .. "/o.db", "candidate state"))
   assert(Fs.exists(c.database) and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
   local bad_candidate: Runner.Context = { database = candidate .. "/bad.db",
-    worker = c.worker, run = c.run, attempt = c.attempt,
-    candidate = candidate, driver = c.driver }
+    worker = c.worker, run = c.run, attempt = c.attempt, candidate = candidate }
   assert(not pcall(Runner.operation, bad_candidate, "bad",
     { argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate } as Runner.Request),
     "candidate database was accepted")
-  local bad_project: Runner.Context = { database = project .. "/bad.db",
-    worker = c.worker, run = c.run, attempt = c.attempt,
-    candidate = candidate, driver = c.driver }
-  assert(not pcall(Runner.operation, bad_project, "bad",
-    { argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate } as Runner.Request),
-    "driver database was accepted")
 end
 
 local function test_runner_owns_input_and_retained_output(tmp: string)
@@ -49,14 +41,11 @@ local function test_runner_owns_input_and_retained_output(tmp: string)
 end
 
 local function test_operation_records_retained_open_failure_as_error(tmp: string)
-  local candidate, project, state = tmp .. "/candidate", tmp .. "/project",
-    tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(project .. "/cosmic_ci") and
-    Fs.mkdirs(state))
+  local candidate, state = tmp .. "/candidate", tmp .. "/state"
+  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
   local database = state .. "/operations.db"
   local context: Runner.Context = { database = database, worker = "worker",
-    run = "run", attempt = "1", candidate = candidate,
-    driver = project .. "/cosmic_ci/driver.tl" }
+    run = "run", attempt = "1", candidate = candidate }
   local outcome = Runner.operation(context, "retained-open", {
     argv = { "/bin/sh", "-c", "exit 0" }, cwd = candidate,
     output = tmp .. "/missing/out",

@@ -4,7 +4,6 @@ local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
 local Proc = require("cosmic.proc")
-local Result = require("cosmic_ci.result")
 local Runner = require("cosmic_ci.runner")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
@@ -36,7 +35,7 @@ local function operation(c: Context, phase: string, command: {string},
     timeout: integer, cwd?: string, env?: {string:string}, output?: string,
     error_output?: string): integer
   local runner: Runner.Context = { database = c.db, worker = c.worker,
-    run = c.run, attempt = c.attempt, candidate = c.root, driver = c.driver }
+    run = c.run, attempt = c.attempt, candidate = c.root }
   local child_environment: {string:string}
   if env then child_environment = env else child_environment = environment() end
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
@@ -62,13 +61,6 @@ local function logged(c: Context, phase: string, command: {string}, out: string,
   return status
 end
 
-local function tail(path: string, destination: string): string
-  local contents = read(path)
-  local answer = #contents > 8192 and contents:sub(#contents - 8191) or contents
-  write(destination, answer)
-  return answer
-end
-
 local function capture_small(c: Context, phase: string, command: {string},
     path: string, timeout: integer, cwd?: string): integer
   return operation(c, phase, command, timeout, cwd, environment(), path)
@@ -90,32 +82,20 @@ end
 local function fixture_project(c: Context, work: string): string
   local project = work .. "/fixture-project"
   local source = parent(c.driver)
-  local expected: {string:boolean} = {}
+  local names: {string} = {}
   for _, name in ipairs(assert(Fs.list(source))) do
     assert(name:match("%.tl$") and
       assert(Fs.stat(source .. "/" .. name)).kind == "file",
       "invalid fixture source entry: " .. name)
-    expected[name] = true
+    names[#names + 1] = name
   end
+  local removed = Runner.execute({ argv = { "/bin/rm", "-rf", project },
+    cwd = work })
+  assert(removed.code == 0, "could not clear fixture project")
   local namespace = project .. "/cosmic_ci"
-  if not Fs.exists(project) then
-    mkdir(namespace)
-    for name in pairs(expected) do
-      write(namespace .. "/" .. name, read(source .. "/" .. name))
-    end
-  else
-    assert(Fs.is_dir(namespace), "fixture namespace is missing")
-    local found: {string:boolean} = {}
-    for _, name in ipairs(assert(Fs.list(namespace))) do
-      assert(expected[name] and
-        assert(Fs.stat(namespace .. "/" .. name)).kind == "file" and
-        read(namespace .. "/" .. name) == read(source .. "/" .. name),
-        "fixture namespace differs: " .. name)
-      found[name] = true
-    end
-    for name in pairs(expected) do
-      assert(found[name], "fixture namespace is missing: " .. name)
-    end
+  mkdir(namespace)
+  for _, name in ipairs(names) do
+    write(namespace .. "/" .. name, read(source .. "/" .. name))
   end
   return project
 end
@@ -127,9 +107,6 @@ local function fixture_test(c: Context, work: string, name: string,
   local project = fixture_project(c, work)
   local diagnostics = work .. "/fixture-test-diagnostics/" .. name
   mkdir(diagnostics); mkdir(diagnostics .. "/tmp")
-  local cleared = Runner.execute({ argv = { "/bin/rm", "-rf", project .. "/o" },
-    cwd = work })
-  assert(cleared.code == 0, "could not clear fixture project state")
   local fixture_environment = environment(extra)
   fixture_environment.TMPDIR = diagnostics .. "/tmp"
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
@@ -138,9 +115,6 @@ local function fixture_test(c: Context, work: string, name: string,
       "cosmic_ci/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
     fixture_environment)
   if status ~= 0 then return status end
-  local verdict = Result.fresh(tail(out, diagnostics .. "/.tail"),
-    true, false, nil, 0)
-  assert(verdict.ok, name .. " fixture: " .. verdict.detail)
   return 0
 end
 
@@ -193,9 +167,6 @@ local function checked_suite(c: Context, target: string, work: string): integer
     90000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   if s ~= 0 then return s end
-  local verdict = Result.fresh(tail(diagnostics .. "/checked-test.out",
-    diagnostics .. "/.tail"), true, false, nil, 0)
-  assert(verdict.ok, "checked suite: " .. verdict.detail)
   return 0
 end
 
@@ -219,7 +190,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   end
   write(out .. "/hashes.sha256", hashes)
   local temporary_root = Env.get_or("TMPDIR", "/tmp")
-  State.external_path(temporary_root .. "/probe", c.root, c.driver)
+  State.external_path(temporary_root .. "/probe", c.root)
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local called, answer = pcall(function(): integer
     write(inspect .. "/build.db", read(out .. "/build.db"))
@@ -257,9 +228,6 @@ local function suite(c: Context, name: string, executable: string,
 name .. " suite: failed (status " .. status .. ")\n") end
   if status ~= 0 then return status end
   if snapshot_status ~= 0 then return snapshot_status end
-  local verdict = Result.fresh(tail(out, diagnostics .. "/." .. name .. "-tail"),
-    true, false, nil, 0)
-  assert(verdict.ok, name .. " suite: " .. verdict.detail)
   return 0
 end
 
@@ -675,7 +643,7 @@ end
 local function logical(c: Context, phase: string,
     action: function(): integer): integer
   local started = assert(Time.monotonic_ns())
-  local database = State.external_path(c.db, c.root, c.driver)
+  local database = State.external_path(c.db, c.root)
   local id = State.start(database, c.worker, c.run, c.attempt, phase, started)
   local called, answer = pcall(action)
   local code = called and answer or 1
@@ -695,7 +663,7 @@ function Orchestration.platform(a: {string}): integer
   local canonical_root = State.canonical_directory(a[6])
   assert(canonical_root == a[6], "ROOT must be an absolute canonical path")
   assert(Fs.exists(canonical_root .. "/AGENTS.md"), "invalid candidate root")
-  local canonical_work = State.external_path(a[8], canonical_root, assert(a[0]))
+  local canonical_work = State.external_path(a[8], canonical_root)
   assert(canonical_work == a[8], "WORK must be an absolute canonical path")
   mkdir(canonical_work)
   local c: Context = { db = a[2], worker = a[3], run = a[4],

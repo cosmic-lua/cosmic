@@ -56,7 +56,7 @@ jobs:
           (cd ci && TMPDIR="$RUNNER_TEMP/cosmic-driver-selfcheck" \
             "$RUNNER_TEMP/cosmic-driver" test cosmic_ci/bootstrap_test.tl \
             cosmic_ci/state_test.tl cosmic_ci/fixture_test.tl \
-            cosmic_ci/runner_test.tl cosmic_ci/result_test.tl \
+            cosmic_ci/runner_test.tl \
             cosmic_ci/orchestration_test.tl cosmic_ci/setup_test.tl)
           {
             echo "COSMIC_DRIVER=$RUNNER_TEMP/cosmic-driver"

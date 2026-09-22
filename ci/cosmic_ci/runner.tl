@@ -10,7 +10,6 @@ local record Runner
     run: string
     attempt: string
     candidate: string
-    driver: string
   end
   record Request
     argv: {string}
@@ -88,7 +87,7 @@ end
 
 function Runner.operation(c: Runner.Context, phase: string,
     request: Runner.Request): Runner.Outcome
-  local database = State.external_path(c.database, c.candidate, c.driver)
+  local database = State.external_path(c.database, c.candidate)
   local started = assert(Time.monotonic_ns())
   local id = State.start(database, c.worker, c.run, c.attempt, phase, started)
   local called, answer = pcall(Runner.execute, request)
