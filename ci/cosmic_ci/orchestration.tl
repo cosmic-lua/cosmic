@@ -83,11 +83,13 @@ local self_rebuild_test_timeout_ms <const> = 180000
 local runtime_test_timeout_ms <const> = 180000
 local identity_test_timeout_ms <const> = 120000
 
-local function fixture_project(_c: Context, work: string): string
+local function parent(path: string): string
+  return assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory")
+end
+
+local function fixture_project(c: Context, work: string): string
   local project = work .. "/fixture-project"
-  local driver_project = assert(Env.get("COSMIC_CI_PROJECT"),
-    "COSMIC_CI_PROJECT is required")
-  local source = driver_project .. "/cosmic_ci"
+  local source = parent(c.driver)
   local expected: {string:boolean} = {}
   for _, name in ipairs(assert(Fs.list(source))) do
     assert(name:match("%.tl$") and
@@ -225,7 +227,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       write(inspect .. "/build.db-journal", read(out .. "/build.db-journal"))
     end
     write(inspect .. "/work_db_integrity.tl",
-      read(c.root .. "/test/ci/driver/testdata/portable/work_db_integrity.tl"))
+      read(c.root .. "/ci/testdata/portable/work_db_integrity.tl"))
     return logged(c, label .. " integrity",
       { cosmic, "work_db_integrity.tl", "--recover-copy", "build.db" },
       out .. "/integrity.out", out .. "/integrity.err", 30000, inspect)
@@ -495,19 +497,12 @@ local function phase_alpine(p: PlatformContext): integer
   local alpine_source = work .. "/alpine-source"
   local s = archive(c, alpine_source); if s ~= 0 then return s end
   local driver_copy = work .. "/alpine-driver"
-  mkdir(driver_copy); mkdir(driver_copy .. "/project/cosmic_ci")
+  mkdir(driver_copy)
   local runner = assert(Env.get("COSMIC_CI_RUNNER"), "COSMIC_CI_RUNNER is required")
   write(driver_copy .. "/cosmic", read(runner))
   s = checked(c, "Alpine runner mode",
     { "/usr/bin/env", "chmod", "755", driver_copy .. "/cosmic" })
   if s ~= 0 then return s end
-  local project = assert(Env.get("COSMIC_CI_PROJECT")) .. "/cosmic_ci"
-  for _, name in ipairs(assert(Fs.list(project))) do
-    if name:match("%.tl$") then
-      write(driver_copy .. "/project/cosmic_ci/" .. name,
-        read(project .. "/" .. name))
-    end
-  end
   mkdir(work .. "/alpine-home")
   local image = "alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"
   s = checked(c, "Alpine image pull", { "/usr/bin/env", "docker", "pull", image })
@@ -527,12 +522,11 @@ local function phase_alpine(p: PlatformContext): integer
     "--network", "none",
     "--user", uid .. ":" .. gid,
     "-e", "GITHUB_ACTIONS=true", "-e", "HOME=/runner/alpine-home",
-    "-e", "COSMIC_CI_PROJECT=/runner/alpine-driver/project",
     "-v", alpine_source .. ":/work",
-    "-w", "/runner/alpine-driver/project",
+    "-w", "/work/ci",
     "-v", work .. ":/runner", image,
     "/runner/alpine-driver/cosmic",
-    "/runner/alpine-driver/project/cosmic_ci/driver.tl",
+    "/work/ci/cosmic_ci/driver.tl",
     "platform" }
   local function container_command(inner: string): {string}
     local command: {string} = {}

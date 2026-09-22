@@ -1,15 +1,25 @@
-local Env = require("cosmic.env")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
 
+--- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
+--- its parent is the checkout the self-check runs against.
+local function checkout_root(): string
+  local cwd = assert(Fs.absolute("."))
+  return assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory")
+end
+
+--- The self-check holds a write transaction on `ci/o/build.db` while
+--- tests run, so `driver.tl` must never run with project root `ci/`
+--- itself: this copies the namespace into its own tmp project first.
 local function command(tmp: string): {string}, string
-  local host = assert(Env.get("COSMIC_CI_HOST"), "COSMIC_CI_HOST is required")
-  local source = assert(Env.get("COSMIC_CI_PROJECT"), "COSMIC_CI_PROJECT is required")
+  local host = assert(Proc.executable())
+  local source = Fs.absolute(".") .. "/cosmic_ci"
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
-  assert(assert(Child.run({ "/bin/cp", "-R", source .. "/cosmic_ci", project })).ok)
+  assert(assert(Child.run({ "/bin/cp", "-R", source, project })).ok)
   return { host, project .. "/cosmic_ci/driver.tl" }, project
 end
 
@@ -61,14 +71,13 @@ local function test_platform_protects_paths_and_retains_primary_failure(tmp: str
   local base, project = command(tmp)
   local fake, work, seed = tmp .. "/fake", tmp .. "/platform", tmp .. "/seed"
   assert(Fs.mkdirs(fake .. "/bin") and
-    Fs.mkdirs(fake .. "/test/ci/driver/testdata/portable") and
+    Fs.mkdirs(fake .. "/ci/testdata/portable") and
     Fs.mkdirs(seed .. "/zig-cache") and Fs.mkdirs(seed .. "/zig-global") and
     Fs.mkdirs(tmp .. "/temporary"))
   assert(Fs.write(seed .. "/build.db", "poison"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
-  local source = assert(Env.get("COSMIC_CI_SOURCE_ROOT"))
-  Fixture.copy(source .. "/test/ci/driver/testdata/portable/work_db_integrity.tl",
-    fake .. "/test/ci/driver/testdata/portable/work_db_integrity.tl")
+  Fixture.copy(checkout_root() .. "/ci/testdata/portable/work_db_integrity.tl",
+    fake .. "/ci/testdata/portable/work_db_integrity.tl")
   Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
 set -eu
 test ! -e o/build.db

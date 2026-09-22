@@ -12,7 +12,7 @@ small v1 artifact reader/writer-input library both `tool.tl` and
 Product assembly, transport validation, the cross-language format contract,
 launcher construction and regression, runtime construction and regression,
 self-rebuild, and identity are all actual Cosmic tests generated in the
-pinned CI driver's isolated fixture projects; see `test/ci/driver`.
+pinned CI driver's isolated fixture projects; see `ci`.
 
 ## What each one covers
 
@@ -128,4 +128,4 @@ The pinned CI driver owns full-suite execution, retained output, working
 database snapshots, delayed boundaries, and artifact immutability checks.
 It runs portable suites from a fresh tracked-source export and runs the same
 product in an offline, unprivileged Alpine container. Its isolated project
-and command contracts are documented in `test/ci/driver`.
+and command contracts are documented in `ci`.

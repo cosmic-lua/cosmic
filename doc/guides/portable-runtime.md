@@ -229,7 +229,7 @@ application database cannot hide a changed core or runtime basis. Verdict and
 coverage history live only in `o/build.db` and are bounded.
 
 The fixtures under [`test/portable`](../../test/portable/) and the pinned CI
-driver's isolated fixture projects (`test/ci/driver`, see its own README)
+driver's isolated fixture projects (`ci`, see its own README)
 divide the runtime contract into observable boundaries:
 
 - `format_test.tl` and `format_test.c` reject malformed lengths, offsets,
@@ -243,7 +243,7 @@ divide the runtime contract into observable boundaries:
 - `identity_test.tl` moves one working database through release and
   checked contexts and proves which verdicts run or stand.
 - the pinned CI driver's own snapshot and boundary checks
-  (`test/ci/driver/cosmic_ci/orchestration.tl`) snapshot the raw working database
+  (`ci/cosmic_ci/orchestration.tl`) snapshot the raw working database
   immediately and across a workflow boundary. Integrity checks use
   disposable copies, so inspection cannot recover or alter captured bytes.
 

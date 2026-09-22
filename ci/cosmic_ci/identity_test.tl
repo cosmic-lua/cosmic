@@ -324,7 +324,7 @@ local function test_identity_primary(tmp: string)
   Fixture.copy(fixture_dir .. "/runtime_test.tl", project .. "/runtime_test.tl")
   Fixture.copy(fixture_dir .. "/hello_main.tl", project .. "/cmd/hello/main.tl")
   Fixture.mkdir(project .. "/cmd/second")
-  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/second/main.tl",
+  Fixture.copy(root .. "/ci/testdata/portable/cmd/second/main.tl",
     project .. "/cmd/second/main.tl")
   local counter = project .. "/test-runs"
   local cache = work .. "/cache"
