@@ -224,12 +224,17 @@ local function named_all(db: Sqlite.Handle, public: boolean,
   return entries_of(rows)
 end
 
---- Every symbol a module declares at its top level, for the listing
---- under a module's own documentation.
+--- The symbols a module offers, for the listing under a module's own
+--- documentation: everything its returned value reaches, and every type
+--- it declares, since those are the names its signatures are written
+--- in. A private helper function is left out -- a reader scanning the
+--- module wants what they can call -- but `cosmic docs <name>` still
+--- finds it.
 local function declared_in(db: Sqlite.Handle, public: boolean, module: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 " ..
     "AND d.symbol <> '' AND d.kind NOT IN ('field', 'value') AND " ..
+    "(d.exported = 1 OR d.kind NOT IN ('function', 'method')) AND " ..
     symbols.public_only("d.module", public) .. " ORDER BY d.id",
     { text(module) })
   if rows == nil then

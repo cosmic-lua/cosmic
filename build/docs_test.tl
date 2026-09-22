@@ -30,9 +30,10 @@ local function database(rows: {{string}}, uses: {{string}},
     assert(Sqlite.run(db,
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
       "signature, text, file, line) " ..
-      "VALUES (?1, ?2, ?2, 1, ?3, ?4, ?5, ?6, ?7)",
+      "VALUES (?1, ?2, ?2, ?8, ?3, ?4, ?5, ?6, ?7)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
-        { text = row[5] }, { text = row[6] }, { integer = math.tointeger(tonumber(row[7])) } }))
+        { text = row[5] }, { text = row[6] }, { integer = math.tointeger(tonumber(row[7])) },
+        { integer = row[8] == "private" and 0 or 1 } }))
   end
   for _, row in ipairs(uses) do
     assert(Sqlite.run(db,
@@ -100,6 +101,30 @@ local function test_looks_up_a_module_and_lists_its_symbols()
   assert(lines[3] == "  record Fs", lines[3])
   assert(lines[4] == "  function Fs.read (2 uses)", lines[4])
   assert(lines[5] == "  function Fs.write", lines[5])
+end
+
+--- A module's listing leaves out the functions its returned value never
+--- reaches, but keeps the types it declares; a private function is still
+--- found by its own name.
+local function test_a_module_listing_leaves_out_private_functions()
+  local rows: {{string}} = {
+    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
+    { "cosmic.fs", "Stat", "record", "local record Stat", "", "cosmic/fs.tl", "5", "private" },
+    { "cosmic.fs", "Fs", "record", "local record Fs", "", "cosmic/fs.tl", "12" },
+    { "cosmic.fs", "write_all", "function", "local function write_all(fd: integer)",
+      "", "cosmic/fs.tl", "18", "private" },
+    { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string",
+      "", "cosmic/fs.tl", "23" },
+  }
+  local db = database(rows, {})
+  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local lines = docs.render(view({ db }), found[1])
+  assert(lines[3] == "  record Stat", lines[3])
+  assert(lines[4] == "  record Fs", lines[4])
+  assert(lines[5] == "  function Fs.read", lines[5])
+  assert(lines[6] == nil, lines[6])
+  local helper = assert(docs.lookup(view({ db }), "write_all"))
+  assert(#helper == 1 and helper[1].symbol == "write_all", tostring(#helper))
 end
 
 --- Words that name no symbol search the documentation, every word
