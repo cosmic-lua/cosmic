@@ -2,6 +2,9 @@ name: ci
 
 on:
   push:
+  # main takes changes only through the merge queue, which waits on these
+  # checks for the queued merge commit before it lands.
+  merge_group:
   workflow_dispatch:
 
 permissions:
