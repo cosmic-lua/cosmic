@@ -33,8 +33,9 @@ eval/arena notes o/bin/cosmic /tmp/cosmic-evals/notes/codex/run-001
 
 Choose new absolute paths outside the checkout; an existing destination
 is an error, never deleted. The arena contains `bin/cosmic`,
-`project/TASK.md` (task plus journal contract), `PROMPT.md` (the entire
-launch prompt), and `inputs.sha256`. Give the solver only PROMPT.md's
+`project/TASK.md` (task plus journal contract), `tmp/` (the solver's
+`TMPDIR`, its one sanctioned place outside `project/`), `PROMPT.md` (the
+entire launch prompt), and `inputs.sha256`. Give the solver only PROMPT.md's
 contents. The parent keeps metadata, grading output and other runs out
 of the solver's project. The prompt varies only in arena paths.
 
@@ -47,8 +48,14 @@ of the solver's project. The prompt varies only in arena paths.
   skills, plugins, web searches or other outside sources may supply it.
   Tool availability alone is not contamination; using an outside source
   about cosmic is. Record any known contamination and invalidate that run.
-- **Work in the arena.** Explicitly set `project/` as the working directory
-  and prepend the arena's `bin/` to PATH for every shell call. A Work
+  A host can carry cosmic knowledge the solver never asks for: a synced
+  cosmic skill under `~/.claude/skills`, or repository instructions pulled
+  in through environment variables. Isolate the runner's configuration
+  (below) and confirm afterward that no tool call named this checkout or
+  a skills directory.
+- **Work in the arena.** Explicitly set `project/` as the working directory,
+  prepend the arena's `bin/` to PATH and set TMPDIR to the arena's `tmp/`
+  for every shell call. A Work
   subagent's default directory is still the parent's workspace. Reading
   the binary itself, including `strings`, is fair. No delegation.
 - **Bounded.** Use a 600-second solver deadline. Claude's timeout enforces
@@ -62,7 +69,8 @@ of the solver's project. The prompt varies only in arena paths.
   guide doctests), checks formatting, builds exactly `o/bin/notes`, then
   exercises it without supporting files or environment. Python 3 is a
   grader dependency, not a solver dependency.
-- **Evidence.** Preserve the project and journal. Preserve a full transcript
+- **Evidence.** Preserve the project and journal. Any path a tool call
+  named outside the arena is a boundary breach to record. Preserve a full transcript
   where the runner supplies one; a journal is not a replacement transcript.
   Validate claims against available outputs and reproduce uncertain ones.
 - **Named.** Record runner, exact model/settings, commit, input hashes,
@@ -76,9 +84,19 @@ of the solver's project. The prompt varies only in arena paths.
 Use a fresh noninteractive session, without resume or inherited project
 instructions. Set `dir` to the absolute arena path and `model` explicitly.
 The existing tool allowlist makes local tools usable without prompts.
+An empty `CLAUDE_CONFIG_DIR` leaves out user skills, plugins, hooks and
+instructions (credentials still come from the environment); a cloud
+session also sets `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`,
+`CLAUDE_ADDITIONAL_DIRECTORIES` and `CLAUDE_CODE_SYNC_SKILLS`, which can
+bring the checkout's instructions or a synced cosmic skill back in, so
+unset them. Probe once with `claude -p "list your skills"` under the same
+settings before trusting the setup.
 
 ```sh
-cd "$dir/project" && PATH="$dir/bin:$PATH" timeout 600 \
+config=$(mktemp -d)
+cd "$dir/project" && env -u CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD \
+  -u CLAUDE_ADDITIONAL_DIRECTORIES -u CLAUDE_CODE_SYNC_SKILLS \
+  CLAUDE_CONFIG_DIR="$config" TMPDIR="$dir/tmp" PATH="$dir/bin:$PATH" timeout 600 \
   claude -p "$(cat "$dir/PROMPT.md")" \
   --model "$model" --disable-slash-commands \
   --tools "Bash,Read,Write,Edit,Glob,Grep" \
@@ -89,7 +107,11 @@ cd "$dir/project" && PATH="$dir/bin:$PATH" timeout 600 \
 ```
 
 `eval/summarize <transcript.jsonl>` is specifically a Claude stream-json
-reader. Keep it for Claude; do not feed Work results into it. `--bare`
+reader. Beyond turns, tool calls, minutes and cost it counts failed tool
+calls, `cosmic docs` lookups with no exact match, the call at which
+`cosmic test` first passed and the journal's writes, then lists every
+path a tool call named outside the arena and flags any that named this
+checkout or a skills directory. Keep it for Claude; do not feed Work results into it. `--bare`
 previously dropped the credential helper, and bypassing permissions was
 refused; neither is required for this eval.
 
@@ -169,13 +191,23 @@ something the agent was never told. Beyond that bar, what has worked:
   cosmic does not have yet measures the gap, not the tool.
 - **Pair it with a grader** at `eval/check/<task>`, taking the arena
   directory and ending in a verdict line.
+- **Say what, never how.** Name the outcome -- tests that pass, examples
+  cosmic checks, code formatted the way cosmic formats it, a binary that
+  runs alone -- and never the cosmic command that gets it. Finding the
+  command is the thing being measured; a task that names `cosmic test`
+  has already answered it. The grader, not the task, runs the commands.
+- **Say what the binary's environment will be.** The grader runs it with
+  an empty environment; the task says so in the same words.
 - **Keep the journal contract out of the task.** It is the same for
   every task and lives in `eval/journal.md`.
 
 ## reading a journal
 
 The summary at the end ranks what slowed the agent, with the log
-entries it refers to; read those entries, not the ranking alone. Then:
+entries it refers to; read those entries, not the ranking alone. A
+journal written once at the end (`journal_writes` of one or two) is a
+retelling: weigh the transcript and `eval/summarize`'s counts over its
+ranking. Then:
 
 - **Check every claim about the tool against the transcript and the
   grader.** An agent that misread its own probe will rank the misreading
