@@ -457,6 +457,12 @@ fn launcherHelper(
         .target = target,
         .optimize = .ReleaseFast,
         .link_libc = true,
+        // Matching `core()`'s strip setting keeps this module's musl libc
+        // build cache-compatible with the one `cores` already built for
+        // the same target: without it, `zig build` reruns a from-scratch
+        // musl libc/compiler_rt build for this one-file helper, which cost
+        // over a minute per cross target on a cold cache.
+        .strip = true,
     });
     mod.addCSourceFile(.{
         .file = b.path(source),
