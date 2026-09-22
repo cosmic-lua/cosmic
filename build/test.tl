@@ -67,6 +67,9 @@ local record test
   record Verdict
     passed: boolean
     run_at_ns: integer
+    --- How long the run that reached this verdict took, so a test
+    --- answered from it still has a duration to give `runs`.
+    elapsed_ns: integer
   end
 
   --- Every test id (`"path name"`) whose standing verdict credits a
@@ -128,17 +131,28 @@ local function elapsed_ms(from: integer): integer
   return (now - from) // 1000000
 end
 
+--- Nanoseconds elapsed since `from`, from the monotonic clock; 0 when
+--- the clock is unavailable, same as `elapsed_ms` above.
+local function elapsed_ns(from: integer): integer
+  local now = Time.monotonic_ns()
+  if now == nil then
+    return 0
+  end
+  return now - from
+end
+
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
                           reads: {observations.Observation}, key: string,
-                          run_at_ns: integer, cacheable?: boolean): boolean, string
+                          run_at_ns: integer, elapsed: integer,
+                          cacheable?: boolean): boolean, string
   return Sqlite.run(handle,
     "INSERT OR REPLACE INTO runs (path, test, passed, message, ran_at_ns, " ..
-    "reads, key, run_at_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    "reads, key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
       { integer = ran_at_ns }, text(cacheable == false and
         observations.encode_unstable() or observations.encode(reads)), text(key),
-      { integer = run_at_ns } })
+      { integer = run_at_ns }, { integer = elapsed } })
 end
 
 --- What the last run left of every test, by "path name".
@@ -160,7 +174,7 @@ end
 --- Every verdict ever reached, by key.
 local function known_verdicts(handle: Sqlite.Handle): {string:test.Verdict} | nil, string
   local rows, trouble = Sqlite.text_rows(handle,
-    "SELECT key, passed, run_at_ns FROM verdicts")
+    "SELECT key, passed, run_at_ns, elapsed_ns FROM verdicts")
   if rows == nil then
     return nil, trouble
   end
@@ -169,6 +183,7 @@ local function known_verdicts(handle: Sqlite.Handle): {string:test.Verdict} | ni
     out[row[1]] = {
       passed = row[2] == "1",
       run_at_ns = math.tointeger(tonumber(row[3]) or 0) or 0,
+      elapsed_ns = math.tointeger(tonumber(row[4]) or 0) or 0,
     }
   end
   return out
@@ -176,12 +191,13 @@ end
 
 --- Records one verdict under its key, as relied on by this run.
 local function record_verdict(handle: Sqlite.Handle, key: string, passed: boolean,
-                              run_at_ns: integer, run: integer): boolean, string
+                              run_at_ns: integer, run: integer,
+                              elapsed: integer): boolean, string
   return Sqlite.run(handle,
-    "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen) " ..
-    "VALUES (?1, ?2, ?3, ?4)",
+    "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen, elapsed_ns) " ..
+    "VALUES (?1, ?2, ?3, ?4, ?5)",
     { text(key), { integer = passed and 1 or 0 }, { integer = run_at_ns },
-      { integer = run } })
+      { integer = run }, { integer = elapsed } })
 end
 
 --- How many runs a verdict stays after the last one that relied on it.
@@ -838,7 +854,7 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
       tally.ran = tally.ran + 1
       local saved, trouble = record_run(records, m.path, name, false, message,
-        Time.now_ns() or 0, {}, "", run_at_ns)
+        Time.now_ns() or 0, {}, "", run_at_ns, 0)
       if not saved then
         errors[#errors + 1] = m.path .. " " .. name .. ": record: " .. trouble
       end
@@ -869,11 +885,12 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       end
       owed[#owed + 1] = id
       local kept, keep_trouble = record_run(records, m.path, name, true, "",
-        Time.now_ns() or 0, prior_reads, key, stood.run_at_ns)
+        Time.now_ns() or 0, prior_reads, key, stood.run_at_ns, stood.elapsed_ns)
       if not kept then
         errors[#errors + 1] = id .. ": record: " .. keep_trouble
       end
-      kept, keep_trouble = record_verdict(records, key, true, stood.run_at_ns, run)
+      kept, keep_trouble = record_verdict(records, key, true, stood.run_at_ns, run,
+        stood.elapsed_ns)
       if not kept then
         errors[#errors + 1] = id .. ": verdict: " .. keep_trouble
       end
@@ -884,7 +901,9 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       if test_session == nil then
         errors[#errors + 1] = id .. ": coverage start: " .. test_start_trouble
       end
+      local test_started = Time.monotonic_ns() or 0
       local passed, message, reads, tmp = call_test(fn)
+      local test_elapsed_ns = elapsed_ns(test_started)
       local test_reads = reads
       local keyable = module_keyable and test.keyable(root, tmp, test_reads)
       reads = observations.join(process_reads, test_reads)
@@ -901,11 +920,13 @@ local function run_module(records: Sqlite.Handle, m: importer.Module,
       local reached, stable = test.verdict_key(root, hashes, id, m.key, runtime, reads,
         key_parts)
       local saved, trouble = record_run(records, m.path, name, passed, message,
-        Time.now_ns() or 0, reads, reached, run_at_ns, stable and keyable)
+        Time.now_ns() or 0, reads, reached, run_at_ns, test_elapsed_ns,
+        stable and keyable)
       if not saved then
         errors[#errors + 1] = id .. ": record: " .. trouble
       end
-      saved, trouble = record_verdict(records, reached, passed, run_at_ns, run)
+      saved, trouble = record_verdict(records, reached, passed, run_at_ns, run,
+        test_elapsed_ns)
       if not saved then
         errors[#errors + 1] = id .. ": verdict: " .. trouble
       end
