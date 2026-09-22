@@ -1,3 +1,4 @@
+local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -253,7 +254,7 @@ local targets: {string:boolean} = {
  ["x86_64-linux-musl"] = true, ["aarch64-linux-musl"] = true, ["aarch64-macos"] = true }
 
 local record PlatformContext
-  args: {string}
+  trailing: string | nil
   operation: Context
   root: string
   target: string
@@ -381,7 +382,6 @@ local function phase_portable(p: PlatformContext): integer
 end
 
 local function phase_portable_boundary(p: PlatformContext): integer
-  local a = p.args
   local c = p.operation
   local portable_d = p.portable_diagnostics
   local fresh = p.fresh
@@ -389,7 +389,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
     attempt = c.attempt, root = fresh, driver = c.driver }
   local s = snapshot(portable_context, portable_d, "portable-boundary",
     portable_d .. "/cosmic-portable"); if s ~= 0 then return s end
-  if a[9] == "success" then
+  if p.trailing == "success" then
     assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary")
     local executable = portable_d .. "/cosmic-portable"
     local cache = portable_d .. "/portable-full-suite-cache"
@@ -447,13 +447,12 @@ local function phase_fixtures(p: PlatformContext): integer
 end
 
 local function phase_attest(p: PlatformContext): integer
-  local a = p.args
   local work = p.work
   local product = p.product
   local portable_d = p.portable_diagnostics
   local before = read(work .. "/cosmic.before.sha256"); local digest = hash(product .. "/cosmic") .. "\n"
   assert(before == digest and before == read(portable_d .. "/portable-artifact.before.sha256") and before == read(portable_d .. "/portable-artifact.after.sha256"), "executed artifact attestation differs")
-  write(product .. "/executed-cosmic.sha256", digest:sub(1, 64) .. "  cosmic\n"); write(product .. "/expected-platforms", assert(a[9]) .. "\n"); return 0
+  write(product .. "/executed-cosmic.sha256", digest:sub(1, 64) .. "  cosmic\n"); write(product .. "/expected-platforms", assert(p.trailing) .. "\n"); return 0
 end
 
 local function phase_cache_save(p: PlatformContext): integer
@@ -474,20 +473,8 @@ local function phase_cache_save(p: PlatformContext): integer
   return 0
 end
 
-local function platform_impl(a: {string}): integer
-  local phase, db, worker, run_name, attempt, root, target, work =
-    a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]
-  assert(phase and db and worker and run_name and attempt and root and target and work,
-    "usage: platform PHASE DB WORKER RUN ATTEMPT ROOT TARGET WORK [ARG]")
-  assert(targets[target], "unsupported target"); mkdir(work)
-  local c: Context = { db = db, worker = worker, run = run_name,
-    attempt = attempt, root = root, driver = assert(Fs.absolute(assert(a[0]))) }
-  local p: PlatformContext = { args = a, operation = c, root = root,
-    target = target, work = work, product = work .. "/product",
-    contract = work .. "/contract", runtime = work .. "/runtime",
-    local_diagnostics = work .. "/local-diagnostics",
-    portable_diagnostics = work .. "/portable-diagnostics",
-    fresh = work .. "/portable-source" }
+local function platform_impl(phase: string, p: PlatformContext): integer
+  assert(targets[p.target], "unsupported target"); mkdir(p.work)
   if phase == "build" then return phase_build(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
   elseif phase == "assemble" then return phase_assemble(p)
@@ -500,12 +487,7 @@ local function platform_impl(a: {string}): integer
   error("unknown platform phase: " .. phase)
 end
 
-local function provenance_impl(a: {string}): integer
-  local db, worker, run_name, attempt, root, products = a[1], a[2], a[3], a[4], a[5], a[6]
-  assert(db and worker and run_name and attempt and root and products,
-    "usage: provenance DB WORKER RUN ATTEMPT ROOT PRODUCTS")
-  local c: Context = { db = db, worker = worker, run = run_name,
-    attempt = attempt, root = root, driver = assert(Fs.absolute(assert(a[0]))) }
+local function provenance_impl(c: Context, products: string): integer
   local entries = assert(Fs.list(products)); local count = 0; local expected: integer|nil = nil; local baseline: string|nil = nil
   for _, name in ipairs(entries) do if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name; local att = p .. "/executed-cosmic.sha256"; local exp = p .. "/expected-platforms"
@@ -539,28 +521,28 @@ local function logical(c: Context, phase: string,
 end
 
 function Orchestration.platform(a: {string}): integer
-  assert(a[1] and a[2] and a[3] and a[4] and a[5] and a[6] and a[8],
-    "usage: platform PHASE DB WORKER RUN ATTEMPT ROOT TARGET WORK [ARG]")
-  local canonical_root = State.canonical_directory(a[6])
-  assert(canonical_root == a[6], "ROOT must be an absolute canonical path")
-  assert(Fs.exists(canonical_root .. "/AGENTS.md"), "invalid candidate root")
-  local canonical_work = State.external_path(a[8], canonical_root)
-  assert(canonical_work == a[8], "WORK must be an absolute canonical path")
-  mkdir(canonical_work)
-  local c: Context = { db = a[2], worker = a[3], run = a[4],
-    attempt = a[5], root = a[6], driver = assert(Fs.absolute(assert(a[0]))) }
-  return logical(c, "platform: " .. a[1], function(): integer
-    return platform_impl(a)
+  local phase = assert(a[1], "usage: driver.tl platform PHASE [ARG]")
+  local ctx = ContextEnv.read()
+  local target = ContextEnv.target()
+  local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
+    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))) }
+  local p: PlatformContext = { trailing = a[2], operation = c, root = ctx.root,
+    target = target, work = ctx.work, product = ctx.work .. "/product",
+    contract = ctx.work .. "/contract", runtime = ctx.work .. "/runtime",
+    local_diagnostics = ctx.work .. "/local-diagnostics",
+    portable_diagnostics = ctx.work .. "/portable-diagnostics",
+    fresh = ctx.work .. "/portable-source" }
+  return logical(c, "platform: " .. phase, function(): integer
+    return platform_impl(phase, p)
   end)
 end
 
 function Orchestration.provenance(a: {string}): integer
-  assert(a[1] and a[2] and a[3] and a[4] and a[5],
-    "usage: provenance DB WORKER RUN ATTEMPT ROOT PRODUCTS")
-  local c: Context = { db = a[1], worker = a[2], run = a[3],
-    attempt = a[4], root = a[5], driver = assert(Fs.absolute(assert(a[0]))) }
+  local ctx = ContextEnv.read()
+  local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
+    attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(a[0]))) }
   return logical(c, "provenance", function(): integer
-    return provenance_impl(a)
+    return provenance_impl(c, ctx.products)
   end)
 end
 

@@ -49,6 +49,26 @@ local function seeded_bootstrap(tmp: string): string, string
   return runner, digest
 end
 
+--- The driver reads its context (GITHUB_WORKSPACE, GITHUB_RUN_ID,
+--- GITHUB_RUN_ATTEMPT, RUNNER_TEMP, COSMIC_WORKER) from the environment.
+--- In CI the self-check runs inside a job where all of these are already
+--- set to the real job's values, so a spawned driver.tl that inherited
+--- them would write into that job's own $RUNNER_TEMP/cosmic-ci or append
+--- to its real step summary; every test builds this context explicitly
+--- and passes it as `call`'s extra env instead.
+local function driver_context(candidate: string, runner_temp: string,
+    extra?: {string:string}): {string:string}
+  local env: {string:string} = {
+    GITHUB_WORKSPACE = candidate,
+    GITHUB_RUN_ID = "run-1",
+    GITHUB_RUN_ATTEMPT = "1",
+    RUNNER_TEMP = runner_temp,
+    COSMIC_WORKER = "worker",
+  }
+  if extra then for name, value in pairs(extra) do env[name] = value end end
+  return env
+end
+
 --- The self-check holds a write transaction on `ci/o/build.db` while
 --- tests run, so a test that spawns the host on `driver.tl` must never
 --- give it project root `ci/` -- it copies the namespace into its own
@@ -137,12 +157,17 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local runner = seeded_bootstrap(tmp)
   local project = driver_project(tmp)
   local candidate = checkout_root()
-  local driver, db = project .. "/cosmic_ci/driver.tl", tmp .. "/operations.db"
+  local driver = project .. "/cosmic_ci/driver.tl"
+  -- RUNNER_TEMP always exists in CI; Context.read() resolves its scratch
+  -- directory as an external path before creating anything under it, which
+  -- requires RUNNER_TEMP itself to already be there.
+  local runner_temp = tmp .. "/runner-temp"
+  assert(Fs.mkdirs(runner_temp))
+  local ctx_env = driver_context(candidate, runner_temp)
   local function run(phase: string, timeout: string, argv: {string}): Child.Result
-    local command = { runner, driver, "run", db, "worker", "run-1", "1",
-      phase, candidate, timeout }
+    local command = { runner, driver, "run", phase, timeout }
     for _, value in ipairs(argv) do command[#command + 1] = value end
-    return call(command, project, tmp .. "/" .. phase .. ".out", nil, 60000)
+    return call(command, project, tmp .. "/" .. phase .. ".out", ctx_env, 60000)
   end
   local spaced = tmp .. "/path with spaces"
   assert(run("success", "1000", { "/bin/sh", "-c",
@@ -154,11 +179,10 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(run("timeout", "20", { "/bin/sh", "-c", "sleep 30" }).code == 124)
 
   local ready = tmp .. "/ready"
-  local command = { runner, driver, "run", db, "worker", "run-1", "1",
-    "interrupted", candidate, "30000", "/bin/sh", "-c",
+  local command = { runner, driver, "run", "interrupted", "30000", "/bin/sh", "-c",
     "printf ready > \"$1\"; sleep 30", "sh", ready }
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
-  local child = assert(Child.start(command, { cwd = project, env = environment(),
+  local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true, timeout_ms = 35000 }))
   for _ = 1, 200 do
     if Fs.exists(ready) then break end
@@ -170,29 +194,50 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   assert(Fs.close(fd))
   assert(not stopped.ok, "interrupted driver succeeded")
 
-  local report = tmp .. "/report.md"
-  assert(call({ runner, driver, "report", db, report }, project,
-    tmp .. "/report.out").ok)
-  local text = assert(Fs.read(report))
+  local summary = tmp .. "/summary.md"
+  assert(call({ runner, driver, "summarize" }, project, tmp .. "/summarize.out",
+    driver_context(candidate, runner_temp, { GITHUB_STEP_SUMMARY = summary })).ok)
+  local text = assert(Fs.read(summary))
   for _, row in ipairs({ "| worker | run-1 | 1 | success | success |",
       "| worker | run-1 | 1 | nonzero | exit |",
       "| worker | run-1 | 1 | start-failure | start-error |",
       "| worker | run-1 | 1 | timeout | timeout |",
       "| worker | run-1 | 1 | interrupted | incomplete |" }) do
-    assert(text:find(row, 1, true), "report omitted " .. row)
+    assert(text:find(row, 1, true), "summary omitted " .. row)
   end
 
   -- Inside the candidate, so the boundary check fires on the resolved
   -- target, but under its gitignored ci/o so a regression can only
   -- ever touch a throwaway file.
-  local sentinel, link = candidate .. "/ci/o/sentinel.db", tmp .. "/database-link"
+  local sentinel = candidate .. "/ci/o/sentinel.db"
   assert(Fs.mkdirs(candidate .. "/ci/o") and Fs.write(sentinel, "sentinel"))
   local before = Hash.hex_sha256(assert(Fs.read(sentinel)))
-  assert(call({ "/bin/ln", "-s", sentinel, link }, tmp, tmp .. "/db-ln.out").ok)
-  local linked = call({ runner, driver, "run", link, "worker", "run-1", "1",
-      "symlink-db", candidate, "1000", "/bin/sh", "-c", "exit 0" }, project,
-    tmp .. "/symlink-db.out")
+  local symlink_runner_temp = tmp .. "/symlink-runner-temp"
+  assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
+  assert(call({ "/bin/ln", "-s", sentinel,
+    symlink_runner_temp .. "/cosmic-ci/operations.db" }, tmp, tmp .. "/db-ln.out").ok)
+  local linked = call({ runner, driver, "run", "symlink-db", "1000",
+      "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
+    driver_context(candidate, symlink_runner_temp))
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256(assert(Fs.read(sentinel))) == before,
     "rejected symlink changed its target")
+end
+
+-- `summarize` runs `if: always()`, including after a failed checkout or a
+-- failed self-check, so it must work from RUNNER_TEMP and
+-- GITHUB_STEP_SUMMARY alone -- no GITHUB_WORKSPACE, COSMIC_WORKER, or any
+-- of the rest of the full context `run`/`platform`/`provenance` need.
+local function test_summarize_reports_unavailable_database(tmp: string)
+  local runner = seeded_bootstrap(tmp)
+  local project = driver_project(tmp)
+  local driver = project .. "/cosmic_ci/driver.tl"
+  local summary = tmp .. "/summary.md"
+  local result = call({ runner, driver, "summarize" }, project,
+    tmp .. "/summarize.out",
+    { RUNNER_TEMP = tmp .. "/runner-temp", GITHUB_STEP_SUMMARY = summary })
+  assert(result.ok, "summarize failed for a missing operation database")
+  local text = assert(Fs.read(summary))
+  assert(text:find("## Cosmic CI operations", 1, true) and
+    text:find("unavailable", 1, true), "summary omitted the unavailable-database line")
 end

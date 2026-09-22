@@ -1,3 +1,5 @@
+local Context = require("cosmic_ci.context")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
@@ -9,20 +11,17 @@ local function open_database(path: string): Sqlite.Handle
 end
 
 local function run(argv: {string}): integer
-  local database, worker, run_name, attempt, phase =
-    argv[1], argv[2], argv[3], argv[4], argv[5]
-  local candidate, timeout_text, executable = argv[6], argv[7], argv[8]
-  assert(database and worker and run_name and attempt and phase and candidate and
-    timeout_text and executable,
-    "usage: driver.tl run DB WORKER RUN ATTEMPT PHASE CANDIDATE TIMEOUT_MS EXECUTABLE [ARG...]")
+  local phase, timeout_text, executable = argv[1], argv[2], argv[3]
+  assert(phase and timeout_text and executable,
+    "usage: driver.tl run PHASE TIMEOUT_MS EXECUTABLE [ARG...]")
   local timeout = math.tointeger(tonumber(timeout_text))
   assert(timeout and timeout >= 0, "timeout must be a non-negative integer")
-  database = State.external_path(database, candidate)
+  local context = Context.read()
   local command: {string} = { executable }
-  for i = 9, #argv do command[#command + 1] = argv[i] end
-  local context: Runner.Context = { database = database, worker = worker,
-    run = run_name, attempt = attempt, candidate = candidate }
-  return Runner.operation(context, phase, { argv = command, cwd = candidate,
+  for i = 4, #argv do command[#command + 1] = argv[i] end
+  local runner: Runner.Context = { database = context.db, worker = context.worker,
+    run = context.run, attempt = context.attempt, candidate = context.root }
+  return Runner.operation(runner, phase, { argv = command, cwd = context.root,
     timeout_ms = timeout }).code
 end
 
@@ -32,41 +31,49 @@ local function clean(value: string): string
   return one_line
 end
 
-local function report(argv: {string}): integer
-  local database, output = argv[1], argv[2]
-  assert(database and output, "usage: driver.tl report DB OUTPUT")
-  assert(Fs.exists(database), "operation database does not exist: " .. database)
-  local db = open_database(database)
-  local rows = assert(Sqlite.text_rows(db, [[
-    SELECT s.worker, s.run, s.attempt, s.phase,
-           COALESCE(c.status, 'incomplete'),
-           COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),
-           COALESCE(CAST(c.exit_code AS TEXT), ''),
-           COALESCE(CAST(c.signal AS TEXT), ''),
-           COALESCE(c.detail, '')
-      FROM operation_events s
-      LEFT JOIN operation_events c ON c.start_id = s.id AND c.event = 'complete'
-     WHERE s.event = 'start'
-     ORDER BY s.id
-  ]]))
-  assert(db:close())
-  local lines = {
-    "## Cosmic CI operations\n\n",
-    "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n",
-    "|---|---|---|---|---:|---:|---:|---:|---|\n",
-  }
-  for _, row in ipairs(rows) do
-    local cells: {string} = {}
-    for i = 1, 9 do cells[i] = clean(row[i]) end
-    lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
+local function summarize(_argv: {string}): integer
+  local db_path = Context.database()
+  local lines: {string} = { "## Cosmic CI operations\n\n" }
+  if not Fs.exists(db_path) then
+    lines[#lines + 1] =
+      "Operation database unavailable: no operation ran (the self-check failed first).\n"
+  else
+    local db = open_database(db_path)
+    local rows = assert(Sqlite.text_rows(db, [[
+      SELECT s.worker, s.run, s.attempt, s.phase,
+             COALESCE(c.status, 'incomplete'),
+             COALESCE(CAST(c.elapsed_ns / 1000000 AS TEXT), ''),
+             COALESCE(CAST(c.exit_code AS TEXT), ''),
+             COALESCE(CAST(c.signal AS TEXT), ''),
+             COALESCE(c.detail, '')
+        FROM operation_events s
+        LEFT JOIN operation_events c ON c.start_id = s.id AND c.event = 'complete'
+       WHERE s.event = 'start'
+       ORDER BY s.id
+    ]]))
+    assert(db:close())
+    lines[#lines + 1] = "| Worker | Run | Attempt | Phase | Status | ms | Exit | Signal | Detail |\n"
+    lines[#lines + 1] = "|---|---|---|---|---:|---:|---:|---:|---|\n"
+    for _, row in ipairs(rows) do
+      local cells: {string} = {}
+      for i = 1, 9 do cells[i] = clean(row[i]) end
+      lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
+    end
   end
-  assert(Fs.write(output, table.concat(lines)))
+  local text = table.concat(lines)
+  local output = Env.get("GITHUB_STEP_SUMMARY")
+  if output and output ~= "" then
+    local existing = Fs.exists(output) and assert(Fs.read(output)) or ""
+    assert(Fs.write(output, existing .. text))
+  else
+    assert(Fs.put(Fs.stdout, text))
+  end
   return 0
 end
 
 local commands: {string:function({string}):integer} = {
   run = run,
-  report = report,
+  summarize = summarize,
   platform = Orchestration.platform,
   provenance = Orchestration.provenance,
 }
@@ -74,7 +81,7 @@ local commands: {string:function({string}):integer} = {
 return function(argv: {string}): integer
   local handler = argv[1] and commands[argv[1]] or nil
   if not handler then
-    Fs.put(Fs.stderr, "usage: driver.tl run|report|platform|provenance ...\n")
+    Fs.put(Fs.stderr, "usage: driver.tl run|summarize|platform|provenance ...\n")
     return 2
   end
   local rest: {string} = { [0] = argv[0] }

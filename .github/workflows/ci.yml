@@ -46,6 +46,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 45
+    env:
+      COSMIC_WORKER: ${{ matrix.name }}
+      TARGET: ${{ matrix.target }}
     steps:
       - name: install the tools the actions and the build need
         if: matrix.container
@@ -54,7 +57,7 @@ jobs:
         # as root, so git refuses the repository unless it is registered
         # here, in the HOME every later step shares.
         run: |
-          apk add --no-cache bash git tar zstd curl xz
+          apk add --no-cache git tar zstd curl xz
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -65,19 +68,16 @@ jobs:
           path: ~/.cache/cosmic/ci-driver
           key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
 
-      - name: bootstrap and check the pinned CI driver
-        shell: bash
+      - name: bootstrap the pinned CI driver
+        id: driver
         run: |
           sh bootstrap-driver.sh cosmic-driver.pin \
             "$HOME/.cache/cosmic/ci-driver" \
-            "$RUNNER_TEMP/cosmic-driver"
-          mkdir -p "$RUNNER_TEMP/cosmic-driver-selfcheck"
-          TMPDIR="$RUNNER_TEMP/cosmic-driver-selfcheck" \
-            "$RUNNER_TEMP/cosmic-driver" test cosmic_ci
-          {
-            echo "COSMIC_DRIVER=$RUNNER_TEMP/cosmic-driver"
-            echo "COSMIC_OPERATIONS_DB=$RUNNER_TEMP/platform/operations.db"
-          } >> "$GITHUB_ENV"
+            "$RUNNER_TEMP/bin/cosmic-driver"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: check the pinned CI driver
+        run: cosmic-driver test cosmic_ci
 
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -106,7 +106,7 @@ jobs:
       - name: cache zig build outputs
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~/.cache/cosmic/zig-build
+          path: ${{ runner.temp }}/zig-build
           key: zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**') }}
           restore-keys: |
             zig-build-${{ matrix.name }}-
@@ -114,28 +114,14 @@ jobs:
       - name: build release Cosmic and run its native suite
         id: release-suite
         env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          export COSMIC_ZIG_CACHE_SEED=~/.cache/cosmic/zig-build
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform build \
-            "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID" \
-            "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+          COSMIC_ZIG_CACHE_SEED: ${{ runner.temp }}/zig-build
+        run: cosmic-driver cosmic_ci/driver.tl platform build
 
       - name: verify the delayed native database boundary
-        env:
-          TARGET: ${{ matrix.target }}
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform local-boundary
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+        run: cosmic-driver cosmic_ci/driver.tl platform local-boundary
 
       - name: build local portable and checked artifacts
-        env:
-          TARGET: ${{ matrix.target }}
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform assemble
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+        run: cosmic-driver cosmic_ci/driver.tl platform assemble
 
       # The last step above to invoke `bin/zig build` (the fixture steps,
       # `sanitized`, and `portable-hook-cores`, inside the driver's `assemble`
@@ -144,96 +130,41 @@ jobs:
       # actions/cache publishes it only when the job succeeds; zig's own
       # content addressing makes restored entries safe to validate and reuse.
       - name: save zig build outputs for next run
-        if: always()
+        if: always() && steps.driver.outcome == 'success'
         env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          export COSMIC_ZIG_CACHE_SEED="$HOME/.cache/cosmic/zig-build"
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform cache-save \
-            "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID" \
-            "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+          COSMIC_ZIG_CACHE_SEED: ${{ runner.temp }}/zig-build
+        run: cosmic-driver cosmic_ci/driver.tl platform cache-save
 
       - name: run the product suite from fresh tracked source
         id: portable-suite
-        env:
-          TARGET: ${{ matrix.target }}
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform portable
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+        run: cosmic-driver cosmic_ci/driver.tl platform portable
 
       - name: verify the delayed portable database boundary
         if: always() && steps.portable-suite.outcome != 'skipped'
-        env:
-          TARGET: ${{ matrix.target }}
-          PORTABLE_OUTCOME: ${{ steps.portable-suite.outcome }}
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform portable-boundary
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
-          "${{ steps.portable-suite.outcome }}"
+        run: cosmic-driver cosmic_ci/driver.tl platform portable-boundary "${{ steps.portable-suite.outcome }}"
 
       - name: run runtime, launcher, rebuild, and identity regressions
-        env:
-          TARGET: ${{ matrix.target }}
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform fixtures
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
+        run: cosmic-driver cosmic_ci/driver.tl platform fixtures
 
       - name: attest the exact executed product bytes
-        env:
-          TARGET: ${{ matrix.target }}
-          EXPECTED_PLATFORMS: ${{ strategy.job-total }}
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform attest
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
-          "$EXPECTED_PLATFORMS"
+        run: cosmic-driver cosmic_ci/driver.tl platform attest "${{ strategy.job-total }}"
 
       - name: summarize worker operations
-        if: always()
-        run: |
-          if [ ! -f "$COSMIC_OPERATIONS_DB" ]; then
-            echo '## Cosmic CI operations' >> "$GITHUB_STEP_SUMMARY"
-            echo 'Operation database unavailable (bootstrap failed).' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl report \
-            "$COSMIC_OPERATIONS_DB" "$RUNNER_TEMP/platform/operations.md"
-          cat "$RUNNER_TEMP/platform/operations.md" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: summarize CI driver checks
-        if: always()
-        shell: bash
-        run: |
-          db="$(find "$RUNNER_TEMP/cosmic-driver-selfcheck" -name operations.db -type f -print | sed -n 1p)"
-          if [ -z "$db" ]; then
-            echo '## Cosmic CI operations' >> "$GITHUB_STEP_SUMMARY"
-            echo 'Driver database unavailable (bootstrap or self-check failed before its first operation).' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl report \
-            "$db" \
-            "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md"
-          cat "$RUNNER_TEMP/cosmic-driver-selfcheck/driver-report.md" >> "$GITHUB_STEP_SUMMARY"
+        if: always() && steps.driver.outcome == 'success'
+        run: cosmic-driver cosmic_ci/driver.tl summarize
 
       - name: preserve CI driver database
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: ci-driver-${{ matrix.name }}
-          path: |
-            ${{ runner.temp }}/cosmic-driver-selfcheck/**/operations.db
-            ${{ runner.temp }}/cosmic-driver-selfcheck/driver-report.md
-            ${{ runner.temp }}/platform/operations.db
-            ${{ runner.temp }}/platform/operations.md
+          path: ${{ runner.temp }}/cosmic-ci/operations.db
           if-no-files-found: ignore
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: portable-product-${{ matrix.name }}
-          path: ${{ runner.temp }}/platform/product
+          path: ${{ runner.temp }}/cosmic-ci/platform/product
           if-no-files-found: error
 
       - name: preserve platform failure diagnostics
@@ -242,9 +173,9 @@ jobs:
         with:
           name: platform-diagnostics-${{ matrix.name }}
           path: |
-            ${{ runner.temp }}/platform/local-diagnostics
-            ${{ runner.temp }}/platform/portable-diagnostics
-            ${{ runner.temp }}/platform/fixture-test-diagnostics
+            ${{ runner.temp }}/cosmic-ci/platform/local-diagnostics
+            ${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics
+            ${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics
           if-no-files-found: ignore
 
   # Every successful platform/environment execution must attest and upload
@@ -258,6 +189,8 @@ jobs:
         working-directory: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      COSMIC_WORKER: provenance
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: cache the pinned CI driver
@@ -266,42 +199,27 @@ jobs:
           path: ~/.cache/cosmic/ci-driver
           key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
       - name: bootstrap the pinned provenance driver
+        id: driver
         run: |
           sh bootstrap-driver.sh cosmic-driver.pin \
             "$HOME/.cache/cosmic/ci-driver" \
-            "$RUNNER_TEMP/cosmic-driver"
-          {
-            echo "COSMIC_DRIVER=$RUNNER_TEMP/cosmic-driver"
-            echo "COSMIC_OPERATIONS_DB=$RUNNER_TEMP/provenance-operations.db"
-          } >> "$GITHUB_ENV"
+            "$RUNNER_TEMP/bin/cosmic-driver"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: portable-product-*
-          path: ${{ runner.temp }}/products
+          path: ${{ runner.temp }}/cosmic-ci/products
       - name: compare the Cosmic bytes executed on every native host
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl provenance
-          "$COSMIC_OPERATIONS_DB" provenance "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
-          "$GITHUB_WORKSPACE" "$RUNNER_TEMP/products"
+        run: cosmic-driver cosmic_ci/driver.tl provenance
       - name: summarize provenance operations
-        if: always()
-        run: |
-          if [ ! -f "$COSMIC_OPERATIONS_DB" ]; then
-            echo '## Cosmic CI operations' >> "$GITHUB_STEP_SUMMARY"
-            echo 'Provenance operation database unavailable.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl report \
-            "$COSMIC_OPERATIONS_DB" "$RUNNER_TEMP/provenance-operations.md"
-          cat "$RUNNER_TEMP/provenance-operations.md" >> "$GITHUB_STEP_SUMMARY"
+        if: always() && steps.driver.outcome == 'success'
+        run: cosmic-driver cosmic_ci/driver.tl summarize
       - name: preserve provenance operations
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: provenance-operations
-          path: |
-            ${{ runner.temp }}/provenance-operations.db
-            ${{ runner.temp }}/provenance-operations.md
+          path: ${{ runner.temp }}/cosmic-ci/operations.db
           if-no-files-found: ignore
 
   prerelease:
