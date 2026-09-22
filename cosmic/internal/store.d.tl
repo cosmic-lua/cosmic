@@ -4,8 +4,7 @@
 local type sqlite = require("cosmic.internal.sqlite")
 
 local record store
-  -- Opens a database and searches it ahead of every other, which is what
-  -- a project's own build database needs.
+  -- Opens a projected module database and searches it ahead of every other.
   attach: function(path: string): boolean, string
 
   -- One module's compiled bytes, for a caller that must load the chunk

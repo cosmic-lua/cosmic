@@ -1,6 +1,7 @@
 local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local Runner = require("cosmic_ci.runner")
@@ -34,7 +35,8 @@ end
 local function summarize(_argv: {string}): integer
   local db_path = Context.database()
   local lines: {string} = { "## Cosmic CI operations\n\n" }
-  if not Fs.exists(db_path) then
+  local database_exists = Predicate.exists(db_path)
+  if not database_exists then
     lines[#lines + 1] =
       "Operation database unavailable: no operation ran (the self-check failed first).\n"
   else
@@ -63,7 +65,8 @@ local function summarize(_argv: {string}): integer
   local text = table.concat(lines)
   local output = Env.get("GITHUB_STEP_SUMMARY")
   if output and output ~= "" then
-    local existing = Fs.exists(output) and assert(Fs.read(output)) or ""
+    local output_exists = Predicate.exists(output)
+    local existing = output_exists and assert(Fs.read(output)) or ""
     assert(Fs.write(output, existing .. text))
   else
     assert(Fs.put(Fs.stdout, text))

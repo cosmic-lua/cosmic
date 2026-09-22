@@ -42,6 +42,11 @@ static int failed_effect(lua_State *L, sqlite3 *db, int rc) {
   return 2;
 }
 
+static int succeeded(lua_State *L) {
+  lua_pushliteral(L, "");
+  return 2;
+}
+
 static struct handle *checked_handle(lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
@@ -183,7 +188,7 @@ static int sqlite_open(lua_State *L) {
     h->db = NULL;
     return result;
   }
-  return 1;
+  return succeeded(L);
 }
 
 static int handle_exec(lua_State *L) {
@@ -198,7 +203,7 @@ static int handle_exec(lua_State *L) {
     return 2;
   }
   lua_pushboolean(L, 1);
-  return 1;
+  return succeeded(L);
 }
 
 static int handle_prepare(lua_State *L) {
@@ -253,19 +258,19 @@ static int handle_prepare(lua_State *L) {
     lua_pushstring(L, "SQL contains more than one statement");
     return 2;
   }
-  return 1;
+  return succeeded(L);
 }
 
 static int handle_close(lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
     lua_pushboolean(L, 1);
-    return 1;
+    return succeeded(L);
   }
   if (h->borrowed) {
     h->db = NULL;
     lua_pushboolean(L, 1);
-    return 1;
+    return succeeded(L);
   }
   int rc = sqlite3_close(h->db);
   if (rc != SQLITE_OK) {
@@ -273,7 +278,7 @@ static int handle_close(lua_State *L) {
   }
   h->db = NULL;
   lua_pushboolean(L, 1);
-  return 1;
+  return succeeded(L);
 }
 
 static int handle_gc(lua_State *L) {
@@ -309,7 +314,7 @@ static int bound(lua_State *L, int rc, sqlite3 *db) {
     return failed_effect(L, db, rc);
   }
   lua_pushboolean(L, 1);
-  return 1;
+  return succeeded(L);
 }
 
 static int statement_parameters(lua_State *L) {
@@ -366,11 +371,11 @@ static int statement_step(lua_State *L) {
   int rc = sqlite3_step(s->stmt);
   if (rc == SQLITE_ROW) {
     lua_pushstring(L, "row");
-    return 1;
+    return succeeded(L);
   }
   if (rc == SQLITE_DONE) {
     lua_pushstring(L, "done");
-    return 1;
+    return succeeded(L);
   }
   return failed(L, s->db, rc);
 }
@@ -433,7 +438,7 @@ static int statement_reset(lua_State *L) {
     return failed_effect(L, s->db, rc);
   }
   lua_pushboolean(L, 1);
-  return 1;
+  return succeeded(L);
 }
 
 static int statement_finalize(lua_State *L) {

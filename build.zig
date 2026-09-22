@@ -179,10 +179,6 @@ pub fn build(b: *std.Build) void {
         "portable-hook-cores",
         "build release and retained-artifact test fixture cores",
     );
-    const portable_fixture_cores = b.step(
-        "portable-fixture-cores",
-        "build release, retained-artifact test, and checked fixture cores",
-    );
     const portable_format_fixtures = b.step(
         "portable-format-fixtures",
         "build native and target portable-format decoders",
@@ -401,13 +397,7 @@ pub fn build(b: *std.Build) void {
     sanitized.dependOn(&checked_records_install.step);
     sanitized.dependOn(&checked_boot.step);
 
-    const checked_fixture_install = b.addInstallFile(
-        checked.getEmittedBin(),
-        "portable-fixture/sanitized/cosmic-core",
-    );
     portable_hook_cores.dependOn(cores);
-    portable_fixture_cores.dependOn(portable_hook_cores);
-    portable_fixture_cores.dependOn(&checked_fixture_install.step);
 
     b.getInstallStep().dependOn(cores);
 }

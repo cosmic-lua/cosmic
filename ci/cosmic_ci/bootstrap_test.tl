@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
@@ -19,7 +20,7 @@ local function call(argv: {string}, cwd: string, output: string,
     process_group = true, timeout_ms = timeout or 5000,
   })
   assert(Fs.close(fd))
-  return assert(result, trouble)
+  return (assert(result, trouble))
 end
 
 --- The candidate checkout root: this test's cwd is `<checkout>/ci`, so
@@ -40,7 +41,7 @@ local function seeded_bootstrap(tmp: string): string, string
   local digest = Hash.hex_sha256(assert(Fs.read(program)))
   local cache, runner = tmp .. "/cache", tmp .. "/runner"
   assert(Fs.mkdirs(cache))
-  assert(Fs.write(cache .. "/cosmic-" .. digest, assert(Fs.read(program))))
+  assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program)))))
   local pin_path = tmp .. "/local.pin"
   pin(pin_path, string.rep("a", 40), digest)
   local result = call({ "/bin/sh", checkout_root() .. "/ci/bootstrap-driver.sh",
@@ -102,7 +103,7 @@ cp "$DOWNLOAD_SOURCE" "$output"
       pin_path, cache, tmp .. "/runner" }, tmp,
     tmp .. "/bad.out", { PATH = fake .. ":" .. assert(Env.get("PATH")),
       DOWNLOAD_SOURCE = tmp .. "/download" })
-  assert(not result.ok and not Fs.exists(tmp .. "/runner"),
+  assert(not result.ok and Fs.exists(tmp .. "/runner") == false,
     "corrupt replacement was accepted")
 end
 
@@ -136,7 +137,7 @@ local function test_bootstrap_rejects_hostile_destinations(tmp: string)
   local digest = Hash.hex_sha256(assert(Fs.read(program)))
   local cache = tmp .. "/cache"
   assert(Fs.mkdirs(cache))
-  assert(Fs.write(cache .. "/cosmic-" .. digest, assert(Fs.read(program))))
+  assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program)))))
   local pin_path = tmp .. "/local.pin"
   pin(pin_path, string.rep("c", 40), digest)
   local script = checkout_root() .. "/ci/bootstrap-driver.sh"
@@ -185,10 +186,10 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true, timeout_ms = 35000 }))
   for _ = 1, 200 do
-    if Fs.exists(ready) then break end
+    if Predicate.exists(ready) then break end
     Time.sleep_ns(10 * 1000 * 1000)
   end
-  assert(Fs.exists(ready), "interrupted operation never started")
+  assert(Predicate.exists(ready), "interrupted operation never started")
   assert(child:stop())
   local stopped = assert(child:wait(5000))
   assert(Fs.close(fd))

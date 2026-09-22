@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -361,7 +362,7 @@ local function test_identity_primary(tmp: string)
     "corrupt-core build unexpectedly succeeded")
   Fixture.contains(corrupt_outcome.err, "retained portable core range ")
   Fixture.contains(corrupt_outcome.err, " digest differs from manifest")
-  assert(not Fs.exists(corrupt_project .. "/o/bin/hello"),
+  assert(Fs.exists(corrupt_project .. "/o/bin/hello") == false,
     "corrupt-core build produced an application")
 
   local hello_run = Fixture.run("hello", { project .. "/o/bin/hello" }, project,
@@ -425,7 +426,7 @@ local function test_identity_primary(tmp: string)
     tostring(missing_outcome.result.code) .. ", want 1")
   Fixture.contains(missing_outcome.err,
     "the running binary names no runtime identity")
-  assert(not Fs.exists(missing_counter),
+  assert(Fs.exists(missing_counter) == false,
     "missing-runtime test wrote a counter file")
 
   -- Snapshot the finished project for test_identity_transported. TMPDIR is
@@ -448,7 +449,8 @@ local function test_identity_transported(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local state_root = Env.get_or("TMPDIR", "/tmp") .. "/" ..
     transported_state_name
-  assert(Fs.is_dir(state_root),
+  local state_exists = Predicate.is_dir(state_root)
+  assert(state_exists,
     "identity transported state is missing; test_identity_primary must " ..
     "run first in this same process")
 

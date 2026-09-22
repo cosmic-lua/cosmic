@@ -11,7 +11,7 @@ function Compress.deflate(data: string): string | nil, string
   if packed == nil then
     return nil, trouble
   end
-  return packed
+  return packed, ""
 end
 
 --- Expands bytes that `deflate` compressed. The expanded size is what
@@ -21,7 +21,7 @@ function Compress.inflate(data: string, size: integer): string | nil, string
   if out == nil then
     return nil, trouble
   end
-  return out
+  return out, ""
 end
 
 return Compress

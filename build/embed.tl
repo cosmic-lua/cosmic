@@ -258,7 +258,9 @@ end
 --- `cmd/<name>/main.tl` it holds, for the target this binary runs on.
 --- Returns the names written, none for a tree with no `cmd/`.
 function embed.tree(root: string): {string} | nil, string
-  if importer.is_own_tree(root) then
+  local own_tree, own_trouble = importer.is_own_tree(root)
+  if own_tree == nil then return nil, own_trouble end
+  if own_tree then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
   local started = Time.monotonic_ns() or 0

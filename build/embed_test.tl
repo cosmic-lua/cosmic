@@ -108,8 +108,10 @@ local function test_a_tree_without_a_main_builds_and_writes_nothing(tmp: string)
   local names, trouble = embed.tree(tmp)
   assert(names ~= nil, trouble)
   assert(#names == 0, "a library tree has no executable to write")
-  assert(Fs.exists(tmp .. "/o/cosmic.db"), "but it was built")
-  assert(not Fs.exists(tmp .. "/o/bin"))
+  local database_exists, exists_trouble = Fs.exists(tmp .. "/o/cosmic.db")
+  assert(database_exists ~= nil, exists_trouble)
+  assert(database_exists, "but it was built")
+  assert(Fs.exists(tmp .. "/o/bin") == false)
 end
 
 local function test_cosmic_s_own_tree_is_refused(tmp: string)

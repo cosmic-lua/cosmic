@@ -20,7 +20,9 @@ end
 
 local function test_untrusted_load_cannot_reach_raw_debug()
   local bytes, trouble = Store.bytecode("cosmic.coverage")
-  assert(bytes ~= nil, tostring(trouble))
+  assert(bytes ~= nil and trouble == "", tostring(trouble))
+  local source, source_trouble = Store.source("cosmic.coverage")
+  assert(source ~= nil and source_trouble == "", tostring(source_trouble))
   local chunk, load_trouble = load(bytes, "@cosmic.coverage", "b")
   assert(chunk ~= nil, tostring(load_trouble))
   -- Called the way an untrusted loader hands a module its `extra`

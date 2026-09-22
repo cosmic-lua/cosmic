@@ -26,8 +26,7 @@ end
 local record Store
 end
 
---- Opens a database and searches it ahead of every other, which is what
---- a project's own build database needs.
+--- Opens a projected module database and searches it ahead of every other.
 function Store.attach(path: string): boolean, string
   local ok, trouble = store.attach(path)
   if not ok then
@@ -39,11 +38,7 @@ end
 --- One module's compiled bytes, for a caller that must load the chunk in
 --- an environment of its own.
 function Store.bytecode(name: string): string | nil, string
-  local bytes, trouble = store.bytecode(name)
-  if bytes == nil then
-    return nil, trouble
-  end
-  return bytes
+  return store.bytecode(name)
 end
 
 --- One entry of the meta table, which is where a build records what it
@@ -56,11 +51,7 @@ end
 --- database and no other: what a checker building another tree needs
 --- to type a `require` of this one's modules.
 function Store.source(name: string): string | nil, string
-  local source, trouble = store.source(name)
-  if source == nil then
-    return nil, trouble
-  end
-  return source
+  return store.source(name)
 end
 
 --- Every database `require` searches, in search order: a project's

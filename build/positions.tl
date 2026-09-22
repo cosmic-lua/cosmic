@@ -966,6 +966,108 @@ function positions.analyze(built: compiler, source: string,
   return positions.analysis_of(built, parsed, source)
 end
 
+local function includes(t: ast.TypeNode, wanted: string): boolean
+  if t.typename == wanted then return true end
+  if t.typename == "union" then
+    local alternatives = t.types
+    if alternatives == nil then return false end
+    for _, alternative in ipairs(alternatives) do
+      if includes(alternative, wanted) then return true end
+    end
+  end
+  return false
+end
+
+local function member_call(n: ast.Node): ast.Node | nil
+  local operation = n.op
+  if n.kind ~= "op" or operation == nil or operation.op ~= "@funcall" then return nil end
+  local callee = n.e1
+  local member_operation = callee ~= nil and callee.op or nil
+  local member = callee ~= nil and callee.e2 or nil
+  if callee == nil or member_operation == nil or member_operation.op ~= "."
+      or member == nil then return nil end
+  return callee
+end
+
+--- Checks the return contract that can be established from declarations and
+--- direct native calls. Native declarations and test modules are boundaries,
+--- and are deliberately checked by their own generators/fixtures instead.
+function positions.check_api_contracts(built: compiler, modules: {positions.Module},
+                                       fallible_syscalls: {string:boolean}): boolean, string
+  for _, m in ipairs(modules) do
+    if m.kind ~= "test" and (m.file:match("^cosmic/") or m.file:match("^build/")) then
+      local parsed, trouble = ast.parse(built, m.source, m.file)
+      if parsed == nil then return false, trouble end
+      local references, reference_trouble = references_of(built, parsed)
+      if reference_trouble ~= "" then return false, reference_trouble end
+      local export = ""
+      local returned: ast.Node = nil
+      for _, top in ipairs(parsed.node) do
+        if top.kind == "return" and top.exps ~= nil then
+          returned = top.exps[1]
+          if returned ~= nil and returned.kind == "variable" then
+            export = returned.tk or ""
+          end
+        end
+      end
+      local entries = docs_of(lines_of(m.source), parsed)
+      canonicalize_docs(entries, parsed, export, returned)
+      local exported_lines: {integer:boolean} = {}
+      for _, entry in ipairs(entries) do
+        if entry.exported and entry.kind == "function" then
+          exported_lines[entry.line] = true
+        end
+      end
+      for _, stmt in ipairs(parsed.node) do
+        if stmt.kind == "record_function" or stmt.kind == "local_function" then
+          local rets = stmt.rets ~= nil and stmt.rets.tuple or nil
+          local first = rets ~= nil and rets[1] or nil
+          local name = stmt.name ~= nil and stmt.name.tk or "function"
+          local exported = exported_lines[stmt.y] or false
+          local build_fallible_triple = m.file:match("^build/") ~= nil
+            and first ~= nil and rets ~= nil and #rets >= 3
+            and includes(first, "nil") and rets[2].typename == "string"
+          local public_pair = first ~= nil and rets ~= nil and #rets >= 2
+            and ((m.file:match("^cosmic/") ~= nil and exported)
+              or build_fallible_triple)
+          local direct_fallible = false
+          if exported and first ~= nil and first.typename == "boolean"
+              and stmt.body ~= nil then
+            local inner = nodes_under_inner_functions(stmt.body)
+            ast.walk(stmt.body, function(n: ast.Node)
+              local call = member_call(n)
+              local member = call ~= nil and call.e2 or nil
+              local member_name = member ~= nil and member.tk or nil
+              if member_name ~= nil and fallible_syscalls[member_name]
+                  and not inner[n] then
+                local receiver = assert(call).e1
+                local reference_line = assert(receiver).y
+                for _, reference in ipairs(references) do
+                  if reference.module == "cosmic.sys"
+                      and reference.member == member_name
+                        and reference.line == reference_line then
+                    direct_fallible = true
+                  end
+                end
+              end
+            end)
+          end
+          if public_pair or direct_fallible then
+            local first_ok = first ~= nil and (first.typename == "boolean"
+              or includes(first, "nil"))
+            if rets == nil or #rets ~= 2 or not first_ok
+                or rets[2].typename ~= "string" then
+              return false, string.format("%s:%d: %s: a public fallible function must return exactly (value, string)",
+                m.file, stmt.y, name)
+            end
+          end
+        end
+      end
+    end
+  end
+  return true, ""
+end
+
 --- The file's own name, with no directory in front of it.
 local function basename(file: string): string
   return file:match("([^/]+)$") or file

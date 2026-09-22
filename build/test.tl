@@ -953,7 +953,11 @@ function test.run(argv: {integer:string}): integer
     slot = slot + 1
   end
   local started = Time.monotonic_ns() or 0
-  local own_tree = importer.is_own_tree(root)
+  local own_tree, own_trouble = importer.is_own_tree(root)
+  if own_tree == nil then
+    complain(own_trouble)
+    return 1
+  end
   local handle, open_trouble = work.open(root)
   if handle == nil then
     complain(open_trouble)

@@ -58,7 +58,7 @@ end
 --- caller can gate other cosmic's-own-tree behavior on the same test
 --- the importer itself uses; see `build.tree`, which holds the real
 --- check so answering it never costs loading the rest of `build`.
-function importer.is_own_tree(root: string): boolean
+function importer.is_own_tree(root: string): boolean | nil, string
   return tree.is_own(root)
 end
 
@@ -324,7 +324,11 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
                          built: compiler): boolean, string
   local db = handle.db
   if not self_tree then
-    if Fs.is_dir(handle.root .. "/cosmic") then
+    local reserved, reserved_trouble = Fs.is_dir(handle.root .. "/cosmic")
+    if reserved == nil then
+      return false, reserved_trouble
+    end
+    if reserved then
       return false, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree"
     end
     local claimed, trouble = Sqlite.text_rows(db,
@@ -911,9 +915,14 @@ end
 
 --- Compiles one module: the checker over its source, the test tail
 --- when it is a test, and the bytecode.
+local record Generated
+  lua: string
+  bytecode: string
+end
+
 local function generate(m: Module, built: compiler, env: compiler.Env,
                         databases: {Sqlite.Handle},
-                        public: {boolean}): string | nil, string, string
+                        public: {boolean}): Generated | nil, string
   local code, result = built.gen(m.source, env, nil, "tl")
   if m.kind == "test" and result ~= nil then
     result = discount_test_warnings(result, m.tests)
@@ -923,7 +932,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   end
   local complaint = result ~= nil and complain(m.file, result, databases, public) or ""
   if code == nil or complaint ~= "" then
-    return nil, "", m.file .. ": the compiler refused it\n" .. complaint
+    return nil, m.file .. ": the compiler refused it\n" .. complaint
   end
   -- The checker has just seen this module whole; a module compiled
   -- after it that requires it is checked against that, rather than
@@ -934,9 +943,9 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   end
   local bytecode, dump_trouble = bytecode_of(code, m.path, m.file)
   if bytecode == nil then
-    return nil, "", dump_trouble
+    return nil, dump_trouble
   end
-  return code, bytecode, ""
+  return { lua = code, bytecode = bytecode }, ""
 end
 
 --- The vendored compiler, planned and cached like any module: its Lua
@@ -988,13 +997,32 @@ end
 ---   every key carries
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string): importer.Result | nil, string
-  local modules, trouble = collect(handle, importer.is_own_tree(handle.root), built)
+  local own_tree, own_trouble = importer.is_own_tree(handle.root)
+  if own_tree == nil then return nil, own_trouble end
+  local modules, trouble = collect(handle, own_tree, built)
   if modules == nil then
     return nil, trouble
   end
   local positioned, position_trouble = positions.check(modules)
   if not positioned then
     return nil, position_trouble
+  end
+  if own_tree then
+    local header_rows, header_trouble = Sqlite.text_rows(handle.db,
+      "SELECT data FROM files WHERE path = 'core/syscalls.h'")
+    if header_rows == nil then return nil, header_trouble end
+    if #header_rows == 0 then
+      return nil, "core/syscalls.h: cosmic's own tree has no syscall declaration source"
+    end
+    local declared, declaration_trouble = gen_syscalls.read(header_rows[1][1])
+    if declared == nil then return nil, declaration_trouble end
+    local fallible: {string:boolean} = {}
+    for _, call in ipairs(declared.calls) do
+      if #call.results == 3 then fallible[call.name] = true end
+    end
+    local contracted, contract_trouble =
+      positions.check_api_contracts(built, modules, fallible)
+    if not contracted then return nil, contract_trouble end
   end
   local order, why = ordered(modules)
   if order == nil then
@@ -1022,7 +1050,6 @@ function importer.compile(handle: work.Handle, built: compiler,
   -- where a stdlib symbol like `cosmic.removed`'s own fields actually
   -- live for any tree but cosmic's -- see `docs.databases`, the same
   -- shape built for the same reason.
-  local own_tree = importer.is_own_tree(handle.root)
   local hint_databases: {Sqlite.Handle} = { db }
   local hint_public: {boolean} = { false }
   for _, store_db in ipairs(Store.databases()) do
@@ -1076,14 +1103,15 @@ function importer.compile(handle: work.Handle, built: compiler,
             end
             env = made_env
           end
-          local code, made_bytecode, generate_trouble =
+          local generated, generate_trouble =
             generate(m, built, env, hint_databases, hint_public)
-          if code == nil then
+          if generated == nil then
             failure = generate_trouble
             break
           end
-          lua = code
-          bytecode = made_bytecode
+          local made = assert(generated)
+          lua = made.lua
+          bytecode = made.bytecode
           result.compiled = result.compiled + 1
         end
         m.lua = lua

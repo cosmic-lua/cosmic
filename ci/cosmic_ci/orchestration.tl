@@ -1,6 +1,7 @@
 local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
@@ -14,7 +15,10 @@ local record Orchestration
 end
 
 local function mkdir(path: string) assert(Fs.mkdirs(path)) end
-local function read(path: string): string return assert(Fs.read(path)) end
+
+local exists = Predicate.exists
+local is_dir = Predicate.is_dir
+local function read(path: string): string return (assert(Fs.read(path))) end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
 local function environment(extra?: {string:string}): {string:string}
@@ -187,13 +191,13 @@ local function snapshot(c: Context, diagnostics: string, label: string,
     destination:sub(1, #candidate + 1) ~= candidate .. "/",
     "snapshot path must be outside candidate checkout")
   local out = destination .. "/" .. label
-  assert(not Fs.exists(out), "snapshot already exists: " .. out); mkdir(out)
+  assert(not exists(out), "snapshot already exists: " .. out); mkdir(out)
   write(out .. "/build.db", read(c.root .. "/o/build.db"))
-  if Fs.exists(c.root .. "/o/build.db-journal") then
+  if exists(c.root .. "/o/build.db-journal") then
     write(out .. "/build.db-journal", read(c.root .. "/o/build.db-journal"))
   end
   local hashes = hash(out .. "/build.db") .. "  build.db\n"
-  if Fs.exists(out .. "/build.db-journal") then
+  if exists(out .. "/build.db-journal") then
     hashes = hashes .. hash(out .. "/build.db-journal") .. "  build.db-journal\n"
   end
   write(out .. "/hashes.sha256", hashes)
@@ -202,7 +206,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local inspect = assert(Fs.mkdtemp("cosmic-work-db-integrity-"))
   local called, answer = pcall(function(): integer
     write(inspect .. "/build.db", read(out .. "/build.db"))
-    if Fs.exists(out .. "/build.db-journal") then
+    if exists(out .. "/build.db-journal") then
       write(inspect .. "/build.db-journal", read(out .. "/build.db-journal"))
     end
     write(inspect .. "/work_db_integrity.tl",
@@ -213,7 +217,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   end)
   local removed = Runner.execute({ argv = { "/bin/rm", "-rf", inspect },
     cwd = c.root })
-  assert(removed.code == 0 and not Fs.exists(inspect),
+  assert(removed.code == 0 and not exists(inspect),
     "could not remove disposable integrity directory")
   if not called then error(answer) end
   return answer
@@ -240,14 +244,14 @@ name .. " suite: failed (status " .. status .. ")\n") end
 end
 
 local function archive(c: Context, destination: string): integer
-  assert(not Fs.exists(destination)); mkdir(destination)
+  assert(not exists(destination)); mkdir(destination)
   local tar = destination .. ".tar"
   local status = checked(c, "tracked source archive",
     { "/usr/bin/env", "git", "-C", c.root, "archive", "--output", tar, "HEAD" })
   if status ~= 0 then return status end
   status = checked(c, "tracked source extract",
     { "/usr/bin/env", "tar", "-xf", tar, "-C", destination })
-  assert(not Fs.exists(destination .. "/o")); return status
+  assert(not exists(destination .. "/o")); return status
 end
 
 local targets: {string:boolean} = {
@@ -271,12 +275,12 @@ local function phase_build(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
   local local_d = p.local_diagnostics
-  assert(not Fs.exists(root .. "/o"), "build requires fresh checkout without o")
+  assert(not exists(root .. "/o"), "build requires fresh checkout without o")
   local seed = Env.get("COSMIC_ZIG_CACHE_SEED")
-  if seed and (Fs.is_dir(seed .. "/zig-cache") or Fs.is_dir(seed .. "/zig-global")) then
+  if seed and (is_dir(seed .. "/zig-cache") or is_dir(seed .. "/zig-global")) then
     mkdir(root .. "/o")
     for _, name in ipairs({ "zig-cache", "zig-global" }) do
-      if Fs.is_dir(seed .. "/" .. name) then
+      if is_dir(seed .. "/" .. name) then
         local copied = checked(c, "restore " .. name,
           { "/usr/bin/env", "cp", "-a", seed .. "/" .. name, root .. "/o/" })
         if copied ~= 0 then return copied end
@@ -307,7 +311,7 @@ local function phase_assemble(p: PlatformContext): integer
   local local_d = p.local_diagnostics
   local portable_d = p.portable_diagnostics
   local fresh = p.fresh
-  assert(Fs.exists(local_d .. "/local-boundary/hashes.sha256"))
+  assert(exists(local_d .. "/local-boundary/hashes.sha256"))
   local s = checked(c, "format check",
     { root .. "/o/bin/cosmic", "fix", "--check", "." })
   if s ~= 0 then return s end
@@ -464,7 +468,7 @@ local function phase_cache_save(p: PlatformContext): integer
     local removed = checked(c, "remove saved " .. name,
       { "/bin/rm", "-rf", seed .. "/" .. name })
     if removed ~= 0 then return removed end
-    if Fs.is_dir(root .. "/o/" .. name) then
+    if is_dir(root .. "/o/" .. name) then
       local copied = checked(c, "save " .. name,
         { "/usr/bin/env", "cp", "-a", root .. "/o/" .. name, seed .. "/" })
       if copied ~= 0 then return copied end
@@ -491,7 +495,7 @@ local function provenance_impl(c: Context, products: string): integer
   local entries = assert(Fs.list(products)); local count = 0; local expected: integer|nil = nil; local baseline: string|nil = nil
   for _, name in ipairs(entries) do if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name; local att = p .. "/executed-cosmic.sha256"; local exp = p .. "/expected-platforms"
-      assert(Fs.exists(att) and Fs.exists(exp) and Fs.exists(p .. "/cosmic"), "incomplete product: " .. p)
+      assert(exists(att) and exists(exp) and exists(p .. "/cosmic"), "incomplete product: " .. p)
       local line = read(att); local digest = line:match("^([0-9a-f]+)  cosmic\n$"); assert(digest and #digest == 64, "invalid attestation: " .. att)
       assert(hash(p .. "/cosmic") == digest, "changed artifact: " .. p)
       local n = math.tointeger(assert(tonumber(read(exp)))); assert(n and n > 0, "invalid expected count")

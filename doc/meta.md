@@ -6,9 +6,8 @@ a doc describes either the current state or an intended one. either
 way, when the code and the doc disagree, the code is wrong and the
 code changes. a doc is never edited to match a bug.
 
-what is intended and not yet built shows in the doc's examples: an
-example that cannot run yet is skipped, and the skip says so. a doc
-with no skipped examples describes what works today.
+intended behavior that is not yet built is labeled as intended. an
+example that cannot run yet uses `skip=intended`.
 
 ## every example runs
 
@@ -41,8 +40,6 @@ doctest machinery of its own.
   prints, captured and asserted line by line as that function's own
   assertion. an example with no `output` block compiles and does
   not run.
-- a block tagged `sh` is a command line. it runs under the fence and
-  its verdict line is asserted by the `output` block after it.
 - a block tagged `teal skip=<reason>` produces no function at all,
   only a comment carrying the reason. `skip=intended` marks an
   example that waits on work not yet done; `skip=network` marks one

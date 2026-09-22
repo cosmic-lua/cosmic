@@ -115,7 +115,12 @@ function databases.run(): integer
   local tables = 0
   for _, name in ipairs({ "o/cosmic.db", "o/build.db" }) do
     local path = root .. "/" .. name
-    if Fs.exists(path) then
+    local present, present_trouble = Fs.exists(path)
+    if present == nil then
+      complain(present_trouble)
+      return 1
+    end
+    if present then
       local counted, trouble = describe(path)
       if counted == nil then
         complain(path .. ": " .. trouble)

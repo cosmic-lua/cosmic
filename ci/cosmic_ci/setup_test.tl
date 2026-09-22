@@ -15,7 +15,7 @@ local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
   fails(function()
     ProductSetup.build(tmp .. "/root", tmp .. "/product", tmp .. "/work")
   end, "/o/bin/cosmic")
-  assert(not Fs.exists(tmp .. "/product"), "failed setup created a product")
+  assert(Fs.exists(tmp .. "/product") == false, "failed setup created a product")
 end
 
 local function test_launcher_setup_rejects_missing_targets(tmp: string)
@@ -24,7 +24,7 @@ local function test_launcher_setup_rejects_missing_targets(tmp: string)
     LauncherSetup.build(tmp .. "/root", tmp .. "/launcher", "target",
       tmp .. "/work")
   end, "/o/targets.tsv")
-  assert(not Fs.exists(tmp .. "/launcher"), "failed setup created a launcher")
+  assert(Fs.exists(tmp .. "/launcher") == false, "failed setup created a launcher")
 end
 
 local function test_runtime_setup_rejects_missing_writer(tmp: string)
@@ -35,5 +35,5 @@ local function test_runtime_setup_rejects_missing_writer(tmp: string)
       tmp .. "/missing-writer", tmp .. "/database", tmp .. "/runtime",
       tmp .. "/work")
   end, "missing-writer")
-  assert(not Fs.exists(tmp .. "/runtime"), "failed setup created a runtime")
+  assert(Fs.exists(tmp .. "/runtime") == false, "failed setup created a runtime")
 end

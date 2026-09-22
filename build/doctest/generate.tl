@@ -61,8 +61,8 @@ end
 --- Turns the block sequence into the `Item` list `render` walks: one
 --- entry per skip comment or per example, in the order examples become
 --- runnable functions.
---- @return {Item} | nil nil on a grammar error -- an `sh` block, an
----   `output` or `continue` with nothing open to attach to, or a
+--- @return {Item} | nil nil on a grammar error -- an `output` or
+---   `continue` with nothing open to attach to, or a
 ---   `file=` block no entry block ever claims
 --- @return string why, naming the source line the block sits at
 local function to_items(blocks: {Block}): {Item} | nil, string
@@ -71,9 +71,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
   local current: Example | nil = nil
 
   for _, b in ipairs(blocks) do
-    if b.lang == "sh" then
-      return nil, "sh blocks are not supported yet"
-    elseif b.lang == "text" then
+    if b.lang == "text" then
       current = nil
     elseif b.lang == "output" then
       if current == nil then

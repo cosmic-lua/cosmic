@@ -5,8 +5,14 @@ local sys = require("cosmic.sys")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 
+local function path_exists(path: string): boolean
+  local answer, trouble = Fs.exists(path)
+  assert(answer ~= nil, trouble)
+  return answer
+end
+
 local function temporary(): string
-  return assert(Fs.mkdtemp("cosmic-child-"))
+  return (assert(Fs.mkdtemp("cosmic-child-")))
 end
 
 local function output(dir: string, name: string): integer, string
@@ -85,7 +91,8 @@ local function test_timeout_kills_the_process_group_and_reaps_child()
   assert(r.timed_out and not r.ok)
   -- A process-group timeout includes descendants. Signal zero would succeed
   -- for a surviving process (or fail with EPERM, not ESRCH).
-  local pid = math.tointeger(assert(tonumber(assert(Fs.read(path)))))
+  local contents = assert(Fs.read(path))
+  local pid = math.tointeger(assert(tonumber(contents)))
   assert(pid)
   local alive = sys.kill(pid, 0)
   assert(not alive)
@@ -98,10 +105,10 @@ local function test_non_group_timeout_returns_graceful_term_status()
     "trap 'exit 19' TERM; printf ready >\"$1\"; while :; do :; done",
     "sh", ready }, { process_group = false }))
   local deadline = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
-  while not Fs.exists(ready) and assert(Time.monotonic_ns()) < deadline do
+  while not path_exists(ready) and assert(Time.monotonic_ns()) < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
   end
-  assert(Fs.exists(ready), "child did not report readiness")
+  assert(path_exists(ready), "child did not report readiness")
   local r = assert(h:wait(0))
   assert(r.code == 19 and r.signal == nil and r.timed_out)
 end
@@ -153,11 +160,11 @@ end
     { env = nested_cosmic_environment(), stdout = fd, stderr = fd,
       process_group = false }))
   local deadline = assert(Time.monotonic_ns()) + 3000 * 1000 * 1000
-  while (not Fs.exists(ready) or Fs.read(ready) ~= "ready") and
+  while (not path_exists(ready) or Fs.read(ready) ~= "ready") and
       assert(Time.monotonic_ns()) < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
   end
-  assert(Fs.exists(ready) and Fs.read(ready) == "ready",
+  assert(path_exists(ready) and Fs.read(ready) == "ready",
     "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
   assert(driver:stop(sys.SIGTERM))
   local stopped = assert(driver:wait(2000))
@@ -189,4 +196,22 @@ local function test_invalid_inputs_do_not_poison_signal_guard()
   assert(not pcall(sys.waitpid, 2147483648, true))
   local result = assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
   assert(result.ok)
+end
+
+--- Successful public child operations always fill the error slot.
+local function test_success_results_carry_empty_errors()
+  local result, run_trouble = Child.run({ "/bin/sh", "-c", "exit 0" })
+  assert(result ~= nil and run_trouble == "")
+
+  local first, start_trouble = Child.start({ "/bin/sh", "-c", "exit 0" })
+  assert(first ~= nil and start_trouble == "")
+  local waited, wait_trouble = first:wait()
+  assert(waited ~= nil and wait_trouble == "")
+
+  local second = assert(Child.start({ "/bin/sh", "-c", "sleep 0.05" }))
+  local polled, poll_trouble = second:try_wait()
+  assert(polled ~= nil and poll_trouble == "")
+  if not polled.finished then
+    assert(second:wait())
+  end
 end

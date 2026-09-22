@@ -1,5 +1,7 @@
 # cosmic
 
+this document specifies the intended design. parts may not be implemented yet.
+
 cosmic is a runtime for building correct, self-contained command-line
 software. one file holds the language runtime, the compiler and type
 checker, the formatter, the test runner, the standard library, and
@@ -375,7 +377,7 @@ only that entry. target/configuration pairs are unique across the manifest and
 system identities are unique in the selected configuration. the production
 decoder's required-release mask is unchanged.
 
-a project's own build database, `o/cosmic.db`, is read ahead of the
+a project's projected module database, `o/cosmic.db`, is read ahead of the
 binary's: when cosmic runs or tests a project, `require` answers from
 the project's database first and the binary's second, except for
 `cosmic.*`, which the binary answers first. the checker is answered

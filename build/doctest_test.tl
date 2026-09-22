@@ -40,9 +40,10 @@ local matching_doc = doc({
 local tilde_matching_doc = doc({
   "# Fixture",
   "",
-  "~~~teal",
+  "~~~~teal",
+  "-- ~~~",
   'print("hello")',
-  "~~~",
+  "~~~~~",
   "",
   "~~~output",
   "hello",
@@ -74,18 +75,6 @@ local skip_doc = doc({
   "",
   "```teal skip=intended",
   'print("not yet")',
-  "```",
-})
-
-local sh_doc = doc({
-  "# Fixture",
-  "",
-  "```sh",
-  "echo hi",
-  "```",
-  "",
-  "```output",
-  "hi",
   "```",
 })
 
@@ -170,7 +159,7 @@ local function test_a_tilde_fenced_example_actually_passes()
   local m = find_module(result, "doc.guides.fixture")
   assert(m ~= nil, "doc.guides.fixture was not among the compiled modules")
   assert(#m.tests == 1 and m.tests[1] == "test_1",
-    "expected a ~~~-fenced example to be extracted as test_1, got " ..
+    "expected a long tilde-fenced example to be extracted as test_1, got " ..
     table.concat(m.tests, ","))
   local mod = load_module(m)
   local fn = mod.test_1 as function(any...): (any...)
@@ -227,15 +216,4 @@ local function test_a_skip_block_compiles_and_defines_nothing()
   assert(#m.tests == 0, "expected no tests, got " .. #m.tests)
   assert(m.source:find("skipped: intended", 1, true) ~= nil,
     "expected the skip's own reason in the generated source:\n" .. m.source)
-end
-
-local function test_an_sh_block_is_refused_at_compile_time()
-  local root, write_trouble = write_fixture("sh", sh_doc)
-  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
-  local result, trouble = compile_fixture(root)
-  assert(result == nil, "expected the sh-block doc to be refused")
-  assert(trouble:find("doc/guides/fixture.md", 1, true) ~= nil,
-    "expected the refusal to name the doc, got: " .. trouble)
-  assert(trouble:find("sh blocks are not supported yet", 1, true) ~= nil,
-    "expected the refusal to name sh as unsupported, got: " .. trouble)
 end

@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 
 local record State
@@ -32,7 +33,8 @@ end
 
 function State.canonical_directory(path: string): string
   local absolute = assert(Fs.absolute(path))
-  assert(Fs.is_dir(absolute), "directory does not exist: " .. path)
+  local directory = Predicate.is_dir(absolute)
+  assert(directory, "directory does not exist: " .. path)
   return absolute
 end
 

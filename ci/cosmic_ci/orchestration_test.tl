@@ -1,5 +1,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Fixture = require("cosmic_ci.fixture")
@@ -176,8 +177,10 @@ chmod 755 o/bin/cosmic
   assert(outcome.result.code == 23, "suite failure was not primary")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
-  assert(Fs.is_dir(fake .. "/o/zig-cache") and Fs.is_dir(fake .. "/o/zig-global"))
-  assert(not Fs.exists(fake .. "/o/poison"))
+  local local_cache = Predicate.is_dir(fake .. "/o/zig-cache")
+  local global_cache = Predicate.is_dir(fake .. "/o/zig-global")
+  assert(local_cache and global_cache)
+  assert(Fs.exists(fake .. "/o/poison") == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
 end

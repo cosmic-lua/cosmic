@@ -47,7 +47,7 @@ local record Fixture
 end
 
 function Fixture.required(name: string): string
-  return assert(Env.get(name), "fixture environment is missing " .. name)
+  return (assert(Env.get(name), "fixture environment is missing " .. name))
 end
 
 function Fixture.mkdir(path: string)
@@ -55,7 +55,7 @@ function Fixture.mkdir(path: string)
 end
 
 function Fixture.read(path: string): string
-  return assert(Fs.read(path))
+  return (assert(Fs.read(path)))
 end
 
 function Fixture.small(path: string, limit: integer): string
@@ -91,7 +91,7 @@ local function preview(path: string): string
   local closed, close_trouble = Fs.close(fd)
   if not called then error(answer) end
   assert(closed, close_trouble)
-  return assert(answer as string | nil, trouble)
+  return (assert(answer as string | nil, trouble))
 end
 
 function Fixture.call_with_environment(label: string, argv: {string},

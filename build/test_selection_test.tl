@@ -15,7 +15,7 @@ local function invoke(program: string, root: string, output: string,
     process_group = true, timeout_ms = 30000,
   })
   assert(Fs.close(fd))
-  return assert(result, trouble)
+  return (assert(result, trouble))
 end
 
 local function project(tmp: string): string

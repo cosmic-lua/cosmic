@@ -14,7 +14,7 @@ function Time.now_ns(): integer | nil, string
   if reading == nil then
     return nil, trouble
   end
-  return reading
+  return reading, ""
 end
 
 --- A clock that only moves forward, for measuring elapsed duration in
@@ -25,7 +25,7 @@ function Time.monotonic_ns(): integer | nil, string
   if reading == nil then
     return nil, trouble
   end
-  return reading
+  return reading, ""
 end
 
 --- Sleeps, resuming the wait when a signal interrupts it.
