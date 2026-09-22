@@ -18,6 +18,7 @@ jobs:
     defaults:
       run:
         working-directory: ci
+        shell: ${{ matrix.shell }}
     strategy:
       fail-fast: false
       matrix:
@@ -26,14 +27,17 @@ jobs:
             runner: ubuntu-24.04
             target: x86_64-linux-musl
             container: ''
+            shell: sh
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
             container: ''
+            shell: sh
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
             container: ''
+            shell: sh
           - name: alpine-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
@@ -43,6 +47,14 @@ jobs:
             container:
               image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
               options: --init
+            # The container's default user stays root -- the runner never
+            # passes --user to docker create/exec, and a default user whose
+            # uid differs from the host runner's breaks the checkout
+            # action's file commands (GITHUB_ENV, GITHUB_PATH, ... under
+            # RUNNER_TEMP, host-owned). Driver steps instead drop to the
+            # unprivileged `runner` user created below; only what needs
+            # root (package install, the hand-over) overrides this shell.
+            shell: su runner -c "sh -e {0}"
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 45
@@ -53,36 +65,31 @@ jobs:
       - name: install the tools the actions and the build need
         if: matrix.container
         working-directory: /
-        # The checkout is owned by the runner's uid and the container runs
-        # as root, so git refuses the repository unless it is registered
-        # here, in the HOME every later step shares.
+        shell: sh
+        # apk, and creating the unprivileged builder below, need root,
+        # which is this container's default user. `runner`'s uid is read
+        # from the workspace directory the host runner already created
+        # (before this step, before checkout), so it matches the owner of
+        # the bind-mounted checkout, RUNNER_TEMP, and the runner's own
+        # file-command files. Every later step on this leg drops to
+        # `runner` (see matrix.shell); only this step and the hand-over
+        # below stay root, and say so explicitly.
         run: |
           apk add --no-cache git tar zstd curl xz
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: cache the pinned CI driver
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~/.cache/cosmic/ci-driver
+          path: ${{ runner.temp }}/cache/cosmic/ci-driver
           key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
-
-      - name: bootstrap the pinned CI driver
-        id: driver
-        run: |
-          sh bootstrap-driver.sh cosmic-driver.pin \
-            "$HOME/.cache/cosmic/ci-driver" \
-            "$RUNNER_TEMP/bin/cosmic-driver"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
-      - name: check the pinned CI driver
-        run: cosmic-driver test cosmic_ci
 
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~/.cache/cosmic/zig
+          path: ${{ runner.temp }}/cache/cosmic/zig
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
       # `bin/zig` keeps its compile cache under o/ (see its own comment)
@@ -110,6 +117,28 @@ jobs:
           key: zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**') }}
           restore-keys: |
             zig-build-${{ matrix.name }}-
+
+      - name: hand the checkout and restored caches over to the unprivileged builder
+        if: matrix.container
+        working-directory: /
+        shell: sh
+        # The checkout and the three cache restores above ran as root
+        # (actions run as the container's default user); everything from
+        # here on runs as `runner` (see matrix.shell), so it needs to own
+        # what it is about to read and write.
+        run: chown -R runner "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+
+      - name: bootstrap the pinned CI driver
+        id: driver
+        run: |
+          sh bootstrap-driver.sh cosmic-driver.pin \
+            "$RUNNER_TEMP/cache/cosmic/ci-driver" \
+            "$RUNNER_TEMP/bin/cosmic-driver"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
+
+      - name: check the pinned CI driver
+        run: cosmic-driver test cosmic_ci
 
       - name: build release Cosmic and run its native suite
         id: release-suite
@@ -196,13 +225,13 @@ jobs:
       - name: cache the pinned CI driver
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ~/.cache/cosmic/ci-driver
+          path: ${{ runner.temp }}/cache/cosmic/ci-driver
           key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
       - name: bootstrap the pinned provenance driver
         id: driver
         run: |
           sh bootstrap-driver.sh cosmic-driver.pin \
-            "$HOME/.cache/cosmic/ci-driver" \
+            "$RUNNER_TEMP/cache/cosmic/ci-driver" \
             "$RUNNER_TEMP/bin/cosmic-driver"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

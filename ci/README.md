@@ -14,6 +14,16 @@ digest, and copies it to a runner path (`$RUNNER_TEMP/bin/cosmic-driver`,
 which CI then puts on `PATH` via `GITHUB_PATH`). CI then runs the driver in
 place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 
+Three legs already run every step as the unprivileged host runner user; the
+fourth, `alpine-x86_64`, is a GitHub job container, which always executes
+`uses:` and `run:` steps as the container's default user. That default user
+stays root -- `apk` needs it, and a default user whose uid differs from the
+host runner's would break the checkout action's file commands -- but the
+driver itself, and every `cosmic-driver` step, runs as an unprivileged
+`runner` user created with the same uid as the host runner, after root
+installs packages and hands the checkout and restored caches over to it.
+See `.github/workflows/ci.yml` for the exact step order and ownership.
+
 Orchestration copies `cosmic_ci/` once per fixture into a separate,
 external fixture project, since each fixture needs a fresh working
 database. The driver named by `cosmic-driver.pin` has a verdict cache that is
