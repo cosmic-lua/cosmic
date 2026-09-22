@@ -10,9 +10,8 @@ local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 
--- The build modules are required lazily, inside the verb that needs
--- them: every verb used to load the whole build system before
--- dispatch, and `help` needs only build.docs.
+-- Require build modules lazily inside the verb that needs them, so `help`
+-- remains fast and loads only `build.docs`.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 

@@ -15,9 +15,11 @@ with cwd `ci`: `$COSMIC_DRIVER cosmic_ci/driver.tl ...`.
 
 Orchestration copies `cosmic_ci/` once per fixture into a separate,
 external fixture project, since each fixture needs a fresh working
-database and the verdict cache is blind to the fixture's environment
-overrides. Runner operation state is kept in a separately checked external
-database. The checked-in pin (`cosmic-driver.pin`) is the production trust
-root; local development may preseed a temporary pin cache with a
-digest-verified locally built host, but that does not establish release
-publication or immutability.
+database. The driver named by `cosmic-driver.pin` has a verdict cache that is
+blind to the fixture subprocess's environment overrides; that subprocess uses
+the pinned host returned by `Proc.executable()`. Fresh database isolation
+therefore remains required. Runner operation state is kept in a separately
+checked external database. The checked-in pin (`cosmic-driver.pin`) is the
+production trust root; local development may
+preseed a temporary pin cache with a digest-verified locally built host, but
+that does not establish release publication or immutability.

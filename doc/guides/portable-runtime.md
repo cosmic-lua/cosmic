@@ -223,10 +223,13 @@ rebuild finish after the starting artifact is renamed or unlinked.
 
 ## test identity and transport
 
-[`build.test`](../../build/test.tl) keys a verdict by the compiled test, every
-observed file and directory answer, and runtime identity. An unchanged
-application database cannot hide a changed core or runtime basis. Verdict and
-coverage history live only in `o/build.db` and are bounded.
+[`build.test`](../../build/test.tl) keys a verdict by the compiled test, runtime
+identity, and supported observations. Those observations include file contents,
+stat results, directory listings, and environment reads. A test that spawns a
+process, or reads outside the tree beyond its temporary directories, is not
+answered from a stored verdict. An unchanged application database cannot hide a
+changed core or runtime basis. Verdict and coverage history live only in
+`o/build.db` and are bounded.
 
 The fixtures under [`test/portable`](../../test/portable/) and the pinned CI
 driver's isolated fixture projects (`ci`, see its own README)

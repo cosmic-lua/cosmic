@@ -1,9 +1,5 @@
---- Regression test for the fixed `build.importer` bug: `requires_of`
---- used to find every `require(...)` in a source file's raw TEXT via a
---- regex, which could not tell real code from a string literal or a
---- comment. This proves the AST-based fix does not count a
---- `require("cosmic.<m>")` that only appears as text inside either,
---- while a genuine top-level require is still found.
+--- Verify that dependency scanning ignores `require("cosmic.<m>")` text in
+--- strings and comments while retaining genuine top-level requires.
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")

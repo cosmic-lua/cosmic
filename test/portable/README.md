@@ -2,17 +2,17 @@
 
 ## Layout
 
-`tool.tl` is one module, run as `cosmic test/portable/tool.tl SUBCOMMAND
-ARGS...`, whose subcommands replace what used to be over a dozen
-single-purpose scripts (writing a fixture artifact, extracting a manifest
-entry, corrupting a core range, and so on). `artifact_fixture.tl` is the
-small v1 artifact reader/writer-input library both `tool.tl` and
-`build/artifact.tl` fixtures build on.
+`tool.tl` provides subcommands for writing fixture artifacts, extracting
+manifest entries, corrupting core ranges, and related operations. Run it as
+`cosmic test/portable/tool.tl SUBCOMMAND ARGS...`. `artifact_fixture.tl` is
+the reusable v1 artifact reader and writer-input helper used by `tool.tl` and
+the `build/artifact.tl` fixtures.
 
 Product assembly, transport validation, the cross-language format contract,
 launcher construction and regression, runtime construction and regression,
-self-rebuild, and identity are all actual Cosmic tests generated in the
-pinned CI driver's isolated fixture projects; see `ci`.
+self-rebuild, and identity assertions are defined in `ci/fixtures`. The pinned
+CI helpers in `ci/cosmic_ci` assemble and run them in isolated fixture
+projects.
 
 ## What each one covers
 
