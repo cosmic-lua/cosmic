@@ -511,12 +511,16 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
               assert(Fs.stat(cache .. "/" .. key)).kind == "file")
             -- `[ -x ]` reflects noexec only where test(1) asks the kernel;
             -- BusyBox answers from the mode bits, so there the exec itself
-            -- fails and the shell reports it. Either way the launcher
-            -- stops at 126 with the verified core left intact.
+            -- fails, the shell names the errno, and the launcher's EXIT
+            -- trap ends the output. Either way the launcher stops at 126
+            -- with the verified core left intact.
             local diagnostic = Fixture.small(answer.err, 4096)
+            local refused =
+              "\ncosmic portable: verified core was refused execution; " ..
+              "Permission denied here usually means a noexec cache filesystem\n"
             assert(diagnostic ==
               "cosmic portable: verified core cannot execute on the cache filesystem\n" or
-              diagnostic:find("Permission denied", 1, true), diagnostic)
+              diagnostic:sub(-#refused) == refused, diagnostic)
           end
           return true
         end)

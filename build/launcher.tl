@@ -335,15 +335,29 @@ export COSMIC_PORTABLE_TARGET_ID COSMIC_PORTABLE_CONFIGURATION_ID
 export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
 export COSMIC_PORTABLE_CORE_SHA256
 
-# `test -x` also reflects a noexec filesystem on supported hosts. Check before
-# the special-builtin exec: some shells exit immediately on execve failure and
-# never reach the diagnostic after it. Other exec failures retain that backstop.
+# Where test(1) asks the kernel, `test -x` also reflects a noexec filesystem.
+# Check before the special-builtin exec: a non-interactive shell exits on
+# execve failure and never reaches a diagnostic after it.
 [ -x "$cosmic_core" ] ||
   portable_die 'verified core cannot execute on the cache filesystem'
-trap - EXIT HUP INT TERM
+trap - HUP INT TERM
 umask "$cosmic_original_umask" || portable_die 'cannot restore caller umask'
+# BusyBox test answers `-x` from the mode bits alone, so there a noexec cache
+# passes the check above and the exec itself fails. ash, dash and mksh still
+# run the EXIT trap as they exit on that failure, and a successful exec
+# replaces the shell before any trap can run. The shell has already printed
+# the errno. 126 is any core found but refused (E2BIG and an LSM denial too),
+# so the hint names noexec only as the reading of a Permission denied there.
+portable_exec_failed() {
+  trap - EXIT
+  case $1 in
+    126) portable_die 'verified core was refused execution; Permission denied here usually means a noexec cache filesystem' ;;
+    *) portable_die 'cannot execute verified core' ;;
+  esac
+}
+trap 'portable_exec_failed "$?"' EXIT
 exec "$cosmic_core" --artifact "$cosmic_artifact" "$@"
-portable_die 'cannot execute verified core'
+exit
 ]=]
 
 local test_hook_function = [=[portable_test_hook() {
