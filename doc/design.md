@@ -448,9 +448,10 @@ applier's output replaces the vendor directory the core compiles
 from, whole, never one file beside a pristine tree, because a quoted
 `#include` finds the neighbor first and a half-applied patch builds
 green. a provenance gate in CI asserts that no bytes from outside
-the tree and the pinned zig reach any output, checked by building on
-three hosts with different kernels and system libraries and
-comparing every byte of the three shipped binaries; zig opens a few
+the tree and the pinned zig reach any production output. four platform lanes
+independently build the complete portable product, execute those exact bytes,
+and attest its hash. the provenance join requires all four products and
+attestations to agree; zig opens a few
 host paths to probe the native target even for a cross build, so the
 gate judges outputs, not opens. the trust chain has
 exactly two seeds that nothing in the repository built, and they are
@@ -461,22 +462,25 @@ the target build architecture is fast, incremental, and reproducible.
 today a module whose key stands is read back from the working
 database rather than compiled again, the shipped database is a
 projection of that one, written only when what it is a function of
-moved, and a test whose verdict stands -- its module's key and the
-hash of every file it was observed to read -- is not run again. the
+moved, and a test whose verdict stands is not run again. its identity includes
+the module and runtime keys plus observed file contents, stat results, directory
+listings, and environment reads. a test that spawns a process or makes an
+unsupported observation outside the tree is not cacheable. the
 runner still executes what does run in-process; child-process
 isolation is planned below, not implemented:
 
 - *incremental*: a module row is keyed by the content hash of its
-  source, the hashes of its import closure, the boot hash, and, for
-  a test, the set of files it was observed to read. an unchanged key
+  source, the hashes of its import closure, and the compiler identity. a test
+  verdict adds the runtime identity and its supported observations. an unchanged
+  key
   is a stat; a changed one recompiles and re-records only what
-  depended on it. observed reads come free: every file a test opens
-  goes through the syscall table, and the runner records the paths.
+  depended on it. observations come through the syscall table, where the runner
+  records the paths, names, and answers that can affect the verdict.
 - *fast*: compile and check run in one process, one transaction,
-  against declarations already in the database. tests run in a
-  child process each, for a fresh temp directory, a deadline, and
-  captured streams; a child never opens a database, it reports its
-  result over a pipe and the one build process writes it.
+  against declarations already in the database. tests currently run in-process
+  with fresh temporary directories. per-test child isolation, captured streams,
+  and a deadline are target behavior. the child will not open a database; it
+  will report its result over a pipe for the build process to write.
 - *reproducible*: the shipped database is a host-neutral projection of the
   working database into a fresh schema, filled in one transaction, with every
   table `WITHOUT ROWID` on a natural key and the file produced by `VACUUM
@@ -484,19 +488,19 @@ isolation is planned below, not implemented:
   it is absent from database rows. `bin/zig build cores` cross-compiles every
   target from any host, so the complete artifact, its database and both test
   applications are byte-identical regardless of which host produced them.
-  CI asserts that with three unrelated kernels and system libraries agreeing,
-  then runs one transported artifact unchanged on all three targets.
+  four CI platform lanes independently produce and execute the complete
+  artifact. the provenance join proves their bytes agree.
 
-three lanes, one per target -- Linux x86_64, Linux aarch64 on an arm
-runner, macOS aarch64 on an arm Mac runner -- each independently
-cross-compile every image and run the full suite on the real thing;
-a fourth job only diffs what the three already produced. the sandbox
-conformance matrix runs on all three.
+four platform lanes cover Linux x86_64, Linux aarch64 on an arm runner, macOS
+aarch64 on an arm Mac runner, and x86_64 Linux with additional offline Alpine
+checks. each independently builds the complete product, runs it, and uploads the
+executed bytes. a separate provenance job compares the four products and their
+attestations.
 
-`cosmic build` and `cosmic test` fence themselves with the sandbox
-core, so a build cannot read outside its tree and a test cannot reach
-the network by accident. CI's profile requires the fence; a laptop
-reports it.
+`cosmic build` and `cosmic test` will fence themselves with the sandbox core, so
+a build cannot read outside its tree and a test cannot reach the network by
+accident. the sandbox module, its conformance matrix, and these tool fences are
+planned. CI will require the fence; a laptop will report its enforcement level.
 
 ### vendored sources
 
@@ -620,7 +624,7 @@ a claim.
 ### the command line
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
-`cosmic check`, `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
+`cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
 file; `-e` stays as Lua's one-liner idiom. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
@@ -679,10 +683,7 @@ and the checker refuses an import of it from any file outside
 under `cosmic/`. a project tree may hold no `cosmic`-prefixed path
 at all unless it is cosmic's own tree, so a project can never place
 itself as a false sibling to claim another module's private surface.
-one lint follows: no two names in a directory may differ only in
-case, because macOS's default filesystem cannot tell them apart, and
-a case-only rename is a two-step commit there. entry-point
-reachability is settled; whether an exported function's own name is
+entry-point reachability is settled; whether an exported function's own name is
 capitalized by convention, `fs.Read` rather than `fs.read`, is a
 readability question and not yet decided, and the checker does not
 enforce it either way. positional reachability is a compile-time

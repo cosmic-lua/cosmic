@@ -53,8 +53,7 @@ end
 --- restriction, no top-level-only restriction, no requirement that the
 --- call feed a `local`. A call whose argument is not a string literal
 --- (`require(name)`, computed at runtime) contributes nothing, exactly
---- as no earlier text-based or structural approach here could resolve
---- one either: its target is not known until the program runs.
+--- because its target is not known until the program runs.
 ---
 --- This is what `build.importer` needs for its own dependency graph
 --- (import order, the recompilation-key hash): every real `require` a

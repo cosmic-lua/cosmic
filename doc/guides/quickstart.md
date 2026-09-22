@@ -2,7 +2,7 @@
 
 cosmic is one executable: the Lua runtime, the Teal compiler, and a
 standard library, `cosmic.*`, for the everyday things a script needs.
-This guide runs two of those modules and shows what each one prints.
+This guide uses several of those modules and shows what they do.
 
 ## hashing bytes
 
@@ -45,15 +45,40 @@ hello from notes.txt
 568a78ac9be8ab08ce84c90363cef53bab5d6aecf684e83cd44193dbad50cca6
 ```
 
-## what is not here yet
+## running another cosmic program
 
-Running another program is not built yet (see roadmap.md's
-child-process spawning entry), so this example only shows the shape it
-will have. It compiles as a comment, not as code, and does not run.
+`cosmic.child` starts an executable from an exact path; it does not search
+`PATH`. Its result reports how the process ended. Output is inherited unless
+you redirect it to a caller-owned file descriptor, as this example does.
 
-```teal skip=intended
+```teal file=greeter.tl
+return function(argv: {string}): integer
+  print("hello, " .. argv[1])
+  return 0
+end
+```
+
+```teal
 local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 
-local result = Child.run({ "echo", "hello" })
-print(result.stdout)
+local output = tmp .. "/child-output"
+local fd = assert(Fs.open_write(output))
+local result, trouble = Child.run({
+  assert(Proc.executable()), tmp .. "/greeter.tl", "cosmic",
+}, { stdout = fd, timeout_ms = 5000 })
+assert(Fs.close(fd))
+if result == nil then error(trouble) end
+local finished = assert(result)
+assert(finished.ok and finished.code == 0)
+
+local content = assert(Fs.read(output))
+print(content:sub(1, -2))
+print("exit " .. tostring(finished.code))
+```
+
+```output
+hello, cosmic
+exit 0
 ```

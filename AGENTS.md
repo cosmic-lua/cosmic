@@ -25,8 +25,7 @@
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key, same contents for every file opened, and same stat and directory
    read answers under the root -- is not run again, so a run after a small edit
-   takes seconds; a run after a boot, or on a fresh `o/`, runs everything and
-   still finishes in single-digit seconds under the native coverage collector.
+   takes seconds. A run after a boot, or on a fresh `o/`, runs everything.
    Environment variables a test reads are part of its key; a test that spawns
    a process or reads outside the tree beyond its own temporary directories
    is never answered from a verdict.

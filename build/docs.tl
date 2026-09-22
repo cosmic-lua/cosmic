@@ -400,14 +400,11 @@ local function use_key(module: string, symbol: string): string
   return module .. "\n" .. symbol
 end
 
---- How many places refer to `module`/`symbol`, across `view.databases`,
---- by the same rules `docs.view` used to apply eagerly to every row of
---- every `uses` table: a use counts only if the database is not a
---- public source or both ends are public modules, and only if the
---- database that counts it is the one that owns the calling module --
---- see `across`. Computed once per pair and cached on `view`, since a
---- module's own listing and a symbol's own rendering can both ask for
---- the same pair in one command.
+--- How many places refer to `module`/`symbol`, across `view.databases`.
+--- A use counts only if the database is not a public source or both ends are
+--- public modules, and only when that database owns the calling module; see
+--- `across`. Each pair is computed once and cached on `view`, since both a
+--- module listing and symbol rendering can request it in one command.
 local function count_uses(view: docs.View, module: string, symbol: string): integer
   local key = use_key(module, symbol)
   local cached = view.use_counts[key]

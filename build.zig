@@ -211,11 +211,10 @@ pub fn build(b: *std.Build) void {
     const install_target_records = b.addInstallFile(target_records, "targets.tsv");
     cores.dependOn(&install_target_records.step);
 
-    // These test executables used to be direct `zig cc` calls in the shell
-    // fixtures. Keeping them in this graph makes their sources, included
-    // headers, flags, and target definitions inputs to Zig's restored build
-    // cache. Their installed paths are stable inputs to the shell fixture
-    // writers; the scripts still own orchestration and assertions.
+    // Keeping these test executables in this graph makes their sources,
+    // included headers, flags, and target definitions inputs to Zig's restored
+    // build cache. Their installed paths are stable inputs to the pinned Teal
+    // CI code, which owns fixture orchestration and assertions.
     const native_format_decoder = formatDecoder(
         b,
         "format-test-native",

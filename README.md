@@ -8,14 +8,16 @@ database of compiled modules rather than reading files at run time.
 ## build
 
 ```text
-bin/zig build cores boot
+bin/zig build boot
 ```
+
+`boot` builds the cores it needs and stages the working database under `o/`.
 
 ## run a file
 
 ```sh
 echo 'print("hello from the database")' > hello.tl
-cosmic hello.tl
+o/bin/cosmic hello.tl
 ```
 
 ```output
