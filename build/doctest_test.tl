@@ -10,7 +10,6 @@
 --- example, file= blocks included, since it compiles inside the one
 --- root that already has cosmic/'s declarations.
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -94,7 +93,7 @@ local sh_doc = doc({
 --- root, named after `case` so two fixtures in the same run never
 --- collide.
 local function write_fixture(case: string, content: string): string | nil, string
-  local root = "/tmp/cosmic-doctest-test-" .. case .. "-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-doctest-test-" .. case .. "-"))
   local made, trouble = Fs.mkdirs(root .. "/doc/guides")
   if not made then
     return nil, trouble

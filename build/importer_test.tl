@@ -5,7 +5,6 @@
 --- `require("cosmic.<m>")` that only appears as text inside either,
 --- while a genuine top-level require is still found.
 local Fs = require("cosmic.fs")
-local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local docs = require("build.docs")
@@ -277,7 +276,7 @@ end
 --- in the importer's closure. The standard library the importer runs on
 --- is not in it, so an edit there does not recompile the world.
 local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
-  local root = "/tmp/cosmic-importer-test-identity-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
                          "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
@@ -309,7 +308,7 @@ end
 --- vendored tree counts through its pin and the records that patch it:
 --- it is never edited in place, so its contents are not walked.
 local function test_boot_hash_tracks_embedded_inputs()
-  local root = "/tmp/cosmic-importer-test-boot-hash-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-boot-hash-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl", "vendor/tl", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
@@ -421,7 +420,7 @@ end
 --- the tree before -- a boot on an empty `o/` must key its modules
 --- exactly as a warm one does, or the two ship different databases.
 local function test_compiler_identity_is_the_same_on_a_fresh_database()
-  local root = "/tmp/cosmic-importer-test-fresh-identity-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-fresh-identity-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
                          "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
@@ -456,7 +455,7 @@ end
 --- agree on every line a declaration sits on -- however a doc comment
 --- or a wrapped signature moved things above it.
 local function test_generated_lua_keeps_teal_line_numbers()
-  local root = "/tmp/cosmic-importer-test-lines-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-lines-"))
   assert(Fs.mkdirs(root))
   local source = table.concat({
     "--- A module whose lines are known.",
@@ -507,7 +506,7 @@ end
 --- and every source is seen again, so an extractor that learns to see
 --- something new sees it in old sources as well.
 local function test_a_changed_analyzer_forgets_what_it_derived()
-  local root = "/tmp/cosmic-importer-test-analyzer-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-analyzer-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
                          "patch/lua", "vendor/tl", "vendor/lua", "bin" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
@@ -683,7 +682,7 @@ end
 --- cosmic's own tree must record nothing under `ci/`, and deriving
 --- inputs from what was staged must yield no module from there either.
 local function test_own_tree_staging_skips_the_ci_driver_tree()
-  local root = "/tmp/cosmic-importer-test-skip-ci-" .. tostring(Proc.pid())
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-skip-ci-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
                          "patch/lua", "vendor/tl", "vendor/lua", "bin",
                          "ci/cosmic_ci", "ci/o" }) do

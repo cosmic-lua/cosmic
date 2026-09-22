@@ -113,3 +113,101 @@ local function test_header_fields_do_not_collide_across_their_boundary(tmp: stri
   local key4 = test.verdict_key(tmp, {}, "id", "ba", "zr", {}, {})
   assert(key3 ~= key4)
 end
+
+--- A test whose inputs are not keyable must never stand: an unhashable
+--- input -- a spawned process -- or a read outside the tree it cannot
+--- account for as its own scratch output makes `keyable` false, which
+--- `run_module` ANDs into `record_run`'s `cacheable?` so the verdict is
+--- stored as unstable and the test runs again regardless. An
+--- environment read is keyable: its answer enters the key instead.
+local function test_an_environment_read_is_keyable(tmp: string)
+  local reads: {observations.Observation} = { { kind = "e", path = "HOME", answer = "" } }
+  assert(test.keyable(tmp, tmp .. "/scratch", reads))
+end
+
+local function test_a_spawned_process_is_not_keyable(tmp: string)
+  local reads: {observations.Observation} =
+    { { kind = "p", path = "/bin/true", answer = "" } }
+  assert(not test.keyable(tmp, tmp .. "/scratch", reads))
+end
+
+local function test_a_read_outside_the_tree_is_not_keyable(tmp: string)
+  local reads: {observations.Observation} =
+    { { kind = "o", path = "/etc/hostname", answer = "" } }
+  assert(not test.keyable(tmp, tmp .. "/scratch", reads))
+end
+
+local function test_a_read_under_root_is_keyable(tmp: string)
+  local reads: {observations.Observation} =
+    { { kind = "o", path = tmp .. "/a.txt", answer = "" } }
+  assert(test.keyable(tmp, tmp .. "/scratch", reads))
+end
+
+local function test_a_read_under_scratch_is_keyable(tmp: string)
+  local root = tmp .. "/root"
+  local scratch = tmp .. "/scratch"
+  local reads: {observations.Observation} =
+    { { kind = "o", path = scratch .. "/out.txt", answer = "" } }
+  assert(test.keyable(root, scratch, reads))
+end
+
+local function test_a_read_under_a_directory_the_test_made_is_keyable(tmp: string)
+  local root = tmp .. "/root"
+  local scratch = tmp .. "/scratch"
+  local made = "/tmp/cosmic-made-XXXXXX"
+  local reads: {observations.Observation} = {
+    { kind = "m", path = made, answer = "" },
+    { kind = "o", path = made .. "/out.txt", answer = "" },
+  }
+  assert(test.keyable(root, scratch, reads))
+end
+
+--- `Fs.mkdirs` stats a directory before the "m" observation that
+--- creates it, so a read of a directory a test is about to make for
+--- itself must be keyable even though the "m" observation for it comes
+--- later in the list.
+local function test_a_read_before_the_m_that_made_its_directory_is_keyable(tmp: string)
+  local root = tmp .. "/root"
+  local scratch = tmp .. "/scratch"
+  local made = "/tmp/cosmic-made-XXXXXX"
+  local reads: {observations.Observation} = {
+    { kind = "s", path = made, answer = "" },
+    { kind = "m", path = made, answer = "" },
+  }
+  assert(test.keyable(root, scratch, reads))
+end
+
+local function test_a_read_under_root_o_is_keyable(tmp: string)
+  local scratch = tmp .. "/scratch"
+  local reads: {observations.Observation} =
+    { { kind = "o", path = tmp .. "/o/some/file", answer = "" } }
+  assert(test.keyable(tmp, scratch, reads))
+end
+
+local function test_a_relative_path_is_keyable(tmp: string)
+  local reads: {observations.Observation} =
+    { { kind = "o", path = "cosmic/fs.tl", answer = "" } }
+  assert(test.keyable(tmp, tmp .. "/scratch", reads))
+end
+
+--- An environment variable a test read is part of its verdict key: a
+--- different recorded answer for the same variable produces a
+--- different key, and an answer that no longer matches the live
+--- environment turns `stable` false, exactly as a changed file hash
+--- does for an "o" read.
+local function test_an_environment_answer_is_part_of_the_key(tmp: string)
+  local reads_a: {observations.Observation} =
+    { { kind = "e", path = "COSMIC_TEST_ENV_KEY", answer = "ok one" } }
+  local reads_b: {observations.Observation} =
+    { { kind = "e", path = "COSMIC_TEST_ENV_KEY", answer = "ok two" } }
+  local key_a = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_a, {})
+  local key_b = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_b, {})
+  assert(key_a ~= key_b)
+end
+
+local function test_a_changed_environment_answer_is_unstable(tmp: string)
+  local reads: {observations.Observation} =
+    { { kind = "e", path = "COSMIC_TEST_ENV_KEY", answer = "ok not the live value" } }
+  local _, stable = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads, {})
+  assert(not stable)
+end

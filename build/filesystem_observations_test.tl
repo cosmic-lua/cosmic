@@ -1,3 +1,5 @@
+local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
@@ -120,4 +122,22 @@ local function test_key_part_matches_known_hex_for_edge_bytes()
   assert(observations.key_part("s", edges, "") == "s 000a7fff ")
   assert(observations.key_part("o", "", edges) == "o  000a7fff")
   assert(observations.key_part("d", "caf\xc3\xa9", "x") == "d 636166c3a9 78")
+end
+
+local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
+  local ok, trouble, found = observations.call(function()
+    Env.get("HOME")
+    assert(Fs.mkdtemp("cosmic-observed-"))
+    assert(Child.run({ "/bin/sh", "-c", "true" }))
+  end, nil)
+  assert(ok, trouble)
+  local kinds: {string:integer} = {}
+  for _, observation in ipairs(found) do
+    kinds[observation.kind] = (kinds[observation.kind] or 0) + 1
+  end
+  -- At least the explicit read; `Fs.mkdtemp` and `Child.run` consult
+  -- a platform-dependent number of variables themselves.
+  assert(kinds.e >= 1)
+  assert(kinds.p == 1)
+  assert(kinds.m == 1)
 end
