@@ -1,9 +1,10 @@
 --- Files and directories.
 ---
 --- Every call goes through the syscall table, so one call behaves the
---- same on Linux and on macOS. A call that produces a value returns
---- `T | nil, string`; a call that only has an effect returns
---- `boolean, string`.
+--- same on Linux and on macOS. A fallible call that produces a value
+--- returns `T | nil, string`: a value and `""` on success, or nil and
+--- an error. A predicate uses the same contract, with false as a valid
+--- answer. A call that only has an effect returns `boolean, string`.
 
 local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
@@ -39,7 +40,7 @@ function Fs.read(path: string): string | nil, string
     parts[#parts + 1] = chunk
   end
   sys.close(fd)
-  return table.concat(parts)
+  return table.concat(parts), ""
 end
 
 local function write_all(fd: integer, data: string): boolean, string
@@ -85,24 +86,39 @@ function Fs.write(path: string, data: string, mode?: integer): boolean, string
   return true, ""
 end
 
---- What a path is, or nil when there is nothing there.
+--- Metadata for a path, or nil and an error if it cannot be inspected.
 function Fs.stat(path: string): sys.Stat | nil, string
   local st, trouble = sys.stat(path)
   if st == nil then
     return nil, path .. ": " .. trouble
   end
-  return st
+  return st, ""
 end
 
---- Whether anything is at a path.
-function Fs.exists(path: string): boolean
-  return sys.stat(path) ~= nil
+--- Whether anything is at a path. A missing path is false, while an error
+--- inspecting the path is nil.
+function Fs.exists(path: string): boolean | nil, string
+  local st, trouble, number = sys.stat(path)
+  if st ~= nil then
+    return true, ""
+  end
+  if number == sys.ENOENT or number == sys.ENOTDIR then
+    return false, ""
+  end
+  return nil, path .. ": " .. trouble
 end
 
---- Whether a directory is at a path.
-function Fs.is_dir(path: string): boolean
-  local st = sys.stat(path)
-  return st ~= nil and st.kind == "dir"
+--- Whether a directory is at a path. A missing path or an existing
+--- non-directory is false, while an error inspecting the path is nil.
+function Fs.is_dir(path: string): boolean | nil, string
+  local st, trouble, number = sys.stat(path)
+  if st ~= nil then
+    return st.kind == "dir", ""
+  end
+  if number == sys.ENOENT or number == sys.ENOTDIR then
+    return false, ""
+  end
+  return nil, path .. ": " .. trouble
 end
 
 --- Creates a directory and every missing directory above it.
@@ -110,7 +126,11 @@ function Fs.mkdirs(path: string): boolean, string
   if path == "" or path == "/" then
     return true, ""
   end
-  if Fs.is_dir(path) then
+  local directory, inspection = Fs.is_dir(path)
+  if directory == nil then
+    return false, inspection
+  end
+  if directory then
     return true, ""
   end
   local parent = path:match("^(.*)/[^/]+$")
@@ -120,11 +140,20 @@ function Fs.mkdirs(path: string): boolean, string
       return false, trouble
     end
   end
-  local made, why = sys.mkdir(path)
-  if not made and not Fs.is_dir(path) then
-    return false, path .. ": " .. why
+  local made, why, number = sys.mkdir(path)
+  if made then
+    return true, ""
   end
-  return true, ""
+  if number == sys.EEXIST then
+    local raced, race_trouble = Fs.is_dir(path)
+    if raced == nil then
+      return false, race_trouble
+    end
+    if raced then
+      return true, ""
+    end
+  end
+  return false, path .. ": " .. why
 end
 
 --- A fresh, empty directory under the system temp directory, named with
@@ -137,17 +166,17 @@ function Fs.mkdtemp(prefix: string): string | nil, string
   if path == nil then
     return nil, template .. ": " .. trouble
   end
-  return path
+  return path, ""
 end
 
 --- Removes a name: the path operation corresponding to os.remove. A name that
 --- is already gone is not a failure.
 function Fs.remove(path: string): boolean, string
-  local gone, trouble = sys.unlink(path)
-  if not gone and sys.stat(path) ~= nil then
-    return false, path .. ": " .. trouble
+  local gone, trouble, number = sys.unlink(path)
+  if gone or number == sys.ENOENT or number == sys.ENOTDIR then
+    return true, ""
   end
-  return true, ""
+  return false, path .. ": " .. trouble
 end
 
 --- The names in a directory, sorted, without `.` and `..`.
@@ -166,7 +195,7 @@ function Fs.list(path: string): {string} | nil, string
   if entries == nil then
     return nil, path .. ": " .. trouble
   end
-  return sorted_names(entries)
+  return sorted_names(entries), ""
 end
 
 --- Every file under a root, sorted, as paths relative to that root.
@@ -197,7 +226,7 @@ function Fs.walk(root: string,
     end
   end
   table.sort(found)
-  return found
+  return found, ""
 end
 
 --- A path with no link and no `..` left in it.
@@ -206,7 +235,7 @@ function Fs.absolute(path: string): string | nil, string
   if resolved == nil then
     return nil, path .. ": " .. trouble
   end
-  return resolved
+  return resolved, ""
 end
 
 --- Moves a name, replacing the destination if it is there; this corresponds
@@ -227,7 +256,7 @@ function Fs.open_read(path: string): integer | nil, string
   if fd == nil then
     return nil, path .. ": " .. trouble
   end
-  return fd
+  return fd, ""
 end
 
 --- Opens a file for writing, creating it and emptying it, and returns an
@@ -239,7 +268,7 @@ function Fs.open_write(path: string, mode?: integer): integer | nil, string
   if fd == nil then
     return nil, path .. ": " .. trouble
   end
-  return fd
+  return fd, ""
 end
 
 --- Reads up to `count` bytes from a descriptor. This is the streaming byte
@@ -249,7 +278,7 @@ function Fs.take(fd: integer, count: integer): string | nil, string
   if data == nil then
     return nil, trouble
   end
-  return data
+  return data, ""
 end
 
 --- Closes a descriptor returned by Fs.open_read or Fs.open_write; it does not

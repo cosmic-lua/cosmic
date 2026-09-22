@@ -85,13 +85,6 @@ local function test_output_with_nothing_open_is_refused()
     "got: " .. trouble)
 end
 
-local function test_a_sh_block_is_refused_by_name()
-  local blocks: {Block} = { block("sh", "echo hi", no_mods) }
-  local code, trouble = generate.from_blocks(blocks, "fixture.md")
-  assert(code == nil, "expected an sh block to be refused")
-  assert(trouble == "sh blocks are not supported yet", "got: " .. trouble)
-end
-
 local function test_a_skip_block_produces_a_comment_and_no_function()
   local blocks: {Block} = { block("teal", 'print("no")', mods(false, nil, "intended")) }
   local code, trouble = generate.from_blocks(blocks, "fixture.md")

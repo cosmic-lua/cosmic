@@ -98,12 +98,12 @@ end
 
 local function test_refuses_an_unknown_tag()
   local blocks, trouble = markdown.parse_blocks(doc({
-    "```python",
-    "print('hi')",
+    "```sh",
+    "echo hi",
     "```",
   }))
   assert(blocks == nil, "expected an unknown tag to be refused")
-  assert(trouble:find("unknown fenced block tag 'python'", 1, true) ~= nil,
+  assert(trouble:find("unknown fenced block tag 'sh'", 1, true) ~= nil,
     "got: " .. trouble)
 end
 
@@ -211,6 +211,28 @@ local function test_a_tilde_fence_holds_backtick_content()
   assert(blocks[1].content == "-- ```\nprint(1)", "got: " .. blocks[1].content)
 end
 
+local function test_a_long_backtick_fence_holds_a_shorter_marker()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "`````teal",
+    "````",
+    "print(1)",
+    "`````",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(blocks[1].content == "````\nprint(1)", "got: " .. blocks[1].content)
+end
+
+local function test_a_long_tilde_fence_holds_a_shorter_marker_and_accepts_a_longer_close()
+  local blocks, trouble = markdown.parse_blocks(doc({
+    "~~~~teal",
+    "~~~",
+    "print(1)",
+    "~~~~~~",
+  }))
+  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
+  assert(blocks[1].content == "~~~\nprint(1)", "got: " .. blocks[1].content)
+end
+
 local function test_refuses_an_indented_backtick_fence()
   local blocks, trouble = markdown.parse_blocks(doc({
     "prose",
@@ -234,15 +256,4 @@ local function test_refuses_an_indented_tilde_fence()
   assert(blocks == nil, "expected an indented fence to be refused")
   assert(trouble:find("indented fences are not supported", 1, true) ~= nil,
     "got: " .. trouble)
-end
-
-local function test_reads_a_sh_block()
-  local blocks, trouble = markdown.parse_blocks(doc({
-    "```sh",
-    "echo hi",
-    "```",
-  }))
-  assert(blocks ~= nil, "parse failed: " .. tostring(trouble))
-  assert(blocks[1].lang == "sh")
-  assert(blocks[1].content == "echo hi")
 end

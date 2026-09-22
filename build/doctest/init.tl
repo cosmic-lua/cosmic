@@ -18,7 +18,7 @@ end
 ---   function's OWN error below, which the caller (`collect`) already
 ---   prefixes with `file` the same way it does for every other module
 --- @return string | nil generated Teal source, or nil on a grammar
----   error -- an unterminated fence, an unknown tag, an `sh` block, or
+---   error -- an unterminated fence, an unknown tag, or
 ---   a block ordering the grammar in doc/meta.md does not allow
 --- @return string why, naming the source line the trouble sits at
 function doctest.extract(source: string, file: string): string | nil, string

@@ -1,16 +1,15 @@
 --- Fenced code blocks out of a markdown doc, in document order. This
 --- is the whole of what `build.doctest` reads from the markdown itself;
 --- everything the grammar in doc/meta.md means by a block's tag
---- (`teal`, `lua`, `output`, `sh`, `text`, and the `continue`/`file=`/
+--- (`teal`, `lua`, `output`, `text`, and the `continue`/`file=`/
 --- `skip=` modifiers on `teal`/`lua`) is decided here, once, so
 --- `build.doctest.generate` never re-parses a tag string.
 ---
 --- Prose outside a fence is not read at all: a line only matters here
 --- once it opens or closes a fence.
 ---
---- A fence opens with either a backtick or a tilde run of three,
---- CommonMark's own two marker styles, and closes only with the same
---- marker it opened with.
+--- A fence opens with a backtick or tilde run of at least three. It
+--- closes with the same marker in a run at least as long as the opener.
 
 local record Modifiers
   continue: boolean
@@ -19,7 +18,7 @@ local record Modifiers
 end
 
 local record Block
-  --- `"text"`, `"output"`, `"sh"`, `"teal"`, or `"lua"`.
+  --- `"text"`, `"output"`, `"teal"`, or `"lua"`.
   lang: string
   modifiers: Modifiers
   --- The block's body, its lines joined by `"\n"`, with neither fence
@@ -37,7 +36,6 @@ end
 local valid_langs: {string:boolean} = {
   text = true,
   output = true,
-  sh = true,
   teal = true,
   lua = true,
 }
@@ -63,7 +61,7 @@ local function parse_tag(info: string): Tag | nil, string
   if not valid_langs[lang] then
     return nil, "unknown fenced block tag '" .. lang .. "'"
   end
-  if (lang == "text" or lang == "output" or lang == "sh") and #words > 1 then
+  if (lang == "text" or lang == "output") and #words > 1 then
     return nil, "a " .. lang .. " block takes no modifiers"
   end
   local modifiers: Modifiers = { continue = false, file = nil, skip = nil }
@@ -89,39 +87,35 @@ local function parse_tag(info: string): Tag | nil, string
   return { lang = lang, modifiers = modifiers }, ""
 end
 
---- Whether `line` opens a fence, and with which marker character.
---- CommonMark allows either a backtick or a tilde run of three or more
---- as a fence marker; the two are not interchangeable for one fence
---- -- a fence opened with `` ``` `` closes only with `` ``` ``, and one
---- opened with `~~~` closes only with `~~~`. This lets a `~~~`-fenced
---- block hold literal `` ``` `` content, which is the main reason
---- CommonMark gives docs two marker styles at all.
---- @return string | nil the marker character (`` ` `` or `~`), or nil
----   when `line` opens neither
---- @return string the info string after the marker run, when one was found
-local function open_marker(line: string): string | nil, string
-  local backtick_info = line:match("^```(.*)$")
-  if backtick_info ~= nil then
-    return "`", backtick_info
-  end
-  local tilde_info = line:match("^~~~(.*)$")
-  if tilde_info ~= nil then
-    return "~", tilde_info
-  end
-  return nil, ""
+local record Fence
+  marker: string
+  length: integer
+  info: string
 end
 
---- Whether `line` closes a fence opened with `marker`: the same
---- character, alone on the line but for surrounding whitespace. This
---- grammar does not check the closing run is at least as long as the
---- opening one (CommonMark's full rule) -- every fence here is authored
---- by hand at exactly three characters, so the extra check buys nothing
---- a real doc would ever trip.
-local function closes_fence(line: string, marker: string): boolean
-  if marker == "`" then
-    return line:match("^%s*```%s*$") ~= nil
+--- The column-0 fence opening `line`, including its marker, run length,
+--- and info string, or nil when the line is not an opener.
+local function open_fence(line: string): Fence | nil
+  local run, info = line:match("^(```+)(.*)$")
+  if run == nil then
+    run, info = line:match("^(~~~+)(.*)$")
   end
-  return line:match("^%s*~~~%s*$") ~= nil
+  if run == nil then
+    return nil
+  end
+  return { marker = run:sub(1, 1), length = #run, info = info }
+end
+
+--- Whether `line` closes `fence`: only whitespace may surround a same-marker
+--- run at least as long as the opening run.
+local function closes_fence(line: string, fence: Fence): boolean
+  local run: string | nil
+  if fence.marker == "`" then
+    run = line:match("^%s*(```+)%s*$")
+  else
+    run = line:match("^%s*(~~~+)%s*$")
+  end
+  return run ~= nil and #run >= fence.length
 end
 
 --- Whether `line`, already ruled out as a column-0 fence opener, still
@@ -154,8 +148,8 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
   local blocks: {Block} = {}
   local i = 1
   while i <= #lines do
-    local marker, info = open_marker(lines[i])
-    if marker == nil then
+    local fence = open_fence(lines[i])
+    if fence == nil then
       if looks_like_an_indented_fence(lines[i]) then
         return nil, "line " .. i .. ": this line looks like a fenced code " ..
           "block opener but is indented; indented fences are not " ..
@@ -168,7 +162,7 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       local j = i + 1
       local closed = false
       while j <= #lines do
-        if closes_fence(lines[j], marker) then
+        if closes_fence(lines[j], fence) then
           closed = true
           break
         end
@@ -178,7 +172,7 @@ function markdown.parse_blocks(source: string): {Block} | nil, string
       if not closed then
         return nil, "line " .. open_line .. ": a fenced code block never closes"
       end
-      local trimmed = info:match("^%s*(.-)%s*$") or ""
+      local trimmed = fence.info:match("^%s*(.-)%s*$") or ""
       local tag, tag_trouble = parse_tag(trimmed)
       if tag == nil then
         return nil, "line " .. open_line .. ": " .. tag_trouble

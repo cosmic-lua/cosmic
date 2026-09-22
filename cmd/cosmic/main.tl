@@ -184,7 +184,11 @@ local function run(file: string, argv: {integer:string}): integer
   end
 
   local started = Time.monotonic_ns() or 0
-  local own_tree = importer.is_own_tree(root)
+  local own_tree, own_trouble = importer.is_own_tree(root)
+  if own_tree == nil then
+    complain("cosmic: " .. own_trouble)
+    return 1
+  end
   local handle, open_trouble = work.open(root)
   if handle == nil then
     complain("cosmic: " .. open_trouble)

@@ -56,7 +56,7 @@ local function result(status: sys.ChildStatus, timed_out?: boolean): Result
 end
 
 local function now(): integer
-  return assert(Time.monotonic_ns())
+  return (assert(Time.monotonic_ns()))
 end
 
 local function nap(until_ns: integer)
@@ -81,7 +81,7 @@ local function poll_until(self: Handle, deadline?: integer,
     if status.pid ~= 0 then
       local r = result(status, timed_out)
       self._result, self._closed = r, true
-      return r
+      return r, ""
     end
     if deadline and now() >= deadline then return nil, "timeout" end
     nap(deadline or now() + POLL_NS)
@@ -98,7 +98,7 @@ local function terminate(self: Handle): Result | nil, string
       if status.pid ~= 0 then
         local r = result(status, true)
         self._result, self._closed = r, true
-        return r
+        return r, ""
       end
     end
     return nil, trouble
@@ -111,17 +111,17 @@ local function terminate(self: Handle): Result | nil, string
     if answer then r = answer
     elseif wait_trouble ~= "timeout" then return nil, wait_trouble end
   end
-  if r and not self.process_group then return r end
+  if r and not self.process_group then return r, "" end
   -- Even when the direct child honored TERM, a descendant may have ignored
   -- it. The process group remains addressable until its final member exits.
   local killed, kill_trouble = sys.kill(target(self), sys.SIGKILL)
   if not killed and not r then return nil, kill_trouble end
-  if r then return r end
+  if r then return r, "" end
   local final, reap_trouble = poll_until(self, now() + KILL_REAP_NS, true, true)
   if not final then
     return nil, "child did not reap after SIGKILL: " .. reap_trouble
   end
-  return final
+  return final, ""
 end
 
 local function emergency_cleanup(self: Handle)
@@ -152,13 +152,13 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   local h: Handle = { pid = pid, process_group = process_group }
 
   function h:try_wait(): TryWait | nil, string
-    if self._result then return { finished = true, result = self._result } end
+    if self._result then return { finished = true, result = self._result }, "" end
     local status, trouble = sys.waitpid(self.pid, true)
     if not status then return nil, trouble end
-    if status.pid == 0 then return { finished = false } end
+    if status.pid == 0 then return { finished = false }, "" end
     local r = result(status)
     self._result, self._closed = r, true
-    return { finished = true, result = r }
+    return { finished = true, result = r }, ""
   end
 
   function h:stop(signal?: integer): boolean, string
@@ -169,18 +169,18 @@ local function make_handle(pid: integer, process_group: boolean): Handle
   end
 
   function h:wait(timeout_ms?: integer): Result | nil, string
-    if self._result then return self._result end
+    if self._result then return self._result, "" end
     if timeout_ms == nil and not self._guarded then
       local status, trouble = sys.waitpid(self.pid, false)
       if not status then return nil, trouble end
       local r = result(status)
       self._result, self._closed = r, true
-      return r
+      return r, ""
     end
     if timeout_ms == nil then return poll_until(self) end
     if timeout_ms < 0 then return nil, "timeout is negative" end
     local r, trouble = poll_until(self, now() + timeout_ms * 1000000)
-    if r then return r end
+    if r then return r, "" end
     if trouble ~= "timeout" then return nil, trouble end
     return terminate(self)
   end
@@ -250,7 +250,7 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
     descriptor(opts.stdin, "stdin"), descriptor(opts.stdout, "stdout"),
     descriptor(opts.stderr, "stderr"), grouped)
   if not pid then return nil, "start: " .. trouble end
-  return make_handle(pid, grouped)
+  return make_handle(pid, grouped), ""
 end
 
 --- Runs one executable path to completion. argv[1] is used exactly as given:
@@ -302,7 +302,8 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   end
   if not called then error(r, 0) end
   if cleanup_trouble then return nil, cleanup_trouble end
-  return r, wait_trouble
+  if r then return r, "" end
+  return nil, wait_trouble
 end
 
 return Child

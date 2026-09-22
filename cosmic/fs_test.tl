@@ -1,6 +1,49 @@
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 
+local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
+  local file = tmp .. "/file"
+  assert(Fs.write(file, "contents"))
+
+  local exists, exists_trouble = Fs.exists(file)
+  assert(exists == true and exists_trouble == "")
+  local directory, directory_trouble = Fs.is_dir(tmp)
+  assert(directory == true and directory_trouble == "")
+  local plain, plain_trouble = Fs.is_dir(file)
+  assert(plain == false and plain_trouble == "")
+
+  local missing, missing_trouble = Fs.exists(tmp .. "/missing")
+  assert(missing == false and missing_trouble == "")
+  local below_file, below_file_trouble = Fs.exists(file .. "/child")
+  assert(below_file == false and below_file_trouble == "")
+  local missing_dir, missing_dir_trouble = Fs.is_dir(tmp .. "/missing")
+  assert(missing_dir == false and missing_dir_trouble == "")
+
+  local too_long = tmp .. "/" .. string.rep("x", 300)
+  local unknown, unknown_trouble = Fs.exists(too_long)
+  assert(unknown == nil and unknown_trouble:find(too_long, 1, true))
+  local unknown_dir, unknown_dir_trouble = Fs.is_dir(too_long)
+  assert(unknown_dir == nil and unknown_dir_trouble:find(too_long, 1, true))
+end
+
+local function test_remove_tolerates_absence_but_reports_other_errors(tmp: string)
+  local missing = tmp .. "/missing"
+  local gone, gone_trouble = Fs.remove(missing)
+  assert(gone and gone_trouble == "")
+
+  local file = tmp .. "/file"
+  assert(Fs.write(file, "contents"))
+  local below_file, below_file_trouble = Fs.remove(file .. "/child")
+  assert(below_file and below_file_trouble == "")
+  local removed, removed_trouble = Fs.remove(file)
+  assert(removed and removed_trouble == "")
+  assert(Fs.exists(file) == false)
+
+  local too_long = tmp .. "/" .. string.rep("x", 300)
+  local failed, trouble = Fs.remove(too_long)
+  assert(not failed and trouble:find(too_long, 1, true))
+end
+
 local function test_write_leaves_the_old_fixed_neighbor_untouched(tmp: string)
   local path = tmp .. "/target"
   local neighbor = path .. ".writing"
@@ -59,7 +102,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble:find("injected write failure", 1, true))
   assert(Fs.read(path) == "old")
-  assert(created ~= "" and not Fs.exists(created))
+  assert(created ~= "" and Fs.exists(created) == false)
 end
 
 local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -90,7 +133,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble:find("injected close failure", 1, true))
   assert(Fs.read(path) == "old")
-  assert(created ~= "" and not Fs.exists(created))
+  assert(created ~= "" and Fs.exists(created) == false)
 end
 
 local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -112,7 +155,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   sys.open_temporary = real_open_temporary
   assert(not ok and trouble:find("injected rename failure", 1, true))
   assert(Fs.read(path) == "old")
-  assert(created ~= "" and not Fs.exists(created))
+  assert(created ~= "" and Fs.exists(created) == false)
 end
 
 local function test_put_rejects_zero_progress(tmp: string)

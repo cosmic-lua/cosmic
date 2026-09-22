@@ -23,7 +23,7 @@ function Proc.executable(): string | nil, string
   if path == nil then
     return nil, trouble
   end
-  return path
+  return path, ""
 end
 
 --- Whether a stream is a terminal.

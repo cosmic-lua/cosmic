@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
 local Sqlite = require("cosmic.sqlite")
 
@@ -16,7 +17,8 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
   assert(execute("start", { "/missing/command" }).status == "start-error")
   assert(execute("timeout", { "/bin/sh", "-c", "sleep 30" }, 20).code == 124)
   assert(Fs.write(candidate .. "/o.db", "candidate state"))
-  assert(Fs.exists(c.database) and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
+  local database_exists = Predicate.exists(c.database)
+  assert(database_exists and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
   local bad_candidate: Runner.Context = { database = candidate .. "/bad.db",
     worker = c.worker, run = c.run, attempt = c.attempt, candidate = candidate }
   assert(not pcall(Runner.operation, bad_candidate, "bad",

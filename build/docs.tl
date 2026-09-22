@@ -63,6 +63,10 @@ local record docs
     related: {Example}
   end
 
+  record Lookup is {Entry}
+    exact: boolean
+  end
+
   --- One row of `uses`.
   record Use
     module: string
@@ -345,7 +349,9 @@ end
 function docs.databases(): {Sqlite.Handle}, {boolean}
   local out: {Sqlite.Handle} = {}
   local public: {boolean} = {}
-  if Fs.exists("o/cosmic.db") then
+  local own_exists, own_trouble = Fs.exists("o/cosmic.db")
+  assert(own_exists ~= nil, own_trouble)
+  if own_exists then
     local own = Sqlite.open("o/cosmic.db", false)
     if own ~= nil then
       out[#out + 1] = own
@@ -355,8 +361,11 @@ function docs.databases(): {Sqlite.Handle}, {boolean}
   -- Outside cosmic's own tree the store's databases are public sources:
   -- a project sees its own code and the standard library, never the
   -- build that made the binary.
-  local root = Fs.absolute(".")
-  local outside = root == nil or not tree.is_own(root)
+  local root, root_trouble = Fs.absolute(".")
+  assert(root ~= nil, root_trouble)
+  local own_tree, tree_trouble = tree.is_own(root)
+  assert(own_tree ~= nil, tree_trouble)
+  local outside = not own_tree
   for _, db in ipairs(Store.databases()) do
     out[#out + 1] = db
     public[#out] = outside
@@ -475,27 +484,31 @@ end
 --- What `query` names, across `databases`: its exact matches when it
 --- names a symbol or a module, otherwise the documentation that
 --- carries all its words.
-function docs.lookup(view: docs.View, query: string): {docs.Entry} | nil, string, boolean
+function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   local exact, exact_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
       return named(db, public, query)
     end, entry_module)
   if exact == nil then
-    return nil, exact_trouble, false
+    return nil, exact_trouble
   end
   if #exact > 0 then
     effective_counts(view, exact)
-    return exact, "", true
+    local answer = exact as docs.Lookup
+    answer.exact = true
+    return answer, ""
   end
   local found, search_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
       return searched(db, public, query)
     end, entry_module)
   if found == nil then
-    return nil, search_trouble, false
+    return nil, search_trouble
   end
   effective_counts(view, found)
-  return found, "", false
+  local answer = found as docs.Lookup
+  answer.exact = false
+  return answer, ""
 end
 
 --- Every one of `names` that names a symbol exactly, in one query per
@@ -642,7 +655,7 @@ function docs.run(argv: {integer:string}): integer
     complain("docs: " .. view_trouble)
     return 1
   end
-  local found, trouble, exact = docs.lookup(view, query)
+  local found, trouble = docs.lookup(view, query)
   if found == nil then
     complain("docs: " .. trouble)
     return 1
@@ -652,7 +665,7 @@ function docs.run(argv: {integer:string}): integer
       elapsed_ms(started) .. " ms)")
     return 1
   end
-  if not exact then
+  if not found.exact then
     report("No exact symbol match; showing related documentation:")
     report("")
   end
@@ -665,7 +678,7 @@ function docs.run(argv: {integer:string}): integer
     end
   end
   report("")
-  report("docs: PASS (" .. #found .. (exact and " named" or " found") ..
+  report("docs: PASS (" .. #found .. (found.exact and " named" or " found") ..
     ", " .. #view.databases .. " databases, " .. elapsed_ms(started) .. " ms)")
   return 0
 end

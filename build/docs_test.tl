@@ -54,7 +54,7 @@ local function database(rows: {{string}}, uses: {{string}},
 end
 
 local function view(databases: {Sqlite.Handle}): docs.View
-  return assert(docs.view(databases))
+  return (assert(docs.view(databases)))
 end
 
 local fs_rows: {{string}} = {
@@ -73,7 +73,8 @@ local fs_uses: {{string}} = {
 --- A symbol as declared is found by name, with its use count.
 local function test_looks_up_a_symbol_as_declared()
   local db = database(fs_rows, fs_uses)
-  local found, trouble, exact = docs.lookup(view({ db }), "Fs.read")
+  local found, trouble = docs.lookup(view({ db }), "Fs.read")
+  local exact = found ~= nil and found.exact
   assert(found ~= nil, trouble)
   assert(exact, "a declared name was not an exact match")
   assert(#found == 1 and found[1].symbol == "Fs.read", tostring(#found))
@@ -105,7 +106,8 @@ end
 --- required, and a name nothing matches finds nothing.
 local function test_searches_the_documentation_for_words()
   local db = database(fs_rows, fs_uses)
-  local words, _, exact = docs.lookup(view({ db }), "whole file")
+  local words = assert(docs.lookup(view({ db }), "whole file"))
+  local exact = words.exact
   assert(words ~= nil)
   assert(not exact)
   assert(#words == 2, tostring(#words))
@@ -221,7 +223,8 @@ local function test_searches_finds_a_word_only_in_an_example()
     { "cosmic.fs", "read", "", "cosmic/fs_example.tl", "3",
       "function Example.read()\n  print(Hash.hex_sha256(Fs.read(\"x\")))\nend" },
   })
-  local found, _, exact = docs.lookup(view({ db }), "hex_sha256")
+  local found = assert(docs.lookup(view({ db }), "hex_sha256"))
+  local exact = found.exact
   assert(found ~= nil)
   assert(not exact)
   assert(#found == 1 and found[1].module == "cosmic.fs" and

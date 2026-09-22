@@ -213,7 +213,8 @@ static int store_attach(lua_State *L) {
   lua_seti(L, list, 1);
 
   lua_pushboolean(L, 1);
-  return 1;
+  lua_pushliteral(L, "");
+  return 2;
 }
 
 /* One module's compiled bytes, for a caller that must load a chunk in
@@ -240,7 +241,8 @@ static int store_bytecode(lua_State *L) {
       lua_pushlstring(L, sqlite3_column_blob(stmt, 0),
                       (size_t)sqlite3_column_bytes(stmt, 0));
       sqlite3_finalize(stmt);
-      return 1;
+      lua_pushliteral(L, "");
+      return 2;
     }
     if (rc != SQLITE_DONE) {
       sqlite3_finalize(stmt);
@@ -278,7 +280,8 @@ static int store_source(lua_State *L) {
       lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
                       (size_t)sqlite3_column_bytes(stmt, 0));
       sqlite3_finalize(stmt);
-      return 1;
+      lua_pushliteral(L, "");
+      return 2;
     }
     if (rc != SQLITE_DONE) {
       sqlite3_finalize(stmt);
@@ -517,7 +520,8 @@ static int store_trusted_prefix(lua_State *L) {
     return 2;
   }
   luaL_pushresultsize(&buffer, (size_t)length);
-  return 1;
+  lua_pushliteral(L, "");
+  return 2;
 }
 
 static int open_store_module(lua_State *L,

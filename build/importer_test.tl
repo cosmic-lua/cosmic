@@ -347,7 +347,9 @@ local function test_types_the_standard_library_from_the_binary()
     ["main.tl"] = table.concat({
       'local Fs = require("cosmic.fs")',
       "local function exists(path: string): boolean",
-      "  return Fs.exists(path)",
+      "  local answer, trouble = Fs.exists(path)",
+      "  assert(answer ~= nil, trouble)",
+      "  return answer",
       "end",
       "return exists",
       "",
@@ -704,4 +706,35 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   assert(#inputs == 0, "derived inputs included a module under ci/: " ..
     tostring(inputs[1]))
   work.close(handle)
+end
+
+--- API contracts are checked by the real importer before its compiled cache,
+--- so a source with a forbidden public fallible signature never compiles.
+local function test_compile_rejects_a_bad_public_fallible_signature()
+  local root = assert(write_fixture("api-contract", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["core/syscalls.h"] = table.concat({
+      "/**",
+      " * --- Reads bytes.",
+      " * ---@param fd integer descriptor",
+      " * ---@return string|nil data bytes",
+      " * ---@return string error failure",
+      " * ---@return integer errno number",
+      " */",
+      "COSMIC_SYSCALL(read, 1);",
+    }, "\n") .. "\n",
+    ["cosmic/bad.tl"] = table.concat({
+      "local record Bad end",
+      "function Bad.read(): string | nil, string, boolean",
+      "  return nil, 'failed', false",
+      "end",
+      "return Bad",
+    }, "\n") .. "\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local result, trouble = importer.compile(handle, built, "api-contract-test")
+  work.close(handle)
+  assert(result == nil)
+  assert(trouble:find("exactly (value, string)", 1, true), trouble)
 end

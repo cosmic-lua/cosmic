@@ -50,6 +50,8 @@ local record TypeNode
   --- A tuple type's members: a function's argument or return types, and
   --- the type list a `local` declaration carries after its names.
   tuple: {TypeNode} | nil
+  --- A union's alternatives.
+  types: {TypeNode} | nil
 
   --- A `"typedecl"`: the record, enum, or alias it declares, and whether
   --- it is an alias (`local type X = Y`) rather than a definition.

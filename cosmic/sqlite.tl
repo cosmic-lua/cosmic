@@ -201,7 +201,7 @@ function Sqlite.rows(handle: raw_sqlite.Handle, sql: string,
     out[#out + 1] = row
   end
   statement:finalize()
-  return out
+  return out, ""
 end
 
 --- A direct text projection for callers whose SQL already defines the desired
@@ -237,7 +237,7 @@ function Sqlite.text_rows(handle: raw_sqlite.Handle, sql: string,
     out[#out + 1] = row
   end
   statement:finalize()
-  return out
+  return out, ""
 end
 
 --- Runs `work` inside a transaction, rolling back when it fails.

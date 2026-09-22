@@ -1,4 +1,4 @@
-local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -73,7 +73,8 @@ local function test_portable_format_contract(tmp: string)
     if target.name == publish_target then supported = true end
   end
   assert(supported, "unsupported target: " .. publish_target)
-  assert(not Fs.exists(publish), "format output already exists: " .. publish)
+  local publish_exists = Predicate.exists(publish)
+  assert(not publish_exists, "format output already exists: " .. publish)
   Fixture.mkdir(publish)
   Fixture.copy(program .. ".a", publish .. "/program")
   Fixture.copy(root .. "/o/targets.tsv", publish .. "/targets.tsv")

@@ -1,4 +1,5 @@
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 local sys = require("cosmic.sys")
 
@@ -55,7 +56,8 @@ end
 
 function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
     database: string, out: string, tmp: string): string
-  assert(not Fs.exists(out), "runtime fixture output already exists: " .. out)
+  local output_exists = Predicate.exists(out)
+  assert(not output_exists, "runtime fixture output already exists: " .. out)
 
   local diagnostics = tmp .. "/logs"
   Fixture.mkdir(diagnostics)

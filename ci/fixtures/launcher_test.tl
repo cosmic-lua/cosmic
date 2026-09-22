@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
@@ -249,14 +250,16 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   outcome_ok(default, "default cache")
   local default_cache = ctx.target == "aarch64-macos" and
     home .. "/Library/Caches/cosmic/cores" or home .. "/.cache/cosmic/cores"
-  assert(Fs.is_dir(default_cache) and permissions(default_cache) == 0x1c0)
+  local default_exists = Predicate.is_dir(default_cache)
+  assert(default_exists and permissions(default_cache) == 0x1c0)
   local xdg_env = environment()
   xdg_env.COSMIC_PORTABLE_CACHE = nil; xdg_env.XDG_CACHE_HOME = xdg
   xdg_env.HOME = home
   outcome_ok(Fixture.call_with_environment("xdg-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
-  assert(Fs.is_dir(xdg .. "/cosmic/cores"))
+  local xdg_exists = Predicate.is_dir(xdg .. "/cosmic/cores")
+  assert(xdg_exists)
   local relative_home = ctx.work .. "/relative-home"; Fixture.mkdir(relative_home)
   local relative_xdg = environment()
   relative_xdg.COSMIC_PORTABLE_CACHE = nil
@@ -332,7 +335,7 @@ core_bytes, 0x1c0)
   local marker = ctx.work .. "/read-only-corrupt.marker"
   local corrupt = run(ctx, "read-only-corrupt", base,
     { PORTABLE_PAYLOAD_MARKER = marker })
-  assert(not corrupt.result.ok and not Fs.exists(marker))
+  assert(not corrupt.result.ok and Fs.exists(marker) == false)
   Fixture.contains(corrupt.err, "digest differs and cache is read-only")
   chmod(base, 0x1c0)
   local warm = run(ctx, "warm-corrupt", base); outcome_ok(warm, "warm repair")
@@ -474,7 +477,7 @@ exit "$result"
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-      not Fs.exists(ctx.work .. "/" .. one[1] .. "-cache"))
+      Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false)
   end
 
   local exit_marker = ctx.work .. "/exit.marker"
@@ -493,7 +496,8 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
   local key = only_core(base):match("([^/]+)$") as string
   if ctx.target ~= "aarch64-macos" then
     local parent = Env.get_or("COSMIC_PORTABLE_NOEXEC_ROOT", "/dev/shm")
-    if Fs.is_dir(parent) then
+    local parent_is_dir = Predicate.is_dir(parent)
+    if parent_is_dir then
       local made = Fixture.call("noexec-root", { "/usr/bin/env", "mktemp", "-d",
         parent .. "/cosmic-launcher.XXXXXXXX" }, ctx.work, ctx.diagnostics)
       if made.result.ok then
