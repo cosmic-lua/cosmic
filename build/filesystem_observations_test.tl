@@ -128,7 +128,7 @@ local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
   local ok, trouble, found = observations.call(function()
     Env.get("HOME")
     assert(Fs.mkdtemp("cosmic-observed-"))
-    assert(Child.run({ "/bin/true" }))
+    assert(Child.run({ "/bin/sh", "-c", "true" }))
   end, nil)
   assert(ok, trouble)
   local kinds: {string:integer} = {}
