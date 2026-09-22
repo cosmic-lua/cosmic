@@ -10,8 +10,9 @@ and is excluded from module and test discovery. Its working database lands
 at `ci/o/build.db` (gitignored).
 
 `bootstrap-driver.sh` downloads and verifies the pinned host, caching it by
-digest, and copies it to a runner path. CI then runs the driver in place,
-with cwd `ci`: `$COSMIC_DRIVER cosmic_ci/driver.tl ...`.
+digest, and copies it to a runner path (`$RUNNER_TEMP/bin/cosmic-driver`,
+which CI then puts on `PATH` via `GITHUB_PATH`). CI then runs the driver in
+place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 
 Orchestration copies `cosmic_ci/` once per fixture into a separate,
 external fixture project, since each fixture needs a fresh working
@@ -23,3 +24,20 @@ checked external database. The checked-in pin (`cosmic-driver.pin`) is the
 production trust root; local development may
 preseed a temporary pin cache with a digest-verified locally built host, but
 that does not establish release publication or immutability.
+
+`run`, `platform`, and `provenance` read their context from the environment
+rather than from positional arguments: `GITHUB_WORKSPACE` (the candidate
+checkout root), `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `RUNNER_TEMP`,
+`COSMIC_WORKER` (the workflow sets this from `matrix.name`, or to
+`provenance` for the join job), and, for `platform` only, `TARGET`. All
+driver state lives under `$RUNNER_TEMP/cosmic-ci/`: the operations database
+at `$RUNNER_TEMP/cosmic-ci/operations.db`, the platform work directory at
+`$RUNNER_TEMP/cosmic-ci/platform`, and the provenance products directory at
+`$RUNNER_TEMP/cosmic-ci/products`. `driver.tl summarize` needs only
+`RUNNER_TEMP`, since it runs whenever the driver bootstrapped, including
+after a failed self-check, when the rest of that contract may not hold; it
+appends the operations table to the file named by
+`GITHUB_STEP_SUMMARY` (or to stdout when that is unset); when the
+operations database does not exist yet it appends a note that it is
+unavailable and exits 0: no operation ran, which means the self-check
+failed first.
