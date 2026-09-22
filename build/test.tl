@@ -865,7 +865,15 @@ function test.run(argv: {integer:string}): integer
   local slot = 2
   while argv[slot] ~= nil do
     local selector = normalized(argv[slot])
-    if selector == root then
+    local absolute = Fs.absolute(selector)
+    if absolute == root then
+      selector = "."
+    elseif absolute ~= nil then
+      selector = normalized(absolute)
+    end
+    if root == "/" and selector:sub(1, 1) == "/" then
+      selector = selector:sub(2)
+    elseif selector == root then
       selector = "."
     elseif selector:sub(1, #root + 1) == root .. "/" then
       selector = selector:sub(#root + 2)

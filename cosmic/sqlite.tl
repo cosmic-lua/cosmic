@@ -55,12 +55,13 @@ local record Sqlite
   version: string
 end
 
---- A database file, read-only unless `writable` says otherwise. Every
---- handle knows `sha256(X)`, the 32-byte digest of a text or blob,
---- `digest(A, X)`, the digest under the algorithm A names (the names
---- `cosmic.hash` takes), and `hmac(A, K, X)`, the HMAC of X under key
---- K over A; a NULL argument gives NULL. `lower(hex(sha256(X)))` is
---- the form the build writes into keys.
+--- A database file, read-only unless `writable` says otherwise, in which
+--- case a missing file is created. Every handle knows `sha256(X)`, the
+--- 32-byte digest of a text or blob, `digest(A, X)`, the digest under
+--- the algorithm A names (the names `cosmic.hash` takes), and
+--- `hmac(A, K, X)`, the HMAC of X under key K over A; a NULL argument
+--- gives NULL. `lower(hex(sha256(X)))` is the form the build writes
+--- into keys.
 function Sqlite.open(path: string, writable?: boolean): raw_sqlite.Handle | nil, string
   return sqlite.open(path, writable)
 end

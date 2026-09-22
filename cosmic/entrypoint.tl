@@ -29,10 +29,21 @@ local record Entrypoint
   --- function, that function is the entry point called with the
   --- command line -- see argv
   main: string
+  --- a built binary -- what cmd writes and main runs -- is a shell
+  --- launcher that locates its own per-user cache before any Teal
+  --- runs, from its environment alone, never from a file beside it:
+  --- an absolute `COSMIC_PORTABLE_CACHE` if set, else an absolute
+  --- `XDG_CACHE_HOME` (under `cosmic/cores`), else an absolute `HOME`
+  --- (under `.cache/cosmic/cores`, or `Library/Caches/cosmic/cores` on
+  --- macOS). None of the three present and absolute is a startup
+  --- error, not a build one -- `cosmic portable: no absolute HOME is
+  --- available for the portable cache`, exit 126 -- true of `cosmic`
+  --- itself and of every binary `cosmic build` produces alike
+  home: string
 end
 
 local entrypoint: Entrypoint = {
-  tree = "tree", argv = "argv", cmd = "cmd", main = "main",
+  tree = "tree", argv = "argv", cmd = "cmd", main = "main", home = "home",
 }
 
 return entrypoint
