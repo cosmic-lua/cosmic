@@ -422,6 +422,10 @@ fn formatDecoder(
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        // Stripped like `core()` so a target build reuses the musl libc
+        // `cores` already built; see `launcherHelper()`. The native Debug
+        // decoder keeps its symbols.
+        .strip = optimize != .Debug,
     });
     mod.addCSourceFiles(.{
         .root = b.path("."),
