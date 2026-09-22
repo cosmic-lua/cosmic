@@ -77,7 +77,7 @@ local record work
   version: string
 end
 
-work.version = "15"
+work.version = "16"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -226,6 +226,9 @@ work.schema = {
              CAST(data AS TEXT) AS source,
              sha256 AS source_hash
         FROM files WHERE path GLOB '*.tl'
+          AND path NOT GLOB 'test/ci/driver/*'
+          AND path NOT GLOB 'testdata/*'
+          AND path NOT GLOB '*/testdata/*'
       UNION ALL
       SELECT file, path, kind, origin, from_hash, source, source_hash FROM derived]],
   [[CREATE TABLE IF NOT EXISTS parsed (source_hash TEXT PRIMARY KEY,

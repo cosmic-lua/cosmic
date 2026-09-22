@@ -1,12 +1,13 @@
 local Fs = require("cosmic.fs")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
 local native_build_timeout_ms <const> = 120000
 
-local function test_launcher_construction(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
-  local output = Fixture.required("COSMIC_FIXTURE_LAUNCHER")
-  local worker_target = Fixture.required("COSMIC_FIXTURE_TARGET")
+local record LauncherSetup
+end
+
+function LauncherSetup.build(root: string, output: string,
+    worker_target: string, tmp: string): string
   assert(not Fs.exists(output), "launcher output already exists: " .. output)
   local targets = Fixture.targets(root .. "/o/targets.tsv")
   local supported = false
@@ -52,4 +53,9 @@ local function test_launcher_construction(tmp: string)
   assert(Fixture.read(output .. "/launcher.test"):find(
     "COSMIC_PORTABLE_TEST_", 1, true),
     "test launcher omits fixture hook names")
+  Fixture.assert_executable(output .. "/launcher.release")
+  Fixture.assert_executable(output .. "/launcher.test")
+  return output
 end
+
+return LauncherSetup

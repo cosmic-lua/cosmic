@@ -2,7 +2,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
-local Time = require("cosmic.time")
+local Runner = require("cosmic_ci.runner")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
 -- well under a second. Native decoder compilation opts into its larger bound.
@@ -100,50 +100,17 @@ function Fixture.call_with_environment(label: string, argv: {string},
   Fixture.mkdir(diagnostics)
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
-  local out_fd = assert(Fs.open_write(out))
-  local err_fd, open_trouble = Fs.open_write(err)
-  if err_fd == nil then
-    local closed, close_trouble = Fs.close(out_fd)
-    assert(closed, close_trouble)
-    error(open_trouble)
-  end
-  local input_fd: integer | nil = nil
-  if input then
-    input_fd, open_trouble = Fs.open_read(input)
-    if input_fd == nil then
-      Fs.close(out_fd); Fs.close(err_fd)
-      error(open_trouble)
-    end
-  end
-  local options: Child.Options = {
-    cwd = directory,
-    env = environment,
-    stdout = out_fd,
-    stderr = err_fd,
-    process_group = true,
-  }
-  if input_fd then options.stdin = input_fd end
-  options.timeout_ms = timeout_ms or default_child_timeout_ms
-  local started = assert(Time.monotonic_ns())
-  local called, answer, trouble = pcall(Child.run, argv, options)
-  local elapsed = (assert(Time.monotonic_ns()) - started) // 1000000
-  local out_closed, out_trouble = Fs.close(out_fd)
-  local err_closed, err_trouble = Fs.close(err_fd)
-  local input_closed, input_trouble = true, ""
-  if input_fd then input_closed, input_trouble = Fs.close(input_fd) end
-  if not called then error(answer) end
-  local result = answer as Child.Result | nil
-  if result == nil then
-    error(label .. ": could not start: " .. tostring(trouble) ..
+  local outcome = Runner.execute({ argv = argv, cwd = directory,
+    env = environment, timeout_ms = timeout_ms or default_child_timeout_ms,
+    input = input, output = out, error = err })
+  if not outcome.result then
+    error(label .. ": could not start: " .. tostring(outcome.trouble) ..
       "; stdout=" .. out .. "; stderr=" .. err)
   end
-  local finished = result as Child.Result
-  assert(out_closed, out_trouble)
-  assert(err_closed, err_trouble)
-  assert(input_closed, input_trouble)
+  local finished = outcome.result as Child.Result
   assert(Fs.put(Fs.stderr, "fixture: " .. label .. ": DONE (" ..
-    tostring(elapsed) .. " ms; code=" .. tostring(finished.code) ..
-    "; signal=" .. tostring(finished.signal) ..
+    tostring(outcome.elapsed_ns // 1000000) .. " ms; code=" ..
+    tostring(finished.code) .. "; signal=" .. tostring(finished.signal) ..
     "; timed_out=" .. tostring(finished.timed_out) .. ")\n"))
   return { result = finished, out = out, err = err }
 end

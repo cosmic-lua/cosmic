@@ -2,9 +2,9 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 
--- runtime.sh test's own default subprocess bound, and the bound each paused
+-- runtime test's own default subprocess bound, and the bound each paused
 -- race and blocking handshake call below stays under.
 local child_wait_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
@@ -20,7 +20,7 @@ end
 -- Opens fd 8 on $1 and fd 9 on $2, then execs the remaining arguments.
 -- `Child.Options` only redirects stdin/stdout/stderr, so opening arbitrary
 -- extra descriptors before exec needs a real shell wrapper -- the same
--- approach identity_test.tl.in's `run_sanitized` and launcher_test.tl.in's
+-- approach identity_test.tl's `run_sanitized` and launcher_test.tl's
 -- descriptor tests use.
 local descriptor_exec_script <const> = [[
 exec 8< "$1"
@@ -41,7 +41,7 @@ end
 
 --------------------------------------------------------------------------
 -- FIFO pause/release and process-supervision idioms, duplicated verbatim
--- from self_rebuild_test.tl.in / identity_test.tl.in.
+-- from self_rebuild_test.tl / identity_test.tl.
 --------------------------------------------------------------------------
 
 local record Running
@@ -133,7 +133,7 @@ end
 -- startup regardless of a hook name, and runs `tool.tl retained-prefix-probe`
 -- from `root`. Every other hook name (e.g. "after_select") instead goes
 -- through the named `COSMIC_PORTABLE_TEST_HOOK`/`_READY`/`_GO` mechanism
--- (the same one launcher_test.tl.in's `hook_environment` drives), running
+-- (the same one launcher_test.tl's `hook_environment` drives), running
 -- the copied `probe.tl` fixture script from `work/run space`.
 local function run_paused(root: string, work: string, diagnostics: string,
     hook: string, program: string, cache: string, expected_hash: string,
@@ -189,7 +189,7 @@ end
 
 -- The manifest header is a run of human-readable lines within the first
 -- 16384 bytes, each beginning "  HOST" for the target it selects. This
--- mirrors launcher_test.tl.in's own already-proven header scan (same
+-- mirrors launcher_test.tl's own already-proven header scan (same
 -- `"  " .. host` prefix check).
 local function selected_header_line(artifact_bytes: string, host: string):
     string

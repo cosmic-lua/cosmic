@@ -1,5 +1,5 @@
 local Fs = require("cosmic.fs")
-local Fixture = require("fixture")
+local Fixture = require("cosmic_ci.fixture")
 local sys = require("cosmic.sys")
 
 local function chmod(path: string, mode: integer)
@@ -7,7 +7,7 @@ local function chmod(path: string, mode: integer)
 end
 
 -- Copies a whole directory tree with the standard `cp -R`, matching
--- identity_test.tl.in's own `copy_tree`: Teal has no bundled recursive-copy
+-- identity_test.tl's own `copy_tree`: Teal has no bundled recursive-copy
 -- primitive, and shelling out to a standard POSIX utility for it is the
 -- established idiom.
 local function copy_tree(label: string, from: string, to: string, cwd: string,
@@ -22,14 +22,14 @@ end
 
 -- Ports lib.sh's `host_target_field targets.tsv FIELD`: the generated target
 -- whose columns 5/6 (uname_os, uname_arch) match this host. Unlike
--- identity_test.tl.in's own specialized port (which only ever needs column
+-- identity_test.tl's own specialized port (which only ever needs column
 -- 4, the target name), runtime.sh's `build` verb reads both column 1 (the
 -- target id) and column 4 (the target name) off the very same matched row
 -- (lines 126-127), so this returns both at once from one scan instead of
 -- running the search twice for the same row -- a deliberate simplification
 -- versus a literal per-field port. Exactly one generated target is expected
 -- to match any real host; more than one match fails loudly rather than
--- silently keeping only the last one, matching identity_test.tl.in's own
+-- silently keeping only the last one, matching identity_test.tl's own
 -- port.
 local function host_target_row(targets_path: string, work: string,
     diagnostics: string): string, string
@@ -59,16 +59,15 @@ local function host_target_row(targets_path: string, work: string,
 end
 
 -- Ports runtime.sh's `build` verb (lines 20-173), given that in every real
--- caller (orchestration.tl.in's "assemble" phase) it always receives all
+-- caller (orchestration.tl's "assemble" phase) it always receives all
 -- four positional arguments -- the shell's own 1- and 2-argument forms,
 -- which build cores locally when no prebuilt prefix is given (lines 50-56),
 -- are dead code for this fixture and are not ported.
-local function test_runtime_construction(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
-  local prebuilt = Fixture.required("COSMIC_FIXTURE_PREBUILT")
-  local writer = Fixture.required("COSMIC_FIXTURE_WRITER")
-  local database = Fixture.required("COSMIC_FIXTURE_DATABASE")
-  local out = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+local record RuntimeSetup
+end
+
+function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
+    database: string, out: string, tmp: string): string
   assert(not Fs.exists(out), "runtime fixture output already exists: " .. out)
 
   local diagnostics = tmp .. "/logs"
@@ -178,12 +177,12 @@ local function test_runtime_construction(tmp: string)
   Fixture.run("prepare-artifacts", { writer, root .. "/test/portable/tool.tl",
     "prepare-artifacts", out, targets_path }, root, diagnostics)
 
-  Fixture.copy(root .. "/test/portable/fixture/retained_probe.tl.in",
+  Fixture.copy(root .. "/test/ci/driver/testdata/portable/retained_probe.tl",
     out .. "/probe.tl")
-  Fixture.copy(root .. "/test/portable/fixture/runtime_test.tl.in",
-    out .. "/runtime_test.tl.in")
-  Fixture.copy(root .. "/test/portable/fixture/cmd/hello/main.tl.in",
-    out .. "/hello_main.tl.in")
+  Fixture.copy(root .. "/test/ci/driver/testdata/portable/runtime_test.tl",
+    out .. "/runtime_test.tl")
+  Fixture.copy(root .. "/test/ci/driver/testdata/portable/cmd/hello/main.tl",
+    out .. "/hello_main.tl")
 
   -- Belt-and-suspenders, matching the shell's own final `chmod 755` glob:
   -- prepare_artifacts already writes runtime.corrupt-<target> as 0755
@@ -199,4 +198,12 @@ local function test_runtime_construction(tmp: string)
   end
 
   Fixture.copy(targets_path, out .. "/targets.tsv")
+  for _, name in ipairs({ "runtime.release", "runtime.old", "runtime.new",
+      "runtime.basis", "runtime.missing", "runtime.sanitized",
+      "runtime.incompatible", "targets.tsv" }) do
+    require_file(out .. "/" .. name)
+  end
+  return out
 end
+
+return RuntimeSetup
