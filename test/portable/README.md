@@ -50,9 +50,8 @@ occurs exactly once, at its manifest range, in Cosmic and both applications.
 reuse, the selected manifest range's length, digest, and raw core bytes, and
 both applications; on the macOS host it also sends that extracted range to
 strict `codesign` verification. Normal CI runs these checks in independent x86
-Linux, ARM Linux, and ARM macOS producers, plus an x86 Linux producer whose
-product also runs under Alpine. The `provenance` job compares the exact
-`cosmic` bytes all four attest they ran.
+Linux, ARM Linux, ARM macOS, and Alpine x86 Linux producers. The `provenance`
+job compares the exact `cosmic` bytes all four attest they ran.
 
 The driver's `runtime_setup.tl` assembles the runtime fixture
 directory (`COSMIC_FIXTURE_RUNTIME`) from a booted checkout's prebuilt cores
@@ -126,6 +125,7 @@ match, a too-short program, and a single mutated byte.
 
 The pinned CI driver owns full-suite execution, retained output, working
 database snapshots, delayed boundaries, and artifact immutability checks.
-It runs portable suites from a fresh tracked-source export and runs the same
-product in an offline, unprivileged Alpine container. Its isolated project
-and command contracts are documented in `ci`.
+It runs portable suites from a fresh tracked-source export on every leg,
+including the `alpine-x86_64` job container, which builds and tests
+natively on musl/BusyBox like every other leg. Its isolated project and
+command contracts are documented in `ci`.

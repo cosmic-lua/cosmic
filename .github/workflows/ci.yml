@@ -25,22 +25,28 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            alpine: false
+            container: ''
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
-            alpine: false
+            container: ''
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
-            alpine: false
+            container: ''
           - name: alpine-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            alpine: true
+            container: 'alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6'
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     timeout-minutes: 45
     steps:
+      - name: install the tools the actions and the build need
+        if: matrix.container
+        working-directory: /
+        run: apk add --no-cache bash git tar zstd curl xz
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: cache the pinned CI driver
@@ -78,15 +84,15 @@ jobs:
       # its own guard has passed -- and saves it back once every native
       # build this job runs has had a chance to update it. The key
       # includes `matrix.name`, one entry per leg, even though
-      # linux-x86_64 and alpine-x86_64 build the same cross-compiled
-      # `cores` output: sharing a key between two legs that run in
-      # parallel means only one of them can ever win the save (the other
-      # fails with "another job may be creating this cache" and its own
-      # compile is discarded every time), leaving it permanently stuck
-      # restoring a cache some OTHER host produced, which zig reuses far
-      # less effectively than one it built itself. A key per leg costs a
-      # bit of duplicate cache storage in exchange for every leg reliably
-      # saving and reusing its own.
+      # linux-x86_64 and alpine-x86_64 target the same
+      # `x86_64-linux-musl` triple: sharing a key between two legs that
+      # run in parallel means only one of them can ever win the save (the
+      # other fails with "another job may be creating this cache" and its
+      # own compile is discarded every time), leaving it permanently
+      # stuck restoring a cache some OTHER host produced, which zig
+      # reuses far less effectively than one it built itself. A key per
+      # leg costs a bit of duplicate cache storage in exchange for every
+      # leg reliably saving and reusing its own.
       - name: cache zig build outputs
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -165,16 +171,6 @@ jobs:
           "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
           "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
 
-      - name: run offline unprivileged BusyBox checks
-        if: matrix.alpine
-        env:
-          TARGET: ${{ matrix.target }}
-          COSMIC_CI_RUNNER: ${{ runner.temp }}/cosmic-driver
-        run: >-
-          "$COSMIC_DRIVER" cosmic_ci/driver.tl platform alpine
-          "$COSMIC_OPERATIONS_DB" "${{ matrix.name }}" "$GITHUB_RUN_ID"
-          "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE" "$TARGET" "$RUNNER_TEMP/platform"
-
       - name: attest the exact executed product bytes
         env:
           TARGET: ${{ matrix.target }}
@@ -201,7 +197,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          db="$(find "$RUNNER_TEMP/cosmic-driver-selfcheck" -name operations.db -type f -print -quit)"
+          db="$(find "$RUNNER_TEMP/cosmic-driver-selfcheck" -name operations.db -type f -print | head -n 1)"
           if [ -z "$db" ]; then
             echo '## Cosmic CI operations' >> "$GITHUB_STEP_SUMMARY"
             echo 'Driver database unavailable (bootstrap or self-check failed before its first operation).' >> "$GITHUB_STEP_SUMMARY"
@@ -238,7 +234,6 @@ jobs:
           path: |
             ${{ runner.temp }}/platform/local-diagnostics
             ${{ runner.temp }}/platform/portable-diagnostics
-            ${{ runner.temp }}/platform/alpine-diagnostics
             ${{ runner.temp }}/platform/fixture-test-diagnostics
           if-no-files-found: ignore
 
