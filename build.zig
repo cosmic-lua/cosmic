@@ -126,6 +126,7 @@ const core_sources = [_][]const u8{
     "executable.c",
     "sqlite.c",
     "store.c",
+    "strlen.c",
     "strnlen.c",
     "surface.c",
     "syscalls.c",
@@ -308,6 +309,25 @@ pub fn build(b: *std.Build) void {
         .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
     });
     boot.dependOn(&b.addRunArtifact(strnlen_check).step);
+
+    // Plain strlen is exposed to the same vectorized-scan overread as
+    // strnlen (core/strlen.c), reached directly by callers such as
+    // vfs.c on a caller-supplied artifact path, with no printf in
+    // between to route it through strnlen instead.
+    const strlen_check = b.addExecutable(.{
+        .name = "strlen-check",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+            .link_libc = true,
+        }),
+    });
+    strlen_check.root_module.addCSourceFiles(.{
+        .root = b.path("core"),
+        .files = &.{ "strlen.c", "strlen_test.c" },
+        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+    });
+    boot.dependOn(&b.addRunArtifact(strlen_check).step);
 
     // Startup's reserved-prefix sweep has no fixed name count or length.
     const environment_check = b.addExecutable(.{
