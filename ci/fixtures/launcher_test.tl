@@ -4,6 +4,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
+local Runner = require("cosmic_ci.runner")
 
 local child_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
@@ -508,9 +509,10 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
         local called, failure = pcall(function(): boolean
           local probe = noexec .. "/probe"
           Fixture.write(probe, "#!/bin/sh\nexit 0\n", 0x1c0)
-          local probe_run = Fixture.call("noexec-probe", { probe }, ctx.work,
-            ctx.diagnostics)
-          if not probe_run.result.ok then
+          -- A noexec mount refuses the exec itself, so the probe may not
+          -- even start; that is the answer, not a fixture error.
+          local probe_run = Runner.execute({ argv = { probe }, cwd = ctx.work })
+          if not probe_run.result or not probe_run.result.ok then
             local cache = noexec .. "/cache"
             local answer = run(ctx, "noexec-launch", cache)
             assert(answer.result.code == 126 and
