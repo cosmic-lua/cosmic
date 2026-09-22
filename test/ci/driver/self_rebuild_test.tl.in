@@ -1,0 +1,401 @@
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local Fixture = require("fixture")
+
+-- self_rebuild.sh's default `run_bounded` timeout, and the bound each
+-- rebuilt-child wait and blocking subprocess call below stays under.
+local child_wait_timeout_ms <const> = 30000
+local handshake_timeout_ms <const> = 5000
+
+-- Compares exactly the first `length` bytes of `program` against `expected`,
+-- which must itself be exactly `length` bytes. Mirrors self_rebuild.sh's
+-- shell `compare_prefix`: a length mismatch on either side, or a byte
+-- difference within the compared range, is a failure with a message; a
+-- program longer than `length` still passes, since only its prefix matters.
+local function compare_prefix(expected: string, program: string,
+    length: integer): boolean, string
+  if #expected ~= length then
+    return false, "expected prefix has " .. tostring(#expected) ..
+      " bytes, want " .. tostring(length)
+  end
+  if #program < length then
+    return false, "rebuilt artifact prefix has " .. tostring(#program) ..
+      " bytes, want " .. tostring(length)
+  end
+  if program:sub(1, length) ~= expected then
+    return false, "rebuilt artifact prefix bytes differ"
+  end
+  return true, ""
+end
+
+-- Splits text into lines without dropping empty ones (unlike
+-- `gmatch("[^\n]+")`, which every other fixture-test's line-oriented parsing
+-- uses on inputs that are known not to contain blank lines). Assumes the
+-- text ends with a trailing newline, as every source file in the tree does;
+-- joining the result with "\n" and appending one final "\n" reproduces it.
+local function split_lines(text: string): {string}
+  local lines: {string} = {}
+  local at = 1
+  while true do
+    local newline = text:find("\n", at, true)
+    if newline == nil then
+      if at <= #text then lines[#lines + 1] = text:sub(at) end
+      break
+    end
+    lines[#lines + 1] = text:sub(at, newline - 1)
+    at = newline + 1
+  end
+  return lines
+end
+
+-- Splices `extra` immediately after the first line that equals `marker`.
+-- Fails loudly if `marker` is not found, rather than silently leaving the
+-- edit unapplied.
+local function insert_after(lines: {string}, marker: string,
+    extra: {string}): {string}
+  local out: {string} = {}
+  local found = false
+  for _, line in ipairs(lines) do
+    out[#out + 1] = line
+    if line == marker then
+      found = true
+      for _, one in ipairs(extra) do out[#out + 1] = one end
+    end
+  end
+  assert(found, "marker line not found: " .. marker)
+  return out
+end
+
+-- `git archive HEAD | tar -xf -` the candidate root into a fresh tree, the
+-- same fixture every rebuild/refusal case starts from.
+local function archive_tree(root: string, tree: string, diagnostics: string)
+  Fixture.mkdir(tree)
+  Fixture.run("git-archive", { "/bin/sh", "-c",
+    "git -C \"$1\" archive HEAD | tar -xf - -C \"$2\"", "sh", root, tree },
+    root, diagnostics)
+end
+
+-- Copies the fixture-only runtime into the archived tree's `o/bin/cosmic`,
+-- executable, and returns its path.
+local function place_runtime(fixture_dir: string, tree: string): string
+  local program = tree .. "/o/bin/cosmic"
+  Fixture.mkdir(tree .. "/o/bin")
+  Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
+  return program
+end
+
+-- The identity_test.sh "focused-embed" trick: rename every `*_test.tl`
+-- under the archived tree's `build` directory to `*_test.tl.in`, except
+-- `embed_test.tl`, so the rebuilt runtime's own `test` verb only exercises
+-- that one cheap module instead of the whole repository's test suite.
+local function prune_full_suite(tree: string)
+  local build_dir = tree .. "/build"
+  for _, relative in ipairs(assert(Fs.walk(build_dir))) do
+    if relative:match("_test%.tl$") and
+        relative:match("([^/]+)$") ~= "embed_test.tl" then
+      local path = build_dir .. "/" .. relative
+      assert(Fs.rename(path, path .. ".in"))
+    end
+  end
+end
+
+-- The disposable edit self_rebuild.sh applies to make the fixture-only
+-- runtime stale and to check the exact argv and an ordinary environment
+-- value reach the re-entered `test` run.
+local function apply_step8_edit(tree: string)
+  local path = tree .. "/build/test.tl"
+  local lines = split_lines(Fixture.read(path))
+  lines = insert_after(lines, "local Time = require(\"cosmic.time\")",
+    { "local step8_sys = require(\"cosmic.sys\")" })
+  lines = insert_after(lines,
+    "function test.run(argv: {integer:string}): integer", {
+      "  assert(argv[1] == \"test\")",
+      "  assert(argv[2] == \"\")",
+      "  assert(argv[3] == \"argument with spaces\")",
+      "  assert(argv[4] == nil)",
+      "  assert(step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") == \"kept with spaces\")",
+    })
+  Fixture.write(path, table.concat(lines, "\n") .. "\n")
+end
+
+local function read_prefix_length(fixture_dir: string): integer
+  local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
+  return assert(math.tointeger(tonumber(text:match("%d+"))),
+    "invalid prefix length: " .. text)
+end
+
+local function cache_entries(cache: string): integer
+  local count = 0
+  for _, name in ipairs(assert(Fs.list(cache))) do
+    if name:match("^core%-") then count = count + 1 end
+  end
+  return count
+end
+
+local function count_occurrences(text: string, needle: string): integer
+  local count = 0
+  local at = 1
+  while true do
+    local from = text:find(needle, at, true)
+    if from == nil then break end
+    count = count + 1
+    at = from + #needle
+  end
+  return count
+end
+
+local function fifo(work: string, diagnostics: string, name: string): string
+  local path = work .. "/" .. name
+  Fixture.run("mkfifo-" .. name, { "/usr/bin/env", "mkfifo", path }, work,
+    diagnostics)
+  return path
+end
+
+local function await_ready(work: string, diagnostics: string, label: string,
+    path: string)
+  local answer = Fixture.run("ready-" .. label,
+    { "/usr/bin/env", "cat", path }, work, diagnostics, nil,
+    handshake_timeout_ms)
+  assert(Fixture.small(answer.out, 128) == "ready\n",
+    "self-rebuild hook readiness differs")
+end
+
+local function release(work: string, diagnostics: string, label: string,
+    path: string)
+  local input = work .. "/release-" .. label
+  Fixture.write(input, "go\n")
+  Fixture.run("release-" .. label, { "/usr/bin/env", "tee", path }, work,
+    diagnostics, nil, handshake_timeout_ms, input)
+end
+
+local record Running
+  handle: Child.Handle
+  out_fd: integer
+  err_fd: integer
+  out: string
+  err: string
+  closed: boolean
+end
+
+local function start(label: string, argv: {string}, cwd: string,
+    values: {string:string}, diagnostics: string): Running
+  local out = diagnostics .. "/" .. label .. ".out"
+  local err = diagnostics .. "/" .. label .. ".err"
+  local out_fd = assert(Fs.open_write(out))
+  local err_fd = assert(Fs.open_write(err))
+  local options: Child.Options = { cwd = cwd, env = values,
+    stdout = out_fd, stderr = err_fd, process_group = false }
+  local handle, trouble = Child.start(argv, options)
+  if handle == nil then
+    Fs.close(out_fd); Fs.close(err_fd)
+    error(label .. ": " .. trouble)
+  end
+  return { handle = handle, out_fd = out_fd, err_fd = err_fd,
+    out = out, err = err, closed = false }
+end
+
+local function close_descriptors(running: Running)
+  if not running.closed then
+    assert(Fs.close(running.out_fd)); assert(Fs.close(running.err_fd))
+    running.closed = true
+  end
+end
+
+local function finish(running: Running, timeout?: integer): Child.Result
+  local result, trouble = running.handle:wait(timeout or child_wait_timeout_ms)
+  if result == nil then
+    running.handle:close(); close_descriptors(running)
+    error("self-rebuild child wait failed: " .. trouble)
+  end
+  close_descriptors(running)
+  return result as Child.Result
+end
+
+local function cleanup(running: Running)
+  if not running.closed then
+    running.handle:close()
+    close_descriptors(running)
+  end
+end
+
+local function supervised(action: function({Running}))
+  local active: {Running} = {}
+  local called, failure = pcall(function(): boolean
+    action(active); return true
+  end)
+  for _, running in ipairs(active) do cleanup(running) end
+  if not called then error(failure) end
+end
+
+-- The `rename`/`unlink` self-rebuild race: the fixture-only runtime pauses
+-- right after adopting its own descriptors, the artifact is renamed away or
+-- unlinked from under it, and the release makes it re-enter and rebuild
+-- itself from the database at the same logical path. Then, in the same
+-- case, a core input edit is checked to be refused without touching the
+-- artifact.
+local function run_rebuild_case(root: string, fixture_dir: string,
+    tmp: string, action: string)
+  local case_root = tmp .. "/case-" .. action
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = place_runtime(fixture_dir, tree)
+  local original_hash = Fixture.hash(program)
+  local prefix_length = read_prefix_length(fixture_dir)
+  prune_full_suite(tree)
+  apply_step8_edit(tree)
+
+  local ready = fifo(case_root, diagnostics, "ready-" .. action)
+  local go = fifo(case_root, diagnostics, "go-" .. action)
+
+  supervised(function(active: {Running})
+    local values = Fixture.environment({
+      COSMIC_PORTABLE_CACHE = cache,
+      COSMIC_PORTABLE_STARTUP_TEST_READY = ready,
+      COSMIC_PORTABLE_STARTUP_TEST_GO = go,
+      COSMIC_STEP8_REENTRY = "kept with spaces",
+    })
+    local child = start("rebuild-" .. action,
+      { program, "test", "", "argument with spaces" }, tree, values,
+      diagnostics)
+    active[#active + 1] = child
+
+    await_ready(case_root, diagnostics, "first-" .. action, ready)
+    local entries_before = cache_entries(cache)
+    assert(entries_before == 1,
+      action .. ": expected exactly one cache entry before rebuild, found " ..
+      tostring(entries_before))
+
+    if action == "rename" then
+      assert(Fs.rename(program, case_root .. "/adopted-artifact"))
+    else
+      assert(Fs.remove(program))
+    end
+
+    release(case_root, diagnostics, "first-" .. action, go)
+    -- The rebuilt artifact starts once more at the same logical path.
+    await_ready(case_root, diagnostics, "second-" .. action, ready)
+    release(case_root, diagnostics, "second-" .. action, go)
+
+    local result = finish(child)
+    assert(result.ok, action .. ": self-rebuild child did not exit " ..
+      "successfully")
+
+    Fixture.assert_executable(program)
+    assert(Fixture.read(child.out):match(
+      "test: PASS %([^;]+; [1-9][0-9]* ran, 0 stood"),
+      action .. ": self-rebuild output did not match the expected pattern")
+    local err = Fixture.read(child.err)
+    local stale_lines = count_occurrences(err,
+      "the tool is stale; rebuilding it from the tree")
+    assert(stale_lines == 1, action .. ": self-rebuild reported " ..
+      tostring(stale_lines) .. " stale-rebuild lines, want 1")
+    assert(not err:find("the tool is still stale after a reboot", 1, true),
+      action .. ": the tool is still stale after its own rebuild")
+
+    local expected_prefix = Fixture.read(fixture_dir .. "/runtime.old.prefix")
+    local matched, mismatch =
+      compare_prefix(expected_prefix, Fixture.read(program), prefix_length)
+    assert(matched, action .. ": " .. mismatch)
+
+    local entries_after = cache_entries(cache)
+    assert(entries_after == entries_before,
+      action .. ": self-rebuild changed the cache entry count from " ..
+      tostring(entries_before) .. " to " .. tostring(entries_after))
+    assert(Fixture.hash(program) ~= original_hash,
+      action .. ": self-rebuild did not change the artifact")
+
+    -- A core input cannot be represented by a database-only rebuild.
+    local startup_h = tree .. "/core/startup.h"
+    Fixture.write(startup_h, Fixture.read(startup_h) ..
+      "\n/* step-8 core-change fixture */\n")
+    local before_refusal = Fixture.hash(program)
+    local refusal_values = Fixture.environment({
+      COSMIC_PORTABLE_CACHE = cache,
+      COSMIC_STEP8_REENTRY = "kept with spaces",
+    })
+    local refused = Fixture.call_with_environment("core-change-" .. action,
+      { program, "test", "", "argument with spaces" }, tree, diagnostics,
+      refusal_values)
+    assert(refused.result.code == 3,
+      action .. ": core-change refusal exit status was " ..
+      tostring(refused.result.code) .. ", want 3")
+    Fixture.contains(refused.err, "the tool is stale; run bin/zig build boot")
+    assert(Fixture.hash(program) == before_refusal,
+      action .. ": core-change refusal touched the artifact")
+    assert(cache_entries(cache) == entries_before,
+      action .. ": core-change refusal changed the cache entry count")
+  end)
+end
+
+-- One of the three ways a stale tool (a pinned tl version, an unapplied
+-- patch, or an edited launcher generator) is refused outright, without ever
+-- reaching `test.run` or touching the artifact.
+local function run_refusal_case(root: string, fixture_dir: string,
+    tmp: string, name: string)
+  local case_root = tmp .. "/refuse-" .. name
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = place_runtime(fixture_dir, tree)
+  local before = Fixture.hash(program)
+
+  if name == "tl-pin" then
+    local pin = tree .. "/vendor/tl/PIN"
+    Fixture.write(pin, Fixture.read(pin) .. "\n# refusal fixture\n")
+  elseif name == "tl-patch" then
+    Fixture.mkdir(tree .. "/patch/tl")
+    Fixture.write(tree .. "/patch/tl/refusal-fixture.patch",
+      "refusal fixture\n")
+  elseif name == "launcher" then
+    local launcher = tree .. "/build/launcher.tl"
+    Fixture.write(launcher, Fixture.read(launcher) ..
+      "\n-- refusal fixture\n")
+  else
+    error("unknown refusal fixture: " .. name)
+  end
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local outcome = Fixture.call_with_environment(name .. "-refusal",
+    { program, "test" }, tree, diagnostics, values)
+  assert(outcome.result.code == 3, name .. ": refusal exit status was " ..
+    tostring(outcome.result.code) .. ", want 3")
+  Fixture.contains(outcome.err, "the tool is stale; run bin/zig build boot")
+  assert(Fixture.hash(program) == before, name .. ": refusal touched the " ..
+    "artifact")
+end
+
+-- A pure unit test of `compare_prefix` itself, with the same three synthetic
+-- cases self_rebuild.sh's `exercise_prefix_comparison` checked: an exact
+-- match, a program too short to hold the expected prefix, and a mutated
+-- byte within the compared range.
+local function test_self_rebuild_prefix_comparison(tmp: string)
+  local expected = "abc"
+  local matched, mismatch = compare_prefix(expected, "abc-suffix", 3)
+  assert(matched, mismatch)
+
+  local short_ok = compare_prefix(expected, "ab", 3)
+  assert(not short_ok, "short prefix comparison unexpectedly passed")
+
+  local mutated_ok = compare_prefix(expected, "axc-suffix", 3)
+  assert(not mutated_ok, "mutated prefix comparison unexpectedly passed")
+end
+
+local function test_self_rebuild_rename_and_unlink(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  run_rebuild_case(root, fixture_dir, tmp, "rename")
+  run_rebuild_case(root, fixture_dir, tmp, "unlink")
+end
+
+local function test_self_rebuild_refusals(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  for _, name in ipairs({ "tl-pin", "tl-patch", "launcher" }) do
+    run_refusal_case(root, fixture_dir, tmp, name)
+  end
+end
