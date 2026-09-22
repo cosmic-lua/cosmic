@@ -624,7 +624,7 @@ a claim.
 ### the command line
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
-`cosmic check`, `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
+`cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
 file; `-e` stays as Lua's one-liner idiom. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
@@ -683,10 +683,7 @@ and the checker refuses an import of it from any file outside
 under `cosmic/`. a project tree may hold no `cosmic`-prefixed path
 at all unless it is cosmic's own tree, so a project can never place
 itself as a false sibling to claim another module's private surface.
-one lint follows: no two names in a directory may differ only in
-case, because macOS's default filesystem cannot tell them apart, and
-a case-only rename is a two-step commit there. entry-point
-reachability is settled; whether an exported function's own name is
+entry-point reachability is settled; whether an exported function's own name is
 capitalized by convention, `fs.Read` rather than `fs.read`, is a
 readability question and not yet decided, and the checker does not
 enforce it either way. positional reachability is a compile-time
