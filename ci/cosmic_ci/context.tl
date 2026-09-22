@@ -35,9 +35,9 @@ local function scratch_path(): string
 end
 
 function Context.read(): Context
-  local workspace = required("GITHUB_WORKSPACE")
-  local root = State.canonical_directory(workspace)
-  assert(root == workspace, "GITHUB_WORKSPACE must be an absolute canonical path")
+  -- Resolved, not asserted canonical: the workspace is the runner's own
+  -- path, and the self-check's scratch sits behind a symlink on macOS.
+  local root = State.canonical_directory(required("GITHUB_WORKSPACE"))
   assert(Fs.exists(root .. "/AGENTS.md"), "GITHUB_WORKSPACE is not a candidate checkout root")
   local scratch = State.external_path(scratch_path(), root)
   assert(Fs.mkdirs(scratch))
