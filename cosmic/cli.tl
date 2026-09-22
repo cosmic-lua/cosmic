@@ -25,8 +25,10 @@ local record Cli
   --- `cosmic fix`: rewrites every Teal source in the working
   --- directory structurally, then writes it back out as canonical
   --- text, in place: run it after editing rather than formatting by
-  --- hand. `cosmic fix --check` is for CI: it writes nothing, only
-  --- names the files a fix would change, and fails if there are any
+  --- hand -- checking along the way that rendering it again would
+  --- change nothing further, and refusing a file it does not. `cosmic
+  --- fix --check` is for CI: it writes nothing, only names the files a
+  --- fix would change, and fails if there are any
   fix: string
   --- `cosmic build`: builds the tree in the working directory, then
   --- writes one executable under o/bin/ for each cmd/<name>/main.tl

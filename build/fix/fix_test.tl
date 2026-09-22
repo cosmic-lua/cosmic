@@ -1,19 +1,23 @@
---- The properties `cosmic fix` has to hold whatever it is given, and
---- the one that ties it to this tree.
+--- The properties `cosmic fix` has to hold whatever it is given.
 ---
---- Four properties, and the reason each is here. Idempotency, because a
+--- Three of them, and the reason each is here. Idempotency, because a
 --- fix that keeps finding something to fix never converges, and one run
 --- of the verb has to be enough. Determinism, because the renderer
 --- walks tables whose key order Lua does not fix, so a traversal that
 --- leaked into the output would show up as two different files from one
---- input. A semantic round-trip, because neither of the first two can
---- tell a consistently wrong renderer from a right one. And
---- self-hosting, because a renderer is only as good as the source it
---- has been made to survive, and this tree is the source there is.
+--- input. And a semantic round-trip, because neither of the first two
+--- can tell a consistently wrong renderer from a right one.
 ---
---- The self-hosting check is a test rather than something run by hand
---- once: nothing else would notice the day a change to the renderer
---- starts failing on a file the tree already holds.
+--- A fourth property, self-hosting -- every Teal source this tree holds
+--- renders, is already canonical, and stays at the fixed point on a
+--- second pass -- used to be checked here too, over every file in the
+--- tree. It no longer is: `fix.source` now runs that second pass itself
+--- (see `build.fix.init`) and refuses a file it is not a fixed point
+--- for, so `cosmic fix --check .`, which CI already runs over the whole
+--- tree as its format-check step, holds this tree to it without a
+--- second copy of the walk. That whole-tree pass, run twice per file
+--- under this suite's own coverage hook, was on its own about half the
+--- suite's wall time.
 
 local Fs = require("cosmic.fs")
 local ast = require("build.ast")
@@ -165,43 +169,6 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
     picked.refused[3])
 end
 
---- Every Teal source this tree holds renders, is already canonical,
---- and stays at the fixed point on a second pass. Check these together
---- so the canonical-source gate reuses the first rendering instead of
---- repeating a whole-tree pass. Neither pass may change the syntax tree
---- or comments, and any failure names the source responsible.
-local function test_every_source_in_the_tree_is_canonical_and_stays_so()
-  local root, root_trouble = Fs.absolute(".")
-  assert(root ~= nil, "could not resolve the tree root: " .. tostring(root_trouble))
-  local files, list_trouble = fix.sources(root)
-  assert(files ~= nil, "could not walk the tree: " .. tostring(list_trouble))
-  assert(#files > 20, "expected the whole tree, found " .. #files .. " files")
-  local differing: {string} = {}
-  local unsettled: {string} = {}
-  for _, file in ipairs(files) do
-    local source, read_trouble = Fs.read(root .. "/" .. file)
-    assert(source ~= nil, file .. ": " .. tostring(read_trouble))
-    -- Each call proves rendering preserved the program and comments,
-    -- either by byte equality or by parsing and comparing its output.
-    local result, trouble = fix.source(built, source, file)
-    assert(result ~= nil, file .. ": fix refused it: " .. tostring(trouble))
-    assert(result.changed == (result.source ~= source),
-      file .. ": change flag disagrees with rendered bytes")
-    if result.source ~= source then
-      differing[#differing + 1] = file
-    end
-    local twice = fixed(result.source, file)
-    if twice ~= result.source then
-      unsettled[#unsettled + 1] = file
-    end
-  end
-  assert(#unsettled == 0,
-    "a second pass changed these again: " .. table.concat(unsettled, ", "))
-  assert(#differing == 0,
-    "run `cosmic fix` -- these are not what it writes: " ..
-    table.concat(differing, ", "))
-end
-
 --- Changed output still has to parse and preserve both syntax and comments.
 local function test_changed_rendering_is_checked_before_it_is_accepted()
   local original = render_mod.rendered
@@ -225,6 +192,29 @@ local function test_changed_rendering_is_checked_before_it_is_accepted()
       assert(result == nil, "corrupt rendering was accepted")
       assert(why:find(errors[i], 1, true) ~= nil, why)
     end
+  end)
+  render_mod.rendered = original
+  assert(ok, tostring(trouble))
+end
+
+--- A renderer whose output is not a fixed point is refused, even when
+--- its first pass looks fine on its own: `fix.source` renders what it
+--- produced a second time and requires the same bytes back.
+local function test_a_renderer_that_is_not_a_fixed_point_is_refused()
+  local original = render_mod.rendered
+  local ok, trouble = pcall(function(): (any...)
+    local source = "local x = 1\n"
+    local calls = 0
+    render_mod.rendered = function(_: ast.Parsed, src: string): string | nil, string
+      calls = calls + 1
+      if calls == 1 then
+        return src
+      end
+      return src .. "-- a second pass added this\n"
+    end
+    local result, why = fix.source(built, source, "probe.tl")
+    assert(result == nil, "a renderer that is not a fixed point was accepted")
+    assert(why:find("not a fixed point", 1, true) ~= nil, why)
   end)
   render_mod.rendered = original
   assert(ok, tostring(trouble))

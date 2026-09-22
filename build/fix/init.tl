@@ -13,10 +13,11 @@
 --- nothing and reports what it would have changed instead, which is
 --- what a gate runs.
 ---
---- Running it twice changes nothing the first run did not: the
---- pipeline's own output parses to the same tree and renders to the
---- same bytes, which `build.fix.fix_test` holds it to on this tree's
---- own files.
+--- Running it twice changes nothing the first run did not: the verb
+--- itself renders its own output once more and refuses a file whose
+--- second pass would change it, rather than writing something that has
+--- not reached a fixed point. `cosmic fix --check .` over the whole
+--- tree is how that is checked here, in CI's own format-check step.
 
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
@@ -91,15 +92,22 @@ function fix.sources(root: string): {string} | nil, string
 end
 
 --- The whole pipeline over one file's source: parse, rewrite, render,
---- and check that rendering still says the same thing.
+--- and check that rendering still says the same thing and has reached a
+--- fixed point.
 ---
---- That last step is not a test, it is part of the verb. A renderer
---- that is merely self-consistent can be consistently wrong -- `local x
+--- Neither check is a test, both are part of the verb. A renderer that
+--- is merely self-consistent can be consistently wrong -- `local x
 --- <const> = 5` re-emitted as `local x < const > = 5` is stable and
 --- idempotent -- so changed rendered text is parsed again and compared,
 --- tree and comments, against the tree it came from. Identical bytes
 --- already preserve both and need no second parse. A file that fails
 --- the comparison is reported and left exactly as it was.
+---
+--- What comes out is then rendered once more, from the tree already in
+--- hand, and required to come back byte for byte: a fix that a second
+--- pass would still change is not done fixing. When the render left the
+--- text untouched this reuses the tree already parsed from it, so the
+--- common case pays for one extra render and no extra parse.
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string
 --- @param name string Filename used in diagnostics
@@ -119,20 +127,28 @@ function fix.source(built: compiler, source: string,
   if out == nil then
     return nil, render_trouble
   end
-  if out == rewritten then
-    return { source = out, changed = out ~= source }
+  local parsed_out = before
+  if out ~= rewritten then
+    local after, reparse_trouble = ast.parse(built, out, name)
+    if after == nil then
+      return nil, "what was rendered does not parse: " .. reparse_trouble
+    end
+    local same, difference = equiv.same_tree(before.node, after.node)
+    if not same then
+      return nil, "rendering changed the program: " .. difference
+    end
+    local kept, lost = equiv.same_comments(before.tokens, after.tokens)
+    if not kept then
+      return nil, "rendering changed the comments: " .. lost
+    end
+    parsed_out = after
   end
-  local after, reparse_trouble = ast.parse(built, out, name)
-  if after == nil then
-    return nil, "what was rendered does not parse: " .. reparse_trouble
+  local again, again_trouble = render_mod.rendered(parsed_out, out)
+  if again == nil then
+    return nil, "a second pass over what was rendered refused it: " .. again_trouble
   end
-  local same, difference = equiv.same_tree(before.node, after.node)
-  if not same then
-    return nil, "rendering changed the program: " .. difference
-  end
-  local kept, lost = equiv.same_comments(before.tokens, after.tokens)
-  if not kept then
-    return nil, "rendering changed the comments: " .. lost
+  if again ~= out then
+    return nil, "rendering is not a fixed point: a second pass changed it"
   end
   return { source = out, changed = out ~= source }
 end
