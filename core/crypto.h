@@ -12,9 +12,6 @@
 /* Brings the library up. Once per process, before any other call. */
 int cosmic_crypto_init(void);
 
-/* The algorithms, by the names a caller uses. */
-extern const char *const cosmic_crypto_algorithms[];
-
 /* The raw digest of `data` under the algorithm `name` names: 0 on
  * success with `*out_len` set, -1 when no algorithm has that name, and
  * the library's own status otherwise. */

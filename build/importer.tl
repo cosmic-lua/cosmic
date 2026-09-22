@@ -161,10 +161,8 @@ end
 --- order, the tests it defines, and whether it returns its own value.
 --- Structural, over the real AST, never a regex over text: a
 --- `require("cosmic.foo")` inside a string literal or a comment is not
---- an import. `all_requires`, not the narrower alias-resolving
---- `requires`, because a type-only `local type compiler =
---- require("build.compiler")` and a conditional re-assignment inside an
---- `if` are both real dependencies the build order must see.
+--- an import. Type-only requires and conditional reassignments are real
+--- dependencies the build order must see.
 local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   local fresh, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source FROM inputs " ..

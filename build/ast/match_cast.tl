@@ -1,7 +1,4 @@
---- Cast-position matching for `build.ast.match`'s `$X as $T` support:
---- whether a pattern's cast TYPE is a capture, and whether a pattern's
---- `cast` node matches a candidate site's `cast` node. Split out of
---- `match.tl` itself, which had no line budget left for it.
+--- Cast-position matching for `build.ast.match`'s `$X as $T` support.
 ---
 --- `$T` in type position desugars to the bare identifier `_T` -- a
 --- valid Teal type name -- so the compiled pattern's own `casttype` is
@@ -13,9 +10,7 @@
 --- text) and otherwise compares two casts' rendered type text for
 --- equality -- the only type-aware comparison this feature makes.
 ---
---- Operates entirely on already-parsed nodes and type payloads, so it
---- needs no compiler capsule of its own; unchanged from cosmic's own
---- `cosmic.ast.match_cast` beyond its `require` paths.
+--- Operates entirely on already-parsed nodes and type payloads.
 local node_mod = require("build.ast.node")
 
 local type Node = node_mod.Node

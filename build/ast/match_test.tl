@@ -1,19 +1,4 @@
---- Correctness probes for `build.ast.match`'s pattern matcher.
----
---- cosmic (v1)'s own version of these tests closes with four
---- "acceptance" cases that re-run a pattern against real files in that
---- tree (`_types/tlast.tl`, `cosmic/check.tl`, `_tool/doc/index.tl`)
---- and assert grep-verified match counts, to prove the matcher holds
---- up at file scale, not just on a one-line fixture. None of those
---- files, or the `cosmo.*`/`os.execute`/`string.format` call shapes
---- they were chosen for, exist anywhere in this tree -- v2 is musl and
---- zig, not Cosmopolitan, and has no `cosmo` namespace at all -- so
---- those four are ported here as small, self-contained multi-statement
---- fixtures instead: each still exercises the exact matcher feature its
---- v1 counterpart did (variable-arity call args, member-position
---- captures, and the if_blocks-length exclusion of elseif/else), just
---- against a few hand-verified lines instead of a live file whose
---- match count would drift with unrelated edits to it.
+--- Correctness probes for `build.ast.match`.
 local teal = require("build.teal")
 local match = require("build.ast.match")
 local node_mod = require("build.ast.node")

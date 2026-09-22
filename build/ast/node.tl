@@ -14,14 +14,6 @@
 --- field, which `Node is {Node}` models directly instead of needing a
 --- second, generic array type alongside it.
 ---
---- Adapted from cosmic's own `cosmic.ast.node`: that tree's `tl` is an
---- ordinary requireable module, so `parse` reaches `tl.lex`/
---- `tl.parse_program` directly. Here the compiler is a privileged,
---- explicitly-threaded capsule (`build.teal`'s `teal.load()`, typed by
---- `build.compiler`) rather than a global `require("tl")`, so `parse`
---- takes one as its first argument instead -- the one place in this
---- whole module family that touches the compiler at all; every other
---- function in `build.ast.*` reaches it only by calling `parse`.
 local type compiler = require("build.compiler")
 
 --- The operator payload of an "op" node. The live parser also sets

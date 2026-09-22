@@ -1,11 +1,7 @@
--- The native line-coverage collector, as the core provides it
--- (core/coverage.c). This raw name once carried the real Lua `debug`
--- library instead, back when line coverage collected hits by calling
--- `debug.sethook`/`debug.getinfo` directly; `debug` itself is still
--- taken out of reach exactly the same way (core/surface.c's
--- `make_private`), for reasons that have nothing to do with this one
--- module, and nothing fetches it back out any more -- the native
--- collector goes behind this name in its place.
+-- The native line-coverage collector provided by core/coverage.c. Lua's
+-- `debug` library is never opened. A shipped runtime exposes this module
+-- through the store searcher's trusted-module gate; boot preloads it for
+-- the trusted source-tree bridge.
 
 local record native
   -- Every source line hit while collecting was on, by the module's

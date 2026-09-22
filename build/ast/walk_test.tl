@@ -1,7 +1,4 @@
---- Regression probes for `build.ast.walk`, one per bug this module's
---- port of `docs/design/ast-rewrite/tlgrep.tl` found and fixed by
---- actually running the spike against real source, not by reading
---- tl's parser alone.
+--- Regression probes for `build.ast.walk`.
 local teal = require("build.teal")
 local node_mod = require("build.ast.node")
 local walk_mod = require("build.ast.walk")
