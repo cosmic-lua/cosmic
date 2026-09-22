@@ -674,6 +674,35 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
+--- Whether any row `work.stage` last recorded under `tool` no longer
+--- matches a stat of its own file, without walking the tree: only the
+--- paths a previous stage already knows about are stat'd. A file new
+--- to the tree does not register here until something already known
+--- requires it -- which edits that known file's own bytes, and so its
+--- own stat -- and a row whose file is gone entirely fails its stat,
+--- which this treats the same as moved rather than trying to tell the
+--- two apart. Lets a caller that never edits the tree itself (`build.
+--- reboot.ensure`, for a read-only verb) ask "did the tool's own
+--- inputs change since the last stage?" for a handful of stats
+--- instead of `work.stage`'s directory walk over everything.
+function work.tool_moved(handle: work.Handle): boolean | nil, string
+  local known, trouble = known_in(handle.db, "tool")
+  if known == nil then
+    return nil, trouble
+  end
+  for path in pairs(known) do
+    local st = Fs.stat(handle.root .. "/" .. path)
+    if st == nil then
+      return true, ""
+    end
+    local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
+    if moved(known, path, st, mtime_ns) then
+      return true, ""
+    end
+  end
+  return false, ""
+end
+
 --- Writes one file's row: its stat, with the modification time kept
 --- only once it has settled, and its bytes, hashed in place.
 local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
@@ -837,6 +866,25 @@ function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
     end
   end
   return { boot = boot, image = image }
+end
+
+--- The `boot` fingerprint `work.fingerprint` wrote into `meta` at the
+--- last stage, read back rather than recomputed: for a caller that
+--- only wants to know whether the tool it is already running still
+--- matches the tree -- paired with `work.tool_moved` to know the
+--- `tool` table is still accurate -- not to restage anything itself.
+--- `nil, ""` when the database holds no such row yet: a fresh `o/`,
+--- or one nothing has ever staged for.
+function work.recorded_boot_hash(handle: work.Handle): string | nil, string
+  local rows, trouble = Sqlite.text_rows(handle.db,
+    "SELECT value FROM meta WHERE key = 'boot_hash'")
+  if rows == nil then
+    return nil, trouble
+  end
+  if #rows == 0 then
+    return nil, ""
+  end
+  return rows[1][1]
 end
 
 --- The identities, computed over the tree and kept in `meta` for the

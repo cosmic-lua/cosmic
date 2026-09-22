@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
@@ -91,6 +92,25 @@ local function elapsed_ms(from: integer): integer
     return 0
   end
   return (now - from) // 1000000
+end
+
+--- Rebuilds and re-enters `argv` first when this binary embeds a
+--- stale copy of `build.docs` itself -- see `build.reboot.ensure`.
+--- Returns an exit code to return immediately, or `nil` to proceed.
+local function stale_exit(argv: {integer:string}): integer | nil
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    complain(root_trouble)
+    return 1
+  end
+  local code, trouble = reboot.ensure(root, argv)
+  if code ~= nil then
+    if trouble ~= "" then
+      complain(trouble)
+    end
+    return code
+  end
+  return nil
 end
 
 local function text(value: string): Sqlite.Value
@@ -647,6 +667,10 @@ end
 --- `cosmic docs <query>`: prints what the query names and ends in a
 --- verdict line; fails when nothing matches.
 function docs.run(argv: {integer:string}): integer
+  local exit = stale_exit(argv)
+  if exit ~= nil then
+    return exit
+  end
   local started = Time.monotonic_ns() or 0
   local query = table.concat({ table.unpack(argv, 2) }, " ")
   if query == "" then
@@ -691,6 +715,10 @@ end
 --- `cosmic uses <symbol>`: every place that refers to the symbol, one
 --- `file:line` per line, and a verdict line.
 function docs.run_uses(argv: {integer:string}): integer
+  local exit = stale_exit(argv)
+  if exit ~= nil then
+    return exit
+  end
   local started = Time.monotonic_ns() or 0
   local query = argv[2] or ""
   if query == "" then

@@ -7,6 +7,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
+local reboot = require("build.reboot")
 
 local record databases
 end
@@ -134,12 +135,21 @@ end
 
 --- Describes `o/cosmic.db` and `o/build.db` under the working
 --- directory, printing a verdict line and returning the exit code.
-function databases.run(): integer
+--- @param argv the command line, re-entered if this binary embeds a
+---   stale copy of `build.databases` itself -- see `build.reboot.ensure`
+function databases.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     complain(root_trouble)
     return 1
+  end
+  local code, reboot_trouble = reboot.ensure(root, argv)
+  if code ~= nil then
+    if reboot_trouble ~= "" then
+      complain(reboot_trouble)
+    end
+    return code
   end
   local seen = 0
   local tables = 0
