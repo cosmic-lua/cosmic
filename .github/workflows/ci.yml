@@ -1,7 +1,12 @@
 name: ci
 
 on:
+  # The merge queue's own gh-readonly-queue/ branches run as merge_group:
+  # a push run there too would share its concurrency group and cancel it,
+  # which the queue reads as a failed check.
   push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
   # main takes changes only through the merge queue, which waits on these
   # checks for the queued merge commit before it lands.
   merge_group:
