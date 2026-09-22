@@ -35,10 +35,10 @@ local record Entrypoint
   --- an absolute `COSMIC_PORTABLE_CACHE` if set, else an absolute
   --- `XDG_CACHE_HOME` (under `cosmic/cores`), else an absolute `HOME`
   --- (under `.cache/cosmic/cores`, or `Library/Caches/cosmic/cores` on
-  --- macOS). None of the three present and absolute is a startup
-  --- error, not a build one -- `cosmic portable: no absolute HOME is
-  --- available for the portable cache`, exit 126 -- true of `cosmic`
-  --- itself and of every binary `cosmic build` produces alike
+  --- macOS), else a `cosmic-cores-<uid>` directory of its own in an
+  --- absolute `TMPDIR`, or in `/tmp` -- so an empty environment still
+  --- runs, true of `cosmic` itself and of every binary `cosmic build`
+  --- produces alike
   home: string
 end
 
