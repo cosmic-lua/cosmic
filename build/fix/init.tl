@@ -24,6 +24,7 @@
 
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
+local clock = require("build.clock")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local render_mod = require("build.fix.render")
@@ -81,7 +82,7 @@ end
 --- @param root string
 --- @return {string}|nil
 --- @return string Error message on failure
-function fix.sources(root: string): {string} | nil, string
+local function sources(root: string): {string} | nil, string
   local files, trouble = Fs.walk(root, skip)
   if files == nil then
     return nil, trouble
@@ -161,14 +162,6 @@ local function report(line: string)
   Fs.put(Fs.stdout, line .. "\n")
 end
 
-local function elapsed_ms(from: integer): integer
-  local now = Time.monotonic_ns()
-  if now == nil then
-    return 0
-  end
-  return (now - from) // 1000000
-end
-
 local function complain(line: string)
   Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
@@ -193,7 +186,7 @@ end
 --- @return string Error message on failure
 function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   if #paths == 0 then
-    local all, trouble = fix.sources(root)
+    local all, trouble = sources(root)
     if all == nil then
       return nil, trouble
     end
@@ -206,7 +199,7 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
     if what == nil then
       refused[#refused + 1] = missing
     elseif what.kind == "dir" then
-      local under, trouble = fix.sources(path)
+      local under, trouble = sources(path)
       if under == nil then
         return nil, trouble
       end
@@ -353,16 +346,16 @@ function fix.run(argv: {integer:string}): integer
   end
   if #failures > 0 then
     report("fix: FAIL (" .. #failures .. " of " .. counted .. " files refused, " ..
-      elapsed_ms(started) .. " ms)")
+      clock.elapsed_ms(started) .. " ms)")
     return 1
   end
   if checking and #changed > 0 then
     report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
-      elapsed_ms(started) .. " ms); `cosmic fix` rewrites them in place")
+      clock.elapsed_ms(started) .. " ms); `cosmic fix` rewrites them in place")
     return 1
   end
   report("fix: PASS (" .. counted .. " files, " .. #changed ..
-    (checking and " to fix, " or " fixed, ") .. elapsed_ms(started) .. " ms)")
+    (checking and " to fix, " or " fixed, ") .. clock.elapsed_ms(started) .. " ms)")
   return 0
 end
 

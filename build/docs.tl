@@ -10,6 +10,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local clock = require("build.clock")
 local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
@@ -84,14 +85,6 @@ end
 
 local function complain(line: string)
   Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
-end
-
-local function elapsed_ms(from: integer): integer
-  local now = Time.monotonic_ns()
-  if now == nil then
-    return 0
-  end
-  return (now - from) // 1000000
 end
 
 --- Rebuilds and re-enters `argv` first when this binary embeds a
@@ -691,7 +684,7 @@ function docs.run(argv: {integer:string}): integer
   end
   if #found == 0 then
     report("docs: FAIL (nothing named or documented as '" .. query .. "', " ..
-      elapsed_ms(started) .. " ms)")
+      clock.elapsed_ms(started) .. " ms)")
     return 1
   end
   if not found.exact then
@@ -708,7 +701,7 @@ function docs.run(argv: {integer:string}): integer
   end
   report("")
   report("docs: PASS (" .. #found .. (found.exact and " named" or " found") ..
-    ", " .. #view.databases .. " databases, " .. elapsed_ms(started) .. " ms)")
+    ", " .. #view.databases .. " databases, " .. clock.elapsed_ms(started) .. " ms)")
   return 0
 end
 
@@ -741,10 +734,10 @@ function docs.run_uses(argv: {integer:string}): integer
   end
   if #found == 0 then
     report("uses: FAIL (nothing refers to '" .. query .. "', " ..
-      elapsed_ms(started) .. " ms)")
+      clock.elapsed_ms(started) .. " ms)")
     return 1
   end
-  report("uses: PASS (" .. #found .. " places, " .. elapsed_ms(started) .. " ms)")
+  report("uses: PASS (" .. #found .. " places, " .. clock.elapsed_ms(started) .. " ms)")
   return 0
 end
 

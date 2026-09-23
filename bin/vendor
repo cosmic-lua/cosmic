@@ -1,0 +1,70 @@
+#!/bin/sh
+# Refetch vendored trees from the archives their PINs name, keeping only
+# what the build reads: `bin/vendor [name...]`, every tree by default.
+#
+# Like bin/zig, this fetches into a cache, verifies the sha256 the pin
+# names, and unpacks with the system's tar (or unzip, for a zip). The
+# bootstrap cosmic then runs build/vendor.tl, which rewrites the tree
+# to the files the pin's keep and drop globs name. Archives are cached
+# under $XDG_CACHE_HOME/cosmic/vendor (default ~/.cache/cosmic/vendor).
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cosmic=$root/o/bin/cosmic
+
+die() {
+  printf 'bin/vendor: %s\n' "$1" >&2
+  exit 1
+}
+
+[ -x "$cosmic" ] || die "no $cosmic; run bin/zig build boot first"
+
+if [ $# -eq 0 ]; then
+  for pin in "$root"/vendor/*/PIN; do
+    set -- "$@" "$(basename "$(dirname "$pin")")"
+  done
+fi
+
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/vendor
+mkdir -p "$cache"
+work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-vendor.XXXXXX")
+trap 'rm -rf "$work"' EXIT INT TERM
+
+for name in "$@"; do
+  pin=$root/vendor/$name/PIN
+  [ -f "$pin" ] || die "no pin at $pin"
+  url=$(awk '$1 == "url" { print $2; exit }' "$pin")
+  want=$(awk '$1 == "sha256" { print $2; exit }' "$pin")
+  [ -n "$url" ] || die "$pin names no url"
+  [ -n "$want" ] || die "$pin names no sha256"
+  archive=$cache/${url##*/}
+
+  if [ ! -f "$archive" ]; then
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$archive.part" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -O "$archive.part" "$url"
+    else
+      die "need curl or wget to fetch $url"
+    fi
+    mv "$archive.part" "$archive"
+  fi
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    got=$(sha256sum "$archive" | cut -d' ' -f1)
+  elif command -v shasum >/dev/null 2>&1; then
+    got=$(shasum -a 256 "$archive" | cut -d' ' -f1)
+  else
+    die "need sha256sum or shasum to verify $archive"
+  fi
+  [ "$got" = "$want" ] || die "$archive has sha256 $got; the pin says $want"
+
+  unpacked=$work/$name
+  mkdir -p "$unpacked"
+  case $archive in
+    *.zip | *.rock) unzip -q "$archive" -d "$unpacked" ;;
+    *) tar -xf "$archive" -C "$unpacked" ;;
+  esac
+
+  (cd "$root" && "$cosmic" build/vendor.tl "vendor/$name" "$unpacked")
+done
