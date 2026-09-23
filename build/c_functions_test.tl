@@ -29,6 +29,19 @@ local function test_a_header_helper_is_left_out()
   assert(tally.total == 0 and #tally.unentered == 0)
 end
 
+--- Inlined where it is called, a function's body runs without its
+--- first line: a hit before the next function's first line enters it,
+--- and one after enters only that next function.
+local function test_a_hit_in_the_body_enters_an_inlined_function()
+  local tally = c_functions.tally({
+    fn("core/a.c", 10, "inlined"),
+    fn("core/a.c", 20, "next"),
+    fn("core/a.c", 30, "last"),
+  }, { ["core/a.c"] = { [14] = true, [35] = true } })
+  assert(tally.total == 3 and tally.entered == 2, tostring(tally.entered))
+  assert(#tally.unentered == 1 and tally.unentered[1] == "core/a.c:next")
+end
+
 local function test_one_copy_entered_enters_the_function()
   local tally = c_functions.tally({
     fn("core/a.c", 10, "copied"),
