@@ -951,9 +951,10 @@ fn core(
     // contract needs; BZ_NO_STDIO keeps its file-handle helpers, which
     // this core never calls, from pulling in FILE*. blocksort.c and
     // compress.c hold the compress-side symbols bzlib.c references even
-    // though only BZ2_bzDecompress* is ever called here -- without them
-    // the link fails, since C links whole translation units, not just
-    // the functions a caller reaches. The K&R-flavored source predates
+    // though only BZ2_bzDecompress* is ever called here, so they are
+    // compiled for the link to resolve; per-function sections (see the
+    // end of this function) let the linker drop them again, since
+    // nothing reachable calls BZ2_bzCompress. The K&R-flavored source predates
     // -Wall/-Wextra/-Werror by a wide margin, so it gets its own quiet
     // flag set rather than the core's.
     mod.addCSourceFiles(.{
@@ -1209,10 +1210,19 @@ fn core(
         .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{"-std=c11"} }),
     }
 
-    return b.addExecutable(.{
+    const exe = b.addExecutable(.{
         .name = "cosmic-core",
         .root_module = mod,
     });
+    // One section per function and per object, so the linker's garbage
+    // collection (on by default in a release link) drops each unreachable
+    // function rather than keeping a whole file's code for the one
+    // function something calls: bzip2's compressor, the parts of curl,
+    // mbedtls and SQLite this core never reaches. Mach-O links get the
+    // same effect from subsections-via-symbols already.
+    exe.link_function_sections = true;
+    exe.link_data_sections = true;
+    return exe;
 }
 
 fn hostName(b: *std.Build) []const u8 {
