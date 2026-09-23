@@ -154,6 +154,39 @@ local function test_a_body_shorter_than_its_content_length_is_a_read_error()
   assert(got == nil and get_trouble ~= "")
 end
 
+local function test_open_returns_once_the_headers_arrive_before_any_body()
+  -- The headers come, the body never does. `open` used to wait for the
+  -- first body byte, so it failed here (and, on a live server that
+  -- stalls after its headers, tripped the low-speed limit) though the
+  -- response's headers had arrived.
+  local response, trouble = Http.open(url, { script = {
+    "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nX-Here: yes\r\n\r\n",
+  } })
+  assert(response ~= nil, trouble)
+  assert(response.status == 200 and response.headers["x-here"] == "yes")
+  local chunk, read_trouble = response:read()
+  assert(chunk == nil and read_trouble ~= "", "a missing body is a read error")
+  -- curl's message, with no newline left on the end of it
+  assert(read_trouble:find("%s$") == nil, "[" .. read_trouble .. "]")
+  response:close()
+end
+
+local function test_open_waits_past_a_followed_redirect_for_the_final_headers()
+  local response = assert(Http.open(url, { script = {
+    "HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n",
+  } }))
+  assert(response.status == 200, tostring(response.status))
+  assert(response.url:find("/next", 1, true) ~= nil, response.url)
+  response:close()
+end
+
+local function test_a_url_with_a_nul_byte_is_refused()
+  -- curl reads the URL as a C string, which would stop at the NUL
+  local response, trouble = Http.open(url .. "\0.evil/", { script = {} })
+  assert(response == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+end
+
 -- A pattern no two nearby offsets share, so a byte out of place shows.
 local function big(size: integer): string
   local parts: {string} = {}

@@ -87,7 +87,9 @@ struct transfer {
   size_t body_len;
   size_t body_cap;
 
-  int ready;  /* the final response's headers are known */
+  int ready;  /* the final response's headers are known, or it is over */
+  int headed; /* the final response's header block has ended */
+  int follow; /* curl follows a redirect's Location itself */
   int paused; /* the write callback paused the transfer */
   int done;   /* curl_multi says the transfer is over */
   int closed; /* close() (or __gc) has run */
@@ -377,6 +379,35 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
   return len;
 }
 
+/* Marks the transfer ready at the blank line ending the final
+ * response's header block: not an interim 1xx one, and not a redirect
+ * curl is about to follow (a 3xx carrying a Location, with follow on).
+ * `open` returns there, so a body that is slow to start, or never
+ * comes, is the business of `read`, not of `open`. */
+static size_t header_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+  struct transfer *t = userdata;
+  size_t len = size * nmemb;
+  int blank = (len == 2 && ptr[0] == '\r' && ptr[1] == '\n') ||
+              (len == 1 && ptr[0] == '\n');
+  if (t->ready || !blank) {
+    return len;
+  }
+  long status = 0;
+  curl_easy_getinfo(t->easy, CURLINFO_RESPONSE_CODE, &status);
+  if (status >= 100 && status < 200) return len;
+  if (t->follow && status >= 300 && status < 400) {
+    struct curl_header *location = NULL;
+    if (curl_easy_header(t->easy, "Location", 0, CURLH_HEADER, -1,
+                         &location) == CURLHE_OK &&
+        location->value[0] != '\0') {
+      return len;
+    }
+  }
+  t->headed = 1;
+  t->ready = 1;
+  return len;
+}
+
 /* ---- the pump: one wait-and-perform step ------------------------- */
 
 /* Waits (at most a second) for any transfer on the shared multi handle
@@ -429,9 +460,14 @@ static void resume(struct transfer *t) {
   curl_easy_pause(t->easy, CURLPAUSE_CONT);
 }
 
+/* curl's own message, without the newline it sometimes ends with. */
 static const char *transfer_error(struct transfer *t) {
-  if (t->errbuf[0] != '\0') return t->errbuf;
-  return curl_easy_strerror(t->result);
+  if (t->errbuf[0] == '\0') return curl_easy_strerror(t->result);
+  size_t end = strlen(t->errbuf);
+  while (end > 0 && isspace((unsigned char)t->errbuf[end - 1])) {
+    t->errbuf[--end] = '\0';
+  }
+  return t->errbuf;
 }
 
 /* ---- teardown ------------------------------------------------------ */
@@ -594,7 +630,8 @@ static void set_method(CURL *easy, const char *method, const char *body,
 }
 
 static int http_open(lua_State *L) {
-  luaL_checkstring(L, 1);
+  size_t url_len;
+  const char *url = luaL_checklstring(L, 1, &url_len);
   if (lua_isnoneornil(L, 2)) {
     lua_settop(L, 1);
     lua_newtable(L);
@@ -608,6 +645,12 @@ static int http_open(lua_State *L) {
   if (method != NULL && !is_token(method)) {
     lua_pushnil(L);
     lua_pushliteral(L, "invalid method: must be an HTTP token");
+    return 2;
+  }
+  /* curl takes a C string: a NUL would silently fetch a shorter URL. */
+  if (memchr(url, '\0', url_len) != NULL) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "invalid url: contains a NUL byte");
     return 2;
   }
   const char *trouble = http_ready();
@@ -636,16 +679,22 @@ static int http_open(lua_State *L) {
   }
   CURL *easy = t->easy;
   curl_easy_setopt(easy, CURLOPT_PRIVATE, t);
-  curl_easy_setopt(easy, CURLOPT_URL, lua_tostring(L, 1));
+  curl_easy_setopt(easy, CURLOPT_URL, url);
   curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");
   curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
   curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
+  t->follow = opt_boolean(L, "follow", 1);
   curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION,
-                   opt_boolean(L, "follow", 1) ? CURLFOLLOW_OBEYCODE : 0L);
+                   t->follow ? CURLFOLLOW_OBEYCODE : 0L);
   curl_easy_setopt(easy, CURLOPT_MAXREDIRS,
                    (long)opt_integer(L, "max_redirects", 10));
   curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
   curl_easy_setopt(easy, CURLOPT_WRITEDATA, t);
+  curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, header_cb);
+  curl_easy_setopt(easy, CURLOPT_HEADERDATA, t);
+  /* A proxy's CONNECT reply is not the response: keep it from the
+   * header callback, which would otherwise take it for the final one. */
+  curl_easy_setopt(easy, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L);
   curl_easy_setopt(easy, CURLOPT_ERRORBUFFER, t->errbuf);
   curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS,
                    (long)opt_integer(L, "connect_timeout_ms",
@@ -719,7 +768,8 @@ static int http_open(lua_State *L) {
   while (!t->ready) {
     pump_once();
   }
-  if (t->done && t->result != CURLE_OK && t->body_len == 0) {
+  /* A failure after the headers is the body's, for `read` to report. */
+  if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
     lua_pushnil(L);
     lua_pushstring(L, transfer_error(t));
     transfer_release(t);
