@@ -139,46 +139,10 @@ local function text_at(block: string, off: integer, len: integer): string
   return block:sub(off, stop)
 end
 
-local type ByteSum = function(string, integer, integer): integer
---- Becomes `Hash.byte_sum` outright once `cosmic.hash` has it.
-local byte_sum = (Hash as {string:any}).byte_sum as ByteSum
-
-local SUM_MASK <const> = 0x00FF00FF00FF00FF
-local SIXTEEN_WORDS <const> = "<" .. string.rep("i8", 16)
-local unpack16 = string.unpack as function(string, string, integer): integer, integer, integer,
-  integer, integer, integer, integer, integer, integer, integer, integer, integer, integer,
-  integer, integer, integer
-
---- The byte sum of the 128 bytes at `i`, eight at a time: each word's
---- even and odd bytes are added into 16-bit lanes, which cannot
---- overflow across 16 words, and then the lanes are folded together.
-local function sum128(block: string, i: integer): integer
-  local w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16 =
-    unpack16(SIXTEEN_WORDS, block, i)
-  local m = SUM_MASK
-  local x = (w1 & m) + ((w1 >> 8) & m) + (w2 & m) + ((w2 >> 8) & m) +
-    (w3 & m) + ((w3 >> 8) & m) + (w4 & m) + ((w4 >> 8) & m) +
-    (w5 & m) + ((w5 >> 8) & m) + (w6 & m) + ((w6 >> 8) & m) +
-    (w7 & m) + ((w7 >> 8) & m) + (w8 & m) + ((w8 >> 8) & m) +
-    (w9 & m) + ((w9 >> 8) & m) + (w10 & m) + ((w10 >> 8) & m) +
-    (w11 & m) + ((w11 >> 8) & m) + (w12 & m) + ((w12 >> 8) & m) +
-    (w13 & m) + ((w13 >> 8) & m) + (w14 & m) + ((w14 >> 8) & m) +
-    (w15 & m) + ((w15 >> 8) & m) + (w16 & m) + ((w16 >> 8) & m)
-  return (x & 0xFFFF) + ((x >> 16) & 0xFFFF) + ((x >> 32) & 0xFFFF) + (x >> 48)
-end
-
---- `header_sum` in Lua, for while `cosmic.hash` has no `byte_sum`.
-local function lua_header_sum(block: string): integer
-  local c1, c2, c3, c4, c5, c6, c7, c8 = block:byte(149, 156)
-  return sum128(block, 1) + sum128(block, 129) + sum128(block, 257) + sum128(block, 385) -
-    (c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8) + 256
-end
-
 --- The header checksum: every byte summed, the checksum field itself
 --- (bytes 149 to 156) counted as eight spaces.
 local function header_sum(block: string): integer
-  if byte_sum == nil then return lua_header_sum(block) end
-  return byte_sum(block, 1, 148) + byte_sum(block, 157, BLOCK) + 256
+  return Hash.byte_sum(block, 1, 148) + Hash.byte_sum(block, 157, BLOCK) + 256
 end
 
 ------------------------------------------------------------------
