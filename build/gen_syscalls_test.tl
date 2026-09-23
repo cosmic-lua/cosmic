@@ -1,0 +1,78 @@
+local gen_syscalls = require("build.gen_syscalls")
+local positions = require("build.positions")
+local teal = require("build.teal")
+
+local built, load_trouble = teal.load()
+if built == nil then
+  error("could not load the compiler: " .. tostring(load_trouble))
+end
+
+local function lines(parts: {string}): string
+  return table.concat(parts, "\n") .. "\n"
+end
+
+local header = lines({
+  "/*",
+  " * --- What `stat` reports.",
+  " * ---@class Stat",
+  " * ---@field size integer the size in bytes",
+  " */",
+  "",
+  "/*",
+  " * --- Opens a path and returns a descriptor.",
+  " * --- The mode has umask semantics.",
+  " * ---",
+  " * ---@param path string the path to open",
+  " * ---@param mode? integer the creation mode",
+  " * ---@return integer|nil fd the descriptor, or nil on failure",
+  " * ---@return string error what went wrong, when fd is nil",
+  " * ---@return integer errno the error number, when fd is nil",
+  " */",
+  "COSMIC_SYSCALL(open, 2);",
+  "",
+  "/*",
+  " * ---@class Constants",
+  " * ---@field O_RDONLY integer open for reading",
+  " */",
+})
+
+--- The generated declaration's documented symbols, by symbol.
+local function docs(): {string: positions.DocEntry}
+  local source, trouble = gen_syscalls.declaration(header)
+  assert(source ~= nil, trouble)
+  local found, err = positions.analyze(built, source, "syscalls.d.tl")
+  assert(found ~= nil, "analyze failed: " .. tostring(err))
+  local by_symbol: {string: positions.DocEntry} = {}
+  for _, entry in ipairs(found.docs) do
+    by_symbol[entry.symbol] = entry
+  end
+  return by_symbol
+end
+
+--- `cosmic docs` answers a call with the header's own prose -- every
+--- line of it, then what each parameter and result is -- rather than
+--- a bare signature.
+local function test_a_call_carries_its_prose()
+  local open = docs()["open"]
+  assert(open ~= nil, "no docs row for open")
+  local want = table.concat({
+    "Opens a path and returns a descriptor.",
+    "The mode has umask semantics.",
+    "@param path the path to open",
+    "@param mode the creation mode",
+    "@return fd the descriptor, or nil on failure",
+    "@return error what went wrong, when fd is nil",
+    "@return errno the error number, when fd is nil",
+  }, "\n")
+  assert(open.text == want, open.text)
+end
+
+local function test_classes_and_fields_carry_their_prose()
+  local by_symbol = docs()
+  assert(by_symbol["Stat"].text == "What `stat` reports.", by_symbol["Stat"].text)
+  assert(by_symbol["Stat.size"].text == "the size in bytes", by_symbol["Stat.size"].text)
+  assert(by_symbol["O_RDONLY"].text == "open for reading", by_symbol["O_RDONLY"].text)
+  local module = by_symbol[""].text
+  assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
+    "and on macOS. Derived from core/syscalls.h.", module)
+end

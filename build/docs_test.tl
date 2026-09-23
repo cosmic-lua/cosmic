@@ -425,3 +425,20 @@ local function test_public_use_count_matches_list_across_project_collision()
   assert(entry ~= nil and entry.uses == 0, tostring(entry and entry.uses))
   assert(#assert(docs.uses(layered, "Helper.run")) == 0)
 end
+
+--- A module that is only a declaration -- `cosmic.sys`, generated from
+--- a C header -- is owned through `decls`, and its rows, which carry
+--- no line of their own, render without one.
+local function test_a_declared_module_is_found_without_a_line()
+  local rows: {{string}} = {
+    { "cosmic.sys", "syscalls.lstat", "field",
+      "lstat: function(path: string): Stat | nil, string, integer",
+      "Describes a path, not a link's target.", "core/syscalls.h", "0" },
+  }
+  local db = database(rows, {}, nil, {})
+  assert(db:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
+  local found = assert(docs.lookup(view({ db }), "lstat"))
+  assert(#found == 1 and found[1].module == "cosmic.sys", tostring(#found))
+  local lines = docs.render(view({ db }), found[1])
+  assert(lines[1] == "cosmic.sys syscalls.lstat (core/syscalls.h)", lines[1])
+end

@@ -3,7 +3,8 @@
 --- `core/syscalls.h` carries one annotation block per call, in the
 --- LuaCATS grammar, followed by the macro that names it. This turns
 --- those blocks into the Teal record the rest of the tree checks
---- against, and refuses a call whose block is missing a slot, so a
+--- against, with each block's prose as the doc comment `cosmic docs`
+--- shows, and refuses a call whose block is missing a slot, so a
 --- binding cannot exist without its type.
 
 local record Parameter
@@ -22,6 +23,8 @@ end
 local record Call
   name: string
   summary: string
+  --- Every prose line of the block, in order: the summary is the first.
+  prose: {string}
   parameters: {Parameter}
   results: {Result}
 end
@@ -35,6 +38,7 @@ end
 local record Class
   name: string
   summary: string
+  prose: {string}
   fields: {Field}
 end
 
@@ -82,10 +86,23 @@ local function annotation_lines(comment: string): {string} | nil
   return lines
 end
 
+--- `lines` without the blank lines at either end.
+local function trimmed(lines: {string}): {string}
+  local first, last = 1, #lines
+  while first <= last and lines[first] == "" do
+    first = first + 1
+  end
+  while last >= first and lines[last] == "" do
+    last = last - 1
+  end
+  return table.move(lines, first, last, 1, {})
+end
+
 local function parse_call(name: string, lines: {string}): Call | nil, string
   local call: Call = {
     name = name,
     summary = "",
+    prose = {},
     parameters = {},
     results = {},
   }
@@ -120,15 +137,18 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
         name = rname,
         description = description,
       }
-    elseif tag == nil and line ~= "" then
+    elseif tag == nil then
+      local text = line:gsub("^%s+", "")
       if call.summary == "" then
-        call.summary = line:gsub("^%s+", "")
+        call.summary = text
       end
+      call.prose[#call.prose + 1] = text
     end
   end
   if call.summary == "" then
     return nil, name .. ": the block says nothing about what it does"
   end
+  call.prose = trimmed(call.prose)
   local n = #call.results
   if n ~= 0 and n ~= 1 and n ~= 3 then
     return nil, name .. ": declares " .. n .. " returns; a syscall is " ..
@@ -149,7 +169,7 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
 end
 
 local function parse_class(lines: {string}): Class | nil, string
-  local class: Class = { name = "", summary = "", fields = {} }
+  local class: Class = { name = "", summary = "", prose = {}, fields = {} }
   for _, line in ipairs(lines) do
     local tag, rest = line:match("^@(%a+)%s+(.*)$")
     if tag == "class" then
@@ -164,13 +184,18 @@ local function parse_class(lines: {string}): Class | nil, string
         kind = teal_type(kind),
         description = description,
       }
-    elseif tag == nil and line ~= "" and class.summary == "" then
-      class.summary = line:gsub("^%s+", "")
+    elseif tag == nil then
+      local text = line:gsub("^%s+", "")
+      if class.summary == "" then
+        class.summary = text
+      end
+      class.prose[#class.prose + 1] = text
     end
   end
   if class.name == "" then
     return nil, "a class block names no class"
   end
+  class.prose = trimmed(class.prose)
   if #class.fields == 0 then
     return nil, class.name .. ": the class has no fields"
   end
@@ -231,6 +256,36 @@ function generator.read(header: string): Declarations | nil, string
   return { calls = calls, classes = classes }
 end
 
+--- Appends `lines` to `out` as a doc comment at `indent`, so `cosmic
+--- docs` reads the header's own prose rather than a bare signature.
+local function comment(out: {string}, indent: string, lines: {string})
+  for _, line in ipairs(lines) do
+    if line ~= "" or #lines > 1 then
+      out[#out + 1] = indent .. (line == "" and "---" or "--- " .. line)
+    end
+  end
+end
+
+--- A call's doc comment: its prose, then one line per parameter and
+--- result that says anything.
+local function call_comment(call: Call): {string}
+  local lines: {string} = {}
+  for _, line in ipairs(call.prose) do
+    lines[#lines + 1] = line
+  end
+  for _, p in ipairs(call.parameters) do
+    if p.description ~= "" then
+      lines[#lines + 1] = "@param " .. p.name .. " " .. p.description
+    end
+  end
+  for _, r in ipairs(call.results) do
+    if r.description ~= "" then
+      lines[#lines + 1] = "@return " .. r.name .. " " .. r.description
+    end
+  end
+  return lines
+end
+
 local function signature(call: Call): string
   local parameters: {string} = {}
   for _, p in ipairs(call.parameters) do
@@ -258,15 +313,19 @@ function generator.declaration(header: string): string | nil, string
   local calls, classes = found.calls, found.classes
 
   local out: {string} = {}
-  out[#out + 1] = "-- The syscall table, derived from core/syscalls.h."
+  out[#out + 1] = "--- The syscall table: one C function per call, the same on Linux"
+  out[#out + 1] = "--- and on macOS. Derived from core/syscalls.h."
+  out[#out + 1] = ""
   out[#out + 1] = "-- Edit the header; this file is written by the build."
   out[#out + 1] = ""
   out[#out + 1] = "local record syscalls"
 
   for _, class in ipairs(classes) do
     if class.name ~= "Constants" then
+      comment(out, "  ", class.prose)
       out[#out + 1] = "  record " .. class.name
       for _, field in ipairs(class.fields) do
+        comment(out, "    ", { field.description })
         out[#out + 1] = "    " .. field.name .. ": " .. field.kind
       end
       out[#out + 1] = "  end"
@@ -274,7 +333,11 @@ function generator.declaration(header: string): string | nil, string
     end
   end
 
-  for _, call in ipairs(calls) do
+  for index, call in ipairs(calls) do
+    if index > 1 then
+      out[#out + 1] = ""
+    end
+    comment(out, "  ", call_comment(call))
     out[#out + 1] = "  " .. call.name .. ": " .. signature(call)
   end
 
@@ -282,6 +345,7 @@ function generator.declaration(header: string): string | nil, string
     if class.name == "Constants" then
       out[#out + 1] = ""
       for _, field in ipairs(class.fields) do
+        comment(out, "  ", { field.description })
         out[#out + 1] = "  " .. field.name .. ": " .. field.kind
       end
     end
