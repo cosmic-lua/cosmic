@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include <curl/curl.h>
 
@@ -68,6 +69,29 @@ struct transfer {
   int closed;             /* close() (or __gc) has run */
   CURLcode result;
 };
+
+/* ---- request header validation ----------------------------------- */
+
+/* Refuses anything that could smuggle a second header (or a request
+ * line) past curl: a name or value carrying CR or LF, a name
+ * containing ':' (which would fold into the value on the wire), or an
+ * empty name. Returns NULL if `name`/`value` are fine to send as-is,
+ * or a static description of why not. */
+static const char *header_problem(const char *name, const char *value) {
+  if (name[0] == '\0') return "a header name must not be empty";
+  for (const char *p = name; *p != '\0'; p++) {
+    if (*p == '\r' || *p == '\n') {
+      return "a header name must not contain CR or LF";
+    }
+    if (*p == ':') return "a header name must not contain ':'";
+  }
+  for (const char *p = value; *p != '\0'; p++) {
+    if (*p == '\r' || *p == '\n') {
+      return "a header value must not contain CR or LF";
+    }
+  }
+  return NULL;
+}
 
 /* ---- small option helpers -------------------------------------- */
 
@@ -237,6 +261,18 @@ static size_t header_cb(char *buffer, size_t size, size_t nitems,
   }
 
   if (len == 2 && buffer[0] == '\r' && buffer[1] == '\n') {
+    if (t->status >= 100 && t->status < 200) {
+      /* An informational response (100 Continue, 103 Early Hints, ...)
+       * is never the final response: curl delivers its header block,
+       * then the real status line and headers follow. Treat it like a
+       * redirect hop -- headers_reset() on the next status line already
+       * discards this block's headers, and any body bytes write_cb
+       * buffered for it (there should be none per RFC 9110, but a
+       * misbehaving server could send some) must not leak into the
+       * final response's body. */
+      t->body_len = 0;
+      return len;
+    }
     int is_redirect = t->follow && (t->status == 301 || t->status == 302 ||
                                     t->status == 303 || t->status == 307 ||
                                     t->status == 308);
@@ -479,6 +515,13 @@ static int http_open(lua_State *L) {
   }
   if (method != NULL) {
     curl_easy_setopt(t->easy, CURLOPT_CUSTOMREQUEST, method);
+    if (strcasecmp(method, "HEAD") == 0) {
+      /* Without this, curl still waits for a response body on the wire
+       * after the headers for a HEAD request: read() then blocks until
+       * the low-speed/timeout limits fire instead of seeing a clean
+       * EOF. */
+      curl_easy_setopt(t->easy, CURLOPT_NOBODY, 1L);
+    }
   }
 
   if (has_opts) {
@@ -489,6 +532,14 @@ static int http_open(lua_State *L) {
       while (lua_next(L, -2) != 0) {
         const char *name = luaL_checkstring(L, -2);
         const char *value = luaL_checkstring(L, -1);
+        const char *problem = header_problem(name, value);
+        if (problem != NULL) {
+          lua_pop(L, 3); /* value, key, the headers table */
+          transfer_release(t);
+          lua_pushnil(L);
+          lua_pushfstring(L, "invalid header %s: %s", name, problem);
+          return 2;
+        }
         char *line = malloc(strlen(name) + strlen(value) + 3);
         if (line != NULL) {
           sprintf(line, "%s: %s", name, value);
