@@ -180,6 +180,38 @@ function Fs.remove(path: string): boolean, string
   return false, path .. ": " .. trouble
 end
 
+--- Removes a path and, when it is a directory, everything under it:
+--- the `rm -rf` a scratch directory wants. A link is removed, never
+--- followed, so nothing outside `path` is touched. A path that is
+--- already gone is not a failure.
+function Fs.remove_tree(path: string): boolean, string
+  local st, trouble, number = sys.lstat(path)
+  if st == nil then
+    if number == sys.ENOENT or number == sys.ENOTDIR then
+      return true, ""
+    end
+    return false, path .. ": " .. trouble
+  end
+  if st.kind ~= "dir" then
+    return Fs.remove(path)
+  end
+  local entries, list_trouble = sys.readdir(path)
+  if entries == nil then
+    return false, path .. ": " .. list_trouble
+  end
+  for name in pairs(entries) do
+    local gone, why = Fs.remove_tree(path .. "/" .. name)
+    if not gone then
+      return false, why
+    end
+  end
+  local removed, rmdir_trouble, rmdir_number = sys.rmdir(path)
+  if not removed and rmdir_number ~= sys.ENOENT then
+    return false, path .. ": " .. rmdir_trouble
+  end
+  return true, ""
+end
+
 --- The names in a directory, sorted, without `.` and `..`.
 local function sorted_names(entries: {string:string}): {string}
   local names: {string} = {}
