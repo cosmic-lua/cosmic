@@ -470,7 +470,15 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   end
   local core = cache .. "/" .. assert(key, "cold launch published no core")
   local stamp = cache .. "/.verified-" .. assert(key)
-  assert(Fs.exists(stamp) == false, "a core changed this second was stamped")
+  -- A cold launch that runs past a second may stamp the core it just
+  -- published; whether it does depends on the host's speed, not on the
+  -- launcher. What it may never do is stamp something the entry is not.
+  if Fs.exists(stamp) then
+    local cold = assert(sys.lstat(core))
+    local prefix = string.format("%d|%d|%d|", cold.size, cold.ino, cold.mtime)
+    assert(Fixture.read(stamp):sub(1, #prefix) == prefix,
+      "a cold stamp does not record the entry")
+  end
   assert(Time.sleep_ns(1100000000))
   Fixture.run("stamp-warm", { program, "help" }, work, diagnostics, values)
   local st = assert(sys.lstat(core))
