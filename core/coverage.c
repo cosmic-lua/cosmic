@@ -6,6 +6,9 @@
 
 #include "lauxlib.h"
 #include "lapi.h"
+/* setsvalue2s checks the string is live when Lua is built with its own
+ * assertions (LUAI_ASSERT), and that check is lgc.h's isdead. */
+#include "lgc.h"
 #include "lstate.h"
 
 /* Lua is pinned with the core. Reading the current Lua closure's source
