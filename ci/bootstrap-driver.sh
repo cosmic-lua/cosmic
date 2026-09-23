@@ -1,4 +1,6 @@
 #!/bin/sh
+# TODO: replace with bin/cosmic-bootstrap, which validates the same pin,
+# fetches and verifies the same release, and caches it by digest.
 set -eu
 
 if [ "$#" -ne 3 ]; then

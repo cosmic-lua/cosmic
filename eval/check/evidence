@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Require test and example verdicts from this grading invocation."""
+# TODO: replace this Python with a Teal script run by `cosmic --standalone`
+# (cosmic.sqlite reads the database).
 import pathlib
 import sqlite3
 import sys
