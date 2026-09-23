@@ -27,6 +27,17 @@
  *   manifest_offset:u64, manifest_length:u64,
  *   database_offset:u64, database_length:u64
  *
+ * A host program is the same pieces with no launcher and one core, the
+ * running host's, at the very start of the file so that the kernel executes
+ * it directly:
+ *
+ *   exact raw core, zero-filled to a 16 KiB boundary
+ *   one 4 KiB manifest block with one entry, at offset 0
+ *   SQLite database
+ *   48-byte trailer whose magic is COSMIC_HOST_TRAILER_MAGIC
+ *
+ * It runs only where its core does, and cannot make portable programs.
+ *
  * The target authority remains build.zig.  It compiles the release target
  * mask and release configuration id into portable.c; they are not repeated
  * here.  A later prefix may add (for example) a sanitized entry while the
@@ -52,6 +63,7 @@
 
 #define COSMIC_PORTABLE_MANIFEST_MAGIC "CosmicM1"
 #define COSMIC_PORTABLE_TRAILER_MAGIC "CosmicT1"
+#define COSMIC_HOST_TRAILER_MAGIC "CosmicH1"
 #define COSMIC_PORTABLE_MAGIC_LENGTH 8u
 
 struct cosmic_portable_entry {
@@ -83,6 +95,12 @@ struct cosmic_artifact {
   uint64_t inode;
   uint64_t file_size;
   struct cosmic_portable portable;
+  /* A host program: the file is the running core itself. */
+  int host;
+  /* Whether the selected core range's bytes have been hashed against the
+   * manifest: 0 not yet, 1 they match, -1 they differ. A portable start
+   * checks at startup; a host program only when its identity is asked for. */
+  int core_checked;
 };
 
 /*
@@ -96,6 +114,17 @@ int cosmic_portable_decode(int fd, uint32_t target_id,
                            uint32_t configuration_id,
                            struct cosmic_portable *out,
                            const char **error);
+
+/*
+ * Decodes and validates a host program held open by fd, the same way: one
+ * entry, the compiled one, at offset 0. Its core's digest is not checked
+ * here; see cosmic_artifact_core_matches.
+ */
+int cosmic_host_decode(int fd, uint32_t target_id, uint32_t configuration_id,
+                       struct cosmic_portable *out, const char **error);
+
+/* Whether the file held open by fd ends in a host program trailer. */
+int cosmic_host_trailer(int fd);
 
 void cosmic_artifact_init(struct cosmic_artifact *artifact);
 void cosmic_artifact_close(struct cosmic_artifact *artifact);

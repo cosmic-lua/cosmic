@@ -102,6 +102,31 @@ void cosmic_startup_native(struct cosmic_startup *startup) {
     startup->contract_error = "reserved portable environment cannot be cleared";
 }
 
+void cosmic_startup_host(struct cosmic_startup *startup, int fd,
+                         const char *path) {
+  cosmic_startup_native(startup);
+  startup->kind = COSMIC_STARTUP_HOST;
+  startup->artifact_path = path;
+  startup->artifact_fd = fd;
+}
+
+int cosmic_artifact_core_matches(struct cosmic_artifact *artifact) {
+  if (artifact == NULL || artifact->fd < 0) return 0;
+  if (artifact->core_checked == 0) {
+    const struct cosmic_portable_entry *entry = &artifact->portable.selected;
+    unsigned char digest[COSMIC_DIGEST_MAX];
+    size_t length = 0;
+    artifact->core_checked =
+        cosmic_digest_fd("sha256", artifact->fd, entry->offset, entry->length,
+                         digest, &length) == 0 &&
+                length == COSMIC_PORTABLE_SHA256_LENGTH &&
+                memcmp(digest, entry->sha256, length) == 0
+            ? 1
+            : -1;
+  }
+  return artifact->core_checked == 1;
+}
+
 void cosmic_startup_portable(struct cosmic_startup *startup,
                              const char *artifact_path) {
   compiled_startup(startup, COSMIC_STARTUP_PORTABLE, artifact_path);
@@ -147,7 +172,8 @@ const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
   if (startup->version != COSMIC_STARTUP_VERSION)
     return "startup record has an unsupported version";
   if (startup->kind != COSMIC_STARTUP_NATIVE &&
-      startup->kind != COSMIC_STARTUP_PORTABLE)
+      startup->kind != COSMIC_STARTUP_PORTABLE &&
+      startup->kind != COSMIC_STARTUP_HOST)
     return "startup record has an unknown kind";
   if (startup->target_id != COSMIC_TARGET_ID ||
       startup->target_name == NULL ||
@@ -181,7 +207,35 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
                          const char **error) {
   cosmic_artifact_init(artifact);
   if (error != NULL) *error = NULL;
-  if (startup->kind != COSMIC_STARTUP_PORTABLE) return 1;
+  if (startup->kind == COSMIC_STARTUP_NATIVE) return 1;
+  if (startup->kind == COSMIC_STARTUP_HOST) {
+    /* The kernel executed this very file: there is no launcher's choice to
+     * check it against. Its structure is checked here, and its core's digest
+     * when something asks for the identity it names. */
+    size_t host_length = strlen(startup->artifact_path);
+    if (startup->artifact_path[0] != '/' ||
+        host_length >= sizeof artifact->logical_path)
+      return fail_adoption(artifact, -1, -1, error,
+                           "host program path is not absolute, or too long");
+    memcpy(artifact->logical_path, startup->artifact_path, host_length + 1);
+    artifact->fd = startup->artifact_fd;
+    artifact->host = 1;
+    struct stat host_stat;
+    if (fstat(artifact->fd, &host_stat) != 0 || !S_ISREG(host_stat.st_mode))
+      return fail_adoption(artifact, -1, -1, error,
+                           "host program is not a regular file");
+    artifact->device = (uint64_t)host_stat.st_dev;
+    artifact->inode = (uint64_t)host_stat.st_ino;
+    artifact->file_size = (uint64_t)host_stat.st_size;
+    const char *host_error = NULL;
+    if (!cosmic_host_decode(artifact->fd, startup->target_id,
+                            startup->configuration_id, &artifact->portable,
+                            &host_error))
+      return fail_adoption(artifact, -1, -1, error,
+                           host_error == NULL ? "host program is invalid" :
+                                                host_error);
+    return 1;
+  }
   if (startup->artifact_path[0] != '/')
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          "portable artifact path is not absolute");
@@ -264,5 +318,6 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
   if (flags < 0 || fcntl(artifact->fd, F_SETFD, flags | FD_CLOEXEC) != 0)
     return fail_adoption(artifact, -1, -1, error,
                          "cannot mark retained artifact close-on-exec");
+  artifact->core_checked = 1;
   return 1;
 }

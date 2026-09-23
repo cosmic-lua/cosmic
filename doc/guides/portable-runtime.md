@@ -130,7 +130,7 @@ replacement, and database-only rebuilds.
 ## select and cache one core
 
 The generated shell in [`build.launcher`](../../build/launcher.tl) maps
-`uname -s` and `uname -m` to a generated release record. It opens the artifact
+`uname -sm` to a generated release record. It opens the artifact
 before changing the cache. It validates the cache leaf's kind, owner, mode,
 and contents. The cache parent is the user's trust boundary.
 
@@ -139,6 +139,11 @@ temporary file, verifies its length and SHA-256 digest, sets its mode, and
 publishes it atomically. On a warm start it hashes the complete cached core
 again. A symlink, unexpected entry, wrong owner or mode, short core, or digest
 mismatch stops before execution.
+
+A warm start runs three utilities and no other child: `uname`, one `stat` for
+both the cache leaf and the entry, and the digest. The descriptor probes run
+in the shell itself, ownership is the shell's own `test -O`, and the umask
+changes only in the child that creates the cache leaf.
 
 On supported hosts the launcher also checks whether the verified cache entry
 is executable before invoking the shell's `exec` builtin, so a noexec cache
@@ -209,6 +214,19 @@ retained prefix and calls `artifact.program` for each application. Applications
 built together share launcher, core, and manifest bytes while their database
 suffixes differ. Output appears only after the complete database and program
 are written. A library tree with no `cmd/<name>/main.tl` produces no executable.
+
+`cosmic build --host` writes a host program instead: the running core's exact
+bytes at the start of the file, zero-filled to the core alignment, one manifest
+entry naming that core at offset 0, the database, and a trailer whose magic is
+`CosmicH1`. The kernel executes it directly. At startup the core finds its own
+trailer through its executable, checks the same structure the portable decoder
+does, and opens the database range; no launcher, cache, or private environment
+is involved. It hashes its own core only when something asks for the runtime
+identity that digest is part of, and reports none if the manifest names another
+digest: the kernel ran these bytes, so a check at startup would prove nothing a
+changed image could not also claim. A host program runs only where its core
+does, and cannot supply the portable prefix, so `cosmic build` from one writes
+host programs only.
 
 ## rebuild without replacing cores
 

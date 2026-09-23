@@ -85,7 +85,9 @@ every cosmic binary carries the raw core for all three targets, so any
 host builds any target offline with nothing fetched. the POSIX launcher selects
 one by `uname`, verifies its exact range and digest, retains the artifact
 descriptor, and executes a cached copy. a program `cosmic build` writes has the
-same portable prefix and its own database suffix.
+same portable prefix and its own database suffix. `cosmic build --host` writes
+the running core itself with the program's database appended instead: it
+starts with no launcher, and runs only where that core does.
 
 a target exists when three things hold: zig links it, a CI lane runs
 its full suite on it, and the sandbox conformance matrix runs on it.

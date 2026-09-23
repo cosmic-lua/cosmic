@@ -456,7 +456,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STARTUP_RELEASED);
 
   char self[4096];
-  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+  if (startup->kind != COSMIC_STARTUP_NATIVE) {
     if (snprintf(self, sizeof self, "%s", startup->artifact_path) >=
         (int)sizeof self) {
       cosmic_artifact_close(&artifact);
@@ -474,7 +474,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
   }
 
   sqlite3 *db = NULL;
-  if (startup->kind == COSMIC_STARTUP_PORTABLE) {
+  if (startup->kind != COSMIC_STARTUP_NATIVE) {
     db = open_artifact(self, artifact.fd,
                        (int64_t)artifact.portable.database_offset,
                        (int64_t)artifact.portable.database_length);
@@ -486,7 +486,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_OPENED);
   }
   cosmic_store_install(L, db,
-                       startup->kind == COSMIC_STARTUP_PORTABLE ? &artifact : NULL);
+                       startup->kind != COSMIC_STARTUP_NATIVE ? &artifact : NULL);
   cosmic_open_sqlite(L); /* leaves the module table on the stack */
   cosmic_store_set_raw(L, "cosmic.internal.sqlite");
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);

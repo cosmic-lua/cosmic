@@ -21,15 +21,18 @@ portable_die() {
 }
 
 # Select two unused descriptors before opening anything or mutating the cache.
-# Each literal candidate is probed in both directions in child shells: a
-# readability-only probe misses writable descriptors, while the pair also
-# catches inherited sockets. Only the controlled numeric left-hand side of a
-# redirection is evaluated below; path strings stay quoted variable references.
+# Each literal candidate is probed in both directions: a readability-only probe
+# misses writable descriptors, while the pair also catches inherited sockets.
+# `command` keeps a failed redirection on the special builtin `:` from ending
+# the shell, so the probe needs no child shell, and its redirections last only
+# for the probe. stderr is redirected first, so the failure prints nothing.
+# Only the controlled numeric left-hand side of a redirection is evaluated
+# below; path strings stay quoted variable references.
 cosmic_artifact_fd=
 cosmic_core_fd=
 for portable_candidate in 3 4 5 6 7 8 9; do
-  if ! (: <&"$portable_candidate") 2>/dev/null &&
-     ! (: >&"$portable_candidate") 2>/dev/null; then
+  if ! command : 2>/dev/null <&"$portable_candidate" &&
+     ! command : 2>/dev/null >&"$portable_candidate"; then
     if [ -z "$cosmic_artifact_fd" ]; then
       cosmic_artifact_fd=$portable_candidate
     else
@@ -46,7 +49,7 @@ case $0 in
   *) cosmic_artifact=$PWD/$0 ;;
 esac
 
-case "$(uname -s):$(uname -m)" in
+case "$(uname -sm)" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
 esac
@@ -98,19 +101,24 @@ while [ "$cosmic_cache" != / ] && [ "${cosmic_cache%/}" != "$cosmic_cache" ]; do
   cosmic_cache=${cosmic_cache%/}
 done
 
-cosmic_original_umask=$(umask) || portable_die 'cannot read caller umask'
-umask 077
 if [ -L "$cosmic_cache" ]; then
   portable_die "cache leaf is a symbolic link: $cosmic_cache"
 fi
+# The leaf and any parent made here are private. Only mkdir needs the umask:
+# mktemp makes its file 0600 whatever the umask, and the core is chmod 500.
 if [ ! -e "$cosmic_cache" ]; then
-  mkdir -p "$cosmic_cache" || portable_die "cannot create cache leaf: $cosmic_cache"
+  (umask 077 && mkdir -p "$cosmic_cache") ||
+    portable_die "cannot create cache leaf: $cosmic_cache"
 fi
 
+# Sets portable_out to one line per path that exists, in the order named; a
+# missing path adds nothing and makes the status nonzero. The functions here
+# set variables rather than print, so a command substitution runs only the
+# utility itself and not a subshell around it too.
 portable_lstat() {
   case $cosmic_os in
-    Linux) LC_ALL=C stat -c '%F|%u|%a|%s' -- "$1" ;;
-    Darwin) LC_ALL=C stat -f '%HT|%u|%Lp|%z' "$1" ;;
+    Linux) portable_out=$(LC_ALL=C stat -c '%F|%u|%a|%s' -- "$@") ;;
+    Darwin) portable_out=$(LC_ALL=C stat -f '%HT|%u|%Lp|%z' "$@") ;;
     *) return 1 ;;
   esac
 }
@@ -119,8 +127,13 @@ portable_kind=
 portable_owner=
 portable_mode=
 portable_size=
+portable_fields=
 portable_stat() {
-  portable_fields=$(portable_lstat "$1") || return 1
+  portable_lstat "$1" || return 1
+  portable_fields=$portable_out
+  portable_split
+}
+portable_split() {
   portable_kind=${portable_fields%%|*}
   portable_fields=${portable_fields#*|}
   portable_owner=${portable_fields%%|*}
@@ -130,13 +143,45 @@ portable_stat() {
   return 0
 }
 
-portable_uid=$(id -u) || portable_die 'cannot determine cache owner'
-portable_stat "$cosmic_cache" || portable_die "cannot inspect cache leaf: $cosmic_cache"
+# Whether this user owns a path, given the owner its stat reported. Every
+# shell this runs under answers `test -O` itself; one that does not (status
+# 2) falls back to id(1), asked once.
+portable_uid=
+portable_owned() {
+  test -O "$1" 2>/dev/null
+  case $? in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
+  if [ -z "$portable_uid" ]; then
+    portable_uid=$(id -u) || portable_die 'cannot determine cache owner'
+  fi
+  [ "$2" = "$portable_uid" ]
+}
+
+cosmic_key=core-$cosmic_target_id-$cosmic_configuration_id-$cosmic_length-$cosmic_sha256
+cosmic_core=$cosmic_cache/$cosmic_key
+cosmic_repair_lock=$cosmic_cache/.repair-$cosmic_key
+
+# One stat answers for both the leaf and the selected entry: on a warm start,
+# the only one. The entry's line is kept for its first inspection below. A
+# symbolic link is judged before any stat reads through it.
+portable_entry_fields=
+portable_lstat "$cosmic_cache" "$cosmic_core" 2>/dev/null
+portable_both=$portable_out
+portable_fields=${portable_both%%
+*}
+if [ "$portable_fields" != "$portable_both" ] && [ ! -L "$cosmic_core" ]; then
+  portable_entry_fields=${portable_both#*
+}
+fi
+[ -n "$portable_fields" ] || portable_die "cannot inspect cache leaf: $cosmic_cache"
+portable_split
 case $portable_kind in
   directory|'Directory') ;;
   *) portable_die "cache leaf is not a directory: $cosmic_cache" ;;
 esac
-[ "$portable_owner" = "$portable_uid" ] ||
+portable_owned "$cosmic_cache" "$portable_owner" ||
   portable_die "cache leaf has a different owner: $cosmic_cache"
 case $portable_mode in
   700) cosmic_cache_writable=1 ;;
@@ -144,7 +189,9 @@ case $portable_mode in
   *) portable_die "cache leaf mode must be 0700 or 0500: $cosmic_cache" ;;
 esac
 
+# Sets portable_actual to a file's SHA-256, or empty when it cannot.
 portable_sha256() {
+  portable_actual=
   if command -v sha256sum >/dev/null 2>&1; then
     portable_sum=$(sha256sum < "$1") || return 1
   elif command -v shasum >/dev/null 2>&1; then
@@ -152,12 +199,9 @@ portable_sha256() {
   else
     return 1
   fi
-  printf '%s\n' "${portable_sum%% *}"
+  portable_actual=${portable_sum%% *}
 }
 
-cosmic_key=core-$cosmic_target_id-$cosmic_configuration_id-$cosmic_length-$cosmic_sha256
-cosmic_core=$cosmic_cache/$cosmic_key
-cosmic_repair_lock=$cosmic_cache/.repair-$cosmic_key
 cosmic_stage=
 cosmic_owns_repair_lock=0
 
@@ -181,7 +225,11 @@ portable_inspect_entry() {
     portable_entry_reason='is absent'
     return 0
   fi
-  if ! portable_stat "$cosmic_core"; then
+  if [ -n "$portable_entry_fields" ]; then
+    portable_fields=$portable_entry_fields
+    portable_entry_fields=
+    portable_split
+  elif ! portable_stat "$cosmic_core"; then
     portable_entry_state=invalid
     portable_entry_reason='cannot be inspected'
     return 0
@@ -194,7 +242,7 @@ portable_inspect_entry() {
       return 0
       ;;
   esac
-  if [ "$portable_owner" != "$portable_uid" ]; then
+  if ! portable_owned "$cosmic_core" "$portable_owner"; then
     portable_entry_state=invalid
     portable_entry_reason='has a different owner'
     return 0
@@ -209,7 +257,7 @@ portable_inspect_entry() {
     portable_entry_reason='length differs'
     return 0
   fi
-  portable_actual=$(portable_sha256 "$cosmic_core") || portable_actual=
+  portable_sha256 "$cosmic_core"
   if [ "$portable_actual" != "$cosmic_sha256" ]; then
     portable_entry_state=invalid
     portable_entry_reason='digest differs'
@@ -312,7 +360,7 @@ if [ "$portable_entry_state" != valid ]; then
     head -c "$cosmic_length" > "$cosmic_stage"
   portable_bytes=$(wc -c < "$cosmic_stage") || portable_die 'cannot size extracted core'
   [ "$portable_bytes" -eq "$cosmic_length" ] || portable_die 'extracted core is truncated'
-  portable_actual=$(portable_sha256 "$cosmic_stage") || portable_actual=
+  portable_sha256 "$cosmic_stage"
   [ "$portable_actual" = "$cosmic_sha256" ] ||
     portable_die 'extracted core digest differs'
   chmod 500 "$cosmic_stage" || portable_die 'cannot finish extracted core mode'
@@ -353,7 +401,6 @@ export COSMIC_PORTABLE_CORE_SHA256
 [ -x "$cosmic_core" ] ||
   portable_die 'verified core cannot execute on the cache filesystem'
 trap - HUP INT TERM
-umask "$cosmic_original_umask" || portable_die 'cannot restore caller umask'
 # BusyBox test answers `-x` from the mode bits alone, so there a noexec cache
 # passes the check above and the exec itself fails. ash, dash and mksh still
 # run the EXIT trap as they exit on that failure, and a successful exec

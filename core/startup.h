@@ -35,6 +35,8 @@
 enum cosmic_startup_kind {
   COSMIC_STARTUP_NATIVE = 1,
   COSMIC_STARTUP_PORTABLE = 2,
+  /* A host program: the executable carries its own database. */
+  COSMIC_STARTUP_HOST = 3,
 };
 
 enum cosmic_startup_test_phase {
@@ -68,6 +70,13 @@ struct cosmic_startup {
 };
 
 void cosmic_startup_native(struct cosmic_startup *startup);
+/* A native start whose own executable, held open by `fd` at `path`, ends in
+ * a host program trailer. */
+void cosmic_startup_host(struct cosmic_startup *startup, int fd,
+                         const char *path);
+/* Whether the artifact's selected core range hashes to its manifest digest,
+ * checked once and remembered. */
+int cosmic_artifact_core_matches(struct cosmic_artifact *artifact);
 void cosmic_startup_portable(struct cosmic_startup *startup,
                              const char *artifact_path);
 int cosmic_startup_has_private_environment(void);

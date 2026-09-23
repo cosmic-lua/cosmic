@@ -4,6 +4,14 @@
 local type sqlite = require("cosmic.internal.sqlite")
 
 local record store
+  -- The running core, as trusted_core hands it over.
+  record Core
+    bytes: string
+    target_id: integer
+    configuration_id: integer
+    digest: string
+  end
+
   -- Opens a projected module database and searches it ahead of every other.
   attach: function(path: string): boolean, string
 
@@ -28,6 +36,10 @@ local record store
   -- Private retained-artifact capability. Only trusted build.artifact receives
   -- this raw table; cosmic.store deliberately exposes no wrapper for it.
   trusted_prefix: function(): string | nil, string
+
+  -- Private: the running core's exact bytes, checked against its manifest,
+  -- which a host program is made from.
+  trusted_core: function(): Core | nil, string
 end
 
 return store
