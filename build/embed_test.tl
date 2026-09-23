@@ -156,9 +156,13 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   assert(bytes:sub(-48, -41) == "CosmicH1", "its trailer says host")
   local r = run_program(out)
   assert(r.ok, tostring(r.stderr))
+  -- The path is the executable's own, resolved: on macOS a temporary
+  -- directory under /var is reported under /private/var.
   local expected = table.concat({ "host-v1", assert(Store.meta("host_image")),
-    assert(Store.meta("runtime")), out }, "\t") .. "\n"
-  assert(r.stdout == expected, tostring(r.stdout) .. " ~= " .. expected)
+    assert(Store.meta("runtime")) }, "\t") .. "\t"
+  local printed = assert(r.stdout)
+  assert(printed:sub(1, #expected) == expected, printed .. " ~= " .. expected)
+  assert(printed:sub(-#"/o/bin/who\n") == "/o/bin/who\n", printed)
 end
 
 --- A host program runs without checking its own core's digest, but the
