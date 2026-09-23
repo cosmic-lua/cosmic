@@ -6,7 +6,7 @@
 #include "executable.h"
 #include "portable.h"
 
-int main(int argc, char **argv) {
+int main (int argc, char **argv) {
   struct cosmic_startup startup;
   int artifact_argument = argc >= 2 && strcmp(argv[1], "--artifact") == 0;
   if (artifact_argument || cosmic_startup_has_private_environment()) {

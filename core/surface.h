@@ -13,6 +13,6 @@
 /* Creates the state and opens the surface. `logical_executable` is the path a
  * program can execute to relaunch this same logical artifact. Returns NULL
  * when there is no memory for a state at all. */
-lua_State *cosmic_surface_open(const char *logical_executable);
+lua_State *cosmic_surface_open (const char *logical_executable);
 
 #endif

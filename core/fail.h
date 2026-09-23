@@ -12,21 +12,21 @@
 
 #include "lua.h"
 
-static inline int cosmic_fail(lua_State *L, int number) {
+static inline int cosmic_fail (lua_State *L, int number) {
   lua_pushnil(L);
   lua_pushstring(L, strerror(number));
   lua_pushinteger(L, number);
   return 3;
 }
 
-static inline int cosmic_fail_effect(lua_State *L, int number) {
+static inline int cosmic_fail_effect (lua_State *L, int number) {
   lua_pushboolean(L, 0);
   lua_pushstring(L, strerror(number));
   lua_pushinteger(L, number);
   return 3;
 }
 
-static inline int cosmic_ok(lua_State *L) {
+static inline int cosmic_ok (lua_State *L) {
   lua_pushboolean(L, 1);
   return 1;
 }

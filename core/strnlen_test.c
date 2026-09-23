@@ -22,7 +22,7 @@
 typedef size_t (*bounded_length)(const char *, size_t);
 static bounded_length volatile call_strnlen = strnlen;
 
-static int guarded(void) {
+static int guarded (void) {
   long page = sysconf(_SC_PAGESIZE);
   if (page <= 0) return 2;
   char *pages = mmap(NULL, 2 * (size_t)page, PROT_READ | PROT_WRITE,
@@ -53,7 +53,7 @@ static int guarded(void) {
   return 0;
 }
 
-int main(void) {
+int main (void) {
   pid_t child = fork();
   if (child < 0) return 2;
   if (child == 0) _exit(guarded());

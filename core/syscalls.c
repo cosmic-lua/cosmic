@@ -18,7 +18,7 @@
 #include <sys/syscall.h>
 /* _XOPEN_SOURCE intentionally hides this libc escape hatch. It is used only
  * for close_range, whose wrapper musl does not expose. */
-extern long syscall(long, ...);
+extern long syscall (long, ...);
 #endif
 #include <time.h>
 #include <unistd.h>
@@ -114,8 +114,8 @@ COSMIC_SYSCALL(nanosleep, 1) {
     return luaL_argerror(L, 1, "the duration is negative");
   }
   struct timespec want = {
-      .tv_sec = (time_t)(nanoseconds / 1000000000),
-      .tv_nsec = (long)(nanoseconds % 1000000000),
+    .tv_sec = (time_t)(nanoseconds / 1000000000),
+    .tv_nsec = (long)(nanoseconds % 1000000000),
   };
   struct timespec left;
   while (nanosleep(&want, &left) != 0) {
@@ -136,8 +136,8 @@ COSMIC_SYSCALL(isatty, 1) {
 /* An algorithm nobody has heard of is an argument-shape error and
  * raises; the library refusing a hash it advertises is a bug, and
  * raises too. Neither is a runtime failure a caller could handle. */
-static int hashed(lua_State *L, int status, const unsigned char *digest,
-                  size_t len) {
+static int hashed (lua_State *L, int status, const unsigned char *digest,
+                   size_t len) {
   if (status == -1) {
     return luaL_argerror(L, 1, "no such digest algorithm");
   }
@@ -230,7 +230,7 @@ COSMIC_SYSCALL(execve, 3) {
   return cosmic_fail(L, number);
 }
 
-static const char *plain_string(lua_State *L, int index, const char *what) {
+static const char *plain_string (lua_State *L, int index, const char *what) {
   if (lua_type(L, index) != LUA_TSTRING)
     luaL_error(L, "%s must be a string", what);
   size_t length;
@@ -240,13 +240,13 @@ static const char *plain_string(lua_State *L, int index, const char *what) {
   return value;
 }
 
-static void free_environment(char **envp, lua_Integer count) {
+static void free_environment (char **envp, lua_Integer count) {
   if (envp == NULL) return;
   for (lua_Integer i = 0; i < count; i++) free(envp[i]);
   free(envp);
 }
 
-static int report_child_error(int fd, int number) {
+static int report_child_error (int fd, int number) {
   const char *at = (const char *)&number;
   size_t left = sizeof number;
   while (left > 0) {
@@ -268,7 +268,7 @@ static int sigpipe_ignored_here;
 
 /* Close every descriptor from `from` up. Cosmic-opened descriptors are
  * CLOEXEC already; this also closes foreign descriptors that are not. */
-static void close_child_descriptors(int from, long limit) {
+static void close_child_descriptors (int from, long limit) {
 #if defined(__linux__) && defined(SYS_close_range)
   if (syscall(SYS_close_range, (unsigned)from, ~0u, 0u) == 0) return;
 #endif
@@ -515,7 +515,7 @@ COSMIC_SYSCALL(kill, 2) {
   return cosmic_ok(L);
 }
 
-static void set_decimal(lua_State *L, const char *name, uint64_t value) {
+static void set_decimal (lua_State *L, const char *name, uint64_t value) {
   char text[32];
   snprintf(text, sizeof text, "%llu", (unsigned long long)value);
   lua_pushstring(L, text);
@@ -676,11 +676,11 @@ static int child_signals_guarded;
 static struct sigaction previous_int;
 static struct sigaction previous_term;
 
-static void catch_child_cancel(int number) {
+static void catch_child_cancel (int number) {
   if (child_cancelled == 0) child_cancelled = number;
 }
 
-static void child_signal_set(sigset_t *set) {
+static void child_signal_set (sigset_t *set) {
   sigemptyset(set);
   sigaddset(set, SIGINT);
   sigaddset(set, SIGTERM);
@@ -806,24 +806,24 @@ COSMIC_SYSCALL(inflate, 2) {
 #define ENTRY(name) {#name, cosmic_sys_##name}
 
 static const luaL_Reg table[] = {
-    ENTRY(open),     ENTRY(open_temporary), ENTRY(close),
-    ENTRY(read),     ENTRY(pread),          ENTRY(write),
-    ENTRY(lseek),
-    ENTRY(fstat),    ENTRY(stat),          ENTRY(lstat),
-    ENTRY(mkdir),    ENTRY(rmdir),         ENTRY(unlink),
-    ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),
-    ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
-    ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
-    ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
-    ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
-    ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
-    ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
-    ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
-    ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
-    ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
-    ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
-    ENTRY(relaunch),
-    {NULL, NULL},
+  ENTRY(open),     ENTRY(open_temporary), ENTRY(close),
+  ENTRY(read),     ENTRY(pread),          ENTRY(write),
+  ENTRY(lseek),
+  ENTRY(fstat),    ENTRY(stat),          ENTRY(lstat),
+  ENTRY(mkdir),    ENTRY(rmdir),         ENTRY(unlink),
+  ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),
+  ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
+  ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
+  ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
+  ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
+  ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
+  ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
+  ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
+  ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
+  ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
+  ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
+  ENTRY(relaunch),
+  {NULL, NULL},
 };
 
 struct constant {
@@ -834,48 +834,48 @@ struct constant {
 /* The numbers a caller passes back in. They come from this libc, so a
  * Teal module never carries a platform's constant of its own. */
 static const struct constant constants[] = {
-    {"O_RDONLY", O_RDONLY},
-    {"O_WRONLY", O_WRONLY},
-    {"O_RDWR", O_RDWR},
-    {"O_CREAT", O_CREAT},
-    {"O_EXCL", O_EXCL},
-    {"O_TRUNC", O_TRUNC},
-    {"O_APPEND", O_APPEND},
-    {"SEEK_SET", SEEK_SET},
-    {"SEEK_CUR", SEEK_CUR},
-    {"SEEK_END", SEEK_END},
-    {"CLOCK_REALTIME", CLOCK_REALTIME},
-    {"CLOCK_MONOTONIC", CLOCK_MONOTONIC},
-    {"ENOENT", ENOENT},
-    {"EEXIST", EEXIST},
-    {"EACCES", EACCES},
-    {"EINTR", EINTR},
-    {"EISDIR", EISDIR},
-    {"ENOTDIR", ENOTDIR},
-    {"ENOTEMPTY", ENOTEMPTY},
-    {"EAGAIN", EAGAIN},
-    {"EPIPE", EPIPE},
-    {"EXDEV", EXDEV},
-    {"ECHILD", ECHILD},
-    {"ESRCH", ESRCH},
-    {"EBADF", EBADF},
-    {"ENOSYS", ENOSYS},
-    {"SIGHUP", SIGHUP},
-    {"SIGINT", SIGINT},
-    {"SIGQUIT", SIGQUIT},
-    {"SIGKILL", SIGKILL},
-    {"SIGPIPE", SIGPIPE},
-    {"SIGTERM", SIGTERM},
-    {"SIGUSR1", SIGUSR1},
-    {"POLLIN", POLLIN},
-    {"POLLOUT", POLLOUT},
-    {"POLLERR", POLLERR},
-    {"POLLHUP", POLLHUP},
-    {"POLLNVAL", POLLNVAL},
-    {NULL, 0},
+  {"O_RDONLY", O_RDONLY},
+  {"O_WRONLY", O_WRONLY},
+  {"O_RDWR", O_RDWR},
+  {"O_CREAT", O_CREAT},
+  {"O_EXCL", O_EXCL},
+  {"O_TRUNC", O_TRUNC},
+  {"O_APPEND", O_APPEND},
+  {"SEEK_SET", SEEK_SET},
+  {"SEEK_CUR", SEEK_CUR},
+  {"SEEK_END", SEEK_END},
+  {"CLOCK_REALTIME", CLOCK_REALTIME},
+  {"CLOCK_MONOTONIC", CLOCK_MONOTONIC},
+  {"ENOENT", ENOENT},
+  {"EEXIST", EEXIST},
+  {"EACCES", EACCES},
+  {"EINTR", EINTR},
+  {"EISDIR", EISDIR},
+  {"ENOTDIR", ENOTDIR},
+  {"ENOTEMPTY", ENOTEMPTY},
+  {"EAGAIN", EAGAIN},
+  {"EPIPE", EPIPE},
+  {"EXDEV", EXDEV},
+  {"ECHILD", ECHILD},
+  {"ESRCH", ESRCH},
+  {"EBADF", EBADF},
+  {"ENOSYS", ENOSYS},
+  {"SIGHUP", SIGHUP},
+  {"SIGINT", SIGINT},
+  {"SIGQUIT", SIGQUIT},
+  {"SIGKILL", SIGKILL},
+  {"SIGPIPE", SIGPIPE},
+  {"SIGTERM", SIGTERM},
+  {"SIGUSR1", SIGUSR1},
+  {"POLLIN", POLLIN},
+  {"POLLOUT", POLLOUT},
+  {"POLLERR", POLLERR},
+  {"POLLHUP", POLLHUP},
+  {"POLLNVAL", POLLNVAL},
+  {NULL, 0},
 };
 
-int cosmic_open_syscalls(lua_State *L) {
+int cosmic_open_syscalls (lua_State *L) {
   luaL_newlib(L, table);
   for (const struct constant *c = constants; c->name != NULL; c++) {
     lua_pushinteger(L, c->value);

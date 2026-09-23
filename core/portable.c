@@ -20,14 +20,14 @@
 #define SQLITE_HEADER "SQLite format 3\0"
 #define SQLITE_HEADER_LENGTH 16u
 
-static int reject(struct cosmic_portable *out, const char **error,
-                  const char *why) {
+static int reject (struct cosmic_portable *out, const char **error,
+                   const char *why) {
   memset(out, 0, sizeof *out);
   if (error != NULL) *error = why;
   return 0;
 }
 
-static int read_at(int fd, void *into, size_t length, uint64_t offset) {
+static int read_at (int fd, void *into, size_t length, uint64_t offset) {
   unsigned char *p = into;
   if (offset > (uint64_t)INT64_MAX) return 0;
   while (length > 0) {
@@ -41,39 +41,39 @@ static int read_at(int fd, void *into, size_t length, uint64_t offset) {
   return 1;
 }
 
-void cosmic_artifact_init(struct cosmic_artifact *artifact) {
+void cosmic_artifact_init (struct cosmic_artifact *artifact) {
   memset(artifact, 0, sizeof *artifact);
   artifact->fd = -1;
 }
 
-void cosmic_artifact_close(struct cosmic_artifact *artifact) {
+void cosmic_artifact_close (struct cosmic_artifact *artifact) {
   if (artifact != NULL && artifact->fd >= 0) close(artifact->fd);
   if (artifact != NULL) cosmic_artifact_init(artifact);
 }
 
-int cosmic_artifact_read(const struct cosmic_artifact *artifact, void *into,
-                         size_t length, uint64_t offset) {
+int cosmic_artifact_read (const struct cosmic_artifact *artifact, void *into,
+                          size_t length, uint64_t offset) {
   return artifact != NULL && artifact->fd >= 0 &&
          read_at(artifact->fd, into, length, offset);
 }
 
-static uint32_t be32(const unsigned char *p) {
+static uint32_t be32 (const unsigned char *p) {
   return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 |
          (uint32_t)p[2] << 8 | (uint32_t)p[3];
 }
 
-static uint64_t be64(const unsigned char *p) {
+static uint64_t be64 (const unsigned char *p) {
   uint64_t value = 0;
   for (unsigned i = 0; i < 8; i++) value = value << 8 | (uint64_t)p[i];
   return value;
 }
 
-static int range_ends_at_or_before(uint64_t offset, uint64_t length,
-                                   uint64_t limit) {
+static int range_ends_at_or_before (uint64_t offset, uint64_t length,
+                                    uint64_t limit) {
   return offset <= limit && length <= limit - offset;
 }
 
-static int align_core(uint64_t value, uint64_t *aligned) {
+static int align_core (uint64_t value, uint64_t *aligned) {
   uint64_t remainder = value % COSMIC_PORTABLE_CORE_ALIGNMENT;
   uint64_t padding = remainder == 0 ? 0 :
       COSMIC_PORTABLE_CORE_ALIGNMENT - remainder;
@@ -82,7 +82,7 @@ static int align_core(uint64_t value, uint64_t *aligned) {
   return 1;
 }
 
-static int zero_range(int fd, uint64_t offset, uint64_t length) {
+static int zero_range (int fd, uint64_t offset, uint64_t length) {
   unsigned char bytes[4096];
   while (length > 0) {
     size_t take = length < sizeof bytes ? (size_t)length : sizeof bytes;
@@ -96,7 +96,7 @@ static int zero_range(int fd, uint64_t offset, uint64_t length) {
   return 1;
 }
 
-int cosmic_host_trailer(int fd) {
+int cosmic_host_trailer (int fd) {
   struct stat st;
   unsigned char magic[COSMIC_PORTABLE_MAGIC_LENGTH];
   if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
@@ -110,9 +110,9 @@ int cosmic_host_trailer(int fd) {
 /* The trailer and the one manifest block both formats share: reads them,
  * checks every field but the trailer magic's meaning, and fills the ranges
  * and entries. `first_core` is the least offset a core may start at. */
-static int decode_blocks(int fd, const char *trailer_magic, uint64_t first_core,
-                         struct cosmic_portable *decoded,
-                         struct cosmic_portable *out, const char **error) {
+static int decode_blocks (int fd, const char *trailer_magic, uint64_t first_core,
+                          struct cosmic_portable *decoded,
+                          struct cosmic_portable *out, const char **error) {
   unsigned char trailer[COSMIC_PORTABLE_TRAILER_LENGTH];
   unsigned char manifest[COSMIC_PORTABLE_MANIFEST_LENGTH];
   unsigned char header[SQLITE_HEADER_LENGTH];
@@ -205,8 +205,8 @@ static int decode_blocks(int fd, const char *trailer_magic, uint64_t first_core,
   return 1;
 }
 
-int cosmic_host_decode(int fd, uint32_t target_id, uint32_t configuration_id,
-                       struct cosmic_portable *out, const char **error) {
+int cosmic_host_decode (int fd, uint32_t target_id, uint32_t configuration_id,
+                        struct cosmic_portable *out, const char **error) {
   struct cosmic_portable decoded;
   if (out == NULL) return 0;
   memset(out, 0, sizeof *out);
@@ -233,10 +233,10 @@ int cosmic_host_decode(int fd, uint32_t target_id, uint32_t configuration_id,
   return 1;
 }
 
-int cosmic_portable_decode(int fd, uint32_t target_id,
-                           uint32_t configuration_id,
-                           struct cosmic_portable *out,
-                           const char **error) {
+int cosmic_portable_decode (int fd, uint32_t target_id,
+                            uint32_t configuration_id,
+                            struct cosmic_portable *out,
+                            const char **error) {
   struct cosmic_portable decoded;
   unsigned char trailer[COSMIC_PORTABLE_TRAILER_LENGTH];
   unsigned char manifest[COSMIC_PORTABLE_MANIFEST_LENGTH];
