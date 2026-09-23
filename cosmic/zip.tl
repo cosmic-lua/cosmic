@@ -37,6 +37,8 @@ local record Zip
     mtime: integer
     --- A symlink's target; "" otherwise.
     linkpath: string
+    --- Where the entry's local file header starts in the file.
+    offset: integer
     --- This entry's uncompressed body. Verifies the CRC32 as it reads
     --- the last byte, failing there on a mismatch, and fails as soon
     --- as the body runs past its recorded size. Fails once the
@@ -45,7 +47,14 @@ local record Zip
   end
 
   record ZipReader
+    --- Every entry, in central directory order: built on the first
+    --- call, which must come before `close`, and kept for later ones.
     entries: function(ZipReader): {Entry}
+    --- The next entry in central directory order, read straight off
+    --- the directory, so walking an archive of any size holds one
+    --- entry at a time; nil and `""` after the last. Independent of
+    --- `entries`.
+    next: function(ZipReader): Entry | nil, string
     close: function(ZipReader): boolean, string
   end
 
@@ -236,105 +245,149 @@ local function apply_zip64_extra(extra: string, usize: integer, csize: integer,
   return usize, csize, local_offset
 end
 
---- A Reader over `length` bytes starting at `offset`, read through
+--- A Reader over `left` bytes at `pos` in the file, read through
 --- `pread` in chunks -- so an entry can be opened directly, at any
---- offset, without walking whatever came before it.
-local function pread_reader(pread: Pread, offset: integer, length: integer): Stream.Reader
-  local pos = offset
-  local left = length
-  local failed: string
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max: integer): string | nil, string
-    if failed then return nil, failed end
-    if left <= 0 then return nil, "" end
-    local want = max or chunk_size
-    if want > left then want = left end
-    local chunk, trouble = pread(pos, want)
-    if chunk == nil then
-      failed = trouble
+--- offset, without walking whatever came before it. `held`, when set,
+--- is the start of those bytes, already read along with the local
+--- header. Its methods live on a shared metatable.
+local record Span is Stream.Reader
+  pread: Pread
+  pos: integer
+  left: integer
+  held: string
+  failed: string
+end
+
+local Span_methods: {string:any} = {}
+local span_mt: metatable<Span> = { __index = Span_methods as Span }
+
+Span_methods.read = function(self: Span, max: integer): string | nil, string
+  if self.failed then return nil, self.failed end
+  local left = self.left
+  if left <= 0 then return nil, "" end
+  local want = max or chunk_size
+  if want > left then want = left end
+  local chunk: string
+  local held = self.held
+  if held ~= nil then
+    if want >= #held then
+      chunk, self.held = held, nil
+    else
+      chunk, self.held = held:sub(1, want), held:sub(want + 1)
+    end
+  else
+    local got, trouble = self.pread(self.pos, want)
+    if got == nil then
+      self.failed = trouble
       return nil, trouble
     end
-    if #chunk == 0 then
-      failed = "zip: entry body runs past the end of the file"
-      return nil, failed
+    if #got == 0 then
+      self.failed = "zip: entry body runs past the end of the file"
+      return nil, self.failed
     end
-    pos = pos + #chunk
-    left = left - #chunk
-    return chunk, ""
+    chunk = got
   end
-  r.close = function(_self: Stream.Reader): boolean, string
-    left = 0
-    return true, ""
-  end
-  return r
+  self.pos = self.pos + #chunk
+  self.left = left - #chunk
+  return chunk, ""
+end
+
+Span_methods.close = function(self: Span): boolean, string
+  self.left = 0
+  self.held = nil
+  return true, ""
 end
 
 --- Wraps `inner`, accumulating a CRC32 as it is read and comparing it
---- against `expected_crc` at end of file; fails the moment more than
---- `expected_size` bytes arrive, so a body lying about its size is
---- never expanded much past it.
-local function crc_checked_reader(inner: Stream.Reader, expected_crc: integer,
-    expected_size: integer): Stream.Reader
-  local state: integer = nil
-  local seen = 0
-  local failed: string
-  local r: Stream.Reader = {}
-  r.read = function(_self: Stream.Reader, max: integer): string | nil, string
-    if failed then return nil, failed end
-    local chunk, trouble = inner:read(max)
-    if chunk == nil then
-      if trouble ~= "" then
-        failed = trouble
-      elseif seen ~= expected_size then
-        failed = "zip: size mismatch: " .. tostring(seen) .. " bytes, recorded " ..
-          tostring(expected_size)
-      elseif (state or 0) ~= expected_crc then
-        failed = "zip: crc32 mismatch"
-      else
-        return nil, ""
-      end
-      return nil, failed
-    end
-    seen = seen + #chunk
-    if seen > expected_size then
-      failed = "zip: entry is larger than its recorded size of " .. tostring(expected_size) ..
-        " bytes"
-      return nil, failed
-    end
-    state = Compress.crc32(chunk, state)
-    return chunk, ""
-  end
-  r.close = function(_self: Stream.Reader): boolean, string
-    return inner:close()
-  end
-  return r
+--- against `crc` at end of file; fails the moment more than `size`
+--- bytes arrive, so a body lying about its size is never expanded
+--- much past it.
+local record Checked is Stream.Reader
+  inner: Stream.Reader
+  crc: integer
+  size: integer
+  seen: integer
+  state: integer
+  failed: string
 end
 
---- One entry's `open`: seeks past its local header (whose extra field
---- length can differ from the central directory's) to its compressed
---- body, decompresses it when needed, and checks its CRC32.
-local function make_open(pread: Pread, local_offset: integer, method: integer,
-    csize: integer, usize: integer, crc: integer): function(Zip.Entry): Stream.Reader | nil, string
-  return function(_e: Zip.Entry): Stream.Reader | nil, string
-    local header, trouble = pread(local_offset, 30)
-    if header == nil then return nil, trouble end
-    if header:sub(1, 4) ~= LFH_SIG then return nil, "zip: bad local file header" end
-    local name_len = u16(header, 27)
-    local extra_len = u16(header, 29)
-    local data_off = local_offset + 30 + name_len + extra_len
-    local raw = pread_reader(pread, data_off, csize)
-    local body: Stream.Reader
-    if method == 0 then
-      body = raw
-    elseif method == 8 then
-      local inflater, itrouble = Compress.inflater("raw")
-      if inflater == nil then return nil, itrouble end
-      body = Stream.transform(raw, inflater)
+local Checked_methods: {string:any} = {}
+local checked_mt: metatable<Checked> = { __index = Checked_methods as Checked }
+
+Checked_methods.read = function(self: Checked, max: integer): string | nil, string
+  if self.failed then return nil, self.failed end
+  local chunk, trouble = self.inner:read(max)
+  if chunk == nil then
+    if trouble ~= "" then
+      self.failed = trouble
+    elseif self.seen ~= self.size then
+      self.failed = "zip: size mismatch: " .. tostring(self.seen) .. " bytes, recorded " ..
+        tostring(self.size)
+    elseif (self.state or 0) ~= self.crc then
+      self.failed = "zip: crc32 mismatch"
     else
-      return nil, "zip: unsupported compression method " .. tostring(method)
+      return nil, ""
     end
-    return crc_checked_reader(body, crc, usize), ""
+    return nil, self.failed
   end
+  local seen = self.seen + #chunk
+  self.seen = seen
+  if seen > self.size then
+    self.failed = "zip: entry is larger than its recorded size of " .. tostring(self.size) ..
+      " bytes"
+    return nil, self.failed
+  end
+  self.state = Compress.crc32(chunk, self.state)
+  return chunk, ""
+end
+
+Checked_methods.close = function(self: Checked): boolean, string
+  return self.inner:close()
+end
+
+--- How much of a small entry's body is read in the same `pread` as its
+--- local header, on the guess that its local extra field is no longer
+--- than this plus its central one.
+local EXTRA_SLACK <const> = 64
+local HELD_LIMIT <const> = 1 << 16
+
+--- An entry's `open`, through `pread`: seeks past its local header
+--- (whose extra field length can differ from the central
+--- directory's) to its compressed body, decompresses it when needed,
+--- and checks its CRC32. Every field it needs is on the entry itself,
+--- so one of these serves a whole reader. A small body comes in the
+--- same read as the header.
+local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, string
+  local csize = e.compressed_size
+  local guess = 30
+  if csize <= HELD_LIMIT then guess = 30 + #e.path + EXTRA_SLACK + csize end
+  local header, trouble = pread(e.offset, guess)
+  if header == nil then return nil, trouble end
+  if #header < 30 or header:sub(1, 4) ~= LFH_SIG then return nil, "zip: bad local file header" end
+  local skip = 30 + u16(header, 27) + u16(header, 29)
+  local held: string
+  if #header > skip then
+    held = header:sub(skip + 1, skip + csize)
+    if held == "" then held = nil end
+  end
+  local raw: Span = setmetatable({
+    pread = pread, pos = e.offset + skip, left = csize, held = held,
+  } as Span, span_mt)
+  local body: Stream.Reader
+  local method = e.method
+  if method == 0 then
+    body = raw
+  elseif method == 8 then
+    local inflater, itrouble = Compress.inflater("raw")
+    if inflater == nil then return nil, itrouble end
+    body = Stream.transform(raw, inflater)
+  else
+    return nil, "zip: unsupported compression method " .. tostring(method)
+  end
+  local checked: Checked = setmetatable({
+    inner = body, crc = e.crc32, size = e.size, seen = 0,
+  } as Checked, checked_mt)
+  return checked, ""
 end
 
 local S_IFMT <const> = 0xF000
@@ -342,63 +395,106 @@ local S_IFDIR <const> = 0x4000
 local S_IFREG <const> = 0x8000
 local S_IFLNK <const> = 0xA000
 
-local function parse_central_directory(pread: Pread, cd: string): {Zip.Entry} | nil, string
-  local entries: {Zip.Entry} = {}
-  local at = 1
-  while at <= #cd do
-    if at + 45 > #cd or cd:sub(at, at + 3) ~= CDFH_SIG then
-      return nil, "zip: malformed central directory"
-    end
-    local made_by = u16(cd, at + 4)
-    local method = u16(cd, at + 10)
-    local mtime_dos = u16(cd, at + 12)
-    local mdate_dos = u16(cd, at + 14)
-    local crc = u32(cd, at + 16)
-    local csize = u32(cd, at + 20)
-    local usize = u32(cd, at + 24)
-    local name_len = u16(cd, at + 28)
-    local extra_len = u16(cd, at + 30)
-    local comment_len = u16(cd, at + 32)
-    local ext_attrs = u32(cd, at + 38)
-    local local_offset = u32(cd, at + 42)
-    local name_start = at + 46
-    if name_start + name_len + extra_len + comment_len - 1 > #cd then
-      return nil, "zip: malformed central directory"
-    end
-    local name = cd:sub(name_start, name_start + name_len - 1)
-    if name:find("\0", 1, true) ~= nil then
-      return nil, "zip: NUL byte in an entry name"
-    end
-    local extra = cd:sub(name_start + name_len, name_start + name_len + extra_len - 1)
-    usize, csize, local_offset = apply_zip64_extra(extra, usize, csize, local_offset)
-    local mode = 0
-    local unix_type = 0
-    if (made_by >> 8) == 3 then -- made by a Unix tool
-      mode = (ext_attrs >> 16) & 0xFFF
-      unix_type = (ext_attrs >> 16) & S_IFMT
-    end
-    local kind: Zip.Kind = "file"
-    if name:sub(-1) == "/" or unix_type == S_IFDIR then
-      kind = "dir"
-    elseif unix_type == S_IFLNK then
-      kind = "symlink"
-    end
-    local entry: Zip.Entry = {
-      path = name,
-      kind = kind,
-      size = usize,
-      compressed_size = csize,
-      method = method,
-      crc32 = crc,
-      mode = mode,
-      mtime = dos_to_unix(mdate_dos, mtime_dos),
-      linkpath = "",
-    }
-    entry.open = make_open(pread, local_offset, method, csize, usize, crc)
-    entries[#entries + 1] = entry
-    at = name_start + name_len + extra_len + comment_len
+--- How much of the central directory is read at a time.
+local CD_WINDOW <const> = 1 << 16
+
+--- A position in the central directory, which is read `CD_WINDOW`
+--- bytes at a time rather than all at once.
+local record Cursor
+  pread: Pread
+  --- The window, and the index in it of the next unread byte.
+  buf: string
+  at: integer
+  --- The file offsets just past the window, and just past the
+  --- central directory.
+  fill: integer
+  limit: integer
+end
+
+local function cursor(pread: Pread, cd_offset: integer, cd_size: integer): Cursor
+  return { pread = pread, buf = "", at = 1, fill = cd_offset, limit = cd_offset + cd_size }
+end
+
+--- Makes sure the window holds at least `n` unread bytes.
+local function need(c: Cursor, n: integer): boolean, string
+  local avail = #c.buf - c.at + 1
+  if avail >= n then return true, "" end
+  local want = n - avail
+  if want < CD_WINDOW then want = CD_WINDOW end
+  local left = c.limit - c.fill
+  if want > left then want = left end
+  if avail + want < n then return false, "zip: malformed central directory" end
+  local chunk, trouble = c.pread(c.fill, want)
+  if chunk == nil then return false, trouble end
+  if #chunk ~= want then return false, "zip: truncated central directory" end
+  c.buf = avail > 0 and (c.buf:sub(c.at) .. chunk) or chunk
+  c.at = 1
+  c.fill = c.fill + want
+  return true, ""
+end
+
+--- A central directory file header's fixed part, after its signature.
+local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
+
+--- What `next_record` returns for an entry it was asked only to check.
+local CHECKED: Zip.Entry = { path = "", kind = "file", linkpath = "" }
+
+--- The central directory's next entry, or nil and `""` at its end.
+--- A symlink's `linkpath` is left "": its target is its body, which
+--- the caller reads. With `bare`, an entry other than a symlink is
+--- only checked, and `CHECKED` returned in its place.
+local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
+    Zip.Entry | nil, string
+  if c.at > #c.buf and c.fill >= c.limit then return nil, "" end
+  local ok, trouble = need(c, 46)
+  if not ok then return nil, trouble end
+  local buf, at = c.buf, c.at
+  if buf:sub(at, at + 3) ~= CDFH_SIG then return nil, "zip: malformed central directory" end
+  local made_by, _version, _flags, method, mtime_dos, mdate_dos, crc, csize, usize,
+    name_len, extra_len, comment_len, _disk, _internal, ext_attrs, local_offset =
+    string.unpack(CDFH_FIELDS, buf, at + 4)
+  local whole = 46 + name_len + extra_len + comment_len
+  ok, trouble = need(c, whole)
+  if not ok then return nil, trouble end
+  buf, at = c.buf, c.at
+  c.at = at + whole
+  local name_start = at + 46
+  local name_end = name_start + name_len - 1
+  local nul = buf:find("\0", name_start, true)
+  if nul ~= nil and nul <= name_end then
+    return nil, "zip: NUL byte in an entry name"
   end
-  return entries, ""
+  local mode = 0
+  local unix_type = 0
+  if (made_by >> 8) == 3 then -- made by a Unix tool
+    mode = (ext_attrs >> 16) & 0xFFF
+    unix_type = (ext_attrs >> 16) & S_IFMT
+  end
+  local kind: Zip.Kind = "file"
+  if (name_len > 0 and buf:byte(name_end) == 47) or unix_type == S_IFDIR then -- '/'
+    kind = "dir"
+  elseif unix_type == S_IFLNK then
+    kind = "symlink"
+  end
+  if bare and kind ~= "symlink" then return CHECKED, "" end
+  local name = buf:sub(name_start, name_end)
+  if extra_len > 0 and (usize == U32_MAX or csize == U32_MAX or local_offset == U32_MAX) then
+    local extra = buf:sub(name_end + 1, name_end + extra_len)
+    usize, csize, local_offset = apply_zip64_extra(extra, usize, csize, local_offset)
+  end
+  local entry: Zip.Entry = setmetatable({
+    path = name,
+    kind = kind,
+    size = usize,
+    compressed_size = csize,
+    method = method,
+    crc32 = crc,
+    mode = mode,
+    mtime = dos_to_unix(mdate_dos, mtime_dos),
+    linkpath = "",
+    offset = local_offset,
+  } as Zip.Entry, mt)
+  return entry, ""
 end
 
 --- A symlink entry's target: its (small) body.
@@ -455,31 +551,74 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     return nil, "zip: " .. tostring(total) .. " entries cannot fit a " .. tostring(cd_size) ..
       "-byte central directory"
   end
-  local cd = ""
-  if cd_size > 0 then
-    local read_cd: string
-    read_cd, trouble = pread(cd_offset, cd_size)
-    if read_cd == nil then return nil, trouble end
-    if #read_cd ~= cd_size then return nil, "zip: truncated central directory" end
-    cd = read_cd
-  end
-  local entries, ptrouble = parse_central_directory(pread, cd)
-  if entries == nil then return nil, ptrouble end
-  if #entries ~= total then
-    return nil, "zip: central directory holds " .. tostring(#entries) ..
-      " entries, but the end record says " .. tostring(total)
-  end
-  for _, entry in ipairs(entries) do
+
+  -- One `open` serves every entry this reader makes, through their
+  -- shared metatable.
+  local entry_mt: metatable<Zip.Entry> = {
+    __index = {
+      open = function(e: Zip.Entry): Stream.Reader | nil, string
+        return open_entry(pread, e)
+      end,
+    } as Zip.Entry,
+  }
+
+  -- One pass over the whole directory up front, keeping no entry, so
+  -- a malformed one, or a count that disagrees with the end record,
+  -- fails here rather than partway through a walk. Symlink targets
+  -- are read now too -- they are few -- and kept by their place in
+  -- the directory.
+  local links: {integer:string} = {}
+  local count = 0
+  local check = cursor(pread, cd_offset, cd_size)
+  while true do
+    local got, etrouble = next_record(check, entry_mt, true)
+    if got == nil then
+      if etrouble ~= "" then return nil, etrouble end
+      break
+    end
+    local entry: Zip.Entry = got
+    count = count + 1
     if entry.kind == "symlink" then
       local target, ltrouble = read_link(entry)
       if target == nil then return nil, ltrouble end
-      entry.linkpath = target
+      links[count] = target
     end
   end
+  if count ~= total then
+    return nil, "zip: central directory holds " .. tostring(count) ..
+      " entries, but the end record says " .. tostring(total)
+  end
+
   local closed = false
+  local walk = cursor(pread, cd_offset, cd_size)
+  local walked = 0
+  local listed: {Zip.Entry}
   local zr: Zip.ZipReader = {}
+  zr.next = function(_self: Zip.ZipReader): Zip.Entry | nil, string
+    if closed then return nil, "zip: reader is closed" end
+    local entry, etrouble = next_record(walk, entry_mt)
+    if entry == nil then return nil, etrouble end
+    walked = walked + 1
+    local target = links[walked]
+    if target ~= nil then entry.linkpath = target end
+    return entry, ""
+  end
   zr.entries = function(_self: Zip.ZipReader): {Zip.Entry}
-    return entries
+    if listed ~= nil then return listed end
+    local all: {Zip.Entry} = {}
+    local c = cursor(pread, cd_offset, cd_size)
+    while true do
+      local got = next_record(c, entry_mt)
+      if got == nil then break end
+      local entry: Zip.Entry = got
+      all[#all + 1] = entry
+      local target = links[#all]
+      if target ~= nil then entry.linkpath = target end
+    end
+    -- Only a complete list is kept, so one cut short (by a closed
+    -- reader) is not what every later call gets.
+    if #all == count then listed = all end
+    return all
   end
   zr.close = function(_self: Zip.ZipReader): boolean, string
     if closed then return true, "" end
@@ -501,7 +640,8 @@ function Zip.open(path: string): Zip.ZipReader | nil, string
     -- Once closed, `fd` may already name some other file.
     if closed then return nil, "zip: " .. path .. ": reader is closed" end
     local data, ptrouble = sys.pread(fd, count, offset)
-    return data, ptrouble
+    if data == nil then return nil, ptrouble end
+    return data, ""
   end
   local reader, otrouble = open_reader(st.size, pread, function(): boolean, string
     closed = true

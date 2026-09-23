@@ -4,6 +4,7 @@
 --- this file has no binary bytes of its own and no test spawns an
 --- external program.
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Zip = require("cosmic.zip")
@@ -358,4 +359,78 @@ local function test_a_failed_write_aborts_the_zip_and_a_closed_writer_refuses_mo
   assert(Fs.exists(path) == false)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
+end
+
+local function test_next_walks_a_central_directory_many_windows_long()
+  local c = Stream.collect()
+  local w = Zip.writer(c, { deterministic = true })
+  local n = 3000
+  local prefix = string.rep("p", 40) .. "/"
+  for i = 1, n do
+    assert(w:add_file(prefix .. tostring(i), "body " .. tostring(i), { method = "store" }))
+  end
+  assert(w:close())
+  local r = assert(Zip.open_string(c:result()))
+  local listed = r:entries()
+  assert(#listed == n)
+  local count = 0
+  while true do
+    local got, trouble = r:next()
+    if got == nil then
+      assert(trouble == "", trouble)
+      break
+    end
+    local e: Zip.Entry = got
+    count = count + 1
+    assert(e.path == prefix .. tostring(count), e.path)
+    assert(e.path == listed[count].path)
+    if count % 997 == 0 then
+      assert(Stream.read_all((assert(e:open()))) == "body " .. tostring(count))
+    end
+  end
+  assert(count == n, tostring(count))
+end
+
+--- A one-entry stored zip made by hand, whose local header carries an
+--- extra field of `extra_len` bytes that the central directory's does
+--- not.
+local function zip_with_local_extra(name: string, body: string, extra_len: integer): string
+  local crc = Compress.crc32(body)
+  local extra = extra_len > 0 and (le16(0xCAFE) .. le16(extra_len - 4) ..
+    string.rep("x", extra_len - 4)) or ""
+  local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0x21) ..
+    le32(crc) .. le32(#body) .. le32(#body) .. le16(#name) .. le16(#extra) .. name .. extra
+  local cd = "PK\1\2" .. le16((3 << 8) | 20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) ..
+    le16(0x21) .. le32(crc) .. le32(#body) .. le32(#body) .. le16(#name) .. le16(0) ..
+    le16(0) .. le16(0) .. le16(0) .. le32(0x81a40000) .. le32(0) .. name
+  local cd_offset = #lfh + #body
+  return lfh .. body .. cd .. "PK\5\6" .. le16(0) .. le16(0) .. le16(1) .. le16(1) ..
+    le32(#cd) .. le32(cd_offset) .. le16(0)
+end
+
+local function test_bodies_read_back_whatever_the_local_extra_field_and_size()
+  for _, extra_len in ipairs({ 0, 40, 300, 5000 }) do
+    for _, size in ipairs({ 0, 1, 100, 70000 }) do
+      local body = string.rep("z", size)
+      local r = assert(Zip.open_string(zip_with_local_extra("f", body, extra_len)))
+      local got = assert(r:next())
+      local data, trouble = Stream.read_all((assert(got:open())))
+      assert(data == body, tostring(extra_len) .. "/" .. tostring(size) .. ": " .. trouble)
+    end
+  end
+end
+
+local function test_next_reports_a_symlink_target()
+  local r = assert(Zip.open_string(base64_decode(ZIP_B64)))
+  local found = false
+  while true do
+    local got = r:next()
+    if got == nil then break end
+    local e: Zip.Entry = got
+    if e.path == "src/adir/alink" then
+      assert(e.kind == "symlink" and e.linkpath == "short.txt", e.linkpath)
+      found = true
+    end
+  end
+  assert(found)
 end
