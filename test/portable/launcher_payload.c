@@ -10,7 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static void fail(const char *message) {
+static _Noreturn void fail(const char *message) {
   fprintf(stderr, "payload: %s\n", message);
   exit(97);
 }

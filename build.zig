@@ -109,6 +109,32 @@ const lua_sources = [_][]const u8{
 /// insists on naming is empty. Every file that includes the library's
 /// headers is compiled with these, the core's own included, or the
 /// headers would describe another library.
+/// The warnings every C file of this tree's own is held to, as errors.
+/// Past -Wall and -Wextra: a shadowed name, an implicit narrowing or
+/// change of sign, an undefined macro in an #if, a string literal
+/// treated as writable, a function without a prototype, a fallthrough
+/// nothing marks, a variable-length array, and a function that never
+/// returns without saying so. -Wcast-qual is not among them: the calls
+/// this core makes take their const-dropping casts by design --
+/// execve's argv, lua_pushlightuserdata of a const record. The vendored
+/// libraries are theirs to hold to their own warnings, not these.
+const own_warnings = [_][]const u8{
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-Wshadow",
+    "-Wconversion",
+    "-Wsign-conversion",
+    "-Wundef",
+    "-Wwrite-strings",
+    "-Wmissing-prototypes",
+    "-Wstrict-prototypes",
+    "-Wimplicit-fallthrough",
+    "-Wvla",
+    "-Wmissing-noreturn",
+};
+const own_c = [_][]const u8{"-std=c11"} ++ own_warnings;
+
 const mbedtls_config = [_][]const u8{
     "-DTF_PSA_CRYPTO_CONFIG_FILE=\"crypto_config.h\"",
     "-DPSA_WANT_ALG_MD5=1",
@@ -126,6 +152,13 @@ const mbedtls_config = [_][]const u8{
     "-DMBEDTLS_PSA_CRYPTO_C",
     "-DMBEDTLS_PSA_CRYPTO_EXTERNAL_RNG",
     "-DMBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS",
+};
+
+/// Where the crypto library's headers are, under its `tf-psa-crypto`.
+const crypto_include_dirs = [_][]const u8{
+    "include",             "core",     "drivers/builtin/include",
+    "drivers/builtin/src", "dispatch", "utilities",
+    "platform",            "extras",
 };
 
 const core_sources = [_][]const u8{
@@ -158,7 +191,7 @@ pub fn build(b: *std.Build) void {
     });
     applier.root_module.addCSourceFile(.{
         .file = b.path("core/patch.c"),
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+        .flags = &own_c,
     });
 
     const lua = patched(b, applier, "lua");
@@ -310,7 +343,7 @@ pub fn build(b: *std.Build) void {
     strnlen_check.root_module.addCSourceFiles(.{
         .root = b.path("core"),
         .files = &.{ "strnlen.c", "strnlen_test.c" },
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+        .flags = &own_c,
     });
     boot.dependOn(&b.addRunArtifact(strnlen_check).step);
 
@@ -326,7 +359,7 @@ pub fn build(b: *std.Build) void {
     environment_check.root_module.addCSourceFiles(.{
         .root = b.path("core"),
         .files = &.{ "environment.c", "environment_test.c" },
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+        .flags = &own_c,
     });
     environment_check.root_module.addIncludePath(b.path("core"));
     boot.dependOn(&b.addRunArtifact(environment_check).step);
@@ -370,6 +403,12 @@ pub fn build(b: *std.Build) void {
     // It also observes its own C, so the suite it runs
     // writes the core's lines into the same coverage tables as Teal's.
     const sanitized = b.step("sanitized", "build and boot the checked core");
+    const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
+    analyze(b, analyzed, lua, sqlite, miniz, mbedtls);
+    // The checked build is where CI already looks for what the release
+    // build would only do quietly; the analyzer's findings are the same
+    // kind of thing, found without running anything.
+    sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
     const checked_host = baselineHostTarget(b);
     const checked = checked: {
@@ -469,7 +508,7 @@ fn formatDecoder(
     mod.addCSourceFiles(.{
         .root = b.path("."),
         .files = &.{ "core/portable.c", "test/portable/format_test.c" },
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+        .flags = &own_c,
     });
     mod.addIncludePath(b.path("core"));
     mod.addCMacro(
@@ -509,7 +548,7 @@ fn launcherHelper(
     });
     mod.addCSourceFile(.{
         .file = b.path(source),
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+        .flags = &own_c,
     });
     return b.addExecutable(.{ .name = name, .root_module = mod });
 }
@@ -548,6 +587,55 @@ fn watchTree(b: *std.Build, run: *std.Build.Step.Run, rel: []const u8) void {
     while (walker.next(io) catch null) |entry| {
         if (entry.kind != .file) continue;
         run.addFileInput(b.path(b.pathJoin(&.{ rel, entry.path })));
+    }
+}
+
+/// Clang's static analyzer, the one `bin/zig cc` carries, over every C
+/// file of this tree's own that a core or the patch applier is built
+/// from, with the includes, defines and warnings those builds use: a
+/// finding fails the step. The vendored libraries are not analyzed; their
+/// findings are theirs.
+fn analyze(
+    b: *std.Build,
+    step: *std.Build.Step,
+    lua: std.Build.LazyPath,
+    sqlite: std.Build.LazyPath,
+    miniz: std.Build.LazyPath,
+    mbedtls: std.Build.LazyPath,
+) void {
+    const extra = [_][]const u8{
+        "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "patch.c",
+    };
+    const crypto = mbedtls.path(b, "tf-psa-crypto");
+    for (core_sources ++ extra) |file| {
+        // -S, not -c: `zig cc` would take the analyzer's report for an
+        // object and try to link it; as assembly it is left alone.
+        const run = b.addSystemCommand(&.{ b.graph.zig_exe, "cc", "-S", "--analyze", "-Xanalyzer", "-analyzer-werror" });
+        run.addArgs(&own_c);
+        // `zig cc` passes options the analyzer has no use for.
+        run.addArg("-Wno-unused-command-line-argument");
+        run.addArgs(&mbedtls_config);
+        run.addArgs(&.{
+            "-DLUA_USE_POSIX",
+            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+            "-DCOSMIC_TARGET_ID=1",
+            "-DCOSMIC_TARGET_NAME=\"analyze\"",
+            "-DCOSMIC_CONFIGURATION_ID=1",
+            "-DCOSMIC_CONFIGURATION_NAME=\"analyze\"",
+            b.fmt("-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C({d})", .{requiredTargetMask()}),
+            b.fmt("-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID={d}", .{release_configuration.id}),
+        });
+        run.addPrefixedDirectoryArg("-I", b.path("core"));
+        run.addPrefixedDirectoryArg("-I", lua.path(b, "src"));
+        run.addPrefixedDirectoryArg("-I", sqlite);
+        run.addPrefixedDirectoryArg("-I", miniz);
+        for (crypto_include_dirs) |dir| {
+            run.addPrefixedDirectoryArg("-I", crypto.path(b, dir));
+        }
+        run.addArg("-o");
+        _ = run.addOutputFileArg(b.fmt("{s}.analysis", .{file}));
+        run.addFileArg(b.path(b.fmt("core/{s}", .{file})));
+        step.dependOn(&run.step);
     }
 }
 
@@ -681,21 +769,13 @@ fn core(
         },
         .flags = &mbedtls_flags,
     });
-    for ([_][]const u8{
-        "include",             "core",     "drivers/builtin/include",
-        "drivers/builtin/src", "dispatch", "utilities",
-        "platform",            "extras",
-    }) |dir| {
+    for (crypto_include_dirs) |dir| {
         mod.addIncludePath(crypto.path(b, dir));
     }
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.
-    const core_flags = [_][]const u8{
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
+    const core_flags = own_c ++ [_][]const u8{
         "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
     } ++ mbedtls_config;
     // Only the core's own C is instrumented: the vendored libraries have

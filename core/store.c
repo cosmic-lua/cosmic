@@ -22,7 +22,7 @@
  * means the artifact database itself cannot be trusted -- truncated,
  * corrupted, or not a database at all despite its validated range. There is
  * no caller to hand that to: the process exits. */
-static void die_unreadable(sqlite3 *db) {
+static _Noreturn void die_unreadable(sqlite3 *db) {
   fprintf(stderr, "cosmic: the attached database is unreadable: %s\n",
           sqlite3_errmsg(db));
   exit(2); /* exits: a database this broken has no well-formed answer to
