@@ -5,6 +5,7 @@
 --- Embedded as base64 so this file has no binary bytes of its own and
 --- no test here spawns an external program.
 
+local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 
@@ -256,4 +257,153 @@ local function test_pax_archive_from_system_tar()
     "thisisaveryveryverylongdirectorynametotesttheustarprefixsplitlogicwhichneedstobelong" ..
     "/anotherlongsubdirectorynametopushthepathpastonehundredcharacters/deep.txt [deep file\n]",
     1, true) ~= nil, joined)
+end
+
+local function field(s: string, width: integer): string
+  return s .. string.rep("\0", width - #s)
+end
+
+local function octal(n: integer, width: integer): string
+  return string.format("%0" .. tostring(width - 1) .. "o", n) .. "\0"
+end
+
+--- A bare ustar header block, for the entries `Tar.writer` would never
+--- produce.
+local function header(name: string, typeflag: string, size: integer): string
+  local block = field(name, 100) .. octal(420, 8) .. octal(0, 8) .. octal(0, 8) ..
+    octal(size, 12) .. octal(0, 12) .. string.rep(" ", 8) .. typeflag .. field("", 100) ..
+    "ustar\0" .. "00" .. string.rep("\0", 247)
+  return recompute_checksum(block)
+end
+
+local function padded(body: string): string
+  local rem = #body % 512
+  if rem == 0 then return body end
+  return body .. string.rep("\0", 512 - rem)
+end
+
+local END <const> = string.rep("\0", 1024)
+
+local function test_a_pax_header_claiming_a_huge_body_is_refused_without_reading_it()
+  local raw = header("PaxHeaders/f", "x", 1 << 30) .. string.rep("\0", 512)
+  local r = Tar.reader(Stream.from_string(raw))
+  local entry, trouble = r:next()
+  assert(entry == nil and trouble:find("limit", 1, true) ~= nil, trouble)
+  -- and the failure is sticky
+  local again, again_trouble = r:next()
+  assert(again == nil and again_trouble == trouble, again_trouble)
+end
+
+local function test_a_nul_byte_in_a_pax_path_or_linkpath_is_refused()
+  for _, key in ipairs({ "path", "linkpath" }) do
+    local rec = " " .. key .. "=evil\0/../x\n"
+    rec = tostring(#rec + 2) .. rec
+    local raw = header("PaxHeaders/f", "x", #rec) .. padded(rec) .. header("f", "2", 0) .. END
+    local r = Tar.reader(Stream.from_string(raw))
+    local entry, trouble = r:next()
+    assert(entry == nil and trouble:find("NUL", 1, true) ~= nil, key .. ": " .. tostring(trouble))
+  end
+end
+
+local function test_a_nul_byte_inside_a_gnu_long_name_is_refused()
+  local name = "evil\0/../../x\0"
+  local raw = header("././@LongLink", "L", #name) .. padded(name) .. header("f", "0", 0) .. END
+  local r = Tar.reader(Stream.from_string(raw))
+  local entry, trouble = r:next()
+  assert(entry == nil and trouble:find("NUL", 1, true) ~= nil, trouble)
+end
+
+local function test_typeflag_7_is_a_file_and_sparse_or_unknown_ones_are_other()
+  local sparse_rec = " GNU.sparse.major=1\n"
+  sparse_rec = tostring(#sparse_rec + 2) .. sparse_rec
+  local raw = header("contig", "7", 5) .. padded("hello") ..
+    header("gnu-sparse", "S", 3) .. padded("abc") ..
+    header("PaxHeaders/p", "x", #sparse_rec) .. padded(sparse_rec) ..
+    header("pax-sparse", "0", 2) .. padded("zz") ..
+    header("fifo", "6", 0) ..
+    header("after", "0", 4) .. padded("tail") .. END
+  local r = Tar.reader(Stream.from_string(raw))
+  local kinds: {string} = {}
+  local last: Tar.Entry
+  while true do
+    local entry, trouble = r:next()
+    assert(trouble == "", trouble)
+    if entry == nil then break end
+    local e: Tar.Entry = entry
+    kinds[#kinds + 1] = e.path .. "=" .. e.kind
+    last = e
+  end
+  assert(table.concat(kinds, ",") ==
+    "contig=file,gnu-sparse=other,pax-sparse=other,fifo=other,after=file", table.concat(kinds, ","))
+  assert(last.typeflag == "0")
+end
+
+local function test_mtimes_outside_the_octal_field_round_trip_through_pax()
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("old", "x", { mtime = -86400 }))
+  assert(w:add_file("far", "x", { mtime = 1 << 40 }))
+  assert(w:add_file("now", "x", { mtime = 1700000000 }))
+  assert(w:close())
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local seen: {string:integer} = {}
+  while true do
+    local entry = r:next()
+    if entry == nil then break end
+    local e: Tar.Entry = entry
+    seen[e.path] = e.mtime
+  end
+  assert(seen.old == -86400, tostring(seen.old))
+  assert(seen.far == 1 << 40, tostring(seen.far))
+  assert(seen.now == 1700000000, tostring(seen.now))
+end
+
+local function test_a_failed_add_aborts_the_archive_and_fails_every_later_call(tmp: string)
+  local path = tmp .. "/out.tar"
+  local w = Tar.writer((assert(Stream.create(path))))
+  assert(w:add_file("ok", "fine"))
+  local ok, trouble = w:add_file("short", Stream.from_string("abc"), { size = 10 })
+  assert(not ok and trouble:find("stated size", 1, true) ~= nil, trouble)
+  local again = w:add_file("later", "x")
+  assert(not again)
+  local closed, close_trouble = w:close()
+  assert(not closed and close_trouble == trouble, close_trouble)
+  assert(Fs.exists(path) == false)
+  local left = assert(Fs.list(tmp))
+  assert(#left == 0, table.concat(left, ","))
+end
+
+local function test_a_writer_refuses_entries_after_close()
+  local w = Tar.writer(Stream.collect())
+  assert(w:close())
+  assert(w:close())
+  local ok, trouble = w:add_file("late", "x")
+  assert(not ok and trouble:find("closed", 1, true) ~= nil, trouble)
+end
+
+local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp: string)
+  local path = tmp .. "/a.tar"
+  local w = Tar.writer((assert(Stream.create(path))))
+  assert(w:add_file("big", string.rep("b", 200000)))
+  assert(w:add_file("small", "tiny"))
+  assert(w:close())
+  local r = Tar.reader((assert(Stream.open(path))))
+  assert((assert(r:next())).path == "big")
+  local small = assert(r:next())
+  assert(small.path == "small" and Stream.read_all((assert(small:open()))) == "tiny")
+  assert(r:next() == nil)
+  assert(r:close())
+  assert(r:close())
+  local after, after_trouble = r:next()
+  assert(after == nil and after_trouble ~= "")
+
+  -- cut the file inside the first body: skipping it must fail, not end
+  local whole = assert(Fs.read(path))
+  local cut = tmp .. "/cut.tar"
+  assert(Fs.write(cut, whole:sub(1, 100000)))
+  local rc = Tar.reader((assert(Stream.open(cut))))
+  assert(rc:next())
+  local none, trouble = rc:next()
+  assert(none == nil and trouble:find("end of archive", 1, true) ~= nil, trouble)
+  rc:close()
 end

@@ -190,9 +190,13 @@ function Archive.open(path: string): Archive.ArchiveReader | nil, string
   return nil, "archive: " .. path .. ": not a recognized archive format"
 end
 
+local function listed_open(_e: Archive.Entry): Stream.Reader | nil, string
+  return nil, "archive: an entry from Archive.list cannot be opened; walk Archive.open instead"
+end
+
 --- Every entry of the archive at `path`. The reader is closed before
---- this returns, so the entries' `open` fails; use `open` and walk it
---- to read bodies.
+--- this returns, so the entries' `open` fails; walk `Archive.open` to
+--- read bodies.
 function Archive.list(path: string): {Archive.Entry} | nil, string
   local reader, trouble = Archive.open(path)
   if reader == nil then return nil, trouble end
@@ -204,6 +208,8 @@ function Archive.list(path: string): {Archive.Entry} | nil, string
       if etrouble ~= "" then return nil, etrouble end
       return out, ""
     end
+    -- Dropping the per-entry reader closure keeps a long listing small.
+    entry.open = listed_open
     out[#out + 1] = entry
   end
 end
@@ -352,14 +358,14 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   local function ensure_dirs(parts: {string}, n: integer, entry_path: string): boolean, string
     for i = 1, n do
       local rel = join(parts, i)
+      if pending[rel] ~= nil then
+        return false, "archive: refusing to write through a symlink: " .. entry_path
+      end
       if not real_dirs[rel] then
-        if pending[rel] ~= nil then
-          return false, "archive: refusing to write through a symlink: " .. entry_path
-        end
         local full = dest .. "/" .. rel
-        local st, _why, errno = sys.lstat(full)
+        local st, why, errno = sys.lstat(full)
         if st == nil then
-          if errno ~= sys.ENOENT then return false, full .. ": " .. _why end
+          if errno ~= sys.ENOENT then return false, full .. ": " .. why end
           local made, mtrouble, merr = sys.mkdir(full, 0x1ed)
           if not made and merr ~= sys.EEXIST then return false, full .. ": " .. mtrouble end
           st = sys.lstat(full)

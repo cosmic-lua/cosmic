@@ -11,6 +11,7 @@ local record Fake
   finish: function(Fake): string | nil, string
   done: function(Fake): boolean
   rest: function(Fake): string
+  pending: function(Fake): boolean
 end
 
 local function drain(reader: Stream.Reader, max?: integer): string
@@ -166,6 +167,7 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
   -- one chunk in yields one chunk out.
   local pending = ""
   local codec: Fake = {}
+  codec.pending = function(_self: Fake): boolean return false end
   codec.update = function(_self: Fake, chunk: string): string | nil, string
     pending = pending .. chunk:upper()
     local out = pending:sub(1, 1)
@@ -189,6 +191,7 @@ end
 local function test_transform_writer_flushes_the_codec_on_close()
   local held = ""
   local codec: Fake = {}
+  codec.pending = function(_self: Fake): boolean return false end
   codec.update = function(_self: Fake, chunk: string): string | nil, string
     held = held .. chunk
     return "", ""
@@ -220,6 +223,7 @@ local function test_transform_serves_small_reads_from_one_large_batch()
   -- order, not just that it eventually finishes.
   local given = false
   local codec: Fake = {}
+  codec.pending = function(_self: Fake): boolean return false end
   codec.update = function(_self: Fake, chunk: string): string | nil, string
     if given then return "", "" end
     given = true
@@ -361,6 +365,7 @@ end
 
 local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)
   local codec: Fake = {}
+  codec.pending = function(_self: Fake): boolean return false end
   codec.update = function(_self: Fake, chunk: string): string | nil, string
     return chunk, ""
   end
@@ -375,4 +380,26 @@ local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_f
   assert(Fs.exists(path) == false)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
+end
+
+local function test_transform_drains_a_pending_codec_before_feeding_it_more()
+  -- A codec that expands each input byte to ten and hands back at most
+  -- four bytes per call, like a bounded decoder: it must be asked for
+  -- the rest with update("") before it is given new input.
+  local held = ""
+  local codec: Fake = {}
+  codec.update = function(_self: Fake, chunk: string): string | nil, string
+    assert(chunk == "" or held == "", "fed new input while output was pending")
+    for i = 1, #chunk do held = held .. string.rep(chunk:sub(i, i), 10) end
+    local out = held:sub(1, 4)
+    held = held:sub(5)
+    return out, ""
+  end
+  codec.pending = function(_self: Fake): boolean return held ~= "" end
+  codec.finish = function(_self: Fake): string | nil, string
+    assert(held == "", "finished while output was pending")
+    return "", ""
+  end
+  local transformed = Stream.transform(Stream.from_string("abc"), codec as Stream.Codec)
+  assert(drain(transformed) == string.rep("a", 10) .. string.rep("b", 10) .. string.rep("c", 10))
 end

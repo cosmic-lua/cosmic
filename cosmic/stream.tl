@@ -128,6 +128,7 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
   -- Only a regular file can seek; a pipe or socket reads and discards.
   local st = sys.fstat(fd)
   if st ~= nil and st.kind == "file" then
+    local size = st.size
     r.skip = function(_self: Stream.Reader, n: integer): boolean, string
       if failed then return false, failed end
       if closed then return false, closed_message end
@@ -141,12 +142,16 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
         failed = trouble
         return false, failed
       end
-      -- lseek happily moves past the end; the size now says whether
-      -- that skipped bytes the file never had.
-      local now = sys.fstat(fd)
-      if now ~= nil and at > now.size then
-        failed = "stream: skip past the end of the file"
-        return false, failed
+      -- lseek happily moves past the end; the size says whether that
+      -- skipped bytes the file never had. It is asked for again only
+      -- when the one from opening says so, in case the file grew.
+      if at > size then
+        local now = sys.fstat(fd)
+        if now ~= nil then size = now.size end
+        if at > size then
+          failed = "stream: skip past the end of the file"
+          return false, failed
+        end
       end
       return true, ""
     end
@@ -190,10 +195,14 @@ function Stream.transform(reader: Stream.Reader, codec: Stream.Codec): Stream.Re
   local closed = false
 
   --- One step of the codec: its next batch of output (possibly ""), or
-  --- nil and an error. Every codec call goes through here, so a codec
-  --- that holds output back between calls (and wants `update("")` to
-  --- release more before it takes more input) changes only this.
+  --- nil and an error. A decoder hands back a bounded batch per call
+  --- and says `pending` while it still holds input it has not
+  --- expanded; that is drained with `update("")` before any more input
+  --- goes in, so memory stays bounded however far the input expands.
+  --- `finish` runs once, at the end of `reader`, when nothing is
+  --- pending, and so returns only the codec's small tail.
   local function step(): string | nil, string
+    if codec:pending() then return codec:update("") end
     if at_eof then
       finished = true
       return codec:finish()

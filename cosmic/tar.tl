@@ -107,21 +107,34 @@ local function numeric(field: string): integer
     end
     return value
   end
-  local cut = field:find("\0", 1, true)
-  local text = cut and field:sub(1, cut - 1) or field
-  text = text:gsub("^%s+", ""):gsub("%s+$", "")
-  if text == "" then return 0 end
-  return math.tointeger(tonumber(text, 8)) or 0
+  local digits = field:match("^%s*([0-7]*)")
+  if digits == nil or digits == "" then return 0 end
+  return math.tointeger(tonumber(digits, 8)) or 0
 end
 
+--- The sum of up to 32 byte values, passed as `string.byte` returns
+--- them: summing a header 32 bytes to a call, rather than one `byte`
+--- call per byte or a table of all 512, is what keeps walking a tar of
+--- many small entries cheap.
+local function add32(...: integer): integer
+  local b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32 = ...
+  return (b1 or 0) + (b2 or 0) + (b3 or 0) + (b4 or 0) + (b5 or 0) + (b6 or 0) + (b7 or 0) +
+    (b8 or 0) + (b9 or 0) + (b10 or 0) + (b11 or 0) + (b12 or 0) + (b13 or 0) + (b14 or 0) +
+    (b15 or 0) + (b16 or 0) + (b17 or 0) + (b18 or 0) + (b19 or 0) + (b20 or 0) + (b21 or 0) +
+    (b22 or 0) + (b23 or 0) + (b24 or 0) + (b25 or 0) + (b26 or 0) + (b27 or 0) + (b28 or 0) +
+    (b29 or 0) + (b30 or 0) + (b31 or 0) + (b32 or 0)
+end
+
+local ZERO32 <const> = string.rep("\0", 32)
+
 --- The header checksum: every byte summed, the checksum field itself
---- counted as eight spaces.
+--- (bytes 149 to 156) counted as eight spaces. All-zero stretches,
+--- most of a typical header, are passed over without summing.
 local function header_sum(block: string): integer
-  local sum = 256
-  local head = { block:byte(1, 148) }
-  for i = 1, 148 do sum = sum + head[i] end
-  local tail = { block:byte(157, BLOCK) }
-  for i = 1, BLOCK - 156 do sum = sum + tail[i] end
+  local sum = 256 - add32(block:byte(149, 156))
+  for i = 1, BLOCK, 32 do
+    if block:sub(i, i + 31) ~= ZERO32 then sum = sum + add32(block:byte(i, i + 31)) end
+  end
   return sum
 end
 
@@ -314,11 +327,11 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
           for key, value in pairs(parse_pax(data)) do pax_global[key] = value end
         end
       else
-        local name = block:sub(1, 100):gsub("%z.*$", "")
-        local prefix = block:sub(346, 500):gsub("%z.*$", "")
+        local name = block:sub(1, 100):match("^[^%z]*")
+        local prefix = block:sub(346, 500):match("^[^%z]*")
         if prefix ~= "" then name = prefix .. "/" .. name end
         if long_name ~= nil then name = long_name end
-        local linkname = block:sub(158, 257):gsub("%z.*$", "")
+        local linkname = block:sub(158, 257):match("^[^%z]*")
         if long_link ~= nil then linkname = long_link end
         local f: Fields = {
           name = name,
