@@ -86,6 +86,10 @@ static int collector_gc(lua_State *L) {
   return 0;
 }
 
+/* Which blocks' lines `native_collect` adds: every one, those hit since the
+ * window opened, or those that begin a function. */
+enum native_want { NATIVE_ALL, NATIVE_HIT, NATIVE_ENTRY };
+
 /* The core's own C, observed through clang's sancov: every basic block of
  * the files built with COSMIC_NATIVE_COVERAGE owns one flag byte, which the
  * block's own code sets as it runs, with no call. The flags and the table
@@ -106,6 +110,7 @@ extern const uint32_t cosmic_native_coverage_blocks;
 extern const char *const cosmic_native_coverage_paths[];
 extern const uint16_t cosmic_native_coverage_path[];
 extern const uint32_t cosmic_native_coverage_line[];
+extern const uint8_t cosmic_native_coverage_entry[];
 
 static bool *native_flags;
 static size_t native_count;
@@ -143,13 +148,15 @@ static void native_open(void) {
   if (native_opened++ && native_flags) memset(native_flags, 0, native_count);
 }
 
-/* Adds to the {path: {line: true}} table at `hits` every mapped block's line,
- * or only those whose flag is set. */
-static void native_collect(lua_State *L, int hits, int only_hit) {
+/* Adds to the {path: {line: true}} table at `hits` the line of every mapped
+ * block `want` names. */
+static void native_collect(lua_State *L, int hits, enum native_want want) {
   if (!native_ready(L)) return;
   for (size_t block = 0; block < native_count; block++) {
     uint16_t path = cosmic_native_coverage_path[block];
-    if (path == UINT16_MAX || (only_hit && !native_flags[block])) continue;
+    if (path == UINT16_MAX) continue;
+    if (want == NATIVE_HIT && !native_flags[block]) continue;
+    if (want == NATIVE_ENTRY && !cosmic_native_coverage_entry[block]) continue;
     const char *name = cosmic_native_coverage_paths[path];
     lua_getfield(L, hits, name);
     if (lua_isnil(L, -1)) {
@@ -165,10 +172,10 @@ static void native_collect(lua_State *L, int hits, int only_hit) {
 }
 #else
 static void native_open(void) {}
-static void native_collect(lua_State *L, int hits, int only_hit) {
+static void native_collect(lua_State *L, int hits, enum native_want want) {
   (void)L;
   (void)hits;
-  (void)only_hit;
+  (void)want;
 }
 #endif
 
@@ -325,7 +332,7 @@ static int coverage_snapshot(lua_State *L) {
   lua_newtable(L);
   if (!collector) return 1;
   int hits = lua_gettop(L);
-  native_collect(L, hits, 1);
+  native_collect(L, hits, NATIVE_HIT);
   for (unsigned i = 0; i < SOURCE_BUCKETS; i++) {
     for (HitSource *source = collector->buckets[i]; source; source = source->next) {
       const char *name = source->source ? getstr(source->source) : "=?";
@@ -372,7 +379,16 @@ static int coverage_stop(lua_State *L) {
  * without native coverage. */
 static int coverage_lines(lua_State *L) {
   lua_newtable(L);
-  native_collect(L, lua_gettop(L), 0);
+  native_collect(L, lua_gettop(L), NATIVE_ALL);
+  return 1;
+}
+
+/* The line each of the core's own C functions begins on, keyed like
+ * `lines`: a function is entered when that line is hit. Empty in a core
+ * built without native coverage. */
+static int coverage_entries(lua_State *L) {
+  lua_newtable(L);
+  native_collect(L, lua_gettop(L), NATIVE_ENTRY);
   return 1;
 }
 
@@ -410,4 +426,6 @@ void cosmic_coverage_install(lua_State *L) {
   lua_setfield(L, -2, "called");
   lua_pushcfunction(L, coverage_lines);
   lua_setfield(L, -2, "lines");
+  lua_pushcfunction(L, coverage_entries);
+  lua_setfield(L, -2, "entries");
 }

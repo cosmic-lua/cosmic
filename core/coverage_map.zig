@@ -5,7 +5,7 @@
 //! This reads a linked core's PC table, resolves each block's address to
 //! the line it begins on through the core's DWARF (in an ELF core itself;
 //! in the objects a Mach-O core's debug map names), and writes the answer
-//! as C indexed by block:
+//! as C indexed by block, with whether each block is its function's entry:
 //!
 //!     coverage-map write <core> <root> <out.c>
 //!     coverage-map check <core> <root> <map.c>
@@ -166,8 +166,11 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     }, &coverage, kind.ofmt, kind.arch);
     try info.resolveAddresses(arena, io, blocks.items(.pc), blocks.items(.location));
 
-    // Each block's line and repository path, by the block's own index.
+    // Each block's line and repository path, by the block's own index, and
+    // whether it is its function's entry: bit 0 of the PC table's second word.
     const lines = try arena.alloc(u32, count);
+    const entries = try arena.alloc(bool, count);
+    for (entries, 0..) |*entry, i| entry.* = read(u64, pcs.data, i * 16 + 8) & 1 != 0;
     const files = try arena.alloc(?[]const u8, count);
     var paths: std.StringArrayHashMapUnmanaged(void) = .empty;
     const prefix = try std.fmt.allocPrint(arena, "{s}/", .{std.mem.trimEnd(u8, root, "/")});
@@ -217,6 +220,11 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     try w.writeAll("};\n\nconst uint32_t cosmic_native_coverage_line[] = {\n");
     for (lines, 0..) |line, i| {
         try w.print("{s}{d},", .{ if (i % 12 == 0) "  " else " ", line });
+        if (i % 12 == 11 or i == count - 1) try w.writeAll("\n");
+    }
+    try w.writeAll("};\n\nconst uint8_t cosmic_native_coverage_entry[] = {\n");
+    for (entries, 0..) |entry, i| {
+        try w.print("{s}{d},", .{ if (i % 12 == 0) "  " else " ", @intFromBool(entry) });
         if (i % 12 == 11 or i == count - 1) try w.writeAll("\n");
     }
     try w.writeAll("};\n");

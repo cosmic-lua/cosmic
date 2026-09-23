@@ -77,3 +77,26 @@ end
   assert(first ~= "0", "the first window saw no startup in core/main.c")
   assert(second == "0", "a later window kept startup: " .. second)
 end
+
+--- Each C function's entry is one of its lines, and hashing enters one
+--- of core/crypto.c's functions within this test's own window.
+local function test_function_entries_are_observable_lines()
+  local lines = Coverage.native_lines()
+  local entries = Coverage.native_entries()
+  for path, here in pairs(entries) do
+    for line in pairs(here) do
+      assert((lines[path] or {})[line], path .. ":" .. line .. " is not observable")
+    end
+  end
+  if next(lines) == nil then
+    assert(next(entries) == nil, "a core without native coverage has no entries")
+    return
+  end
+  assert(#Hash.sha256("entries") == 32)
+  local hit = Coverage.snapshot()["core/crypto.c"] or {}
+  local entered = false
+  for line in pairs(entries["core/crypto.c"] or {}) do
+    entered = entered or hit[line] == true
+  end
+  assert(entered, "hashing entered no function of core/crypto.c")
+end
