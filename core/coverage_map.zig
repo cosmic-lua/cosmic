@@ -7,13 +7,15 @@
 //! in the objects a Mach-O core's debug map names), and writes the answer
 //! as C indexed by block, with whether each block is its function's entry:
 //!
-//!     coverage-map write <core> <root> <out.c>
-//!     coverage-map check <core> <root> <map.c>
+//!     coverage-map write <first> <root> <out.c>
+//!     coverage-map check <first> <second>
 //!
-//! `write` maps a first link, which has no table. `check` maps the
-//! second link, the one carrying the table, and fails unless it says the
-//! same: the table is only true of a link holding the same blocks in the
-//! same order. Only blocks on lines of files under `<root>/core/` are
+//! `write` maps a first link, which has no table and keeps its debug
+//! information. `check` holds the second link, the one carrying the table
+//! and stripped like any shipped core, to the first: the table is only
+//! true of a link with the same blocks in the same order, so the two must
+//! have as many blocks, each with the same flags, at the same distance
+//! from the first block. Only blocks on lines of files under `<root>/core/` are
 //! mapped, by repository path; any other block (inlined from a vendored
 //! header, or on compiler-made code with no line) is mapped to nothing.
 
@@ -29,18 +31,38 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const io = init.io;
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len != 5) fatal("usage: coverage-map write|check <core> <root> <map.c>", .{});
-    const mode = args[1];
-    const table = try generate(arena, io, args[2], args[3]);
-    if (std.mem.eql(u8, mode, "write")) {
+    const mode = if (args.len > 1) args[1] else "";
+    if (std.mem.eql(u8, mode, "write") and args.len == 5) {
+        const table = try generate(arena, io, args[2], args[3]);
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = args[4], .data = table });
-    } else if (std.mem.eql(u8, mode, "check")) {
-        const carried = try Io.Dir.cwd().readFileAlloc(io, args[4], arena, .limited(1 << 30));
-        if (!std.mem.eql(u8, carried, table))
-            fatal("{s}: its blocks are not the ones {s} maps", .{ args[2], args[4] });
+    } else if (std.mem.eql(u8, mode, "check") and args.len == 4) {
+        const first = try blocksOf(arena, io, args[2]);
+        const second = try blocksOf(arena, io, args[3]);
+        if (first.count != second.count)
+            fatal("{s} has {d} blocks, {s} {d}", .{ args[3], second.count, args[2], first.count });
+        for (0..first.count) |i| {
+            const a = read(u64, first.pcs, i * 16) -% read(u64, first.pcs, 0);
+            const b = read(u64, second.pcs, i * 16) -% read(u64, second.pcs, 0);
+            if (a != b or read(u64, first.pcs, i * 16 + 8) != read(u64, second.pcs, i * 16 + 8))
+                fatal("{s}: block {d} is not the one {s} mapped", .{ args[3], i, args[2] });
+        }
     } else {
-        fatal("unknown mode '{s}'", .{mode});
+        fatal("usage: coverage-map write <first> <root> <out.c> | check <first> <second>", .{});
     }
+}
+
+/// A core's sancov PC table: one (address, flags) pair of words per block.
+const Blocks = struct { pcs: []const u8, count: usize, format: Format };
+
+fn blocksOf(arena: Allocator, io: Io, core_path: []const u8) !Blocks {
+    const file = try Io.Dir.cwd().readFileAlloc(io, core_path, arena, .limited(1 << 31));
+    const kind = objectFormat(file);
+    const pcs = section(file, kind.ofmt, "__sancov_pcs") orelse fatal("{s} has no sancov PC table", .{core_path});
+    const flags = section(file, kind.ofmt, "__sancov_bools") orelse fatal("{s} has no sancov flags", .{core_path});
+    const count = pcs.data.len / 16;
+    if (pcs.data.len % 16 != 0 or flags.data.len != count)
+        fatal("{s}: {d} flags for a {d}-byte PC table", .{ core_path, flags.data.len, pcs.data.len });
+    return .{ .pcs = pcs.data, .count = count, .format = kind };
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
@@ -48,7 +70,7 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-const Section = struct { address: u64, data: []const u8 };
+const Section = struct { data: []const u8 };
 
 /// The kind of file a core is, as `std.debug.Info.load` wants it.
 const Format = struct { ofmt: std.Target.ObjectFormat, arch: std.Target.Cpu.Arch };
@@ -75,7 +97,7 @@ fn objectFormat(file: []const u8) Format {
 
 /// A section of the core, by name: in ELF, among the section headers; in
 /// Mach-O, among the sections of the `LC_SEGMENT_64` load commands. Either
-/// way its bytes are what the file holds, and the address where it loads.
+/// way its bytes are what the file holds.
 fn section(file: []const u8, ofmt: std.Target.ObjectFormat, name: []const u8) ?Section {
     return switch (ofmt) {
         .elf => elfSection(file, name),
@@ -98,7 +120,7 @@ fn elfSection(file: []const u8, name: []const u8) ?Section {
         if (!std.mem.eql(u8, found, name)) continue;
         const offset = read(u64, file, header + 0x18);
         const size = read(u64, file, header + 0x20);
-        return .{ .address = read(u64, file, header + 0x10), .data = file[offset..][0..size] };
+        return .{ .data = file[offset..][0..size] };
     }
     return null;
 }
@@ -118,10 +140,9 @@ fn machoSection(file: []const u8, name: []const u8) ?Section {
                 const header = command + 72 + i * 80;
                 const found = std.mem.sliceTo(file[header..][0..16], 0);
                 if (!std.mem.eql(u8, found, name)) continue;
-                const address = read(u64, file, header + 32);
                 const size = read(u64, file, header + 40);
                 const offset = read(u32, file, header + 48);
-                return .{ .address = address, .data = file[offset..][0..size] };
+                return .{ .data = file[offset..][0..size] };
             }
         }
         command += cmdsize;
@@ -134,20 +155,16 @@ fn read(comptime T: type, file: []const u8, at: u64) T {
 }
 
 fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) ![]const u8 {
-    const file = try Io.Dir.cwd().readFileAlloc(io, core_path, arena, .limited(1 << 31));
-    const kind = objectFormat(file);
-    const pcs = section(file, kind.ofmt, "__sancov_pcs") orelse fatal("{s} has no sancov PC table", .{core_path});
-    const flags = section(file, kind.ofmt, "__sancov_bools") orelse fatal("{s} has no sancov flags", .{core_path});
-    // One (address, flags) pair of words per block.
-    const count = pcs.data.len / 16;
-    if (pcs.data.len % 16 != 0 or flags.data.len != count)
-        fatal("{s}: {d} flags for a {d}-byte PC table", .{ core_path, flags.data.len, pcs.data.len });
+    const found = try blocksOf(arena, io, core_path);
+    const kind = found.format;
+    const pcs = found.pcs;
+    const count = found.count;
 
     const Block = struct { pc: u64, index: u32, location: Coverage.SourceLocation };
     var blocks: std.MultiArrayList(Block) = .empty;
     try blocks.resize(arena, count);
     for (blocks.items(.pc), blocks.items(.index), 0..) |*pc, *index, i| {
-        pc.* = read(u64, pcs.data, i * 16);
+        pc.* = read(u64, pcs, i * 16);
         // A position-independent link leaves these for the loader to fill.
         if (pc.* == 0) fatal("{s}: the PC table is not filled in; link without PIE", .{core_path});
         index.* = @intCast(i);
@@ -170,7 +187,7 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     // whether it is its function's entry: bit 0 of the PC table's second word.
     const lines = try arena.alloc(u32, count);
     const entries = try arena.alloc(bool, count);
-    for (entries, 0..) |*entry, i| entry.* = read(u64, pcs.data, i * 16 + 8) & 1 != 0;
+    for (entries, 0..) |*entry, i| entry.* = read(u64, pcs, i * 16 + 8) & 1 != 0;
     const files = try arena.alloc(?[]const u8, count);
     var paths: std.StringArrayHashMapUnmanaged(void) = .empty;
     const prefix = try std.fmt.allocPrint(arena, "{s}/", .{std.mem.trimEnd(u8, root, "/")});

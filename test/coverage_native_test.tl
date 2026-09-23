@@ -1,7 +1,7 @@
---- The core's own C in coverage. A core built with native coverage (the
---- sanitized one) answers every C line a block begins on
---- and puts hits on those lines; any other core answers none, and its
---- hits never name a C file. Both kinds of core run these.
+--- The core's own C in coverage. A core built with native coverage --
+--- every release core and the sanitized one -- answers every C line a
+--- block begins on and puts hits on those lines; any other core answers
+--- none, and its hits never name a C file.
 
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
