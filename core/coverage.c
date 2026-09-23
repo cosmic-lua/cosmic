@@ -58,13 +58,13 @@ static char collector_key;
  * at a stable address for the entire state's lifetime, across all sessions. */
 _Static_assert(LUA_EXTRASPACE >= sizeof(Collector *), "coverage needs a pointer");
 
-static Collector *current_collector(lua_State *L) {
+static Collector *current_collector (lua_State *L) {
   Collector *collector;
   memcpy(&collector, lua_getextraspace(L), sizeof(collector));
   return collector;
 }
 
-static void collector_clear(Collector *collector) {
+static void collector_clear (Collector *collector) {
   collector->active = 0;
   for (unsigned i = 0; i < SOURCE_BUCKETS; i++) {
     HitSource *source = collector->buckets[i];
@@ -84,7 +84,7 @@ static void collector_clear(Collector *collector) {
   collector->last_source = NULL;
 }
 
-static int collector_gc(lua_State *L) {
+static int collector_gc (lua_State *L) {
   collector_clear(lua_touserdata(L, 1));
   return 0;
 }
@@ -104,8 +104,8 @@ enum native_want { NATIVE_ALL, NATIVE_HIT, NATIVE_ENTRY };
 #ifdef COSMIC_NATIVE_COVERAGE
 #include <stdbool.h>
 
-void __sanitizer_cov_bool_flag_init(bool *start, bool *stop);
-void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop);
+void __sanitizer_cov_bool_flag_init (bool *start, bool *stop);
+void __sanitizer_cov_pcs_init (const uintptr_t *start, const uintptr_t *stop);
 
 /* The first link carries an empty table (core/coverage_map_empty.c), and
  * is only ever read, never run. */
@@ -121,20 +121,20 @@ static size_t native_count;
 
 /* Every instrumented object's constructor calls this with the same, whole
  * section; on a later call it is the same range again. */
-void __sanitizer_cov_bool_flag_init(bool *start, bool *stop) {
+void __sanitizer_cov_bool_flag_init (bool *start, bool *stop) {
   native_flags = start;
   native_count = (size_t)(stop - start);
 }
 
 /* The PC table is only ever read from the file, by the map generator. */
-void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop) {
+void __sanitizer_cov_pcs_init (const uintptr_t *start, const uintptr_t *stop) {
   (void)start;
   (void)stop;
 }
 
 /* A table from another link would put hits on the wrong lines, so a
  * mismatch is an error rather than an empty answer. */
-static int native_ready(lua_State *L) {
+static int native_ready (lua_State *L) {
   if (!native_flags) return 0;
   if (cosmic_native_coverage_blocks != native_count) {
     return luaL_error(L, "coverage: the core's block table does not match its %d blocks",
@@ -152,7 +152,7 @@ static int native_opened;
  * windows it opens itself (a nested test run's): allocated only then. */
 static bool *native_ever;
 
-static void native_open(void) {
+static void native_open (void) {
   if (native_opened++ && native_flags) {
     if (native_ever) {
       for (size_t block = 0; block < native_count; block++) native_ever[block] |= native_flags[block];
@@ -163,7 +163,7 @@ static void native_open(void) {
 
 /* Adds to the {path: {line: true}} table at `hits` the line of every mapped
  * block `want` names. */
-static void native_collect(lua_State *L, int hits, enum native_want want) {
+static void native_collect (lua_State *L, int hits, enum native_want want) {
   if (!native_ready(L)) return;
   for (size_t block = 0; block < native_count; block++) {
     uint16_t path = cosmic_native_coverage_path[block];
@@ -184,8 +184,8 @@ static void native_collect(lua_State *L, int hits, enum native_want want) {
   }
 }
 #else
-static void native_open(void) {}
-static void native_collect(lua_State *L, int hits, enum native_want want) {
+static void native_open (void) {}
+static void native_collect (lua_State *L, int hits, enum native_want want) {
   (void)L;
   (void)hits;
   (void)want;
@@ -202,7 +202,7 @@ static void native_collect(lua_State *L, int hits, enum native_want want) {
 static char *children_entry; /* CHILDREN_NAME "=" directory, or NULL */
 static int reports;          /* this process is one a test started */
 
-static int set_children(const char *directory) {
+static int set_children (const char *directory) {
   size_t size = sizeof CHILDREN_NAME + 1 + strlen(directory);
   char *entry = malloc(size);
   if (!entry) return 0;
@@ -212,7 +212,7 @@ static int set_children(const char *directory) {
   return 1;
 }
 
-char **cosmic_coverage_environment(char **envp) {
+char **cosmic_coverage_environment (char **envp) {
   if (!children_entry) return envp;
   size_t count = 0;
   size_t name = sizeof CHILDREN_NAME; /* with its '=' in place of the NUL */
@@ -227,7 +227,7 @@ char **cosmic_coverage_environment(char **envp) {
   return given;
 }
 
-void cosmic_coverage_report(void) {
+void cosmic_coverage_report (void) {
 #ifdef COSMIC_NATIVE_COVERAGE
   static unsigned reported; /* a process can report more than once: before a failed execve */
   if (!reports || !native_flags || cosmic_native_coverage_blocks != native_count) return;
@@ -270,7 +270,7 @@ void cosmic_coverage_report(void) {
 #endif
 }
 
-static void native_line_hook(lua_State *L, lua_Debug *ar) {
+static void native_line_hook (lua_State *L, lua_Debug *ar) {
   Collector *collector = current_collector(L);
   /* A coroutine can retain an inherited hook after its parent stops. */
   if (!collector || !collector->active || ar->currentline < 0) {
@@ -335,7 +335,7 @@ static void native_line_hook(lua_State *L, lua_Debug *ar) {
  * line hook to see, so this is how a test is seen to reach one. Anything
  * that is not a C function goes back before a table is touched: most
  * calls are Lua's own. */
-static void record_call(lua_State *L, lua_Debug *ar) {
+static void record_call (lua_State *L, lua_Debug *ar) {
   int top = lua_gettop(L);
   if (lua_getinfo(L, "f", ar) && lua_iscfunction(L, -1)) {
     lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
@@ -352,7 +352,7 @@ static void record_call(lua_State *L, lua_Debug *ar) {
   lua_settop(L, top);
 }
 
-static void native_hook(lua_State *L, lua_Debug *ar) {
+static void native_hook (lua_State *L, lua_Debug *ar) {
   if (ar->event == LUA_HOOKLINE) {
     native_line_hook(L, ar);
     return;
@@ -366,7 +366,7 @@ static void native_hook(lua_State *L, lua_Debug *ar) {
 /* start(watched?): `watched` maps C functions to the names `called`
  * reports them under. Without it only lines are hooked, and a call
  * costs nothing. */
-static int coverage_start(lua_State *L) {
+static int coverage_start (lua_State *L) {
   int watching = !lua_isnoneornil(L, 1);
   if (watching) {
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -399,7 +399,7 @@ static int coverage_start(lua_State *L) {
 
 /* called(): the name of every watched function called since `start`, as
  * a fresh {name = true} table. */
-static int coverage_called(lua_State *L) {
+static int coverage_called (lua_State *L) {
   lua_newtable(L);
   lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
   if (lua_getiuservalue(L, -1, CALLED) == LUA_TTABLE) {
@@ -417,7 +417,7 @@ static int coverage_called(lua_State *L) {
 /* Materialize fresh tables only when requested. Separate Lua source strings
  * may contain the same name; their hit sets must be merged, not overwritten.
  * Sparse pages bound storage even for chunks with very high line numbers. */
-static int coverage_snapshot(lua_State *L) {
+static int coverage_snapshot (lua_State *L) {
   lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
   Collector *collector = lua_touserdata(L, -1);
   lua_newtable(L);
@@ -456,7 +456,7 @@ static int coverage_snapshot(lua_State *L) {
   return 1;
 }
 
-static int coverage_stop(lua_State *L) {
+static int coverage_stop (lua_State *L) {
   lua_sethook(L, NULL, 0, 0);
   lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
   Collector *collector = lua_touserdata(L, -1);
@@ -468,7 +468,7 @@ static int coverage_stop(lua_State *L) {
 /* Every line of the core's own C that has a block starting on it, hit or
  * not, keyed like `snapshot`: what a hit is out of. Empty in a core built
  * without native coverage. */
-static int coverage_lines(lua_State *L) {
+static int coverage_lines (lua_State *L) {
   lua_newtable(L);
   native_collect(L, lua_gettop(L), NATIVE_ALL);
   return 1;
@@ -478,7 +478,7 @@ static int coverage_lines(lua_State *L) {
  * {path =, line =, name =}: its file by repository path, the line it
  * begins on (an `entries` line), and its name. Empty in a core built
  * without native coverage. */
-static int coverage_functions(lua_State *L) {
+static int coverage_functions (lua_State *L) {
   lua_newtable(L);
 #ifdef COSMIC_NATIVE_COVERAGE
   if (!native_ready(L)) return 1;
@@ -502,7 +502,7 @@ static int coverage_functions(lua_State *L) {
 
 /* children(directory): every process this one starts from now on, and
  * every one those start, reports the C it ran there as it exits. */
-static int coverage_children(lua_State *L) {
+static int coverage_children (lua_State *L) {
   if (!set_children(luaL_checkstring(L, 1))) return luaL_error(L, "coverage: out of memory");
   return 0;
 }
@@ -510,13 +510,13 @@ static int coverage_children(lua_State *L) {
 /* The line each of the core's own C functions begins on, keyed like
  * `lines`: a function is entered when that line is hit. Empty in a core
  * built without native coverage. */
-static int coverage_entries(lua_State *L) {
+static int coverage_entries (lua_State *L) {
   lua_newtable(L);
   native_collect(L, lua_gettop(L), NATIVE_ENTRY);
   return 1;
 }
 
-void cosmic_coverage_install(lua_State *L) {
+void cosmic_coverage_install (lua_State *L) {
   luaL_newmetatable(L, "cosmic.coverage.collector");
   lua_pushcfunction(L, collector_gc);
   lua_setfield(L, -2, "__gc");

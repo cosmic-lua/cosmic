@@ -7,7 +7,7 @@
 #include "check.h"
 #include "lauxlib.h"
 
-static int report(lua_State *L, const char *what) {
+static int report (lua_State *L, const char *what) {
   const char *message = lua_tostring(L, -1);
   fprintf(stderr, "cosmic boot: %s: %s\n", what,
           message == NULL ? "no message" : message);
@@ -15,7 +15,7 @@ static int report(lua_State *L, const char *what) {
 }
 
 /* Runs the bridge chunk and leaves its table on the stack. */
-static int run_bridge(lua_State *L, const char *root) {
+static int run_bridge (lua_State *L, const char *root) {
   if (luaL_loadbufferx(L, cosmic_bridge_source, strlen(cosmic_bridge_source),
                        "@cosmic:bridge", "t") != LUA_OK) {
     return report(L, "the bridge would not compile");
@@ -28,7 +28,7 @@ static int run_bridge(lua_State *L, const char *root) {
 }
 
 /* Loads the vendored compiler under the environment the bridge built. */
-static int run_compiler(lua_State *L, const char *tl_dir, int bridge) {
+static int run_compiler (lua_State *L, const char *tl_dir, int bridge) {
   char path[4096];
   snprintf(path, sizeof path, "%s/tl.lua", tl_dir);
   if (luaL_loadfilex(L, path, "t") != LUA_OK) {
@@ -46,7 +46,7 @@ static int run_compiler(lua_State *L, const char *tl_dir, int bridge) {
 }
 
 /* Reads a whole file into a Lua string on the stack. */
-static int slurp(lua_State *L, const char *path) {
+static int slurp (lua_State *L, const char *path) {
   FILE *f = fopen(path, "rb");
   if (f == NULL) {
     fprintf(stderr, "cosmic boot: cannot read %s\n", path);
@@ -80,7 +80,7 @@ static int slurp(lua_State *L, const char *path) {
  * It imports nothing, which is what makes that possible. The result is
  * handed to the bridge, which serves it to the checker from memory;
  * nothing is written to disk. */
-static int declare_syscalls(lua_State *L, const char *root, int bridge) {
+static int declare_syscalls (lua_State *L, const char *root, int bridge) {
   char path[4096];
 
   lua_getglobal(L, "require");
@@ -113,8 +113,8 @@ static int declare_syscalls(lua_State *L, const char *root, int bridge) {
   return 0;
 }
 
-int cosmic_boot(lua_State *L, const char *root, const char *tl_dir, int argc,
-                char **argv) {
+int cosmic_boot (lua_State *L, const char *root, const char *tl_dir, int argc,
+                 char **argv) {
   if (run_bridge(L, root) != 0) {
     return 1;
   }

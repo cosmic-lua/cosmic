@@ -33,17 +33,17 @@
  * as the raw value behind `cosmic.internal.debug` (core/surface.c),
  * the same trust-gated handoff `cosmic.store` and `cosmic.sqlite` get
  * through core/store.c's `store_searcher`. */
-void cosmic_coverage_install(lua_State *L);
+void cosmic_coverage_install (lua_State *L);
 
 /* `envp`, or, once processes this one starts are to report their C to a
  * test (`children`), a new array of the same entries plus the name that
  * tells them where: free it, not its entries, when it differs from `envp`.
  * Built before a fork, since the child may not allocate. */
-char **cosmic_coverage_environment(char **envp);
+char **cosmic_coverage_environment (char **envp);
 
 /* In a process a test started, writes the C it has run to the test's
  * directory; does nothing in any other. Runs at exit, and before `_exit`
  * and `execve`, which end this image without it. */
-void cosmic_coverage_report(void);
+void cosmic_coverage_report (void);
 
 #endif

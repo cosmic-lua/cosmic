@@ -10,18 +10,18 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static _Noreturn void fail(const char *message) {
+static _Noreturn void fail (const char *message) {
   fprintf(stderr, "payload: %s\n", message);
   exit(97);
 }
 
-static const char *need(const char *name) {
+static const char *need (const char *name) {
   const char *value = getenv(name);
   if (value == NULL || value[0] == '\0') fail(name);
   return value;
 }
 
-static int check_descriptor(const char *name) {
+static int check_descriptor (const char *name) {
   char *end = NULL;
   long value = strtol(need(name), &end, 10);
   if (end == NULL || *end != '\0' || value < 3 || value > 9) fail(name);
@@ -30,7 +30,7 @@ static int check_descriptor(const char *name) {
   return (int)value;
 }
 
-static void append_marker(void) {
+static void append_marker (void) {
   const char *path = getenv("PORTABLE_PAYLOAD_MARKER");
   if (path == NULL) return;
   FILE *file = fopen(path, "a");
@@ -39,7 +39,7 @@ static void append_marker(void) {
     fail("cannot finish marker");
 }
 
-int main(int argc, char **argv) {
+int main (int argc, char **argv) {
   int artifact_fd = check_descriptor("COSMIC_PORTABLE_ARTIFACT_FD");
   int core_fd = check_descriptor("COSMIC_PORTABLE_CORE_FD");
   if (artifact_fd == core_fd) fail("descriptor fields are equal");

@@ -23,7 +23,7 @@ static struct {
   lua_Integer refused;
 } allocator;
 
-static void *failing_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
+static void *failing_alloc (void *ud, void *ptr, size_t osize, size_t nsize) {
   (void)ud;
   /* With ptr NULL, osize names the kind of object, not a size. */
   int grows = nsize > 0 && (ptr == NULL || nsize > osize);
@@ -39,7 +39,7 @@ static void *failing_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
 
 /* fail_allocations(after): grants the next `after` growing allocations
  * and refuses every one past them, until allow_allocations. */
-static int testing_fail_allocations(lua_State *L) {
+static int testing_fail_allocations (lua_State *L) {
   lua_Integer after = luaL_checkinteger(L, 1);
   luaL_argcheck(L, after >= 0, 1, "a count of allocations is not negative");
   if (!allocator.installed) {
@@ -55,7 +55,7 @@ static int testing_fail_allocations(lua_State *L) {
 
 /* allow_allocations(): grants every allocation again, and answers how
  * many were refused since fail_allocations. */
-static int testing_allow_allocations(lua_State *L) {
+static int testing_allow_allocations (lua_State *L) {
   allocator.failing = 0;
   lua_pushinteger(L, allocator.refused);
   allocator.refused = 0;
@@ -64,7 +64,7 @@ static int testing_allow_allocations(lua_State *L) {
 
 /* open_statements(): how many statements are prepared and not yet
  * finalized, across every database the store searches. */
-static int testing_open_statements(lua_State *L) {
+static int testing_open_statements (lua_State *L) {
   lua_Integer open = 0;
   int count = cosmic_store_count(L);
   for (int i = 1; i <= count; i++) {
@@ -79,13 +79,13 @@ static int testing_open_statements(lua_State *L) {
 }
 
 static const luaL_Reg instruments[] = {
-    {"fail_allocations", testing_fail_allocations},
-    {"allow_allocations", testing_allow_allocations},
-    {"open_statements", testing_open_statements},
-    {NULL, NULL},
+  {"fail_allocations", testing_fail_allocations},
+  {"allow_allocations", testing_allow_allocations},
+  {"open_statements", testing_open_statements},
+  {NULL, NULL},
 };
 
-int cosmic_open_testing(lua_State *L) {
+int cosmic_open_testing (lua_State *L) {
   luaL_newlib(L, instruments);
   lua_pushliteral(L, COSMIC_CONFIGURATION_NAME);
   lua_setfield(L, -2, "configuration");

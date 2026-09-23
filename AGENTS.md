@@ -18,7 +18,8 @@
    `o/bin/cosmic uses <symbol>` lists every `file:line` that refers to it.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-paths>`.
    `fix` checks syntax and tree equivalence; compilation checks types. A C
-   path is checked against the rules in `build/c/rules.tl` (see C, below).
+   path is written back in Lua's own layout (`build/c/layout.tl`) and
+   checked against the rules in `build/c/rules.tl` (see C, below).
 3. A tool older than the tree rebuilds itself and re-enters the command the
    moment it notices, so an edit to Teal needs no boot: `o/bin/cosmic test`
    after the edit is enough. A change under `core/`, to `build.zig` or

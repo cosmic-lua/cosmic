@@ -5,6 +5,6 @@
 /* Remove every COSMIC_PORTABLE_* name except COSMIC_PORTABLE_CACHE and the
  * NULL-terminated test-hook seam in keep. Returns zero on allocation or
  * unsetenv failure; it never silently leaves a matching name behind. */
-int cosmic_environment_clear_reserved(const char *const *keep);
+int cosmic_environment_clear_reserved (const char *const *keep);
 
 #endif

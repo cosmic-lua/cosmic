@@ -28,17 +28,17 @@ struct replacement {
 };
 
 static const struct replacement replacements[] = {
-    {"io", "io is not available: files are cosmic.fs, and the standard "
-           "streams are cosmic.fs.stdout, .stderr and .stdin"},
-    {"os", "os is not available: time is cosmic.time, the environment is "
-           "cosmic.env, and processes are cosmic.proc"},
-    {"debug", "debug is not available: a traceback is cosmic.errors.trace"},
-    {"dofile", "dofile is not available: a module comes from require, and "
-               "a file's bytes come from cosmic.fs.read"},
-    {"loadfile", "loadfile is not available: a module comes from require, "
-                 "and a file's bytes come from cosmic.fs.read"},
-    {"require", NULL},
-    {NULL, NULL},
+  {"io", "io is not available: files are cosmic.fs, and the standard "
+         "streams are cosmic.fs.stdout, .stderr and .stdin"},
+  {"os", "os is not available: time is cosmic.time, the environment is "
+         "cosmic.env, and processes are cosmic.proc"},
+  {"debug", "debug is not available: a traceback is cosmic.errors.trace"},
+  {"dofile", "dofile is not available: a module comes from require, and "
+             "a file's bytes come from cosmic.fs.read"},
+  {"loadfile", "loadfile is not available: a module comes from require, "
+               "and a file's bytes come from cosmic.fs.read"},
+  {"require", NULL},
+  {NULL, NULL},
 };
 
 /* `print` over the syscall table, so every byte the process writes goes
@@ -46,7 +46,7 @@ static const struct replacement replacements[] = {
  * buffer, so it goes in with luaL_addvalue: every other buffer call
  * needs the buffer's own slot on top, and once the line outgrows the
  * buffer's inline room that slot is a heap box a stray pop would free. */
-static int surface_print(lua_State *L) {
+static int surface_print (lua_State *L) {
   int count = lua_gettop(L);
   luaL_Buffer line;
   luaL_buffinit(L, &line);
@@ -79,14 +79,14 @@ static int surface_print(lua_State *L) {
 
 /* A traceback built from Lua's internal debugging support: a program
  * reporting a failure needs to say where it happened. */
-static int surface_trace(lua_State *L) {
+static int surface_trace (lua_State *L) {
   const char *message = luaL_optstring(L, 1, NULL);
   int level = cosmic_optint(L, 2, 1);
   luaL_traceback(L, L, message, level);
   return 1;
 }
 
-static int open_errors(lua_State *L) {
+static int open_errors (lua_State *L) {
   lua_createtable(L, 0, 1);
   lua_pushcfunction(L, surface_trace);
   lua_setfield(L, -2, "trace");
@@ -94,7 +94,7 @@ static int open_errors(lua_State *L) {
 }
 
 /* Raised when a program reaches for a name this surface removed. */
-static int surface_missing(lua_State *L) {
+static int surface_missing (lua_State *L) {
   const char *name = lua_tostring(L, 2);
   lua_getfield(L, lua_upvalueindex(1), name == NULL ? "" : name);
   if (lua_isstring(L, -1)) {
@@ -105,13 +105,13 @@ static int surface_missing(lua_State *L) {
   return 1;
 }
 
-static void open_library(lua_State *L, const char *name, lua_CFunction opener,
-                         int global) {
+static void open_library (lua_State *L, const char *name, lua_CFunction opener,
+                          int global) {
   luaL_requiref(L, name, opener, global);
   lua_pop(L, 1);
 }
 
-static void clear_field(lua_State *L, const char *table, const char *field) {
+static void clear_field (lua_State *L, const char *table, const char *field) {
   lua_getglobal(L, table);
   lua_pushnil(L);
   lua_setfield(L, -2, field);
@@ -147,13 +147,13 @@ static struct {
 } cache;
 
 /* The size of cache entry `i`: five to eight eighths of a power of two. */
-static size_t cache_size(int i) {
+static size_t cache_size (int i) {
   return (size_t)(5 + i % 4) << (13 + i / 4);
 }
 
 /* The smallest entry that holds `n` bytes, or -1 when `n` is not a size
  * the cache keeps. */
-static int cache_fit(size_t n) {
+static int cache_fit (size_t n) {
   if (n <= ((size_t)32 << 10) || n > cache_size(CACHE_SIZES - 1)) return -1;
   int i = 0;
   while (cache_size(i) < n) i++;
@@ -161,7 +161,7 @@ static int cache_fit(size_t n) {
 }
 
 /* The largest entry a block of `usable` bytes can stand for, or -1. */
-static int cache_floor(size_t usable) {
+static int cache_floor (size_t usable) {
   if (usable < cache_size(0) || usable > 2 * cache_size(CACHE_SIZES - 1))
     return -1;
   int i = CACHE_SIZES - 1;
@@ -169,7 +169,7 @@ static int cache_floor(size_t usable) {
   return i;
 }
 
-static void cache_release(void *block) {
+static void cache_release (void *block) {
   if (block == NULL) return;
   size_t usable = COSMIC_USABLE_SIZE(block);
   int i = cache_floor(usable);
@@ -184,15 +184,15 @@ static void cache_release(void *block) {
   free(block);
 }
 
-static void *cache_take(int i) {
+static void *cache_take (int i) {
   if (cache.count[i] == 0) return malloc(cache_size(i));
   cache.count[i]--;
   cache.bytes -= cache.usable[i][cache.count[i]];
   return cache.blocks[i][cache.count[i]];
 }
 
-static void *cached_alloc(void *unused, void *block, size_t osize,
-                          size_t nsize) {
+static void *cached_alloc (void *unused, void *block, size_t osize,
+                           size_t nsize) {
   (void)unused;
   if (nsize == 0) {
     cache_release(block);
@@ -210,14 +210,14 @@ static void *cached_alloc(void *unused, void *block, size_t osize,
   return moved;
 }
 
-void cosmic_surface_close(lua_State *L) {
+void cosmic_surface_close (lua_State *L) {
   lua_close(L);
   for (int i = 0; i < CACHE_SIZES; i++) {
     while (cache.count[i] > 0) free(cache_take(i));
   }
 }
 
-lua_State *cosmic_surface_open(const char *logical_executable) {
+lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_State *L = luaL_newstate();
   if (L == NULL) {
     return NULL;

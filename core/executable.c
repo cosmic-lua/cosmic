@@ -12,7 +12,7 @@
 #include <mach-o/dyld.h>
 #endif
 
-int cosmic_executable_path(char *into, size_t room) {
+int cosmic_executable_path (char *into, size_t room) {
 #if defined(__APPLE__)
   char raw[PATH_MAX];
   uint32_t size = sizeof raw;
@@ -31,7 +31,7 @@ int cosmic_executable_path(char *into, size_t room) {
 #endif
 }
 
-int cosmic_executable_fd(void) {
+int cosmic_executable_fd (void) {
 #if defined(__APPLE__)
   char raw[PATH_MAX];
   uint32_t size = sizeof raw;

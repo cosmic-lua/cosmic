@@ -5,7 +5,7 @@
 
 #include <stddef.h>
 
-int cosmic_executable_path(char *into, size_t room);
-int cosmic_executable_fd(void);
+int cosmic_executable_path (char *into, size_t room);
+int cosmic_executable_fd (void);
 
 #endif

@@ -552,6 +552,6 @@ COSMIC_SYSCALL(inflate, 2);
  */
 
 /* Opens the table as the `cosmic.sys` module. */
-int cosmic_open_syscalls(lua_State *L);
+int cosmic_open_syscalls (lua_State *L);
 
 #endif

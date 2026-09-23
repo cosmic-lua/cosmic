@@ -4,7 +4,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-int main(int argc, char **argv) {
+int main (int argc, char **argv) {
   if (argc != 3) return 2;
   int descriptor = atoi(argv[1]);
   int pair[2];

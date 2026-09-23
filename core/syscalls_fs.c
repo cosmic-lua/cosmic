@@ -37,12 +37,12 @@
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtim.tv_nsec)
 #endif
 
-static void push_field(lua_State *L, const char *name, lua_Integer value) {
+static void push_field (lua_State *L, const char *name, lua_Integer value) {
   lua_pushinteger(L, value);
   lua_setfield(L, -2, name);
 }
 
-static void push_stat(lua_State *L, const struct stat *st) {
+static void push_stat (lua_State *L, const struct stat *st) {
   lua_createtable(L, 0, 10);
   push_field(L, "size", (lua_Integer)st->st_size);
   push_field(L, "mode", (lua_Integer)st->st_mode);
@@ -142,7 +142,7 @@ COSMIC_SYSCALL(close, 1) {
  * ones under /proc) may hold more -- and anything else at most
  * READ_STREAM. A read may always answer short, so a caller that loops
  * until the empty string sees the same bytes either way. */
-static size_t read_room(int fd, lua_Integer count, off_t offset) {
+static size_t read_room (int fd, lua_Integer count, off_t offset) {
   if (count <= READ_SMALL) return (size_t)count;
   lua_Integer room = READ_STREAM;
   struct stat st;
@@ -307,7 +307,7 @@ COSMIC_SYSCALL(chmod, 2) {
   return cosmic_ok(L);
 }
 
-static void release_dir(void *dir) { closedir(dir); }
+static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {
   const char *path = luaL_checkstring(L, 1);

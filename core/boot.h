@@ -13,7 +13,7 @@
 #include "lua.h"
 
 /* Runs the bridge. Returns the process's exit status. */
-int cosmic_boot(lua_State *L, const char *root, const char *tl_dir, int argc,
-                char **argv);
+int cosmic_boot (lua_State *L, const char *root, const char *tl_dir, int argc,
+                 char **argv);
 
 #endif

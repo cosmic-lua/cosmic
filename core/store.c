@@ -23,7 +23,7 @@
  * means the artifact database itself cannot be trusted -- truncated,
  * corrupted, or not a database at all despite its validated range. There is
  * no caller to hand that to: the process exits. */
-static _Noreturn void die_unreadable(sqlite3 *db) {
+static _Noreturn void die_unreadable (sqlite3 *db) {
   fprintf(stderr, "cosmic: the attached database is unreadable: %s\n",
           sqlite3_errmsg(db));
   exit(2); /* exits: a database this broken has no well-formed answer to
@@ -46,7 +46,7 @@ static _Noreturn void die_unreadable(sqlite3 *db) {
 /* True when `name` is a path the binary's own tree owns and the kind is
  * one a running program actually executes -- what earns a module the
  * raw value behind its wrapper, handed at the moment it is loaded. */
-static int names_trusted_kind(const char *name, const char *kind) {
+static int names_trusted_kind (const char *name, const char *kind) {
   int reserved = strncmp(name, "cosmic.", 7) == 0 ||
                 strncmp(name, "build.", 6) == 0;
   int runnable = kind != NULL &&
@@ -57,7 +57,7 @@ static int names_trusted_kind(const char *name, const char *kind) {
 /* The raw `cosmic.internal.store`, `cosmic.internal.sqlite`, or
  * `cosmic.internal.debug` value, when the registry holds one under
  * `name`. Pushes it and returns 1, or pushes nothing and returns 0. */
-static int raw_value(lua_State *L, const char *name) {
+static int raw_value (lua_State *L, const char *name) {
   lua_getfield(L, LUA_REGISTRYINDEX, RAW_TABLE);
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
@@ -75,7 +75,7 @@ static int raw_value(lua_State *L, const char *name) {
 /* A loader that answers with its own upvalue, ignoring whatever it was
  * called with -- what a package.preload entry needs, since the preload
  * searcher calls it with a fixed "extra" of its own. */
-static int return_upvalue(lua_State *L) {
+static int return_upvalue (lua_State *L) {
   lua_pushvalue(L, lua_upvalueindex(1));
   return 1;
 }
@@ -89,8 +89,8 @@ static int return_upvalue(lua_State *L) {
  * is set to whether this load earns the raw store: compiled into the
  * binary's own tree, under `cosmic.*` or `build.*`, kind "module" or
  * "main". */
-static int load_from(lua_State *L, sqlite3 *db, const char *name,
-                     int is_binary, int *trusted) {
+static int load_from (lua_State *L, sqlite3 *db, const char *name,
+                      int is_binary, int *trusted) {
   static const char *query =
     "SELECT bytecode, kind FROM main.modules WHERE path = ?1";
   sqlite3_stmt *stmt = NULL;
@@ -131,7 +131,7 @@ static int load_from(lua_State *L, sqlite3 *db, const char *name,
   return 1;
 }
 
-static sqlite3 *database_at(lua_State *L, int list, lua_Integer index) {
+static sqlite3 *database_at (lua_State *L, int list, lua_Integer index) {
   lua_geti(L, list, index);
   sqlite3 *db = lua_touserdata(L, -1);
   lua_pop(L, 1);
@@ -159,7 +159,7 @@ static sqlite3 *database_at(lua_State *L, int list, lua_Integer index) {
  * (the typed wrappers) from a trusted position hands the matching raw
  * value straight to that one chunk, as the `extra` argument `require`
  * always passes its loader. */
-static int store_searcher(lua_State *L) {
+static int store_searcher (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
@@ -207,29 +207,29 @@ static int store_searcher(lua_State *L) {
  * would stand in front of the rows `require` loads -- and ATTACH.
  * Anything but a query is refused when it is prepared. FTS5, which the
  * catalog lookup uses, asks for data_version on its own. */
-static int reads_only(void *unused, int action, const char *first,
-                      const char *second, const char *database,
-                      const char *trigger) {
+static int reads_only (void *unused, int action, const char *first,
+                       const char *second, const char *database,
+                       const char *trigger) {
   (void)unused;
   (void)database;
   (void)trigger;
   switch (action) {
-  case SQLITE_SELECT:
-  case SQLITE_READ:
-  case SQLITE_FUNCTION:
-  case SQLITE_RECURSIVE:
+    case SQLITE_SELECT:
+    case SQLITE_READ:
+    case SQLITE_FUNCTION:
+    case SQLITE_RECURSIVE:
     return SQLITE_OK;
-  case SQLITE_PRAGMA:
+    case SQLITE_PRAGMA:
     return second == NULL && first != NULL &&
                    strcmp(first, "data_version") == 0
                ? SQLITE_OK
                : SQLITE_DENY;
-  default:
+    default:
     return SQLITE_DENY;
   }
 }
 
-static void release_database(void *db) { sqlite3_close_v2(db); }
+static void release_database (void *db) { sqlite3_close_v2(db); }
 
 /* Opens another database and searches it ahead of every other, which is
  * what a project's own build database needs. The connection is held by a
@@ -237,7 +237,7 @@ static void release_database(void *db) { sqlite3_close_v2(db); }
  * list's growth both allocate, and an allocation can raise past the
  * close. SQLite hands back a connection even when it fails to open one,
  * and that one must be closed too. */
-static int store_attach(lua_State *L) {
+static int store_attach (lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
@@ -272,14 +272,14 @@ static int store_attach(lua_State *L) {
   return 2;
 }
 
-static void release_statement(void *stmt) { sqlite3_finalize(stmt); }
+static void release_statement (void *stmt) { sqlite3_finalize(stmt); }
 
 /* Pushes the one column `sql` answers for `key` in `db` and returns 1,
  * or pushes nothing and returns 0 when no row answers. The statement is
  * held by a guard while the value is copied out: the copy allocates,
  * and an allocation can raise past the finalize. */
-static int lookup(lua_State *L, sqlite3 *db, const char *sql,
-                  const char *key) {
+static int lookup (lua_State *L, sqlite3 *db, const char *sql,
+                   const char *key) {
   struct cosmic_guard *guard = cosmic_guard_push(L, release_statement);
   int slot = lua_gettop(L);
   sqlite3_stmt *stmt = NULL;
@@ -312,7 +312,7 @@ static int lookup(lua_State *L, sqlite3 *db, const char *sql,
 /* One module's compiled bytes, for a caller that must load a chunk in
  * an environment of its own -- which is how the vendored compiler runs
  * without the names the surface removed. */
-static int store_bytecode(lua_State *L) {
+static int store_bytecode (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
@@ -336,7 +336,7 @@ static int store_bytecode(lua_State *L) {
  * some other tree needs in order to type a `require` of this one's
  * modules. Only the binary's rows answer, so a project's own database
  * can never stand in for the standard library's types. */
-static int store_source(lua_State *L) {
+static int store_source (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
@@ -358,23 +358,23 @@ static int store_source(lua_State *L) {
 
 /* Pushes one database's meta value and returns 1, or pushes nothing and
  * returns 0 when that key has no row. */
-static int database_meta(lua_State *L, sqlite3 *db, const char *key) {
+static int database_meta (lua_State *L, sqlite3 *db, const char *key) {
   return lookup(L, db, "SELECT value FROM main.meta WHERE key = ?1", key);
 }
 
-static void big_endian_32(unsigned char *out, uint32_t value) {
+static void big_endian_32 (unsigned char *out, uint32_t value) {
   out[0] = (unsigned char)(value >> 24);
   out[1] = (unsigned char)(value >> 16);
   out[2] = (unsigned char)(value >> 8);
   out[3] = (unsigned char)value;
 }
 
-static void big_endian_64(unsigned char *out, uint64_t value) {
+static void big_endian_64 (unsigned char *out, uint64_t value) {
   for (unsigned i = 0; i < 8; i++)
     out[i] = (unsigned char)(value >> (56 - 8 * i));
 }
 
-static void push_hex(lua_State *L, const unsigned char *bytes, size_t length) {
+static void push_hex (lua_State *L, const unsigned char *bytes, size_t length) {
   static const char hex[] = "0123456789abcdef";
   luaL_Buffer buffer;
   char *text = luaL_buffinitsize(L, &buffer, length * 2);
@@ -391,9 +391,9 @@ static void push_hex(lua_State *L, const unsigned char *bytes, size_t length) {
  *   "cosmic-runtime-v2" NUL, target:u32be, configuration:u32be,
  *   exact-raw-core-sha256[32], basis-length:u64be, basis bytes.
  */
-static int push_portable_runtime(lua_State *L,
-                                 const struct cosmic_artifact *artifact,
-                                 int list) {
+static int push_portable_runtime (lua_State *L,
+                                  const struct cosmic_artifact *artifact,
+                                  int list) {
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
   if (binary == NULL || !database_meta(L, binary, "runtime_basis")) {
@@ -441,7 +441,7 @@ static int push_portable_runtime(lua_State *L,
   return 1;
 }
 
-static int push_binary_meta(lua_State *L, int list, const char *key) {
+static int push_binary_meta (lua_State *L, int list, const char *key) {
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   sqlite3 *binary = count > 0 ? database_at(L, list, count) : NULL;
   if (binary != NULL && database_meta(L, binary, key)) return 1;
@@ -453,14 +453,14 @@ static int push_binary_meta(lua_State *L, int list, const char *key) {
  * names, which is what a runtime identity is made of. A portable start checked
  * it before Lua ran; a host program is checked the first time it is asked.
  * The artifact is main's own, not a constant: the answer is remembered on it. */
-static int core_identity_holds(const struct cosmic_artifact *artifact) {
+static int core_identity_holds (const struct cosmic_artifact *artifact) {
   return cosmic_artifact_core_matches((struct cosmic_artifact *)artifact);
 }
 
 /* One entry of metadata. Runtime values come only from the validated artifact
  * context and its own final database, never from a project database searched
  * ahead of it. Other build metadata keeps ordinary database search order. */
-static int store_meta(lua_State *L) {
+static int store_meta (lua_State *L) {
   const char *key = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
@@ -522,7 +522,7 @@ static int store_meta(lua_State *L) {
  * the store's connections, a temp table and ATTACH included; `close` on
  * one is a no-op, and the store keeps the connections for as long as
  * the process runs. */
-static int store_databases(lua_State *L) {
+static int store_databases (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   lua_createtable(L, count > INT_MAX ? 0 : (int)count, 0);
@@ -538,7 +538,7 @@ static int store_databases(lua_State *L) {
 }
 
 /* Private capability handed only to the trusted build.artifact chunk. */
-static int store_trusted_prefix(lua_State *L) {
+static int store_trusted_prefix (lua_State *L) {
   const struct cosmic_artifact *artifact =
       lua_touserdata(L, lua_upvalueindex(1));
   if (artifact == NULL || artifact->fd < 0) {
@@ -595,7 +595,7 @@ static int store_trusted_prefix(lua_State *L) {
 /* Private capability handed only to the trusted build.artifact chunk: the
  * running core's exact bytes, checked against its manifest digest, and the
  * identity a host program made from them declares. */
-static int store_trusted_core(lua_State *L) {
+static int store_trusted_core (lua_State *L) {
   const struct cosmic_artifact *artifact =
       lua_touserdata(L, lua_upvalueindex(1));
   if (artifact == NULL || artifact->fd < 0) {
@@ -637,8 +637,8 @@ static int store_trusted_core(lua_State *L) {
   return 2;
 }
 
-static int open_store_module(lua_State *L,
-                             const struct cosmic_artifact *artifact) {
+static int open_store_module (lua_State *L,
+                              const struct cosmic_artifact *artifact) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   lua_newtable(L);
   lua_pushvalue(L, -2);
@@ -666,14 +666,14 @@ static int open_store_module(lua_State *L,
   return 1;
 }
 
-int cosmic_store_count(lua_State *L) {
+int cosmic_store_count (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   int count = (int)lua_rawlen(L, -1);
   lua_pop(L, 1);
   return count;
 }
 
-const struct cosmic_artifact *cosmic_store_artifact(lua_State *L) {
+const struct cosmic_artifact *cosmic_store_artifact (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_ARTIFACT);
   const struct cosmic_artifact *artifact = lua_touserdata(L, -1);
   lua_pop(L, 1);
@@ -681,15 +681,15 @@ const struct cosmic_artifact *cosmic_store_artifact(lua_State *L) {
   return artifact;
 }
 
-sqlite3 *cosmic_store_database(lua_State *L, int index) {
+sqlite3 *cosmic_store_database (lua_State *L, int index) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   sqlite3 *db = database_at(L, -1, index);
   lua_pop(L, 1);
   return db;
 }
 
-int cosmic_store_install(lua_State *L, sqlite3 *binary,
-                         const struct cosmic_artifact *artifact) {
+int cosmic_store_install (lua_State *L, sqlite3 *binary,
+                          const struct cosmic_artifact *artifact) {
   lua_newtable(L);
   if (binary != NULL) {
     sqlite3_set_authorizer(binary, reads_only, NULL);
@@ -724,7 +724,7 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary,
   return 0;
 }
 
-void cosmic_store_set_raw(lua_State *L, const char *name) {
+void cosmic_store_set_raw (lua_State *L, const char *name) {
   lua_getfield(L, LUA_REGISTRYINDEX, RAW_TABLE);
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
@@ -737,7 +737,7 @@ void cosmic_store_set_raw(lua_State *L, const char *name) {
   lua_pop(L, 1);
 }
 
-void cosmic_store_preload_raw(lua_State *L, const char *name) {
+void cosmic_store_preload_raw (lua_State *L, const char *name) {
   if (!raw_value(L, name)) {
     return; /* nothing registered under this name */
   }
@@ -751,7 +751,7 @@ void cosmic_store_preload_raw(lua_State *L, const char *name) {
   lua_pop(L, 1);
 }
 
-int cosmic_store_meta(lua_State *L, const char *key, char *out, size_t size) {
+int cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size) {
   if (size == 0) {
     return 0;
   }

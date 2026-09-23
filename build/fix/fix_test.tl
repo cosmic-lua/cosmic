@@ -186,8 +186,8 @@ local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
   assert(Fs.write(tmp .. "/own/core/a.h", "int a;\n"))
   assert(Fs.write(tmp .. "/own/vendor/lua/b.c", "int b;\n"))
   local all = assert(fix.chosen(tmp .. "/own", {}))
-  assert(#all.c_files == 1 and all.c_files[1] == "core/a.c",
-    "the whole tree covers its own .c and not the vendored: " .. table.concat(all.c_files, ", "))
+  assert(#all.c_files == 2 and all.c_files[1] == "core/a.c" and all.c_files[2] == "core/a.h",
+    "the whole tree covers its own C and not the vendored: " .. table.concat(all.c_files, ", "))
   local named = assert(fix.chosen(tmp .. "/own", { tmp .. "/own/core/a.h" }))
   assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
