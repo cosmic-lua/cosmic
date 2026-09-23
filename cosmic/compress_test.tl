@@ -29,7 +29,7 @@ local function drive(stream: Compress.Stream, data: string, size?: integer): str
   return table.concat(parts), ""
 end
 
-local function roundtrip(format: string, plain: string, chunk_size?: integer)
+local function roundtrip(format: Compress.Format, plain: string, chunk_size?: integer)
   local enc = assert(Compress.deflater(format))
   local packed, enc_trouble = drive(enc, plain, chunk_size)
   assert(enc_trouble == "", enc_trouble)
@@ -43,7 +43,7 @@ end
 
 local function test_raw_zlib_gzip_roundtrip_many_small_chunks()
   local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 500)
-  for _, format in ipairs({ "raw", "zlib", "gzip" }) do
+  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
     roundtrip(format, plain, 7)
   end
 end
@@ -54,7 +54,7 @@ local function test_raw_zlib_gzip_roundtrip_one_big_chunk()
   -- more than once.
   local piece = string.rep("cosmic ", 97) .. "\0\1\2\3"
   local plain = string.rep(piece, (8 * 1024 * 1024) // #piece + 1)
-  for _, format in ipairs({ "raw", "zlib", "gzip" }) do
+  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
     roundtrip(format, plain)
   end
 end
@@ -101,7 +101,7 @@ local function test_gzip_corrupt_crc_is_refused()
 end
 
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
-  for _, format in ipairs({ "raw", "zlib" }) do
+  for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do
     local enc = assert(Compress.deflater(format))
     local packed = assert(drive(enc, string.rep("abcdefgh", 200)))
     local dec = assert(Compress.inflater(format))
@@ -215,4 +215,278 @@ local function test_xz_corrupt_magic_is_refused()
   local dec = assert(Compress.xz_decoder())
   local out, trouble = dec:update("not an xz stream")
   assert(out == nil and trouble ~= "")
+end
+
+-- Everything below exercises the bounded-output contract and the
+-- member and trailer rules the three multi-member decoders share.
+
+local function unhex(h: string): string
+  return (h:gsub("..", function(pair: string): string
+    return string.char(math.tointeger(tonumber(pair, 16)))
+  end))
+end
+
+-- 8 MiB of NUL bytes as `xz -0 --check=crc32` writes it: 1352 bytes.
+local xz_bomb = unhex(
+  "fd377a585a0000016922de36020021010c0000008f98419cffff11016c5d00006ffdffffa3b7ff473e481572396151b8" ..
+  "9228e6a38607f9eee41e82d32fc53a3c014bb17ec98a8a4d2fa30dd97fa6e38c231153e05918c5758ae277f8b6947f0c" ..
+  "6ac0de744964e2e95c53b204d8f7440cab5f0d6d46e9e5c37688b79657acb64de1691d6ffb4b88106c42cb883f5c008f" ..
+  "d04eaf262894711f3d8f24e1709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5900fc42553f8" ..
+  "f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfc" ..
+  "fb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80b" ..
+  "cdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd19111aaad601d" ..
+  "baceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a" ..
+  "6cdfb53bf0c4bc4827e6589fff10012b00ec7353a7fdbeae7c311a9fb78d316e709ea7235fec28cb85d195988a7e2a91" ..
+  "f22775f719c006984d98fdd8afd5900fc42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c59" ..
+  "86e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd" ..
+  "2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f5" ..
+  "91363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb" ..
+  "522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcd" ..
+  "ff9528460fa9fc7cdefb9a302e56c08f85f38381c065c425510f3fb29fff10012b00ec7353a7fdbeae7c311a9fb78d31" ..
+  "6e709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5900fc42553f8f591363105a5b0ee6fc170" ..
+  "4d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd" ..
+  "533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb" ..
+  "9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e96652" ..
+  "58bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f" ..
+  "3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c425510f3fb29fff10" ..
+  "012b00ec7353a7fdbeae7c311a9fb78d316e709ea7235fec28cb85d195988a7e2a91f22775f719c006984d98fdd8afd5" ..
+  "900fc42553f8f591363105a5b0ee6fc1704d470cd19111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b05" ..
+  "08f9c7daadfcfb522b74cd1e5b2042f9dd533df82964093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093" ..
+  "f8717859f80bcdff9528460fa9fc7cdefb9a302e56c08f85f38381c065c42553f8f591363105a5b0ee6fc1704d470cd1" ..
+  "9111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df829" ..
+  "64093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56" ..
+  "c08f85f38381c065c425510f3fb28003ba0005007b61f7ef0000000045bcd21a0001a20a80808004708db3ed3e300d8b" ..
+  "020000000001595a")
+
+-- The same 8 MiB of NULs as `bzip2 -9` writes it: 48 bytes.
+local bz2_bomb = unhex("425a6839314159265359a23d4b580040404080c00000040008200030cc0529a60100d8808078bb9229c2848511ea5ac0")
+
+local hello_gz = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
+local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
+local hello_xz = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\28\0\0\0\16\207\88\204\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
+
+local type Maker = function(): Compress.Stream
+
+local function gzip_decoder(): Compress.Stream return (assert(Compress.inflater("gzip"))) end
+local function bz2_decoder(): Compress.Stream return (assert(Compress.bz2_decoder())) end
+local function xz_decoder(): Compress.Stream return (assert(Compress.xz_decoder())) end
+
+-- Feeds `data` in one update and drains it the way the contract asks,
+-- asserting no call returns more than `max` bytes. Returns the whole
+-- output, and what `finish` alone gave.
+local function drain(stream: Compress.Stream, data: string, max: integer): string, string
+  local parts: {string} = {}
+  local out = assert(stream:update(data, max))
+  while true do
+    assert(#out <= max, #out .. " bytes from one update, limit " .. max)
+    parts[#parts + 1] = out
+    if not stream:pending() then break end
+    out = assert(stream:update("", max))
+  end
+  local last = assert(stream:finish())
+  parts[#parts + 1] = last
+  return table.concat(parts), last
+end
+
+local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
+  local zeros = string.rep("\0", 8 << 20)
+  local cases: {{string, Maker}} = {
+    { xz_bomb, xz_decoder },
+    { bz2_bomb, bz2_decoder },
+  }
+  local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
+  for _, format in ipairs(formats) do
+    local enc = assert(Compress.deflater(format, 9))
+    local packed = assert(enc:update(zeros)) .. assert(enc:finish())
+    assert(#packed < 16 * 1024, format .. " packed to " .. #packed)
+    cases[#cases + 1] = { packed, function(): Compress.Stream
+      return (assert(Compress.inflater(format)))
+    end }
+  end
+  for _, case in ipairs(cases) do
+    local out, tail = drain(case[2](), case[1], 1 << 20)
+    assert(out == zeros, tostring(#out))
+    assert(tail == "", "a drained stream left " .. #tail .. " bytes for finish")
+    -- The default limit bounds a plain update too.
+    local first = assert(case[2]():update(case[1]))
+    assert(#first == 1 << 20, tostring(#first))
+  end
+end
+
+local function test_a_tiny_output_limit_still_decodes_everything()
+  local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 300)
+  local formats: {Compress.Format} = { "raw", "zlib", "gzip" }
+  for _, format in ipairs(formats) do
+    local enc = assert(Compress.deflater(format))
+    local packed = assert(enc:update(plain)) .. assert(enc:finish())
+    local dec = assert(Compress.inflater(format))
+    assert(drain(dec, packed, 7) == plain, format)
+    assert(dec:done())
+  end
+  assert(drain(xz_decoder(), hello_xz, 3) == "hello, cosmic!")
+  assert(drain(bz2_decoder(), hello_bz2, 3) == "hello, cosmic!")
+end
+
+local function test_finish_without_draining_still_returns_every_byte()
+  -- A caller that never looks at pending() loses nothing: finish hands
+  -- over whatever the output limit held back.
+  local dec = bz2_decoder()
+  local first = assert(dec:update(bz2_bomb, 1000))
+  assert(#first == 1000 and dec:pending())
+  local last = assert(dec:finish())
+  assert(#first + #last == 8 << 20)
+end
+
+local function test_input_after_the_limit_queues_behind_the_backlog()
+  local dec = gzip_decoder()
+  local parts = { assert(dec:update(hello_gz, 2)) }
+  assert(dec:pending())
+  parts[#parts + 1] = assert(dec:update("trailer", 2))
+  while dec:pending() do parts[#parts + 1] = assert(dec:update("", 2)) end
+  assert(table.concat(parts) .. assert(dec:finish()) == "hello, cosmic!")
+  assert(dec:rest() == "trailer", dec:rest())
+end
+
+local function test_xz_empty_updates_are_not_an_error()
+  local dec = xz_decoder()
+  assert(dec:update(hello_xz:sub(1, 20)))
+  assert(dec:update(""))
+  assert(dec:update(""))
+  assert(dec:update(""))
+  local out = assert(dec:update(hello_xz:sub(21)))
+  assert(out .. assert(dec:finish()) == "hello, cosmic!")
+end
+
+-- Every way of splitting `data` in two gives the same output, the same
+-- rest, and a finished, done decoder.
+local function every_split(make: Maker, data: string, want: string, rest: string)
+  for cut = 0, #data do
+    local dec = make()
+    local out = assert(dec:update(data:sub(1, cut))) .. assert(dec:update(data:sub(cut + 1)))
+    local last, trouble = dec:finish()
+    assert(last ~= nil, "cut " .. cut .. ": " .. tostring(trouble))
+    assert(out .. last == want, "cut " .. cut)
+    assert(dec:rest() == rest, "cut " .. cut .. ": rest " .. dec:rest())
+    assert(dec:done())
+  end
+end
+
+local function test_trailing_bytes_become_rest_however_the_input_is_split()
+  -- For each format: a member, and trailers that begin with none of
+  -- its magic, with part of it, and with all but its last byte.
+  local cases: {{Maker, string, {string}}} = {
+    { gzip_decoder, hello_gz, { "TRAILER", "\31\0tar padding", "\31" } },
+    { bz2_decoder, hello_bz2, { "TRAILER", "BZh0", "BZ" } },
+    { xz_decoder, hello_xz, { "TRAILER", "\253\55\122\88\90\1", "\253\55" } },
+  }
+  for _, case in ipairs(cases) do
+    local make, member = case[1], case[2]
+    for _, trailer in ipairs(case[3]) do
+      every_split(make, member .. trailer, "hello, cosmic!", trailer)
+      every_split(make, member .. member .. trailer, "hello, cosmic!hello, cosmic!", trailer)
+    end
+    every_split(make, member, "hello, cosmic!", "")
+  end
+end
+
+local function test_trailing_bytes_in_the_same_chunk_mark_done_at_once()
+  local cases: {{Maker, string}} = {
+    { gzip_decoder, hello_gz },
+    { bz2_decoder, hello_bz2 },
+    { xz_decoder, hello_xz },
+  }
+  for _, case in ipairs(cases) do
+    local dec = case[1]()
+    assert(dec:update(case[2] .. "TRAILER") == "hello, cosmic!")
+    assert(dec:done(), "done after a member and a trailer")
+    assert(dec:rest() == "TRAILER")
+    assert(dec:update("more") == "")
+    assert(dec:rest() == "TRAILERmore")
+  end
+end
+
+local function test_xz_stream_padding_is_skipped_but_ragged_nuls_are_rest()
+  every_split(xz_decoder, hello_xz .. "\0\0\0\0" .. hello_xz .. "\0\0\0\0\0\0\0\0",
+    "hello, cosmic!hello, cosmic!", "")
+  every_split(xz_decoder, hello_xz .. "\0\0\0\0junk", "hello, cosmic!", "junk")
+  every_split(xz_decoder, hello_xz .. "\0\0", "hello, cosmic!", "\0\0")
+  local out, trouble = xz_decoder():update(hello_xz .. "\0\0" .. hello_xz)
+  assert(out == nil and trouble:find("padding", 1, true), trouble)
+end
+
+local function test_xz_memory_limit_is_enforced()
+  local out, trouble = assert(Compress.xz_decoder(1024)):update(hello_xz)
+  assert(out == nil and trouble == "xz memory limit exceeded", trouble)
+  -- hello_xz asks for a 64 MiB dictionary (`xz -9`), which fits in 80 MiB.
+  assert(drain(assert(Compress.xz_decoder(80 << 20)), hello_xz, 100) == "hello, cosmic!")
+end
+
+local function test_raw_and_zlib_truncation_is_reported_as_truncation()
+  local formats: {Compress.Format} = { "raw", "zlib" }
+  for _, format in ipairs(formats) do
+    local enc = assert(Compress.deflater(format))
+    local packed = assert(enc:update(string.rep("abcdefgh", 200))) .. assert(enc:finish())
+    for _, cut in ipairs({ 1, 4, #packed // 2 }) do
+      local dec = assert(Compress.inflater(format))
+      assert(dec:update(packed:sub(1, #packed - cut)))
+      local last, trouble = dec:finish()
+      assert(last == nil and trouble == "truncated compressed stream",
+        format .. ": " .. tostring(trouble))
+    end
+    local _, trouble = assert(Compress.inflater(format)):finish()
+    assert(trouble == "truncated compressed stream", trouble)
+  end
+end
+
+local function test_the_first_member_must_carry_the_magic()
+  local cases: {{Maker, string}} = {
+    { gzip_decoder, "not a gzip stream" },
+    { bz2_decoder, "not a bzip2 stream" },
+    { xz_decoder, "not an xz stream" },
+  }
+  for _, case in ipairs(cases) do
+    local out, trouble = case[1]():update("TRAILER")
+    assert(out == nil and trouble == case[2], trouble)
+  end
+  -- A partial magic and nothing else is a truncated stream.
+  local dec = gzip_decoder()
+  assert(dec:update("\31"))
+  local _, trouble = dec:finish()
+  assert(trouble == "truncated gzip stream", trouble)
+end
+
+local function test_argument_shape_errors_raise()
+  assert(not pcall(Compress.inflater, "brotli" as Compress.Format))
+  assert(not pcall(Compress.deflater, "brotli" as Compress.Format))
+  assert(not pcall(Compress.deflater, "raw", 11))
+  assert(not pcall(Compress.deflater, "raw", -1))
+  assert(not pcall(Compress.xz_decoder, 0))
+  assert(not pcall(Compress.crc32, "x", -1))
+  assert(not pcall(Compress.crc32, "x", 1 << 32))
+  local dec = assert(Compress.inflater("raw"))
+  assert(not pcall(dec.update, dec, "x", 0))
+  assert((Compress.deflater("raw", 0)))
+  assert((Compress.deflater("raw", 10)))
+end
+
+local function test_a_failed_stream_throws_afterward()
+  local dec = bz2_decoder()
+  assert(dec:update("garbage") == nil)
+  assert(not pcall(dec.update, dec, ""))
+  assert(not pcall(dec.finish, dec))
+end
+
+local function test_one_shot_deflate_and_inflate_round_trip()
+  local plain = string.rep("cosmic one-shot ", 1000)
+  local packed = assert(Compress.deflate(plain))
+  assert(#packed < #plain)
+  assert(Compress.inflate(packed) == plain)
+  assert(Compress.inflate(packed, #plain) == plain)
+  local out, trouble = Compress.inflate(packed, #plain - 1)
+  assert(out == nil and trouble:find("larger than", 1, true), trouble)
+  out, trouble = Compress.inflate(packed .. "x")
+  assert(out == nil and trouble:find("trailing", 1, true), trouble)
+  out, trouble = Compress.inflate(packed:sub(1, -2))
+  assert(out == nil and trouble == "truncated compressed stream", trouble)
+  assert(Compress.inflate((assert(Compress.deflate("")))) == "")
 end
