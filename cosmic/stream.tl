@@ -510,25 +510,35 @@ end
 --- codec before passing it to `writer`; `close` flushes the codec's
 --- last bytes with `codec:finish` and then closes `writer`, or aborts
 --- `writer` when the codec or a write fails. `abort` aborts `writer`
---- without finishing the codec.
+--- without finishing the codec. A decoder's held output is drained
+--- (`update("")` while `pending()`) after each write and before
+--- `finish`, so each write to `writer` stays bounded however far the
+--- input expands.
 function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Codec): Stream.Writer
   local closed = false
   local failed: string
   local w: Stream.Writer = {}
+  --- Feeds `data` to the codec and writes its output on, then keeps
+  --- draining while the codec says it is still holding output.
+  local function feed(data: string): boolean, string
+    while true do
+      local out, trouble = codec:update(data)
+      if out == nil then return false, trouble end
+      if #out > 0 then
+        local ok, why = writer:write(out)
+        if not ok then return false, why end
+      end
+      if not codec:pending() then return true, "" end
+      data = ""
+    end
+  end
   w.write = function(_self: Stream.Writer, data: string): boolean, string
     if closed then return false, closed_message end
     if failed then return false, failed end
-    local out, trouble = codec:update(data)
-    if out == nil then
+    local ok, trouble = feed(data)
+    if not ok then
       failed = trouble
       return false, trouble
-    end
-    if #out > 0 then
-      local ok, why = writer:write(out)
-      if not ok then
-        failed = why
-        return false, why
-      end
     end
     return true, ""
   end

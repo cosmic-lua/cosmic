@@ -1,6 +1,7 @@
 --- Proves the Reader/Writer constructors read and write exactly what
 --- they are given, in bounded chunks, and that failures propagate.
 
+local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 
@@ -214,6 +215,28 @@ local function test_transform_writer_flushes_the_codec_on_close()
   assert(c:result() == "abcd")
 end
 
+local function test_transform_writer_drains_a_decoder_in_bounded_writes()
+  -- 16 MiB of zeros compresses to a few KiB; a writer that never
+  -- drained `pending()` handed all 16 MiB to `finish` at close.
+  local plain_size = 16 * 1024 * 1024
+  local packed = assert(Compress.deflate(string.rep("\0", plain_size)))
+  local total, largest = 0, 0
+  local sink: Stream.Writer = {
+    write = function(_s: Stream.Writer, d: string): boolean, string
+      total = total + #d
+      if #d > largest then largest = #d end
+      return true, ""
+    end,
+    close = function(_s: Stream.Writer): boolean, string return true, "" end,
+    abort = function(_s: Stream.Writer): boolean, string return true, "" end,
+  }
+  local w = Stream.transform_writer(sink, (assert(Compress.inflater("zlib"))))
+  assert(w:write(packed))
+  assert(w:close())
+  assert(total == plain_size, tostring(total))
+  assert(largest <= 1024 * 1024, "one write of " .. tostring(largest) .. " bytes")
+end
+
 local function test_transform_serves_small_reads_from_one_large_batch()
   -- A codec that hands back its entire input as one batch on the
   -- first update, then nothing more. `transform` used to re-slice the
@@ -248,7 +271,6 @@ local function test_transform_serves_small_reads_from_one_large_batch()
 end
 
 local function test_a_codec_error_is_sticky_rather_than_a_later_false_eof()
-  local Compress = require("cosmic.compress")
   local inflater = assert(Compress.inflater("gzip"))
   local r = Stream.transform(Stream.from_string(string.rep("x", 100)), inflater)
   local first, trouble = r:read()
@@ -260,7 +282,6 @@ local function test_a_codec_error_is_sticky_rather_than_a_later_false_eof()
 end
 
 local function test_a_truncated_compressed_stream_fails_at_its_end_every_time()
-  local Compress = require("cosmic.compress")
   local deflater = assert(Compress.deflater("gzip"))
   local packed = assert(deflater:update("hello, world")) .. assert(deflater:finish())
   local inflater = assert(Compress.inflater("gzip"))
