@@ -305,6 +305,39 @@ local function test_a_nul_byte_in_a_pax_path_or_linkpath_is_refused()
   end
 end
 
+local function pax_rec(key: string, value: string): string
+  local rec = " " .. key .. "=" .. value .. "\n"
+  local len = #rec
+  while #tostring(len) + #rec ~= len do len = #tostring(len) + #rec end
+  return tostring(len) .. rec
+end
+
+local function test_global_pax_headers_keep_only_the_keys_the_reader_uses()
+  -- Forty global headers, each naming a distinct 256 KiB key, used to
+  -- stay in memory for the reader's lifetime.
+  local parts: {string} = {}
+  local big = string.rep("v", 256 * 1024)
+  for i = 1, 40 do
+    local rec = pax_rec("comment." .. tostring(i), big)
+    parts[#parts + 1] = header("PaxHeaders/g", "g", #rec) .. padded(rec)
+  end
+  local sparse = pax_rec("GNU.sparse.name", "x")
+  local mtime = pax_rec("mtime", "12345")
+  parts[#parts + 1] = header("PaxHeaders/g", "g", #sparse + #mtime) .. padded(sparse .. mtime)
+  parts[#parts + 1] = header("f", "0", 0) .. END
+  local r = Tar.reader(Stream.from_string(table.concat(parts)))
+  parts = nil
+  collectgarbage()
+  local before = collectgarbage("count")
+  local entry, trouble = r:next()
+  assert(entry ~= nil, trouble)
+  collectgarbage()
+  local grown = collectgarbage("count") - before
+  assert(grown < 1024, "reader retained " .. tostring(grown) .. " KiB")
+  -- the keys it does use still apply
+  assert(entry.kind == "other" and entry.mtime == 12345, entry.kind .. " " .. tostring(entry.mtime))
+end
+
 local function test_a_nul_byte_inside_a_gnu_long_name_is_refused()
   local name = "evil\0/../../x\0"
   local raw = header("././@LongLink", "L", #name) .. padded(name) .. header("f", "0", 0) .. END

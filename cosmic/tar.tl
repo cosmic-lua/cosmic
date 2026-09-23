@@ -204,7 +204,11 @@ local function long_field(data: string): string | nil, string
 end
 
 --- The `key=value` records of a pax extended header body, each
---- prefixed with its own decimal byte length.
+--- prefixed with its own decimal byte length. Only the keys `apply_pax`
+--- reads are kept, and every `GNU.sparse.*` key folds into one
+--- valueless `GNU.sparse.` marker, so global (`g`) headers, which last
+--- for the reader's lifetime, retain a handful of values however many
+--- distinct keys an archive sends.
 local function parse_pax(body: string): {string:string}
   local out: {string:string} = {}
   local at = 1
@@ -217,8 +221,12 @@ local function parse_pax(body: string): {string:string}
     local eq = rec:find("=", 1, true)
     if eq ~= nil then
       local key = rec:sub(sp - at + 2, eq - 1)
-      local value = rec:sub(eq + 1, #rec - 1) -- drop the trailing newline
-      out[key] = value
+      if key:sub(1, 11) == "GNU.sparse." then
+        out["GNU.sparse."] = ""
+      elseif key == "path" or key == "linkpath" or key == "size" or key == "mtime"
+        or key == "uid" or key == "gid" then
+        out[key] = rec:sub(eq + 1, #rec - 1) -- drop the trailing newline
+      end
     end
     at = at + len
   end
