@@ -76,3 +76,14 @@ local function test_classes_and_fields_carry_their_prose()
   assert(module == "The syscall table: one C function per call, the same on Linux\n" ..
     "and on macOS. Derived from core/syscalls.h.", module)
 end
+
+--- The generated source names, for each declaration, its line in the
+--- header -- what the build shows in place of the generated source's
+--- own lines.
+local function test_each_declaration_names_its_header_line()
+  local source = assert(gen_syscalls.declaration(header))
+  for _, want in ipairs({ "-- line Stat 3", "-- line Stat.size 4",
+                          "-- line open 17", "-- line O_RDONLY 21" }) do
+    assert(source:find("\n" .. want .. "\n", 1, true), want .. " missing from:\n" .. source)
+  end
+end
