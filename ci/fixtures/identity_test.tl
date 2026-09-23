@@ -334,8 +334,9 @@ local function test_identity_primary(tmp: string)
   local counter = project .. "/test-runs"
   local cache = work .. "/cache"
 
-  -- Run just build/embed_test.tl under the real portable runtime. Its four
-  -- cases cover the portable database and retained-prefix expectations.
+  -- Run just build/embed_test.tl under the real portable runtime. Its six
+  -- cases cover the portable database, the retained prefix, and host
+  -- programs made from the running core.
   local focused = work .. "/focused-embed"
   Fixture.mkdir(focused)
   copy_tree("copy-build", root .. "/build", focused .. "/build", work,
@@ -344,7 +345,7 @@ local function test_identity_primary(tmp: string)
     "test", "build/embed_test.tl" }, focused, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
   Fixture.contains(focused_run.out,
-    "test: PASS (4 tests, 1 modules; 4 ran, 0 stood")
+    "test: PASS (6 tests, 1 modules; 6 ran, 0 stood")
 
   local build1 = Fixture.run("build", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })
