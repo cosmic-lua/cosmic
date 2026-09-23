@@ -72,6 +72,86 @@ static int collector_gc(lua_State *L) {
   return 0;
 }
 
+/* The core's own C, observed through clang's sancov: every basic block of
+ * the files built with COSMIC_NATIVE_COVERAGE owns one flag byte, which the
+ * block's own code sets as it runs, with no call. The flags and the table
+ * saying which line each block begins on are both indexed by block, in link
+ * order: core/coverage_map.zig reads a first link's debug information and
+ * writes the table, and the second link carries it. No runtime work happens
+ * per block, so collection is simply clearing the flags when a window opens
+ * and reading them when it is read. */
+#ifdef COSMIC_NATIVE_COVERAGE
+#include <stdbool.h>
+
+void __sanitizer_cov_bool_flag_init(bool *start, bool *stop);
+void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop);
+
+/* Weak: the first link has no table yet, and is only ever read, never run. */
+extern const uint32_t cosmic_native_coverage_blocks __attribute__((weak));
+extern const char *const cosmic_native_coverage_paths[] __attribute__((weak));
+extern const uint16_t cosmic_native_coverage_path[] __attribute__((weak));
+extern const uint32_t cosmic_native_coverage_line[] __attribute__((weak));
+
+static bool *native_flags;
+static size_t native_count;
+
+/* Every instrumented object's constructor calls this with the same, whole
+ * section; on a later call it is the same range again. */
+void __sanitizer_cov_bool_flag_init(bool *start, bool *stop) {
+  native_flags = start;
+  native_count = (size_t)(stop - start);
+}
+
+/* The PC table is only ever read from the file, by the map generator. */
+void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop) {
+  (void)start;
+  (void)stop;
+}
+
+/* A table from another link would put hits on the wrong lines, so a
+ * mismatch is an error rather than an empty answer. */
+static int native_ready(lua_State *L) {
+  if (!native_flags) return 0;
+  if (!&cosmic_native_coverage_blocks || cosmic_native_coverage_blocks != native_count) {
+    return luaL_error(L, "coverage: the core's block table does not match its %d blocks",
+                      (int)native_count);
+  }
+  return 1;
+}
+
+static void native_clear(void) {
+  if (native_flags) memset(native_flags, 0, native_count);
+}
+
+/* Adds to the {path: {line: true}} table at `hits` every mapped block's line,
+ * or only those whose flag is set. */
+static void native_collect(lua_State *L, int hits, int only_hit) {
+  if (!native_ready(L)) return;
+  for (size_t block = 0; block < native_count; block++) {
+    uint16_t path = cosmic_native_coverage_path[block];
+    if (path == UINT16_MAX || (only_hit && !native_flags[block])) continue;
+    const char *name = cosmic_native_coverage_paths[path];
+    lua_getfield(L, hits, name);
+    if (lua_isnil(L, -1)) {
+      lua_pop(L, 1);
+      lua_newtable(L);
+      lua_pushvalue(L, -1);
+      lua_setfield(L, hits, name);
+    }
+    lua_pushboolean(L, 1);
+    lua_rawseti(L, -2, (lua_Integer)cosmic_native_coverage_line[block]);
+    lua_pop(L, 1);
+  }
+}
+#else
+static void native_clear(void) {}
+static void native_collect(lua_State *L, int hits, int only_hit) {
+  (void)L;
+  (void)hits;
+  (void)only_hit;
+}
+#endif
+
 static void native_line_hook(lua_State *L, lua_Debug *ar) {
   Collector *collector = current_collector(L);
   /* A coroutine can retain an inherited hook after its parent stops. */
@@ -134,6 +214,7 @@ static int coverage_start(lua_State *L) {
   lua_setiuservalue(L, -2, 1);
   lua_pop(L, 1);
   collector->active = 1;
+  native_clear();
   lua_sethook(L, native_line_hook, LUA_MASKLINE, 0);
   return 0;
 }
@@ -147,6 +228,7 @@ static int coverage_snapshot(lua_State *L) {
   lua_newtable(L);
   if (!collector) return 1;
   int hits = lua_gettop(L);
+  native_collect(L, hits, 1);
   for (unsigned i = 0; i < SOURCE_BUCKETS; i++) {
     for (HitSource *source = collector->buckets[i]; source; source = source->next) {
       const char *name = source->source ? getstr(source->source) : "=?";
@@ -188,6 +270,15 @@ static int coverage_stop(lua_State *L) {
   return coverage_snapshot(L);
 }
 
+/* Every line of the core's own C that has a block starting on it, hit or
+ * not, keyed like `snapshot`: what a hit is out of. Empty in a core built
+ * without native coverage. */
+static int coverage_lines(lua_State *L) {
+  lua_newtable(L);
+  native_collect(L, lua_gettop(L), 0);
+  return 1;
+}
+
 void cosmic_coverage_install(lua_State *L) {
   luaL_newmetatable(L, "cosmic.coverage.collector");
   lua_pushcfunction(L, collector_gc);
@@ -207,4 +298,6 @@ void cosmic_coverage_install(lua_State *L) {
   lua_setfield(L, -2, "stop");
   lua_pushcfunction(L, coverage_snapshot);
   lua_setfield(L, -2, "snapshot");
+  lua_pushcfunction(L, coverage_lines);
+  lua_setfield(L, -2, "lines");
 }

@@ -24,7 +24,10 @@
  * collection, for a caller that wants to look while collection keeps
  * running. All three describe hits the same way: {string:
  * {integer: boolean}}, keyed by each chunk's full source name (with an initial
- * @ stripped). Registered
+ * @ stripped). In a core built with COSMIC_NATIVE_COVERAGE they also
+ * hold the core's own C, by repository path (core/syscalls.c). A
+ * fourth, `lines`, answers every C line that could be hit, in that same
+ * form -- empty in any other core. Registered
  * as the raw value behind `cosmic.internal.debug` (core/surface.c),
  * the same trust-gated handoff `cosmic.store` and `cosmic.sqlite` get
  * through core/store.c's `store_searcher`. */

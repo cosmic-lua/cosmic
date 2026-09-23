@@ -59,6 +59,16 @@ const Configuration = struct {
     sanitize: bool,
 };
 
+/// Whether a core observes its own C (`core/coverage.c`): not at all, or
+/// with sancov's per-block flags, once linked without the block-to-line
+/// table (`first_link`, read for its debug information and never run) and
+/// once carrying the table `core/coverage_map.zig` wrote from that link.
+const NativeCoverage = union(enum) {
+    off,
+    first_link,
+    map: std.Build.LazyPath,
+};
+
 const release_configuration = Configuration{ .id = 1, .name = "release", .sanitize = false };
 const sanitized_configuration = Configuration{ .id = 2, .name = "sanitized", .sanitize = true };
 
@@ -323,14 +333,14 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false, .off);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, true);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, true, .off);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -357,9 +367,42 @@ pub fn build(b: *std.Build) void {
     // for the host only, and installed beside the release cores. Its portable
     // artifact still carries all three required release entries, plus this
     // host's configuration-2 entry selected by its private launcher.
+    // On an ELF host it also observes its own C, so the suite it runs
+    // writes the core's lines into the same coverage tables as Teal's.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, false);
+    const checked_host = baselineHostTarget(b);
+    const checked = checked: {
+        // The map reads DWARF from an ELF file; a Mach-O host's checked
+        // core stays uninstrumented rather than half-mapped.
+        if (checked_host.result.ofmt != .elf)
+            break :checked core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .off);
+        const first = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .first_link);
+        const mapper = b.addExecutable(.{
+            .name = "coverage-map",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("core/coverage_map.zig"),
+                .target = b.graph.host,
+                .optimize = .ReleaseSafe,
+            }),
+        });
+        const write_map = b.addRunArtifact(mapper);
+        write_map.addArg("write");
+        write_map.addFileArg(first.getEmittedBin());
+        write_map.addArg(b.pathFromRoot("."));
+        const map = write_map.addOutputFileArg("coverage_map.c");
+        const second = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .{ .map = map });
+        // The table is indexed by block, and only holds for a link whose
+        // blocks are the first's, in the first's order: the second link is
+        // mapped again and must say the same.
+        const check_map = b.addRunArtifact(mapper);
+        check_map.addArg("check");
+        check_map.addFileArg(second.getEmittedBin());
+        check_map.addArg(b.pathFromRoot("."));
+        check_map.addFileArg(map);
+        sanitized.dependOn(&check_map.step);
+        break :checked second;
+    };
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -522,6 +565,7 @@ fn core(
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
+    native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
@@ -650,14 +694,24 @@ fn core(
         "-Werror",
         "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
     } ++ mbedtls_config;
+    // Only the core's own C is instrumented: the vendored libraries have
+    // their own tests, and their blocks would outnumber the core's.
+    const observed_flags = core_flags ++ [_][]const u8{
+        "-fsanitize-coverage=inline-bool-flag,pc-table",
+        "-DCOSMIC_NATIVE_COVERAGE",
+    };
+    const own_flags: []const []const u8 = switch (native_coverage) {
+        .off => &core_flags,
+        .first_link, .map => &observed_flags,
+    };
     mod.addCSourceFiles(.{
         .root = b.path("core"),
         .files = &core_sources,
-        .flags = &core_flags,
+        .flags = own_flags,
     });
     mod.addCSourceFile(.{
         .file = b.path("core/entry.c"),
-        .flags = &core_flags,
+        .flags = own_flags,
     });
     mod.addIncludePath(b.path("core"));
 
@@ -673,8 +727,14 @@ fn core(
             "test/portable/startup_hook.c"
         else
             "core/startup_hook.c"),
-        .flags = &core_flags,
+        .flags = own_flags,
     });
+    // Last, and uninstrumented, so both links hold the same blocks in the
+    // same order: the table is data and adds none.
+    switch (native_coverage) {
+        .off, .first_link => {},
+        .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{"-std=c11"} }),
+    }
 
     return b.addExecutable(.{
         .name = "cosmic-core",
