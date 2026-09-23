@@ -5,8 +5,9 @@
 local Compress = require("cosmic.compress")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
--- it in one piece when `size` is nil), collecting every update's output
--- plus finish's, and returns it with the error `finish` gives, if any.
+-- it in one piece when `size` is nil), draining each piece's held
+-- output, collecting every update's output plus finish's, and returns
+-- it with the error `finish` gives, if any.
 local function drive(stream: Compress.Stream, data: string, size?: integer): string, string
   local parts: {string} = {}
   local step = size or #data
@@ -14,12 +15,17 @@ local function drive(stream: Compress.Stream, data: string, size?: integer): str
   local pos = 1
   while pos <= #data do
     local piece = data:sub(pos, pos + step - 1)
-    local out, trouble = stream:update(piece)
-    if out == nil then
-      return "", trouble
+    while true do
+      local out, trouble = stream:update(piece)
+      if out == nil then
+        return "", trouble
+      end
+      assert(trouble == "", "a success carries \"\" in the error slot")
+      parts[#parts + 1] = out
+      if not stream:pending() then break end
+      piece = ""
     end
-    parts[#parts + 1] = out
-    pos = pos + #piece
+    pos = pos + step
   end
   local last, trouble = stream:finish()
   if last == nil then
@@ -130,7 +136,18 @@ local function test_crc32_matches_the_known_value_and_continues()
   local half = Compress.crc32("hello, ")
   local continued = Compress.crc32("cosmic!", half)
   assert(whole == continued)
+  assert(whole == 3327618652, tostring(whole))
   assert(Compress.crc32("") == 0)
+  -- Long, and at an unaligned start: the hardware paths fold 16 bytes
+  -- at a time and handle the ragged ends apart (binascii.crc32 again).
+  local bytes: {string} = {}
+  for i = 0, 255 do bytes[#bytes + 1] = string.char(i) end
+  local long = table.concat(bytes):rep(40)
+  assert(Compress.crc32(long) == 3150855069)
+  assert(Compress.crc32(long:sub(4, 1000)) == 2769185661)
+  local folded = 0
+  for i = 1, #long, 37 do folded = Compress.crc32(long:sub(i, i + 36), folded) end
+  assert(folded == 3150855069)
 end
 
 local function test_bz2_known_vector_decodes_one_byte_at_a_time()
@@ -327,14 +344,135 @@ local function test_a_tiny_output_limit_still_decodes_everything()
   assert(drain(bz2_decoder(), hello_bz2, 3) == "hello, cosmic!")
 end
 
-local function test_finish_without_draining_still_returns_every_byte()
-  -- A caller that never looks at pending() loses nothing: finish hands
-  -- over whatever the output limit held back.
-  local dec = bz2_decoder()
-  local first = assert(dec:update(bz2_bomb, 1000))
-  assert(#first == 1000 and dec:pending())
-  local last = assert(dec:finish())
-  assert(#first + #last == 8 << 20)
+local function test_finish_refuses_while_output_is_pending()
+  -- finish would otherwise hand over the whole held-back expansion at
+  -- once: it raises instead, and the stream stays usable.
+  local cases: {{string, Maker}} = {
+    { bz2_bomb, bz2_decoder },
+    { xz_bomb, xz_decoder },
+  }
+  for _, case in ipairs(cases) do
+    local dec = case[2]()
+    local total = #assert(dec:update(case[1], 1024))
+    assert(dec:pending())
+    local ok, why = pcall(dec.finish, dec)
+    assert(not ok and tostring(why):find("pending", 1, true), tostring(why))
+    while dec:pending() do total = total + #assert(dec:update("", 1 << 20)) end
+    local last = assert(dec:finish())
+    assert(last == "" and total == 8 << 20, tostring(total))
+  end
+end
+
+local function test_every_success_carries_an_empty_error()
+  local constructors: {function(): Compress.Stream | nil, string} = {
+    function(): Compress.Stream | nil, string return Compress.inflater("gzip") end,
+    function(): Compress.Stream | nil, string return Compress.deflater("gzip") end,
+    function(): Compress.Stream | nil, string return Compress.xz_decoder() end,
+    function(): Compress.Stream | nil, string return Compress.bz2_decoder() end,
+  }
+  for _, construct in ipairs(constructors) do
+    local s, trouble = construct()
+    assert(s ~= nil and trouble == "", trouble)
+  end
+  local enc, etrouble = Compress.deflater("gzip")
+  assert(enc ~= nil and etrouble == "")
+  local body, utrouble = enc:update("hello, cosmic!")
+  assert(body ~= nil and utrouble == "")
+  local tail, ftrouble = enc:finish()
+  assert(tail ~= nil and ftrouble == "")
+  local dec = gzip_decoder()
+  local out, dtrouble = dec:update(body .. tail)
+  assert(out == "hello, cosmic!" and dtrouble == "", dtrouble)
+  local last, ltrouble = dec:finish()
+  assert(last == "" and ltrouble == "", ltrouble)
+end
+
+-- Each kind of stream, freshly made, and a first chunk for it.
+local function every_kind(): {{Compress.Stream, string}}
+  return {
+    { gzip_decoder(), hello_gz },
+    { bz2_decoder(), hello_bz2 },
+    { xz_decoder(), hello_xz },
+    { (assert(Compress.inflater("zlib"))), "x\156\203" },
+    { (assert(Compress.deflater("gzip"))), "hello" },
+  }
+end
+
+local record Holder
+  s: Compress.Stream
+end
+
+local function test_a_stream_revived_by_a_finalizer_is_finished()
+  for _, case in ipairs(every_kind()) do
+    local saved: Compress.Stream
+    local holder: Holder = setmetatable({} as Holder, {
+      __gc = function(self: Holder) saved = self.s end,
+    } as metatable<Holder>)
+    holder.s = case[1]
+    -- The stream is collected in the same cycle as the table whose
+    -- finalizer hands it back; before it was left "closed", this
+    -- update read freed codec state.
+    case[1] = nil
+    holder = nil
+    collectgarbage()
+    collectgarbage()
+    assert(saved ~= nil, "the finalizer ran")
+    local ok, why = pcall(saved.update, saved, case[2])
+    assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
+    assert(not pcall(saved.finish, saved))
+    assert(not saved:pending())
+    assert(saved:rest() == "")
+  end
+end
+
+local function test_a_closed_stream_is_finished_and_keeps_rest()
+  do
+    local dec <close> = gzip_decoder()
+    assert(dec:update(hello_gz .. "TRAILER") == "hello, cosmic!")
+  end
+  local kept: Compress.Stream
+  do
+    local dec <close> = gzip_decoder()
+    kept = dec
+    assert(dec:update(hello_gz .. "TRAILER") == "hello, cosmic!")
+  end
+  assert(kept:rest() == "TRAILER" and kept:done())
+  assert(not pcall(kept.update, kept, ""))
+  assert(not pcall(kept.finish, kept))
+  -- Closing a finished stream, or closing twice, is harmless.
+  for _, case in ipairs(every_kind()) do
+    local s <close> = case[1]
+    local closer = getmetatable(s as {any: any}).__close as function(any, any)
+    closer(s, nil)
+    closer(s, nil)
+  end
+end
+
+local function test_a_raise_inside_update_leaves_the_stream_finished()
+  -- Only the checked core can refuse an allocation, which is what makes
+  -- a luaL_Buffer raise in the middle of a decode.
+  local testing = require("cosmic.internal.testing")
+  if testing.configuration ~= "sanitized" then return end
+  local input = string.rep("the quick brown fox ", 5000)
+  local enc = assert(Compress.deflater("gzip"))
+  local packed = assert(enc:update(input)) .. assert(enc:finish())
+  local raised = 0
+  for after = 0, 100000 do
+    local dec = gzip_decoder()
+    testing.fail_allocations(after)
+    local ok = pcall(dec.update, dec, packed, 1 << 20)
+    local refused = testing.allow_allocations()
+    if refused == 0 then
+      assert(ok)
+      break
+    end
+    if not ok then
+      raised = raised + 1
+      local again, why = pcall(dec.update, dec, "")
+      assert(not again and tostring(why):find("finished", 1, true), tostring(why))
+    end
+  end
+  assert(raised > 0)
 end
 
 local function test_input_after_the_limit_queues_behind_the_backlog()

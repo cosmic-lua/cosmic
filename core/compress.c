@@ -104,14 +104,16 @@ struct inflate_state {
   size_t field_have;
   unsigned flg;
   size_t extra_remaining;
-  mz_uint32 crc;   /* the current gzip member's output CRC-32 */
-  mz_uint32 isize; /* ... and its length, mod 2^32 */
+  uint32_t crc;   /* the current gzip member's output CRC-32 */
+  uint32_t isize; /* ... and its length, mod 2^32 */
 };
 
 struct stream {
   stream_op op;
   stream_format format;
-  int finished; /* finish() ran, or an error did: methods now throw */
+  /* finish() ran, an error did, the stream was closed or collected, or
+   * an update/finish is under way (see `begin`): methods now throw. */
+  int finished;
   int ended;    /* decoder: the compressed data's end has been seen */
   int more;     /* decoder: the last call stopped at its output limit */
 
@@ -133,8 +135,8 @@ struct stream {
   /* Encoder state. */
   tdefl_compressor *tdefl;
   int wrote_header;
-  mz_uint32 enc_crc;
-  mz_uint32 enc_isize;
+  uint32_t enc_crc;
+  uint32_t enc_isize;
 };
 
 /* Where decoded output goes, and how much more of it may go there. */
@@ -167,18 +169,33 @@ static int bytes_append(struct bytes *b, const void *data, size_t len) {
   return 0;
 }
 
-static mz_uint32 le32(const unsigned char *p) {
-  return (mz_uint32)p[0] | ((mz_uint32)p[1] << 8) | ((mz_uint32)p[2] << 16) |
-         ((mz_uint32)p[3] << 24);
+static uint32_t le32(const unsigned char *p) {
+  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+         ((uint32_t)p[3] << 24);
 }
 
 static struct stream *checked_stream(lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   if (s->finished) {
-    luaL_error(L, "the stream is finished");
+    luaL_error(L, "the stream is finished"); /* throws: a use after the
+                                                end is a bug, not a
+                                                runtime failure */
   }
   return s;
 }
+
+/* The second result of every success: "" in the error slot. */
+static int succeeded(lua_State *L) {
+  lua_pushliteral(L, "");
+  return 2;
+}
+
+/* Marks the stream finished for the length of an update or finish. The
+ * codec may already have consumed input when a buffer's growth raises
+ * on memory, and nothing can say where it stopped, so a raise leaves
+ * the stream finished; only a normal return from `update` clears the
+ * mark again. */
+static void begin(struct stream *s) { s->finished = 1; }
 
 /* Frees the codec's own state; `rest` stays for the caller to read. */
 static void release(struct stream *s) {
@@ -189,6 +206,7 @@ static void release(struct stream *s) {
   free(s->in.p);
   memset(&s->in, 0, sizeof s->in);
   s->in_pos = 0;
+  s->more = 0;
   if (s->codec_open) {
     if (s->op == OP_BZ2) BZ2_bzDecompressEnd(&s->u.bz);
     if (s->op == OP_XZ) lzma_end(&s->u.lzma);
@@ -247,8 +265,8 @@ static int inflate_step(struct stream *s, const unsigned char *p, size_t n,
     i += in_size;
     if (out_avail > 0) {
       if (s->format == FMT_GZIP) {
-        f->crc = (mz_uint32)mz_crc32(f->crc, f->dict + f->dict_ofs, out_avail);
-        f->isize += (mz_uint32)out_avail;
+        f->crc = lzma_crc32(f->dict + f->dict_ofs, out_avail, f->crc);
+        f->isize += (uint32_t)out_avail;
       }
       f->held_ofs = f->dict_ofs;
       f->held_len = out_avail;
@@ -268,7 +286,7 @@ static int inflate_step(struct stream *s, const unsigned char *p, size_t n,
 static void inflate_start_body(struct inflate_state *f) {
   tinfl_init(&f->tinfl);
   f->body_done = 0;
-  f->crc = MZ_CRC32_INIT;
+  f->crc = 0;
   f->isize = 0;
 }
 
@@ -658,7 +676,7 @@ static int inflater(lua_State *L) {
     s->ph = PH_MEMBER;
     inflate_start_body(s->inf);
   }
-  return 1;
+  return succeeded(L);
 }
 
 static int deflater(lua_State *L) {
@@ -680,8 +698,7 @@ static int deflater(lua_State *L) {
   mz_uint flags = tdefl_create_comp_flags_from_zip_params(
       (int)level, window_bits, MZ_DEFAULT_STRATEGY);
   tdefl_init(s->tdefl, NULL, NULL, (int)flags);
-  s->enc_crc = MZ_CRC32_INIT;
-  return 1;
+  return succeeded(L);
 }
 
 static int xz_decoder(lua_State *L) {
@@ -690,13 +707,13 @@ static int xz_decoder(lua_State *L) {
   struct stream *s = new_stream(L, OP_XZ);
   s->memlimit = (uint64_t)memlimit;
   s->ph = PH_BETWEEN;
-  return 1;
+  return succeeded(L);
 }
 
 static int bz2_decoder(lua_State *L) {
   struct stream *s = new_stream(L, OP_BZ2);
   s->ph = PH_BETWEEN;
-  return 1;
+  return succeeded(L);
 }
 
 /* ---- encoder ---- */
@@ -728,7 +745,7 @@ static void gzip_write_header(struct stream *s, luaL_Buffer *out) {
   s->wrote_header = 1;
 }
 
-static void push_u32le(luaL_Buffer *out, mz_uint32 v) {
+static void push_u32le(luaL_Buffer *out, uint32_t v) {
   unsigned char b[4] = {(unsigned char)(v), (unsigned char)(v >> 8),
                         (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
   luaL_addlstring(out, (const char *)b, 4);
@@ -743,16 +760,19 @@ static int stream_update(lua_State *L) {
       (const unsigned char *)luaL_checklstring(L, 2, &len);
   lua_Integer max = luaL_optinteger(L, 3, DEFAULT_MAX_OUT);
   luaL_argcheck(L, max > 0, 3, "the output limit must be positive");
+  begin(s);
   luaL_Buffer out;
   luaL_buffinit(L, &out);
 
   if (s->op == OP_DEFLATE) {
     gzip_write_header(s, &out);
-    s->enc_crc = (mz_uint32)mz_crc32(s->enc_crc, data, len);
-    s->enc_isize += (mz_uint32)len;
+    s->enc_crc = lzma_crc32(data, len, s->enc_crc);
+    s->enc_isize += (uint32_t)len;
     deflate_chunk(s, data, len, TDEFL_NO_FLUSH, &out);
     luaL_pushresult(&out);
-    return 1;
+    lua_pushliteral(L, "");
+    s->finished = 0;
+    return 2;
   }
 
   /* With input already waiting, the new chunk joins it; otherwise the
@@ -785,11 +805,22 @@ static int stream_update(lua_State *L) {
     }
   }
   luaL_pushresult(&out);
-  return 1;
+  lua_pushliteral(L, "");
+  s->finished = 0;
+  return 2;
 }
 
+/* A decoder holding output back refuses to finish rather than hand all
+ * of it over at once: past the drain, what is left is at most a partial
+ * magic, which goes to `rest`, so `finish` never returns a decoder's
+ * bulk. */
 static int stream_finish(lua_State *L) {
   struct stream *s = checked_stream(L);
+  if (s->more) {
+    return luaL_error(L, "the stream has pending output: drain it with "
+                         "update(\"\") while pending() before finish");
+  }
+  begin(s);
   luaL_Buffer out;
   luaL_buffinit(L, &out);
 
@@ -800,10 +831,9 @@ static int stream_finish(lua_State *L) {
       push_u32le(&out, s->enc_crc);
       push_u32le(&out, s->enc_isize);
     }
-    s->finished = 1;
     release(s);
     luaL_pushresult(&out);
-    return 1;
+    return succeeded(L);
   }
 
   struct sink sink = {&out, SIZE_MAX};
@@ -818,10 +848,9 @@ static int stream_finish(lua_State *L) {
     if (s->members == 0) return fail(L, s, &out, truncated(s));
     if (enter_trailing(s) != 0) return fail(L, s, &out, "out of memory");
   }
-  s->finished = 1;
   release(s);
   luaL_pushresult(&out);
-  return 1;
+  return succeeded(L);
 }
 
 static int stream_done(lua_State *L) {
@@ -843,8 +872,20 @@ static int stream_rest(lua_State *L) {
   return 1;
 }
 
+/* `__close`: the stream ends here, as after an error. `rest` stays. */
+static int stream_close(lua_State *L) {
+  struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
+  s->finished = 1;
+  release(s);
+  return 0;
+}
+
+/* `__gc`: as `__close`, and `rest` goes too. A finalizer elsewhere can
+ * still hand the object back to Lua afterward, so it is left finished:
+ * every method that would reach the freed state throws instead. */
 static int stream_gc(lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
+  s->finished = 1;
   release(s);
   free(s->rest.p);
   memset(&s->rest, 0, sizeof s->rest);
@@ -854,10 +895,11 @@ static int stream_gc(lua_State *L) {
 static int compress_crc32(lua_State *L) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
-  lua_Integer crc = luaL_optinteger(L, 2, MZ_CRC32_INIT);
+  lua_Integer crc = luaL_optinteger(L, 2, 0);
   luaL_argcheck(L, crc >= 0 && crc <= 0xffffffff, 2,
                 "a CRC-32 is 0 to 0xffffffff");
-  mz_ulong result = mz_crc32((mz_ulong)crc, (const unsigned char *)data, len);
+  uint32_t result =
+      lzma_crc32((const uint8_t *)data, len, (uint32_t)crc);
   lua_pushinteger(L, (lua_Integer)result);
   return 1;
 }
@@ -878,6 +920,8 @@ int cosmic_open_compress(lua_State *L) {
   luaL_newmetatable(L, STREAM_TYPE);
   lua_pushcfunction(L, stream_gc);
   lua_setfield(L, -2, "__gc");
+  lua_pushcfunction(L, stream_close);
+  lua_setfield(L, -2, "__close");
   lua_pushstring(L, STREAM_TYPE);
   lua_setfield(L, -2, "__name");
   lua_newtable(L);

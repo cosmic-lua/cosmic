@@ -8,15 +8,24 @@
 
 struct hasher {
   psa_hash_operation_t operation;
-  /* Set once `digest` has run, or setup failed: every method past that
-   * point is an error rather than a crash. */
+  /* Set once `digest` has run, setup failed, or the hasher was closed
+   * or collected: every method past that point is an error rather than
+   * a crash. */
   int finished;
 };
+
+/* The second result of every success: "" in the error slot. */
+static int succeeded(lua_State *L) {
+  lua_pushliteral(L, "");
+  return 2;
+}
 
 static struct hasher *checked_hasher(lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
   if (h->finished) {
-    luaL_error(L, "the hasher is finished");
+    luaL_error(L, "the hasher is finished"); /* throws: a use after the
+                                                end is a bug, not a
+                                                runtime failure */
   }
   return h;
 }
@@ -39,7 +48,7 @@ static int hash_hasher(lua_State *L) {
     lua_pushstring(L, "the hasher failed to start");
     return 2;
   }
-  return 1;
+  return succeeded(L);
 }
 
 static int hasher_update(lua_State *L) {
@@ -71,9 +80,12 @@ static int hasher_digest(lua_State *L) {
     return 2;
   }
   lua_pushlstring(L, (const char *)out, out_len);
-  return 1;
+  return succeeded(L);
 }
 
+/* `__close` and `__gc` alike: abandons an unfinished digest. A
+ * finalizer elsewhere can hand a collected hasher back to Lua, where it
+ * is finished like any other. */
 static int hasher_gc(lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
   if (!h->finished) {
@@ -81,6 +93,25 @@ static int hasher_gc(lua_State *L) {
     h->finished = 1;
   }
   return 0;
+}
+
+/* The sum of the unsigned bytes of data[first..last], 1-based and
+ * inclusive, the whole string by default. A range outside the string
+ * raises; an empty one (first == last + 1) sums to 0. */
+static int hash_byte_sum(lua_State *L) {
+  size_t len;
+  const unsigned char *data =
+      (const unsigned char *)luaL_checklstring(L, 1, &len);
+  lua_Integer first = luaL_optinteger(L, 2, 1);
+  lua_Integer last = luaL_optinteger(L, 3, (lua_Integer)len);
+  luaL_argcheck(L, first >= 1, 2, "first must be at least 1");
+  luaL_argcheck(L, last >= 0 && (lua_Unsigned)last <= len, 3,
+                "last must be within the string");
+  luaL_argcheck(L, first <= last + 1, 2, "first is past last");
+  lua_Integer sum = 0;
+  for (lua_Integer i = first; i <= last; i++) sum += data[i - 1];
+  lua_pushinteger(L, sum);
+  return 1;
 }
 
 static const luaL_Reg hasher_methods[] = {
@@ -91,6 +122,7 @@ static const luaL_Reg hasher_methods[] = {
 
 static const luaL_Reg module[] = {
     {"hasher", hash_hasher},
+    {"byte_sum", hash_byte_sum},
     {NULL, NULL},
 };
 
@@ -98,6 +130,8 @@ int cosmic_open_hash(lua_State *L) {
   luaL_newmetatable(L, HASHER_TYPE);
   lua_pushcfunction(L, hasher_gc);
   lua_setfield(L, -2, "__gc");
+  lua_pushcfunction(L, hasher_gc);
+  lua_setfield(L, -2, "__close");
   lua_pushstring(L, HASHER_TYPE);
   lua_setfield(L, -2, "__name");
   lua_newtable(L);
