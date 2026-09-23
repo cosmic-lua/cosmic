@@ -40,7 +40,10 @@ local record Cli
   --- `cosmic build`: builds the tree in the working directory, then
   --- writes one executable under o/bin/ for each cmd/<name>/main.tl
   --- it holds -- o/bin/<name>, which runs on its own, with nothing
-  --- beside it -- see cmd
+  --- beside it -- see cmd. It runs on every supported system. With
+  --- `--host` it is instead this system's native executable with the
+  --- program inside, which starts faster, with no launcher, but runs
+  --- only on a system like this one
   build: string
   --- `cosmic db`: what the two databases under o/ hold, table by
   --- table -- rows, pages, bytes -- and how the last few builds went

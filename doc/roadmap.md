@@ -23,12 +23,10 @@ defines the target; once something ships, it leaves this file.
 
 ## process isolation and containment
 
-Make the first launch cheap too. A process relaunching itself (`Proc.relaunch`,
-which test workers use) already skips the shell launcher, but every launch from
-a shell still pays for its `uname`, `id`, `stat`, and `sha256sum` steps: about
-23 ms of the roughly 43 ms a minimal start takes. Trim the launcher, and add a
-host-only "assimilated" program -- the native core with the database appended,
-executed directly -- for hosts that want no launcher at all.
+Hash the portable core once per start. A warm launch hashes the cached core in
+the launcher and again in C startup; the two SHA-256 passes over the 1.9 MB
+core are about 15 ms of a 23 ms minimal start. Decide which check the trust
+model keeps, then drop the other.
 
 Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and `Child.end_strays` ends them; macOS has no subreaper, so a

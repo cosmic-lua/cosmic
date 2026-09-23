@@ -52,7 +52,8 @@ end
 --- artifact, and database this process runs, executed directly with the
 --- private startup contract its launcher would give it, so the child
 --- skips the launcher and cannot land on another core -- a checked build
---- relaunches as a checked build. Append the child's own arguments to
+--- relaunches as a checked build. A host program is executed again as it
+--- is, since it has no launcher to skip. Append the child's own arguments to
 --- `argv`, add `env` to its environment, and pass `fds` to
 --- `Child.start`. Nil for a process not started from a portable
 --- artifact; `Proc.executable` is the way to start that one again.
@@ -60,12 +61,16 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
   if relaunch ~= nil then return relaunch, "" end
   local found, trouble = sys.relaunch(ARTIFACT_FD, CORE_FD)
   if found == nil then return nil, trouble end
+  if found.host then
+    relaunch = { argv = { found.path }, env = {}, fds = {} }
+    return relaunch, ""
+  end
   -- One core descriptor serves every relaunch; it is closed on exec, so
   -- nothing but a child it is handed to ever inherits it.
   relaunch = {
-    argv = { found.path, "--artifact", found.artifact },
-    env = found.environment,
-    fds = { [ARTIFACT_FD] = found.artifact_fd, [CORE_FD] = found.core_fd },
+    argv = { found.path, "--artifact", assert(found.artifact) },
+    env = assert(found.environment),
+    fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
   }
   return relaunch, ""
 end

@@ -20,6 +20,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local artifact = require("build.artifact")
+local type raw_store = require("cosmic.internal.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local teal = require("build.teal")
@@ -255,9 +256,11 @@ function embed.database(project: string, main: string): string | nil, string
 end
 
 --- Builds the tree at `root` and writes `root/o/bin/<name>` for every
---- `cmd/<name>/main.tl` it holds, for the target this binary runs on.
---- Returns the names written, none for a tree with no `cmd/`.
-function embed.tree(root: string): {string} | nil, string
+--- `cmd/<name>/main.tl` it holds: a portable program, or with `host` a host
+--- program -- this binary's own core with the program's database appended,
+--- which the kernel runs directly, with no launcher, only where this core
+--- runs. Returns the names written, none for a tree with no `cmd/`.
+function embed.tree(root: string, host?: boolean): {string} | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then return nil, own_trouble end
   if own_tree then
@@ -305,9 +308,15 @@ function embed.tree(root: string): {string} | nil, string
     return {}
   end
 
-  local prefix, prefix_trouble = artifact.trusted_prefix()
-  if prefix == nil then
-    return nil, prefix_trouble
+  local prefix, core: string, raw_store.Core
+  local source_trouble: string
+  if host then
+    core, source_trouble = artifact.trusted_core()
+  else
+    prefix, source_trouble = artifact.trusted_prefix()
+  end
+  if prefix == nil and core == nil then
+    return nil, source_trouble
   end
   local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
   if not made then
@@ -324,7 +333,12 @@ function embed.tree(root: string): {string} | nil, string
       return nil, name .. ": " .. database_trouble
     end
     local out = root .. "/o/bin/" .. name
-    local program, program_trouble = artifact.program(prefix, database)
+    local program, program_trouble: string, string
+    if core ~= nil then
+      program, program_trouble = artifact.host_program(core, database)
+    else
+      program, program_trouble = artifact.program(prefix, database)
+    end
     if program == nil then
       return nil, out .. ": " .. program_trouble
     end
@@ -337,18 +351,30 @@ function embed.tree(root: string): {string} | nil, string
   return names
 end
 
---- `cosmic build`: the tree in the working directory, and its
+--- `cosmic build [--host]`: the tree in the working directory, and its
 --- executables under `o/bin/`. Ends in a verdict line that names what
 --- was written, or says why nothing was.
-function embed.run(): integer
+function embed.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
+  local host = false
+  local slot = 2
+  while argv[slot] ~= nil do
+    if argv[slot] == "--host" then
+      host = true
+    else
+      complain("build: no such option: " .. argv[slot])
+      report("build: FAIL")
+      return 2
+    end
+    slot = slot + 1
+  end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     complain(root_trouble)
     report("build: FAIL")
     return 1
   end
-  local names, trouble = embed.tree(root)
+  local names, trouble = embed.tree(root, host)
   if names == nil then
     complain(trouble)
     report("build: FAIL")
@@ -356,7 +382,7 @@ function embed.run(): integer
   end
   local outputs: {string} = {}
   for _, name in ipairs(names) do
-    outputs[#outputs + 1] = "o/bin/" .. name
+    outputs[#outputs + 1] = "o/bin/" .. name .. (host and " (host)" or "")
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"

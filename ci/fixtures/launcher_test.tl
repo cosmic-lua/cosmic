@@ -351,8 +351,9 @@ core_bytes, 0x1c0)
   local short = run(ctx, "short-repair", base); outcome_ok(short, "short repair")
   Fixture.contains(short.err, "length differs; repairing")
 
-  local host = ctx.target == "aarch64-macos" and "Darwin:arm64" or
-    (ctx.target == "aarch64-linux-musl" and "Linux:aarch64" or "Linux:x86_64")
+  -- A launcher arm is the quoted `uname -sm` answer it selects.
+  local host = ctx.target == "aarch64-macos" and "'Darwin arm64'" or
+    (ctx.target == "aarch64-linux-musl" and "'Linux aarch64'" or "'Linux x86_64'")
   local artifact = Fixture.read(ctx.artifact)
   local selected: string | nil = nil
   for line in artifact:sub(1, 16384):gmatch("[^\n]+") do

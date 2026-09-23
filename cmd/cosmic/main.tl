@@ -331,7 +331,7 @@ local function main(argv: {integer:string}): integer
   end
   if verb == "build" then
     local embed = require("build.embed")
-    return embed.run()
+    return embed.run(argv)
   end
   if verb == "docs" then
     local docs = require("build.docs")

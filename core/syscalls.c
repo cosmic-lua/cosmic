@@ -520,6 +520,15 @@ COSMIC_SYSCALL(relaunch, 2) {
   char physical[PATH_MAX];
   if (!cosmic_executable_path(physical, sizeof physical))
     return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);
+  if (artifact->host) {
+    /* A host program is its own launcher: executing it again is enough. */
+    lua_createtable(L, 0, 2);
+    lua_pushstring(L, physical);
+    lua_setfield(L, -2, "path");
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "host");
+    return 1;
+  }
   int core_fd = cosmic_executable_fd();
   if (core_fd < 0) return cosmic_fail(L, errno);
   const struct cosmic_portable_entry *selected = &artifact->portable.selected;

@@ -3,6 +3,9 @@
 --- `prefix` consumes build.zig's generated target records and the exact raw
 --- cores. It generates both the shell case arms and binary manifest from that
 --- one sequence. `program` appends one SQLite database and the fixed trailer.
+--- `host_program` lays out the other format: the running core alone, at the
+--- start of the file, then its manifest, database and trailer, so the kernel
+--- executes it directly with no launcher.
 --- Neither function writes a path; callers publish the returned bytes through
 --- the repository's existing atomic file writer.
 
@@ -29,6 +32,15 @@ function artifact.trusted_prefix(): string | nil, string
   return trusted_store.trusted_prefix()
 end
 
+--- The running core's exact bytes and the identity its manifest names,
+--- checked against that digest, from the same trusted capability.
+function artifact.trusted_core(): raw_store.Core | nil, string
+  if trusted_store == nil then
+    return nil, "no retained artifact capability"
+  end
+  return trusted_store.trusted_core()
+end
+
 local version = 1
 local shell_length = 16384
 local core_alignment = 16384
@@ -39,6 +51,7 @@ local trailer_length = 48
 local max_entries = 8
 local manifest_magic = "CosmicM1"
 local trailer_magic = "CosmicT1"
+local host_trailer_magic = "CosmicH1"
 local sqlite_header = "SQLite format 3\0"
 
 local record Target
@@ -124,7 +137,7 @@ local function launcher(targets: {Target}, test_hooks: boolean,
       end
       systems[system] = true
       arms[#arms + 1] = string.format(
-        "  %s:%s) cosmic_os=%s; cosmic_target_id=%d; " ..
+        "  '%s %s') cosmic_os=%s; cosmic_target_id=%d; " ..
         "cosmic_configuration_id=%d; cosmic_offset=%d; cosmic_block=%d; " ..
         "cosmic_length=%d; cosmic_sha256=%s ;;",
         target.uname_os, target.uname_arch, target.uname_os, target.target_id,
@@ -240,6 +253,32 @@ function artifact.program(prefix: string, database: string): string | nil, strin
     #prefix, #database)
   assert(#trailer == trailer_length)
   return prefix .. database .. trailer, ""
+end
+
+--- A host program: `core` at offset 0, zero-filled to the core alignment,
+--- a manifest naming it as the one entry, then `database` and a trailer
+--- whose magic says host. It runs only where that core does.
+function artifact.host_program(core: raw_store.Core, database: string): string | nil, string
+  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
+    return nil, "host program database has no SQLite header"
+  end
+  if #core.bytes == 0 or #core.digest ~= 32 then
+    return nil, "host program core is empty or has no digest"
+  end
+  local manifest_offset = align(#core.bytes, core_alignment)
+  local prefix_length = manifest_offset + manifest_length
+  local manifest = manifest_magic .. string.pack(">I4I4I8I4I4", version, manifest_length,
+    prefix_length, 1, entry_length) .. string.pack(">I4I4I8I8", core.target_id,
+    core.configuration_id, 0, #core.bytes) .. core.digest
+  local trailer = host_trailer_magic .. string.pack(">I4I4I8I8I8I8",
+    version, trailer_length, manifest_offset, manifest_length,
+    prefix_length, #database)
+  return table.concat({
+    core.bytes,
+    string.rep("\0", manifest_offset - #core.bytes),
+    manifest, string.rep("\0", manifest_length - #manifest),
+    database, trailer,
+  }), ""
 end
 
 return artifact

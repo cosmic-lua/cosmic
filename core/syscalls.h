@@ -341,10 +341,11 @@ COSMIC_SYSCALL(kill, 2);
  * --- How to start this same program again without its launcher: the physical core, given the private startup contract the launcher would give it.
  * ---@class Relaunch
  * ---@field path string the running core's own path, to execute
- * ---@field artifact string the artifact's logical path, the core's `--artifact` argument
- * ---@field artifact_fd integer this process's retained artifact descriptor, for the child's artifact descriptor
- * ---@field core_fd integer a new descriptor on the running core, closed on exec, for the child's core descriptor
- * ---@field environment {string:string} the private startup contract, naming the two child descriptors
+ * ---@field host boolean|nil true for a host program, which needs nothing but its path; the fields below are then absent
+ * ---@field artifact string|nil the artifact's logical path, the core's `--artifact` argument
+ * ---@field artifact_fd integer|nil this process's retained artifact descriptor, for the child's artifact descriptor
+ * ---@field core_fd integer|nil a new descriptor on the running core, closed on exec, for the child's core descriptor
+ * ---@field environment {string:string}|nil the private startup contract, naming the two child descriptors
  */
 
 /*

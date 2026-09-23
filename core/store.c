@@ -8,6 +8,7 @@
 #include "crypto.h"
 #include "portable.h"
 #include "sqlite.h"
+#include "startup.h"
 
 #define STORE_LIST "cosmic.store.databases"
 #define STORE_ARTIFACT "cosmic.store.artifact"
@@ -404,6 +405,14 @@ static int push_binary_meta(lua_State *L, int list, const char *key) {
   return 1;
 }
 
+/* Whether the artifact's selected core hashes to the digest its manifest
+ * names, which is what a runtime identity is made of. A portable start checked
+ * it before Lua ran; a host program is checked the first time it is asked.
+ * The artifact is main's own, not a constant: the answer is remembered on it. */
+static int core_identity_holds(const struct cosmic_artifact *artifact) {
+  return cosmic_artifact_core_matches((struct cosmic_artifact *)artifact);
+}
+
 /* One entry of metadata. Runtime values come only from the validated artifact
  * context and its own final database, never from a project database searched
  * ahead of it. Other build metadata keeps ordinary database search order. */
@@ -416,7 +425,9 @@ static int store_meta(lua_State *L) {
   const struct cosmic_artifact *artifact = lua_touserdata(L, -1);
   lua_pop(L, 1);
   if (strcmp(key, "runtime_context") == 0) {
-    if (artifact != NULL && artifact->fd >= 0)
+    if (artifact != NULL && artifact->fd >= 0 && artifact->host)
+      lua_pushliteral(L, "host-v1");
+    else if (artifact != NULL && artifact->fd >= 0)
       lua_pushliteral(L, "portable-v1");
     else
       lua_pushnil(L);
@@ -431,6 +442,11 @@ static int store_meta(lua_State *L) {
     }
     if (strcmp(key, "host") == 0) {
       lua_pushliteral(L, COSMIC_TARGET_NAME);
+      return 1;
+    }
+    if ((strcmp(key, "host_image") == 0 || strcmp(key, "runtime") == 0) &&
+        !core_identity_holds(artifact)) {
+      lua_pushnil(L);
       return 1;
     }
     if (strcmp(key, "host_image") == 0) {
@@ -484,6 +500,12 @@ static int store_trusted_prefix(lua_State *L) {
     lua_pushliteral(L, "no retained portable artifact");
     return 2;
   }
+  if (artifact->host) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "a host program carries only its own core, not the "
+                       "portable prefix a portable program is made from");
+    return 2;
+  }
   uint64_t length = artifact->portable.prefix_length;
   if (length > (uint64_t)SIZE_MAX) {
     lua_pushnil(L);
@@ -524,6 +546,51 @@ static int store_trusted_prefix(lua_State *L) {
   return 2;
 }
 
+/* Private capability handed only to the trusted build.artifact chunk: the
+ * running core's exact bytes, checked against its manifest digest, and the
+ * identity a host program made from them declares. */
+static int store_trusted_core(lua_State *L) {
+  const struct cosmic_artifact *artifact =
+      lua_touserdata(L, lua_upvalueindex(1));
+  if (artifact == NULL || artifact->fd < 0) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "no retained artifact to take a core from");
+    return 2;
+  }
+  const struct cosmic_portable_entry *entry = &artifact->portable.selected;
+  if (entry->length > (uint64_t)SIZE_MAX) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "running core is too large");
+    return 2;
+  }
+  if (!core_identity_holds(artifact)) {
+    lua_pushnil(L);
+    lua_pushliteral(L, "running core's digest differs from its manifest");
+    return 2;
+  }
+  lua_createtable(L, 0, 4);
+  luaL_Buffer buffer;
+  char *bytes = luaL_buffinitsize(L, &buffer, (size_t)entry->length);
+  if (!cosmic_artifact_read(artifact, bytes, (size_t)entry->length,
+                            entry->offset)) {
+    luaL_pushresultsize(&buffer, 0);
+    lua_pop(L, 2);
+    lua_pushnil(L);
+    lua_pushliteral(L, "running core cannot be read");
+    return 2;
+  }
+  luaL_pushresultsize(&buffer, (size_t)entry->length);
+  lua_setfield(L, -2, "bytes");
+  lua_pushinteger(L, (lua_Integer)entry->target_id);
+  lua_setfield(L, -2, "target_id");
+  lua_pushinteger(L, (lua_Integer)entry->configuration_id);
+  lua_setfield(L, -2, "configuration_id");
+  lua_pushlstring(L, (const char *)entry->sha256, COSMIC_PORTABLE_SHA256_LENGTH);
+  lua_setfield(L, -2, "digest");
+  lua_pushliteral(L, "");
+  return 2;
+}
+
 static int open_store_module(lua_State *L,
                              const struct cosmic_artifact *artifact) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
@@ -546,6 +613,9 @@ static int open_store_module(lua_State *L,
   lua_pushlightuserdata(L, (void *)artifact);
   lua_pushcclosure(L, store_trusted_prefix, 1);
   lua_setfield(L, -2, "trusted_prefix");
+  lua_pushlightuserdata(L, (void *)artifact);
+  lua_pushcclosure(L, store_trusted_core, 1);
+  lua_setfield(L, -2, "trusted_core");
   lua_remove(L, -2);
   return 1;
 }

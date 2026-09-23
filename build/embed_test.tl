@@ -4,8 +4,10 @@
 --- executable carries is read back and checked for what a program
 --- needs at run time and nothing it does not.
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local artifact = require("build.artifact")
 local embed = require("build.embed")
 
@@ -121,4 +123,63 @@ local function test_cosmic_s_own_tree_is_refused(tmp: string)
   local names, trouble = embed.tree(tmp)
   assert(names == nil)
   assert(trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
+end
+
+local identity_source = [[
+local Proc = require("cosmic.proc")
+local Store = require("cosmic.store")
+
+return function(): integer
+  print(Store.meta("runtime_context"), Store.meta("host_image"),
+    Store.meta("runtime"), (Proc.executable()))
+  return 0
+end
+]]
+
+local function run_program(path: string): Child.Result
+  return (assert(Child.run({ path }, { stdout = "capture", stderr = "capture",
+    timeout_ms = 30000 })))
+end
+
+--- `--host` writes this core itself with the program inside: the kernel
+--- runs it directly, and it names the same runtime identity as the core
+--- that built it, so a verdict holds across the two.
+local function test_a_host_program_is_the_core_itself(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/who"))
+  assert(Fs.write(tmp .. "/cmd/who/main.tl", identity_source))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "who", trouble)
+  local out = tmp .. "/o/bin/who"
+  local bytes = assert(Fs.read(out))
+  local core = assert(artifact.trusted_core())
+  assert(bytes:sub(1, #core.bytes) == core.bytes, "the file starts with the running core")
+  assert(bytes:sub(-48, -41) == "CosmicH1", "its trailer says host")
+  local r = run_program(out)
+  assert(r.ok, tostring(r.stderr))
+  -- The path is the executable's own, resolved: on macOS a temporary
+  -- directory under /var is reported under /private/var.
+  local expected = table.concat({ "host-v1", assert(Store.meta("host_image")),
+    assert(Store.meta("runtime")) }, "\t") .. "\t"
+  local printed = assert(r.stdout)
+  assert(printed:sub(1, #expected) == expected, printed .. " ~= " .. expected)
+  assert(printed:sub(-#"/o/bin/who\n") == "/o/bin/who\n", printed)
+end
+
+--- A host program runs without checking its own core's digest, but the
+--- identity it would report is checked first, and one whose manifest names
+--- another digest reports none.
+local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/who"))
+  assert(Fs.write(tmp .. "/cmd/who/main.tl", identity_source))
+  assert(embed.tree(tmp, true))
+  local out = tmp .. "/o/bin/who"
+  local bytes = assert(Fs.read(out))
+  local core = assert(artifact.trusted_core())
+  local at = bytes:find(core.digest, #core.bytes + 1, true)
+  assert(at ~= nil, "the manifest names the core's digest")
+  local lied = bytes:sub(1, at - 1) .. string.rep("\0", 32) .. bytes:sub(at + 32)
+  assert(Fs.write(out, lied, 0x1ed))
+  local r = run_program(out)
+  assert(r.ok, tostring(r.stderr))
+  assert(assert(r.stdout):sub(1, 12) == "host-v1\tnil\t", tostring(r.stdout))
 end
