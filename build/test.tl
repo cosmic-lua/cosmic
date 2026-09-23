@@ -668,15 +668,24 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   -- rows written in key order append at the right edge of the B-tree
   -- instead of splitting pages at random positions, which alone is
   -- most of the cost of writing them in hash order.
-  local sorted_modules: {importer.Module} = {}
+  -- The core's own C sits among the modules by path: a core that
+  -- observes it answers every line a block begins on, and a line is hit
+  -- when some window's hits name it (see `Coverage.native_lines`).
+  local native_lines = Coverage.native_lines()
+  local by_source: {string: importer.Module} = {}
+  local sorted_paths: {string} = {}
   for _, m in ipairs(modules) do
     if m.kind ~= "vendor" then
-      sorted_modules[#sorted_modules + 1] = m
+      by_source[m.path] = m
+      sorted_paths[#sorted_paths + 1] = m.path
     end
   end
-  table.sort(sorted_modules, function(a: importer.Module, b: importer.Module): boolean
-    return a.path < b.path
-  end)
+  for path in pairs(native_lines) do
+    if by_source[path] == nil then
+      sorted_paths[#sorted_paths + 1] = path
+    end
+  end
+  table.sort(sorted_paths)
   -- `by_test` is test-major; `coverage_by_test`'s key is path-major.
   -- Regrouped once, touching every hit as often as the insert would.
   local by_path: {string: {integer: {string}}} = {}
@@ -703,14 +712,25 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   end
   table.sort(paths_by_test)
   local write_rows = function(): boolean, string
-    for _, m in ipairs(sorted_modules) do
-      local per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
-      if per_line == nil then
-        return false, m.file .. ": " .. lines_trouble
+    for _, path in ipairs(sorted_paths) do
+      local m = by_source[path]
+      local per_line: coverage_report.LineHits
+      if m ~= nil then
+        local lines_trouble: string
+        per_line, lines_trouble = coverage_report.lines_of(handle, built, m, hits)
+        if per_line == nil then
+          return false, m.file .. ": " .. lines_trouble
+        end
+      else
+        local hit_here = hits[path] or {}
+        per_line = {}
+        for line in pairs(native_lines[path]) do
+          per_line[line] = hit_here[line] == true
+        end
       end
       for _, line in ipairs(sorted_lines(per_line)) do
         local was_hit = per_line[line]
-        local ok, write_trouble = add(coverage_rows, m.path, line, was_hit and 1 or 0)
+        local ok, write_trouble = add(coverage_rows, path, line, was_hit and 1 or 0)
         if not ok then
           return false, write_trouble
         end
