@@ -129,8 +129,13 @@ static int native_ready(lua_State *L) {
   return 1;
 }
 
-static void native_clear(void) {
-  if (native_flags) memset(native_flags, 0, native_count);
+/* The flags start clear and count from the process's first instruction, so
+ * the first window keeps what ran before it opened -- startup, which no
+ * window could otherwise see. Every later window starts empty. */
+static int native_opened;
+
+static void native_open(void) {
+  if (native_opened++ && native_flags) memset(native_flags, 0, native_count);
 }
 
 /* Adds to the {path: {line: true}} table at `hits` every mapped block's line,
@@ -154,7 +159,7 @@ static void native_collect(lua_State *L, int hits, int only_hit) {
   }
 }
 #else
-static void native_clear(void) {}
+static void native_open(void) {}
 static void native_collect(lua_State *L, int hits, int only_hit) {
   (void)L;
   (void)hits;
@@ -272,7 +277,7 @@ static int coverage_start(lua_State *L) {
   lua_setiuservalue(L, -2, CALLED);
   lua_pop(L, 1);
   collector->active = 1;
-  native_clear();
+  native_open();
   lua_sethook(L, native_hook, LUA_MASKLINE | (watching ? LUA_MASKCALL : 0), 0);
   return 0;
 }
