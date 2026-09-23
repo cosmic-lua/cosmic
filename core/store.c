@@ -5,7 +5,10 @@
 #include <string.h>
 
 #include "lauxlib.h"
+#include "compress.h"
 #include "crypto.h"
+#include "hash.h"
+#include "http.h"
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
@@ -28,21 +31,44 @@ static void die_unreadable(sqlite3 *db) {
               return, honest or otherwise */
 }
 
-/* Where the raw `cosmic.internal.store`, `cosmic.internal.sqlite`,
- * `cosmic.internal.debug`, `cosmic.internal.hash`,
- * `cosmic.internal.compress`, and `cosmic.internal.http` values live:
- * never in package.preload and never a name `require` resolves on its
- * own, so nothing a project's own code can `require` reaches them.
- * `require` caches whatever a loader returns under the name it was
- * asked for, so a value that must be re-checked on every access can
- * never be that cached value -- `cosmic.store`, `cosmic.sqlite`,
- * `cosmic.coverage`, `cosmic.hash`, `cosmic.compress`, and
- * `cosmic.http` (the wrappers, one per raw module) get theirs
- * handed straight to their own loader
- * instead, as the `extra` argument `require` passes it. calling the
- * searcher by hand yields the same value, and that is no escalation:
- * the raw table holds nothing the wrapper does not already hand out. */
+/* Where the raw `cosmic.internal.*` values live: never in
+ * package.preload and never a name `require` resolves on its own, so
+ * nothing a project's own code can `require` reaches them. `require`
+ * caches whatever a loader returns under the name it was asked for, so a
+ * value that must be re-checked on every access can never be that
+ * cached value -- each wrapper in `raw_modules` below gets its raw value
+ * handed straight to its own loader instead, as the `extra` argument
+ * `require` passes it. Calling the searcher by hand yields the same
+ * value, and that is no escalation: the raw table holds nothing the
+ * wrapper does not already hand out. */
 #define RAW_TABLE "cosmic.store.raw"
+
+/* The raw value `build.entry_points` is handed: every raw module core C
+ * opens, keyed by its name under `cosmic.internal.`, so the entry-point
+ * gate can walk their functions. */
+#define RAW_MODULES "cosmic.internal.modules"
+
+/* Every wrapper that is handed a raw value when loaded trusted, and the
+ * raw value's name. `open` builds that value; it is NULL where other
+ * code registers it -- `cosmic_store_install` the store, core/surface.c
+ * the coverage collector (despite its raw name, a holdover from when it
+ * carried the real `debug` library), and `cosmic_store_open_raw` the
+ * table of all the others. */
+static const struct raw_module {
+  const char *wrapper;
+  const char *raw;
+  lua_CFunction open;
+} raw_modules[] = {
+  {"cosmic.store", "cosmic.internal.store", NULL},
+  {"build.artifact", "cosmic.internal.store", NULL},
+  {"cosmic.coverage", "cosmic.internal.debug", NULL},
+  {"build.entry_points", RAW_MODULES, NULL},
+  {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
+  {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
+  {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
+  {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
+};
+#define RAW_MODULE_COUNT (sizeof raw_modules / sizeof *raw_modules)
 
 /* True when `name` is a path the binary's own tree owns and the kind is
  * one a running program actually executes -- what earns a module the
@@ -55,10 +81,8 @@ static int names_trusted_kind(const char *name, const char *kind) {
   return reserved && runnable;
 }
 
-/* The raw `cosmic.internal.store`, `cosmic.internal.sqlite`,
- * `cosmic.internal.debug`, or `cosmic.internal.http` value, when the
- * registry holds one under
- * `name`. Pushes it and returns 1, or pushes nothing and returns 0. */
+/* The raw value registered under `name`, when the registry holds one.
+ * Pushes it and returns 1, or pushes nothing and returns 0. */
 static int raw_value(lua_State *L, const char *name) {
   lua_getfield(L, LUA_REGISTRYINDEX, RAW_TABLE);
   if (lua_isnil(L, -1)) {
@@ -140,20 +164,14 @@ static sqlite3 *database_at(lua_State *L, int list, lua_Integer index) {
  * never shadow the binary's own -- everything else stays project
  * first, which is how a project overrides nothing it does not own.
  *
- * `cosmic.internal.store`, `cosmic.internal.sqlite`,
- * `cosmic.internal.debug`, and `cosmic.internal.http` are never rows in
- * any database: they are raw values `cosmic_surface_open` builds and
- * registers directly (the store module itself, the sqlite binding,
- * the native coverage collector -- despite its name, a holdover from
- * when this raw name carried the real `debug` library instead,
- * core/coverage.c -- and the curl/c-ares/mbedtls HTTP client,
- * core/http.c). Nothing ever resolves them by name -- `require` would
- * cache the result under that name
- * process-wide, which would then answer for an untrusted caller too.
- * Instead, loading `cosmic.store`, `cosmic.sqlite`, `cosmic.coverage`,
- * or `cosmic.http` (the typed wrappers) from a trusted position hands
- * the matching raw value straight to that one chunk, as the `extra`
- * argument `require` always passes its loader. */
+ * The raw `cosmic.internal.*` values are never rows in any database:
+ * core C builds and registers them directly (see `raw_modules`).
+ * Nothing ever resolves them by name -- `require` would cache the
+ * result under that name process-wide, which would then answer for an
+ * untrusted caller too. Instead, loading one of `raw_modules`' wrappers
+ * from a trusted position hands the matching raw value straight to that
+ * one chunk, as the `extra` argument `require` always passes its
+ * loader. */
 static int store_searcher(lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -170,24 +188,11 @@ static int store_searcher(lua_State *L) {
     int trusted = 0;
     int found = load_from(L, db, name, i == count, &trusted);
     if (found == 1) {
-      const char *raw_name = NULL;
-      if (trusted && strcmp(name, "cosmic.store") == 0) {
-        raw_name = "cosmic.internal.store";
-      } else if (trusted && strcmp(name, "cosmic.sqlite") == 0) {
-        raw_name = "cosmic.internal.sqlite";
-      } else if (trusted && strcmp(name, "cosmic.coverage") == 0) {
-        raw_name = "cosmic.internal.debug";
-      } else if (trusted && strcmp(name, "cosmic.hash") == 0) {
-        raw_name = "cosmic.internal.hash";
-      } else if (trusted && strcmp(name, "cosmic.compress") == 0) {
-        raw_name = "cosmic.internal.compress";
-      } else if (trusted && strcmp(name, "cosmic.http") == 0) {
-        raw_name = "cosmic.internal.http";
-      } else if (trusted && strcmp(name, "build.artifact") == 0) {
-        raw_name = "cosmic.internal.store";
-      }
-      if (raw_name != NULL && raw_value(L, raw_name)) {
-        return 2;
+      for (size_t m = 0; trusted && m < RAW_MODULE_COUNT; m++) {
+        if (strcmp(name, raw_modules[m].wrapper) == 0 &&
+            raw_value(L, raw_modules[m].raw)) {
+          return 2;
+        }
       }
       lua_pushstring(L, name);
       return 2;
@@ -701,17 +706,30 @@ void cosmic_store_set_raw(lua_State *L, const char *name) {
   lua_pop(L, 1);
 }
 
-void cosmic_store_preload_raw(lua_State *L, const char *name) {
-  if (!raw_value(L, name)) {
-    return; /* nothing registered under this name */
+void cosmic_store_open_raw(lua_State *L) {
+  lua_newtable(L);
+  for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
+    if (raw_modules[m].open == NULL) continue;
+    raw_modules[m].open(L);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, raw_modules[m].raw + strlen("cosmic.internal."));
+    cosmic_store_set_raw(L, raw_modules[m].raw);
   }
-  /* package.preload's own searcher calls its entry with its own fixed
-   * "extra" (":preload:"), not caller-supplied data, so the raw value
-   * has to be a closed-over constant. */
-  lua_pushcclosure(L, return_upvalue, 1);
+  cosmic_store_set_raw(L, RAW_MODULES);
+}
+
+void cosmic_store_preload_raw(lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
-  lua_insert(L, -2);
-  lua_setfield(L, -2, name);
+  for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
+    if (!raw_value(L, raw_modules[m].raw)) {
+      continue; /* nothing registered under this name */
+    }
+    /* package.preload's own searcher calls its entry with its own fixed
+     * "extra" (":preload:"), not caller-supplied data, so the raw value
+     * has to be a closed-over constant. */
+    lua_pushcclosure(L, return_upvalue, 1);
+    lua_setfield(L, -2, raw_modules[m].raw);
+  }
   lua_pop(L, 1);
 }
 
