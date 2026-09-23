@@ -16,12 +16,14 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # The pinned compiler is the one thing a fresh clone fetches, and
-      # the pin is the cache key: a bump starts cold.
-      - name: cache the pinned zig
+      # the pin is the cache key: a bump starts cold. Every job reuses
+      # this step; `**/` finds the pin under repro's second checkout too.
+      - &zig-cache
+        name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/bin/zig.pin') }}
 
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
@@ -55,11 +57,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('bin/zig.pin') }}
+      - *zig-cache
       - name: build the tree with the checked core
         run: bin/zig build sanitized
 
@@ -74,11 +72,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - *zig-cache
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
       - name: run every test the tree defines, including doctests
@@ -90,11 +84,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+      - *zig-cache
       - name: build every core, then the database and the binaries
         run: bin/zig build cores boot
       - name: run every test the tree defines, including doctests
@@ -132,11 +122,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           path: a-second-and-rather-longer-checkout-path
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/cosmic/zig
-          key: zig-${{ runner.os }}-${{ hashFiles('a-second-and-rather-longer-checkout-path/bin/zig.pin') }}
+      - *zig-cache
       - name: build it again
         working-directory: a-second-and-rather-longer-checkout-path
         run: bin/zig build cores boot
