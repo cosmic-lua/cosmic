@@ -138,13 +138,14 @@ const mbedtls_tls_sources = [_][]const u8{
     "x509_oid.c",
 };
 
-/// c-ares's own thread support (CARES_THREADS) is never built -- the core
-/// drives one poll loop itself -- so windows_port.c, ares_sysconfig_win.c
-/// (Windows-only, gated `#ifdef _WIN32`) and ares_android.c
-/// (`#ifdef __ANDROID__`) are left out as dead weight on every target
-/// this tree ships. Everything else under src/lib compiles clean on all
-/// three (see ares_config.h and the macOS SystemConfiguration shim next
-/// to it in core/darwin-compat/ for what that took).
+/// c-ares's sources that hold code on at least one target here. Its own
+/// thread support (CARES_THREADS) is never built -- the core drives one
+/// poll loop itself -- so the event-thread backends under event/ (epoll,
+/// kqueue, poll, select, the wake pipe) compile to nothing and are left
+/// out, as are the Windows-only (windows_port.c, ares_sysconfig_win.c,
+/// ares_getenv.c) and Android-only (ares_android.c) files.
+/// ares_sysconfig_mac.c holds code on macOS only. See ares_config.h and
+/// the SystemConfiguration shim in core/darwin-compat/.
 const cares_sources = [_][]const u8{
     "ares_addrinfo2hostent.c",
     "ares_addrinfo_localhost.c",
@@ -158,7 +159,6 @@ const cares_sources = [_][]const u8{
     "ares_free_string.c",
     "ares_freeaddrinfo.c",
     "ares_getaddrinfo.c",
-    "ares_getenv.c",
     "ares_gethostbyaddr.c",
     "ares_gethostbyname.c",
     "ares_getnameinfo.c",
@@ -194,12 +194,7 @@ const cares_sources = [_][]const u8{
     "dsa/ares_llist.c",
     "dsa/ares_slist.c",
     "event/ares_event_configchg.c",
-    "event/ares_event_epoll.c",
-    "event/ares_event_kqueue.c",
-    "event/ares_event_poll.c",
-    "event/ares_event_select.c",
     "event/ares_event_thread.c",
-    "event/ares_event_wake_pipe.c",
     "inet_net_pton.c",
     "inet_ntop.c",
     "legacy/ares_create_query.c",
@@ -235,13 +230,16 @@ const cares_sources = [_][]const u8{
     "util/ares_uri.c",
 };
 
-/// curl's own file list, minus what vendor/curl's PIN already prunes
-/// (every non-HTTP(S) protocol, every TLS backend but mbedtls, NTLM/
-/// Kerberos/SASL) and minus its Windows- and AmigaOS-only sources
-/// (`amigaos.c`, `dllmain.c`, `curl_sspi.c`, `system_win32.c`,
-/// `version_win32.c`, `winapi.c`), which would compile to nothing on
-/// these targets but add nothing either. Everything named here compiled
-/// clean, individually, on all three targets before being wired in.
+/// curl's sources that hold code under core/curl_config.h on at least
+/// one target here. What vendor/curl's PIN prunes (every non-HTTP(S)
+/// protocol, every TLS backend but mbedtls, NTLM/Kerberos/SASL, the
+/// Windows- and AmigaOS-only files) is not named, and neither is any
+/// file the configuration empties: cookies, HSTS, Alt-Svc, DoH, .netrc,
+/// PSL, the GSSAPI/SSPI/NTLM/AWS/HTTP-signature auth files, the
+/// threaded and getaddrinfo resolvers (c-ares resolves), hostcheck.c
+/// (mbedtls checks the host name itself), and the Apple helpers. A
+/// file that becomes non-empty after a curl_config.h change has to be
+/// added back, or the link says which symbol it misses.
 ///
 /// `socks.c` is in, despite SOCKS proxying being out of scope: its
 /// `Curl_cft_socks_proxy`/`Curl_cf_socks_proxy_insert_after` are
@@ -258,81 +256,112 @@ const cares_sources = [_][]const u8{
 /// compiles to a five-line stub that always answers
 /// `CURLE_NOT_BUILT_IN`.
 const curl_sources = [_][]const u8{
-    "altsvc.c",           "api.c",
-    "bufq.c",              "bufref.c",
-    "cf-h1-proxy.c",       "cf-h2-proxy.c",
-    "cf-haproxy.c",        "cf-https-connect.c",
-    "cf-ip-happy.c",       "cf-recvbuf.c",
-    "cf-setup.c",          "cf-socket.c",
-    "cfilters.c",          "conncache.c",
-    "connect.c",           "content_encoding.c",
-    "cookie.c",            "creds.c",
-    "cshutdn.c",           "curl_addrinfo.c",
-    "curl_ed25519.c",      "curl_endian.c",
-    "curl_fnmatch.c",      "curl_fopen.c",
-    "curl_get_line.c",     "curl_gssapi.c",
-    "curl_memrchr.c",      "curl_range.c",
-    "curl_sha512_256.c",   "curl_share.c",
-    "curl_threads.c",      "curl_trc.c",
-    "curlx/base64.c",      "curlx/basename.c",
-    "curlx/dynbuf.c",      "curlx/fopen.c",
-    "curlx/inet_ntop.c",   "curlx/inet_pton.c",
-    "curlx/multibyte.c",   "curlx/nonblock.c",
-    "curlx/snprintf.c",    "curlx/strcopy.c",
-    "curlx/strdup.c",      "curlx/strerr.c",
-    "curlx/strparse.c",    "curlx/timediff.c",
-    "curlx/timeval.c",     "curlx/wait.c",
-    "curlx/warnless.c",    "cw-out.c",
-    "cw-pause.c",          "dynhds.c",
-    "easy.c",              "easygetopt.c",
-    "easyoptions.c",       "escape.c",
-    "fake_addrinfo.c",     "fileinfo.c",
-    "formdata.c",          "getenv.c",
-    "getinfo.c",           "hash.c",
-    "headers.c",           "hmac.c",
-    "hsts.c",              "http.c",
-    "http1.c",             "http2.c",
-    "http_aws_sigv4.c",    "http_chunks.c",
-    "http_digest.c",       "http_httpsig.c",
-    "http_negotiate.c",    "http_ntlm.c",
-    "http_proxy.c",        "idn.c",
-    "if2ip.c",             "llist.c",
-    "macos.c",             "md4.c",
-    "md5.c",               "memdebug.c",
-    "mime.c",              "mprintf.c",
-    "multi.c",             "multi_ev.c",
-    "multi_ntfy.c",        "netrc.c",
-    "parsedate.c",         "peer.c",
-    "pingpong.c",          "progress.c",
-    "protocol.c",          "proxy.c",
-    "psl.c",               "rand.c",
-    "ratelimit.c",         "request.c",
-    "select.c",            "sendf.c",
-    "setopt.c",            "sha256.c",
-    "slist.c",             "socketpair.c",
+    "api.c",
+    "bufq.c",
+    "bufref.c",
+    "cf-h1-proxy.c",
+    "cf-haproxy.c",
+    "cf-https-connect.c",
+    "cf-ip-happy.c",
+    "cf-setup.c",
+    "cf-socket.c",
+    "cfilters.c",
+    "conncache.c",
+    "connect.c",
+    "content_encoding.c",
+    "creds.c",
+    "cshutdn.c",
+    "curl_addrinfo.c",
+    "curl_endian.c",
+    "curl_memrchr.c",
+    "curl_share.c",
+    "curl_trc.c",
+    "curlx/base64.c",
+    "curlx/dynbuf.c",
+    "curlx/fopen.c",
+    "curlx/inet_ntop.c",
+    "curlx/inet_pton.c",
+    "curlx/nonblock.c",
+    "curlx/strcopy.c",
+    "curlx/strdup.c",
+    "curlx/strerr.c",
+    "curlx/strparse.c",
+    "curlx/timediff.c",
+    "curlx/timeval.c",
+    "curlx/wait.c",
+    "curlx/warnless.c",
+    "cw-out.c",
+    "cw-pause.c",
+    "dynhds.c",
+    "easy.c",
+    "easygetopt.c",
+    "easyoptions.c",
+    "escape.c",
+    "formdata.c",
+    "getenv.c",
+    "getinfo.c",
+    "hash.c",
+    "headers.c",
+    "hmac.c",
+    "http.c",
+    "http1.c",
+    "http2.c",
+    "http_chunks.c",
+    "http_digest.c",
+    "http_proxy.c",
+    "idn.c",
+    "if2ip.c",
+    "llist.c",
+    "md5.c",
+    "mime.c",
+    "mprintf.c",
+    "multi.c",
+    "multi_ev.c",
+    "multi_ntfy.c",
+    "parsedate.c",
+    "peer.c",
+    "progress.c",
+    "protocol.c",
+    "proxy.c",
+    "rand.c",
+    "ratelimit.c",
+    "request.c",
+    "select.c",
+    "sendf.c",
+    "setopt.c",
+    "sha256.c",
+    "slist.c",
+    "socketpair.c",
     "socks.c",
-    "splay.c",             "strcase.c",
-    "strequal.c",          "strerror.c",
-    "thrdpool.c",          "thrdqueue.c",
-    "transfer.c",          "uint-bset.c",
-    "uint-hash.c",         "uint-hashset.c",
-    "uint-spbset.c",       "uint-table.c",
-    "url.c",               "urlapi.c",
-    "vauth/cleartext.c",   "vauth/cram.c",
-    "vauth/digest.c",      "vauth/digest_sspi.c",
-    "vauth/oauth2.c",      "vauth/spnego_gssapi.c",
-    "vauth/spnego_sspi.c", "vauth/vauth.c",
-    "vdns/asyn-ares.c",    "vdns/asyn-base.c",
-    "vdns/cf-dns.c",       "vdns/dnscache.c",
-    "vdns/doh.c",          "vdns/hostip.c",
-    "vdns/hostip4.c",      "vdns/hostip6.c",
-    "vdns/httpsrr.c",      "version.c",
+    "splay.c",
+    "strcase.c",
+    "strequal.c",
+    "strerror.c",
+    "transfer.c",
+    "uint-bset.c",
+    "uint-hash.c",
+    "uint-hashset.c",
+    "uint-spbset.c",
+    "uint-table.c",
+    "url.c",
+    "urlapi.c",
+    "vauth/cram.c",
+    "vauth/digest.c",
+    "vauth/vauth.c",
+    "vdns/asyn-ares.c",
+    "vdns/asyn-base.c",
+    "vdns/cf-dns.c",
+    "vdns/dnscache.c",
+    "vdns/hostip.c",
+    "version.c",
     "vquic/vquic.c",
-    "vtls/apple.c",        "vtls/cipher_suite.c",
-    "vtls/hostcheck.c",    "vtls/keylog.c",
-    "vtls/mbedtls.c",      "vtls/vtls.c",
-    "vtls/vtls_config.c",  "vtls/vtls_scache.c",
-    "vtls/vtls_spack.c",   "vtls/x509asn1.c",
+    "vtls/cipher_suite.c",
+    "vtls/keylog.c",
+    "vtls/mbedtls.c",
+    "vtls/vtls.c",
+    "vtls/vtls_config.c",
+    "vtls/vtls_scache.c",
+    "vtls/x509asn1.c",
     "ws.c",
 };
 
@@ -930,8 +959,8 @@ fn core(
     mod.addCSourceFiles(.{
         .root = bzip2,
         .files = &.{
-            "bzlib.c", "blocksort.c", "compress.c", "decompress.c",
-            "huffman.c", "crctable.c", "randtable.c",
+            "bzlib.c",   "blocksort.c", "compress.c",  "decompress.c",
+            "huffman.c", "crctable.c",  "randtable.c",
         },
         .flags = &.{ "-std=c11", "-DBZ_NO_STDIO" },
     });
@@ -976,7 +1005,7 @@ fn core(
             "liblzma/simple/x86.c",
         },
         .flags = &.{
-            "-std=c11",         "-D_XOPEN_SOURCE=700",
+            "-std=c11",          "-D_XOPEN_SOURCE=700",
             "-D_DEFAULT_SOURCE", "-DHAVE_CONFIG_H",
         },
     });
@@ -1003,12 +1032,11 @@ fn core(
             "core/psa_crypto.c",
             "core/psa_crypto_client.c",
             "core/psa_crypto_driver_wrappers_no_static.c",
-            "core/psa_crypto_random.c",
             "core/psa_crypto_slot_management.c",
             "core/psa_util.c",
             "platform/platform_util.c",
             "utilities/constant_time.c",
-            // Digests, MACs and the cipher/AEAD dispatch layers.
+            // Digests, MACs, and the PSA cipher and AEAD drivers.
             "drivers/builtin/src/md5.c",
             "drivers/builtin/src/sha1.c",
             "drivers/builtin/src/sha256.c",
@@ -1021,8 +1049,6 @@ fn core(
             "drivers/builtin/src/psa_crypto_mac.c",
             "drivers/builtin/src/psa_crypto_rsa.c",
             "drivers/builtin/src/psa_util_internal.c",
-            "drivers/builtin/src/cipher.c",
-            "drivers/builtin/src/cipher_wrap.c",
             "drivers/builtin/src/block_cipher.c",
             // Big-number and elliptic-curve arithmetic for ECDH, ECDSA
             // and RSA, and HMAC-DRBG (deterministic ECDSA's nonce
@@ -1031,11 +1057,8 @@ fn core(
             // mbedtls_psa_external_get_random).
             "drivers/builtin/src/bignum.c",
             "drivers/builtin/src/bignum_core.c",
-            "drivers/builtin/src/bignum_mod.c",
-            "drivers/builtin/src/bignum_mod_raw.c",
             "drivers/builtin/src/ecp.c",
             "drivers/builtin/src/ecp_curves.c",
-            "drivers/builtin/src/ecp_curves_new.c",
             "drivers/builtin/src/ecdsa.c",
             "drivers/builtin/src/rsa.c",
             "drivers/builtin/src/rsa_alt_helpers.c",
@@ -1117,7 +1140,7 @@ fn core(
     // mbedtls's headers, so curl is compiled against the same mbedtls
     // configuration as the library itself.
     const curl_flags = [_][]const u8{
-        "-std=c11", "-DHAVE_CONFIG_H", "-DBUILDING_LIBCURL",
+        "-std=c11",      "-DHAVE_CONFIG_H",   "-DBUILDING_LIBCURL",
         "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
     } ++ mbedtls_config;
     mod.addCSourceFiles(.{

@@ -7,10 +7,10 @@
  * (CARES_THREADS is off: the core drives one poll loop itself, as
  * `cosmic.child` already does).
  *
- * Only what the pruned src/lib tree in vendor/cares actually reads
- * is defined; Windows, thirdparty, and thread-specific code paths are
- * left out entirely rather than defined false, since c-ares mostly
- * gates on `#ifdef` rather than `#if`.
+ * Only what the pruned src/lib tree in vendor/cares actually reads is
+ * defined, and nothing is ever defined to 0: c-ares tests these with
+ * `#ifdef`, so a macro defined false would read as true. Windows,
+ * thirdparty and thread-specific code paths are left undefined.
  */
 #ifndef COSMIC_ARES_CONFIG_H
 #define COSMIC_ARES_CONFIG_H
@@ -34,11 +34,7 @@
 #define HAVE_ARPA_INET_H 1
 #define HAVE_ARPA_NAMESER_H 1
 #define HAVE_UNISTD_H 1
-#define HAVE_STDBOOL_H 1
 #define HAVE_STDINT_H 1
-#define HAVE_INTTYPES_H 1
-#define HAVE_STDLIB_H 1
-#define HAVE_STRING_H 1
 #define HAVE_STRINGS_H 1
 #define HAVE_TIME_H 1
 #define HAVE_LIMITS_H 1
@@ -59,16 +55,11 @@
 
 /* Functions every target here has: musl and Darwin's libc are both
  * POSIX.1-2008 for all of these. */
-#define HAVE_SOCKET 1
-#define HAVE_CONNECT 1
 #define HAVE_RECV 1
 #define HAVE_RECVFROM 1
 #define HAVE_SEND 1
 #define HAVE_SENDTO 1
-#define HAVE_SETSOCKOPT 1
 #define HAVE_WRITEV 1
-#define HAVE_IOCTL 1
-#define HAVE_FCNTL 1
 #define HAVE_FCNTL_O_NONBLOCK 1
 #define HAVE_POLL 1
 #define HAVE_PIPE 1
@@ -77,9 +68,6 @@
 #define HAVE_GETHOSTNAME 1
 #define HAVE_IF_NAMETOINDEX 1
 #define HAVE_IF_INDEXTONAME 1
-#define HAVE_INET_NET_PTON 1
-#define HAVE_INET_NTOP 1
-#define HAVE_INET_PTON 1
 #define HAVE_STRDUP 1
 #define HAVE_STRCASECMP 1
 #define HAVE_STRNCASECMP 1
@@ -87,7 +75,13 @@
 #define HAVE_STAT 1
 #define HAVE_GETIFADDRS 1
 #define HAVE_MEMMEM 1
-#define HAVE_LONGLONG 1
+
+/* Query timeouts and server metrics run on CLOCK_MONOTONIC, so a wall
+ * clock stepped by NTP or by hand neither fires nor stalls them
+ * (gettimeofday() is only the fallback if the call fails). macOS has
+ * had clock_gettime() since 10.12, older than any release zig targets. */
+#define HAVE_CLOCK_GETTIME 1
+#define HAVE_CLOCK_GETTIME_MONOTONIC 1
 
 /* recv/send/recvfrom signatures: plain POSIX on every target here, no
  * winsock `int`-as-`socklen_t` oddities to paper over. */
@@ -108,41 +102,28 @@
 #define RECVFROM_TYPE_ARG4 int
 #define RECVFROM_TYPE_ARG5 struct sockaddr *
 #define RECVFROM_TYPE_ARG6 ares_socklen_t *
-#define RECVFROM_TYPE_ARG6_IS_VOID 0
-#define RECVFROM_QUAL_ARG5
 #define RECVFROM_TYPE_RETV ssize_t
 #define GETHOSTNAME_TYPE_ARG2 size_t
-#define GETNAMEINFO_QUAL_ARG1
-#define GETNAMEINFO_TYPE_ARG1 struct sockaddr *
-#define GETNAMEINFO_TYPE_ARG2 socklen_t
-#define GETNAMEINFO_TYPE_ARG46 size_t
-#define GETNAMEINFO_TYPE_ARG7 int
 
-/* Randomness: same OS calls `crypto.c`'s external PSA RNG uses --
- * getrandom(2) on Linux, getentropy(2) on Darwin -- so c-ares's own
- * connection-ID and query-ID randomization never falls back to
- * rand(). */
+/* Randomness for query IDs, DNS cookies and server shuffling comes from
+ * the OS -- arc4random_buf(3) on Darwin, getrandom(2) on Linux -- so
+ * c-ares never falls back to its own rand()-seeded RC4 generator.
+ *
+ * SIGPIPE: on Linux each send() passes MSG_NOSIGNAL; on Darwin, which
+ * has no such flag, c-ares sets SO_NOSIGPIPE on the socket instead
+ * (keyed on the header's own SO_NOSIGPIPE, nothing to define here). */
 #if defined(__APPLE__)
 #define HAVE_AVAILABILITYMACROS_H 1
+#define HAVE_ARC4RANDOM_BUF 1
 #else
 #define HAVE_GETRANDOM 1
+#define HAVE_MSG_NOSIGNAL 1
 #endif
 
-/* Event backend: epoll on Linux, kqueue on Darwin -- both faster than
- * the portable poll() fallback c-ares also carries, and neither pulls
- * in threads. */
-#if defined(__APPLE__)
-#define HAVE_KQUEUE 1
-#define HAVE_SYS_EVENT_H 1
-#else
-#define HAVE_EPOLL 1
-#define HAVE_SYS_EPOLL_H 1
-#endif
-
-/* c-ares's own thread-safety is off everywhere: the core drives one
- * poll loop itself, matching AGENTS.md's rule against dynamic loading
- * and matching how `cosmic.child` already multiplexes work without a
- * second thread. Leaving every HAVE_PTHREAD_* / CARES_THREADS macro
- * undefined takes the library's single-threaded code paths. */
+/* No event backend (epoll, kqueue, poll, select): c-ares only uses one
+ * inside its own event thread, which CARES_THREADS being off leaves
+ * out, so the event/ sources are not built. Leaving every
+ * HAVE_PTHREAD_* / CARES_THREADS macro undefined takes the library's
+ * single-threaded code paths. */
 
 #endif /* COSMIC_ARES_CONFIG_H */
