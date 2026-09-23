@@ -137,14 +137,21 @@ and contents. The cache parent is the user's trust boundary.
 On a cold start, the launcher copies the selected manifest range to a private
 temporary file, verifies its length and SHA-256 digest, sets its mode, and
 publishes it atomically. A symlink, unexpected entry, wrong owner or mode, or
-short core is repaired, or stops the launch when the cache is read-only. The
-launcher does not hash a warm core again: startup hashes the core it runs
-from, once per start, and refuses one damaged in place with
-`executing core digest differs from manifest; remove <entry> to extract it
-again`.
+short core is repaired, or stops the launch when the cache is read-only.
 
-A warm start runs two utilities and no other child: `uname` and one `stat` for
-both the cache leaf and the entry. The descriptor probes run
+A warm core is hashed until it has been verified and left alone: once startup
+has hashed an entry and a second has passed since the entry last changed,
+startup writes `.verified-<entry>` beside it, recording the entry's size,
+inode, and modification and change seconds. While the entry still answers the
+same, neither the launcher nor startup hashes it. Any write to the entry moves
+its times, so a core damaged in place is hashed by the launcher before it
+runs, and repaired. A core that startup still finds different from the
+manifest is refused with `executing core digest differs from manifest; remove
+<entry> to extract it again`.
+
+A warm start with a verified stamp runs two utilities and no other child:
+`uname` and one `stat` for both the cache leaf and the entry, and hashes
+nothing. The descriptor probes run
 in the shell itself, ownership is the shell's own `test -O`, and the umask
 changes only in the child that creates the cache leaf.
 

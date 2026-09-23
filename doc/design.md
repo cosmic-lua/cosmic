@@ -362,9 +362,14 @@ queries across both.
 the launcher's cache leaf is untrusted until its kind, owner, mode, and contents
 meet the cache policy, and the core's length and digest match the manifest. its
 parent directory is the user's trust boundary. a cold launch writes and
-publishes a verified core atomically; a warm launch checks the entry's kind,
-owner, mode, and length, and startup hashes the complete core it runs from,
-once, refusing a mismatch by naming the entry to remove. the launcher selects the platform forms of `stat`, `ln`, and
+publishes a verified core atomically. a warm launch checks the entry's kind,
+owner, mode, and length, and hashes it unless a verified stamp beside it still
+holds: startup writes the stamp after hashing the entry, recording its size,
+inode, and modification and change seconds once a second has passed since it
+last changed, so any later write to the entry voids it. startup trusts the
+same stamp and otherwise hashes the core it runs from. the stamp guards
+against accidental damage, not against the entry's owner, who controls the
+cache anyway. the launcher selects the platform forms of `stat`, `ln`, and
 the SHA-256 utility; these are supported-system interfaces rather than a claim
 that every invoked utility and flag is specified by POSIX. it reserves the
 whole `COSMIC_PORTABLE_*` prefix for its descriptor handoff. startup requires
