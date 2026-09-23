@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local schema = require("build.schema")
+local symbols = require("build.symbols")
 local work = require("build.work")
 
 local record writer
@@ -68,16 +69,22 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- The documented symbols `build.positions.docs_of` found while parsing
---- each planned module, in module order and then source order. `id` is
---- left for SQLite to assign in that order, so it is the same on every
---- build of the same tree.
+--- each planned module, and each public declaration -- `cosmic.sys`,
+--- whose only source is the C header it is generated from -- in module
+--- order and then source order. `id` is left for SQLite to assign in
+--- that order, so it is the same on every build of the same tree. A
+--- generated declaration's lines are the generated source's, not its
+--- file's, so its rows carry no line: 0, which `cosmic docs` omits.
 local insert_docs =
   "INSERT INTO out.docs (module, symbol, source_symbol, exported, kind, " ..
   "signature, text, file, line) " ..
-  "SELECT p.path, d.symbol, d.source_symbol, d.exported, d.kind, " ..
-  "d.signature, d.text, i.file, d.line " ..
-  "FROM plan p JOIN inputs i ON i.path = p.path " ..
-  "JOIN docs d ON d.source_hash = i.source_hash ORDER BY p.path, d.ordinal"
+  "SELECT m.path, d.symbol, d.source_symbol, d.exported, d.kind, " ..
+  "d.signature, d.text, i.file, " ..
+  "CASE WHEN i.kind = 'decl' AND i.origin <> 'tree' THEN 0 ELSE d.line END " ..
+  "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
+  "WHERE kind = 'decl' AND " .. symbols.public_only("path", true) .. ") m " ..
+  "JOIN inputs i ON i.path = m.path " ..
+  "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
 --- The uses `build.positions.references_of` found: each
 --- `alias.member` resolved against the module the alias names, as the

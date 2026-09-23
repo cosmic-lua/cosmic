@@ -474,8 +474,9 @@ local function effective_counts(view: docs.View, entries: {docs.Entry})
 end
 
 --- Resolves module ownership once for a docs command or direct caller.
---- Membership comes from `modules`, even when the owning database has
---- no documentation for that module.
+--- Membership comes from `modules` and `decls` -- `cosmic.sys` is only
+--- a declaration -- even when the owning database has no documentation
+--- for that module.
 --- @param public which databases, by index, are public sources
 function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | nil, string
   local scope: {integer: boolean} = {}
@@ -485,7 +486,7 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
   local owners: {string: integer} = {}
   for index, db in ipairs(databases) do
     local rows, trouble = Sqlite.text_rows(db,
-      "SELECT path FROM modules ORDER BY path")
+      "SELECT path FROM modules UNION SELECT path FROM decls ORDER BY path")
     if rows == nil then
       return nil, trouble
     end
@@ -592,8 +593,9 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
   else
+    local at = entry.line > 0 and ":" .. entry.line or ""
     lines[#lines + 1] = entry.module .. " " .. entry.source_symbol .. " (" ..
-      entry.file .. ":" .. entry.line .. ")"
+      entry.file .. at .. ")"
     lines[#lines + 1] = "  " .. entry.signature
   end
   if #entry.related > 0 then
