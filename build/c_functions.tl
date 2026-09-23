@@ -29,17 +29,11 @@ local record c_functions
   end
 end
 
-local boot_only <const> = "runs only in the boot bridge, which bin/zig build boot starts, never a test"
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
 local before_exec <const> = "runs in a forked child before exec, which reports nothing"
 local forwarded <const> = "passes to the base VFS a call SQLite never makes on the store's read-only database"
-local fixture_only <const> = "a portable launch's cache repair, which ci/fixtures/launcher_test.tl covers and which reports no coverage"
 
 c_functions.exempt = {
-  ["core/boot.c:report"] = boot_only,
-  ["core/boot.c:cosmic_boot"] = boot_only,
-  ["core/store.c:cosmic_store_preload_raw"] = boot_only,
-  ["core/store.c:return_upvalue"] = boot_only,
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
   ["core/vfs.c:file_sync"] = read_only,
@@ -50,8 +44,6 @@ c_functions.exempt = {
   ["core/syscalls.c:report_child_error"] = before_exec,
   ["core/syscalls.c:close_child_descriptors"] = before_exec,
   ["core/syscalls.c:catch_child_cancel"] = "a signal handler in a process the same signal then ends, which reports nothing",
-  ["core/startup.c:stamp_write"] = fixture_only,
-  ["core/startup.c:fail_adoption"] = fixture_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,
@@ -70,15 +62,45 @@ function c_functions.key(fn: Coverage.Function): string
   return fn.path .. ":" .. fn.name
 end
 
+--- Whether `here`, one file's hits, holds a line from `first` up to but
+--- not including `stop` (nil for the end of the file).
+local function hit_between(here: {integer: boolean}, first: integer, stop: integer | nil): boolean
+  for line in pairs(here) do
+    if line >= first and (stop == nil or line < stop) then return true end
+  end
+  return false
+end
+
 --- Measures `hits`, a run's hits, against `functions`, every C function
---- of the core.
+--- of the core. A function was entered when a hit lands anywhere from
+--- its first line up to the next function's in the same file: where the
+--- compiler inlines a call, the body runs without the function's own
+--- first block, so its first line alone would miss it.
 function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits): c_functions.Tally
+  local starts: {string: {integer}} = {}
+  for _, fn in ipairs(functions) do
+    local lines = starts[fn.path]
+    if lines == nil then
+      lines = {}
+      starts[fn.path] = lines
+    end
+    lines[#lines + 1] = fn.line
+  end
+  for _, lines in pairs(starts) do table.sort(lines) end
   local entered: {string: boolean} = {}
   for _, fn in ipairs(functions) do
     if fn.path:match("%.c$") ~= nil then
       local key = c_functions.key(fn)
       local here = hits[fn.path]
-      entered[key] = entered[key] == true or (here ~= nil and here[fn.line] == true)
+      local stop: integer | nil = nil
+      for _, line in ipairs(starts[fn.path]) do
+        if line > fn.line then
+          stop = line
+          break
+        end
+      end
+      entered[key] = entered[key] == true or
+        (here ~= nil and hit_between(here, fn.line, stop))
     end
   end
   local keys: {string} = {}

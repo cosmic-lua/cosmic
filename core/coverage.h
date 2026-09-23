@@ -17,14 +17,13 @@
  * inherit that pointer. The userdata itself stays rooted in the registry.
  *
  * Pushes a small table {start = <cfunction>, stop = <cfunction>,
- * snapshot = <cfunction>, called = <cfunction>} onto the stack. `start`
- * installs a line hook and begins a fresh, empty collection; given a
- * table mapping C functions to names, it hooks calls too, and counts a
- * call of each; `stop` removes the hook and returns every line collected
- * since; `snapshot` reads a copy of every line collected so far without
- * touching the hook or the collection, for a caller that wants to look
- * while collection keeps running; `called` names every watched C
- * function called since `start`. `stop` and `snapshot` describe hits the
+ * snapshot = <cfunction>, ...} onto the stack. `start` installs a line
+ * hook and begins a fresh, empty collection; `stop` removes the hook and
+ * returns every line collected since; `snapshot` reads a copy of every
+ * line collected so far without touching the hook or the collection, for
+ * a caller that wants to look while collection keeps running. A C
+ * function's lines are how a test is seen to reach it, in a core built
+ * with COSMIC_NATIVE_COVERAGE. `stop` and `snapshot` describe hits the
  * same way: {string: {integer: boolean}}, keyed by each chunk's full source
  * name (with an initial @ stripped). In a core built with
  * COSMIC_NATIVE_COVERAGE they also hold the core's own C, by repository
@@ -40,6 +39,13 @@ void cosmic_coverage_install (lua_State *L);
  * tells them where: free it, not its entries, when it differs from `envp`.
  * Built before a fork, since the child may not allocate. */
 char **cosmic_coverage_environment (char **envp);
+
+/* In a process a test started, arranges for it to report the C it runs
+ * (`cosmic_coverage_report`) and hides how from everything after. Called
+ * first thing, before startup can fail, so a process that ends in its
+ * own startup -- a refused portable launch -- still reports; install
+ * calls it too, and a second call does nothing. */
+void cosmic_coverage_prepare (void);
 
 /* In a process a test started, writes the C it has run to the test's
  * directory; does nothing in any other. Runs at exit, and before `_exit`

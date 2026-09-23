@@ -30,8 +30,7 @@ int cosmic_store_install (lua_State *L, sqlite3 *binary,
 void cosmic_store_set_raw (lua_State *L, const char *name);
 
 /* Opens and registers every raw module core C builds on its own --
- * the sqlite, hash, compress and http bindings -- and the table of
- * them all that `build.entry_points` is handed. */
+ * the sqlite, hash, compress and http bindings. */
 void cosmic_store_open_raw (lua_State *L);
 
 /* Puts every registered raw value into package.preload under its own

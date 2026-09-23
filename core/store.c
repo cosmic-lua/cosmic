@@ -45,17 +45,12 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
  * wrapper does not already hand out. */
 #define RAW_TABLE "cosmic.store.raw"
 
-/* The raw value `build.entry_points` is handed: every raw module core C
- * opens, keyed by its name under `cosmic.internal.`, so the entry-point
- * gate can walk their functions. */
-#define RAW_MODULES "cosmic.internal.modules"
-
 /* Every wrapper that is handed a raw value when loaded trusted, and the
  * raw value's name. `open` builds that value; it is NULL where other
  * code registers it -- `cosmic_store_install` the store, core/surface.c
  * the coverage collector (despite its raw name, a holdover from when it
- * carried the real `debug` library), and `cosmic_store_open_raw` the
- * table of all the others. */
+ * carried the real `debug` library), and `cosmic_store_open_raw` all
+ * the others. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -64,7 +59,6 @@ static const struct raw_module {
   {"cosmic.store", "cosmic.internal.store", NULL},
   {"build.artifact", "cosmic.internal.store", NULL},
   {"cosmic.coverage", "cosmic.internal.debug", NULL},
-  {"build.entry_points", RAW_MODULES, NULL},
   {"cosmic.sqlite", "cosmic.internal.sqlite", cosmic_open_sqlite},
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
@@ -754,15 +748,11 @@ void cosmic_store_set_raw (lua_State *L, const char *name) {
 }
 
 void cosmic_store_open_raw (lua_State *L) {
-  lua_newtable(L);
   for (size_t m = 0; m < RAW_MODULE_COUNT; m++) {
     if (raw_modules[m].open == NULL) continue;
     raw_modules[m].open(L);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, -3, raw_modules[m].raw + strlen("cosmic.internal."));
     cosmic_store_set_raw(L, raw_modules[m].raw);
   }
-  cosmic_store_set_raw(L, RAW_MODULES);
 }
 
 void cosmic_store_preload_raw (lua_State *L) {

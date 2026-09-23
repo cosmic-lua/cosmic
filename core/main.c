@@ -13,6 +13,7 @@
 
 #include "boot.h"
 #include "check.h"
+#include "coverage.h"
 #include "crypto.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -461,6 +462,7 @@ static int run_main (lua_State *L, sqlite3 *db, int argc, char **argv) {
 
 int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
                           char **argv) {
+  cosmic_coverage_prepare();
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {
     return complain(startup_trouble, NULL);
