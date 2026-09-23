@@ -22,7 +22,7 @@ end
 --- Asserts calling `fn` with `...` raises rather than returning.
 local function raises(fn: any, ...: any)
   local ok = pcall(fn as function(any...): (any...), ...)
-  assert(not ok, "a use after close must raise")
+  assert(not ok, "the call must raise")
 end
 
 local function memory(): Sqlite.Handle
@@ -209,4 +209,38 @@ local function test_a_file_database_persists(tmp: string)
   failed(again:exec("INSERT INTO t VALUES ('refused')"))
   statement:finalize()
   again:close()
+end
+
+--- A column is read only from the row a statement is on: out of range,
+--- before the first step, and after the last are each an argument no
+--- correct program passes, not a value SQLite happens to hand back.
+local function test_a_column_outside_the_current_row_raises()
+  local handle = memory()
+  local statement = prepared(handle, "SELECT 1, 'two'")
+  for _, method in ipairs({ "kind", "integer", "number", "bytes" }) do
+    raises((statement as {string: any})[method], statement, 0)
+  end
+  assert(statement:step() == "row")
+  assert(statement:integer(0) == 1 and statement:bytes(1) == "two")
+  for _, method in ipairs({ "kind", "integer", "number", "bytes" }) do
+    raises((statement as {string: any})[method], statement, 2)
+    raises((statement as {string: any})[method], statement, -1)
+  end
+  assert(statement:step() == "done")
+  raises(statement.integer, statement, 0)
+  statement:finalize()
+  handle:close()
+end
+
+--- An index past what an int holds is refused, not truncated into one
+--- that happens to exist: 2^32 + 1 is not parameter 1.
+local function test_an_index_past_an_int_raises()
+  local handle = memory()
+  local statement = prepared(handle, "SELECT ?1")
+  raises(statement.bind_integer, statement, (1 << 32) + 1, 7)
+  raises(statement.bind_null, statement, (1 << 32) + 1)
+  assert(statement:step() == "row")
+  raises(statement.integer, statement, 1 << 32)
+  statement:finalize()
+  handle:close()
 end

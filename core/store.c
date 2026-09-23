@@ -6,6 +6,7 @@
 
 #include "lauxlib.h"
 #include "crypto.h"
+#include "guard.h"
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"
@@ -218,6 +219,37 @@ static int store_attach(lua_State *L) {
   return 2;
 }
 
+static void release_statement(void *stmt) { sqlite3_finalize(stmt); }
+
+/* Pushes the one column `sql` answers for `key` in `db` and returns 1,
+ * or pushes nothing and returns 0 when no row answers. The statement is
+ * held by a guard while the value is copied out: the copy allocates,
+ * and an allocation can raise past the finalize. */
+static int lookup(lua_State *L, sqlite3 *db, const char *sql,
+                  const char *key) {
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_statement);
+  int slot = lua_gettop(L);
+  sqlite3_stmt *stmt = NULL;
+  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    die_unreadable(db);
+  }
+  guard->resource = stmt;
+  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+  int rc = sqlite3_step(stmt);
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+    die_unreadable(db);
+  }
+  int found = rc == SQLITE_ROW;
+  if (found) {
+    lua_pushlstring(L, sqlite3_column_blob(stmt, 0),
+                    (size_t)sqlite3_column_bytes(stmt, 0));
+  }
+  /* Finalized now, and the emptied slot taken out from under the value. */
+  lua_closeslot(L, slot);
+  lua_remove(L, slot);
+  return found;
+}
+
 /* One module's compiled bytes, for a caller that must load a chunk in
  * an environment of its own -- which is how the vendored compiler runs
  * without the names the surface removed. */
@@ -229,27 +261,10 @@ static int store_bytecode(lua_State *L) {
   static const char *query = "SELECT bytecode FROM modules WHERE path = ?1";
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
-    if (db == NULL) {
-      continue;
-    }
-    sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
-      die_unreadable(db);
-    }
-    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
-    int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
-      lua_pushlstring(L, sqlite3_column_blob(stmt, 0),
-                      (size_t)sqlite3_column_bytes(stmt, 0));
-      sqlite3_finalize(stmt);
+    if (db != NULL && lookup(L, db, query, name)) {
       lua_pushliteral(L, "");
       return 2;
     }
-    if (rc != SQLITE_DONE) {
-      sqlite3_finalize(stmt);
-      die_unreadable(db);
-    }
-    sqlite3_finalize(stmt);
   }
   lua_pushnil(L);
   lua_pushfstring(L, "no module '%s' in the store", name);
@@ -271,24 +286,10 @@ static int store_source(lua_State *L) {
     "SELECT source FROM modules WHERE path = ?1",
   };
   for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
-    sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(db, queries[i], -1, &stmt, NULL) != SQLITE_OK) {
-      die_unreadable(db);
-    }
-    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
-    int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW) {
-      lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
-                      (size_t)sqlite3_column_bytes(stmt, 0));
-      sqlite3_finalize(stmt);
+    if (lookup(L, db, queries[i], name)) {
       lua_pushliteral(L, "");
       return 2;
     }
-    if (rc != SQLITE_DONE) {
-      sqlite3_finalize(stmt);
-      die_unreadable(db);
-    }
-    sqlite3_finalize(stmt);
   }
   lua_pushnil(L);
   lua_pushfstring(L, "no module '%s' in the binary", name);
@@ -298,24 +299,7 @@ static int store_source(lua_State *L) {
 /* Pushes one database's meta value and returns 1, or pushes nothing and
  * returns 0 when that key has no row. */
 static int database_meta(lua_State *L, sqlite3 *db, const char *key) {
-  static const char *query = "SELECT value FROM meta WHERE key = ?1";
-  sqlite3_stmt *stmt = NULL;
-  if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK)
-    die_unreadable(db);
-  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
-  int rc = sqlite3_step(stmt);
-  if (rc == SQLITE_ROW) {
-    lua_pushlstring(L, (const char *)sqlite3_column_text(stmt, 0),
-                    (size_t)sqlite3_column_bytes(stmt, 0));
-    sqlite3_finalize(stmt);
-    return 1;
-  }
-  if (rc != SQLITE_DONE) {
-    sqlite3_finalize(stmt);
-    die_unreadable(db);
-  }
-  sqlite3_finalize(stmt);
-  return 0;
+  return lookup(L, db, "SELECT value FROM meta WHERE key = ?1", key);
 }
 
 static void big_endian_32(unsigned char *out, uint32_t value) {
