@@ -337,21 +337,18 @@ core_bytes, 0x1c0)
   outcome_ok(mode_repair, "entry mode repair")
   Fixture.contains(mode_repair.err, "mode is not 0500; repairing")
 
-  -- A cached core damaged in place keeps its length, so the launcher runs it
-  -- and startup, the one pass that hashes it, refuses it by name.
-  Fixture.write(core, "Z" .. core_bytes:sub(2), 0x140)
-  local marker = ctx.work .. "/corrupt.marker"
-  local corrupt = run(ctx, "warm-corrupt", base,
+  -- The launcher leaves a warm core's digest to startup (runtime_test), so
+  -- the entries it refuses here are the ones it can see are wrong.
+  Fixture.write(core, core_bytes:sub(1, 20), 0x140); chmod(base, 0x140)
+  local marker = ctx.work .. "/read-only-short.marker"
+  local refused = run(ctx, "read-only-short", base,
     { PORTABLE_PAYLOAD_MARKER = marker })
-  assert(not corrupt.result.ok and Fs.exists(marker) == false)
-  Fixture.contains(corrupt.err, "executing core digest differs from manifest")
-  Fixture.contains(corrupt.err, "/" .. key .. " to extract it again")
-  assert(Fs.remove(core))
-  outcome_ok(run(ctx, "corrupt-removed", base), "extract after removal")
-  assert(Fixture.hash(core) == core_hash)
-  Fixture.write(core, core_bytes:sub(1, 20), 0x140)
+  assert(not refused.result.ok and Fs.exists(marker) == false)
+  Fixture.contains(refused.err, "length differs and cache is read-only")
+  chmod(base, 0x1c0)
   local short = run(ctx, "short-repair", base); outcome_ok(short, "short repair")
   Fixture.contains(short.err, "length differs; repairing")
+  assert(Fixture.hash(core) == core_hash)
 
   -- A launcher arm is the quoted `uname -sm` answer it selects.
   local host = ctx.target == "aarch64-macos" and "'Darwin arm64'" or
@@ -408,7 +405,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     no_private_entries(interrupted, ".core.")
     outcome_ok(run(ctx, "interrupt-next", interrupted), "post-interrupt launch")
     local core = only_core(interrupted); local bytes = Fixture.read(core)
-    Fixture.write(core, "Z" .. bytes:sub(2), 0x140)
+    Fixture.write(core, bytes:sub(1, 20), 0x140)
     local repair_ready, repair_go =
       fifo(ctx, "repair-ready"), fifo(ctx, "repair-go")
     local repair = start(ctx, "repair-interrupted", { ctx.artifact }, ctx.work,
@@ -419,7 +416,7 @@ local function test_launcher_publication_and_interruption(tmp: string)
     no_private_entries(interrupted, ".repair-")
     outcome_ok(run(ctx, "repair-next", interrupted), "post-repair launch")
 
-    bytes = Fixture.read(core); Fixture.write(core, "Z" .. bytes:sub(2), 0x140)
+    Fixture.write(core, bytes:sub(1, 20), 0x140)
     local kill_ready, kill_go = fifo(ctx, "kill-ready"), fifo(ctx, "kill-go")
     local killed = start(ctx, "repair-killed", { ctx.artifact }, ctx.work,
       hook_environment(interrupted, "after_repair_lock", kill_ready, kill_go))
