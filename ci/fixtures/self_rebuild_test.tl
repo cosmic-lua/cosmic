@@ -304,11 +304,16 @@ local function test_self_rebuild_prefix_comparison(_tmp: string)
   assert(not mutated_ok, "mutated prefix comparison unexpectedly passed")
 end
 
-local function test_self_rebuild_rename_and_unlink(tmp: string)
-  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  run_rebuild_case(root, fixture_dir, tmp, "rename")
-  run_rebuild_case(root, fixture_dir, tmp, "unlink")
+-- Each way of losing the artifact is a test of its own, so each self-rebuild
+-- has a test's whole time limit to itself rather than half of one.
+local function test_self_rebuild_after_a_rename(tmp: string)
+  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_ROOT"),
+    Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "rename")
+end
+
+local function test_self_rebuild_after_an_unlink(tmp: string)
+  run_rebuild_case(Fixture.required("COSMIC_FIXTURE_ROOT"),
+    Fixture.required("COSMIC_FIXTURE_RUNTIME"), tmp, "unlink")
 end
 
 local function test_self_rebuild_refusals(tmp: string)
