@@ -25,6 +25,7 @@ extern long syscall(long, ...);
 
 #include "check.h"
 #include "fail.h"
+#include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
 #include "miniz.h"
@@ -191,7 +192,8 @@ static int sigpipe_ignored_here;
  * frees nothing on success because nothing of this process remains.
  * Every argv entry must already be a string -- a number converted in
  * place would be a string nothing holds -- and everything that can
- * raise is done before the arrays are allocated. */
+ * raise is checked before the arrays are allocated; each array is held
+ * by a guard all the same, which frees it on every return. */
 COSMIC_SYSCALL(execve, 3) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -227,11 +229,13 @@ COSMIC_SYSCALL(execve, 3) {
     lua_pop(L, 1);
   }
 
+  struct cosmic_guard *argv_guard = cosmic_guard_push(L, free);
+  struct cosmic_guard *envp_guard = cosmic_guard_push(L, free);
   char **argv = calloc(count + 1, sizeof *argv);
+  argv_guard->resource = argv;
   char **envp = calloc((size_t)variables + 1, sizeof *envp);
+  envp_guard->resource = envp;
   if (argv == NULL || envp == NULL) {
-    free(argv);
-    free(envp);
     return cosmic_fail(L, ENOMEM);
   }
   for (size_t i = 1; i <= count; i++) {
@@ -251,8 +255,6 @@ COSMIC_SYSCALL(execve, 3) {
   execve(path, argv, envp);
   int number = errno;
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
-  free(envp);
-  free(argv);
   return cosmic_fail(L, number);
 }
 

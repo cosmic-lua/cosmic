@@ -242,9 +242,10 @@ local function test_identity_primary(tmp: string)
   local counter = project .. "/test-runs"
   local cache = work .. "/cache"
 
-  -- Run just build/embed_test.tl under the real portable runtime. Its seven
-  -- cases cover the portable database, the retained prefix, and host
-  -- programs made from the running core, and the exit status main returns.
+  -- Run just build/embed_test.tl under the real portable runtime. Its cases
+  -- cover the portable database, the retained prefix, and host programs
+  -- made from the running core; every one of them must run, none answered
+  -- from a verdict, however many the file holds.
   local focused = work .. "/focused-embed"
   Fixture.mkdir(focused)
   copy_tree("copy-build", root .. "/build", focused .. "/build", work,
@@ -252,8 +253,13 @@ local function test_identity_primary(tmp: string)
   local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
     "test", "build/embed_test.tl" }, focused, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
-  Fixture.contains(focused_run.out,
-    "test: PASS (7 tests, 1 modules; 7 ran, 0 stood")
+  local cases = 0
+  for _ in Fixture.read(focused .. "/build/embed_test.tl"):gmatch("\nlocal function test_") do
+    cases = cases + 1
+  end
+  assert(cases > 0, "build/embed_test.tl holds no tests")
+  Fixture.contains(focused_run.out, "test: PASS (" .. cases .. " tests, 1 modules; " ..
+    cases .. " ran, 0 stood")
 
   local build1 = Fixture.run("build", { fixture_dir .. "/runtime.old", "build" },
     project, diagnostics, { COSMIC_PORTABLE_CACHE = cache })

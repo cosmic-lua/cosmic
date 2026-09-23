@@ -8,7 +8,10 @@
 --- "Nothing behind" is checked after a collection: when memory is so
 --- short that Lua cannot even call a guard's close, the guard's __gc is
 --- what releases it (core/guard.h), and a refusal walk reaches exactly
---- such points.
+--- such points. Each run is followed by one, with allocations granted
+--- again: a finalizer left pending would otherwise be run by a step of
+--- the collector during the next run's refusals, fail to be called, and
+--- never be called again.
 ---
 --- Only the checked core can refuse an allocation (core/testing.h), and
 --- CI runs this suite on it; any other core has no instrument to
@@ -24,12 +27,20 @@ local checked = testing.configuration == "sanitized"
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
 --- ended. A run that nothing was refused in must succeed.
-local function under_every_failure(work: function()): integer
+---
+--- `settle`, when given, runs after each run with allocations granted
+--- again, to release what the run was handed. The work cannot release it
+--- itself: a worker's coverage hook runs Lua between any two lines, and
+--- can itself be refused, so a refusal can fall between a binding's
+--- return and the line that would have released what it returned.
+local function under_every_failure(work: function(), settle?: function()): integer
   local ended = 0
   for after = 0, 1000000 do
     testing.fail_allocations(after)
     local ok, failure = pcall(work as function(): any)
     local refused = testing.allow_allocations()
+    if settle ~= nil then settle() end
+    collectgarbage("collect")
     if refused == 0 then
       assert(ok, "the work failed with every allocation granted: " .. tostring(failure))
       return ended
@@ -117,47 +128,87 @@ local function test_print_survives_every_refused_allocation()
   assert(ended > 0, "a line past the inline buffer allocates")
 end
 
---- A temporary file is made after its answer is: a refusal leaves no
---- descriptor open and no file behind.
-local function test_open_temporary_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+--- open_temporary builds its answer with the descriptor already open; a
+--- refusal while it does must close it, not leave it to the process.
+local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
-  assert(sys.mkdir(tmp .. "/d"))
+  local path = tmp .. "/t"
   local before = next_descriptor(tmp)
+  -- Taken on the line that makes the call, so no hook runs between the
+  -- binding's return and the test holding what it returned.
+  local received: sys.TemporaryFile
+  local opened = 0
   local ended = under_every_failure(function()
-    local made = assert(sys.open_temporary(tmp .. "/d/f"))
-    sys.close(made.fd)
-    sys.unlink(made.path)
+    received = sys.open_temporary(path, 420)
+  end, function()
+    if received ~= nil then
+      sys.close(received.fd)
+      received = nil
+      opened = opened + 1
+    end
   end)
-  assert(ended > 0, "the answer allocates")
+  assert(ended > 0, "building the answer allocates")
+  assert(opened >= 1, "the run with nothing refused opens a file")
   collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left a descriptor open")
-  assert(next((assert(sys.readdir(tmp .. "/d")))) == nil,
-    "a refused allocation left a temporary file")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
+--- execve holds its argv and environment arrays while it fills them from
+--- the tables; a refusal at any point of that, and a failed execve after
+--- it, must come back through the guards that free them.
+local function test_execve_survives_every_refused_allocation(tmp: string)
+  if not checked then return end
+  local missing = tmp .. "/no-such-program"
+  local ended = under_every_failure(function()
+    local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
+    assert(ok == nil and trouble ~= nil, "a program that is not there cannot run")
+  end)
+  assert(ended > 0, "joining the environment allocates")
+end
+
+--- A pipe is made after its answer is: a refusal leaves neither end open.
 local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: string)
   if not checked then return end
   local before = next_descriptor(tmp)
+  -- Taken on the line that makes the call, and released in `settle`, so
+  -- a refused coverage hook cannot fall between the two.
+  local received: sys.Pipe
+  local made = 0
   local ended = under_every_failure(function()
-    local ends = assert(sys.pipe())
-    sys.close(ends.reader)
-    sys.close(ends.writer)
+    received = sys.pipe()
+  end, function()
+    if received ~= nil then
+      sys.close(received.reader)
+      sys.close(received.writer)
+      received = nil
+      made = made + 1
+    end
   end)
-  assert(ended > 0, "the answer allocates")
-  collectgarbage("collect")
-  assert(next_descriptor(tmp) == before, "a refused allocation left a pipe end open")
+  assert(ended > 0, "building the answer allocates")
+  assert(made >= 1, "the run with nothing refused makes a pipe")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
 end
 
 --- A child is reaped only once its answer can be made: a refusal before
 --- it leaves the child to wait for again, never its status lost.
 local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
   if not checked then return end
-  local pid = assert(sys.spawn("/bin/sh", { "sh", "-c", "exit 7" }, nil, nil, nil, nil, nil, false))
-  local ended = under_every_failure(function()
-    local status = assert(sys.waitpid(pid, false))
-    assert(status.pid == pid and status.code == 7 and status.signal == -1)
+  local pid = assert(sys.spawn("/bin/sh", { "sh", "-c", "exit 7" }, nil, nil, nil,
+    nil, nil, false))
+  local received: sys.ChildStatus
+  local reaped: sys.ChildStatus
+  under_every_failure(function()
+    if reaped == nil then received = sys.waitpid(pid, false) end
+  end, function()
+    if received ~= nil then
+      reaped = received
+      received = nil
+    end
   end)
-  assert(ended > 0, "the answer allocates")
+  assert(reaped ~= nil, "the child's status was lost to a refused allocation")
+  assert(reaped.pid == pid and reaped.code == 7 and reaped.signal == -1)
 end
 
 --- An attached database is held by the store or closed: a refusal
@@ -172,10 +223,9 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   local before = next_descriptor(tmp)
   local searched = #Store.databases()
   local ended = under_every_failure(function()
-    assert(Store.attach(path))
+    Store.attach(path)
   end)
   assert(ended > 0, "attaching allocates")
-  collectgarbage("collect")
   -- A run can attach and still count a refusal Lua shrugged off (a
   -- string table it could not grow), so the store may hold more than
   -- one: each holds its one descriptor, and nothing else does.

@@ -364,9 +364,21 @@ pub fn build(b: *std.Build) void {
     environment_check.root_module.addIncludePath(b.path("core"));
     boot.dependOn(&b.addRunArtifact(environment_check).step);
 
+    // Every core but the test fixtures observes its own C: a table from
+    // each core's first link, carried by its second (`observedCore`).
+    const mapper = b.addExecutable(.{
+        .name = "coverage-map",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("core/coverage_map.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls };
+
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false, .off);
+        const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
@@ -400,8 +412,6 @@ pub fn build(b: *std.Build) void {
     // for the host only, and installed beside the release cores. Its portable
     // artifact still carries all three required release entries, plus this
     // host's configuration-2 entry selected by its private launcher.
-    // It also observes its own C, so the suite it runs
-    // writes the core's lines into the same coverage tables as Teal's.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
     analyze(b, analyzed, lua, sqlite, miniz, mbedtls);
@@ -411,33 +421,7 @@ pub fn build(b: *std.Build) void {
     sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
     const checked_host = baselineHostTarget(b);
-    const checked = checked: {
-        const first = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .first_link);
-        const mapper = b.addExecutable(.{
-            .name = "coverage-map",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("core/coverage_map.zig"),
-                .target = b.graph.host,
-                .optimize = .ReleaseSafe,
-            }),
-        });
-        const write_map = b.addRunArtifact(mapper);
-        write_map.addArg("write");
-        write_map.addFileArg(first.getEmittedBin());
-        write_map.addArg(b.pathFromRoot("."));
-        const map = write_map.addOutputFileArg("coverage_map.c");
-        const second = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .{ .map = map });
-        // The table is indexed by block, and only holds for a link whose
-        // blocks are the first's, in the first's order: the second link is
-        // mapped again and must say the same.
-        const check_map = b.addRunArtifact(mapper);
-        check_map.addArg("check");
-        check_map.addFileArg(second.getEmittedBin());
-        check_map.addArg(b.pathFromRoot("."));
-        check_map.addFileArg(map);
-        sanitized.dependOn(&check_map.step);
-        break :checked second;
-    };
+    const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -639,6 +623,43 @@ fn analyze(
     }
 }
 
+/// The vendored trees every core is built from.
+const Sources = struct {
+    lua: std.Build.LazyPath,
+    sqlite: std.Build.LazyPath,
+    miniz: std.Build.LazyPath,
+    mbedtls: std.Build.LazyPath,
+};
+
+/// A core that observes its own C: linked first with an empty block table
+/// and its debug information, which `core/coverage_map.zig` reads to write
+/// the table, then linked again carrying it. The table is indexed by block,
+/// so it is only true of a second link holding the first's blocks in the
+/// first's order; `checks` gains the step that holds it to that.
+fn observedCore(
+    b: *std.Build,
+    mapper: *std.Build.Step.Compile,
+    checks: *std.Build.Step,
+    target_record: Target,
+    configuration: Configuration,
+    target: std.Build.ResolvedTarget,
+    sources: Sources,
+) *std.Build.Step.Compile {
+    const first = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, false, .first_link);
+    const write_map = b.addRunArtifact(mapper);
+    write_map.addArg("write");
+    write_map.addFileArg(first.getEmittedBin());
+    write_map.addArg(b.pathFromRoot("."));
+    const map = write_map.addOutputFileArg("coverage_map.c");
+    const second = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, false, .{ .map = map });
+    const check_map = b.addRunArtifact(mapper);
+    check_map.addArg("check");
+    check_map.addFileArg(first.getEmittedBin());
+    check_map.addFileArg(second.getEmittedBin());
+    checks.dependOn(&check_map.step);
+    return second;
+}
+
 fn core(
     b: *std.Build,
     target_record: Target,
@@ -657,7 +678,9 @@ fn core(
         .link_libc = true,
         // Stripping is what makes two builds at different paths produce
         // the same bytes: debug info carries the absolute path.
-        .strip = !configuration.sanitize,
+        // A first link keeps its debug information for the block map to
+        // read; it is never installed.
+        .strip = !configuration.sanitize and native_coverage != .first_link,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
 

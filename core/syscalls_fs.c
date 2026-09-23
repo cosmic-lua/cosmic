@@ -84,18 +84,17 @@ COSMIC_SYSCALL(open, 3) {
   return 1;
 }
 
+/* The answer is built before the file is opened, with "fd" already a
+ * key, so that setting the descriptor into it allocates nothing: an
+ * allocation that raised while the descriptor was open would leak it. */
 COSMIC_SYSCALL(open_temporary, 2) {
   const char *path = luaL_checkstring(L, 1);
   int mode = cosmic_optint(L, 2, 0644);
   static unsigned long serial;
   char temporary[PATH_MAX];
-
-  /* The answer, its keys and each attempt's path are made before the
-   * file is, and filling a table sized for them allocates nothing: a
-   * raise after the open would leak the descriptor and leave the file. */
   lua_createtable(L, 0, 2);
-  lua_pushliteral(L, "fd");
-  lua_pushliteral(L, "path");
+  push_field(L, "fd", -1);
+
   for (unsigned int attempt = 0; attempt < 100; attempt++) {
     unsigned long number = ++serial;
     int length = snprintf(temporary, sizeof temporary, "%s.writing.%ld.%lu",
@@ -104,21 +103,19 @@ COSMIC_SYSCALL(open_temporary, 2) {
       return cosmic_fail(L, ENAMETOOLONG);
     }
     lua_pushstring(L, temporary);
+    lua_setfield(L, -2, "path");
     int fd;
     do {
       fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
                 (mode_t)mode);
     } while (fd < 0 && errno == EINTR);
     if (fd >= 0) {
-      lua_rawset(L, -4);
-      lua_pushinteger(L, (lua_Integer)fd);
-      lua_rawset(L, -3);
+      push_field(L, "fd", (lua_Integer)fd);
       return 1;
     }
     if (errno != EEXIST) {
       return cosmic_fail(L, errno);
     }
-    lua_pop(L, 1);
   }
   return cosmic_fail(L, EEXIST);
 }

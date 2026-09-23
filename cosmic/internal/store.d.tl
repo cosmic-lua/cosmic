@@ -6,9 +6,13 @@ local type sqlite = require("cosmic.internal.sqlite")
 local record store
   --- The running core, as trusted_core hands it over.
   record Core
+    --- The core's exact bytes, as the artifact holds them.
     bytes: string
+    --- The target the artifact's manifest names it by.
     target_id: integer
+    --- The configuration the artifact's manifest names it by.
     configuration_id: integer
+    --- Its SHA-256 digest, as 32 raw bytes, which its bytes match.
     digest: string
   end
 

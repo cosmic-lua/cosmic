@@ -12,6 +12,7 @@
 #include <strings.h>
 
 #include "boot.h"
+#include "check.h"
 #include "crypto.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -398,31 +399,31 @@ static int failed(lua_State *L, sqlite3 *db) {
   return 1;
 }
 
-/* What the entry hands the Lua side of running main: everything it
- * needs, through one light userdata, which pushing never allocates. */
+/* What the entry hands the Lua side of running main, through one light
+ * userdata, which pushing never allocates: everything it needs, and the
+ * exit status it answers. */
 struct entry {
   const char *main_name;
   int argc;
   char **argv;
+  int status;
 };
 
 /* Requires the main module, calls what it returns with the command line
  * as a table whose slot 0 is the program's own name, and answers the
- * exit status it returned: nil is 0, an integer from 0 to 255 is
- * itself, and anything else is an error, as a status the process
- * cannot exit with would otherwise be cut down to one it did not mean
- * (256 to 0). Every step here can raise -- on memory, if on nothing
- * else -- so it runs under lua_pcall, and a raise is an uncaught error
- * like any other. */
+ * exit status it returned (`cosmic_tostatus`), refusing one that is
+ * not. Every step here can raise -- building the command line on
+ * memory, if on nothing else -- so it runs under lua_pcall, and a
+ * raise is an uncaught error like any other. */
 static int enter_main(lua_State *L) {
-  const struct entry *entry = lua_touserdata(L, 1);
+  struct entry *entry = lua_touserdata(L, 1);
   lua_getglobal(L, "require");
   lua_pushstring(L, entry->main_name);
   lua_call(L, 1, 1);
   if (!lua_isfunction(L, -1)) {
-    complain("the main module is not a function", entry->main_name);
-    lua_pushinteger(L, 2);
-    return 1;
+    entry->status =
+        complain("the main module is not a function", entry->main_name);
+    return 0;
   }
 
   lua_createtable(L, entry->argc, 1);
@@ -431,21 +432,14 @@ static int enter_main(lua_State *L) {
     lua_seti(L, -2, i);
   }
   lua_call(L, 1, 1);
-  if (lua_isnil(L, -1)) {
-    lua_pushinteger(L, 0);
-    return 1;
+  int status = cosmic_tostatus(L, -1);
+  if (status < 0) {
+    complain("the main function returned no exit status from 0 to 255",
+             entry->main_name);
+    status = 2;
   }
-  int is_integer = 0;
-  lua_Integer status = lua_type(L, -1) == LUA_TNUMBER
-                           ? lua_tointegerx(L, -1, &is_integer)
-                           : 0;
-  if (!is_integer || status < 0 || status > 255) {
-    return luaL_error(L, "main returned %s, which is not an exit status: "
-                         "return nil or an integer from 0 to 255",
-                      luaL_tolstring(L, -1, NULL));
-  }
-  lua_pushinteger(L, status);
-  return 1;
+  entry->status = status;
+  return 0;
 }
 
 /* Runs the main module the build recorded. `db` is threaded through
@@ -457,13 +451,13 @@ static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
     return complain("the database names no main module", NULL);
   }
 
-  struct entry entry = {main_name, argc, argv};
+  struct entry entry = {main_name, argc, argv, 0};
   lua_pushcfunction(L, enter_main);
   lua_pushlightuserdata(L, &entry);
-  if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+  if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
     return failed(L, db);
   }
-  return (int)lua_tointeger(L, -1);
+  return entry.status;
 }
 
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,

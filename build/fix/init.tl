@@ -21,8 +21,14 @@
 --- second pass would change it, rather than writing something that has
 --- not reached a fixed point. `cosmic fix --check .` over the whole
 --- tree is how that is checked here, in CI's own format-check step.
+---
+--- In cosmic's own tree it also checks the tree's C, against the rules
+--- `build.c` holds: a C file it covers is compiled to its syntax tree, and
+--- a finding is a file refused. Nothing is rewritten; a finding is fixed
+--- by hand.
 
 local Fs = require("cosmic.fs")
+local c_check = require("build.c")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local ast = require("build.ast")
@@ -31,6 +37,7 @@ local render_mod = require("build.fix.render")
 local rule = require("build.fix.rule")
 local spill = require("build.fix.spill")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local type compiler = require("build.compiler")
 
 local record fix
@@ -51,6 +58,8 @@ local record fix
   --- line.
   record Chosen
     files: {string}
+    --- The C files, which only cosmic's own tree has checked.
+    c_files: {string}
     refused: {string}
   end
 end
@@ -185,14 +194,27 @@ end
 --- @return fix.Chosen|nil The files to fix and the paths refused
 --- @return string Error message on failure
 function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
+  local own, own_trouble = tree.is_own(root)
+  if own == nil then
+    return nil, own_trouble
+  end
   if #paths == 0 then
     local all, trouble = sources(root)
     if all == nil then
       return nil, trouble
     end
-    return { files = all, refused = {} }
+    local c_files: {string} = {}
+    if own then
+      local found, c_trouble = c_check.sources(root)
+      if found == nil then
+        return nil, c_trouble
+      end
+      c_files = found
+    end
+    return { files = all, c_files = c_files, refused = {} }
   end
   local out: {string} = {}
+  local c_out: {string} = {}
   local refused: {string} = {}
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
@@ -206,13 +228,28 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
       for _, file in ipairs(under) do
         out[#out + 1] = path .. "/" .. file
       end
+      if own then
+        local c_under, c_trouble = c_check.sources(path)
+        if c_under == nil then
+          return nil, c_trouble
+        end
+        for _, file in ipairs(c_under) do
+          c_out[#c_out + 1] = path .. "/" .. file
+        end
+      end
+    elseif path:sub(-2) == ".c" or path:sub(-2) == ".h" then
+      if own then
+        c_out[#c_out + 1] = path
+      else
+        refused[#refused + 1] = path .. ": C is checked only in cosmic's own tree"
+      end
     elseif path:sub(-3) ~= ".tl" then
-      refused[#refused + 1] = path .. ": not a Teal source"
+      refused[#refused + 1] = path .. ": not a Teal or C source"
     else
       out[#out + 1] = path
     end
   end
-  return { files = out, refused = refused }
+  return { files = out, c_files = c_out, refused = refused }
 end
 
 --- `cosmic fix [--check] [path...]`.
@@ -257,11 +294,32 @@ function fix.run(argv: {integer:string}): integer
   -- covers, so the verdict says how many of everything asked for was
   -- refused rather than only how many of what survived the naming.
   local files = picked.files
-  local counted = #files + #picked.refused
+  local counted = #files + #picked.c_files + #picked.refused
   local changed: {string} = {}
   local failures: {string} = {}
   for _, why in ipairs(picked.refused) do
     failures[#failures + 1] = why
+  end
+  -- The C is compiled from the root, so a path named from elsewhere is
+  -- taken relative to it.
+  local c_files: {string} = {}
+  for _, file in ipairs(picked.c_files) do
+    local absolute = Fs.absolute(file)
+    if absolute ~= nil and absolute:sub(1, #root + 1) == root .. "/" then
+      c_files[#c_files + 1] = absolute:sub(#root + 2)
+    else
+      failures[#failures + 1] = file .. ": C is checked only inside the tree"
+    end
+  end
+  for _, outcome in ipairs(c_check.check(root, c_files)) do
+    if outcome.findings == nil then
+      failures[#failures + 1] = outcome.file .. ": " .. outcome.trouble
+    else
+      for _, f in ipairs(outcome.findings) do
+        failures[#failures + 1] = f.file .. ":" .. f.line .. ": " .. f.rule ..
+          " in " .. f.within .. ": " .. f.message
+      end
+    end
   end
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)

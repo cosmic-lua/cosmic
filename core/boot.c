@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "bridge.lua.h"
+#include "check.h"
 #include "lauxlib.h"
 
 static int report(lua_State *L, const char *what) {
@@ -166,5 +167,10 @@ int cosmic_boot(lua_State *L, const char *root, const char *tl_dir, int argc,
   if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
     return report(L, "build.boot failed");
   }
-  return (int)luaL_optinteger(L, -1, 0);
+  int status = cosmic_tostatus(L, -1);
+  if (status < 0) {
+    fprintf(stderr, "cosmic boot: build.boot returned no exit status\n");
+    return 1;
+  }
+  return status;
 }
