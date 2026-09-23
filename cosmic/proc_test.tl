@@ -53,6 +53,12 @@ local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
   local relaunch = Proc.relaunch()
   if relaunch == nil then return end -- a native start has nothing to relaunch
   if not Fs.exists("/proc/self/status") then return end -- nothing to ask
+  -- The case is a process that ignored SIGPIPE itself. One started with
+  -- it already ignored hands that on, as its parent chose, and so does
+  -- everything it starts: a runner that ignores SIGPIPE has no case here.
+  local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
+  local own_mask = math.tointeger(tonumber(own, 16)) or 0
+  if own_mask & (1 << (sys.SIGPIPE - 1)) ~= 0 then return end
   local script = tmp .. "/becomes.tl"
   assert(Fs.write(script, [[
 local Proc = require("cosmic.proc")
