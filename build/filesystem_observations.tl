@@ -123,26 +123,33 @@ function observations.start(): {observations.Observation}, function()
   local spawn = sys.spawn
   local mkdtemp = sys.mkdtemp
   local mkdir = sys.mkdir
+  -- A test holding a call to its argument checks may hand it a path
+  -- that is no string at all, which the call itself raises for; only a
+  -- path is an observation, and encoding anything else into a key would
+  -- end the worker before the test could report.
+  local function note(kind: string, path: string, answer: string)
+    if type(path as any) == "string" then
+      found[#found + 1] = { kind = kind, path = path, answer = answer }
+    end
+  end
   sys.open = function(path: string, flags: integer,
                       mode?: integer): integer | nil, string, integer
-    found[#found + 1] = { kind = "o", path = path, answer = "" }
+    note("o", path, "")
     return open(path, flags, mode)
   end
   sys.stat = function(path: string): sys.Stat | nil, string, integer
     local st, trouble, errno = stat(path)
-    found[#found + 1] = { kind = "s", path = path,
-      answer = observations.stat_result_answer(st, trouble, errno) }
+    note("s", path, observations.stat_result_answer(st, trouble, errno))
     return st, trouble, errno
   end
   sys.readdir = function(path: string): {string:string} | nil, string, integer
     local entries, trouble, errno = readdir(path)
-    found[#found + 1] = { kind = "d", path = path,
-      answer = observations.directory_result_answer(entries, trouble, errno) }
+    note("d", path, observations.directory_result_answer(entries, trouble, errno))
     return entries, trouble, errno
   end
   sys.getenv = function(name: string): string | nil
     local value = getenv(name)
-    found[#found + 1] = { kind = "e", path = name, answer = observations.getenv_answer(value) }
+    note("e", name, observations.getenv_answer(value))
     return value
   end
   sys.environ = function(): {string:string}
@@ -155,20 +162,20 @@ function observations.start(): {observations.Observation}, function()
                        cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                        stderr: integer | nil, process_group: boolean,
                        fds?: {integer:integer}): integer | nil, string, integer
-    found[#found + 1] = { kind = "p", path = path, answer = "" }
+    note("p", path, "")
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
   end
   sys.mkdtemp = function(template: string): string | nil, string, integer
     local path, trouble, errno = mkdtemp(template)
     if path ~= nil then
-      found[#found + 1] = { kind = "m", path = path, answer = "" }
+      note("m", path, "")
     end
     return path, trouble, errno
   end
   sys.mkdir = function(path: string, mode?: integer): boolean, string, integer
     local ok, trouble, errno = mkdir(path, mode)
     if ok then
-      found[#found + 1] = { kind = "m", path = path, answer = "" }
+      note("m", path, "")
     end
     return ok, trouble, errno
   end
