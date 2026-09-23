@@ -51,6 +51,16 @@ local record Http
   --- connection curl opens (plain http only, one request each) reads
   --- `script[N]` as the server's whole reply, and `Response:sent`
   --- returns what curl wrote.
+  ---
+  --- An option of the wrong shape is a bug, and `Http.open` raises
+  --- for it, naming the option: a value of the wrong Lua type (the
+  --- integers take no numeric strings), a number with a fraction, or
+  --- one out of range. Every integer must be at least 0;
+  --- `max_redirects` is at most 32767 and `low_speed_seconds` at most
+  --- 65535. A value of the right shape that cannot be sent as given
+  --- is data, returned as `nil, err`: a method that is no HTTP token,
+  --- a header name or value holding CR, LF or NUL (or a name that is
+  --- empty or holds ':'), a URL holding NUL or one curl rejects.
   record Options
     method: string
     headers: {string:string}
@@ -73,8 +83,11 @@ local record Http
   --- time. `headers` is keyed by lowercased name, and a name the
   --- response repeats has its values joined with ", " (RFC 9110
   --- 5.3) -- Set-Cookie's, which may hold commas themselves, with
-  --- "\n" instead.
+  --- "\n" instead. `close` is idempotent, and a `<close>` variable
+  --- closes the response when it goes out of scope; a method called
+  --- on the raw handle after close raises.
   record Response
+    metamethod __close: function(Response)
     status: integer
     headers: {string:string}
     url: string
@@ -92,6 +105,12 @@ local record Http
     headers: {string:string}
   end
 end
+
+local response_mt: metatable<Http.Response> = {
+  __close = function(self: Http.Response)
+    self:close()
+  end,
+}
 
 --- Opens `url`, blocking until the final response's headers arrive.
 --- The body is not read yet -- call `response:read(max)` until it
@@ -116,6 +135,7 @@ function Http.open(url: string, opts?: Http.Options): Http.Response | nil, strin
       return handle:sent()
     end,
   }
+  setmetatable(response, response_mt)
   return response, ""
 end
 

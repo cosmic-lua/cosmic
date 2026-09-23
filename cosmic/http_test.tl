@@ -403,3 +403,138 @@ local function test_an_ordinary_header_is_sent()
     { headers = { ["X-Fine"] = "a normal value" } })
   assert(sent:find("\r\nX-Fine: a normal value\r\n", 1, true) ~= nil, sent)
 end
+
+-- curl reads a method, header name and header value as C strings: a NUL
+-- used to cut each short, so `X-A: v1` went out for "v1\0INJECT" and a
+-- plain GET for "GET\0junk". Each is refused before any connection.
+local function test_a_header_value_with_a_nul_is_rejected()
+  local response, trouble = Http.open(url,
+    { headers = { ["X-A"] = "v1\0INJECT" }, script = { reply("200 OK", "") } })
+  assert(response == nil)
+  assert(trouble:find("invalid header X-A", 1, true) ~= nil, trouble)
+  assert(trouble:find("NUL", 1, true) ~= nil, trouble)
+end
+
+local function test_a_header_name_with_a_nul_is_rejected()
+  local response, trouble = Http.open(url,
+    { headers = { ["X-A\0junk"] = "v" }, script = { reply("200 OK", "") } })
+  assert(response == nil)
+  assert(trouble:find("invalid header X-A\0junk", 1, true) ~= nil, trouble)
+  assert(trouble:find("NUL", 1, true) ~= nil, trouble)
+end
+
+local function test_a_method_with_a_nul_is_refused()
+  local response, trouble = Http.open(url,
+    { method = "GET\0junk", script = { reply("200 OK", "") } })
+  assert(response == nil)
+  assert(trouble:find("method", 1, true) ~= nil, trouble)
+end
+
+--- The message `Http.open` raises with for `opts`.
+local function raised(opts: Http.Options): string
+  opts.script = opts.script or {}
+  local ok, err = pcall(Http.open, url, opts)
+  assert(not ok, "expected a raise")
+  return tostring(err)
+end
+
+local function test_an_integer_option_takes_no_numeric_string()
+  local err = raised({ timeout_ms = "5" as integer })
+  assert(err:find("opts.timeout_ms must be an integer", 1, true) ~= nil, err)
+end
+
+local function test_an_integer_option_takes_no_fraction()
+  local err = raised({ connect_timeout_ms = 1.5 as integer })
+  assert(err:find("opts.connect_timeout_ms must be an integer", 1, true) ~= nil, err)
+end
+
+local function test_a_negative_timeout_is_refused_not_ignored()
+  -- curl refused -5 and kept its default: no timeout at all
+  local err = raised({ timeout_ms = -5 })
+  assert(err:find("opts.timeout_ms must be between 0 and", 1, true) ~= nil, err)
+end
+
+local function test_an_integer_option_curl_would_clamp_is_refused()
+  local err = raised({ max_redirects = 40000 })
+  assert(err:find("opts.max_redirects must be between 0 and 32767", 1, true) ~= nil, err)
+  err = raised({ low_speed_seconds = 70000 })
+  assert(err:find("opts.low_speed_seconds must be between 0 and 65535", 1, true) ~= nil, err)
+end
+
+local function test_zero_integer_options_are_accepted()
+  local response, body = fetch({ reply("200 OK", "", "ok") }, { timeout_ms = 0,
+    max_redirects = 0, low_speed_bytes = 0, low_speed_seconds = 0 })
+  assert(response.status == 200 and body == "ok")
+end
+
+local function test_a_boolean_option_takes_only_a_boolean()
+  local err = raised({ follow = "no" as boolean })
+  assert(err:find("opts.follow must be a boolean", 1, true) ~= nil, err)
+end
+
+local function test_non_table_headers_raise_naming_the_option()
+  -- used to be "bad extra argument #-1 to 'open'"
+  local err = raised({ headers = "X-A: 1" as {string:string} })
+  assert(err:find("opts.headers must be a table", 1, true) ~= nil, err)
+  assert(err:find("#-1", 1, true) == nil, err)
+end
+
+local function test_a_non_string_script_entry_raises()
+  -- used to become an empty reply
+  local err = raised({ script = { reply("200 OK", ""), 42 as string } })
+  assert(err:find("opts.script must be a list of strings", 1, true) ~= nil, err)
+end
+
+local function test_an_option_curl_refuses_is_an_error_naming_it()
+  -- curl refuses a string option over 8 MB; the refusal used to be
+  -- ignored, and the request went ahead with no URL set at all
+  local response, trouble = Http.open(url .. string.rep("a", 8000000), { script = {} })
+  assert(response == nil)
+  assert(trouble:find("CURLOPT_URL", 1, true) ~= nil, trouble)
+end
+
+local function test_read_returns_an_empty_second_value_on_success()
+  local response, opened = Http.open(url, { script = { reply("200 OK", "", "body") } })
+  assert(response ~= nil and opened == "", opened)
+  local chunk, trouble = response:read()
+  assert(chunk == "body" and trouble == "", tostring(trouble))
+  local after, end_trouble = response:read()
+  assert(after == nil and end_trouble == "")
+  response:close()
+end
+
+local function test_a_close_variable_closes_the_response()
+  local kept: Http.Response
+  do
+    local response <close> = assert(Http.open(url, { script = { reply("200 OK", "", "x") } }))
+    kept = response
+  end
+  local ok, err = pcall(kept.read, kept)
+  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  kept:close() -- closing again is harmless
+end
+
+local revived: {Http.Response} = {}
+
+local function test_a_response_a_finalizer_revives_is_closed()
+  -- The table's finalizer runs in the same collection as the handle's
+  -- and brings the response back after the handle released its curl
+  -- state: every method has to see a closed handle, not freed memory.
+  do
+    local response = assert(Http.open(url, { script = { reply("200 OK", "", "x") } }))
+    local mt: metatable<{any:any}> = { __gc = function(_: {any:any})
+      revived[1] = response
+    end }
+    setmetatable({} as {any:any}, mt)
+  end
+  collectgarbage()
+  collectgarbage()
+  local response = revived[1]
+  assert(response ~= nil, "the finalizer ran")
+  revived[1] = nil
+  local ok, err = pcall(response.read, response)
+  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  ok, err = pcall(response.sent, response)
+  assert(not ok and tostring(err):find("closed", 1, true) ~= nil, tostring(err))
+  response:close()
+end
