@@ -11,4 +11,11 @@
  * the typed wrapper this backs. */
 int cosmic_open_http (lua_State *L);
 
+#ifdef COSMIC_CHECKED
+/* The checked core's count of transfers holding curl state: made by
+ * `open`, and not yet released by a close, a failure or the collector.
+ * `testing.live_transfers` reads it. */
+extern lua_Integer cosmic_http_live_transfers;
+#endif
+
 #endif /* COSMIC_HTTP_H */

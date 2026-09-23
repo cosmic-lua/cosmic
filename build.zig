@@ -1269,7 +1269,10 @@ fn core(
         "-DCOSMIC_NATIVE_COVERAGE",
     };
     const observed_flags = core_flags ++ observed;
-    const checked_flags = core_flags ++ lua_checks;
+    // COSMIC_CHECKED gives the checked core's own C its instruments:
+    // core/memory.h's counted allocator and core/fault.h's fault points.
+    // Every other core compiles both to the plain call they wrap.
+    const checked_flags = core_flags ++ lua_checks ++ [_][]const u8{"-DCOSMIC_CHECKED"};
     const checked_observed_flags = checked_flags ++ observed;
     const own_flags: []const []const u8 = switch (native_coverage) {
         .off => if (configuration.sanitize) &checked_flags else &core_flags,
