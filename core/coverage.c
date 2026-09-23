@@ -199,7 +199,10 @@ static void native_line_hook(lua_State *L, lua_Debug *ar) {
         lua_pop(L, 2);
       }
       source = calloc(1, sizeof(*source));
-      if (!source) luaL_error(L, "coverage: out of memory");
+      if (!source) {
+        luaL_error(L, "coverage: out of memory");
+        return;
+      }
       source->source = name;
       source->next = collector->buckets[bucket];
       collector->buckets[bucket] = source;
@@ -215,7 +218,10 @@ static void native_line_hook(lua_State *L, lua_Debug *ar) {
     }
     if (!page) {
       page = calloc(1, sizeof(*page));
-      if (!page) luaL_error(L, "coverage: out of memory");
+      if (!page) {
+        luaL_error(L, "coverage: out of memory");
+        return;
+      }
       page->index = index;
       page->next = source->pages;
       source->pages = page;

@@ -53,16 +53,24 @@ static int slurp(lua_State *L, const char *path) {
   }
   luaL_Buffer buffer;
   luaL_buffinit(L, &buffer);
+  /* A short read is the end of the file or an error, and only ferror
+   * says which: a read error must not pass for a shorter file. */
   for (;;) {
     char room[1 << 16];
     size_t got = fread(room, 1, sizeof room, f);
-    if (got == 0) {
+    luaL_addlstring(&buffer, room, got);
+    if (got < sizeof room) {
       break;
     }
-    luaL_addlstring(&buffer, room, got);
   }
+  int failed = ferror(f);
   fclose(f);
   luaL_pushresult(&buffer);
+  if (failed) {
+    lua_pop(L, 1);
+    fprintf(stderr, "cosmic boot: cannot read %s\n", path);
+    return 1;
+  }
   return 0;
 }
 

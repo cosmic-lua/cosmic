@@ -31,6 +31,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static void fail(const char *what, const char *detail) {
+static _Noreturn void fail(const char *what, const char *detail) {
   if (detail != NULL) {
     fprintf(stderr, "patch: %s: %s\n", what, detail);
   } else {
@@ -47,7 +48,7 @@ static void fail(const char *what, const char *detail) {
   exit(1);
 }
 
-static void fail_errno(const char *what, const char *path) {
+static _Noreturn void fail_errno(const char *what, const char *path) {
   fprintf(stderr, "patch: %s %s: %s\n", what, path, strerror(errno));
   exit(1);
 }
@@ -87,9 +88,12 @@ static char *slurp(const char *path, size_t *len) {
       }
       buf = grown;
     }
-    size_t got = fread(buf + n, 1, cap - n, f);
+    size_t want = cap - n;
+    size_t got = fread(buf + n, 1, want, f);
     n += got;
-    if (got == 0) {
+    /* A short read is the end of the file or an error; ferror says
+     * which, and nothing reads past it. */
+    if (got < want) {
       if (ferror(f)) {
         fail_errno("cannot read", path);
       }
@@ -301,7 +305,13 @@ static void apply_record(const char *record, const char *out_dir) {
     exit(1);
   }
 
-  size_t out_len = source_len - find_len + replace_len;
+  /* One match means find_len <= source_len, so the first difference
+   * cannot wrap; the sum and its terminator are refused if they would. */
+  size_t kept = source_len - find_len;
+  if (replace_len >= SIZE_MAX - kept) {
+    fail("the patched file is too large", file);
+  }
+  size_t out_len = kept + replace_len;
   char *out = xmalloc(out_len + 1);
   memcpy(out, source, offset);
   memcpy(out + offset, replace_body, replace_len);

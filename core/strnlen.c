@@ -10,6 +10,9 @@
  * one run of the suite out of a few under a re-entered tool. Defined
  * here, in the core ahead of libc, it never reads a byte past the
  * terminator or the bound. core/strnlen_test.c holds the case. */
+/* strnlen is POSIX, which <string.h> declares only when asked. */
+#define _POSIX_C_SOURCE 200809L
+
 #include <stddef.h>
 #include <string.h>
 
