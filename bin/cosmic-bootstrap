@@ -1,0 +1,98 @@
+#!/bin/sh
+# The one piece of shell the tree means to keep: fetch, verify and
+# cache the pinned bootstrap cosmic, then print its path (no arguments)
+# or run it with the arguments given. Every other build script is Teal
+# this binary runs standalone -- build/zig.tl behind bin/zig,
+# build/vendor.tl behind bin/vendor -- against its own embedded
+# standard library, so neither the tree's state nor o/ matters to it.
+#
+# The pin is ci/cosmic-driver.pin, the one CI's bootstrap-driver.sh
+# reads too: a commit, that commit's release URL, and the binary's
+# sha256, one per line. The binary is cached by digest, as
+# $XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256> (default
+# ~/.cache/cosmic/bootstrap/...). It is downloaded to a .part file
+# beside that name, checked against the pin, made executable, and only
+# then renamed into place, so a file at that name is always a verified
+# one: a warm run reads the pin and nothing else.
+#
+# `bin/cosmic-bootstrap --ready` answers, without the network, whether
+# the pinned release can run the tree's scripts: it exits 0 when it
+# can. That answer is the switch below.
+set -eu
+
+# THE SWITCH. The release ci/cosmic-driver.pin names today predates
+# `cosmic --standalone`, cosmic.http and cosmic.archive, so it cannot
+# run build/zig.tl or build/vendor.tl. Until it can, bin/zig keeps its
+# shell fallback (what CI runs, with no COSMIC_BOOTSTRAP) and bin/vendor
+# runs o/bin/cosmic. Once a release carries all three and the pin names
+# it, set this to yes: bin/zig and bin/vendor then always run through
+# the pinned bootstrap, and bin/zig's fallback can be deleted.
+standalone=no
+
+if [ "${1:-}" = --ready ]; then
+  if [ "$standalone" = yes ]; then exit 0; fi
+  exit 1
+fi
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+pin=$root/ci/cosmic-driver.pin
+
+die() {
+  printf 'bin/cosmic-bootstrap: %s\n' "$1" >&2
+  exit 1
+}
+
+[ -f "$pin" ] || die "no pin at $pin"
+[ "$(wc -l < "$pin" | tr -d ' ')" = 3 ] || die "$pin is not three lines"
+commit=$(sed -n '1p' "$pin")
+url=$(sed -n '2p' "$pin")
+digest=$(sed -n '3p' "$pin")
+case $commit in *[!0-9a-f]* | '') die "$pin: line 1 is not a commit" ;; esac
+[ "${#commit}" -eq 40 ] || die "$pin: line 1 is not a commit"
+case $digest in *[!0-9a-f]* | '') die "$pin: line 3 is not a sha256" ;; esac
+[ "${#digest}" -eq 64 ] || die "$pin: line 3 is not a sha256"
+[ "$url" = "https://github.com/cosmic-lua/cosmic/releases/download/next-$commit/cosmic" ] ||
+  die "$pin: line 2 is not the release of line 1's commit"
+
+if [ -n "${XDG_CACHE_HOME:-}" ]; then
+  cache=$XDG_CACHE_HOME/cosmic/bootstrap
+else
+  cache=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
+fi
+cached=$cache/cosmic-$digest
+
+if [ ! -x "$cached" ]; then
+  sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 "$1" | cut -d' ' -f1
+    else
+      die "need sha256sum or shasum to verify $url"
+    fi
+  }
+  mkdir -p "$cache"
+  partial=$cache/.cosmic-$digest.$$.part
+  trap 'rm -f "$partial"' EXIT
+  trap 'rm -f "$partial"; exit 1' HUP INT TERM
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+      --output "$partial" "$url" || die "download failed: $url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$partial" "$url" || die "download failed: $url"
+  else
+    die "need curl or wget to fetch $url"
+  fi
+  got=$(sha256_file "$partial")
+  [ "$got" = "$digest" ] || die "$url has sha256 $got; the pin says $digest"
+  chmod 755 "$partial"
+  # Another process may have won the race; its file is the same bytes.
+  mv -f "$partial" "$cached"
+  trap - EXIT HUP INT TERM
+fi
+
+if [ "$#" -eq 0 ]; then
+  printf '%s\n' "$cached"
+  exit 0
+fi
+exec "$cached" "$@"

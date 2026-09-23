@@ -1,11 +1,28 @@
 #!/bin/sh
 # Fetch, verify and run the one pinned zig. The pin is bin/zig.pin: a
 # version line, then one line per host naming the sha256 of that host's
-# release tarball. Nothing else in the tree comes from the network.
+# release tarball.
 #
 # The tarball is cached outside the tree, under $XDG_CACHE_HOME/cosmic/zig
 # (default ~/.cache/cosmic/zig), so a clean `o/` never costs a download.
 # COSMIC_ZIG names an already-installed zig binary and skips all of this.
+#
+# The fetch/verify/run logic itself is build/zig.tl, which bin/zig
+# hands off to, run with `cosmic --standalone` -- against the bootstrap
+# binary's own standard library, never the tree, so a core edit nobody
+# has booted yet, or a broken file elsewhere in the tree, cannot stop
+# the tool that rebuilds them:
+#
+#   - $COSMIC_BOOTSTRAP, when set, names that cosmic. It must be an
+#     executable file; anything else is an error, never a silent
+#     fallback.
+#   - Otherwise, once bin/cosmic-bootstrap's switch says the pinned
+#     release can run it, that release is fetched, verified and used.
+#   - Otherwise -- today, and what CI runs -- the shell below does the
+#     same job with curl/wget, sha256sum and tar. It goes away when that
+#     switch is flipped (see bin/cosmic-bootstrap).
+#
+# zig itself always runs in the caller's working directory.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -15,6 +32,18 @@ die() {
   printf 'bin/zig: %s\n' "$1" >&2
   exit 1
 }
+
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
+  fi
+  exec "$COSMIC_BOOTSTRAP" --standalone "$root/build/zig.tl" "$@"
+fi
+if "$root/bin/cosmic-bootstrap" --ready; then
+  exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/zig.tl" "$@"
+fi
+
+# The shell fallback.
 
 [ -f "$pin" ] || die "no pin at $pin"
 

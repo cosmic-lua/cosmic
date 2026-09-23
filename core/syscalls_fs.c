@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "check.h"
@@ -67,7 +68,8 @@ static void push_stat(lua_State *L, const struct stat *st) {
 }
 
 COSMIC_SYSCALL(open, 3) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
   int flags = cosmic_checkint(L, 2);
   int mode = cosmic_optint(L, 3, 0644);
   int fd;
@@ -85,7 +87,8 @@ COSMIC_SYSCALL(open, 3) {
 }
 
 COSMIC_SYSCALL(open_temporary, 2) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
   int mode = cosmic_optint(L, 2, 0644);
   static unsigned long serial;
   char temporary[PATH_MAX];
@@ -210,7 +213,8 @@ COSMIC_SYSCALL(fstat, 1) {
 }
 
 COSMIC_SYSCALL(stat, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
   if (stat(path, &st) != 0) {
     return cosmic_fail(L, errno);
@@ -220,7 +224,8 @@ COSMIC_SYSCALL(stat, 1) {
 }
 
 COSMIC_SYSCALL(lstat, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
   struct stat st;
   if (lstat(path, &st) != 0) {
     return cosmic_fail(L, errno);
@@ -230,7 +235,8 @@ COSMIC_SYSCALL(lstat, 1) {
 }
 
 COSMIC_SYSCALL(mkdir, 2) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   int mode = cosmic_optint(L, 2, 0755);
   if (mkdir(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
@@ -239,7 +245,8 @@ COSMIC_SYSCALL(mkdir, 2) {
 }
 
 COSMIC_SYSCALL(rmdir, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   if (rmdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -247,7 +254,8 @@ COSMIC_SYSCALL(rmdir, 1) {
 }
 
 COSMIC_SYSCALL(unlink, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   if (unlink(path) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -255,8 +263,10 @@ COSMIC_SYSCALL(unlink, 1) {
 }
 
 COSMIC_SYSCALL(rename, 2) {
-  const char *from = luaL_checkstring(L, 1);
-  const char *to = luaL_checkstring(L, 2);
+  const char *from = cosmic_path(L, 1);
+  if (from == NULL) return cosmic_fail_effect(L, EINVAL);
+  const char *to = cosmic_path(L, 2);
+  if (to == NULL) return cosmic_fail_effect(L, EINVAL);
   if (rename(from, to) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -264,7 +274,8 @@ COSMIC_SYSCALL(rename, 2) {
 }
 
 COSMIC_SYSCALL(chmod, 2) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   int mode = cosmic_checkint(L, 2);
   if (chmod(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
@@ -275,7 +286,8 @@ COSMIC_SYSCALL(chmod, 2) {
 static void release_dir(void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
   /* Filling the table allocates, and an allocation can raise: the guard
    * closes the directory then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_dir);
@@ -342,7 +354,8 @@ COSMIC_SYSCALL(getcwd, 0) {
 }
 
 COSMIC_SYSCALL(chdir, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   if (chdir(path) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -350,7 +363,8 @@ COSMIC_SYSCALL(chdir, 1) {
 }
 
 COSMIC_SYSCALL(realpath, 1) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
   char room[PATH_MAX];
   if (realpath(path, room) == NULL) {
     return cosmic_fail(L, errno);
@@ -362,6 +376,7 @@ COSMIC_SYSCALL(realpath, 1) {
 COSMIC_SYSCALL(mkdtemp, 1) {
   size_t len;
   const char *template = luaL_checklstring(L, 1, &len);
+  if (memchr(template, '\0', len) != NULL) return cosmic_fail(L, EINVAL);
   if (len >= PATH_MAX) {
     return luaL_argerror(L, 1, "template is too long");
   }
@@ -379,4 +394,51 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   }
   lua_pushstring(L, room);
   return 1;
+}
+
+COSMIC_SYSCALL(symlink, 2) {
+  const char *target = cosmic_path(L, 1);
+  if (target == NULL) return cosmic_fail_effect(L, EINVAL);
+  const char *path = cosmic_path(L, 2);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  if (symlink(target, path) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(readlink, 1) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
+  char room[PATH_MAX];
+  ssize_t got = readlink(path, room, sizeof room);
+  if (got < 0) {
+    return cosmic_fail(L, errno);
+  }
+  lua_pushlstring(L, room, (size_t)got);
+  return 1;
+}
+
+COSMIC_SYSCALL(utimens, 3) {
+  const char *path = cosmic_path(L, 1);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
+  lua_Integer atime_s = luaL_checkinteger(L, 2);
+  lua_Integer mtime_s = luaL_checkinteger(L, 3);
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_s;
+  times[0].tv_nsec = 0;
+  times[1].tv_sec = (time_t)mtime_s;
+  times[1].tv_nsec = 0;
+  if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(fsync, 1) {
+  int fd = cosmic_checkint(L, 1);
+  if (fsync(fd) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
 }

@@ -196,6 +196,22 @@ local function test_open_reports_a_path_it_cannot_open(tmp: string)
   failed(Sqlite.open(tmp .. "/missing.db"))
 end
 
+local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
+  -- SQLite reads both as C strings, so the NUL used to cut them short:
+  -- the path opened tmp/a.db, and exec skipped what followed
+  local handle, trouble = Sqlite.open(tmp .. "/a.db\0.evil", true)
+  failed(handle, trouble)
+  assert(trouble:find("NUL", 1, true) ~= nil, trouble)
+  local db = memory()
+  assert(db:exec("CREATE TABLE t (a)"))
+  local ok, why = db:exec("INSERT INTO t VALUES (1)\0; INSERT INTO t VALUES (2)")
+  failed(ok, why)
+  local count = prepared(db, "SELECT count(*) FROM t")
+  assert(count:step() == "row" and count:integer(0) == 0)
+  count:finalize()
+  db:close()
+end
+
 local function test_a_file_database_persists(tmp: string)
   local path = tmp .. "/a.db"
   local handle, trouble = Sqlite.open(path, true)

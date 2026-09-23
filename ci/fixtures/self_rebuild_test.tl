@@ -304,10 +304,17 @@ local function test_self_rebuild_prefix_comparison(_tmp: string)
   assert(not mutated_ok, "mutated prefix comparison unexpectedly passed")
 end
 
-local function test_self_rebuild_rename_and_unlink(tmp: string)
+-- One test per action: each case rebuilds a whole tree, so each gets its
+-- own time limit.
+local function test_self_rebuild_rename(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   run_rebuild_case(root, fixture_dir, tmp, "rename")
+end
+
+local function test_self_rebuild_unlink(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   run_rebuild_case(root, fixture_dir, tmp, "unlink")
 end
 

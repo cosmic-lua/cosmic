@@ -13,7 +13,7 @@ local function hit(names: {string}): Coverage.Hits
   return hits
 end
 
-local function test_every_syscall_binding_print_and_the_sqlite_methods_are_named()
+local function test_every_syscall_binding_print_and_the_object_methods_are_named()
   local names: {string: boolean} = {}
   for _, name in pairs(entry_points.all()) do
     names[name] = true
@@ -25,6 +25,18 @@ local function test_every_syscall_binding_print_and_the_sqlite_methods_are_named
   end
   assert(names["print"] and names["errors.trace"])
   assert(names["sqlite.handle.exec"] and names["sqlite.statement.step"])
+end
+
+local function test_the_raw_http_hash_and_compress_functions_and_methods_are_named()
+  local names: {string: boolean} = {}
+  for _, name in pairs(entry_points.all()) do
+    names[name] = true
+  end
+  for _, name in ipairs({ "http.open", "http.handle.read", "http.handle.headers",
+                          "http.handle.sent", "hash.hasher", "hash.hasher.update",
+                          "compress.inflater", "compress.stream.update" }) do
+    assert(names[name], name .. " is an entry point")
+  end
 end
 
 local function test_every_exemption_names_an_entry_point_and_a_reason()
