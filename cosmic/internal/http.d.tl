@@ -1,11 +1,15 @@
 -- HTTP/HTTPS at the Lua boundary, as the core (core/http.c, over curl,
 -- c-ares and mbedtls) provides it: one blocking call to open a
 -- request and read its response's headers, then a handle that reads
--- the body in chunks.
+-- the body in chunks. A fallible function returns `value, ""` on
+-- success and `nil, err` on failure.
 
 local record http
+  -- Closed by `close`, by `__close` (a `<close>` variable) or by the
+  -- collector; any method but `close` on a closed handle raises.
   record Handle
     userdata
+    metamethod __close: function(Handle)
 
     -- The final response's status code.
     status: function(Handle): integer
@@ -16,11 +20,12 @@ local record http
     -- name's values joined with ", " (Set-Cookie's with "\n").
     headers: function(Handle): {string:string}
     -- One chunk of the body, at most `max` bytes (a default when
-    -- omitted). `nil, ""` at a clean end of body; `nil, err` on
-    -- failure.
+    -- omitted), and "". `nil, ""` at a clean end of body; `nil, err`
+    -- on failure.
     read: function(Handle, max?: integer): string | nil, string
     -- What curl has written to a scripted transfer's connections so
-    -- far; "" for one over the network.
+    -- far; "" for one over the network. Raises if recording it ran
+    -- out of memory.
     sent: function(Handle): string
     close: function(Handle): boolean
   end
@@ -37,14 +42,21 @@ local record http
     low_speed_seconds: integer
     verbose: boolean
     -- Tests only: canned replies, one per connection, in place of the
-    -- network.
+    -- network. Every entry must be a string.
     script: {string}
   end
 
   -- Blocks until the final response's headers have arrived (after
-  -- every redirect `opts.follow` allows), or until the request fails
-  -- outright (a bad URL, a refused connection, a TLS failure, ...).
-  -- A malformed option (a non-string method, body or header) throws.
+  -- every redirect `opts.follow` allows) and returns the handle and
+  -- "", or `nil, err` once the request fails outright (a bad URL, a
+  -- refused connection, a TLS failure, an option curl refuses, ...).
+  -- An option of the wrong shape raises, naming it: a wrong Lua type
+  -- (no numeric strings for the integers), a non-integer, or an
+  -- integer out of range (below 0, `max_redirects` above 32767,
+  -- `low_speed_seconds` above 65535). Data that cannot be sent as
+  -- given returns `nil, err`: a method that is no HTTP token, a
+  -- header name or value holding CR, LF or NUL, an empty header name
+  -- or one holding ':', a URL holding NUL.
   open: function(url: string, opts?: Options): Handle | nil, string
 end
 
