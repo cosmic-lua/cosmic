@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "check.h"
 #include "coverage.h"
 #include "lauxlib.h"
 #include "lualib.h"
@@ -71,7 +72,7 @@ static int surface_print(lua_State *L) {
  * reporting a failure needs to say where it happened. */
 static int surface_trace(lua_State *L) {
   const char *message = luaL_optstring(L, 1, NULL);
-  int level = (int)luaL_optinteger(L, 2, 1);
+  int level = cosmic_optint(L, 2, 1);
   luaL_traceback(L, L, message, level);
   return 1;
 }
