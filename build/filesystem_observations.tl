@@ -4,12 +4,6 @@ local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
 local record observations
-  stat_result_answer: function(sys.Stat | nil, string, integer): string
-  directory_result_answer: function({string:string} | nil, string, integer): string
-  getenv_answer: function(string | nil): string
-  environ_answer: function({string:string}): string
-  environ_path: string
-
   record Observation
     kind: string
     path: string
@@ -111,9 +105,65 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   return found
 end
 
+--- One environment variable's value, or a marker no real value can equal.
+local function getenv_answer(value: string | nil): string
+  if value == nil then
+    return "absent"
+  end
+  return "ok " .. value
+end
+
+--- The whole environment, order-independent: every `NAME=VALUE` pair,
+--- sorted by name, hashed together, so a `sys.environ` read is keyed on
+--- the whole environment rather than on any one variable.
+local function environ_answer(environment: {string:string}): string
+  local names: {string} = {}
+  for name in pairs(environment) do names[#names + 1] = name end
+  table.sort(names)
+  local parts: {string} = {}
+  for _, name in ipairs(names) do
+    parts[#parts + 1] = name .. "=" .. environment[name]
+  end
+  return Hash.hex_sha256(table.concat(parts, "\n"))
+end
+
+--- The path an "e" observation of the whole environment carries: a
+--- NUL can't start a variable name, so it never collides with one --
+--- not even `getenv("")`.
+local environ_path = "\0environ"
+
+--- Every field exposed by `sys.stat`, including an error result.
+local function stat_result_answer(st: sys.Stat | nil, trouble: string,
+                                  errno: integer): string
+  if st == nil then
+    return "error " .. hex(trouble) .. " " .. tostring(errno)
+  end
+  return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
+    tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
+    tostring(st.nlink), tostring(st.uid), tostring(st.gid) }, " ")
+end
+
+--- A directory answer includes names, kinds, and errors. Length-prefixing each
+--- name makes this unambiguous for every name the filesystem permits.
+local function directory_result_answer(entries: {string:string} | nil,
+                                       trouble: string,
+                                       errno: integer): string
+  if entries == nil then
+    return "error " .. hex(trouble) .. " " .. tostring(errno)
+  end
+  local names: {string} = {}
+  for name in pairs(entries) do names[#names + 1] = name end
+  table.sort(names)
+  local parts: {string} = { "ok" }
+  for _, name in ipairs(names) do
+    parts[#parts + 1] = tostring(#name) .. ":" .. name .. ":" .. entries[name]
+  end
+  return table.concat(parts, "")
+end
+
 --- Installs observers until `restore` is called. The wrappers record failed
 --- queries too: absence and errors are answers a test can depend on.
-function observations.start(): {observations.Observation}, function()
+local function start(): {observations.Observation}, function()
   local found: {observations.Observation} = {}
   local open = sys.open
   local stat = sys.stat
@@ -123,52 +173,59 @@ function observations.start(): {observations.Observation}, function()
   local spawn = sys.spawn
   local mkdtemp = sys.mkdtemp
   local mkdir = sys.mkdir
+  -- A test holding a call to its argument checks may hand it a path
+  -- that is no string at all, which the call itself raises for; only a
+  -- path is an observation, and encoding anything else into a key would
+  -- end the worker before the test could report.
+  local function note(kind: string, path: string, answer: string)
+    if type(path as any) == "string" then
+      found[#found + 1] = { kind = kind, path = path, answer = answer }
+    end
+  end
   sys.open = function(path: string, flags: integer,
                       mode?: integer): integer | nil, string, integer
-    found[#found + 1] = { kind = "o", path = path, answer = "" }
+    note("o", path, "")
     return open(path, flags, mode)
   end
   sys.stat = function(path: string): sys.Stat | nil, string, integer
     local st, trouble, errno = stat(path)
-    found[#found + 1] = { kind = "s", path = path,
-      answer = observations.stat_result_answer(st, trouble, errno) }
+    note("s", path, stat_result_answer(st, trouble, errno))
     return st, trouble, errno
   end
   sys.readdir = function(path: string): {string:string} | nil, string, integer
     local entries, trouble, errno = readdir(path)
-    found[#found + 1] = { kind = "d", path = path,
-      answer = observations.directory_result_answer(entries, trouble, errno) }
+    note("d", path, directory_result_answer(entries, trouble, errno))
     return entries, trouble, errno
   end
   sys.getenv = function(name: string): string | nil
     local value = getenv(name)
-    found[#found + 1] = { kind = "e", path = name, answer = observations.getenv_answer(value) }
+    note("e", name, getenv_answer(value))
     return value
   end
   sys.environ = function(): {string:string}
     local environment = environ()
-    found[#found + 1] = { kind = "e", path = observations.environ_path,
-      answer = observations.environ_answer(environment) }
+    found[#found + 1] = { kind = "e", path = environ_path,
+      answer = environ_answer(environment) }
     return environment
   end
   sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                        cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                        stderr: integer | nil, process_group: boolean,
                        fds?: {integer:integer}): integer | nil, string, integer
-    found[#found + 1] = { kind = "p", path = path, answer = "" }
+    note("p", path, "")
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
   end
   sys.mkdtemp = function(template: string): string | nil, string, integer
     local path, trouble, errno = mkdtemp(template)
     if path ~= nil then
-      found[#found + 1] = { kind = "m", path = path, answer = "" }
+      note("m", path, "")
     end
     return path, trouble, errno
   end
   sys.mkdir = function(path: string, mode?: integer): boolean, string, integer
     local ok, trouble, errno = mkdir(path, mode)
     if ok then
-      found[#found + 1] = { kind = "m", path = path, answer = "" }
+      note("m", path, "")
     end
     return ok, trouble, errno
   end
@@ -188,7 +245,7 @@ end
 --- is left intact so callers such as `require` can consume a produced table.
 function observations.capture(fn: function(any...): (any...)):
                               boolean, any, {observations.Observation}
-  local found, restore = observations.start()
+  local found, restore = start()
   local ok, produced = pcall(fn)
   restore()
   return ok, produced, found
@@ -203,78 +260,22 @@ function observations.call(fn: function(any...): (any...), argument: any):
   return ok, ok and "" or tostring(produced), found
 end
 
---- One environment variable's value, or a marker no real value can equal.
-function observations.getenv_answer(value: string | nil): string
-  if value == nil then
-    return "absent"
-  end
-  return "ok " .. value
-end
-
---- The whole environment, order-independent: every `NAME=VALUE` pair,
---- sorted by name, hashed together, so a `sys.environ` read is keyed on
---- the whole environment rather than on any one variable.
-function observations.environ_answer(environment: {string:string}): string
-  local names: {string} = {}
-  for name in pairs(environment) do names[#names + 1] = name end
-  table.sort(names)
-  local parts: {string} = {}
-  for _, name in ipairs(names) do
-    parts[#parts + 1] = name .. "=" .. environment[name]
-  end
-  return Hash.hex_sha256(table.concat(parts, "\n"))
-end
-
---- The path an "e" observation of the whole environment carries: a
---- NUL can't start a variable name, so it never collides with one --
---- not even `getenv("")`.
-observations.environ_path = "\0environ"
-
 --- The current answer to an "e" observation, re-read live rather than
 --- trusted from the row: `sys.environ`'s hash for `environ_path`, or
 --- `sys.getenv`'s answer for a named variable.
 function observations.getenv_current(path: string): string
-  if path == observations.environ_path then
-    return observations.environ_answer(sys.environ())
+  if path == environ_path then
+    return environ_answer(sys.environ())
   end
-  return observations.getenv_answer(sys.getenv(path))
-end
-
---- Every field exposed by `sys.stat`, including an error result.
-function observations.stat_result_answer(st: sys.Stat | nil, trouble: string,
-                                         errno: integer): string
-  if st == nil then
-    return "error " .. hex(trouble) .. " " .. tostring(errno)
-  end
-  return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
-    tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
-    tostring(st.nlink), tostring(st.uid), tostring(st.gid) }, " ")
+  return getenv_answer(sys.getenv(path))
 end
 
 function observations.stat_answer(path: string): string
-  return observations.stat_result_answer(sys.stat(path))
-end
-
---- A directory answer includes names, kinds, and errors. Length-prefixing each
---- name makes this unambiguous for every name the filesystem permits.
-function observations.directory_result_answer(entries: {string:string} | nil,
-                                                trouble: string,
-                                                errno: integer): string
-  if entries == nil then
-    return "error " .. hex(trouble) .. " " .. tostring(errno)
-  end
-  local names: {string} = {}
-  for name in pairs(entries) do names[#names + 1] = name end
-  table.sort(names)
-  local parts: {string} = { "ok" }
-  for _, name in ipairs(names) do
-    parts[#parts + 1] = tostring(#name) .. ":" .. name .. ":" .. entries[name]
-  end
-  return table.concat(parts, "")
+  return stat_result_answer(sys.stat(path))
 end
 
 function observations.directory_answer(path: string): string
-  return observations.directory_result_answer(sys.readdir(path))
+  return directory_result_answer(sys.readdir(path))
 end
 
 return observations

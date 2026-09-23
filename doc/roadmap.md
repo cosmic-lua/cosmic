@@ -11,10 +11,14 @@ defines the target; once something ships, it leaves this file.
   `docs/design/cast-legality.md` are useful implementation and migration
   evidence.
 - add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
-- add C tests and C coverage. They should use the same discovery and command as
-  Lua and Teal tests, with one combined report. The current direction is LLVM
+- add C line coverage. C is already tested the way Lua and Teal are, by
+  `*_test.tl` files beside it (`core/syscalls_test.tl`, `core/sqlite_test.tl`,
+  `core/surface_test.tl`), and a whole run of this tree fails for any C entry
+  point no test calls (`build/entry_points.tl`); that bar is whether each is
+  reached, not which of its lines ran. The current direction for lines is LLVM
   source coverage for `core/*.c`, a vendored profile runtime for each target,
-  and `llvm-profdata` and `llvm-cov` matched to the pinned Zig LLVM version.
+  and `llvm-profdata` and `llvm-cov` matched to the pinned Zig LLVM version,
+  written into the same `coverage` table so C and Teal lines report together.
   Cost and integration design are what block it.
 - add a sensitivity record for coverage gates' host-dependent lines. main's
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI

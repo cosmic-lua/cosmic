@@ -225,9 +225,9 @@ files, standard streams, environment, time, and processes are
 over the syscall table, so the same call behaves the same on both
 OSes and the sandbox has one door. `print` writes through the
 syscall table, and `fs` writes to a stream without a newline.
-`cosmic.errors` exposes a traceback for error reporting; the test
-runner and the coverage collector reach the rest of `debug` through
-a private binding. a name that is missing errors with the module
+`cosmic.errors` exposes a traceback for error reporting; the coverage
+collector is a C hook behind a private binding, and `debug` itself is
+never opened. a name that is missing errors with the module
 that replaces it.
 
 the vendored `tl.lua` reaches outside the pure libraries in five
@@ -517,13 +517,17 @@ planned. CI will require the fence; a laptop will report its enforcement level.
 
 ### vendored sources
 
-`vendor/<name>/` is the extracted upstream tarball, never edited,
-with a `PIN` file naming version and hash. `patch/<name>/` holds
+`vendor/<name>/` holds the files the build reads from the upstream
+archive its `PIN` names, never edited. `PIN` gives the version, the
+url, the archive's sha256, and globs for which files are kept.
+`bin/vendor` fetches and verifies the archive the way `bin/zig` does,
+unpacks it with the system's `tar` or `unzip`, and runs
+`build/vendor.tl` under the bootstrap cosmic to rewrite the tree to
+exactly the kept files. `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
 it exists. a ~200-line C applier that zig builds first writes the
 patched copy to `o/vendor/<name>`; a record whose anchor no longer
-matches fails the build by name. repo size is a one-time clone cost,
-the cheap kind under principle 1.
+matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz,
 argon2's reference implementation built without threads, the regex
@@ -662,8 +666,9 @@ it would have changed.
 README.md           what cosmic is and the one command to build it
 bin/zig             POSIX sh: fetch, verify, exec the pinned zig
 bin/zig.pin         version and per-host sha256; build.zig reads it
+bin/vendor          POSIX sh: fetch, verify, unpack a vendor archive; build/vendor.tl prunes
 build.zig           the C build; build.zig.zon names the package
-vendor/<name>/      pristine upstream, never edited, with a PIN file
+vendor/<name>/      the upstream files the build reads, unedited, with a PIN
 patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header the .d.tl and doc rows derive from

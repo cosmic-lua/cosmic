@@ -397,13 +397,11 @@ end
 local record StmtModule
   block: function(c: Ctx, body: Node)
   statement: function(c: Ctx, n: Node)
-  begins_at: function(c: Ctx, s: Node): integer, integer
 end
 
 local M: StmtModule = {
   block = block,
   statement = statement,
-  begins_at = begins_at,
 }
 
 return M
