@@ -63,6 +63,7 @@ for name in "$@"; do
   mkdir -p "$unpacked"
   case $archive in
     *.zip | *.rock) unzip -q "$archive" -d "$unpacked" ;;
+    *.pem) cp "$archive" "$unpacked/cacert.pem" ;;
     *) tar -xf "$archive" -C "$unpacked" ;;
   esac
 

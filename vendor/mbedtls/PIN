@@ -12,3 +12,7 @@ keep tf-psa-crypto/dispatch/**
 keep tf-psa-crypto/utilities/**
 keep tf-psa-crypto/platform/**
 keep tf-psa-crypto/extras/**
+keep library/*.c
+keep library/*.h
+keep include/mbedtls/*.h
+keep include/mbedtls/private/*.h
