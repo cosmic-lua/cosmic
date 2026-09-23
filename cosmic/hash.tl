@@ -77,6 +77,7 @@ end
 --- An incremental hasher over an algorithm, for data that arrives in
 --- chunks rather than all at once; its raw digest equals
 --- `Hash.digest(algorithm, ...)` over the whole of what was fed to it.
+--- Raises on an unknown algorithm, as `digest` and `hmac` do.
 function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher | nil, string
   return raw.hasher(algorithm)
 end

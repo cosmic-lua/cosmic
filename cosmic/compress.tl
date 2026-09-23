@@ -1,8 +1,6 @@
 --- Compression and expansion over the core's miniz, xz and bzip2
---- bindings: one-shot deflate/inflate, and streaming codecs for
+--- bindings: one-shot zlib deflate/inflate, and streaming codecs for
 --- deflate/zlib/gzip, xz and bzip2.
-
-local sys = require("cosmic.sys")
 
 --- The raw module behind the streaming codecs lives under the reserved
 --- `cosmic.internal.` namespace -- see cosmic/sqlite.tl for why this
@@ -18,57 +16,119 @@ else
 end
 
 local record Compress
-  --- One incremental transform, over a chunk at a time: `update` feeds
-  --- input and returns all output produced so far (possibly ""),
-  --- nil plus an error on corrupt data; `finish` signals no more input
-  --- and returns whatever output remains, erroring for a decoder whose
-  --- compressed stream ended early. A decoder's `done` reports whether
-  --- the end of the compressed stream has been reached, and `rest`
-  --- returns any input bytes fed after that point -- useful for a
-  --- concatenated container or trailer that follows the stream.
+  --- The deflate framings: bare "raw" deflate (RFC 1951, as zip
+  --- stores it), "zlib" (RFC 1950), and "gzip" (RFC 1952).
+  enum Format
+    "raw"
+    "zlib"
+    "gzip"
+  end
+
+  --- One incremental transform, a chunk at a time.
+  ---
+  --- `update(chunk, max?)` feeds `chunk` and returns output, possibly
+  --- "". A decoder returns at most `max` bytes per call (default
+  --- 1 MiB), however far a small input expands: input it has not got
+  --- to yet stays inside the stream, and `pending()` turns true.
+  --- While `pending()` is true, `update("")` returns the next piece
+  --- without new input (it may return "" once, when the limit fell
+  --- exactly at the end). An encoder returns all of its output and
+  --- is never pending. On corrupt data `update` returns nil and an
+  --- error, and the stream is finished.
+  ---
+  --- `finish()` says no more input follows and returns ALL remaining
+  --- output, unbounded, so a caller that never looks at `pending()`
+  --- still gets every byte. To keep memory bounded, drain first:
+  ---
+  ---     local out = s:update(chunk)       -- use out
+  ---     while s:pending() do
+  ---       out = s:update("")              -- use out
+  ---     end
+  ---     ...                               -- at end of input:
+  ---     local last = s:finish()           -- only a small tail now
+  ---
+  --- A decoder's `finish` errors when the compressed data stopped
+  --- early ("truncated ... stream"). After `finish`, or after an
+  --- error, `update` and `finish` throw.
+  ---
+  --- `done()` turns true once a decoder has seen the end of the
+  --- compressed data, and `rest()` returns the input bytes fed after
+  --- that end ("" if none). Raw deflate and zlib hold exactly one
+  --- stream, so both end the moment it does. gzip, xz and bzip2 allow
+  --- one member after another, so after a member ends the decoder
+  --- waits for the next input: bytes that begin that format's magic
+  --- start another member, and anything else ends the data there and
+  --- goes, in full, to `rest()` -- however the input was split into
+  --- chunks. Until such a byte (or `finish`) arrives, `done()` stays
+  --- false. At `finish`, a partial magic after at least one member is
+  --- trailing bytes, not truncation. xz stream padding (NUL bytes in
+  --- multiples of four between and after streams) is skipped; NULs
+  --- that are not a whole multiple of four are trailing bytes.
   type Stream = raw_compress.Stream
 end
 
---- Compresses bytes.
+--- Compresses bytes into a zlib stream, at the best compression level.
 function Compress.deflate(data: string): string | nil, string
-  local packed, trouble = sys.deflate(data)
-  if packed == nil then
-    return nil, trouble
-  end
-  return packed, ""
+  local enc, trouble = raw.deflater("zlib", 9)
+  if enc == nil then return nil, trouble end
+  local head = enc:update(data) as string
+  local tail, ftrouble = enc:finish()
+  if tail == nil then return nil, ftrouble end
+  return head .. tail, ""
 end
 
---- Expands bytes that `deflate` compressed. The expanded size is what
---- the caller recorded when it compressed them.
-function Compress.inflate(data: string, size: integer): string | nil, string
-  local out, trouble = sys.inflate(data, size)
-  if out == nil then
-    return nil, trouble
+--- Expands a zlib stream, such as `deflate` produced. When `max` is
+--- given, more than `max` bytes of output is an error rather than an
+--- answer. Bytes after the end of the stream are an error too.
+function Compress.inflate(data: string, max?: integer): string | nil, string
+  local dec, trouble = raw.inflater("zlib")
+  if dec == nil then return nil, trouble end
+  local parts: {string} = {}
+  local total = 0
+  local out, utrouble = dec:update(data)
+  while true do
+    if out == nil then return nil, utrouble end
+    total = total + #out
+    if max ~= nil and total > max then
+      return nil, "expanded data is larger than " .. tostring(max) .. " bytes"
+    end
+    parts[#parts + 1] = out
+    if not dec:pending() then break end
+    out, utrouble = dec:update("")
   end
-  return out, ""
+  local last, ftrouble = dec:finish()
+  if last == nil then return nil, ftrouble end
+  if dec:rest() ~= "" then
+    return nil, "trailing bytes after the compressed data"
+  end
+  parts[#parts + 1] = last
+  return table.concat(parts), ""
 end
 
---- A streaming decoder for "raw" deflate, "zlib", or "gzip". A gzip
---- decoder parses the header (including FEXTRA/FNAME/FCOMMENT/FHCRC),
---- verifies the CRC-32 and ISIZE trailer, and decodes every member of a
---- multi-member stream.
-function Compress.inflater(format: string): Compress.Stream | nil, string
+--- A streaming decoder for `format`. A gzip decoder parses the header
+--- (including FEXTRA/FNAME/FCOMMENT/FHCRC), verifies the CRC-32 and
+--- ISIZE trailer, and decodes every member of a multi-member stream.
+--- Raises on an unknown format.
+function Compress.inflater(format: Compress.Format): Compress.Stream | nil, string
   return raw.inflater(format)
 end
 
---- A streaming encoder for "raw" deflate, "zlib", or "gzip", at
---- `level` (0 to 10, default the miniz default). A gzip encoder writes
---- a minimal ten-byte header (mtime 0, OS 255, no extra fields) and the
---- CRC-32/ISIZE trailer.
-function Compress.deflater(format: string, level?: integer): Compress.Stream | nil, string
+--- A streaming encoder for `format` at `level`, 0 to 10 (default the
+--- miniz default, 6); raises on an unknown format or a level out of
+--- range. A gzip encoder writes a minimal ten-byte header (mtime 0,
+--- OS 255, no extra fields) and the CRC-32/ISIZE trailer.
+function Compress.deflater(format: Compress.Format, level?: integer): Compress.Stream | nil, string
   return raw.deflater(format, level)
 end
 
 --- A streaming decoder for the .xz container: multi-stream and stream
 --- padding are handled, and every filter and check the tree needs to
---- decode is supported.
-function Compress.xz_decoder(): Compress.Stream | nil, string
-  return raw.xz_decoder()
+--- decode is supported. The decoder refuses, with "xz memory limit
+--- exceeded", a stream whose headers ask for more than `memlimit`
+--- bytes of decoder memory (default 256 MiB; `xz -9` needs 65 MiB).
+--- Raises when `memlimit` is not positive.
+function Compress.xz_decoder(memlimit?: integer): Compress.Stream | nil, string
+  return raw.xz_decoder(memlimit)
 end
 
 --- A streaming decoder for .bz2: multi-stream is handled.
@@ -77,7 +137,8 @@ function Compress.bz2_decoder(): Compress.Stream | nil, string
 end
 
 --- The running CRC-32 (IEEE) of `data`. Pass the previous value as
---- `crc` to continue it over more than one call.
+--- `crc` to continue it over more than one call; raises when `crc` is
+--- outside 0 to 0xffffffff.
 function Compress.crc32(data: string, crc?: integer): integer
   return raw.crc32(data, crc)
 end
