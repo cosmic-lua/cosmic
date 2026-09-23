@@ -364,3 +364,51 @@ local function test_self_rebuild_docs_verb(tmp: string)
   assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
     "docs: second invocation reported staleness though the tool is fresh")
 end
+
+-- Marks `build/fix/init.tl`'s verb with an extra line, as the docs marker
+-- does for `docs`: a `fix` the stale tool ran itself would not print it.
+local function apply_fix_marker_edit(tree: string)
+  local path = tree .. "/build/fix/init.tl"
+  local lines = split_lines(Fixture.read(path))
+  lines = insert_after(lines,
+    "function fix.run(argv: {integer:string}): integer",
+    { "  Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
+  Fixture.write(path, table.concat(lines, "\n") .. "\n")
+end
+
+-- `fix` in cosmic's own tree fixes with the tree's rules and layout, so a
+-- tool older than the tree rebuilds itself before it fixes anything.
+local function test_self_rebuild_fix_verb(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-fix"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = place_runtime(fixture_dir, tree)
+  local before_hash = Fixture.hash(program)
+  apply_fix_marker_edit(tree)
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local outcome = Fixture.call_with_environment("fix-rebuild",
+    { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values)
+  assert(outcome.result.code == 0, "fix: exit status was " ..
+    tostring(outcome.result.code) .. ", want 0")
+  Fixture.contains(outcome.out, "step8-fix-marker")
+  local stale_lines = count_occurrences(Fixture.read(outcome.err),
+    "the tool is stale; rebuilding it from the tree")
+  assert(stale_lines == 1, "fix: reported " .. tostring(stale_lines) ..
+    " stale-rebuild lines, want 1")
+  assert(Fixture.hash(program) ~= before_hash,
+    "fix: self-rebuild did not change the artifact")
+
+  local second = Fixture.call_with_environment("fix-fresh",
+    { program, "fix", "--check", "build/clock.tl" }, tree, diagnostics, values)
+  assert(second.result.code == 0, "fix: second exit status was " ..
+    tostring(second.result.code) .. ", want 0")
+  Fixture.contains(second.out, "step8-fix-marker")
+  assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
+    "fix: second invocation reported staleness though the tool is fresh")
+end
