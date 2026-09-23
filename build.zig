@@ -328,6 +328,90 @@ const cares_sources = [_][]const u8{
     "util/ares_uri.c",
 };
 
+/// curl's own file list, minus what vendor/curl's PIN already prunes
+/// (every non-HTTP(S) protocol, every TLS backend but mbedtls, NTLM/
+/// Kerberos/SASL) and minus its Windows- and AmigaOS-only sources
+/// (`amigaos.c`, `dllmain.c`, `curl_sspi.c`, `system_win32.c`,
+/// `version_win32.c`, `winapi.c`), which would compile to nothing on
+/// these targets but add nothing either. Everything named here compiled
+/// clean, individually, on all three targets before being wired in.
+const curl_sources = [_][]const u8{
+    "altsvc.c",           "api.c",
+    "bufq.c",              "bufref.c",
+    "cf-h1-proxy.c",       "cf-h2-proxy.c",
+    "cf-haproxy.c",        "cf-https-connect.c",
+    "cf-ip-happy.c",       "cf-recvbuf.c",
+    "cf-setup.c",          "cf-socket.c",
+    "cfilters.c",          "conncache.c",
+    "connect.c",           "content_encoding.c",
+    "cookie.c",            "creds.c",
+    "cshutdn.c",           "curl_addrinfo.c",
+    "curl_ed25519.c",      "curl_endian.c",
+    "curl_fnmatch.c",      "curl_fopen.c",
+    "curl_get_line.c",     "curl_gssapi.c",
+    "curl_memrchr.c",      "curl_range.c",
+    "curl_sha512_256.c",   "curl_share.c",
+    "curl_threads.c",      "curl_trc.c",
+    "curlx/base64.c",      "curlx/basename.c",
+    "curlx/dynbuf.c",      "curlx/fopen.c",
+    "curlx/inet_ntop.c",   "curlx/inet_pton.c",
+    "curlx/multibyte.c",   "curlx/nonblock.c",
+    "curlx/snprintf.c",    "curlx/strcopy.c",
+    "curlx/strdup.c",      "curlx/strerr.c",
+    "curlx/strparse.c",    "curlx/timediff.c",
+    "curlx/timeval.c",     "curlx/wait.c",
+    "curlx/warnless.c",    "cw-out.c",
+    "cw-pause.c",          "dynhds.c",
+    "easy.c",              "easygetopt.c",
+    "easyoptions.c",       "escape.c",
+    "fake_addrinfo.c",     "fileinfo.c",
+    "formdata.c",          "getenv.c",
+    "getinfo.c",           "hash.c",
+    "headers.c",           "hmac.c",
+    "hsts.c",              "http.c",
+    "http1.c",             "http2.c",
+    "http_aws_sigv4.c",    "http_chunks.c",
+    "http_digest.c",       "http_httpsig.c",
+    "http_negotiate.c",    "http_ntlm.c",
+    "http_proxy.c",        "idn.c",
+    "if2ip.c",             "llist.c",
+    "macos.c",             "md4.c",
+    "md5.c",               "memdebug.c",
+    "mime.c",              "mprintf.c",
+    "multi.c",             "multi_ev.c",
+    "multi_ntfy.c",        "netrc.c",
+    "parsedate.c",         "peer.c",
+    "pingpong.c",          "progress.c",
+    "protocol.c",          "proxy.c",
+    "psl.c",               "rand.c",
+    "ratelimit.c",         "request.c",
+    "select.c",            "sendf.c",
+    "setopt.c",            "sha256.c",
+    "slist.c",             "socketpair.c",
+    "splay.c",             "strcase.c",
+    "strequal.c",          "strerror.c",
+    "thrdpool.c",          "thrdqueue.c",
+    "transfer.c",          "uint-bset.c",
+    "uint-hash.c",         "uint-hashset.c",
+    "uint-spbset.c",       "uint-table.c",
+    "url.c",               "urlapi.c",
+    "vauth/cleartext.c",   "vauth/cram.c",
+    "vauth/digest.c",      "vauth/digest_sspi.c",
+    "vauth/oauth2.c",      "vauth/spnego_gssapi.c",
+    "vauth/spnego_sspi.c", "vauth/vauth.c",
+    "vdns/asyn-ares.c",    "vdns/asyn-base.c",
+    "vdns/cf-dns.c",       "vdns/dnscache.c",
+    "vdns/doh.c",          "vdns/hostip.c",
+    "vdns/hostip4.c",      "vdns/hostip6.c",
+    "vdns/httpsrr.c",      "version.c",
+    "vtls/apple.c",        "vtls/cipher_suite.c",
+    "vtls/hostcheck.c",    "vtls/keylog.c",
+    "vtls/mbedtls.c",      "vtls/vtls.c",
+    "vtls/vtls_config.c",  "vtls/vtls_scache.c",
+    "vtls/vtls_spack.c",   "vtls/x509asn1.c",
+    "ws.c",
+};
+
 const core_sources = [_][]const u8{
     "boot.c",
     "coverage.c",
@@ -367,6 +451,7 @@ pub fn build(b: *std.Build) void {
     const miniz = patched(b, applier, "miniz");
     const mbedtls = patched(b, applier, "mbedtls");
     const cares = patched(b, applier, "cares");
+    const curl = patched(b, applier, "curl");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -375,6 +460,7 @@ pub fn build(b: *std.Build) void {
         .{ "lua", lua },         .{ "sqlite", sqlite },
         .{ "tl", tl },           .{ "miniz", miniz },
         .{ "mbedtls", mbedtls }, .{ "cares", cares },
+        .{ "curl", curl },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -534,14 +620,14 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, cares, false);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, cares, curl, false);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, cares, true);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, cares, curl, true);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -570,7 +656,7 @@ pub fn build(b: *std.Build) void {
     // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, cares, false);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, cares, curl, false);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -733,6 +819,7 @@ fn core(
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
     cares: std.Build.LazyPath,
+    curl: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
@@ -938,6 +1025,27 @@ fn core(
     if (target_record.query.os_tag == .macos) {
         mod.addIncludePath(b.path("core/darwin-compat"));
     }
+
+    // curl: HTTP and HTTPS only (every other protocol's sources are
+    // already gone from vendor/curl's PIN), DNS through the c-ares just
+    // built (USE_ARES) rather than curl's own thread-pool or plain
+    // getaddrinfo() resolver, TLS through mbedtls (USE_MBEDTLS) rather
+    // than any of the half-dozen other backends curl supports. No zlib
+    // (no Content-Encoding decompression), no HTTP/2, no cookies -- see
+    // core/curl_config.h for the full rationale, mirrored there rather
+    // than repeated here since curl's is a real (if hand-written)
+    // configuration header, unlike the two placeholder ones above.
+    const curl_flags = [_][]const u8{
+        "-std=c11", "-DHAVE_CONFIG_H", "-DBUILDING_LIBCURL",
+        "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
+    };
+    mod.addCSourceFiles(.{
+        .root = curl.path(b, "lib"),
+        .files = &curl_sources,
+        .flags = &curl_flags,
+    });
+    mod.addIncludePath(curl.path(b, "lib"));
+    mod.addIncludePath(curl.path(b, "include"));
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.
