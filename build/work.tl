@@ -77,7 +77,7 @@ local record work
   version: string
 end
 
-work.version = "17"
+work.version = "18"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
