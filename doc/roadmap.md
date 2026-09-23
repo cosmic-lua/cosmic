@@ -11,17 +11,18 @@ defines the target; once something ships, it leaves this file.
   `docs/design/cast-legality.md` are useful implementation and migration
   evidence.
 - add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
-- add C line coverage. C is already tested the way Lua and Teal are, by
-  `*_test.tl` files beside it (`core/syscalls_test.tl`, `core/sqlite_test.tl`,
-  `core/surface_test.tl`), and a whole run of this tree fails for any C entry
-  point no test calls (`build/entry_points.tl`); that bar is whether each is
-  reached, not which of its lines ran. The checked core also carries a failing
-  allocator (`core/testing.h`), and `core/allocation_test.tl` walks the paths a
-  binding takes when an allocation fails. The current direction for lines is LLVM
-  source coverage for `core/*.c`, a vendored profile runtime for each target,
-  and `llvm-profdata` and `llvm-cov` matched to the pinned Zig LLVM version,
-  written into the same `coverage` table so C and Teal lines report together.
-  Cost and integration design are what block it.
+- add a floor for line coverage, C included: `cosmic test --min PCT
+  [--min-file PCT]` fails a whole run whose overall or any one file's line
+  coverage falls below it, naming each file under the per-file floor with its
+  percentage; with neither flag it reports and passes, as today. C lines are
+  already in the same `coverage` table as Teal's (`core/coverage.c`), and a run
+  already fails for any C function no test enters (`build/c_functions.tl`);
+  the floor is what catches lines going untested inside a function a test
+  does enter. CI states the floor at the call site rather than in a committed
+  ratchet file. main's #1778 (`_tool/coverage/minimum.tl`, `--make coverage
+  --min PCT --min-file PCT`, which replaced the `.cosmic-coverage` ratchet and
+  its `--baseline`) and #1781 (`pr.yml`'s `--min 76 --min-file 0`) are the
+  model.
 - add a sensitivity record for coverage gates' host-dependent lines. main's
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI
   measurements and record why root access, a terminal, a free port, or a
