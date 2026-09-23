@@ -165,6 +165,45 @@ local function test_a_host_program_is_the_core_itself(tmp: string)
   assert(printed:sub(-#"/o/bin/who\n") == "/o/bin/who\n", printed)
 end
 
+--- What main returns is the exit status only when it is one: nil is 0,
+--- an integer from 0 to 255 is itself, and anything else -- a float, a
+--- boolean, a string, 256, which would exit 0, or a negative -- is an
+--- uncaught error that says so, never a Lua panic or a status cut down.
+local function test_main_returns_an_exit_status_or_fails_saying_so(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/status"))
+  assert(Fs.write(tmp .. "/cmd/status/main.tl", [=[
+local answers: {string:any} = {
+  float = 1.5, yes = true, text = "x", big = 256, negative = -1, seven = 7,
+  whole = 3.0,
+}
+
+return function(argv: {string}): any
+  return answers[argv[1]]
+end
+]=]))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "status", trouble)
+  local out = tmp .. "/o/bin/status"
+  local function run(answer: string): Child.Result
+    return (assert(Child.run({ out, answer }, { stdout = "capture",
+      stderr = "capture", timeout_ms = 30000 })))
+  end
+  for answer, code in pairs({ seven = 7, whole = 3, none = 0 } as {string:integer}) do
+    local r = run(answer)
+    assert(r.code == code, answer .. " exited " .. tostring(r.code) .. ": " ..
+      tostring(r.stderr))
+    assert(r.stderr == "", answer .. ": " .. tostring(r.stderr))
+  end
+  for _, answer in ipairs({ "float", "yes", "text", "big", "negative" }) do
+    local r = run(answer)
+    local stderr = assert(r.stderr)
+    assert(r.code == 1, answer .. " exited " .. tostring(r.code) .. ": " .. stderr)
+    assert(stderr:find("which is not an exit status", 1, true) ~= nil,
+      answer .. ": " .. stderr)
+    assert(stderr:find("PANIC", 1, true) == nil, answer .. ": " .. stderr)
+  end
+end
+
 --- A host program runs without checking its own core's digest, but the
 --- identity it would report is checked first, and one whose manifest names
 --- another digest reports none.

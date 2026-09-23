@@ -90,6 +90,12 @@ COSMIC_SYSCALL(open_temporary, 2) {
   static unsigned long serial;
   char temporary[PATH_MAX];
 
+  /* The answer, its keys and each attempt's path are made before the
+   * file is, and filling a table sized for them allocates nothing: a
+   * raise after the open would leak the descriptor and leave the file. */
+  lua_createtable(L, 0, 2);
+  lua_pushliteral(L, "fd");
+  lua_pushliteral(L, "path");
   for (unsigned int attempt = 0; attempt < 100; attempt++) {
     unsigned long number = ++serial;
     int length = snprintf(temporary, sizeof temporary, "%s.writing.%ld.%lu",
@@ -97,21 +103,22 @@ COSMIC_SYSCALL(open_temporary, 2) {
     if (length < 0 || (size_t)length >= sizeof temporary) {
       return cosmic_fail(L, ENAMETOOLONG);
     }
+    lua_pushstring(L, temporary);
     int fd;
     do {
       fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
                 (mode_t)mode);
     } while (fd < 0 && errno == EINTR);
     if (fd >= 0) {
-      lua_createtable(L, 0, 2);
-      push_field(L, "fd", (lua_Integer)fd);
-      lua_pushstring(L, temporary);
-      lua_setfield(L, -2, "path");
+      lua_rawset(L, -4);
+      lua_pushinteger(L, (lua_Integer)fd);
+      lua_rawset(L, -3);
       return 1;
     }
     if (errno != EEXIST) {
       return cosmic_fail(L, errno);
     }
+    lua_pop(L, 1);
   }
   return cosmic_fail(L, EEXIST);
 }
@@ -124,17 +131,47 @@ COSMIC_SYSCALL(close, 1) {
   return cosmic_ok(L);
 }
 
+/* Up to this many bytes, a read's buffer is what it asked for. */
+#define READ_SMALL ((lua_Integer)1 << 16)
+/* The most one read of anything but a regular file asks for. */
+#define READ_STREAM ((lua_Integer)1 << 20)
+
+/* How many of `count` bytes one read of `fd` at `offset` (or, when
+ * negative, at its own position) asks for, which is what its buffer
+ * costs: a count past what the read could answer is never allocated,
+ * so a huge count is no out-of-memory and a small file no huge buffer.
+ * A regular file answers at most what is left of it -- but never less
+ * than READ_SMALL, since a file that says it is empty or small (the
+ * ones under /proc) may hold more -- and anything else at most
+ * READ_STREAM. A read may always answer short, so a caller that loops
+ * until the empty string sees the same bytes either way. */
+static size_t read_room(int fd, lua_Integer count, off_t offset) {
+  if (count <= READ_SMALL) return (size_t)count;
+  lua_Integer room = READ_STREAM;
+  struct stat st;
+  if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+    if (offset < 0) offset = lseek(fd, 0, SEEK_CUR);
+    if (offset >= 0) {
+      lua_Integer left =
+          st.st_size > offset ? (lua_Integer)(st.st_size - offset) : 0;
+      room = left > READ_SMALL ? left : READ_SMALL;
+    }
+  }
+  return (size_t)(count < room ? count : room);
+}
+
 COSMIC_SYSCALL(read, 2) {
   int fd = cosmic_checkint(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   if (count < 0) {
     return luaL_argerror(L, 2, "count is negative");
   }
+  size_t room = read_room(fd, count, -1);
   luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, (size_t)count);
+  char *into = luaL_buffinitsize(L, &buffer, room);
   ssize_t got;
   do {
-    got = read(fd, into, (size_t)count);
+    got = read(fd, into, room);
   } while (got < 0 && errno == EINTR);
   if (got < 0) {
     int number = errno;
@@ -156,11 +193,12 @@ COSMIC_SYSCALL(pread, 3) {
   if (offset < 0) {
     return luaL_argerror(L, 3, "offset is negative");
   }
+  size_t room = read_room(fd, count, (off_t)offset);
   luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, (size_t)count);
+  char *into = luaL_buffinitsize(L, &buffer, room);
   ssize_t got;
   do {
-    got = pread(fd, into, (size_t)count, (off_t)offset);
+    got = pread(fd, into, room, (off_t)offset);
   } while (got < 0 && errno == EINTR);
   if (got < 0) {
     int number = errno;

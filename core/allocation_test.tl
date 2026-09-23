@@ -14,6 +14,7 @@
 --- CI runs this suite on it; any other core has no instrument to
 --- refuse one with, which these tests say rather than pass unseen.
 
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
@@ -114,4 +115,73 @@ local function test_print_survives_every_refused_allocation()
     print("allocation_test: a long print under refusal ->", long, 42)
   end)
   assert(ended > 0, "a line past the inline buffer allocates")
+end
+
+--- A temporary file is made after its answer is: a refusal leaves no
+--- descriptor open and no file behind.
+local function test_open_temporary_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  assert(sys.mkdir(tmp .. "/d"))
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local made = assert(sys.open_temporary(tmp .. "/d/f"))
+    sys.close(made.fd)
+    sys.unlink(made.path)
+  end)
+  assert(ended > 0, "the answer allocates")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a refused allocation left a descriptor open")
+  assert(next((assert(sys.readdir(tmp .. "/d")))) == nil,
+    "a refused allocation left a temporary file")
+end
+
+local function test_pipe_leaves_no_end_open_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local before = next_descriptor(tmp)
+  local ended = under_every_failure(function()
+    local ends = assert(sys.pipe())
+    sys.close(ends.reader)
+    sys.close(ends.writer)
+  end)
+  assert(ended > 0, "the answer allocates")
+  collectgarbage("collect")
+  assert(next_descriptor(tmp) == before, "a refused allocation left a pipe end open")
+end
+
+--- A child is reaped only once its answer can be made: a refusal before
+--- it leaves the child to wait for again, never its status lost.
+local function test_waitpid_never_loses_a_status_to_a_failed_allocation()
+  if not checked then return end
+  local pid = assert(sys.spawn("/bin/sh", { "sh", "-c", "exit 7" }, nil, nil, nil, nil, nil, false))
+  local ended = under_every_failure(function()
+    local status = assert(sys.waitpid(pid, false))
+    assert(status.pid == pid and status.code == 7 and status.signal == -1)
+  end)
+  assert(ended > 0, "the answer allocates")
+end
+
+--- An attached database is held by the store or closed: a refusal
+--- leaves no connection -- and no descriptor under it -- behind.
+local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local path = tmp .. "/project.db"
+  local db = assert(Sqlite.open(path, true))
+  assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, " ..
+    "source TEXT, file TEXT); CREATE TABLE meta (key TEXT, value TEXT)"))
+  assert(db:close())
+  local before = next_descriptor(tmp)
+  local searched = #Store.databases()
+  local ended = under_every_failure(function()
+    assert(Store.attach(path))
+  end)
+  assert(ended > 0, "attaching allocates")
+  collectgarbage("collect")
+  -- A run can attach and still count a refusal Lua shrugged off (a
+  -- string table it could not grow), so the store may hold more than
+  -- one: each holds its one descriptor, and nothing else does.
+  local held = #Store.databases() - searched
+  assert(held >= 1, "the last run attached")
+  local after = next_descriptor(tmp)
+  assert(after == before + held, "descriptors from " .. before .. " to " .. after ..
+    " for " .. held .. " attached: a refused attach left a connection open")
 end

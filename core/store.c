@@ -91,7 +91,7 @@ static int return_upvalue(lua_State *L) {
 static int load_from(lua_State *L, sqlite3 *db, const char *name,
                      int is_binary, int *trusted) {
   static const char *query =
-    "SELECT bytecode, kind FROM modules WHERE path = ?1";
+    "SELECT bytecode, kind FROM main.modules WHERE path = ?1";
   sqlite3_stmt *stmt = NULL;
   if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
     die_unreadable(db);
@@ -108,8 +108,16 @@ static int load_from(lua_State *L, sqlite3 *db, const char *name,
     die_unreadable(db);
   }
 
+  /* The blob first, then its length: the length describes the value the
+   * blob call converted. A NULL pointer with a length is SQLite out of
+   * memory, never bytes to load. */
   const void *bytes = sqlite3_column_blob(stmt, 0);
   int len = sqlite3_column_bytes(stmt, 0);
+  if (bytes == NULL && len > 0) {
+    sqlite3_finalize(stmt);
+    lua_pushliteral(L, "not enough memory");
+    return -1;
+  }
   const char *kind = (const char *)sqlite3_column_text(stmt, 1);
   *trusted = is_binary && names_trusted_kind(name, kind);
   char chunk[256];
@@ -191,28 +199,69 @@ static int store_searcher(lua_State *L) {
   return 1;
 }
 
+/* What a statement on a store connection may do: read. Every connection
+ * the store searches is handed out as a borrowed handle
+ * (`store_databases`), and a read-only open still leaves a connection
+ * its own writable temp schema -- where a `CREATE TEMP TABLE modules`
+ * would stand in front of the rows `require` loads -- and ATTACH.
+ * Anything but a query is refused when it is prepared. FTS5, which the
+ * catalog lookup uses, asks for data_version on its own. */
+static int reads_only(void *unused, int action, const char *first,
+                      const char *second, const char *database,
+                      const char *trigger) {
+  (void)unused;
+  (void)database;
+  (void)trigger;
+  switch (action) {
+  case SQLITE_SELECT:
+  case SQLITE_READ:
+  case SQLITE_FUNCTION:
+  case SQLITE_RECURSIVE:
+    return SQLITE_OK;
+  case SQLITE_PRAGMA:
+    return second == NULL && first != NULL &&
+                   strcmp(first, "data_version") == 0
+               ? SQLITE_OK
+               : SQLITE_DENY;
+  default:
+    return SQLITE_DENY;
+  }
+}
+
+static void release_database(void *db) { sqlite3_close_v2(db); }
+
 /* Opens another database and searches it ahead of every other, which is
- * what a project's own build database needs. */
+ * what a project's own build database needs. The connection is held by
+ * a guard until the list holds it: growing the list can raise. */
 static int store_attach(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
                            NULL);
+  guard->resource = db;
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_set_authorizer(db, reads_only, NULL);
+  }
   if (rc != SQLITE_OK) {
     lua_pushboolean(L, 0);
     lua_pushstring(L, db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db));
-    sqlite3_close_v2(db);
     return 2;
   }
 
+  /* The one new slot is made first; every move after it is into a slot
+   * that exists, which allocates nothing. */
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
+  lua_pushlightuserdata(L, db);
+  lua_seti(L, list, count + 1);
   for (lua_Integer i = count; i >= 1; i--) {
     lua_geti(L, list, i);
     lua_seti(L, list, i + 1);
   }
   lua_pushlightuserdata(L, db);
   lua_seti(L, list, 1);
+  guard->resource = NULL;
 
   lua_pushboolean(L, 1);
   lua_pushliteral(L, "");
@@ -241,8 +290,14 @@ static int lookup(lua_State *L, sqlite3 *db, const char *sql,
   }
   int found = rc == SQLITE_ROW;
   if (found) {
-    lua_pushlstring(L, sqlite3_column_blob(stmt, 0),
-                    (size_t)sqlite3_column_bytes(stmt, 0));
+    /* The blob first, then its length; a NULL pointer with a length is
+     * SQLite out of memory. */
+    const void *value = sqlite3_column_blob(stmt, 0);
+    int len = sqlite3_column_bytes(stmt, 0);
+    if (value == NULL && len > 0) {
+      return luaL_error(L, "not enough memory");
+    }
+    lua_pushlstring(L, value, (size_t)len);
   }
   /* Finalized now, and the emptied slot taken out from under the value. */
   lua_closeslot(L, slot);
@@ -258,7 +313,8 @@ static int store_bytecode(lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
 
-  static const char *query = "SELECT bytecode FROM modules WHERE path = ?1";
+  static const char *query =
+    "SELECT bytecode FROM main.modules WHERE path = ?1";
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db != NULL && lookup(L, db, query, name)) {
@@ -282,8 +338,8 @@ static int store_source(lua_State *L) {
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   sqlite3 *db = count > 0 ? database_at(L, list, count) : NULL;
   static const char *queries[] = {
-    "SELECT source FROM decls WHERE path = ?1",
-    "SELECT source FROM modules WHERE path = ?1",
+    "SELECT source FROM main.decls WHERE path = ?1",
+    "SELECT source FROM main.modules WHERE path = ?1",
   };
   for (size_t i = 0; db != NULL && i < sizeof queries / sizeof *queries; i++) {
     if (lookup(L, db, queries[i], name)) {
@@ -299,7 +355,7 @@ static int store_source(lua_State *L) {
 /* Pushes one database's meta value and returns 1, or pushes nothing and
  * returns 0 when that key has no row. */
 static int database_meta(lua_State *L, sqlite3 *db, const char *key) {
-  return lookup(L, db, "SELECT value FROM meta WHERE key = ?1", key);
+  return lookup(L, db, "SELECT value FROM main.meta WHERE key = ?1", key);
 }
 
 static void big_endian_32(unsigned char *out, uint32_t value) {
@@ -458,8 +514,10 @@ static int store_meta(lua_State *L) {
  * borrowed `cosmic.sqlite` handle: what a verb that reads the shipped
  * tables -- `cosmic docs` over `docs` and `uses` -- queries, without a
  * path to any of them, since the binary's own is inside the binary.
- * The handles read only; `close` on one is a no-op, and the store
- * keeps the connections for as long as the process runs. */
+ * The handles read only -- `reads_only` refuses anything but a query on
+ * the store's connections, a temp table and ATTACH included; `close` on
+ * one is a no-op, and the store keeps the connections for as long as
+ * the process runs. */
 static int store_databases(lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
@@ -630,6 +688,7 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary,
                          const struct cosmic_artifact *artifact) {
   lua_newtable(L);
   if (binary != NULL) {
+    sqlite3_set_authorizer(binary, reads_only, NULL);
     lua_pushlightuserdata(L, binary);
     lua_seti(L, -2, 1);
   }

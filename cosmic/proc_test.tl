@@ -45,3 +45,36 @@ end
     assert(Store.meta("runtime")), (assert(Proc.executable())) }, "\t") .. "\n"
   assert(r.stdout == expected, tostring(r.stdout) .. " ~= " .. expected)
 end
+
+--- A program this one becomes starts with SIGPIPE at its default, as a
+--- child it spawns does, even when this one ignored it: exec hands on
+--- an ignored signal, and a pipeline downstream of it would never end.
+local function test_exec_hands_on_sigpipe_at_its_default(tmp: string)
+  local relaunch = Proc.relaunch()
+  if relaunch == nil then return end -- a native start has nothing to relaunch
+  if not Fs.exists("/proc/self/status") then return end -- nothing to ask
+  local script = tmp .. "/becomes.tl"
+  assert(Fs.write(script, [[
+local Proc = require("cosmic.proc")
+local sys = require("cosmic.sys")
+return function(): integer
+  assert(sys.ignore_sigpipe())
+  local _, trouble = Proc.exec("/bin/sh", { "sh", "-c", "grep SigIgn /proc/self/status" }, {})
+  print(trouble)
+  return 1
+end
+]]))
+  local argv: {string} = {}
+  for i, value in ipairs(relaunch.argv) do argv[i] = value end
+  argv[#argv + 1] = script
+  local env = Env.all()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  local fds: {integer:integer | string} = {}
+  for number, fd in pairs(relaunch.fds) do fds[number] = fd end
+  local r = assert(Child.run(argv, { env = env, fds = fds, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, tostring(r.stdout) .. tostring(r.stderr))
+  local ignored = assert(assert(r.stdout):match("SigIgn:%s*(%x+)"), r.stdout)
+  local mask = math.tointeger(tonumber(ignored, 16)) or 0
+  assert(mask & (1 << (sys.SIGPIPE - 1)) == 0, "SIGPIPE arrived ignored: " .. ignored)
+end

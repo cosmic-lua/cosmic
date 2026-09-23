@@ -266,11 +266,12 @@ static bool catalog_guidance(sqlite3 *db, const char *message) {
   }
   sqlite3_stmt *stmt = NULL;
   const char *sql =
-      "SELECT coalesce(catalog.text, (SELECT d.text FROM docs d "
+      "SELECT coalesce(catalog.text, (SELECT d.text FROM main.docs d "
       "WHERE d.module = catalog.module AND "
       "d.source_symbol = catalog.symbol)), "
       "catalog.message, catalog.symbol, catalog.file, catalog.line "
-      "FROM catalog_fts JOIN catalog ON catalog.id = catalog_fts.rowid "
+      "FROM main.catalog_fts JOIN main.catalog "
+      "ON catalog.id = catalog_fts.rowid "
       "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1";
   if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
     return false;
@@ -342,7 +343,7 @@ static bool source_position(lua_State *L, const char *message) {
       continue;
     }
     sqlite3_stmt *stmt = NULL;
-    const char *sql = "SELECT file, source FROM modules WHERE path = ?1";
+    const char *sql = "SELECT file, source FROM main.modules WHERE path = ?1";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
       continue;
     }
@@ -397,10 +398,58 @@ static int failed(lua_State *L, sqlite3 *db) {
   return 1;
 }
 
-/* Runs the main module the build recorded. The module is required like
- * any other, and what it returns is called with the command line as a
- * table whose slot 0 is the program's own name. `db` is threaded
- * through only for an uncaught failure's own catalog lookup. */
+/* What the entry hands the Lua side of running main: everything it
+ * needs, through one light userdata, which pushing never allocates. */
+struct entry {
+  const char *main_name;
+  int argc;
+  char **argv;
+};
+
+/* Requires the main module, calls what it returns with the command line
+ * as a table whose slot 0 is the program's own name, and answers the
+ * exit status it returned: nil is 0, an integer from 0 to 255 is
+ * itself, and anything else is an error, as a status the process
+ * cannot exit with would otherwise be cut down to one it did not mean
+ * (256 to 0). Every step here can raise -- on memory, if on nothing
+ * else -- so it runs under lua_pcall, and a raise is an uncaught error
+ * like any other. */
+static int enter_main(lua_State *L) {
+  const struct entry *entry = lua_touserdata(L, 1);
+  lua_getglobal(L, "require");
+  lua_pushstring(L, entry->main_name);
+  lua_call(L, 1, 1);
+  if (!lua_isfunction(L, -1)) {
+    complain("the main module is not a function", entry->main_name);
+    lua_pushinteger(L, 2);
+    return 1;
+  }
+
+  lua_createtable(L, entry->argc, 1);
+  for (int i = 0; i < entry->argc; i++) {
+    lua_pushstring(L, entry->argv[i]);
+    lua_seti(L, -2, i);
+  }
+  lua_call(L, 1, 1);
+  if (lua_isnil(L, -1)) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  int is_integer = 0;
+  lua_Integer status = lua_type(L, -1) == LUA_TNUMBER
+                           ? lua_tointegerx(L, -1, &is_integer)
+                           : 0;
+  if (!is_integer || status < 0 || status > 255) {
+    return luaL_error(L, "main returned %s, which is not an exit status: "
+                         "return nil or an integer from 0 to 255",
+                      luaL_tolstring(L, -1, NULL));
+  }
+  lua_pushinteger(L, status);
+  return 1;
+}
+
+/* Runs the main module the build recorded. `db` is threaded through
+ * only for an uncaught failure's own catalog lookup. */
 static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
   char main_name[256];
   if (!cosmic_store_meta(L, "main", main_name, sizeof main_name) ||
@@ -408,24 +457,13 @@ static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
     return complain("the database names no main module", NULL);
   }
 
-  lua_getglobal(L, "require");
-  lua_pushstring(L, main_name);
+  struct entry entry = {main_name, argc, argv};
+  lua_pushcfunction(L, enter_main);
+  lua_pushlightuserdata(L, &entry);
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
     return failed(L, db);
   }
-  if (!lua_isfunction(L, -1)) {
-    return complain("the main module is not a function", main_name);
-  }
-
-  lua_newtable(L);
-  for (int i = 0; i < argc; i++) {
-    lua_pushstring(L, argv[i]);
-    lua_seti(L, -2, i);
-  }
-  if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-    return failed(L, db);
-  }
-  return (int)luaL_optinteger(L, -1, 0);
+  return (int)lua_tointeger(L, -1);
 }
 
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,

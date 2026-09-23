@@ -252,6 +252,63 @@ local function test_execve_fails_for_a_missing_program(tmp: string)
   failed_with(sys.ENOENT, sys.execve(tmp .. "/missing", { "missing" }, {}))
 end
 
+--- Every argv entry and environment name and value is a string already:
+--- a number converted where it lay would leave argv pointing at a string
+--- nothing holds.
+local function test_execve_raises_on_an_entry_that_is_not_a_string(tmp: string)
+  local missing = tmp .. "/missing"
+  raises(sys.execve, missing, { "missing", 1 }, {})
+  raises(sys.execve, missing, { "missing", 1.5 }, {})
+  raises(sys.execve, missing, { "missing" }, { NAME = 1 })
+  raises(sys.execve, missing, { "missing" }, { [1] = "value" })
+  raises(sys.execve, missing, { "missing" }, { ["A=B"] = "value" })
+  raises(sys.execve, missing, { "missing", "a\0b" }, {})
+end
+
+--- A failed execve leaves this process as it was: SIGPIPE, which it hands
+--- the new program at the default, is ignored again here.
+local function test_a_failed_execve_keeps_sigpipe_ignored(tmp: string)
+  assert(sys.ignore_sigpipe())
+  failed_with(sys.ENOENT, sys.execve(tmp .. "/missing", { "missing" }, {}))
+  local fd = sys.open("/proc/self/status", sys.O_RDONLY)
+  if fd == nil then return end -- no /proc to ask
+  local status = assert(sys.read(fd, 1 << 16))
+  sys.close(fd)
+  local ignored = assert(status:match("SigIgn:%s*(%x+)"), status)
+  local mask = math.tointeger(tonumber(ignored, 16)) or 0
+  assert(mask & (1 << (sys.SIGPIPE - 1)) ~= 0,
+    "SIGPIPE is ignored again: " .. ignored)
+end
+
+--- A count is what a read may answer, not what it allocates: one far
+--- past any memory reads a small file, a pipe, and a file that says it
+--- is empty (/proc's) whole.
+local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
+  local fd = create(tmp .. "/a")
+  assert(sys.write(fd, "small") == 5)
+  assert(sys.pread(fd, 1 << 50, 0) == "small")
+  assert(sys.pread(fd, 1 << 50, 2) == "all")
+  assert(sys.pread(fd, 1 << 50, 5) == "")
+  assert(sys.lseek(fd, 1, sys.SEEK_SET) == 1)
+  assert(sys.read(fd, 1 << 50) == "mall")
+  assert(sys.read(fd, 1 << 50) == "")
+  sys.close(fd)
+
+  local ends = assert(sys.pipe())
+  assert(sys.write(ends.writer, "piped") == 5)
+  assert(sys.read(ends.reader, 1 << 50) == "piped")
+  sys.close(ends.reader)
+  sys.close(ends.writer)
+
+  local proc = sys.open("/proc/self/status", sys.O_RDONLY)
+  if proc == nil then return end -- no /proc to read
+  local st = assert(sys.fstat(proc))
+  local text = assert(sys.read(proc, 1 << 50))
+  sys.close(proc)
+  assert(st.size < #text, "the file says it holds less than it does")
+  assert(text:find("SigIgn:", 1, true) ~= nil, text)
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)
