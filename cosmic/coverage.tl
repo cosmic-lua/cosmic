@@ -147,4 +147,12 @@ function Coverage.native_lines(): Coverage.Hits
   return native.lines()
 end
 
+--- The line each of the core's own C functions begins on, among
+--- `native_lines`: a function was entered when a hit names its line.
+--- Empty in a core without native coverage, like `native_lines`.
+--- @return Hits Every C function's first line, each true
+function Coverage.native_entries(): Coverage.Hits
+  return native.entries()
+end
+
 return Coverage
