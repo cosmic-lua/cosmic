@@ -60,7 +60,7 @@ const Configuration = struct {
 };
 
 /// Whether a core observes its own C (`core/coverage.c`): not at all, or
-/// with sancov's per-block flags, once linked without the block-to-line
+/// with sancov's per-block flags, once linked with an empty block-to-line
 /// table (`first_link`, read for its debug information and never run) and
 /// once carrying the table `core/coverage_map.zig` wrote from that link.
 const NativeCoverage = union(enum) {
@@ -367,16 +367,12 @@ pub fn build(b: *std.Build) void {
     // for the host only, and installed beside the release cores. Its portable
     // artifact still carries all three required release entries, plus this
     // host's configuration-2 entry selected by its private launcher.
-    // On an ELF host it also observes its own C, so the suite it runs
+    // It also observes its own C, so the suite it runs
     // writes the core's lines into the same coverage tables as Teal's.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
     const checked_host = baselineHostTarget(b);
     const checked = checked: {
-        // The map reads DWARF from an ELF file; a Mach-O host's checked
-        // core stays uninstrumented rather than half-mapped.
-        if (checked_host.result.ofmt != .elf)
-            break :checked core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .off);
         const first = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, false, .first_link);
         const mapper = b.addExecutable(.{
             .name = "coverage-map",
@@ -743,7 +739,8 @@ fn core(
     // Last, and uninstrumented, so both links hold the same blocks in the
     // same order: the table is data and adds none.
     switch (native_coverage) {
-        .off, .first_link => {},
+        .off => {},
+        .first_link => mod.addCSourceFile(.{ .file = b.path("core/coverage_map_empty.c"), .flags = &.{"-std=c11"} }),
         .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{"-std=c11"} }),
     }
 

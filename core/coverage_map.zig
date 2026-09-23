@@ -3,7 +3,8 @@
 //! instrumented files one flag byte, in `__sancov_bools`, and one entry
 //! in `__sancov_pcs` naming the block's address; both are in link order.
 //! This reads a linked core's PC table, resolves each block's address to
-//! the line it begins on through the core's DWARF, and writes the answer
+//! the line it begins on through the core's DWARF (in an ELF core itself;
+//! in the objects a Mach-O core's debug map names), and writes the answer
 //! as C indexed by block:
 //!
 //!     coverage-map write <core> <root> <out.c>
@@ -49,10 +50,41 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
 
 const Section = struct { address: u64, data: []const u8 };
 
-/// A section of a 64-bit little-endian ELF file, by name.
-fn section(file: []const u8, name: []const u8) ?Section {
-    if (file.len < 64 or !std.mem.eql(u8, file[0..4], "\x7fELF") or file[4] != 2 or file[5] != 1)
-        fatal("not a 64-bit little-endian ELF file", .{});
+/// The kind of file a core is, as `std.debug.Info.load` wants it.
+const Format = struct { ofmt: std.Target.ObjectFormat, arch: std.Target.Cpu.Arch };
+
+/// Which of the two 64-bit little-endian formats a core is linked as:
+/// ELF on Linux, Mach-O on macOS.
+fn objectFormat(file: []const u8) Format {
+    if (file.len >= 64 and std.mem.eql(u8, file[0..4], "\x7fELF") and file[4] == 2 and file[5] == 1) {
+        return .{ .ofmt = .elf, .arch = switch (read(u16, file, 0x12)) {
+            0x3e => .x86_64,
+            0xb7 => .aarch64,
+            else => |machine| fatal("unsupported ELF machine {d}", .{machine}),
+        } };
+    }
+    if (file.len >= 32 and read(u32, file, 0) == 0xfeedfacf) {
+        return .{ .ofmt = .macho, .arch = switch (read(u32, file, 4)) {
+            0x01000007 => .x86_64,
+            0x0100000c => .aarch64,
+            else => |cpu| fatal("unsupported Mach-O CPU {x}", .{cpu}),
+        } };
+    }
+    fatal("not a 64-bit little-endian ELF or Mach-O file", .{});
+}
+
+/// A section of the core, by name: in ELF, among the section headers; in
+/// Mach-O, among the sections of the `LC_SEGMENT_64` load commands. Either
+/// way its bytes are what the file holds, and the address where it loads.
+fn section(file: []const u8, ofmt: std.Target.ObjectFormat, name: []const u8) ?Section {
+    return switch (ofmt) {
+        .elf => elfSection(file, name),
+        .macho => machoSection(file, name),
+        else => unreachable,
+    };
+}
+
+fn elfSection(file: []const u8, name: []const u8) ?Section {
     const shoff = read(u64, file, 0x28);
     const shentsize = read(u16, file, 0x3a);
     const shnum = read(u16, file, 0x3c);
@@ -71,14 +103,41 @@ fn section(file: []const u8, name: []const u8) ?Section {
     return null;
 }
 
+/// Zig's Mach-O linker records rebases as dyld opcodes, not chained
+/// fixups, so a pointer section holds plain link-time addresses.
+fn machoSection(file: []const u8, name: []const u8) ?Section {
+    const lc_segment_64 = 0x19;
+    const ncmds = read(u32, file, 16);
+    var command: u64 = 32; // past the 64-bit header
+    for (0..ncmds) |_| {
+        const cmd = read(u32, file, command);
+        const cmdsize = read(u32, file, command + 4);
+        if (cmd == lc_segment_64) {
+            const nsects = read(u32, file, command + 64);
+            for (0..nsects) |i| {
+                const header = command + 72 + i * 80;
+                const found = std.mem.sliceTo(file[header..][0..16], 0);
+                if (!std.mem.eql(u8, found, name)) continue;
+                const address = read(u64, file, header + 32);
+                const size = read(u64, file, header + 40);
+                const offset = read(u32, file, header + 48);
+                return .{ .address = address, .data = file[offset..][0..size] };
+            }
+        }
+        command += cmdsize;
+    }
+    return null;
+}
+
 fn read(comptime T: type, file: []const u8, at: u64) T {
     return std.mem.readInt(T, file[at..][0..@sizeOf(T)], .little);
 }
 
 fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) ![]const u8 {
     const file = try Io.Dir.cwd().readFileAlloc(io, core_path, arena, .limited(1 << 31));
-    const pcs = section(file, "__sancov_pcs") orelse fatal("{s} has no sancov PC table", .{core_path});
-    const flags = section(file, "__sancov_bools") orelse fatal("{s} has no sancov flags", .{core_path});
+    const kind = objectFormat(file);
+    const pcs = section(file, kind.ofmt, "__sancov_pcs") orelse fatal("{s} has no sancov PC table", .{core_path});
+    const flags = section(file, kind.ofmt, "__sancov_bools") orelse fatal("{s} has no sancov flags", .{core_path});
     // One (address, flags) pair of words per block.
     const count = pcs.data.len / 16;
     if (pcs.data.len % 16 != 0 or flags.data.len != count)
@@ -104,7 +163,7 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     var info = try std.debug.Info.load(arena, io, .{
         .root_dir = .cwd(),
         .sub_path = core_path,
-    }, &coverage, .elf, @import("builtin").cpu.arch);
+    }, &coverage, kind.ofmt, kind.arch);
     try info.resolveAddresses(arena, io, blocks.items(.pc), blocks.items(.location));
 
     // Each block's line and repository path, by the block's own index.

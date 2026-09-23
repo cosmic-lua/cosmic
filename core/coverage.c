@@ -96,11 +96,12 @@ static int collector_gc(lua_State *L) {
 void __sanitizer_cov_bool_flag_init(bool *start, bool *stop);
 void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop);
 
-/* Weak: the first link has no table yet, and is only ever read, never run. */
-extern const uint32_t cosmic_native_coverage_blocks __attribute__((weak));
-extern const char *const cosmic_native_coverage_paths[] __attribute__((weak));
-extern const uint16_t cosmic_native_coverage_path[] __attribute__((weak));
-extern const uint32_t cosmic_native_coverage_line[] __attribute__((weak));
+/* The first link carries an empty table (core/coverage_map_empty.c), and
+ * is only ever read, never run. */
+extern const uint32_t cosmic_native_coverage_blocks;
+extern const char *const cosmic_native_coverage_paths[];
+extern const uint16_t cosmic_native_coverage_path[];
+extern const uint32_t cosmic_native_coverage_line[];
 
 static bool *native_flags;
 static size_t native_count;
@@ -122,7 +123,7 @@ void __sanitizer_cov_pcs_init(const uintptr_t *start, const uintptr_t *stop) {
  * mismatch is an error rather than an empty answer. */
 static int native_ready(lua_State *L) {
   if (!native_flags) return 0;
-  if (!&cosmic_native_coverage_blocks || cosmic_native_coverage_blocks != native_count) {
+  if (cosmic_native_coverage_blocks != native_count) {
     return luaL_error(L, "coverage: the core's block table does not match its %d blocks",
                       (int)native_count);
   }
