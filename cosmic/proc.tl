@@ -26,6 +26,12 @@ function Proc.executable(): string | nil, string
   return path, ""
 end
 
+--- How many processors are online, at least one: the natural bound on
+--- how many children to run at once for CPU-bound work.
+function Proc.cpu_count(): integer
+  return sys.cpu_count()
+end
+
 --- Whether a stream is a terminal.
 function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
