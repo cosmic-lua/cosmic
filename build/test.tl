@@ -1310,15 +1310,21 @@ function test.run(argv: {integer:string}): integer
   -- own tree answers that: a run of chosen tests says nothing about the
   -- rest, and another project's tests owe nothing to the C underneath
   -- them. Every core cosmic tests with observes its own C.
-  local functions_line: string = nil
+  local function_lines: {string} = {}
   local functions = Coverage.native_functions()
   if own_tree and #selectors == 0 and #functions > 0 then
-    local entered = c_functions.tally(functions, hits)
+    local entered = c_functions.tally(functions, hits, c_functions.sources(root, functions))
     for _, key in ipairs(entered.unentered) do
       failures[#failures + 1] = key .. ": a C function no test enters"
     end
-    functions_line = string.format("test: C functions %d/%d entered by a test (%d exempt)",
+    function_lines[1] = string.format("test: C functions %d/%d entered by a test (%d exempt)",
       entered.entered, entered.total - entered.exempted, entered.exempted)
+    -- An exemption a test entered is one this core no longer needs. The
+    -- other core may still need it, so it is named here, never failed.
+    if #entered.stale > 0 then
+      function_lines[2] = "test: C exemptions a test entered on this core: " ..
+        table.concat(entered.stale, ", ")
+    end
   end
 
   local cov_hit, cov_total, cov_trouble =
@@ -1362,7 +1368,7 @@ function test.run(argv: {integer:string}): integer
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms)")
     report(cov_line)
-    if functions_line ~= nil then report(functions_line) end
+    for _, function_line in ipairs(function_lines) do report(function_line) end
     return 0
   end
   table.sort(failures)
@@ -1387,7 +1393,7 @@ function test.run(argv: {integer:string}): integer
     clock.elapsed_ms(started) .. " ms)")
   if #errors == 0 then
     report(cov_line)
-    if functions_line ~= nil then report(functions_line) end
+    for _, function_line in ipairs(function_lines) do report(function_line) end
   end
   return 1
 end
