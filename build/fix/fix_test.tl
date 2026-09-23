@@ -164,9 +164,32 @@ local function test_a_path_that_is_not_there_is_missing_before_it_is_judged(tmp:
       what .. " should be reported as missing, not judged on its suffix: " ..
       picked.refused[i])
   end
-  assert(picked.refused[3]:find("not a Teal source", 1, true) ~= nil,
+  assert(picked.refused[3]:find("not a Teal or C source", 1, true) ~= nil,
     "a file that is there but is not Teal should be said so: " ..
     picked.refused[3])
+end
+
+--- C is checked only where the rules it is checked against belong:
+--- cosmic's own tree, whose headers and compiler they assume.
+local function test_c_is_taken_only_in_cosmics_own_tree(tmp: string)
+  assert(Fs.write(tmp .. "/a.c", "int a;\n"))
+  local picked = assert(fix.chosen(tmp, { tmp .. "/a.c", tmp }))
+  assert(#picked.c_files == 0, "a tree of another's has no C checked")
+  assert(picked.refused[1]:find("only in cosmic's own tree", 1, true) ~= nil,
+    picked.refused[1])
+
+  assert(Fs.mkdirs(tmp .. "/own/core"))
+  assert(Fs.mkdirs(tmp .. "/own/build"))
+  assert(Fs.mkdirs(tmp .. "/own/vendor/lua"))
+  assert(Fs.write(tmp .. "/own/build/importer.tl", "return {}\n"))
+  assert(Fs.write(tmp .. "/own/core/a.c", "int a;\n"))
+  assert(Fs.write(tmp .. "/own/core/a.h", "int a;\n"))
+  assert(Fs.write(tmp .. "/own/vendor/lua/b.c", "int b;\n"))
+  local all = assert(fix.chosen(tmp .. "/own", {}))
+  assert(#all.c_files == 1 and all.c_files[1] == "core/a.c",
+    "the whole tree covers its own .c and not the vendored: " .. table.concat(all.c_files, ", "))
+  local named = assert(fix.chosen(tmp .. "/own", { tmp .. "/own/core/a.h" }))
+  assert(#named.c_files == 1 and #named.refused == 0, "a header named is checked")
 end
 
 --- Changed output still has to parse and preserve both syntax and comments.

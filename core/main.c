@@ -12,6 +12,7 @@
 #include <strings.h>
 
 #include "boot.h"
+#include "check.h"
 #include "crypto.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -425,7 +426,12 @@ static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
     return failed(L, db);
   }
-  return (int)luaL_optinteger(L, -1, 0);
+  int status = cosmic_tostatus(L, -1);
+  if (status < 0) {
+    return complain("the main function returned no exit status from 0 to 255",
+                    main_name);
+  }
+  return status;
 }
 
 int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,

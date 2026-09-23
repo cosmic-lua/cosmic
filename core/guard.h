@@ -21,6 +21,11 @@
  * the close; the guard's __gc then releases the resource when the guard
  * is collected -- the same backstop lauxlib's buffer box has. So what a
  * guard holds is released at once, or at the latest by the collector.
+ *
+ * A guard cannot hand a resource on to what its function returns: the
+ * close at the return is a call, and a call that memory refuses raises
+ * after the hand-off, taking the returned values with it. A resource the
+ * caller is to own is acquired after everything that allocates instead.
  */
 
 #ifndef COSMIC_GUARD_H
@@ -52,17 +57,25 @@ static inline int cosmic_guard_close(lua_State *L) {
 }
 
 /* Pushes an empty guard that releases with `release`, and marks its slot
- * to-be-closed. The push itself may raise; nothing is held yet if so. */
+ * to-be-closed. The push itself may raise; nothing is held yet if so.
+ * The metatable is registered only once it is whole: registered first
+ * (as luaL_newmetatable does) and then raised out of while it was being
+ * filled, it would stay in the registry without __close or __gc, and
+ * every guard after it would release nothing. */
 static inline struct cosmic_guard *cosmic_guard_push(
     lua_State *L, void (*release)(void *resource)) {
   struct cosmic_guard *guard = lua_newuserdatauv(L, sizeof *guard, 0);
   guard->release = release;
   guard->resource = NULL;
-  if (luaL_newmetatable(L, COSMIC_GUARD_TYPE)) {
+  if (luaL_getmetatable(L, COSMIC_GUARD_TYPE) == LUA_TNIL) {
+    lua_pop(L, 1);
+    lua_createtable(L, 0, 2);
     lua_pushcfunction(L, cosmic_guard_close);
     lua_setfield(L, -2, "__close");
     lua_pushcfunction(L, cosmic_guard_close);
     lua_setfield(L, -2, "__gc");
+    lua_pushvalue(L, -1);
+    lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_GUARD_TYPE);
   }
   lua_setmetatable(L, -2);
   lua_toclose(L, -1);
