@@ -51,14 +51,15 @@ end
 
 --- A cache entry is hashed on its first launch, and stamped by the first
 --- launch a second or more after it was written, so none after that
---- hashes it again.
+--- hashes it again. Whether the first launch itself stamps depends on
+--- how long extracting and hashing took, so only the settled launch is
+--- held to it.
 local function test_a_fresh_cache_entry_is_stamped_once_it_settles(tmp: string)
   if Proc.relaunch() == nil then return end
   local program = assert(Proc.executable())
   local cache = tmp .. "/cache"
   assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
   launch(program, cache, tmp)
-  assert(stamps(cache) == 0, "an entry written this second is not stamped yet")
   assert(Time.sleep_ns(1100000000))
   launch(program, cache, tmp)
   assert(stamps(cache) == 1, "a settled entry is stamped")
