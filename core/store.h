@@ -36,9 +36,10 @@ void cosmic_store_set_raw(lua_State *L, const char *name);
  * trust-gated store searcher at all. A shipped binary never calls this. */
 void cosmic_store_preload_raw(lua_State *L, const char *name);
 
-/* One entry of the meta table, or NULL. The string belongs to Lua and
- * stays valid until the next call that touches the stack. */
-const char *cosmic_store_meta(lua_State *L, const char *key);
+/* Copies one entry of the meta table into `out`, NUL-terminated. Returns
+ * 0 when the entry is missing, cannot be read, or does not fit in `size`
+ * bytes; `out` is then an empty string. */
+int cosmic_store_meta(lua_State *L, const char *key, char *out, size_t size);
 
 /* The databases `require` searches, in search order: how many there
  * are, and the connection at 1-based `index` (NULL past the end). The

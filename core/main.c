@@ -403,11 +403,10 @@ static int failed(lua_State *L, sqlite3 *db) {
  * through only for an uncaught failure's own catalog lookup. */
 static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
   char main_name[256];
-  const char *named = cosmic_store_meta(L, "main");
-  if (named == NULL || named[0] == '\0') {
+  if (!cosmic_store_meta(L, "main", main_name, sizeof main_name) ||
+      main_name[0] == '\0') {
     return complain("the database names no main module", NULL);
   }
-  snprintf(main_name, sizeof main_name, "%s", named);
 
   lua_getglobal(L, "require");
   lua_pushstring(L, main_name);
