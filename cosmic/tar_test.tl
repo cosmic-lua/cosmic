@@ -105,6 +105,18 @@ local function test_a_long_path_round_trips_through_a_pax_header()
   assert(last == nil and trouble == "")
 end
 
+-- Found by tar_fuzz_test.tl: a `/` then 100 bytes split at the leading
+-- `/` into an empty ustar prefix, which reads back as none.
+local function test_a_leading_slash_survives_a_path_just_past_the_name_field()
+  local path = "/" .. string.rep("n", 100)
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file(path, "x"))
+  assert(w:close())
+  local entry = assert(Tar.reader(Stream.from_string(c:result())):next())
+  assert(entry.path == path, entry.path)
+end
+
 local function test_deterministic_mode_zeroes_mtime_uid_and_gid()
   local c = Stream.collect()
   local w = Tar.writer(c, { deterministic = true })

@@ -34,6 +34,13 @@
  * through core/store.c's `store_searcher`. */
 void cosmic_coverage_install (lua_State *L);
 
+/* Pushes {budget = <cfunction>}: `budget(count)` arms a budget of `count`
+ * VM instructions on the calling coroutine, raising "instruction budget
+ * exceeded" once they are spent, and `budget()` disarms it. It shares the
+ * one hook with collection, which stays as it was. The raw value behind
+ * `build.fuzz` (core/store.c), and nothing else's. */
+int cosmic_open_budget (lua_State *L);
+
 /* `envp`, or, once processes this one starts are to report their C to a
  * test (`children`), a new array of the same entries plus the name that
  * tells them where: free it, not its entries, when it differs from `envp`.

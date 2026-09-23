@@ -9,6 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "check.h"
 #include "lauxlib.h"
 #include "lapi.h"
 /* setsvalue2s checks the string is live when Lua is built with its own
@@ -42,9 +43,17 @@ typedef struct Collector {
   int active;
   /* Collecting since the state was made, for the first `start` to keep. */
   int from_startup;
+  /* VM instructions `budget` allows before it raises, or 0 when unarmed.
+   * It shares the one hook slot with collection, so both are always
+   * installed together (`install_hook`). */
+  int budget;
 } Collector;
 
 static char collector_key;
+
+/* What a spent `budget` raises, exactly: a caught value equal to it is
+ * the budget's, never a program's own error. */
+#define BUDGET_MESSAGE "instruction budget exceeded"
 
 /* The collector's uservalue: the source strings it roots. */
 #define ROOTED 1
@@ -266,8 +275,26 @@ void cosmic_coverage_report (void) {
 #endif
 }
 
+static void install_hook (lua_State *L, Collector *collector);
+
+/* The budget ran out: disarm it before raising, so nothing the unwinding
+ * runs is counted against it again. A coroutine made while it was armed
+ * keeps its inherited count after a disarm; its later counts find the
+ * budget unarmed and do nothing. */
+static void budget_hook (lua_State *L, Collector *collector) {
+  if (!collector || collector->budget == 0) return;
+  collector->budget = 0;
+  install_hook(L, collector);
+  lua_pushliteral(L, BUDGET_MESSAGE);
+  lua_error(L);
+}
+
 static void native_line_hook (lua_State *L, lua_Debug *ar) {
   Collector *collector = current_collector(L);
+  if (ar->event == LUA_HOOKCOUNT) {
+    budget_hook(L, collector);
+    return;
+  }
   /* A coroutine can retain an inherited hook after its parent stops. */
   if (!collector || !collector->active || ar->currentline < 0) {
     return;
@@ -326,6 +353,19 @@ static void native_line_hook (lua_State *L, lua_Debug *ar) {
   page->bits[offset / 64] |= UINT64_C(1) << (offset % 64);
 }
 
+/* The one hook slot carries lines while collecting and a count while a
+ * budget is armed; with neither it is cleared. */
+static void install_hook (lua_State *L, Collector *collector) {
+  int mask = 0;
+  int count = 0;
+  if (collector && collector->active) mask |= LUA_MASKLINE;
+  if (collector && collector->budget > 0) {
+    mask |= LUA_MASKCOUNT;
+    count = collector->budget;
+  }
+  lua_sethook(L, mask ? native_line_hook : NULL, mask, count);
+}
+
 /* start(): hooks lines and begins a collection. */
 static int coverage_start (lua_State *L) {
   Collector *collector = current_collector(L);
@@ -342,7 +382,7 @@ static int coverage_start (lua_State *L) {
   }
   collector->active = 1;
   native_open();
-  lua_sethook(L, native_line_hook, LUA_MASKLINE, 0);
+  install_hook(L, collector);
   return 0;
 }
 
@@ -389,12 +429,27 @@ static int coverage_snapshot (lua_State *L) {
 }
 
 static int coverage_stop (lua_State *L) {
-  lua_sethook(L, NULL, 0, 0);
   lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
   Collector *collector = lua_touserdata(L, -1);
   if (collector) collector->active = 0;
+  install_hook(L, collector);
   lua_pop(L, 1);
   return coverage_snapshot(L);
+}
+
+/* budget([count]): arms a budget of `count` VM instructions on the calling
+ * thread, and on every coroutine it makes while armed; spending them
+ * raises BUDGET_MESSAGE. With no count, or 0, disarms. Collection is
+ * unaffected either way: both share the one hook. A hang inside a single
+ * C call is out of its reach, since the count runs between instructions. */
+static int coverage_budget (lua_State *L) {
+  int count = cosmic_optint(L, 1, 0);
+  luaL_argcheck(L, count >= 0, 1, "is negative");
+  Collector *collector = current_collector(L);
+  if (!collector) return 0;
+  collector->budget = count;
+  install_hook(L, collector);
+  return 0;
 }
 
 /* Every line of the core's own C that has a block starting on it, hit or
@@ -481,7 +536,7 @@ void cosmic_coverage_install (lua_State *L) {
     unsetenv("COSMIC_COVERAGE_STARTUP");
     collector->active = 1;
     collector->from_startup = 1;
-    lua_sethook(L, native_line_hook, LUA_MASKLINE, 0);
+    install_hook(L, collector);
   }
   cosmic_coverage_prepare();
   lua_newtable(L);
@@ -499,4 +554,11 @@ void cosmic_coverage_install (lua_State *L) {
   lua_setfield(L, -2, "children");
   lua_pushcfunction(L, coverage_functions);
   lua_setfield(L, -2, "functions");
+}
+
+int cosmic_open_budget (lua_State *L) {
+  lua_createtable(L, 0, 1);
+  lua_pushcfunction(L, coverage_budget);
+  lua_setfield(L, -2, "budget");
+  return 1;
 }

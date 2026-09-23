@@ -49,6 +49,13 @@ invoking user; CI's runners are unprivileged, so run it as one. The launcher fix
 is a stand-in payload that checks nothing; a case about what the real core
 does (its digest, its startup errors) belongs in `runtime_test.tl`.
 
+A parser that reads untrusted bytes gets a `*_fuzz_test.tl` beside it,
+driving `build.fuzz`'s `run`: a generator draws each input from a seeded
+source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
+(64 by default) choose the inputs, a failure is shrunk and kept in the test's
+directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI
+reruns them on the checked core with `FUZZ_ITERS=2000`.
+
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
 fail for the reported bug over assertions that pin incidental implementation.

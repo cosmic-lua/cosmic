@@ -7,6 +7,7 @@
 
 #include "lauxlib.h"
 #include "compress.h"
+#include "coverage.h"
 #include "crypto.h"
 #include "hash.h"
 #include "http.h"
@@ -51,7 +52,8 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
  * code registers it -- `cosmic_store_install` the store, core/surface.c
  * the coverage collector (despite its raw name, a holdover from when it
  * carried the real `debug` library), and `cosmic_store_open_raw` all
- * the others. */
+ * the others. `build.fuzz` gets the instruction budget alone, which
+ * shares the coverage collector's hook but none of its collection. */
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -65,6 +67,7 @@ static const struct raw_module {
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
+  {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
 };
 #define RAW_MODULE_COUNT (sizeof raw_modules / sizeof *raw_modules)
 
@@ -165,10 +168,11 @@ static sqlite3 *database_at (lua_State *L, int list, lua_Integer index) {
 /* The one searcher. Its upvalue is the list of databases, in the order
  * they are searched: index `count` is always the one attached to the
  * running binary, because `store_attach` only ever prepends. A name
- * under `cosmic.*` resolves there first and a project's own database
- * second, so a database that smuggles in a module of that name can
- * never shadow the binary's own -- everything else stays project
- * first, which is how a project overrides nothing it does not own.
+ * under `cosmic.*`, or a trusted `build.*` wrapper, resolves there first
+ * and a project's own database second, so a database that smuggles in a
+ * module of that name can never shadow the binary's own -- everything
+ * else stays project first, which is how a project overrides nothing it
+ * does not own.
  *
  * The raw `cosmic.internal.*` values are never rows in any database:
  * core C builds and registers them directly (see `raw_modules`).
@@ -183,7 +187,8 @@ static int store_searcher (lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
   int reserved = strncmp(name, "cosmic.", 7) == 0 ||
-                 strcmp(name, "build.artifact") == 0;
+                 strcmp(name, "build.artifact") == 0 ||
+                 strcmp(name, "build.fuzz") == 0;
 
   for (lua_Integer step = 0; step < count; step++) {
     lua_Integer i = reserved ? count - step : step + 1;
