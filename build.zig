@@ -740,6 +740,16 @@ fn core(
             "core/startup_hook.c"),
         .flags = own_flags,
     });
+    // The checked core alone carries the test instruments -- a failing
+    // allocator, a count of the store's open statements -- so no core
+    // that ships has an allocator a program can make fail.
+    mod.addCSourceFile(.{
+        .file = b.path(if (configuration.sanitize)
+            "core/testing_checked.c"
+        else
+            "core/testing.c"),
+        .flags = own_flags,
+    });
     // Last, and uninstrumented, so both links hold the same blocks in the
     // same order: the table is data and adds none.
     switch (native_coverage) {

@@ -15,6 +15,12 @@
  * The slot is marked to-be-closed, so it may only leave the stack by a
  * return, a raise, lua_pop or lua_settop: push the guard below what the
  * function returns.
+ *
+ * Closing calls the guard's __close, and a call can itself need memory.
+ * When memory is so short that even that call cannot be made, Lua drops
+ * the close; the guard's __gc then releases the resource when the guard
+ * is collected -- the same backstop lauxlib's buffer box has. So what a
+ * guard holds is released at once, or at the latest by the collector.
  */
 
 #ifndef COSMIC_GUARD_H

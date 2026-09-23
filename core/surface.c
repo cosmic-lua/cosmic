@@ -10,6 +10,7 @@
 #include "lualib.h"
 #include "store.h"
 #include "syscalls.h"
+#include "testing.h"
 
 /* A name that was removed says what took its place, at the site that
  * reached for it, rather than in a document somewhere else. */
@@ -153,6 +154,8 @@ lua_State *cosmic_surface_open(const char *logical_executable) {
   lua_setfield(L, -2, "cosmic.sys");
   lua_pushcfunction(L, open_errors);
   lua_setfield(L, -2, "cosmic.internal.errors");
+  lua_pushcfunction(L, cosmic_open_testing);
+  lua_setfield(L, -2, "cosmic.internal.testing");
   lua_pop(L, 1);
 
   lua_newtable(L);
