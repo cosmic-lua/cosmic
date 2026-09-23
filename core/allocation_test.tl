@@ -8,7 +8,10 @@
 --- "Nothing behind" is checked after a collection: when memory is so
 --- short that Lua cannot even call a guard's close, the guard's __gc is
 --- what releases it (core/guard.h), and a refusal walk reaches exactly
---- such points.
+--- such points. Each run is followed by one, with allocations granted
+--- again: a finalizer left pending would otherwise be run by a step of
+--- the collector during the next run's refusals, fail to be called, and
+--- never be called again.
 ---
 --- Only the checked core can refuse an allocation (core/testing.h), and
 --- CI runs this suite on it; any other core has no instrument to
@@ -23,12 +26,20 @@ local checked = testing.configuration == "sanitized"
 --- Runs `work` once per allocation it makes, refusing that allocation,
 --- and a last time with none refused; answers how many runs a refusal
 --- ended. A run that nothing was refused in must succeed.
-local function under_every_failure(work: function()): integer
+---
+--- `settle`, when given, runs after each run with allocations granted
+--- again, to release what the run was handed. The work cannot release it
+--- itself: a worker's coverage hook runs Lua between any two lines, and
+--- can itself be refused, so a refusal can fall between a binding's
+--- return and the line that would have released what it returned.
+local function under_every_failure(work: function(), settle?: function()): integer
   local ended = 0
   for after = 0, 1000000 do
     testing.fail_allocations(after)
     local ok, failure = pcall(work as function(): any)
     local refused = testing.allow_allocations()
+    if settle ~= nil then settle() end
+    collectgarbage("collect")
     if refused == 0 then
       assert(ok, "the work failed with every allocation granted: " .. tostring(failure))
       return ended
@@ -114,4 +125,43 @@ local function test_print_survives_every_refused_allocation()
     print("allocation_test: a long print under refusal ->", long, 42)
   end)
   assert(ended > 0, "a line past the inline buffer allocates")
+end
+
+--- open_temporary builds its answer with the descriptor already open; a
+--- refusal while it does must close it, not leave it to the process.
+local function test_open_temporary_closes_its_descriptor_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  local path = tmp .. "/t"
+  local before = next_descriptor(tmp)
+  -- Taken on the line that makes the call, so no hook runs between the
+  -- binding's return and the test holding what it returned.
+  local received: sys.TemporaryFile
+  local opened = 0
+  local ended = under_every_failure(function()
+    received = sys.open_temporary(path, 420)
+  end, function()
+    if received ~= nil then
+      sys.close(received.fd)
+      received = nil
+      opened = opened + 1
+    end
+  end)
+  assert(ended > 0, "building the answer allocates")
+  assert(opened >= 1, "the run with nothing refused opens a file")
+  collectgarbage("collect")
+  local after = next_descriptor(tmp)
+  assert(after == before, "a refused allocation left descriptor " .. before .. " open")
+end
+
+--- execve holds its argv and environment arrays while it fills them from
+--- the tables; a refusal at any point of that, and a failed execve after
+--- it, must come back through the guards that free them.
+local function test_execve_survives_every_refused_allocation(tmp: string)
+  if not checked then return end
+  local missing = tmp .. "/no-such-program"
+  local ended = under_every_failure(function()
+    local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
+    assert(ok == nil and trouble ~= nil, "a program that is not there cannot run")
+  end)
+  assert(ended > 0, "joining the environment allocates")
 end

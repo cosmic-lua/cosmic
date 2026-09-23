@@ -1,5 +1,6 @@
 #include "store.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -191,18 +192,25 @@ static int store_searcher(lua_State *L) {
   return 1;
 }
 
+static void release_database(void *db) { sqlite3_close_v2(db); }
+
 /* Opens another database and searches it ahead of every other, which is
- * what a project's own build database needs. */
+ * what a project's own build database needs. The connection is held by a
+ * guard until the list holds it: the message a failure copies out and the
+ * list's growth both allocate, and an allocation can raise past the
+ * close. SQLite hands back a connection even when it fails to open one,
+ * and that one must be closed too. */
 static int store_attach(lua_State *L) {
   const char *path = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_database);
   sqlite3 *db = NULL;
   int rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI,
                            NULL);
+  guard->resource = db;
   if (rc != SQLITE_OK) {
     lua_pushboolean(L, 0);
     lua_pushstring(L, db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db));
-    sqlite3_close_v2(db);
     return 2;
   }
 
@@ -213,6 +221,7 @@ static int store_attach(lua_State *L) {
   }
   lua_pushlightuserdata(L, db);
   lua_seti(L, list, 1);
+  guard->resource = NULL;
 
   lua_pushboolean(L, 1);
   lua_pushliteral(L, "");
@@ -463,7 +472,7 @@ static int store_meta(lua_State *L) {
 static int store_databases(lua_State *L) {
   int list = lua_upvalueindex(1);
   lua_Integer count = (lua_Integer)lua_rawlen(L, list);
-  lua_createtable(L, (int)count, 0);
+  lua_createtable(L, count > INT_MAX ? 0 : (int)count, 0);
   for (lua_Integer i = 1; i <= count; i++) {
     sqlite3 *db = database_at(L, list, i);
     if (db == NULL) {

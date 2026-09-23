@@ -25,6 +25,7 @@ extern long syscall(long, ...);
 
 #include "check.h"
 #include "fail.h"
+#include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
 #include "miniz.h"
@@ -169,17 +170,22 @@ COSMIC_SYSCALL(hmac, 3) {
 
 /* The argv and environment arrays are built from the Lua tables, which
  * stay on the stack and so keep every string alive until execve, which
- * frees nothing on success because nothing of this process remains. */
+ * frees nothing on success because nothing of this process remains. Each
+ * array is held by a guard while it is filled: reading a table entry can
+ * run a metamethod, and checking or joining a string can raise, past the
+ * free that would otherwise follow. */
 COSMIC_SYSCALL(execve, 3) {
   const char *path = luaL_checkstring(L, 1);
   luaL_checktype(L, 2, LUA_TTABLE);
   luaL_checktype(L, 3, LUA_TTABLE);
 
   lua_Integer count = luaL_len(L, 2);
+  struct cosmic_guard *argv_guard = cosmic_guard_push(L, free);
   char **argv = calloc((size_t)count + 1, sizeof *argv);
   if (argv == NULL) {
     return cosmic_fail(L, ENOMEM);
   }
+  argv_guard->resource = argv;
   for (lua_Integer i = 1; i <= count; i++) {
     lua_geti(L, 2, i);
     argv[i - 1] = (char *)luaL_checkstring(L, -1);
@@ -202,11 +208,12 @@ COSMIC_SYSCALL(execve, 3) {
     lua_seti(L, entries, ++variables);
     lua_pop(L, 1);
   }
+  struct cosmic_guard *envp_guard = cosmic_guard_push(L, free);
   char **envp = calloc((size_t)variables + 1, sizeof *envp);
   if (envp == NULL) {
-    free(argv);
     return cosmic_fail(L, ENOMEM);
   }
+  envp_guard->resource = envp;
   for (lua_Integer i = 1; i <= variables; i++) {
     lua_geti(L, entries, i);
     envp[i - 1] = (char *)lua_tostring(L, -1);
@@ -214,10 +221,7 @@ COSMIC_SYSCALL(execve, 3) {
   }
 
   execve(path, argv, envp);
-  int number = errno;
-  free(envp);
-  free(argv);
-  return cosmic_fail(L, number);
+  return cosmic_fail(L, errno);
 }
 
 static const char *plain_string(lua_State *L, int index, const char *what) {
