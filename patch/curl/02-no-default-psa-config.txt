@@ -1,0 +1,18 @@
+file: lib/vtls/mbedtls.c
+note: curl's mbedtls backend includes <psa/crypto_config.h> directly,
+  after <mbedtls/version.h> has already read the configuration the
+  library was built with. That header is tf-psa-crypto's own default
+  configuration, which turns on nearly every PSA mechanism: layered
+  over core/mbedtls_cosmic_config.h, it would give this one file a
+  different idea of the PSA operation structs (and so of
+  mbedtls_ssl_context) than the library it calls. The configuration
+  already in effect through build_info.h is the only one wanted, so
+  the include goes. vendor/mbedtls/PIN does not vendor the default
+  configuration at all, so a future copy of this line fails to compile
+  rather than silently mismatching.
+--- find
+#include <psa/crypto_config.h>
+#include <mbedtls/net_sockets.h>
+--- replace
+#include <mbedtls/net_sockets.h>
+--- end

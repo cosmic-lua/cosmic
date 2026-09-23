@@ -102,143 +102,26 @@ const lua_sources = [_][]const u8{
     "lundump.c",  "lutf8lib.c", "lvm.c",      "lzio.c",
 };
 
-/// mbedtls's compile-time configuration: digests and HMAC through the
-/// PSA API, plus (since the `fetch`/`http` module landed) the PSA
-/// algorithms and key types a TLS 1.2/1.3 client needs -- ECDHE key
-/// agreement, ECDSA and RSA (PKCS#1v1.5 and PSS) signature verification,
-/// AES-GCM and ChaCha20-Poly1305 record protection, and the TLS 1.2 PRF
-/// and TLS 1.3 HKDF key schedules -- with randomness from the OS rather
-/// than the library's own entropy and DRBG modules. Flags rather than a
-/// header, for the same reason SQLite's are; the header the library
-/// insists on naming is empty. Every file that includes the library's
-/// headers is compiled with these, the core's own included, or the
-/// headers would describe another library.
-///
-/// Most of the classic `MBEDTLS_xxx_C` module flags (ECP_C, RSA_C,
-/// BIGNUM_C, ASN1_PARSE_C, AES_C, GCM_C, CHACHA20_C, ...) are derived
-/// automatically from the PSA_WANT flags below by
-/// `crypto_adjust_config_enable_builtins.h`; naming them here as well
-/// only produces `-Wmacro-redefined` warnings under `-Werror`; see
-/// `mbedtls_tls_config` for the handful that PSA does not derive.
+/// mbedtls's compile-time configuration, which is
+/// `core/mbedtls_cosmic_config.h` and nothing else: that header is named
+/// as both configuration files the library reads (tf-psa-crypto's and
+/// mbedtls's own), and no `MBEDTLS_` or `PSA_WANT_` macro is passed on a
+/// command line. Every file that includes the library's headers -- the
+/// crypto subtree, the TLS and X.509 layer, curl's mbedtls backend and
+/// the core's own C -- is compiled with exactly these flags, so none of
+/// them can see a struct laid out differently from the one the library
+/// was built with. An edit to the header rebuilds every object that
+/// includes it: the compiler's dependency list, not the flag text, is
+/// what puts a header in a compile's cache key.
 const mbedtls_config = [_][]const u8{
-    "-DTF_PSA_CRYPTO_CONFIG_FILE=\"crypto_config.h\"",
-    "-DPSA_WANT_ALG_MD5=1",
-    "-DPSA_WANT_ALG_SHA_1=1",
-    "-DPSA_WANT_ALG_SHA_224=1",
-    "-DPSA_WANT_ALG_SHA_256=1",
-    "-DPSA_WANT_ALG_SHA_384=1",
-    "-DPSA_WANT_ALG_SHA_512=1",
-    "-DPSA_WANT_ALG_SHA3_224=1",
-    "-DPSA_WANT_ALG_SHA3_256=1",
-    "-DPSA_WANT_ALG_SHA3_384=1",
-    "-DPSA_WANT_ALG_SHA3_512=1",
-    "-DPSA_WANT_ALG_HMAC=1",
-    "-DPSA_WANT_KEY_TYPE_HMAC=1",
-    "-DMBEDTLS_PSA_CRYPTO_C",
-    "-DMBEDTLS_PSA_CRYPTO_EXTERNAL_RNG",
-    "-DMBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS",
-    // Key agreement and signature verification for ECDHE_ECDSA and
-    // ECDHE_RSA cipher suites.
-    "-DPSA_WANT_ALG_ECDH=1",
-    "-DPSA_WANT_ALG_ECDSA=1",
-    "-DPSA_WANT_ALG_DETERMINISTIC_ECDSA=1",
-    "-DPSA_WANT_ALG_RSA_PKCS1V15_SIGN=1",
-    "-DPSA_WANT_ALG_RSA_PSS=1",
-    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_IMPORT=1",
-    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_EXPORT=1",
-    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_GENERATE=1",
-    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_BASIC=1",
-    "-DPSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY=1",
-    "-DPSA_WANT_ECC_SECP_R1_256=1",
-    "-DPSA_WANT_ECC_SECP_R1_384=1",
-    "-DPSA_WANT_ECC_SECP_R1_521=1",
-    "-DPSA_WANT_ECC_MONTGOMERY_255=1",
-    "-DPSA_WANT_KEY_TYPE_RSA_KEY_PAIR_IMPORT=1",
-    "-DPSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY=1",
-    // Record protection: AES-GCM and ChaCha20-Poly1305 (TLS 1.2 and 1.3).
-    "-DPSA_WANT_ALG_GCM=1",
-    "-DPSA_WANT_ALG_CHACHA20_POLY1305=1",
-    "-DPSA_WANT_KEY_TYPE_AES=1",
-    "-DPSA_WANT_KEY_TYPE_CHACHA20=1",
-    // Key schedules: TLS 1.2's PRF (HMAC-based) and TLS 1.3's HKDF.
-    "-DPSA_WANT_ALG_HKDF=1",
-    "-DPSA_WANT_ALG_HKDF_EXTRACT=1",
-    "-DPSA_WANT_ALG_HKDF_EXPAND=1",
-    "-DPSA_WANT_ALG_TLS12_PRF=1",
-    "-DPSA_WANT_ALG_TLS12_PSK_TO_MS=1",
-    // Wall-clock time, needed for X.509 certificate expiry checking
-    // (MBEDTLS_HAVE_TIME_DATE gates mbedtls_x509_time_gmtime() and the
-    // BADCERT_EXPIRED/BADCERT_FUTURE checks in x509_crt.c's verify
-    // callback -- without it those checks compile out entirely and an
-    // expired or not-yet-valid certificate verifies as trusted).
-    // MBEDTLS_HAVE_TIME_DATE's own implementation (platform_util.c's
-    // mbedtls_platform_gmtime_r) lives in the PSA/crypto source group
-    // this flag list feeds (mbedtls_flags), so both flags belong here
-    // rather than in mbedtls_tls_config, even though the X.509 code that
-    // calls it is compiled with mbedtls_tls_config's flags too (which
-    // include this list via `++`).
-    "-DMBEDTLS_HAVE_TIME=1",
-    "-DMBEDTLS_HAVE_TIME_DATE=1",
-};
-
-/// The handful of `MBEDTLS_xxx` flags the TLS client and X.509
-/// verification path need that `mbedtls_config` above (PSA_WANT_*)
-/// does not derive on its own: the client role and protocol versions
-/// themselves, SNI (a plain HTTP client is always going through a
-/// virtual-hosted server) and peer certificate retention (curl reads
-/// the verified chain back out), and the certificate/key encoding
-/// layers (PK, OID, PEM, base64) that sit above the PSA-derived crypto
-/// primitives. A second configuration-header placeholder, for the same
-/// reason `crypto_config.h` is one.
-const mbedtls_tls_config = [_][]const u8{
-    "-DMBEDTLS_CONFIG_FILE=\"mbedtls_tls_config.h\"",
-    "-DMBEDTLS_SSL_TLS_C=1",
-    "-DMBEDTLS_SSL_CLI_C=1",
-    "-DMBEDTLS_SSL_PROTO_TLS1_2=1",
-    "-DMBEDTLS_SSL_PROTO_TLS1_3=1",
-    "-DMBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL_ENABLED=1",
-    "-DMBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED=1",
-    "-DMBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED=1",
-    "-DMBEDTLS_SSL_SERVER_NAME_INDICATION=1",
-    "-DMBEDTLS_SSL_ALPN=1",
-    "-DMBEDTLS_SSL_KEEP_PEER_CERTIFICATE=1",
-    "-DMBEDTLS_X509_USE_C=1",
-    "-DMBEDTLS_X509_CRT_PARSE_C=1",
-    "-DMBEDTLS_PK_C=1",
-    "-DMBEDTLS_PK_PARSE_C=1",
-    "-DMBEDTLS_OID_C=1",
-    "-DMBEDTLS_PEM_PARSE_C=1",
-    "-DMBEDTLS_BASE64_C=1",
-    "-DMBEDTLS_ERROR_C=1",
-    "-DMBEDTLS_VERSION_C=1",
-    // curl's mbedtls backend (vtls/mbedtls.c) is written against a
-    // fuller mbedtls build than a bare TLS-1.2/1.3-client-only config
-    // needs: it unconditionally offers CURLOPT_CAPATH/CURLOPT_CRLFILE/
-    // CURLOPT_SSLCERT-style file loading and renegotiation/session-
-    // ticket configuration, none of which this client's Teal API
-    // exposes or calls, but the functions still have to exist to link.
-    "-DMBEDTLS_FS_IO=1",
-    "-DMBEDTLS_X509_CRL_PARSE_C=1",
-    "-DMBEDTLS_PK_WRITE_C=1",
-    "-DMBEDTLS_SSL_RENEGOTIATION=1",
-    "-DMBEDTLS_SSL_SESSION_TICKETS=1",
-    // TLS 1.3 forbids rsa_pkcs1_* as a CertificateVerify signature
-    // scheme (only for signing certificates in the chain); an RSA leaf
-    // certificate needs rsa_pss_rsae_* offered instead, which mbedtls
-    // gates on this flag rather than deriving it from PSA_WANT_ALG_RSA_PSS.
-    // Without it, a TLS 1.3 handshake against any RSA-keyed server
-    // (most of the web) fails outright with a handshake_failure alert.
-    "-DMBEDTLS_X509_RSASSA_PSS_SUPPORT=1",
+    "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
+    "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
 };
 
 /// The TLS 1.2/1.3 client and X.509 chain sources under mbedtls's own
-/// `library/`, plus the PK (certificate public-key) and encoding
-/// (ASN.1, PEM, base64) sources that moved under `tf-psa-crypto/extras`
-/// and `tf-psa-crypto/utilities` in the 4.x restructuring -- both
-/// already on the include path the crypto subtree sets up. Server-only
-/// (`ssl_tls12_server.c`, `ssl_tls13_server.c`), session-cache/ticket,
-/// and certificate/key-writing sources are left out: nothing here signs
-/// or serves.
+/// `library/`. Server-only (`ssl_tls12_server.c`, `ssl_tls13_server.c`),
+/// session-cache/ticket/cookie, DTLS, CRL and certificate-writing sources
+/// are left out: nothing here serves, resumes from a ticket, or signs.
 const mbedtls_tls_sources = [_][]const u8{
     "ssl_tls.c",
     "ssl_msg.c",
@@ -248,46 +131,21 @@ const mbedtls_tls_sources = [_][]const u8{
     "ssl_tls13_client.c",
     "ssl_tls13_generic.c",
     "ssl_tls13_keys.c",
-    "mps_reader.c",
-    "mps_trace.c",
     "error.c",
     "version.c",
-    "version_features.c",
     "x509.c",
     "x509_crt.c",
     "x509_oid.c",
-    // curl's mbedtls backend (vtls/mbedtls.c) unconditionally references
-    // CRL loading and DER pubkey export even though nothing here calls
-    // the options that would use them (no client certificates, no CRL
-    // file configured) -- see mbedtls_tls_config for the matching flags.
-    "x509_crl.c",
 };
 
-const mbedtls_pk_and_encoding_sources = [_][]const u8{
-    "extras/md.c",
-    "extras/pk.c",
-    "extras/pkparse.c",
-    "extras/pkwrite.c",
-    "extras/pk_wrap.c",
-    "extras/pk_ecc.c",
-    "extras/pk_rsa.c",
-    // Guarded on MBEDTLS_PK_C, which only this group's flags define;
-    // see the comment where it is left out of the crypto group above.
-    "drivers/builtin/src/psa_util_internal.c",
-    "utilities/asn1parse.c",
-    "utilities/asn1write.c",
-    "utilities/base64.c",
-    "utilities/pem.c",
-    "utilities/oid.c",
-};
-
-/// c-ares's own thread support (CARES_THREADS) is never built -- the core
-/// drives one poll loop itself -- so windows_port.c, ares_sysconfig_win.c
-/// (Windows-only, gated `#ifdef _WIN32`) and ares_android.c
-/// (`#ifdef __ANDROID__`) are left out as dead weight on every target
-/// this tree ships. Everything else under src/lib compiles clean on all
-/// three (see ares_config.h and the macOS SystemConfiguration shim next
-/// to it in core/darwin-compat/ for what that took).
+/// c-ares's sources that hold code on at least one target here. Its own
+/// thread support (CARES_THREADS) is never built -- the core drives one
+/// poll loop itself -- so the event-thread backends under event/ (epoll,
+/// kqueue, poll, select, the wake pipe) compile to nothing and are left
+/// out, as are the Windows-only (windows_port.c, ares_sysconfig_win.c,
+/// ares_getenv.c) and Android-only (ares_android.c) files.
+/// ares_sysconfig_mac.c holds code on macOS only. See ares_config.h and
+/// the SystemConfiguration shim in core/darwin-compat/.
 const cares_sources = [_][]const u8{
     "ares_addrinfo2hostent.c",
     "ares_addrinfo_localhost.c",
@@ -301,7 +159,6 @@ const cares_sources = [_][]const u8{
     "ares_free_string.c",
     "ares_freeaddrinfo.c",
     "ares_getaddrinfo.c",
-    "ares_getenv.c",
     "ares_gethostbyaddr.c",
     "ares_gethostbyname.c",
     "ares_getnameinfo.c",
@@ -337,12 +194,7 @@ const cares_sources = [_][]const u8{
     "dsa/ares_llist.c",
     "dsa/ares_slist.c",
     "event/ares_event_configchg.c",
-    "event/ares_event_epoll.c",
-    "event/ares_event_kqueue.c",
-    "event/ares_event_poll.c",
-    "event/ares_event_select.c",
     "event/ares_event_thread.c",
-    "event/ares_event_wake_pipe.c",
     "inet_net_pton.c",
     "inet_ntop.c",
     "legacy/ares_create_query.c",
@@ -378,13 +230,16 @@ const cares_sources = [_][]const u8{
     "util/ares_uri.c",
 };
 
-/// curl's own file list, minus what vendor/curl's PIN already prunes
-/// (every non-HTTP(S) protocol, every TLS backend but mbedtls, NTLM/
-/// Kerberos/SASL) and minus its Windows- and AmigaOS-only sources
-/// (`amigaos.c`, `dllmain.c`, `curl_sspi.c`, `system_win32.c`,
-/// `version_win32.c`, `winapi.c`), which would compile to nothing on
-/// these targets but add nothing either. Everything named here compiled
-/// clean, individually, on all three targets before being wired in.
+/// curl's sources that hold code under core/curl_config.h on at least
+/// one target here. What vendor/curl's PIN prunes (every non-HTTP(S)
+/// protocol, every TLS backend but mbedtls, NTLM/Kerberos/SASL, the
+/// Windows- and AmigaOS-only files) is not named, and neither is any
+/// file the configuration empties: cookies, HSTS, Alt-Svc, DoH, .netrc,
+/// PSL, the GSSAPI/SSPI/NTLM/AWS/HTTP-signature auth files, the
+/// threaded and getaddrinfo resolvers (c-ares resolves), hostcheck.c
+/// (mbedtls checks the host name itself), and the Apple helpers. A
+/// file that becomes non-empty after a curl_config.h change has to be
+/// added back, or the link says which symbol it misses.
 ///
 /// `socks.c` is in, despite SOCKS proxying being out of scope: its
 /// `Curl_cft_socks_proxy`/`Curl_cf_socks_proxy_insert_after` are
@@ -401,81 +256,112 @@ const cares_sources = [_][]const u8{
 /// compiles to a five-line stub that always answers
 /// `CURLE_NOT_BUILT_IN`.
 const curl_sources = [_][]const u8{
-    "altsvc.c",           "api.c",
-    "bufq.c",              "bufref.c",
-    "cf-h1-proxy.c",       "cf-h2-proxy.c",
-    "cf-haproxy.c",        "cf-https-connect.c",
-    "cf-ip-happy.c",       "cf-recvbuf.c",
-    "cf-setup.c",          "cf-socket.c",
-    "cfilters.c",          "conncache.c",
-    "connect.c",           "content_encoding.c",
-    "cookie.c",            "creds.c",
-    "cshutdn.c",           "curl_addrinfo.c",
-    "curl_ed25519.c",      "curl_endian.c",
-    "curl_fnmatch.c",      "curl_fopen.c",
-    "curl_get_line.c",     "curl_gssapi.c",
-    "curl_memrchr.c",      "curl_range.c",
-    "curl_sha512_256.c",   "curl_share.c",
-    "curl_threads.c",      "curl_trc.c",
-    "curlx/base64.c",      "curlx/basename.c",
-    "curlx/dynbuf.c",      "curlx/fopen.c",
-    "curlx/inet_ntop.c",   "curlx/inet_pton.c",
-    "curlx/multibyte.c",   "curlx/nonblock.c",
-    "curlx/snprintf.c",    "curlx/strcopy.c",
-    "curlx/strdup.c",      "curlx/strerr.c",
-    "curlx/strparse.c",    "curlx/timediff.c",
-    "curlx/timeval.c",     "curlx/wait.c",
-    "curlx/warnless.c",    "cw-out.c",
-    "cw-pause.c",          "dynhds.c",
-    "easy.c",              "easygetopt.c",
-    "easyoptions.c",       "escape.c",
-    "fake_addrinfo.c",     "fileinfo.c",
-    "formdata.c",          "getenv.c",
-    "getinfo.c",           "hash.c",
-    "headers.c",           "hmac.c",
-    "hsts.c",              "http.c",
-    "http1.c",             "http2.c",
-    "http_aws_sigv4.c",    "http_chunks.c",
-    "http_digest.c",       "http_httpsig.c",
-    "http_negotiate.c",    "http_ntlm.c",
-    "http_proxy.c",        "idn.c",
-    "if2ip.c",             "llist.c",
-    "macos.c",             "md4.c",
-    "md5.c",               "memdebug.c",
-    "mime.c",              "mprintf.c",
-    "multi.c",             "multi_ev.c",
-    "multi_ntfy.c",        "netrc.c",
-    "parsedate.c",         "peer.c",
-    "pingpong.c",          "progress.c",
-    "protocol.c",          "proxy.c",
-    "psl.c",               "rand.c",
-    "ratelimit.c",         "request.c",
-    "select.c",            "sendf.c",
-    "setopt.c",            "sha256.c",
-    "slist.c",             "socketpair.c",
+    "api.c",
+    "bufq.c",
+    "bufref.c",
+    "cf-h1-proxy.c",
+    "cf-haproxy.c",
+    "cf-https-connect.c",
+    "cf-ip-happy.c",
+    "cf-setup.c",
+    "cf-socket.c",
+    "cfilters.c",
+    "conncache.c",
+    "connect.c",
+    "content_encoding.c",
+    "creds.c",
+    "cshutdn.c",
+    "curl_addrinfo.c",
+    "curl_endian.c",
+    "curl_memrchr.c",
+    "curl_share.c",
+    "curl_trc.c",
+    "curlx/base64.c",
+    "curlx/dynbuf.c",
+    "curlx/fopen.c",
+    "curlx/inet_ntop.c",
+    "curlx/inet_pton.c",
+    "curlx/nonblock.c",
+    "curlx/strcopy.c",
+    "curlx/strdup.c",
+    "curlx/strerr.c",
+    "curlx/strparse.c",
+    "curlx/timediff.c",
+    "curlx/timeval.c",
+    "curlx/wait.c",
+    "curlx/warnless.c",
+    "cw-out.c",
+    "cw-pause.c",
+    "dynhds.c",
+    "easy.c",
+    "easygetopt.c",
+    "easyoptions.c",
+    "escape.c",
+    "formdata.c",
+    "getenv.c",
+    "getinfo.c",
+    "hash.c",
+    "headers.c",
+    "hmac.c",
+    "http.c",
+    "http1.c",
+    "http2.c",
+    "http_chunks.c",
+    "http_digest.c",
+    "http_proxy.c",
+    "idn.c",
+    "if2ip.c",
+    "llist.c",
+    "md5.c",
+    "mime.c",
+    "mprintf.c",
+    "multi.c",
+    "multi_ev.c",
+    "multi_ntfy.c",
+    "parsedate.c",
+    "peer.c",
+    "progress.c",
+    "protocol.c",
+    "proxy.c",
+    "rand.c",
+    "ratelimit.c",
+    "request.c",
+    "select.c",
+    "sendf.c",
+    "setopt.c",
+    "sha256.c",
+    "slist.c",
+    "socketpair.c",
     "socks.c",
-    "splay.c",             "strcase.c",
-    "strequal.c",          "strerror.c",
-    "thrdpool.c",          "thrdqueue.c",
-    "transfer.c",          "uint-bset.c",
-    "uint-hash.c",         "uint-hashset.c",
-    "uint-spbset.c",       "uint-table.c",
-    "url.c",               "urlapi.c",
-    "vauth/cleartext.c",   "vauth/cram.c",
-    "vauth/digest.c",      "vauth/digest_sspi.c",
-    "vauth/oauth2.c",      "vauth/spnego_gssapi.c",
-    "vauth/spnego_sspi.c", "vauth/vauth.c",
-    "vdns/asyn-ares.c",    "vdns/asyn-base.c",
-    "vdns/cf-dns.c",       "vdns/dnscache.c",
-    "vdns/doh.c",          "vdns/hostip.c",
-    "vdns/hostip4.c",      "vdns/hostip6.c",
-    "vdns/httpsrr.c",      "version.c",
+    "splay.c",
+    "strcase.c",
+    "strequal.c",
+    "strerror.c",
+    "transfer.c",
+    "uint-bset.c",
+    "uint-hash.c",
+    "uint-hashset.c",
+    "uint-spbset.c",
+    "uint-table.c",
+    "url.c",
+    "urlapi.c",
+    "vauth/cram.c",
+    "vauth/digest.c",
+    "vauth/vauth.c",
+    "vdns/asyn-ares.c",
+    "vdns/asyn-base.c",
+    "vdns/cf-dns.c",
+    "vdns/dnscache.c",
+    "vdns/hostip.c",
+    "version.c",
     "vquic/vquic.c",
-    "vtls/apple.c",        "vtls/cipher_suite.c",
-    "vtls/hostcheck.c",    "vtls/keylog.c",
-    "vtls/mbedtls.c",      "vtls/vtls.c",
-    "vtls/vtls_config.c",  "vtls/vtls_scache.c",
-    "vtls/vtls_spack.c",   "vtls/x509asn1.c",
+    "vtls/cipher_suite.c",
+    "vtls/keylog.c",
+    "vtls/mbedtls.c",
+    "vtls/vtls.c",
+    "vtls/vtls_config.c",
+    "vtls/vtls_scache.c",
+    "vtls/x509asn1.c",
     "ws.c",
 };
 
@@ -524,7 +410,6 @@ pub fn build(b: *std.Build) void {
     const xz = patched(b, applier, "xz");
     const cares = patched(b, applier, "cares");
     const curl = patched(b, applier, "curl");
-    const cacert_data = embedCacert(b);
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -533,8 +418,7 @@ pub fn build(b: *std.Build) void {
         .{ "lua", lua },         .{ "sqlite", sqlite },
         .{ "tl", tl },           .{ "miniz", miniz },
         .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
-        .{ "xz", xz },
-        .{ "mbedtls", mbedtls }, .{ "cares", cares },
+        .{ "xz", xz },           .{ "cares", cares },
         .{ "curl", curl },
     }) |pair| {
         const install = b.addInstallDirectory(.{
@@ -695,14 +579,14 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, cacert_data, false, .off);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, false, .off);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, cacert_data, true, .off);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, true, .off);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -738,8 +622,8 @@ pub fn build(b: *std.Build) void {
         // The map reads DWARF from an ELF file; a Mach-O host's checked
         // core stays uninstrumented rather than half-mapped.
         if (checked_host.result.ofmt != .elf)
-            break :checked core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, cacert_data, false, .off);
-        const first = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, cacert_data, false, .first_link);
+            break :checked core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, false, .off);
+        const first = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, false, .first_link);
         const mapper = b.addExecutable(.{
             .name = "coverage-map",
             .root_module = b.createModule(.{
@@ -753,7 +637,7 @@ pub fn build(b: *std.Build) void {
         write_map.addFileArg(first.getEmittedBin());
         write_map.addArg(b.pathFromRoot("."));
         const map = write_map.addOutputFileArg("coverage_map.c");
-        const second = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, cacert_data, false, .{ .map = map });
+        const second = core(b, checked_target, sanitized_configuration, checked_host, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, false, .{ .map = map });
         // The table is indexed by block, and only holds for a link whose
         // blocks are the first's, in the first's order: the second link is
         // mapped again and must say the same.
@@ -904,35 +788,6 @@ fn patched(
     return run.addOutputDirectoryArg(name);
 }
 
-/// Reads `vendor/cacert/cacert.pem` and writes a generated C source
-/// defining it as a byte array the core links in (`core/cacert.h`
-/// declares the two symbols). Read once, at `build.zig` graph
-/// construction, the same way `bin/zig.pin` is read through
-/// `@embedFile` above -- there is no vendor patch mechanism to route a
-/// single plain-text file through, and generating C source text is
-/// simpler than an `.incbin` assembly stub given how this module is
-/// otherwise a pure C compile with no Zig root source of its own.
-/// $SSL_CERT_FILE, when the sandbox's HTTPS-proxying environment sets
-/// one, is read and added to the trust store at runtime instead (in
-/// `core/http.c`), not baked in here: it names a file the *running*
-/// machine provides, which is not this build's to see.
-fn embedCacert(b: *std.Build) std.Build.LazyPath {
-    const path = "vendor/cacert/cacert.pem";
-    const pem = b.build_root.handle.readFileAlloc(b.graph.io, path, b.allocator, .limited(1 << 20)) catch |err|
-        std.debug.panic("reading {s}: {s}", .{ path, @errorName(err) });
-
-    var source = std.ArrayList(u8).empty;
-    source.appendSlice(b.allocator, "/* Generated by build.zig's embedCacert from vendor/cacert/cacert.pem. */\n#include <stddef.h>\nconst unsigned char cosmic_cacert_pem[] = {\n") catch @panic("OOM");
-    for (pem, 0..) |byte, i| {
-        source.appendSlice(b.allocator, b.fmt("{d},", .{byte})) catch @panic("OOM");
-        if (i % 20 == 19) source.append(b.allocator, '\n') catch @panic("OOM");
-    }
-    source.appendSlice(b.allocator, "\n};\nconst size_t cosmic_cacert_pem_len = sizeof(cosmic_cacert_pem);\n") catch @panic("OOM");
-
-    const generated = b.addWriteFiles();
-    return generated.add("cacert_data.c", source.items);
-}
-
 /// Adds every file under `rel` as an input of `run`.
 fn watchTree(b: *std.Build, run: *std.Build.Step.Run, rel: []const u8) void {
     const io = b.graph.io;
@@ -959,7 +814,6 @@ fn core(
     xz: std.Build.LazyPath,
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
-    cacert_data: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
     native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
@@ -1066,16 +920,17 @@ fn core(
     // contract needs; BZ_NO_STDIO keeps its file-handle helpers, which
     // this core never calls, from pulling in FILE*. blocksort.c and
     // compress.c hold the compress-side symbols bzlib.c references even
-    // though only BZ2_bzDecompress* is ever called here -- without them
-    // the link fails, since C links whole translation units, not just
-    // the functions a caller reaches. The K&R-flavored source predates
+    // though only BZ2_bzDecompress* is ever called here, so they are
+    // compiled for the link to resolve; per-function sections (see the
+    // end of this function) let the linker drop them again, since
+    // nothing reachable calls BZ2_bzCompress. The K&R-flavored source predates
     // -Wall/-Wextra/-Werror by a wide margin, so it gets its own quiet
     // flag set rather than the core's.
     mod.addCSourceFiles(.{
         .root = bzip2,
         .files = &.{
-            "bzlib.c", "blocksort.c", "compress.c", "decompress.c",
-            "huffman.c", "crctable.c", "randtable.c",
+            "bzlib.c",   "blocksort.c", "compress.c",  "decompress.c",
+            "huffman.c", "crctable.c",  "randtable.c",
         },
         .flags = &.{ "-std=c11", "-DBZ_NO_STDIO" },
     });
@@ -1120,7 +975,7 @@ fn core(
             "liblzma/simple/x86.c",
         },
         .flags = &.{
-            "-std=c11",         "-D_XOPEN_SOURCE=700",
+            "-std=c11",          "-D_XOPEN_SOURCE=700",
             "-D_DEFAULT_SOURCE", "-DHAVE_CONFIG_H",
         },
     });
@@ -1135,10 +990,10 @@ fn core(
     mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
     mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
 
-    // mbedtls, its crypto subtree only: the files below are the ones
-    // that hold any code under the configuration above, every other one
-    // compiles to nothing. TLS is not built; the `fetch` module pulls it
-    // in when it lands.
+    // mbedtls: the PSA crypto subtree, then the TLS 1.2/1.3 client and
+    // X.509 layer above it, all under the one configuration header (see
+    // `mbedtls_config`). The crypto files below are the ones that hold
+    // code under that configuration; every other one compiles to nothing.
     const mbedtls_flags = [_][]const u8{"-std=c11"} ++ mbedtls_config;
     const crypto = mbedtls.path(b, "tf-psa-crypto");
     mod.addCSourceFiles(.{
@@ -1149,58 +1004,59 @@ fn core(
             "core/psa_crypto_driver_wrappers_no_static.c",
             "core/psa_crypto_slot_management.c",
             "core/psa_util.c",
+            "platform/platform_util.c",
+            "utilities/constant_time.c",
+            // Digests, MACs, and the PSA cipher and AEAD drivers.
             "drivers/builtin/src/md5.c",
-            "drivers/builtin/src/psa_crypto_cipher.c",
-            "drivers/builtin/src/psa_crypto_hash.c",
-            "drivers/builtin/src/psa_crypto_mac.c",
-            "drivers/builtin/src/psa_crypto_rsa.c",
             "drivers/builtin/src/sha1.c",
             "drivers/builtin/src/sha256.c",
             "drivers/builtin/src/sha3.c",
             "drivers/builtin/src/sha512.c",
-            "platform/platform_util.c",
-            "utilities/constant_time.c",
-            // The rest of the driver subtree the TLS-layer PSA_WANT
-            // flags above (ECDH/ECDSA, RSA sign/verify, AES-GCM,
-            // ChaCha20-Poly1305, the TLS 1.2 PRF and TLS 1.3 HKDF) pull
-            // in: big-number and elliptic-curve arithmetic, the AEAD
-            // and cipher dispatch layers, and HMAC-DRBG (deterministic
-            // ECDSA's nonce generator -- the only DRBG built, since
-            // everything else still draws randomness from the OS
-            // through mbedtls_psa_external_get_random).
+            "drivers/builtin/src/psa_crypto_aead.c",
+            "drivers/builtin/src/psa_crypto_cipher.c",
+            "drivers/builtin/src/psa_crypto_ecp.c",
+            "drivers/builtin/src/psa_crypto_hash.c",
+            "drivers/builtin/src/psa_crypto_mac.c",
+            "drivers/builtin/src/psa_crypto_rsa.c",
+            "drivers/builtin/src/psa_util_internal.c",
+            "drivers/builtin/src/block_cipher.c",
+            // Big-number and elliptic-curve arithmetic for ECDH, ECDSA
+            // and RSA, and HMAC-DRBG (deterministic ECDSA's nonce
+            // generator -- the only DRBG built, since everything else
+            // draws randomness from the OS through
+            // mbedtls_psa_external_get_random).
             "drivers/builtin/src/bignum.c",
             "drivers/builtin/src/bignum_core.c",
-            "drivers/builtin/src/bignum_mod.c",
-            "drivers/builtin/src/bignum_mod_raw.c",
             "drivers/builtin/src/ecp.c",
             "drivers/builtin/src/ecp_curves.c",
-            "drivers/builtin/src/ecp_curves_new.c",
             "drivers/builtin/src/ecdsa.c",
             "drivers/builtin/src/rsa.c",
             "drivers/builtin/src/rsa_alt_helpers.c",
+            "drivers/builtin/src/hmac_drbg.c",
+            // Record protection. aesni.c holds the x86_64 AES-NI path
+            // and aesce.c the Armv8 one; each is empty on the other
+            // architecture. On aarch64, chacha20_neon.c holds the
+            // NEON-multiblock update() and is empty elsewhere.
             "drivers/builtin/src/aes.c",
+            "drivers/builtin/src/aesni.c",
+            "drivers/builtin/src/aesce.c",
             "drivers/builtin/src/gcm.c",
             "drivers/builtin/src/chacha20.c",
-            // On aarch64, the NEON-multiblock path splits update() into
-            // this file instead of chacha20.c; harmless to compile
-            // elsewhere, since it is itself `#if`-gated on the same
-            // NEON-multiblock detection.
             "drivers/builtin/src/chacha20_neon.c",
             "drivers/builtin/src/chachapoly.c",
             "drivers/builtin/src/poly1305.c",
-            "drivers/builtin/src/cipher.c",
-            "drivers/builtin/src/cipher_wrap.c",
-            "drivers/builtin/src/block_cipher.c",
-            "drivers/builtin/src/hmac_drbg.c",
-            "drivers/builtin/src/psa_crypto_aead.c",
-            "drivers/builtin/src/psa_crypto_ecp.c",
-            "core/psa_crypto_random.c",
-            // NOT psa_util_internal.c: its PK-related helpers are
-            // guarded on MBEDTLS_PK_C, which only the TLS-layer flags
-            // below define, so it is compiled there instead, with the
-            // rest of that group's flags -- compiling it here (PSA
-            // flags only) silently skipped those helpers and produced
-            // undefined symbols in pk.c/pk_rsa.c at link time.
+            // Certificate public keys and the encodings under them.
+            "extras/md.c",
+            "extras/pk.c",
+            "extras/pkparse.c",
+            "extras/pk_wrap.c",
+            "extras/pk_ecc.c",
+            "extras/pk_rsa.c",
+            "utilities/asn1parse.c",
+            "utilities/asn1write.c",
+            "utilities/base64.c",
+            "utilities/pem.c",
+            "utilities/oid.c",
         },
         .flags = &mbedtls_flags,
     });
@@ -1211,20 +1067,10 @@ fn core(
     }) |dir| {
         mod.addIncludePath(crypto.path(b, dir));
     }
-
-    // mbedtls's own TLS 1.2/1.3 client and X.509 verification layer,
-    // above the PSA crypto subtree just built. See `mbedtls_tls_config`
-    // and `mbedtls_tls_sources` for what and why.
-    const mbedtls_tls_flags = [_][]const u8{"-std=c11"} ++ mbedtls_config ++ mbedtls_tls_config;
     mod.addCSourceFiles(.{
         .root = mbedtls.path(b, "library"),
         .files = &mbedtls_tls_sources,
-        .flags = &mbedtls_tls_flags,
-    });
-    mod.addCSourceFiles(.{
-        .root = crypto,
-        .files = &mbedtls_pk_and_encoding_sources,
-        .flags = &mbedtls_tls_flags,
+        .flags = &mbedtls_flags,
     });
     mod.addIncludePath(mbedtls.path(b, "include"));
     mod.addIncludePath(mbedtls.path(b, "library"));
@@ -1239,7 +1085,7 @@ fn core(
     // on macOS. c-ares's own thread support (CARES_THREADS) is off: the
     // core drives one poll loop itself, matching `cosmic.child`.
     const cares_flags = [_][]const u8{
-        "-std=c11", "-DHAVE_CONFIG_H", "-DCARES_STATICLIB=1",
+        "-std=c11",      "-DHAVE_CONFIG_H",
         "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
     };
     mod.addCSourceFiles(.{
@@ -1260,13 +1106,13 @@ fn core(
     // getaddrinfo() resolver, TLS through mbedtls (USE_MBEDTLS) rather
     // than any of the half-dozen other backends curl supports. No zlib
     // (no Content-Encoding decompression), no HTTP/2, no cookies -- see
-    // core/curl_config.h for the full rationale, mirrored there rather
-    // than repeated here since curl's is a real (if hand-written)
-    // configuration header, unlike the two placeholder ones above.
+    // core/curl_config.h for the full rationale. vtls/mbedtls.c includes
+    // mbedtls's headers, so curl is compiled against the same mbedtls
+    // configuration as the library itself.
     const curl_flags = [_][]const u8{
-        "-std=c11", "-DHAVE_CONFIG_H", "-DBUILDING_LIBCURL",
+        "-std=c11",      "-DHAVE_CONFIG_H",   "-DBUILDING_LIBCURL",
         "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
-    };
+    } ++ mbedtls_config;
     mod.addCSourceFiles(.{
         .root = curl.path(b, "lib"),
         .files = &curl_sources,
@@ -1275,9 +1121,25 @@ fn core(
     mod.addIncludePath(curl.path(b, "lib"));
     mod.addIncludePath(curl.path(b, "include"));
 
-    // The embedded Mozilla CA bundle (see embedCacert above), one
-    // generated source, no flags of its own beyond -std=c11.
-    mod.addCSourceFile(.{ .file = cacert_data, .flags = &.{"-std=c11"} });
+    // The Mozilla CA bundle, embedded as the two symbols core/cacert.h
+    // declares by a one-file Zig object (core/cacert.zig) that reads it
+    // with @embedFile; the file is that compile's input, tracked like
+    // any source. $SSL_CERT_FILE, when the environment sets one, is read
+    // and added at run time instead (core/http.c): it names a file the
+    // running machine provides, which is not this build's to see.
+    const cacert = b.addObject(.{
+        .name = "cacert",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("core/cacert.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+            .strip = true,
+        }),
+    });
+    cacert.root_module.addAnonymousImport("cacert.pem", .{
+        .root_source_file = b.path("vendor/cacert/cacert.pem"),
+    });
+    mod.addObject(cacert);
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.
@@ -1333,10 +1195,19 @@ fn core(
         .map => |map| mod.addCSourceFile(.{ .file = map, .flags = &.{"-std=c11"} }),
     }
 
-    return b.addExecutable(.{
+    const exe = b.addExecutable(.{
         .name = "cosmic-core",
         .root_module = mod,
     });
+    // One section per function and per object, so the linker's garbage
+    // collection (on by default in a release link) drops each unreachable
+    // function rather than keeping a whole file's code for the one
+    // function something calls: bzip2's compressor, the parts of curl,
+    // mbedtls and SQLite this core never reaches. Mach-O links get the
+    // same effect from subsections-via-symbols already.
+    exe.link_function_sections = true;
+    exe.link_data_sections = true;
+    return exe;
 }
 
 fn hostName(b: *std.Build) []const u8 {

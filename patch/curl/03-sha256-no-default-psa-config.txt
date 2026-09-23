@@ -1,0 +1,14 @@
+file: lib/sha256.c
+note: the same direct include of tf-psa-crypto's default configuration
+  as 02-no-default-psa-config.txt removes from vtls/mbedtls.c: sha256.c
+  allocates a psa_hash_operation_t the library then fills in, so its
+  idea of that struct has to come from core/mbedtls_cosmic_config.h,
+  already in effect through <mbedtls/version.h>.
+--- find
+#endif
+#include <psa/crypto_config.h>
+#endif
+--- replace
+#endif
+#endif
+--- end
