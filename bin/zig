@@ -1,29 +1,28 @@
 #!/bin/sh
 # Fetch, verify and run the one pinned zig. The pin is bin/zig.pin: a
 # version line, then one line per host naming the sha256 of that host's
-# release tarball. Nothing else in the tree comes from the network.
+# release tarball.
 #
 # The tarball is cached outside the tree, under $XDG_CACHE_HOME/cosmic/zig
 # (default ~/.cache/cosmic/zig), so a clean `o/` never costs a download.
 # COSMIC_ZIG names an already-installed zig binary and skips all of this.
 #
-# If $COSMIC_BOOTSTRAP names an executable cosmic (one that carries
-# cosmic.http and cosmic.archive), this whole script hands off to
-# build/zig.tl, which does exactly the same fetch/verify/run over the
-# same pin using those modules instead of curl/wget/tar/sha256sum.
-# Everything below this check is the shell fallback, still what CI runs
-# (CI invokes bin/zig with no COSMIC_BOOTSTRAP): it goes away once a
-# released cosmic -- the one ci/cosmic-driver.pin names -- carries
-# cosmic.http and cosmic.archive and that pin is bumped, at which point
-# bin/zig can hand off unconditionally.
+# The fetch/verify/run logic itself is build/zig.tl, which bin/zig
+# hands off to, run with `cosmic --standalone` -- against the bootstrap
+# binary's own standard library, never the tree, so a core edit nobody
+# has booted yet, or a broken file elsewhere in the tree, cannot stop
+# the tool that rebuilds them:
 #
-# The final state this is working toward is bin/cosmic-bootstrap: a
-# stub with no fallback at all, which fetches and verifies the pinned
-# cosmic the way ci/bootstrap-driver.sh does today (a released binary,
-# sha256-checked, cached under $XDG_CACHE_HOME/cosmic/cores) and then
-# always execs build/zig.tl over it -- so the only shell left in the
-# tree fetches one bootstrap binary, and every other build/vendor/test
-# script, including this one, runs as cosmic. Not implemented yet.
+#   - $COSMIC_BOOTSTRAP, when set, names that cosmic. It must be an
+#     executable file; anything else is an error, never a silent
+#     fallback.
+#   - Otherwise, once bin/cosmic-bootstrap's switch says the pinned
+#     release can run it, that release is fetched, verified and used.
+#   - Otherwise -- today, and what CI runs -- the shell below does the
+#     same job with curl/wget, sha256sum and tar. It goes away when that
+#     switch is flipped (see bin/cosmic-bootstrap).
+#
+# zig itself always runs in the caller's working directory.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -34,9 +33,17 @@ die() {
   exit 1
 }
 
-if [ -n "${COSMIC_BOOTSTRAP:-}" ] && [ -x "$COSMIC_BOOTSTRAP" ]; then
-  exec "$COSMIC_BOOTSTRAP" "$root/build/zig.tl" "$@"
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
+  fi
+  exec "$COSMIC_BOOTSTRAP" --standalone "$root/build/zig.tl" "$@"
 fi
+if "$root/bin/cosmic-bootstrap" --ready; then
+  exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/zig.tl" "$@"
+fi
+
+# The shell fallback.
 
 [ -f "$pin" ] || die "no pin at $pin"
 

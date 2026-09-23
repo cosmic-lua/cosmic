@@ -1,43 +1,161 @@
---- Rewrites one `vendor/<name>/` tree from an upstream archive,
---- keeping only the files the build reads.
+--- Rewrites `vendor/<name>/` trees from the upstream archives their
+--- PINs name, keeping only the files the build reads.
 ---
----     cosmic build/vendor.tl [name...]
----     cosmic build/vendor.tl vendor/<name> <archive>
+---     cosmic --standalone build/vendor.tl [name...]
+---     cosmic --standalone build/vendor.tl vendor/<name> <archive>
 ---
---- With no archive argument, this fetches for itself: every `name`
---- (every `vendor/*/PIN` by default) is downloaded from its PIN's
---- `url` into `$XDG_CACHE_HOME/cosmic/vendor` (default
---- `$HOME/.cache/cosmic/vendor`) -- reusing a cached file only when
---- its sha256 still matches the PIN's -- verified with
---- `Http.download`'s own `sha256` check, and then rewritten exactly
---- as the two-argument form below. This is what `bin/vendor` runs.
+--- Like `build/zig.tl`, this runs standalone -- against the running
+--- binary's own standard library, never the tree it sits in -- so it
+--- requires `cosmic.*` modules only and holds everything it needs.
+---
+--- With no archive argument it fetches for itself: every `name` (every
+--- `vendor/*/PIN` by default) is downloaded from its PIN's `url` into
+--- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`)
+--- -- reusing a cached file only when its sha256 still matches the
+--- PIN's -- verified with `Http.download`'s own `sha256` check, and
+--- then rewritten exactly as the two-argument form does. This is what
+--- `bin/vendor` runs; the repository is found from this script's own
+--- path, so it works from any working directory.
 ---
 --- The two-argument form rewrites one tree directly from an archive
---- already on disk, without fetching or verifying it: `<archive>` is
---- walked with `cosmic.archive`, whatever format it turns out to be.
---- Paths lose PIN's `strip` prefix, and a file is kept when a `keep`
---- glob matches it and no `drop` glob does: `*` matches within one
---- path segment, `**` across them. Every `keep` must match something,
---- so an upstream rename fails here rather than in the build.
+--- already on disk, without fetching or verifying it. The archive is
+--- read with `cosmic.archive`, whatever format it turns out to be, and
+--- unpacked with `Archive.extract` -- which refuses absolute and `..`
+--- entry paths and keeps permission bits -- into a scratch directory
+--- beside the tree, so a refused or broken archive never leaves the
+--- tree half rewritten. Paths lose a leading `./` and then PIN's
+--- `strip` prefix, and a file is kept when a `keep` glob matches it and
+--- no `drop` glob does: `*` matches within one path segment, `**`
+--- across them. Every `keep` must match something, so an upstream
+--- rename fails here rather than in the build.
 ---
---- When `<archive>` is not a format `cosmic.archive` recognizes (a
---- single file such as a `.pem`, say) and PIN names no `strip`, it is
---- vendored as one file instead: named by a `file <name>` PIN line,
---- or by the basename of PIN's `url` when there is no `file` line.
+--- A PIN with a `file <name>` line vendors a single file that is not an
+--- archive at all (a `.pem`, say): its bytes become `<name>`, and every
+--- `keep` must match that name. Without a `file` line, an archive
+--- `cosmic.archive` cannot read is an error, never a single file.
 ---
 --- Everything else in the tree but PIN is removed.
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-local Stream = require("cosmic.stream")
 local Archive = require("cosmic.archive")
-local Fetch = require("build.fetch")
-local VendorLib = require("build.vendor_lib")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
+local sys = require("cosmic.sys")
 
-local type Pin = VendorLib.Pin
-local read_pin = VendorLib.read_pin
+local record Vendor
+  record Pin
+    url: string
+    sha256: string
+    strip: string
+    --- The name a single-file PIN vendors its download as; empty for
+    --- an archive.
+    file: string
+    keep: {string}
+    drop: {string}
+  end
+end
 
 local function complain(line: string)
   Fs.put(Fs.stderr, "vendor: " .. line .. "\n")
+end
+
+--- `vendor/<name>/PIN`'s text, as `key value` lines. A value is the
+--- line's second word, so trailing blanks or a `\r` never become part
+--- of it; `keep` and `drop` accumulate, and for every other key the
+--- first line naming it wins.
+function Vendor.read_pin(text: string): Vendor.Pin
+  local pin: Vendor.Pin = { url = "", sha256 = "", strip = "", file = "", keep = {}, drop = {} }
+  local seen: {string:boolean} = {}
+  for line in text:gmatch("[^\n]+") do
+    local key, value = line:match("^([%w_]+)%s+(%S+)")
+    if key == "keep" then
+      pin.keep[#pin.keep + 1] = value
+    elseif key == "drop" then
+      pin.drop[#pin.drop + 1] = value
+    elseif key ~= nil and not seen[key] then
+      seen[key] = true
+      if key == "url" then
+        pin.url = value
+      elseif key == "sha256" then
+        pin.sha256 = value
+      elseif key == "strip" then
+        pin.strip = value
+      elseif key == "file" then
+        pin.file = value
+      end
+    end
+  end
+  return pin
+end
+
+--- `vendor/<name> <archive>`: argv[1] names a tree directly (it holds
+--- a "/"), so it and argv[2] are read as the two-argument form.
+function Vendor.is_direct_rewrite(argv: {integer:string}): boolean
+  return argv[1] ~= nil and argv[2] ~= nil and argv[1]:find("/", 1, true) ~= nil
+end
+
+--- The repository root, from this script's own path, `argv[0]`.
+function Vendor.repo_root(script_path: string): string | nil, string
+  if script_path == nil then
+    return nil, "expected to run as .../build/vendor.tl"
+  end
+  local abs, trouble = Fs.absolute(script_path)
+  if abs == nil then
+    return nil, trouble
+  end
+  local root = abs:match("^(.*)/build/[^/]+%.tl$")
+  if root == nil then
+    return nil, script_path .. ": expected to run as .../build/vendor.tl"
+  end
+  return root, ""
+end
+
+--- Every name `vendor/*/PIN` names under `root`, sorted.
+function Vendor.all_names(root: string): {string} | nil, string
+  local entries, trouble = Fs.list(root .. "/vendor")
+  if entries == nil then
+    return nil, trouble
+  end
+  local names: {string} = {}
+  for _, name in ipairs(entries) do
+    if Fs.exists(root .. "/vendor/" .. name .. "/PIN") then
+      names[#names + 1] = name
+    end
+  end
+  return names, ""
+end
+
+--- `$XDG_CACHE_HOME/cosmic/vendor`, or `$HOME/.cache/cosmic/vendor`.
+function Vendor.cache_dir(): string
+  local base = Env.get("XDG_CACHE_HOME")
+  if base == nil or base == "" then
+    base = Env.get_or("HOME", "/tmp") .. "/.cache"
+  end
+  return base .. "/cosmic/vendor"
+end
+
+--- True when `path` exists and its sha256 is `sha256`.
+function Vendor.matches(path: string, sha256: string): boolean
+  local data = Fs.read(path)
+  if data == nil then
+    return false
+  end
+  return Hash.hex_sha256(data) == sha256:lower()
+end
+
+--- `path`, downloading `url` into it first unless it is already there
+--- with the right sha256: a stale or corrupt cached file is refetched,
+--- never reused.
+function Vendor.fetch(url: string, path: string, sha256: string): string | nil, string
+  if Vendor.matches(path, sha256) then
+    return path, ""
+  end
+  Fs.remove(path)
+  local ok, trouble = Http.download(url, path, { sha256 = sha256 })
+  if not ok then
+    return nil, trouble
+  end
+  return path, ""
 end
 
 --- A glob as an anchored Lua pattern.
@@ -60,16 +178,27 @@ local function matches(globs: {string}, path: string, used?: {string:boolean}): 
   return any
 end
 
---- The archive paths PIN keeps, by the path they land at under the
---- tree (with `strip` removed).
-local function kept(pin: Pin, paths: {string}): {string:string} | nil, string
+--- `path` without any leading `./` segments.
+local function plain(path: string): string
+  local out = path
+  while out:sub(1, 2) == "./" do
+    out = out:sub(3):gsub("^/+", "")
+  end
+  return out
+end
+
+--- The archive's files PIN keeps: by archive path, the path each lands
+--- at under the tree.
+local function kept(pin: Vendor.Pin, entries: {Archive.Entry}): {string:string} | nil, string
   local out: {string:string} = {}
   local used: {string:boolean} = {}
-  for _, path in ipairs(paths) do
-    if path:sub(1, #pin.strip) == pin.strip then
-      local under = path:sub(#pin.strip + 1)
-      if matches(pin.keep, under, used) and not matches(pin.drop, under) then
-        out[under] = path
+  local strip = plain(pin.strip)
+  for _, entry in ipairs(entries) do
+    local path = plain(entry.path)
+    if entry.kind == "file" and path:sub(1, #strip) == strip then
+      local under = path:sub(#strip + 1)
+      if under ~= "" and matches(pin.keep, under, used) and not matches(pin.drop, under) then
+        out[entry.path] = under
       end
     end
   end
@@ -81,10 +210,9 @@ local function kept(pin: Pin, paths: {string}): {string:string} | nil, string
   return out, ""
 end
 
---- Removes every entry under `tree` -- links included, which `Fs.walk`
---- does not list -- but PIN and those `files` names, then every
---- directory that leaves empty.
-local function prune(tree: string, files: {string:string}, under?: string): boolean, string
+--- Removes every entry under `tree` -- links included -- but PIN and
+--- the `files` names, then every directory that leaves empty.
+local function prune(tree: string, files: {string:boolean}, under?: string): boolean, string
   local directory = under == nil and tree or (tree .. "/" .. under)
   local entries, trouble = sys.readdir(directory)
   if entries == nil then
@@ -103,7 +231,7 @@ local function prune(tree: string, files: {string:string}, under?: string): bool
       if left ~= nil and #left == 0 then
         sys.rmdir(tree .. "/" .. path)
       end
-    elseif path ~= "PIN" and files[path] == nil then
+    elseif path ~= "PIN" and not files[path] then
       local gone, why = Fs.remove(tree .. "/" .. path)
       if not gone then
         return false, why
@@ -113,123 +241,126 @@ local function prune(tree: string, files: {string:string}, under?: string): bool
   return true, ""
 end
 
---- Writes `data` to `tree/under`, making its parent directories first.
-local function write_under(tree: string, under: string, data: string): boolean, string
-  local dir = under:match("^(.*)/[^/]+$")
-  if dir ~= nil then
-    local made, mkdir_trouble = Fs.mkdirs(tree .. "/" .. dir)
-    if not made then return false, mkdir_trouble end
+--- Moves each `scratch/<archive path>` to `tree/<under>`, once `tree`
+--- holds nothing else but PIN.
+local function install(tree: string, scratch: string, files: {string:string}): integer | nil, string
+  local names: {string:boolean} = {}
+  for _, under in pairs(files) do
+    names[under] = true
   end
-  return Fs.write(tree .. "/" .. under, data)
+  local pruned, prune_trouble = prune(tree, names)
+  if not pruned then
+    return nil, prune_trouble
+  end
+  local count = 0
+  for path, under in pairs(files) do
+    local dir = under:match("^(.*)/[^/]+$")
+    if dir ~= nil then
+      local made, trouble = Fs.mkdirs(tree .. "/" .. dir)
+      if not made then
+        return nil, trouble
+      end
+    end
+    local moved, trouble = Fs.rename(scratch .. "/" .. path, tree .. "/" .. under)
+    if not moved then
+      return nil, trouble
+    end
+    count = count + 1
+  end
+  return count, ""
 end
 
---- Every regular file `reader` holds, by its archive path.
-local function file_paths(reader: Archive.ArchiveReader): {string} | nil, string
-  local paths: {string} = {}
-  while true do
-    local entry, etrouble = reader:next()
-    if entry == nil then
-      reader:close()
-      if etrouble ~= "" then return nil, etrouble end
-      return paths, ""
-    end
-    if entry.kind == "file" then
-      paths[#paths + 1] = entry.path
-    end
+--- A scratch directory beside `tree`, on the same filesystem, so what
+--- is unpacked into it can be renamed into place.
+local function scratch_beside(tree: string): string | nil, string
+  local parent, name = tree:match("^(.*)/([^/]+)$")
+  if parent == nil then
+    parent, name = ".", tree
   end
+  local template = parent .. "/." .. name .. ".vendor.XXXXXX"
+  local made, trouble = sys.mkdtemp(template)
+  if made == nil then
+    return nil, template .. ": " .. trouble
+  end
+  return made, ""
 end
 
 --- Rewrites `tree` to exactly what `pin` keeps of the archive at
---- `archive_path`, walked in two passes: `cosmic.archive`'s readers
---- run forward only, so which paths are kept (needed before `prune`
---- can run, since a keep that matches nothing is refused) has to be
---- settled in a pass of its own, ahead of one that reads bodies.
-local function from_archive(tree: string, pin: Pin, archive_path: string): integer | nil, string
+--- `archive_path`.
+local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string): integer | nil, string
   if #pin.keep == 0 then
     return nil, tree .. "/PIN: a PIN needs at least one keep"
   end
-  local reader, otrouble = Archive.open(archive_path)
-  if reader == nil then return nil, archive_path .. ": " .. otrouble end
-  local paths, walk_trouble = file_paths(reader)
-  if paths == nil then return nil, archive_path .. ": " .. walk_trouble end
-  local files, keep_trouble = kept(pin, paths)
-  if files == nil then return nil, tree .. ": " .. keep_trouble end
-  local pruned, prune_trouble = prune(tree, files)
-  if not pruned then return nil, prune_trouble end
-
-  local wanted: {string:string} = {} -- archive path -> path under tree
-  for under, path in pairs(files) do wanted[path] = under end
-
-  local reader2, otrouble2 = Archive.open(archive_path)
-  if reader2 == nil then return nil, archive_path .. ": " .. otrouble2 end
-  local count = 0
-  while true do
-    local entry, etrouble = reader2:next()
-    if entry == nil then
-      reader2:close()
-      if etrouble ~= "" then return nil, etrouble end
-      return count, ""
-    end
-    if entry.kind == "file" then
-      local under = wanted[entry.path]
-      if under ~= nil then
-        local body, btrouble = entry:open()
-        if body == nil then return nil, btrouble end
-        local data, rtrouble = Stream.read_all(body)
-        if data == nil then return nil, rtrouble end
-        local written, write_trouble = write_under(tree, under, data)
-        if not written then return nil, write_trouble end
-        count = count + 1
-      end
-    end
+  local entries, list_trouble = Archive.list(archive_path)
+  if entries == nil then
+    return nil, archive_path .. ": " .. list_trouble
   end
+  local files, keep_trouble = kept(pin, entries)
+  if files == nil then
+    return nil, tree .. ": " .. keep_trouble
+  end
+  local scratch, scratch_trouble = scratch_beside(tree)
+  if scratch == nil then
+    return nil, scratch_trouble
+  end
+  local written, extract_trouble = Archive.extract(archive_path, scratch, {
+    filter = function(path: string): boolean
+      return files[path] ~= nil
+    end,
+  })
+  local count: integer
+  local trouble = ""
+  if written == nil then
+    trouble = archive_path .. ": " .. extract_trouble
+  else
+    count, trouble = install(tree, scratch, files)
+  end
+  Fs.remove_tree(scratch)
+  return count, trouble
 end
 
---- `pin.file`, or the basename of `pin.url` when that is empty.
-local function single_file_name(pin: Pin): string | nil
-  if pin.file ~= "" then return pin.file end
-  if pin.url == "" then return nil end
-  return pin.url:match("([^/]+)$")
-end
-
---- Rewrites `tree` to hold just `archive_path`'s own bytes, named by
---- `single_file_name`, for a PIN whose archive turned out not to be
---- one `cosmic.archive` recognizes.
-local function as_single_file(tree: string, pin: Pin, archive_path: string): integer | nil, string
-  local name = single_file_name(pin)
-  if name == nil then
-    return nil, tree .. "/PIN: cannot name the vendored file -- add a 'file <name>' line"
+--- Rewrites `tree` to hold just `download`'s own bytes, as `pin.file`.
+local function as_single_file(tree: string, pin: Vendor.Pin, download: string): integer | nil, string
+  if #pin.keep == 0 then
+    return nil, tree .. "/PIN: a PIN needs at least one keep"
   end
-  local data, read_trouble = Fs.read(archive_path)
-  if data == nil then return nil, read_trouble end
-  local pruned, prune_trouble = prune(tree, { [name] = archive_path })
-  if not pruned then return nil, prune_trouble end
-  local written, write_trouble = write_under(tree, name, data)
-  if not written then return nil, write_trouble end
+  for _, glob in ipairs(pin.keep) do
+    if not pin.file:match(pattern_of(glob)) then
+      return nil, tree .. "/PIN: keep " .. glob .. " does not match file " .. pin.file
+    end
+  end
+  local data, read_trouble = Fs.read(download)
+  if data == nil then
+    return nil, read_trouble
+  end
+  local pruned, prune_trouble = prune(tree, { [pin.file] = true })
+  if not pruned then
+    return nil, prune_trouble
+  end
+  local written, write_trouble = Fs.write(tree .. "/" .. pin.file, data)
+  if not written then
+    return nil, write_trouble
+  end
   return 1, ""
 end
 
-local function rewrite(tree: string, archive_path: string): integer | nil, string
+--- Rewrites `tree` from the download at `path`, as its PIN says.
+function Vendor.rewrite(tree: string, path: string): integer | nil, string
   local text, pin_trouble = Fs.read(tree .. "/PIN")
   if text == nil then
     return nil, pin_trouble
   end
-  local pin, trouble = read_pin(text)
-  if pin == nil then
-    return nil, tree .. "/PIN: " .. trouble
-  end
-  local probe, otrouble = Archive.open(archive_path)
-  if probe == nil then
-    if pin.strip == "" then
-      return as_single_file(tree, pin, archive_path)
+  local pin = Vendor.read_pin(text)
+  if pin.file ~= "" then
+    if pin.file:find("/", 1, true) ~= nil or pin.file == "PIN" or pin.file:sub(1, 1) == "." then
+      return nil, tree .. "/PIN: file " .. pin.file .. " is not a plain name"
     end
-    return nil, archive_path .. ": " .. otrouble
+    return as_single_file(tree, pin, path)
   end
-  probe:close()
-  return from_archive(tree, pin, archive_path)
+  return from_archive(tree, pin, path)
 end
 
---- Fetches `name`'s PIN's archive into `cache` (reusing it when its
+--- Fetches `name`'s PIN's download into `cache` (reusing it when its
 --- sha256 still matches) and rewrites `vendor/<name>` from it.
 local function fetch_and_rewrite(root: string, cache: string, name: string): integer | nil, string
   local tree = root .. "/vendor/" .. name
@@ -237,10 +368,7 @@ local function fetch_and_rewrite(root: string, cache: string, name: string): int
   if text == nil then
     return nil, pin_trouble
   end
-  local pin, trouble = read_pin(text)
-  if pin == nil then
-    return nil, tree .. "/PIN: " .. trouble
-  end
+  local pin = Vendor.read_pin(text)
   if pin.url == "" then
     return nil, tree .. "/PIN names no url"
   end
@@ -248,18 +376,17 @@ local function fetch_and_rewrite(root: string, cache: string, name: string): int
     return nil, tree .. "/PIN names no sha256"
   end
   local base = pin.url:match("([^/]+)$") or name
-  local archive_path = cache .. "/" .. base
-  local fetched, ftrouble = Fetch.file(pin.url, archive_path, pin.sha256)
+  local fetched, ftrouble = Vendor.fetch(pin.url, cache .. "/" .. base, pin.sha256)
   if fetched == nil then
     return nil, ftrouble
   end
-  return rewrite(tree, fetched)
+  return Vendor.rewrite(tree, fetched)
 end
 
-return function(argv: {integer:string}): integer
-  if VendorLib.is_direct_rewrite(argv) then
+function Vendor.main(argv: {integer:string}): integer
+  if Vendor.is_direct_rewrite(argv) then
     local tree = (argv[1]):gsub("/+$", "")
-    local count, trouble = rewrite(tree, argv[2])
+    local count, trouble = Vendor.rewrite(tree, argv[2])
     if count == nil then
       complain(trouble)
       return 1
@@ -268,7 +395,7 @@ return function(argv: {integer:string}): integer
     return 0
   end
 
-  local root, root_trouble = VendorLib.repo_root(argv[0])
+  local root, root_trouble = Vendor.repo_root(argv[0])
   if root == nil then
     complain(root_trouble)
     return 2
@@ -281,7 +408,7 @@ return function(argv: {integer:string}): integer
     at = at + 1
   end
   if #names == 0 then
-    local found, trouble = VendorLib.all_names(root)
+    local found, trouble = Vendor.all_names(root)
     if found == nil then
       complain(trouble)
       return 1
@@ -289,7 +416,7 @@ return function(argv: {integer:string}): integer
     names = found
   end
 
-  local cache = Fetch.cache_dir("vendor")
+  local cache = Vendor.cache_dir()
   local made, mtrouble = Fs.mkdirs(cache)
   if not made then
     complain(mtrouble)
@@ -308,3 +435,5 @@ return function(argv: {integer:string}): integer
   end
   return failed and 1 or 0
 end
+
+return Vendor

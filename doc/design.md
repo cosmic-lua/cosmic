@@ -520,10 +520,12 @@ planned. CI will require the fence; a laptop will report its enforcement level.
 `vendor/<name>/` holds the files the build reads from the upstream
 archive its `PIN` names, never edited. `PIN` gives the version, the
 url, the archive's sha256, and globs for which files are kept.
-`bin/vendor` fetches and verifies the archive the way `bin/zig` does,
-unpacks it with the system's `tar` or `unzip`, and runs
-`build/vendor.tl` under the bootstrap cosmic to rewrite the tree to
-exactly the kept files. `patch/<name>/` holds
+`bin/vendor` runs `build/vendor.tl` with `cosmic --standalone`, which
+fetches the archive with `cosmic.http`, verifies its sha256, unpacks
+it with `cosmic.archive`, and rewrites the tree to exactly the kept
+files -- no `curl`, `tar` or `unzip`, and from any directory, since a
+standalone run reads nothing of the tree but the one file.
+`patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
 it exists. a ~200-line C applier that zig builds first writes the
 patched copy to `o/vendor/<name>`; a record whose anchor no longer
@@ -664,9 +666,10 @@ it would have changed.
 
 ```
 README.md           what cosmic is and the one command to build it
-bin/zig             POSIX sh: fetch, verify, exec the pinned zig
+bin/zig             POSIX sh: hand off to build/zig.tl, which fetches, verifies, execs the pinned zig
 bin/zig.pin         version and per-host sha256; build.zig reads it
-bin/vendor          POSIX sh: fetch, verify, unpack a vendor archive; build/vendor.tl prunes
+bin/vendor          POSIX sh: hand off to build/vendor.tl, which refetches vendor/<name>/
+bin/cosmic-bootstrap POSIX sh: fetch, verify, cache the cosmic ci/cosmic-driver.pin names
 build.zig           the C build; build.zig.zon names the package
 vendor/<name>/      the upstream files the build reads, unedited, with a PIN
 patch/<name>/       exact find/replace records, each with a note
