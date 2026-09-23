@@ -183,3 +183,36 @@ local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string
   assert(r.ok, tostring(r.stderr))
   assert(assert(r.stdout):sub(1, 12) == "host-v1\tnil\t", tostring(r.stdout))
 end
+
+--- An error a program's main module does not catch ends it through the
+--- core's own report: the message, then the line it was raised from.
+local function test_an_uncaught_error_is_reported_where_it_was_raised(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/boom"))
+  assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
+local Child = require("cosmic.child")
+
+return function(): integer
+  local _ = Child.wait_any({})
+  return 0
+end
+]]))
+  local names, trouble = embed.tree(tmp)
+  assert(names ~= nil and names[1] == "boom", trouble)
+  local r = run_program(tmp .. "/o/bin/boom")
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local err = assert(r.stderr)
+  assert(err:find("cosmic: cmd.boom.main:4: no handles to wait for", 1, true),
+    "the message is reported: " .. err)
+  assert(err:find("at cmd/boom/main.tl:4:", 1, true), "and where: " .. err)
+end
+
+--- A core started on its own, with no program inside and no tree to
+--- boot, says so and exits rather than running anything.
+local function test_a_bare_core_refuses_to_run(tmp: string)
+  local core = assert(artifact.trusted_core())
+  local path = tmp .. "/cosmic-core"
+  assert(Fs.write(path, core.bytes, 0x1ed))
+  local r = run_program(path)
+  assert(r.code == 2, "exit " .. tostring(r.code))
+  assert((assert(r.stderr)):find("no database attached", 1, true), tostring(r.stderr))
+end

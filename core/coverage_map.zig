@@ -5,7 +5,8 @@
 //! This reads a linked core's PC table, resolves each block's address to
 //! the line it begins on through the core's DWARF (in an ELF core itself;
 //! in the objects a Mach-O core's debug map names), and writes the answer
-//! as C indexed by block, with whether each block is its function's entry:
+//! as C indexed by block, with whether each block is its function's entry
+//! and, for an entry, its function's name from the first link's symbols:
 //!
 //!     coverage-map write <first> <root> <out.c>
 //!     coverage-map check <first> <second>
@@ -150,6 +151,66 @@ fn machoSection(file: []const u8, name: []const u8) ?Section {
     return null;
 }
 
+const Symbol = struct { address: u64, name: []const u8 };
+
+/// A first link's function symbols, ascending by address: an ELF file's
+/// `.symtab` functions, or a Mach-O file's section symbols less the
+/// leading underscore Mach-O gives every C name.
+fn functionSymbols(arena: Allocator, file: []const u8, ofmt: std.Target.ObjectFormat) ![]Symbol {
+    var found: std.ArrayList(Symbol) = .empty;
+    switch (ofmt) {
+        .elf => {
+            const table = (elfSection(file, ".symtab") orelse return &.{}).data;
+            const names = (elfSection(file, ".strtab") orelse return &.{}).data;
+            var at: usize = 0;
+            while (at + 24 <= table.len) : (at += 24) {
+                if (table[at + 4] & 0xf != 2) continue; // STT_FUNC
+                const name = std.mem.sliceTo(names[read(u32, table, at)..], 0);
+                try found.append(arena, .{ .address = read(u64, table, at + 8), .name = name });
+            }
+        },
+        .macho => {
+            const lc_symtab = 0x2;
+            const ncmds = read(u32, file, 16);
+            var command: u64 = 32;
+            for (0..ncmds) |_| {
+                if (read(u32, file, command) == lc_symtab) {
+                    const symoff = read(u32, file, command + 8);
+                    const nsyms = read(u32, file, command + 12);
+                    const stroff = read(u32, file, command + 16);
+                    for (0..nsyms) |i| {
+                        const entry = symoff + i * 16;
+                        const kind = file[entry + 4];
+                        if (kind & 0xe0 != 0 or kind & 0x0e != 0x0e) continue; // a stab, or not in a section
+                        var name = std.mem.sliceTo(file[stroff + read(u32, file, entry) ..], 0);
+                        if (name.len > 0 and name[0] == '_') name = name[1..];
+                        try found.append(arena, .{ .address = read(u64, file, entry + 8), .name = name });
+                    }
+                }
+                command += read(u32, file, command + 4);
+            }
+        },
+        else => unreachable,
+    }
+    std.mem.sort(Symbol, found.items, {}, struct {
+        fn lessThan(_: void, a: Symbol, b: Symbol) bool {
+            return a.address < b.address;
+        }
+    }.lessThan);
+    return found.items;
+}
+
+/// The function `pc` lies in: the last symbol at or before it.
+fn functionAt(symbols: []const Symbol, pc: u64) ?[]const u8 {
+    var low: usize = 0;
+    var high: usize = symbols.len;
+    while (low < high) {
+        const middle = (low + high) / 2;
+        if (symbols[middle].address <= pc) low = middle + 1 else high = middle;
+    }
+    return if (low == 0) null else symbols[low - 1].name;
+}
+
 fn read(comptime T: type, file: []const u8, at: u64) T {
     return std.mem.readInt(T, file[at..][0..@sizeOf(T)], .little);
 }
@@ -188,6 +249,13 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     const lines = try arena.alloc(u32, count);
     const entries = try arena.alloc(bool, count);
     for (entries, 0..) |*entry, i| entry.* = read(u64, pcs, i * 16 + 8) & 1 != 0;
+    // Each entry's function, by name, for a caller to report and exempt.
+    const file = try Io.Dir.cwd().readFileAlloc(io, core_path, arena, .limited(1 << 31));
+    const symbols = try functionSymbols(arena, file, kind.ofmt);
+    const functions = try arena.alloc(?[]const u8, count);
+    for (functions, entries, 0..) |*function, entry, i| {
+        function.* = if (entry) functionAt(symbols, read(u64, pcs, i * 16)) else null;
+    }
     const files = try arena.alloc(?[]const u8, count);
     var paths: std.StringArrayHashMapUnmanaged(void) = .empty;
     const prefix = try std.fmt.allocPrint(arena, "{s}/", .{std.mem.trimEnd(u8, root, "/")});
@@ -243,6 +311,10 @@ fn generate(arena: Allocator, io: Io, core_path: []const u8, root: []const u8) !
     for (entries, 0..) |entry, i| {
         try w.print("{s}{d},", .{ if (i % 12 == 0) "  " else " ", @intFromBool(entry) });
         if (i % 12 == 11 or i == count - 1) try w.writeAll("\n");
+    }
+    try w.writeAll("};\n\nconst char *const cosmic_native_coverage_function[] = {\n");
+    for (functions) |function| {
+        if (function) |name| try w.print("  \"{s}\",\n", .{name}) else try w.writeAll("  0,\n");
     }
     try w.writeAll("};\n");
     return out.written();

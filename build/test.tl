@@ -61,6 +61,7 @@ local Time = require("cosmic.time")
 local clock = require("build.clock")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
+local c_functions = require("build.c_functions")
 local entry_points = require("build.entry_points")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
@@ -1319,6 +1320,18 @@ function test.run(argv: {integer:string}): integer
     points_line = string.format("test: C entry points %d/%d called by a test (%d exempt)",
       points.reached, points.total - points.exempted, points.exempted)
   end
+  -- Every C function must be one some test enters, where the core
+  -- observes its own C, on the same terms.
+  local functions_line: string = nil
+  local functions = Coverage.native_functions()
+  if own_tree and #selectors == 0 and #functions > 0 then
+    local entered = c_functions.tally(functions, hits)
+    for _, key in ipairs(entered.unentered) do
+      failures[#failures + 1] = key .. ": a C function no test enters"
+    end
+    functions_line = string.format("test: C functions %d/%d entered by a test (%d exempt)",
+      entered.entered, entered.total - entered.exempted, entered.exempted)
+  end
 
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
@@ -1362,6 +1375,7 @@ function test.run(argv: {integer:string}): integer
       tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms)")
     report(cov_line)
     if points_line ~= nil then report(points_line) end
+    if functions_line ~= nil then report(functions_line) end
     return 0
   end
   table.sort(failures)
@@ -1387,6 +1401,7 @@ function test.run(argv: {integer:string}): integer
   if #errors == 0 then
     report(cov_line)
     if points_line ~= nil then report(points_line) end
+    if functions_line ~= nil then report(functions_line) end
   end
   return 1
 end
