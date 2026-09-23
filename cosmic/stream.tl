@@ -369,6 +369,61 @@ function Stream.to_fd(fd: integer): Stream.Writer
   return w
 end
 
+--- The Writer `Stream.create` returns: its methods live on one shared
+--- metatable, so creating a file costs a table, not three closures.
+local record FileWriter is Stream.Writer
+  path: string
+  temporary: sys.TemporaryFile
+  failed: string
+  closed: boolean
+end
+
+local FileWriter_methods: {string:any} = {}
+local file_writer_mt: metatable<FileWriter> = { __index = FileWriter_methods as FileWriter }
+
+FileWriter_methods.write = function(self: FileWriter, data: string): boolean, string
+  if self.closed then return false, closed_message end
+  if self.failed then return false, self.failed end
+  local ok, why = Fs.put(self.temporary.fd, data)
+  if not ok then self.failed = why end
+  return ok, why
+end
+
+FileWriter_methods.abort = function(self: FileWriter): boolean, string
+  if self.closed then return true, "" end
+  self.closed = true
+  Fs.close(self.temporary.fd)
+  sys.unlink(self.temporary.path)
+  return true, ""
+end
+
+FileWriter_methods.close = function(self: FileWriter): boolean, string
+  local temporary = self.temporary
+  if self.closed then
+    if self.failed then return false, temporary.path .. ": " .. self.failed end
+    return true, ""
+  end
+  self.closed = true
+  if self.failed then
+    Fs.close(temporary.fd)
+    sys.unlink(temporary.path)
+    return false, temporary.path .. ": " .. self.failed
+  end
+  local ok, close_trouble = Fs.close(temporary.fd)
+  if not ok then
+    self.failed = close_trouble
+    sys.unlink(temporary.path)
+    return false, temporary.path .. ": " .. close_trouble
+  end
+  local moved, why = sys.rename(temporary.path, self.path)
+  if not moved then
+    self.failed = why
+    sys.unlink(temporary.path)
+    return false, self.path .. ": " .. why
+  end
+  return true, ""
+end
+
 --- A Writer over a file at `path`: bytes go to a temporary neighbor,
 --- which is renamed onto `path` only when `close` succeeds, so a
 --- reader of `path` never sees a partial write. A write or close
@@ -377,49 +432,9 @@ end
 function Stream.create(path: string, mode?: integer): Stream.Writer | nil, string
   local opened, trouble = sys.open_temporary(path, mode or 0x1a4)
   if opened == nil then return nil, path .. ": " .. trouble end
-  local temporary: sys.TemporaryFile = opened
-  local failed: string
-  local closed = false
-  local w: Stream.Writer = {}
-  w.write = function(_self: Stream.Writer, data: string): boolean, string
-    if closed then return false, closed_message end
-    if failed then return false, failed end
-    local ok, why = Fs.put(temporary.fd, data)
-    if not ok then failed = why end
-    return ok, why
-  end
-  w.abort = function(_self: Stream.Writer): boolean, string
-    if closed then return true, "" end
-    closed = true
-    Fs.close(temporary.fd)
-    sys.unlink(temporary.path)
-    return true, ""
-  end
-  w.close = function(_self: Stream.Writer): boolean, string
-    if closed then
-      if failed then return false, temporary.path .. ": " .. failed end
-      return true, ""
-    end
-    closed = true
-    if failed then
-      Fs.close(temporary.fd)
-      sys.unlink(temporary.path)
-      return false, temporary.path .. ": " .. failed
-    end
-    local ok, close_trouble = Fs.close(temporary.fd)
-    if not ok then
-      failed = close_trouble
-      sys.unlink(temporary.path)
-      return false, temporary.path .. ": " .. close_trouble
-    end
-    local moved, why = sys.rename(temporary.path, path)
-    if not moved then
-      failed = why
-      sys.unlink(temporary.path)
-      return false, path .. ": " .. why
-    end
-    return true, ""
-  end
+  local w: FileWriter = setmetatable({
+    path = path, temporary = opened, closed = false,
+  } as FileWriter, file_writer_mt)
   return w, ""
 end
 
