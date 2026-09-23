@@ -299,7 +299,10 @@ COSMIC_SYSCALL(readdir, 1) {
   /* opendir's close-on-exec default is not guaranteed across the libc
    * this core links; asking outright costs one call and leaves nothing
    * to a platform's discretion. */
-  fcntl(dirfd(dir), F_SETFD, FD_CLOEXEC);
+  int dir_fd = dirfd(dir);
+  if (dir_fd >= 0) {
+    fcntl(dir_fd, F_SETFD, FD_CLOEXEC);
+  }
   lua_newtable(L);
   for (;;) {
     errno = 0;
@@ -327,7 +330,7 @@ COSMIC_SYSCALL(readdir, 1) {
       kind = "file";
     } else if (entry->d_type == DT_LNK || entry->d_type == DT_UNKNOWN) {
       struct stat st;
-      if (fstatat(dirfd(dir), entry->d_name, &st, 0) == 0) {
+      if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, 0) == 0) {
         if (S_ISDIR(st.st_mode)) {
           kind = "dir";
         } else if (S_ISREG(st.st_mode)) {

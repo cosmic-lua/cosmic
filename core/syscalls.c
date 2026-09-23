@@ -189,68 +189,62 @@ COSMIC_SYSCALL(hmac, 3) {
   return hashed(L, status, mac, mac_len);
 }
 
-/* The argv and environment arrays are built from the Lua tables, which
- * stay on the stack and so keep every string alive until execve, which
- * frees nothing on success because nothing of this process remains. */
+/* Everything that can raise happens before anything is allocated: argv
+ * entries, environment names and values must already be strings, and
+ * each "NAME=value" entry is built by concatenation into a table on the
+ * stack, which is what keeps its bytes alive. After the two calloc()s
+ * only raw reads of strings the stack already holds remain, so nothing
+ * between them and free() can raise. execve frees nothing on success
+ * because nothing of this process remains. */
 COSMIC_SYSCALL(execve, 3) {
   const char *path = cosmic_path(L, 1);
   luaL_checktype(L, 2, LUA_TTABLE);
   luaL_checktype(L, 3, LUA_TTABLE);
-  if (path == NULL) return cosmic_fail(L, EINVAL);
 
-  lua_Integer count = luaL_len(L, 2);
-  char **argv = calloc((size_t)count + 1, sizeof *argv);
-  if (argv == NULL) {
-    return cosmic_fail(L, ENOMEM);
-  }
+  lua_Integer count = (lua_Integer)lua_rawlen(L, 2);
   for (lua_Integer i = 1; i <= count; i++) {
-    lua_geti(L, 2, i);
-    if (lua_type(L, -1) != LUA_TSTRING && lua_type(L, -1) != LUA_TNUMBER) {
-      free(argv);
-      luaL_checkstring(L, -1);
-    }
-    argv[i - 1] = (char *)whole_string(L, -1);
+    if (lua_rawgeti(L, 2, i) != LUA_TSTRING)
+      return luaL_argerror(L, 2, "argv entries must be strings");
     lua_pop(L, 1);
-    if (argv[i - 1] == NULL) {
-      free(argv);
-      return cosmic_fail(L, EINVAL);
-    }
   }
 
-  /* Each "NAME=value" entry is built by concatenation and kept in a
-   * table on the stack, which is what keeps its bytes alive; the key
-   * itself is left exactly as lua_next needs it. */
   lua_newtable(L);
   int entries = lua_gettop(L);
   lua_Integer variables = 0;
   lua_pushnil(L);
   while (lua_next(L, 3) != 0) {
-    luaL_checktype(L, -2, LUA_TSTRING);
+    if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TSTRING)
+      return luaL_argerror(L, 3, "environment names and values must be strings");
     lua_pushvalue(L, -2);
     lua_pushliteral(L, "=");
     lua_pushvalue(L, -3);
     lua_concat(L, 3);
-    lua_seti(L, entries, ++variables);
+    lua_rawseti(L, entries, ++variables);
     lua_pop(L, 1);
   }
+  if (path == NULL) return cosmic_fail(L, EINVAL);
+
+  char **argv = calloc((size_t)count + 1, sizeof *argv);
   char **envp = calloc((size_t)variables + 1, sizeof *envp);
-  if (envp == NULL) {
-    free(argv);
-    return cosmic_fail(L, ENOMEM);
+  int number = ENOMEM;
+  if (argv == NULL || envp == NULL) goto done;
+  number = EINVAL;
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_rawgeti(L, 2, i);
+    argv[i - 1] = (char *)whole_string(L, -1);
+    lua_pop(L, 1);
+    if (argv[i - 1] == NULL) goto done;
   }
   for (lua_Integer i = 1; i <= variables; i++) {
-    lua_geti(L, entries, i);
+    lua_rawgeti(L, entries, i);
     envp[i - 1] = (char *)whole_string(L, -1);
     lua_pop(L, 1);
-    if (envp[i - 1] == NULL) {
-      free(envp);
-      free(argv);
-      return cosmic_fail(L, EINVAL);
-    }
+    if (envp[i - 1] == NULL) goto done;
   }
 
   execve(path, argv, envp);
-  int number = errno;
+  number = errno;
+done:
   free(envp);
   free(argv);
   return cosmic_fail(L, number);

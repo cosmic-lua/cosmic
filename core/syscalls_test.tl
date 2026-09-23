@@ -297,6 +297,10 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.execve(tmp .. "\0/sh", { "sh" }, {}))
   failed_with(sys.EINVAL, sys.execve("/bin/sh", { "sh", "-c\0x" }, {}))
   failed_with(sys.EINVAL, sys.execve("/bin/sh", { "sh" }, { A = "b\0c" }))
+  -- A number would be converted to a string nothing holds; execve
+  -- refuses anything but strings before it allocates.
+  local numeric: any = { "sh", 1000001.5 }
+  raises(sys.execve, "/bin/sh", numeric as {string}, {})
   -- spawn refused a NUL before this rule existed, by raising, and
   -- `cosmic.child` relies on that; it never truncates either way.
   raises(sys.spawn, tmp .. "\0/sh", { "sh" }, nil, nil, nil, nil, nil, false)

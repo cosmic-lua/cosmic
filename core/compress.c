@@ -16,7 +16,8 @@
  * bzlib, never a shape corrupt input can reach -- that comes back as an
  * ordinary BZ_* status code instead), so there is nothing a caller can
  * do but stop. */
-void bz_internal_error(int errcode) {
+_Noreturn void bz_internal_error(int errcode);
+_Noreturn void bz_internal_error(int errcode) {
   fprintf(stderr, "cosmic: internal bzip2 library error %d\n", errcode);
   abort();
 }
@@ -67,10 +68,10 @@ typedef enum {
   GZ_TRAILER, /* CRC-32 and ISIZE */
 } gzip_state;
 
-#define GZ_FHCRC 0x02
-#define GZ_FEXTRA 0x04
-#define GZ_FNAME 0x08
-#define GZ_FCOMMENT 0x10
+#define GZ_FHCRC 0x02u
+#define GZ_FEXTRA 0x04u
+#define GZ_FNAME 0x08u
+#define GZ_FCOMMENT 0x10u
 
 /* What one step of a member's decoder ended on. */
 enum {
