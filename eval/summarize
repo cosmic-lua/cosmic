@@ -1,4 +1,7 @@
 #!/bin/sh
+# TODO: replace this sh and embedded Python with a Teal script run by
+# `cosmic --standalone`. Reading the transcript needs a JSON decoder,
+# which the standard library does not have yet.
 # Numbers from a Claude Code stream-json transcript: turns, tool calls,
 # minutes, cost, then the friction the journal may not admit to --
 # failed tool calls, `cosmic docs` lookups that found no exact match,

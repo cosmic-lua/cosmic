@@ -86,8 +86,9 @@ with its reason. When reviewing C, check for:
   Allocation-failure paths are walked on the checked core in
   `core/allocation_test.tl`.
 
-## Bootstrap troubleshooting
+## Bootstrap
 
-If the pinned Zig download fails to extract because tar cannot restore ownership
-in a container, retry with `TAR_OPTIONS=--no-same-owner bin/zig version`, then
-resume the normal build commands.
+`bin/zig` and `bin/vendor` run Teal (`build/zig.tl`, `build/vendor.tl`) on
+the cosmic release `ci/cosmic-driver.pin` names, which `bin/cosmic-bootstrap`
+fetches once and caches by digest. `COSMIC_BOOTSTRAP=<path>` runs another
+cosmic instead, such as a tree-built `o/bin/cosmic`.

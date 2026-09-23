@@ -14,25 +14,7 @@
 # beside that name, checked against the pin, made executable, and only
 # then renamed into place, so a file at that name is always a verified
 # one: a warm run reads the pin and nothing else.
-#
-# `bin/cosmic-bootstrap --ready` answers, without the network, whether
-# the pinned release can run the tree's scripts: it exits 0 when it
-# can. That answer is the switch below.
 set -eu
-
-# THE SWITCH. The release ci/cosmic-driver.pin names today predates
-# `cosmic --standalone`, cosmic.http and cosmic.archive, so it cannot
-# run build/zig.tl or build/vendor.tl. Until it can, bin/zig keeps its
-# shell fallback (what CI runs, with no COSMIC_BOOTSTRAP) and bin/vendor
-# runs o/bin/cosmic. Once a release carries all three and the pin names
-# it, set this to yes: bin/zig and bin/vendor then always run through
-# the pinned bootstrap, and bin/zig's fallback can be deleted.
-standalone=no
-
-if [ "${1:-}" = --ready ]; then
-  if [ "$standalone" = yes ]; then exit 0; fi
-  exit 1
-fi
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 pin=$root/ci/cosmic-driver.pin

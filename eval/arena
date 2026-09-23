@@ -1,4 +1,6 @@
 #!/bin/sh
+# TODO: replace with a Teal script run by `cosmic --standalone`, as bin/zig
+# and bin/vendor are.
 # Lays out an arena for one eval: the binary at bin/cosmic, the task at
 # project/TASK.md, scratch space at tmp/. The agent runs in project/ with
 # bin/ first on PATH and TMPDIR set to tmp/.
