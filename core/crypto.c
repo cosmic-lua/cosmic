@@ -61,6 +61,10 @@ static psa_algorithm_t by_name(const char *name) {
   return PSA_ALG_NONE;
 }
 
+psa_algorithm_t cosmic_hash_algorithm(const char *name) {
+  return by_name(name);
+}
+
 int cosmic_crypto_init(void) {
   return (int)psa_crypto_init();
 }

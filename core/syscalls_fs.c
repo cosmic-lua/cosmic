@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "fail.h"
@@ -370,4 +371,47 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   }
   lua_pushstring(L, room);
   return 1;
+}
+
+COSMIC_SYSCALL(symlink, 2) {
+  const char *target = luaL_checkstring(L, 1);
+  const char *path = luaL_checkstring(L, 2);
+  if (symlink(target, path) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(readlink, 1) {
+  const char *path = luaL_checkstring(L, 1);
+  char room[PATH_MAX];
+  ssize_t got = readlink(path, room, sizeof room);
+  if (got < 0) {
+    return cosmic_fail(L, errno);
+  }
+  lua_pushlstring(L, room, (size_t)got);
+  return 1;
+}
+
+COSMIC_SYSCALL(utimens, 3) {
+  const char *path = luaL_checkstring(L, 1);
+  lua_Integer atime_s = luaL_checkinteger(L, 2);
+  lua_Integer mtime_s = luaL_checkinteger(L, 3);
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_s;
+  times[0].tv_nsec = 0;
+  times[1].tv_sec = (time_t)mtime_s;
+  times[1].tv_nsec = 0;
+  if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(fsync, 1) {
+  int fd = (int)luaL_checkinteger(L, 1);
+  if (fsync(fd) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
 }

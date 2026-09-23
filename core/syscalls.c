@@ -810,6 +810,7 @@ static const luaL_Reg table[] = {
     ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
     ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
     ENTRY(relaunch),
+    ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
     {NULL, NULL},
 };
 

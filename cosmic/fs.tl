@@ -298,6 +298,44 @@ function Fs.put(fd: integer, data: string): boolean, string
   return write_all(fd, data)
 end
 
+--- Creates a symbolic link at `path` pointing at `target`, which is
+--- stored verbatim and never resolved.
+function Fs.symlink(target: string, path: string): boolean, string
+  local made, trouble = sys.symlink(target, path)
+  if not made then
+    return false, path .. ": " .. trouble
+  end
+  return true, ""
+end
+
+--- The target of a symbolic link.
+function Fs.readlink(path: string): string | nil, string
+  local target, trouble = sys.readlink(path)
+  if target == nil then
+    return nil, path .. ": " .. trouble
+  end
+  return target, ""
+end
+
+--- Sets a path's access and modification times, in whole seconds since
+--- the epoch. Changes the link itself, not its target.
+function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean, string
+  local set, trouble = sys.utimens(path, atime_s, mtime_s)
+  if not set then
+    return false, path .. ": " .. trouble
+  end
+  return true, ""
+end
+
+--- Flushes a descriptor's data and metadata to storage.
+function Fs.fsync(fd: integer): boolean, string
+  local ok, trouble = sys.fsync(fd)
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
 Fs.stdin = 0
 Fs.stdout = 1
 Fs.stderr = 2

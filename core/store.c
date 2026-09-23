@@ -34,8 +34,9 @@ static void die_unreadable(sqlite3 *db) {
  * own code can `require` reaches them. `require` caches whatever a
  * loader returns under the name it was asked for, so a value that must
  * be re-checked on every access can never be that cached value --
- * `cosmic.store`, `cosmic.sqlite`, and `cosmic.coverage` (the wrappers,
- * one per raw module) get theirs handed straight to their own loader
+ * `cosmic.store`, `cosmic.sqlite`, `cosmic.coverage`, `cosmic.hash`,
+ * and `cosmic.compress` (the wrappers, one per raw module) get theirs
+ * handed straight to their own loader
  * instead, as the `extra` argument `require` passes it. calling the
  * searcher by hand yields the same value, and that is no escalation:
  * the raw table holds nothing the wrapper does not already hand out. */
@@ -172,6 +173,10 @@ static int store_searcher(lua_State *L) {
         raw_name = "cosmic.internal.sqlite";
       } else if (trusted && strcmp(name, "cosmic.coverage") == 0) {
         raw_name = "cosmic.internal.debug";
+      } else if (trusted && strcmp(name, "cosmic.hash") == 0) {
+        raw_name = "cosmic.internal.hash";
+      } else if (trusted && strcmp(name, "cosmic.compress") == 0) {
+        raw_name = "cosmic.internal.compress";
       } else if (trusted && strcmp(name, "build.artifact") == 0) {
         raw_name = "cosmic.internal.store";
       }
