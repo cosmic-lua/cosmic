@@ -407,6 +407,7 @@ const core_sources = [_][]const u8{
     "executable.c",
     "hash.c",
     "http.c",
+    "json.c",
     "sqlite.c",
     "store.c",
     "strnlen.c",
@@ -443,6 +444,7 @@ pub fn build(b: *std.Build) void {
     const xz = patched(b, applier, "xz");
     const cares = patched(b, applier, "cares");
     const curl = patched(b, applier, "curl");
+    const yyjson = patched(b, applier, "yyjson");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -452,7 +454,7 @@ pub fn build(b: *std.Build) void {
         .{ "tl", tl },           .{ "miniz", miniz },
         .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
         .{ "xz", xz },           .{ "cares", cares },
-        .{ "curl", curl },
+        .{ "curl", curl },       .{ "yyjson", yyjson },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -620,7 +622,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl };
+    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -631,7 +633,7 @@ pub fn build(b: *std.Build) void {
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, true, .off);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson, true, .off);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -660,7 +662,7 @@ pub fn build(b: *std.Build) void {
     // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const analyzed = b.step("analyze", "run the static analyzer over the tree's own C");
-    analyze(b, analyzed, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl);
+    analyze(b, analyzed, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson);
     // The checked build is where CI already looks for what the release
     // build would only do quietly; the analyzer's findings are the same
     // kind of thing, found without running anything.
@@ -836,6 +838,7 @@ fn analyze(
     xz: std.Build.LazyPath,
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
+    yyjson: std.Build.LazyPath,
 ) void {
     const extra = [_][]const u8{
         "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "patch.c",
@@ -871,6 +874,7 @@ fn analyze(
         run.addPrefixedDirectoryArg("-I", xz.path(b, "src/liblzma/api"));
         run.addPrefixedDirectoryArg("-I", cares.path(b, "include"));
         run.addPrefixedDirectoryArg("-I", curl.path(b, "include"));
+        run.addPrefixedDirectoryArg("-I", yyjson.path(b, "src"));
         run.addArg("-o");
         _ = run.addOutputFileArg(b.fmt("{s}.analysis", .{file}));
         run.addFileArg(b.path(b.fmt("core/{s}", .{file})));
@@ -888,6 +892,7 @@ const Sources = struct {
     xz: std.Build.LazyPath,
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
+    yyjson: std.Build.LazyPath,
 };
 
 /// A core that observes its own C: linked first with an empty block table
@@ -904,13 +909,13 @@ fn observedCore(
     target: std.Build.ResolvedTarget,
     sources: Sources,
 ) *std.Build.Step.Compile {
-    const first = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, false, .first_link);
+    const first = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
     write_map.addFileArg(first.getEmittedBin());
     write_map.addArg(b.pathFromRoot("."));
     const map = write_map.addOutputFileArg("coverage_map.c");
-    const second = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, false, .{ .map = map });
+    const second = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
     check_map.addFileArg(first.getEmittedBin());
@@ -932,6 +937,7 @@ fn core(
     xz: std.Build.LazyPath,
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
+    yyjson: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
     native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
@@ -1034,6 +1040,24 @@ fn core(
         },
     });
     mod.addIncludePath(miniz);
+
+    // yyjson reads JSON for cosmic.json, and writes each number's
+    // shortest form for its encoder. What the core never calls is
+    // compiled out: the incremental reader, file and FILE* I/O, JSON
+    // Pointer and Patch, and every non-standard extension, so nothing
+    // but RFC 8259 JSON can be read however a caller asks.
+    mod.addCSourceFiles(.{
+        .root = yyjson.path(b, "src"),
+        .files = &.{"yyjson.c"},
+        .flags = &.{
+            "-std=c11",
+            "-DYYJSON_DISABLE_INCR_READER=1",
+            "-DYYJSON_DISABLE_FILE=1",
+            "-DYYJSON_DISABLE_UTILS=1",
+            "-DYYJSON_DISABLE_NON_STANDARD=1",
+        },
+    });
+    mod.addIncludePath(yyjson.path(b, "src"));
 
     // bzip2's decompressor is a true push-streaming API (bz_stream's
     // next_in/avail_in/next_out), which is what the Compress.Stream

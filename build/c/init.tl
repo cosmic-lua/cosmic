@@ -53,6 +53,7 @@ local function command(root: string, file: string, cwd: string): {string}
   for _, dir in ipairs({
     "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz", "vendor/mbedtls/include",
     "vendor/bzip2", "vendor/xz/src/liblzma/api", "vendor/cares/include", "vendor/curl/include",
+    "vendor/yyjson/src",
   }) do
     out[#out + 1] = "-I" .. prefix .. dir
   end
