@@ -16,6 +16,8 @@
 #include "lauxlib.h"
 #include "executable.h"
 #include "sqlite.h"
+#include "hash.h"
+#include "compress.h"
 #include "sqlite3.h"
 #include "store.h"
 #include "startup.h"
@@ -489,6 +491,10 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
                        startup->kind != COSMIC_STARTUP_NATIVE ? &artifact : NULL);
   cosmic_open_sqlite(L); /* leaves the module table on the stack */
   cosmic_store_set_raw(L, "cosmic.internal.sqlite");
+  cosmic_open_hash(L);
+  cosmic_store_set_raw(L, "cosmic.internal.hash");
+  cosmic_open_compress(L);
+  cosmic_store_set_raw(L, "cosmic.internal.compress");
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);
 
   if (db == NULL) {
@@ -505,6 +511,10 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
     lua_pushcfunction(L, cosmic_open_sqlite);
     lua_setfield(L, -2, "cosmic.internal.sqlite");
+    lua_pushcfunction(L, cosmic_open_hash);
+    lua_setfield(L, -2, "cosmic.internal.hash");
+    lua_pushcfunction(L, cosmic_open_compress);
+    lua_setfield(L, -2, "cosmic.internal.compress");
     lua_pop(L, 1);
     cosmic_store_preload_raw(L, "cosmic.internal.store");
     cosmic_store_preload_raw(L, "cosmic.internal.debug");

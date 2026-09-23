@@ -121,9 +121,11 @@ const mbedtls_config = [_][]const u8{
 const core_sources = [_][]const u8{
     "boot.c",
     "coverage.c",
+    "compress.c",
     "crypto.c",
     "environment.c",
     "executable.c",
+    "hash.c",
     "sqlite.c",
     "store.c",
     "strnlen.c",
@@ -156,6 +158,8 @@ pub fn build(b: *std.Build) void {
     const tl = patched(b, applier, "tl");
     const miniz = patched(b, applier, "miniz");
     const mbedtls = patched(b, applier, "mbedtls");
+    const bzip2 = patched(b, applier, "bzip2");
+    const xz = patched(b, applier, "xz");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -163,7 +167,8 @@ pub fn build(b: *std.Build) void {
     for ([_]struct { []const u8, std.Build.LazyPath }{
         .{ "lua", lua },         .{ "sqlite", sqlite },
         .{ "tl", tl },           .{ "miniz", miniz },
-        .{ "mbedtls", mbedtls },
+        .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
+        .{ "xz", xz },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -323,14 +328,14 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, false);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, true);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, true);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -359,7 +364,7 @@ pub fn build(b: *std.Build) void {
     // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, false);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, bzip2, xz, false);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -521,6 +526,8 @@ fn core(
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
+    bzip2: std.Build.LazyPath,
+    xz: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
@@ -603,6 +610,80 @@ fn core(
         },
     });
     mod.addIncludePath(miniz);
+
+    // bzip2's decompressor is a true push-streaming API (bz_stream's
+    // next_in/avail_in/next_out), which is what the Compress.Stream
+    // contract needs; BZ_NO_STDIO keeps its file-handle helpers, which
+    // this core never calls, from pulling in FILE*. blocksort.c and
+    // compress.c hold the compress-side symbols bzlib.c references even
+    // though only BZ2_bzDecompress* is ever called here -- without them
+    // the link fails, since C links whole translation units, not just
+    // the functions a caller reaches. The K&R-flavored source predates
+    // -Wall/-Wextra/-Werror by a wide margin, so it gets its own quiet
+    // flag set rather than the core's.
+    mod.addCSourceFiles(.{
+        .root = bzip2,
+        .files = &.{
+            "bzlib.c", "blocksort.c", "compress.c", "decompress.c",
+            "huffman.c", "crctable.c", "randtable.c",
+        },
+        .flags = &.{ "-std=c11", "-DBZ_NO_STDIO" },
+    });
+    mod.addIncludePath(bzip2);
+
+    // xz's liblzma, a decoder-only subset (LZMA1/LZMA2, the delta and
+    // x86/arm64 BCJ filters, and the CRC-32/CRC-64/SHA-256 checks) --
+    // see core/xz_config for why: the tree vendors no config.h of its
+    // own, autoconf's usual job, so core/xz_config/config.h stands in
+    // for it, on an include path scoped to just these files.
+    const xz_src = xz.path(b, "src");
+    mod.addCSourceFiles(.{
+        .root = xz_src,
+        .files = &.{
+            "liblzma/check/check.c",
+            "liblzma/check/crc32_small.c",
+            "liblzma/check/crc64_small.c",
+            "liblzma/check/sha256.c",
+            "liblzma/common/block_decoder.c",
+            "liblzma/common/block_header_decoder.c",
+            "liblzma/common/block_util.c",
+            "liblzma/common/common.c",
+            "liblzma/common/filter_common.c",
+            "liblzma/common/filter_decoder.c",
+            "liblzma/common/filter_flags_decoder.c",
+            "liblzma/common/index.c",
+            "liblzma/common/index_hash.c",
+            "liblzma/common/stream_decoder.c",
+            "liblzma/common/stream_flags_common.c",
+            "liblzma/common/stream_flags_decoder.c",
+            "liblzma/common/vli_decoder.c",
+            "liblzma/common/vli_size.c",
+            "liblzma/delta/delta_common.c",
+            "liblzma/delta/delta_decoder.c",
+            "liblzma/lz/lz_decoder.c",
+            "liblzma/lzma/lzma2_decoder.c",
+            "liblzma/lzma/lzma_decoder.c",
+            "liblzma/lzma/lzma_encoder_presets.c",
+            "liblzma/simple/arm64.c",
+            "liblzma/simple/simple_coder.c",
+            "liblzma/simple/simple_decoder.c",
+            "liblzma/simple/x86.c",
+        },
+        .flags = &.{
+            "-std=c11",         "-D_XOPEN_SOURCE=700",
+            "-D_DEFAULT_SOURCE", "-DHAVE_CONFIG_H",
+        },
+    });
+    mod.addIncludePath(b.path("core/xz_config"));
+    mod.addIncludePath(xz.path(b, "src/common"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/api"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/common"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/check"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/lzma"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/lz"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/rangecoder"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
 
     // mbedtls, its crypto subtree only: the files below are the ones
     // that hold any code under the configuration above, every other one
