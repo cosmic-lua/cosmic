@@ -198,13 +198,11 @@ static int sqlite_open (lua_State *L) {
 static int handle_exec (lua_State *L) {
   struct handle *h = checked_handle(L);
   const char *sql = luaL_checkstring(L, 2);
-  char *message = NULL;
-  int rc = sqlite3_exec(h->db, sql, NULL, NULL, &message);
+  /* No message of exec's own: it would be a copy of the connection's,
+   * held in a local across the push that can raise. */
+  int rc = sqlite3_exec(h->db, sql, NULL, NULL, NULL);
   if (rc != SQLITE_OK) {
-    lua_pushboolean(L, 0);
-    lua_pushstring(L, message == NULL ? sqlite3_errstr(rc) : message);
-    sqlite3_free(message);
-    return 2;
+    return failed_effect(L, h->db, rc);
   }
   lua_pushboolean(L, 1);
   return succeeded(L);
@@ -437,7 +435,11 @@ static int statement_bytes (lua_State *L) {
   int index = checked_column(L, s);
   const void *data = sqlite3_column_blob(s->stmt, index);
   int len = sqlite3_column_bytes(s->stmt, index);
-  if (data == NULL && len == 0) {
+  if (data == NULL && len > 0) {
+    /* SQLite could not make the bytes: out of memory, not a value. */
+    return luaL_error(L, "not enough memory");
+  }
+  if (data == NULL) {
     lua_pushliteral(L, "");
   } else {
     lua_pushlstring(L, data, (size_t)len);

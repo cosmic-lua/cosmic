@@ -128,17 +128,47 @@ COSMIC_SYSCALL(close, 1) {
   return cosmic_ok(L);
 }
 
+/* Up to this many bytes, a read's buffer is what it asked for. */
+#define READ_SMALL ((lua_Integer)1 << 16)
+/* The most one read of anything but a regular file asks for. */
+#define READ_STREAM ((lua_Integer)1 << 20)
+
+/* How many of `count` bytes one read of `fd` at `offset` (or, when
+ * negative, at its own position) asks for, which is what its buffer
+ * costs: a count past what the read could answer is never allocated,
+ * so a huge count is no out-of-memory and a small file no huge buffer.
+ * A regular file answers at most what is left of it -- but never less
+ * than READ_SMALL, since a file that says it is empty or small (the
+ * ones under /proc) may hold more -- and anything else at most
+ * READ_STREAM. A read may always answer short, so a caller that loops
+ * until the empty string sees the same bytes either way. */
+static size_t read_room (int fd, lua_Integer count, off_t offset) {
+  if (count <= READ_SMALL) return (size_t)count;
+  lua_Integer room = READ_STREAM;
+  struct stat st;
+  if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+    if (offset < 0) offset = lseek(fd, 0, SEEK_CUR);
+    if (offset >= 0) {
+      lua_Integer left =
+          st.st_size > offset ? (lua_Integer)(st.st_size - offset) : 0;
+      room = left > READ_SMALL ? left : READ_SMALL;
+    }
+  }
+  return (size_t)(count < room ? count : room);
+}
+
 COSMIC_SYSCALL(read, 2) {
   int fd = cosmic_checkint(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   if (count < 0) {
     return luaL_argerror(L, 2, "count is negative");
   }
+  size_t room = read_room(fd, count, -1);
   luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, (size_t)count);
+  char *into = luaL_buffinitsize(L, &buffer, room);
   ssize_t got;
   do {
-    got = read(fd, into, (size_t)count);
+    got = read(fd, into, room);
   } while (got < 0 && errno == EINTR);
   if (got < 0) {
     int number = errno;
@@ -160,11 +190,12 @@ COSMIC_SYSCALL(pread, 3) {
   if (offset < 0) {
     return luaL_argerror(L, 3, "offset is negative");
   }
+  size_t room = read_room(fd, count, (off_t)offset);
   luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, (size_t)count);
+  char *into = luaL_buffinitsize(L, &buffer, room);
   ssize_t got;
   do {
-    got = pread(fd, into, (size_t)count, (off_t)offset);
+    got = pread(fd, into, room, (off_t)offset);
   } while (got < 0 && errno == EINTR);
   if (got < 0) {
     int number = errno;

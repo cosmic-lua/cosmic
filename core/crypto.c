@@ -116,6 +116,24 @@ int cosmic_hmac (const char *name, const void *key, size_t key_len,
   if (alg == PSA_ALG_NONE) {
     return -1;
   }
+  /* HMAC takes a key of any length (RFC 2104), and the library's import
+   * takes neither an empty key nor one of 8 KiB or more. The two are the
+   * same MAC as keys it does take: a key is zero-padded to the block, so
+   * an empty one is a single zero byte; and a key longer than the block
+   * is its own digest. */
+  static const unsigned char zero = 0;
+  unsigned char digested[COSMIC_DIGEST_MAX];
+  if (key_len == 0) {
+    key = &zero;
+    key_len = 1;
+  } else if (key_len > PSA_HASH_BLOCK_LENGTH(alg)) {
+    psa_status_t hashed = psa_hash_compute(alg, key, key_len, digested,
+                                           sizeof digested, &key_len);
+    if (hashed != PSA_SUCCESS) {
+      return (int)hashed;
+    }
+    key = digested;
+  }
   /* A key lives in the library's own slot for exactly one computation:
    * imported, used, destroyed. */
   psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;

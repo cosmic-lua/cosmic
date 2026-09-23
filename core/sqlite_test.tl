@@ -8,6 +8,7 @@
 --- to its own promise.
 
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 
 --- Asserts `value, message` is the failure shape SQLite's methods use:
 --- `nil` or `false`, then a non-empty message. SQLite has no errno, so
@@ -42,6 +43,8 @@ local function test_exec_runs_and_reports_a_failure()
   local ok, trouble = handle:exec("CREATE TABLE t (a); INSERT INTO t VALUES (1)")
   assert(ok == true, trouble)
   failed(handle:exec("INSERT INTO missing VALUES (1)"))
+  local _, why = handle:exec("INSERT INTO missing VALUES (1)")
+  assert(why:find("no such table: missing", 1, true) ~= nil, why)
   failed(handle:exec("not sql"))
   handle:close()
 end
@@ -243,4 +246,31 @@ local function test_an_index_past_an_int_raises()
   raises(statement.integer, statement, 1 << 32)
   statement:finalize()
   handle:close()
+end
+
+--- A borrowed handle on a store database reads, and nothing else: a
+--- read-only open still leaves a connection a writable temp schema and
+--- ATTACH, and a temp `modules` stands in front of the rows `require`
+--- loads -- a planted row once replaced `cosmic.compress` for every
+--- later require, and a temp view of that name made the next require
+--- end the process. Each is refused, and require is unaffected.
+local function test_a_store_database_handle_only_reads()
+  local databases = Store.databases()
+  assert(#databases >= 1, "the store searches the binary's own database")
+  for _, db in ipairs(databases) do
+    failed(db:exec("CREATE TEMP TABLE modules (path TEXT, bytecode BLOB, kind TEXT)"))
+    failed(db:exec("CREATE TEMP VIEW modules AS SELECT 1 AS path"))
+    failed(db:exec("CREATE TEMP TRIGGER t AFTER INSERT ON meta BEGIN SELECT 1; END"))
+    failed(db:exec("ATTACH DATABASE ':memory:' AS other"))
+    failed(db:exec("INSERT INTO meta (key, value) VALUES ('planted', 'x')"))
+    failed(db:exec("PRAGMA query_only = 0"))
+    failed(db:exec("BEGIN"))
+    local statement = prepared(db, "SELECT count(*) FROM modules")
+    assert(statement:step() == "row")
+    statement:finalize()
+  end
+  local Compress = require("cosmic.compress")
+  local packed = assert(Compress.deflate("unaffected"))
+  assert(Compress.inflate(packed, 10) == "unaffected")
+  assert(Store.bytecode("cosmic.fs"))
 end

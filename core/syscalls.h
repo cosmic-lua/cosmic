@@ -86,6 +86,10 @@ COSMIC_SYSCALL(close, 1);
 
 /*
  * --- Reads up to `count` bytes. An empty string means end of file.
+ * --- A read may answer short, and one asks for no more than it can
+ * --- answer: past 64 KiB, at most what is left of a regular file (never
+ * --- under 64 KiB), or 1 MiB of anything else. A count far past that
+ * --- costs nothing; loop until the empty string for all of it.
  * ---@param fd integer the descriptor to read
  * ---@param count integer how many bytes to ask for
  * ---@return string|nil data the bytes read, or nil on failure
@@ -95,7 +99,8 @@ COSMIC_SYSCALL(close, 1);
 COSMIC_SYSCALL(read, 2);
 
 /*
- * --- Reads up to `count` bytes from an explicit offset.
+ * --- Reads up to `count` bytes from an explicit offset, asking for no
+ * --- more than it can answer, as read does.
  * ---@param fd integer the descriptor to read
  * ---@param count integer how many bytes to ask for
  * ---@param offset integer the offset to read from
