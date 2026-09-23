@@ -26,6 +26,7 @@ extern long syscall(long, ...);
 
 #include "check.h"
 #include "fail.h"
+#include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
 #include "crypto.h"

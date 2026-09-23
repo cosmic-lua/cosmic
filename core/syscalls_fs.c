@@ -86,12 +86,17 @@ COSMIC_SYSCALL(open, 3) {
   return 1;
 }
 
+/* The answer is built before the file is opened, with "fd" already a
+ * key, so that setting the descriptor into it allocates nothing: an
+ * allocation that raised while the descriptor was open would leak it. */
 COSMIC_SYSCALL(open_temporary, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
   int mode = cosmic_optint(L, 2, 0644);
   static unsigned long serial;
   char temporary[PATH_MAX];
+  lua_createtable(L, 0, 2);
+  push_field(L, "fd", -1);
 
   for (unsigned int attempt = 0; attempt < 100; attempt++) {
     unsigned long number = ++serial;
@@ -100,16 +105,15 @@ COSMIC_SYSCALL(open_temporary, 2) {
     if (length < 0 || (size_t)length >= sizeof temporary) {
       return cosmic_fail(L, ENAMETOOLONG);
     }
+    lua_pushstring(L, temporary);
+    lua_setfield(L, -2, "path");
     int fd;
     do {
       fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
                 (mode_t)mode);
     } while (fd < 0 && errno == EINTR);
     if (fd >= 0) {
-      lua_createtable(L, 0, 2);
       push_field(L, "fd", (lua_Integer)fd);
-      lua_pushstring(L, temporary);
-      lua_setfield(L, -2, "path");
       return 1;
     }
     if (errno != EEXIST) {

@@ -5,8 +5,9 @@
 --- `print`, and `errors.trace`. A test
 --- worker watches them all, so a call of one is recorded among the
 --- test's hits (see `Coverage.called_path`), and a whole test run fails
---- for any that no test calls: the C has no line coverage, so being
---- reached by a test is the bar it is held to.
+--- for any that no test calls. Every core now sees its own C lines too
+--- (core/coverage.c), so a stricter bar -- every C function entered --
+--- can replace this one once processes a test starts report theirs.
 
 local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")

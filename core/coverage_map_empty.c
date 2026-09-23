@@ -8,3 +8,4 @@ const uint32_t cosmic_native_coverage_blocks = 0;
 const char *const cosmic_native_coverage_paths[] = {""};
 const uint16_t cosmic_native_coverage_path[] = {UINT16_MAX};
 const uint32_t cosmic_native_coverage_line[] = {0};
+const uint8_t cosmic_native_coverage_entry[] = {0};

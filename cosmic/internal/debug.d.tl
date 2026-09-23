@@ -32,6 +32,11 @@ local record native
   --- repository path (core/syscalls.c) the way hits on it are. Empty in
   --- a core built without native coverage.
   lines: function(): Hits
+
+  -- The line each of the core's own C functions begins on, keyed the
+  -- same way: a function was entered when its line is hit. Empty in a
+  -- core built without native coverage.
+  entries: function(): Hits
 end
 
 return native
