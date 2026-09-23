@@ -113,14 +113,10 @@ local function wrap_tar(tr: Tar.TarReader, source: Stream.Reader | nil): Archive
       end
       return nil, trouble
     end
-    local out: Archive.Entry = {
-      path = e.path, kind = e.kind, mode = e.mode, size = e.size,
-      mtime = e.mtime, linkpath = e.linkpath,
-    }
-    out.open = function(_o: Archive.Entry): Stream.Reader | nil, string
-      return e:open()
-    end
-    return out, ""
+    -- A Tar.Entry already has every field an Archive.Entry does, and
+    -- an `open` that reads its own body: it is handed on as it is,
+    -- rather than copied into a new table and closure per entry.
+    return e as Archive.Entry, ""
   end
   ar.close = function(_self: Archive.ArchiveReader): boolean, string
     return tr:close()
@@ -128,24 +124,15 @@ local function wrap_tar(tr: Tar.TarReader, source: Stream.Reader | nil): Archive
   return ar
 end
 
-local zip_kinds: {Zip.Kind:Archive.Kind} = { file = "file", dir = "dir", symlink = "symlink" }
-
+--- Zip entries are walked straight off the central directory, one at
+--- a time, rather than materialized all at once; like a tar entry, a
+--- Zip.Entry is handed on as it is (its kinds are a subset of tar's).
 local function wrap_zip(zr: Zip.ZipReader): Archive.ArchiveReader
-  local entries = zr:entries()
-  local at = 0
   local ar: Archive.ArchiveReader = {}
   ar.next = function(_self: Archive.ArchiveReader): Archive.Entry | nil, string
-    at = at + 1
-    if at > #entries then return nil, "" end
-    local e = entries[at]
-    local out: Archive.Entry = {
-      path = e.path, kind = zip_kinds[e.kind], mode = e.mode, size = e.size,
-      mtime = e.mtime, linkpath = e.linkpath,
-    }
-    out.open = function(_o: Archive.Entry): Stream.Reader | nil, string
-      return e:open()
-    end
-    return out, ""
+    local e, trouble = zr:next()
+    if e == nil then return nil, trouble end
+    return e as Archive.Entry, ""
   end
   ar.close = function(_self: Archive.ArchiveReader): boolean, string
     return zr:close()
@@ -234,12 +221,14 @@ end
 --- before `strip` is applied, since `strip` only removes a prefix or
 --- leading components and cannot make an escaping path safe.
 local function safe_relative(path: string): boolean
-  if path == "" or path:sub(1, 1) == "/" then return false end
-  if path:find("\0", 1, true) ~= nil then return false end
-  if path:find("\\", 1, true) ~= nil then return false end
-  if has_drive_or_unc(path) then return false end
-  for segment in (path .. "/"):gmatch("([^/]*)/") do
-    if segment == ".." then return false end
+  if path == "" or path:byte(1) == 47 then return false end -- '/'
+  -- A NUL or a backslash anywhere, or a drive letter up front.
+  if path:find("[%z\\]") ~= nil or path:find("^%a:") ~= nil then return false end
+  -- Only a path holding ".." at all can have it as a component.
+  if path:find("..", 1, true) ~= nil then
+    for segment in (path .. "/"):gmatch("([^/]*)/") do
+      if segment == ".." then return false end
+    end
   end
   return true
 end
@@ -347,6 +336,8 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   -- at the same path replaces an earlier one.
   local pending: {string:PendingLink} = {}
   local pending_order: {PendingLink} = {}
+  -- How many paths `pending` holds.
+  local pending_count = 0
   local dir_times: {{string, integer}} = {}
 
   local function bail(message: string): nil, string
@@ -468,9 +459,21 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
       return bail("archive: refusing an unsafe entry path: " .. entry.path)
     end
     local stripped = apply_strip(entry.path, opts.strip)
-    local parts = stripped ~= nil and components(stripped) or {}
-    local rel = join(parts, #parts)
-    if #parts > 0 and (opts.filter == nil or opts.filter(stripped)) then
+    -- A path with no empty or `.` components is its own
+    -- destination-relative path, and is split into components only
+    -- when its parent is not already known to be a real directory.
+    local rel: string
+    local parent: string
+    local parts: {string}
+    if stripped ~= nil and ("/" .. stripped .. "/"):find("/%.?/") == nil then
+      rel = stripped
+      parent = stripped:match("^(.*)/")
+    else
+      parts = stripped ~= nil and components(stripped) or {}
+      rel = join(parts, #parts)
+      if #parts > 1 then parent = join(parts, #parts - 1) end
+    end
+    if rel ~= "" and (opts.filter == nil or opts.filter(stripped)) then
       local kind = entry.kind
       local wanted = kind == "dir" or kind == "file" or
         (kind == "symlink" and links_mode == "create")
@@ -488,24 +491,38 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
         end
         local dest_path = dest .. "/" .. rel
         if kind == "symlink" then
+          parts = parts or components(rel)
           if not stays_inside(join(parts, #parts - 1), entry.linkpath) then
             return bail("archive: refusing a symlink escaping the destination: " .. entry.path)
           end
           local link: PendingLink = {
             rel = rel, parts = parts, target = entry.linkpath, mtime = entry.mtime,
           }
+          if pending[rel] == nil then pending_count = pending_count + 1 end
           pending[rel] = link
           pending_order[#pending_order + 1] = link
         else
           -- A later entry at a symlink's path replaces it.
-          pending[rel] = nil
+          if pending_count > 0 and pending[rel] ~= nil then
+            pending[rel] = nil
+            pending_count = pending_count - 1
+          end
+          -- With no symlink pending anywhere, a directory already
+          -- checked (and so every directory above it) needs no
+          -- second look.
           if kind == "dir" then
-            local ok, dtrouble = ensure_dirs(parts, #parts, entry.path)
-            if not ok then return bail(dtrouble) end
+            if pending_count > 0 or not real_dirs[rel] then
+              parts = parts or components(rel)
+              local ok, dtrouble = ensure_dirs(parts, #parts, entry.path)
+              if not ok then return bail(dtrouble) end
+            end
             dir_times[#dir_times + 1] = { dest_path, entry.mtime }
           else
-            local ok, dtrouble = ensure_dirs(parts, #parts - 1, entry.path)
-            if not ok then return bail(dtrouble) end
+            if parent ~= nil and (pending_count > 0 or not real_dirs[parent]) then
+              parts = parts or components(rel)
+              local ok, dtrouble = ensure_dirs(parts, #parts - 1, entry.path)
+              if not ok then return bail(dtrouble) end
+            end
             local fok, ftrouble = extract_file(dest_path, entry)
             if not fok then return bail(ftrouble) end
           end

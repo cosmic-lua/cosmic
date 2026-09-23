@@ -564,3 +564,41 @@ local function test_listed_entries_refuse_to_open_rather_than_read_a_closed_file
     end
   end
 end
+
+local function test_extract_refuses_a_write_under_a_checked_directory_once_a_symlink_replaces_it(
+    tmp: string)
+  local archive = tmp .. "/swap2.tar"
+  tar_of(archive, function(tw: Tar.TarWriter)
+    assert(tw:add_dir("d"))
+    assert(tw:add_file("d/first", "fine\n"))
+    assert(tw:add_symlink("d", "."))
+    assert(tw:add_file("d/second", "escaped\n"))
+  end)
+  local dest = tmp .. "/work/dest"
+  local written, trouble = Archive.extract(archive, dest, { links = "create" })
+  assert(written == nil and trouble:find("through a symlink", 1, true) ~= nil, trouble)
+  assert(Fs.exists(tmp .. "/work/second") == false)
+end
+
+local function test_extract_walks_a_zip_and_a_tar_to_the_same_tree(tmp: string)
+  local t = tmp .. "/same.tar"
+  local z = tmp .. "/same.zip"
+  local tw = Tar.writer((assert(Stream.create(t))))
+  local zw = Zip.writer((assert(Stream.create(z))))
+  for i = 1, 300 do
+    local p = "d" .. tostring(i % 7) .. "/./f" .. tostring(i)
+    assert(tw:add_file(p, "body " .. tostring(i)))
+    assert(zw:add_file(p, "body " .. tostring(i)))
+  end
+  assert(tw:close())
+  assert(zw:close())
+  local from_tar = assert(Archive.extract(t, tmp .. "/t"))
+  local from_zip = assert(Archive.extract(z, tmp .. "/z"))
+  assert(#from_tar == 300 and #from_zip == 300)
+  for i = 1, 300 do
+    local want = "d" .. tostring(i % 7) .. "/f" .. tostring(i)
+    assert(from_tar[i] == want and from_zip[i] == want, from_tar[i])
+    assert(Fs.read(tmp .. "/t/" .. want) == "body " .. tostring(i))
+    assert(Fs.read(tmp .. "/z/" .. want) == "body " .. tostring(i))
+  end
+end
