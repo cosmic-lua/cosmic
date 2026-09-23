@@ -203,16 +203,33 @@ static int self_test (const char *path) {
   uint64_t manifest_padding = manifest + COSMIC_PORTABLE_MANIFEST_HEADER_LENGTH +
       3 * COSMIC_PORTABLE_ENTRY_LENGTH;
   ok &= mutation("manifest padding", data, length, manifest_padding, &one, 1);
-  uint64_t first_end = decoded.entries[0].offset + decoded.entries[0].length;
-  if (first_end < decoded.entries[1].offset)
-    ok &= mutation("core padding", data, length, first_end, &one, 1);
+  /* The zero padding after a core, up to the next core or the manifest:
+   * the first run of at least 16 bytes. A core whose length is a whole
+   * multiple of the alignment has none after it. */
+  uint64_t gap = 0;
+  uint64_t gap_end = 0;
+  for (uint32_t i = 0; i < decoded.entry_count && gap == 0; i++) {
+    uint64_t end = decoded.entries[i].offset + decoded.entries[i].length;
+    uint64_t next = i + 1 < decoded.entry_count ? decoded.entries[i + 1].offset
+                                                : manifest;
+    if (end + 16 < next) {
+      gap = end;
+      gap_end = next;
+    }
+  }
+  if (gap == 0) {
+    fprintf(stderr, "no core is followed by 16 bytes of padding\n");
+    ok = 0;
+  } else {
+    ok &= mutation("core padding", data, length, gap, &one, 1);
+  }
   ok &= mutation("database header", data, length, decoded.database_offset,
                  &bad_magic, 1);
   ok &= expect_rejected("truncation", data, length - 1);
 
   unsigned char *dishonest = copy_of(data, length);
-  uint64_t dishonest_offset = first_end;
-  if (dishonest != NULL && dishonest_offset + 16 < decoded.entries[1].offset) {
+  uint64_t dishonest_offset = gap;
+  if (dishonest != NULL && gap != 0 && dishonest_offset + 16 < gap_end) {
     memcpy(dishonest + dishonest_offset, "SQLite format 3\0", 16);
     put64(dishonest + trailer + 32, dishonest_offset);
     put64(dishonest + trailer + 40, trailer - dishonest_offset);
