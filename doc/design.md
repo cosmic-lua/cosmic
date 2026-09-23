@@ -126,8 +126,9 @@ and flags, nothing more, so a zig bump costs an hour.
 
 zig's bundled musl is the libc on Linux and its libSystem stubs are
 the link target on macOS. the zig pin is therefore the libc pin. a
-file names the zig version and the sha256 of each host's tarball; a
-tiny POSIX sh `bin/zig` fetches into a cache, verifies, and execs.
+file names the zig version and the sha256 of each host's tarball;
+`bin/zig` hands off to `build/zig.tl`, which the pinned bootstrap
+cosmic runs standalone to fetch into a cache, verify, and exec.
 `build.zig` compares `builtin.zig_version` against the pin at
 comptime and refuses any other version by name; the `.zon` manifest's
 minimum-version field is not enforced for a root package and is not
@@ -466,9 +467,11 @@ and attest its hash. the provenance join requires all four products and
 attestations to agree; zig opens a few
 host paths to probe the native target even for a cross build, so the
 gate judges outputs, not opens. the trust chain has
-exactly two seeds that nothing in the repository built, and they are
-named here: the POSIX sh `bin/zig` and the zig tarball its pin
-verifies. everything else is vendored or built from it.
+exactly two seeds that the tree being built did not build, and they are
+named here: the earlier cosmic release `ci/cosmic-driver.pin` names,
+fetched and verified by the POSIX sh `bin/cosmic-bootstrap`, and the
+zig tarball `bin/zig.pin` verifies. everything else is vendored or
+built from them.
 
 the target build architecture is fast, incremental, and reproducible.
 today a module whose key stands is read back from the working
