@@ -10,9 +10,9 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
-local symbols = require("build.symbols")
 local work = require("build.work")
 
 local record writer
@@ -69,20 +69,18 @@ local insert_imports =
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
 --- The documented symbols `build.positions.docs_of` found while parsing
---- each planned module, and each public declaration -- `cosmic.sys`,
---- whose only source is the C header it is generated from -- in module
---- order and then source order. `id` is left for SQLite to assign in
---- that order, so it is the same on every build of the same tree. A
---- generated declaration's lines are the generated source's, not its
---- file's, so its rows carry no line: 0, which `cosmic docs` omits.
+--- each planned module and each declaration -- `cosmic.sys`'s only
+--- source is the C header it is generated from -- in module order and
+--- then source order. Which of them a reader sees is `build.docs`'s
+--- to decide: it answers a project only for the public standard library. `id` is left for SQLite to assign in
+--- that order, so it is the same on every build of the same tree.
 local insert_docs =
   "INSERT INTO out.docs (module, symbol, source_symbol, exported, kind, " ..
   "signature, text, file, line) " ..
   "SELECT m.path, d.symbol, d.source_symbol, d.exported, d.kind, " ..
-  "d.signature, d.text, i.file, " ..
-  "CASE WHEN i.kind = 'decl' AND i.origin <> 'tree' THEN 0 ELSE d.line END " ..
+  "d.signature, d.text, i.file, d.line " ..
   "FROM (SELECT path FROM plan UNION SELECT path FROM inputs " ..
-  "WHERE kind = 'decl' AND " .. symbols.public_only("path", true) .. ") m " ..
+  "WHERE kind = 'decl') m " ..
   "JOIN inputs i ON i.path = m.path " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
@@ -101,7 +99,8 @@ local insert_uses =
 --- The worked examples `build.positions.examples_of` found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
 --- against the module its file name pairs with (the `_example` suffix
---- stripped) -- nothing here decides which symbol an example is FOR.
+--- stripped), which is a planned module or a declaration, as
+--- `cosmic.sys` is -- nothing here decides which symbol an example is FOR.
 --- `build.docs` answers that at read time, by matching an example's
 --- own text and source against a symbol's name through
 --- `examples_fts`: an example calls the real function it demonstrates,
@@ -118,7 +117,7 @@ local insert_examples =
   "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind = 'example' " ..
   "JOIN examples e ON e.source_hash = i.source_hash " ..
   "JOIN inputs t ON t.path = substr(p.path, 1, length(p.path) - length('_example')) " ..
-  "WHERE t.path IN (SELECT path FROM plan) " ..
+  "WHERE t.path IN (SELECT path FROM plan) OR t.kind = 'decl' " ..
   "ORDER BY t.path, e.line"
 
 --- The catalog entries `build.positions.catalog_of` found while parsing
@@ -148,7 +147,11 @@ local rebuild_fts: {string} = {
 
 --- What the shipped database is a function of: this run's plan with
 --- each module's file, the declarations, fingerprints, host-independent
---- identities, and the main module, as one hash.
+--- identities, the main module, and the running binary's own boot hash,
+--- as one hash. The last is the writer itself: a stale tool rebuilding
+--- itself writes this file with its own, older code before the new tool
+--- re-enters, and the tree's fingerprints alone would let the new tool
+--- take that file for its own projection.
 --- When it matches the one the last write left in `meta` and the file
 --- is still there, the file already is the projection of these rows,
 --- and nothing is written. The catalog, docs, examples and references
@@ -164,7 +167,19 @@ local function signature_sql(): string
   "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
   "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
   "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || ?1 || " ..
-  "char(10) || ?2)))"
+  "char(10) || ?2 || char(10) || ?3)))"
+end
+
+--- The signature of `result`'s projection as the binary whose boot
+--- hash is `binary` would write it -- see `signature_sql`.
+function writer.signature(handle: work.Handle, result: importer.Result,
+                          binary: string): string | nil, string
+  local signed, trouble = Sqlite.text_rows(handle.db, signature_sql(),
+    { text(result.main or ""), text("portable-v1"), text(binary) })
+  if signed == nil then
+    return nil, trouble
+  end
+  return signed[1][1]
 end
 
 --- Fills the attached `out` schema and vacuums it into `path`.
@@ -220,14 +235,13 @@ local function project(handle: work.Handle, path: string,
     if not carried_main then
       return false, main_trouble
     end
-    local signed, sign_trouble = Sqlite.text_rows(db, signature_sql(),
-      { text(result.main or ""), text("portable-v1") })
-    if signed == nil then
+    local signature, sign_trouble = writer.signature(handle, result, Store.meta("boot_hash") or "")
+    if signature == nil then
       return false, sign_trouble
     end
     return Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('projected', ?1)",
-      { text(signed[1][1]) })
+      { text(signature) })
   end)
   if not made then
     return false, refused
@@ -252,12 +266,10 @@ function writer.write_result(handle: work.Handle, out: string,
   if identities == nil then
     return false, identity_trouble
   end
-  local signed, sign_trouble = Sqlite.text_rows(db,
-    signature_sql(), { text(result.main or ""), text("portable-v1") })
-  if signed == nil then
+  local signature, sign_trouble = writer.signature(handle, result, Store.meta("boot_hash") or "")
+  if signature == nil then
     return false, sign_trouble
   end
-  local signature = signed[1][1]
   if projected_signature(out) == signature then
     return true, ""
   end

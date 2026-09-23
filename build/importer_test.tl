@@ -513,18 +513,23 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   assert(Fs.write(root .. "/vendor/lua/PIN", "version 1"))
   assert(Fs.write(root .. "/cosmic/thing.tl",
     "--- A thing.\nlocal record Thing\nend\nreturn Thing\n"))
-  local function derived_with(boot_hash: string, plant: boolean): integer
+  local function derived_with(boot_hash: string, plant: boolean, analyzer?: string): integer
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
     assert(Sqlite.run(handle.db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', ?1)",
       { { text = boot_hash } }))
+    if analyzer ~= nil then
+      assert(Sqlite.run(handle.db,
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+        { { text = analyzer } }))
+    end
     if plant then
       -- Under the real source's hash, so only the analyzer sweep, and
       -- not the ordinary collection of rows no input refers to, can
       -- remove it.
       assert(Sqlite.run(handle.db,
-        "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
+        "INSERT OR REPLACE INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
         "exported, kind, signature, text, line) SELECT source_hash, 99, " ..
         "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
         "FROM inputs WHERE path = 'cosmic.thing'"))
@@ -540,6 +545,12 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   assert(derived_with("tool-one", true) == 1, "the same analyzer forgot its rows")
   -- A different analyzer: everything derived is gone and re-derived.
   assert(derived_with("tool-two", false) == 0, "a changed analyzer kept stale rows")
+  -- The same tree, derived by another binary: a stale tool rebuilding
+  -- itself derives with its own, older code, and its rows are not this
+  -- binary's.
+  assert(derived_with("tool-two", true) == 1)
+  assert(derived_with("tool-two", true, "an older binary tool-two") == 0,
+    "rows another binary derived were kept")
 end
 
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
@@ -737,4 +748,57 @@ local function test_compile_rejects_a_bad_public_fallible_signature()
   work.close(handle)
   assert(result == nil)
   assert(trouble:find("exactly (value, string)", 1, true), trouble)
+end
+
+--- `cosmic.sys`'s documentation points into the header it is generated
+--- from, not into the generated source: each row's line is its
+--- declaration's own line in core/syscalls.h, through the build and
+--- into the shipped database, along with the worked examples that pair
+--- with it though it is only a declaration.
+local function test_generated_syscall_docs_carry_header_lines()
+  local root = assert(write_fixture("syscall-lines", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["core/syscalls.h"] = table.concat({
+      "/*",
+      " * --- Reads bytes.",
+      " * ---@param fd integer descriptor",
+      " * ---@return string|nil data bytes",
+      " * ---@return string error failure",
+      " * ---@return integer errno number",
+      " */",
+      "COSMIC_SYSCALL(read, 1);",
+      "",
+      "/*",
+      " * ---@class Constants",
+      " * ---@field O_RDONLY integer open for reading",
+      " */",
+    }, "\n") .. "\n",
+    ["cosmic/sys_example.tl"] = table.concat({
+      'local syscalls = require("cosmic.sys")',
+      "local Example = {}",
+      "function Example.read()",
+      "  syscalls.read(0)",
+      "end",
+      "return Example",
+    }, "\n") .. "\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local result = assert(importer.compile(handle, built, "syscall-lines-test"))
+  assert(writer.write_result(handle, root .. "/out.db", result))
+  work.close(handle)
+
+  local out = assert(Sqlite.open(root .. "/out.db", false))
+  local rows = assert(Sqlite.text_rows(out,
+    "SELECT symbol, file, line, text FROM docs WHERE module = 'cosmic.sys' " ..
+    "AND symbol IN ('read', 'O_RDONLY') ORDER BY symbol"))
+  local examples = assert(Sqlite.text_rows(out,
+    "SELECT name FROM examples WHERE module = 'cosmic.sys'"))
+  assert(out:close())
+  assert(#examples == 1 and examples[1][1] == "read", tostring(#examples))
+  assert(#rows == 2, tostring(#rows))
+  assert(rows[1][1] == "O_RDONLY" and rows[1][2] == "core/syscalls.h" and
+    rows[1][3] == "12", table.concat(rows[1], " "))
+  assert(rows[2][1] == "read" and rows[2][3] == "8", table.concat(rows[2], " "))
+  assert(rows[2][4]:find("Reads bytes.", 1, true) == 1, rows[2][4])
 end

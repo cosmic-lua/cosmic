@@ -27,12 +27,15 @@ local record Call
   prose: {string}
   parameters: {Parameter}
   results: {Result}
+  --- The header line of the macro that names it.
+  line: integer
 end
 
 local record Field
   name: string
   kind: string
   description: string
+  line: integer
 end
 
 local record Class
@@ -40,6 +43,8 @@ local record Class
   summary: string
   prose: {string}
   fields: {Field}
+  --- The header line of its `@class` tag.
+  line: integer
 end
 
 --- Everything one read of the header found: two lists, together, so a
@@ -69,21 +74,23 @@ local function teal_type(text: string): string
   return table.concat(parts, " | ")
 end
 
---- The annotation lines of a block comment, with the comment's own
---- decoration removed. Returns nil when the comment is not one.
-local function annotation_lines(comment: string): {string} | nil
+--- The annotation lines of a block comment that opens on header line
+--- `first`, with the comment's own decoration removed, and the header
+--- line each one is on. Both are empty when the comment is not one.
+local function annotation_lines(comment: string, first: integer): {string}, {integer}
   local lines: {string} = {}
+  local at: {integer} = {}
+  local offset = 0
   for line in (comment .. "\n"):gmatch("([^\n]*)\n") do
     local text = line:match("^%s*%*?%s?(.*)$") or line
     text = text:gsub("%s+$", "")
     if text:sub(1, 3) == "---" then
       lines[#lines + 1] = text:sub(4)
+      at[#at + 1] = first + offset
     end
+    offset = offset + 1
   end
-  if #lines == 0 then
-    return nil
-  end
-  return lines
+  return lines, at
 end
 
 --- `lines` without the blank lines at either end.
@@ -105,6 +112,7 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
     prose = {},
     parameters = {},
     results = {},
+    line = 0,
   }
   for _, line in ipairs(lines) do
     local tag, rest = line:match("^@(%a+)%s+(.*)$")
@@ -168,12 +176,13 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
   return call
 end
 
-local function parse_class(lines: {string}): Class | nil, string
-  local class: Class = { name = "", summary = "", prose = {}, fields = {} }
-  for _, line in ipairs(lines) do
+local function parse_class(lines: {string}, at: {integer}): Class | nil, string
+  local class: Class = { name = "", summary = "", prose = {}, fields = {}, line = 0 }
+  for index, line in ipairs(lines) do
     local tag, rest = line:match("^@(%a+)%s+(.*)$")
     if tag == "class" then
       class.name = rest:match("^(%S+)") or ""
+      class.line = at[index]
     elseif tag == "field" then
       local fname, kind, description = rest:match("^([%w_]+)%s+(%S+)%s*(.*)$")
       if fname == nil then
@@ -183,6 +192,7 @@ local function parse_class(lines: {string}): Class | nil, string
         name = fname,
         kind = teal_type(kind),
         description = description,
+        line = at[index],
       }
     elseif tag == nil then
       local text = line:gsub("^%s+", "")
@@ -209,6 +219,11 @@ end
 function generator.read(header: string): Declarations | nil, string
   local calls: {Call} = {}
   local classes: {Class} = {}
+  -- The header line `position` is on.
+  local function line_of(position: integer): integer
+    local _, newlines = header:sub(1, position - 1):gsub("\n", "")
+    return newlines + 1
+  end
   local at = 1
   while true do
     local from, to, comment = header:find("/%*(.-)%*/", at)
@@ -216,8 +231,8 @@ function generator.read(header: string): Declarations | nil, string
       break
     end
     at = to + 1
-    local lines = annotation_lines(comment)
-    if lines ~= nil then
+    local lines, lines_at = annotation_lines(comment, line_of(from))
+    if #lines > 0 then
       local tail = header:sub(at, at + 200)
       local name, arity_text =
         tail:match("^%s*COSMIC_SYSCALL%(([%w_]+)%s*,%s*(%d+)%s*%)")
@@ -226,6 +241,7 @@ function generator.read(header: string): Declarations | nil, string
         if call == nil then
           return nil, trouble
         end
+        call.line = line_of(header:find("COSMIC_SYSCALL", at, true) or at)
         local arity = tonumber(arity_text) or -1
         if #call.parameters ~= arity then
           return nil, name .. ": the header declares " .. arity ..
@@ -241,7 +257,7 @@ function generator.read(header: string): Declarations | nil, string
           end
         end
         if has_class then
-          local class, trouble = parse_class(lines)
+          local class, trouble = parse_class(lines, lines_at)
           if class == nil then
             return nil, trouble
           end
@@ -354,6 +370,23 @@ function generator.declaration(header: string): string | nil, string
   out[#out + 1] = "end"
   out[#out + 1] = ""
   out[#out + 1] = "return syscalls"
+  out[#out + 1] = ""
+  out[#out + 1] = "-- Where each declaration above sits in core/syscalls.h, which"
+  out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
+  out[#out + 1] = "-- `build.importer`'s `origin_lines`."
+  for _, class in ipairs(classes) do
+    local prefix = ""
+    if class.name ~= "Constants" then
+      out[#out + 1] = "-- line " .. class.name .. " " .. class.line
+      prefix = class.name .. "."
+    end
+    for _, field in ipairs(class.fields) do
+      out[#out + 1] = "-- line " .. prefix .. field.name .. " " .. field.line
+    end
+  end
+  for _, call in ipairs(calls) do
+    out[#out + 1] = "-- line " .. call.name .. " " .. call.line
+  end
   out[#out + 1] = ""
   return table.concat(out, "\n")
 end

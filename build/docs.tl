@@ -474,9 +474,11 @@ local function effective_counts(view: docs.View, entries: {docs.Entry})
 end
 
 --- Resolves module ownership once for a docs command or direct caller.
---- Membership comes from `modules` and `decls` -- `cosmic.sys` is only
---- a declaration -- even when the owning database has no documentation
---- for that module.
+--- Membership comes from `modules`, even when the owning database has
+--- no documentation for that module, and from `decls` -- `cosmic.sys`
+--- is only a declaration -- where it does: a database that copied a
+--- declaration without its documentation must not hide the one that
+--- documents it.
 --- @param public which databases, by index, are public sources
 function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | nil, string
   local scope: {integer: boolean} = {}
@@ -486,7 +488,8 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
   local owners: {string: integer} = {}
   for index, db in ipairs(databases) do
     local rows, trouble = Sqlite.text_rows(db,
-      "SELECT path FROM modules UNION SELECT path FROM decls ORDER BY path")
+      "SELECT path FROM modules UNION SELECT path FROM decls " ..
+      "WHERE path IN (SELECT module FROM docs) ORDER BY path")
     if rows == nil then
       return nil, trouble
     end

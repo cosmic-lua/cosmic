@@ -442,3 +442,19 @@ local function test_a_declared_module_is_found_without_a_line()
   local lines = docs.render(view({ db }), found[1])
   assert(lines[1] == "cosmic.sys syscalls.lstat (core/syscalls.h)", lines[1])
 end
+
+--- A database that copied a declaration without its documentation --
+--- an executable's own, which carries every declaration it was built
+--- against -- does not hide the database that documents it.
+local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
+  local copy = database({}, {}, nil, {})
+  assert(copy:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
+  local rows: {{string}} = {
+    { "cosmic.sys", "syscalls.lstat", "field", "lstat: function(path: string)",
+      "Describes a path.", "core/syscalls.h", "154" },
+  }
+  local documented = database(rows, {}, nil, {})
+  assert(documented:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
+  local found = assert(docs.lookup(view({ copy, documented }), "lstat"))
+  assert(#found == 1 and found[1].line == 154, tostring(#found))
+end

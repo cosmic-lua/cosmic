@@ -106,3 +106,50 @@ local function test_an_unchanged_file_is_not_rewritten(tmp: string)
   assert(before.mtime_ns == after.mtime_ns and before.size == after.size,
     "an unchanged projection must not be rewritten")
 end
+
+--- A projection a different binary wrote -- a stale tool rebuilding
+--- itself writes `o/cosmic.db` with its own, older writer before the
+--- new tool re-enters -- is not this binary's projection, even of the
+--- same tree: write_result must write it again.
+local function test_a_file_another_binary_wrote_is_rewritten(tmp: string)
+  local handle, result = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  local older = assert(writer.signature(handle, result, "an older binary"))
+  assert(older ~= projected(tmp .. "/out.db"), "the binary must be part of the signature")
+
+  local db = assert(Sqlite.open(tmp .. "/out.db", true))
+  assert(Sqlite.run(db, "UPDATE meta SET value = ?1 WHERE key = 'projected'",
+    { { text = older } }))
+  assert(db:exec("INSERT INTO meta (key, value) VALUES ('older', 'x')"))
+  assert(db:close())
+
+  assert(writer.write_result(handle, tmp .. "/out.db", result))
+  assert(work.close(handle))
+  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local rows = assert(Sqlite.text_rows(out, "SELECT key FROM meta WHERE key = 'older'"))
+  assert(out:close())
+  assert(#rows == 0, "a file another binary wrote must be rewritten")
+end
+
+--- A project's own declaration ships its documentation alongside its
+--- modules', so `cosmic docs` answers for a module the project only
+--- declares.
+local function test_a_declaration_ships_its_docs(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/a"))
+  assert(Fs.write(tmp .. "/a/clock.d.tl", table.concat({
+    "local record clock",
+    "  --- Seconds since the epoch.",
+    "  now: function(): integer",
+    "end",
+    "return clock",
+    "",
+  }, "\n")))
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  assert(work.close(handle))
+  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local rows = assert(Sqlite.text_rows(out,
+    "SELECT text, file, line FROM docs WHERE module = 'clock' AND symbol = 'now'"))
+  assert(out:close())
+  assert(#rows == 1, tostring(#rows))
+  assert(rows[1][1] == "Seconds since the epoch." and rows[1][2] == "clock.d.tl" and
+    rows[1][3] == "3", table.concat(rows[1], " "))
+end
