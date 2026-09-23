@@ -82,6 +82,9 @@ struct decoding {
    * `null` decodes to nil. */
   int null_index;
   int max_depth;
+  /* Whether a number no Lua number holds exactly as an integer, or at
+   * all, decodes as its text rather than the nearest float. */
+  int big_as_string;
 };
 
 /* Pushes `val` as a Lua value and answers 1, or answers 0 having pushed
@@ -107,10 +110,15 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
       break;
       case YYJSON_SUBTYPE_UINT: {
         /* Past a Lua integer's range, a number is the nearest float,
-         * as Lua reads an integer literal that does not fit. */
+         * as Lua reads an integer literal that does not fit -- or its
+         * digits, when the caller asked to keep them. */
         uint64_t u = yyjson_get_uint(val);
         if (u <= (uint64_t)LUA_MAXINTEGER) {
           lua_pushinteger(L, (lua_Integer)u);
+        } else if (d->big_as_string) {
+          char digits[24];
+          snprintf(digits, sizeof digits, "%llu", (unsigned long long)u);
+          lua_pushstring(L, digits);
         } else {
           lua_pushnumber(L, (lua_Number)u);
         }
@@ -120,6 +128,9 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
       lua_pushnumber(L, (lua_Number)yyjson_get_real(val));
       break;
     }
+    return 1;
+    case YYJSON_TYPE_RAW: /* only a big number, and only when asked */
+    lua_pushlstring(L, yyjson_get_raw(val), yyjson_get_len(val));
     return 1;
     case YYJSON_TYPE_STR:
     lua_pushlstring(L, yyjson_get_str(val), yyjson_get_len(val));
@@ -193,10 +204,12 @@ static int read_failure (lua_State *L, const char *text, size_t len,
   return 2;
 }
 
-/* decode(text, null?, max_depth?, json5?): the value `text` holds, and
- * "". nil and a message when it is not one JSON value -- RFC 8259, or
- * JSON5 when `json5` is true -- or nests past `max_depth` (64 by
- * default). JSON `null` is `null` when given, and nil when not. */
+/* decode(text, null?, max_depth?, json5?, big_as_string?): the value
+ * `text` holds, and "". nil and a message when it is not one JSON
+ * value -- RFC 8259, or JSON5 when `json5` is true -- or nests past
+ * `max_depth` (64 by default). JSON `null` is `null` when given, and
+ * nil when not. With `big_as_string`, an integer past 64 bits, or a
+ * number past a double's range, is its own text. */
 static int json_decode (lua_State *L) {
   size_t len;
   const char *text = luaL_checklstring(L, 1, &len);
@@ -206,7 +219,9 @@ static int json_decode (lua_State *L) {
   d.max_depth = checked_depth(L, 3);
   yyjson_read_flag flags = lua_toboolean(L, 4) ? YYJSON_READ_JSON5
                                                : YYJSON_READ_NOFLAG;
-  lua_settop(L, 4);
+  d.big_as_string = lua_toboolean(L, 5);
+  if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
+  lua_settop(L, 5);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
@@ -245,6 +260,15 @@ struct encoding {
   int max_depth;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
+  /* Where, as a path below `$`: `[3].name`. Each level the failure
+   * returns through puts its own segment in front, so the path is
+   * whole once the walk is out. `path_cut` says the outermost segments
+   * did not fit; `out_of_memory` that the failure was not the value's,
+   * so no path is told. */
+  char path[200];
+  size_t path_len;
+  int path_cut;
+  int out_of_memory;
 };
 
 /* Records why the value cannot be encoded, and answers -1 for the
@@ -254,15 +278,74 @@ static int refuse (struct encoding *e, const char *why) {
   return -1;
 }
 
+static int refuse_memory (struct encoding *e) {
+  e->out_of_memory = 1;
+  return refuse(e, "out of memory");
+}
+
+static void prepend_path (struct encoding *e, const char *segment, size_t n) {
+  if (e->path_cut || n >= sizeof e->path - e->path_len) {
+    e->path_cut = 1;
+    return;
+  }
+  memmove(e->path + n, e->path, e->path_len);
+  memcpy(e->path, segment, n);
+  e->path_len += n;
+}
+
+/* `[i]`: an array's index, as Lua counts it, from 1. */
+static void prepend_index (struct encoding *e, lua_Integer i) {
+  char segment[32];
+  int n = snprintf(segment, sizeof segment, "[%lld]", (long long)i);
+  prepend_path(e, segment, (size_t)n);
+}
+
+static int is_word_byte (unsigned char c, int first) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
+         (!first && c >= '0' && c <= '9');
+}
+
+/* `.name` for a key that is a word, and `["some key"]` for any other,
+ * its unprintable bytes shown as `?` and a long one cut short. */
+static void prepend_key (struct encoding *e, const char *s, size_t n) {
+  char segment[48];
+  size_t used = 0;
+  int word = n > 0 && n <= 40;
+  for (size_t i = 0; word && i < n; i++) {
+    word = is_word_byte((unsigned char)s[i], i == 0);
+  }
+  if (word) {
+    segment[used++] = '.';
+    memcpy(segment + used, s, n);
+    used += n;
+  } else {
+    segment[used++] = '[';
+    segment[used++] = '"';
+    for (size_t i = 0; i < n; i++) {
+      if (used > sizeof segment - 8) {
+        memcpy(segment + used, "...", 3);
+        used += 3;
+        break;
+      }
+      unsigned char c = (unsigned char)s[i];
+      if (c == '"' || c == '\\') segment[used++] = '\\';
+      segment[used++] = c >= 0x20 && c < 0x7f ? (char)c : '?';
+    }
+    segment[used++] = '"';
+    segment[used++] = ']';
+  }
+  prepend_path(e, segment, used);
+}
+
 static int put (struct encoding *e, const char *s, size_t n) {
   if (n > e->cap - e->len) {
     size_t room = e->cap == 0 ? 256 : e->cap;
     while (room - e->len < n) {
-      if (room > SIZE_MAX / 2) return refuse(e, "out of memory");
+      if (room > SIZE_MAX / 2) return refuse_memory(e);
       room *= 2;
     }
     char *grown = cosmic_realloc(e->p, room);
-    if (grown == NULL) return refuse(e, "out of memory");
+    if (grown == NULL) return refuse_memory(e);
     e->p = grown;
     e->guard->resource = grown;
     e->cap = room;
@@ -392,7 +475,10 @@ static int put_array (struct encoding *e, int idx, lua_Integer top,
     lua_rawgeti(L, idx, i);
     int status = put_value(e, lua_gettop(L), depth + 1);
     lua_pop(L, 1);
-    if (status < 0) return -1;
+    if (status < 0) {
+      prepend_index(e, i);
+      return -1;
+    }
   }
   if (put_break(e, depth) < 0) return -1;
   return PUT_LITERAL(e, "]");
@@ -406,10 +492,17 @@ static int put_member (struct encoding *e, int key, int value, int first,
   if (put_break(e, depth + 1) < 0) return -1;
   size_t n;
   const char *s = lua_tolstring(L, key, &n);
-  if (put_string(e, s, n) < 0) return -1;
+  if (put_string(e, s, n) < 0) {
+    if (!e->out_of_memory) refuse(e, "cannot encode a key that is not UTF-8");
+    return -1;
+  }
   if (PUT_LITERAL(e, ":") < 0) return -1;
   if (e->pretty && PUT_LITERAL(e, " ") < 0) return -1;
-  return put_value(e, value, depth + 1);
+  if (put_value(e, value, depth + 1) < 0) {
+    prepend_key(e, s, n);
+    return -1;
+  }
+  return 0;
 }
 
 /* One key of an object being sorted: its bytes live in the object,
@@ -616,7 +709,13 @@ static int json_encode (lua_State *L) {
   e.guard = cosmic_guard_push(L, cosmic_free);
   if (put_value(&e, 1, 0) < 0) {
     lua_pushnil(L);
-    lua_pushstring(L, e.failure);
+    if (e.path_len == 0 || e.out_of_memory) {
+      lua_pushstring(L, e.failure);
+    } else {
+      e.path[e.path_len] = '\0';
+      lua_pushfstring(L, "%s at $%s%s", e.failure, e.path_cut ? "..." : "",
+                      e.path);
+    }
     return 2;
   }
   lua_pushlstring(L, e.p, e.len);

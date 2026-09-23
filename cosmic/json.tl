@@ -94,6 +94,12 @@ local record Json
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
     json5: boolean
+    --- Decode an integer that does not fit in 64 bits, or a number
+    --- past a double's range, as its digits in a string rather than
+    --- the nearest float (default false): `18446744073709551615` stays
+    --- exact as `"18446744073709551615"`. For large unsigned IDs. It
+    --- encodes back as a string, not a number.
+    big_numbers_as_strings: boolean
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
@@ -113,7 +119,8 @@ function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
     return raw.decode(text)
   end
-  return raw.decode(text, opts.null_value, opts.max_depth, opts.json5)
+  return raw.decode(text, opts.null_value, opts.max_depth, opts.json5,
+    opts.big_numbers_as_strings)
 end
 
 --- What JSON calls a decoded value, for a wrong-shape message.
@@ -157,13 +164,68 @@ end
 --- function, userdata other than `Json.null`, NaN or an infinity, a
 --- string that is not UTF-8, a table whose keys are neither all strings
 --- nor all integers from 1 up, an array with a hole, or nesting past
---- `max_depth`. nil encodes as `null`.
+--- `max_depth`. The message says where, as a path from the value:
+--- `cannot encode a function at $.users[3].name`, with array indices
+--- counted from 1 as Lua counts them. nil encodes as `null`.
 function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, string
   if opts == nil then
     return raw.encode(value)
   end
   return raw.encode(value, opts.pretty, opts.indent, opts.sorted,
     opts.max_depth, opts.nan_as_null, opts.sparse_as_null)
+end
+
+--- The values of JSON Lines text (NDJSON): one JSON value to a line,
+--- in a marked array, and "". A blank line is skipped, and a line may
+--- end in `\r\n`. nil and a message naming the line when one is not
+--- JSON. `opts` applies to every line; a `null` line leaves a hole
+--- unless `null_value` is given.
+function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil, string
+  local values = raw.array()
+  local number = 0
+  local count = 0
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    number = number + 1
+    if line:find("%S") then
+      count = count + 1
+      local value, err = Json.decode(line, opts)
+      if err ~= "" then
+        local located = err:gsub("^invalid JSON at line 1,", "invalid JSON at line " .. number .. ",")
+        if located == err then
+          located = "line " .. number .. ": " .. err
+        end
+        return nil, located
+      end
+      values[count] = value
+    end
+  end
+  return values, ""
+end
+
+--- `values[1]` to `values[#values]` as JSON Lines text: each value's
+--- compact JSON on its own line, every line ending in a newline, and
+--- "". nil and a message naming the value when one cannot be encoded.
+--- `pretty` is ignored, since a value must keep to its line.
+function Json.encode_lines(values: {any}, opts?: Json.EncodeOptions): string | nil, string
+  local line_opts: Json.EncodeOptions = {}
+  if opts ~= nil then
+    line_opts = {
+      sorted = opts.sorted, max_depth = opts.max_depth,
+      nan_as_null = opts.nan_as_null, sparse_as_null = opts.sparse_as_null,
+    }
+  end
+  local lines: {string} = {}
+  for i = 1, #values do
+    local text, err = Json.encode(values[i], line_opts)
+    if text == nil then
+      return nil, "value " .. i .. ": " .. err
+    end
+    lines[i] = text
+  end
+  if #lines == 0 then
+    return "", ""
+  end
+  return table.concat(lines, "\n") .. "\n", ""
 end
 
 --- Marks `t` as a JSON array, so it encodes as `[]` even when empty,

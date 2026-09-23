@@ -55,4 +55,20 @@ function Example.array()
   assert(Json.encode(Json.array()) == "[]")
 end
 
+--- JSON Lines (NDJSON): one value to a line, as logs and CLI tools
+--- write it.
+function Example.decode_lines()
+  local events, err = Json.decode_lines('{"level": "info"}\n{"level": "warn"}\n')
+  assert(events ~= nil, err)
+  assert(#events == 2)
+  print(Json.encode_lines(events))
+end
+
+--- A value that cannot be encoded is named by where it is.
+function Example.encode_failure()
+  local _, why = Json.encode({ users = { { name = "ada" }, { name = print } } })
+  print(why)
+  assert(why == "cannot encode a function at $.users[2].name")
+end
+
 return Example

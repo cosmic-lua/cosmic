@@ -284,7 +284,7 @@ local function test_values_json_cannot_say()
   assert(encode_failure(coroutine.create(print)) == "cannot encode a thread", "thread")
   local hasher = assert(Hash.hasher("sha256"))
   assert(encode_failure(hasher) == "cannot encode a userdata", "userdata")
-  assert(encode_failure({ f = print }) == "cannot encode a function", "nested")
+  assert(encode_failure({ f = print }) == "cannot encode a function at $.f", "nested")
 end
 
 local function test_depth_limits()
@@ -331,7 +331,8 @@ local function test_unsorted_keeps_every_member()
     assert(back["k" .. i] == i, "member k" .. i)
   end
   assert(encoded({}, { sorted = false }) == "{}", "empty")
-  assert(encode_failure({ a = print }, { sorted = false }) == "cannot encode a function", "a failure")
+  assert(encode_failure({ a = print }, { sorted = false }) == "cannot encode a function at $.a",
+    "a failure")
 end
 
 local function test_sorted_is_byte_order()
@@ -423,4 +424,65 @@ local function test_any_bytes_are_answered()
       assert(value == nil, "a failure carries no value")
     end
   end
+end
+
+local function test_an_encode_failure_says_where()
+  local users = { { name = "ada" }, { name = "bob" }, { name = print } }
+  assert(encode_failure({ users = users }) == "cannot encode a function at $.users[3].name",
+    "a path through objects and arrays")
+  assert(encode_failure({ ["a key"] = { 1, 0 / 0 } }) == 'cannot encode NaN at $["a key"][2]',
+    "a key that is not a word is quoted")
+  assert(encode_failure({ ['q"\1'] = print }) == 'cannot encode a function at $["q\\"?"]',
+    "its quotes escaped and its unprintable bytes shown as ?")
+  assert(encode_failure({ x = { 1, nil, 3 } as {any} }) ==
+    "cannot encode an array with a hole at index 2 at $.x", "a table's own failure names the table")
+  assert(encode_failure({ x = { ["\xff"] = 1 } }) == "cannot encode a key that is not UTF-8 at $.x",
+    "a bad key is the object's")
+  assert(encode_failure(print) == "cannot encode a function", "nothing to say at the top")
+  assert(encode_failure({ a = print }, { sorted = false }) == "cannot encode a function at $.a",
+    "unsorted too")
+  local long = string.rep("k", 60)
+  local deep: {string: any} = { [long] = print }
+  for _ = 1, 8 do deep = { [long] = deep } end
+  local where = encode_failure(deep)
+  assert(where:match('^cannot encode a function at %$%.%.%.%["k') and where:sub(-5) == '..."]',
+    "a path too long keeps its innermost segments: " .. where)
+end
+
+local function test_big_numbers_as_strings()
+  local keep = { big_numbers_as_strings = true }
+  local v = decoded('{"id": 18446744073709551615, "big": 123456789012345678901234567890,' ..
+    ' "fits": 9223372036854775807, "neg": -9223372036854775809, "huge": 1e400, "f": 0.5}', keep)
+    as {string: any}
+  assert(v.id == "18446744073709551615", "past a Lua integer, below 2^64")
+  assert(v.big == "123456789012345678901234567890", "past 64 bits")
+  assert(v.neg == "-9223372036854775809", "below the smallest integer")
+  assert(v.huge == "1e400", "past a double")
+  assert(v.fits == math.maxinteger and math.type(v.fits as number) == "integer", "what fits is a number")
+  assert(v.f == 0.5, "and so is an ordinary float")
+  assert(math.type(decoded("18446744073709551615") as number) == "float", "the default is unchanged")
+  assert(encoded(v.id) == '"18446744073709551615"', "it encodes back as a string")
+end
+
+local function test_json_lines()
+  local values, err = Json.decode_lines('{"a": 1}\n[2]\r\n\n  \n"three"\nnull\n4')
+  assert(values ~= nil, err)
+  assert((values[1] as {string: any}).a == 1 and (values[2] as {integer})[1] == 2, "values in order")
+  assert(values[3] == "three" and values[4] == nil and values[5] == 4, "blank lines skipped, null a hole")
+  assert(Json.is_array(values), "a marked array")
+  local empty = Json.decode_lines("")
+  assert(empty ~= nil and #empty == 0, "no lines")
+  local _, bad = Json.decode_lines('1\n\n{"a": tru}\n')
+  assert(bad == "invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
+  local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
+  assert(deep == "line 2: JSON nests deeper than 1 levels", deep)
+  local kept = Json.decode_lines("null\n1", { null_value = Json.null })
+  assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
+  assert(Json.encode_lines({ { b = 1, a = { 1 } }, "x", 3 }, { pretty = true }) ==
+    '{"a":[1],"b":1}\n"x"\n3\n', "one compact value to a line")
+  assert(Json.encode_lines({}) == "", "no values, no text")
+  local _, why = Json.encode_lines({ 1, { f = print } })
+  assert(why == "value 2: cannot encode a function at $.f", why)
+  local text = assert(Json.encode_lines({ { a = 1 }, Json.array() }))
+  assert(encoded((Json.decode_lines(text))) == '[{"a":1},[]]', "a round trip")
 end
