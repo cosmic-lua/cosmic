@@ -310,6 +310,13 @@ local function main(argv: {integer:string}): integer
     say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
     return 0
   end
+  if verb == "test" and argv[2] == "--worker" then
+    -- One test in a process of its own, started by `cosmic test`: see
+    -- build.test_worker. Never stale-checked or rebuilt, since the run
+    -- that started it already was.
+    local worker = require("build.test_worker")
+    return worker.run(argv)
+  end
   if verb == "test" then
     local test = require("build.test")
     return test.run(argv)

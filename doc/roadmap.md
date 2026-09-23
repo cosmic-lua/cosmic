@@ -11,6 +11,10 @@ defines the target; once something ships, it leaves this file.
   `docs/design/cast-legality.md` are useful implementation and migration
   evidence.
 - add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
+- make the checker choose an overload by the number of values a multi-value
+  last argument expands to. `tonumber(assert(Fs.read(p)))` checks against
+  `tonumber(any)` while the `""` error slot reaches `base` at run time; a
+  function that is not overloaded already refuses the same spill.
 - add C tests and C coverage. They should use the same discovery and command as
   Lua and Teal tests, with one combined report. The current direction is LLVM
   source coverage for `core/*.c`, a vendored profile runtime for each target,
@@ -23,22 +27,15 @@ defines the target; once something ships, it leaves this file.
 
 ## process isolation and containment
 
-Fix `cosmic.child_test`'s two descendant-cleanup tests first. They fail on a
-host whose PID 1 does not reap orphans, as in some containers: the killed
-grandchild stays a zombie reparented to PID 1, and `kill(pid, 0)` still
-succeeds on a zombie. Either the test counts a zombie as gone, or `cosmic.child`
-becomes a child subreaper (`PR_SET_CHILD_SUBREAPER` on Linux) so the group it
-kills is also reaped by the process that killed it. The second choice also
-serves the per-test runner below, which must not leak descendants either.
+Start test workers without the portable launcher. Each worker is this binary
+again, and the shell launcher's `uname`, `id`, `stat`, and `sha256sum` steps
+cost about 23 ms of the roughly 43 ms a minimal worker takes to start. A
+host-only "assimilated" program -- the native core with the database appended,
+executed directly -- would skip them, and serve any repeated self-launch.
 
-Run each test in a child with a fresh temporary directory, captured streams,
-and a per-test deadline; `cosmic.child` needs output collection for this. The
-child must not open the build database; it reports a result to the build
-process, which alone records the verdict. A command-level budget measures total
-suite time but cannot replace the per-test deadline that kills a hung test. The
-intended controls are `--timeout SECONDS` and an environment-variable default;
-choose the variable's name when the runner can enforce it, and the default from
-the recorded per-test durations.
+Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
+child subreaper and `Child.end_strays` ends them; macOS has no subreaper, so a
+process group a timed-out test started for itself is left to launchd.
 
 Add build and test sandbox fencing: a `cosmic.sandbox` module and conformance
 matrix implementing the portable policy in design.md, required in CI, with

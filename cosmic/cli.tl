@@ -20,7 +20,11 @@ local record Cli
   run: string
   --- `cosmic test`: builds the tree in the working directory, then
   --- runs every test it defines -- see test, Example -- which
-  --- `cosmic docs` also shows under every symbol an example calls
+  --- `cosmic docs` also shows under every symbol an example calls.
+  --- Each test runs in a process of its own, `--jobs N` at a time (one
+  --- per processor by default), and fails if it runs past `--timeout
+  --- SECONDS` (`COSMIC_TEST_TIMEOUT`, else 30); what a failing test
+  --- printed is shown beneath it
   test: string
   --- `cosmic fix`: rewrites every Teal source in the working
   --- directory structurally, then writes it back out as canonical
