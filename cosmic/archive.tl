@@ -48,7 +48,9 @@ local record Archive
     --- "skip" (the default) or "create". Created symlinks are made
     --- last, after every other entry, and nothing is ever written
     --- through one, so no symlink -- this archive's or one already in
-    --- `dest` -- can redirect a write outside `dest`.
+    --- `dest` -- can redirect a write outside `dest`. A link's target
+    --- may pass only through directories already extracted, never
+    --- through another link or a name that does not exist yet.
     links: string
     --- What to do with an entry that cannot be extracted: a hard
     --- link, a device, a FIFO, a sparse file. "error" (the default)
@@ -406,9 +408,13 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   end
 
   --- Whether `target`, read from the directory `parts[1..n]`, walks
-  --- through any symlink -- one this archive makes, or one already in
-  --- `dest` -- before its last component. The lexical `stays_inside`
-  --- check is only sound when it does not.
+  --- through anything but a real directory already in `dest` before
+  --- its last component: a symlink this archive makes or `dest`
+  --- already holds, or a name that is missing. The lexical
+  --- `stays_inside` check is only sound when it does not. A missing
+  --- name counts because it may be another link's name under a
+  --- different spelling: on a case-insensitive filesystem `x -> b/..`
+  --- then `B -> .` makes `x` dest's parent, though no `b` exists.
   local function target_crosses_link(parts: {string}, n: integer, target: string): boolean
     local at: {string} = {}
     for i = 1, n do at[i] = parts[i] end
@@ -422,7 +428,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
         local st = sys.lstat(dest .. "/" .. rel)
-        if st ~= nil and st.kind == "link" then return true end
+        if st == nil or st.kind ~= "dir" then return true end
       end
     end
     return false
@@ -435,7 +441,8 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     local ok, why = ensure_dirs(parts, #parts - 1, link.rel)
     if not ok then return false, why end
     if target_crosses_link(parts, #parts - 1, link.target) then
-      return false, "archive: refusing a symlink whose target runs through another symlink: " ..
+      return false, "archive: refusing a symlink whose target runs through another symlink " ..
+        "or a missing directory: " ..
         link.rel
     end
     local full = dest .. "/" .. link.rel

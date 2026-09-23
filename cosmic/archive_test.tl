@@ -345,6 +345,36 @@ local function test_extract_refuses_a_link_target_that_walks_through_another_lin
   assert(written == nil and trouble:find("runs through another symlink", 1, true) ~= nil, trouble)
 end
 
+local function test_extract_refuses_a_link_target_through_a_missing_directory(tmp: string)
+  -- x -> b/.. with no `b`: on a case-insensitive filesystem the link
+  -- B -> . answers for `b`, and x becomes dest's parent
+  local archive = tmp .. "/case.tar"
+  tar_of(archive, function(tw: Tar.TarWriter)
+    assert(tw:add_symlink("x", "b/.."))
+    assert(tw:add_symlink("B", "."))
+  end)
+  local written, trouble = Archive.extract(archive, tmp .. "/out", { links = "create" })
+  assert(written == nil and trouble:find("runs through another symlink or a missing directory", 1,
+    true) ~= nil, trouble)
+  assert(Fs.readlink(tmp .. "/out/x") == nil)
+end
+
+local function test_extract_creates_links_through_real_directories(tmp: string)
+  local archive = tmp .. "/libs.tar"
+  tar_of(archive, function(tw: Tar.TarWriter)
+    assert(tw:add_file("lib/libfoo.so.1", "elf"))
+    assert(tw:add_symlink("lib/libfoo.so", "libfoo.so.1"))
+    assert(tw:add_file("lib/x", "tool"))
+    assert(tw:add_symlink("bin/x", "../lib/x"))
+    assert(tw:add_symlink("bin/y", "../lib/../lib/x"))
+  end)
+  local dest = tmp .. "/out"
+  assert(Archive.extract(archive, dest, { links = "create" }))
+  assert(Fs.read(dest .. "/lib/libfoo.so") == "elf")
+  assert(Fs.read(dest .. "/bin/x") == "tool")
+  assert(Fs.read(dest .. "/bin/y") == "tool")
+end
+
 local function test_extract_refuses_to_write_through_a_symlink_already_in_dest(tmp: string)
   local archive = tmp .. "/a.tar"
   tar_of(archive, function(tw: Tar.TarWriter)
