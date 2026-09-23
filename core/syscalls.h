@@ -32,6 +32,18 @@
  * arguments come off the Lua stack, not a C parameter list. */
 #define COSMIC_SYSCALL(name, arity) int cosmic_sys_##name(lua_State *L)
 
+/* A path argument's bytes, or NULL when they hold a NUL byte. C reads a
+ * path only up to its first NUL, so a call handed "a\0/../b" would act
+ * on "a" -- a different file from the one the caller named, and one a
+ * check made on the whole string never saw. A path can come from bytes
+ * the caller did not write (an archive entry, say), so every call that
+ * takes one refuses such a path as a runtime failure, EINVAL, rather
+ * than raising. A non-string still raises, as any argument-shape error
+ * does. `spawn`, whose path and cwd refused a NUL by raising before
+ * this rule, still does: `cosmic.child` depends on it, and neither way
+ * truncates. */
+const char *cosmic_path(lua_State *L, int index);
+
 /*
  * --- What `stat`, `lstat` and `fstat` report about a path.
  * ---@class Stat
@@ -282,6 +294,12 @@ COSMIC_SYSCALL(exit, 1);
 COSMIC_SYSCALL(getpid, 0);
 
 /*
+ * --- Returns the real user identifier the process runs as.
+ * ---@return integer uid the user identifier
+ */
+COSMIC_SYSCALL(getuid, 0);
+
+/*
  * --- Replaces the process with another program. It returns only on failure.
  * ---@param path string the executable to run
  * ---@param argv {string} the arguments, the program's own name first
@@ -417,6 +435,22 @@ COSMIC_SYSCALL(ignore_sigpipe, 0);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
+ * --- The host as `uname(2)` names it: raw values, unnormalized, for a
+ * --- caller to map onto its own host names.
+ * ---@class Uname
+ * ---@field sysname string the kernel name: "Linux", "Darwin"
+ * ---@field machine string the machine: "x86_64", "aarch64", "arm64"
+ */
+
+/*
+ * --- The host's kernel name and machine, as `uname(2)` reports them.
+ * ---@return Uname|nil uname the two names, or nil on failure
+ * ---@return string error what went wrong, when uname is nil
+ * ---@return integer errno the error number, when uname is nil
+ */
+COSMIC_SYSCALL(uname, 0);
+
+/*
  * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
  * --- Only one guard may be active; callers must restore it when done.
  * ---@return boolean ok false on failure
@@ -503,6 +537,47 @@ COSMIC_SYSCALL(deflate, 1);
 COSMIC_SYSCALL(inflate, 2);
 
 /*
+ * --- Creates a symbolic link at `path` pointing at `target`. `target`
+ * --- is stored verbatim and is never resolved.
+ * ---@param target string the link's contents
+ * ---@param path string the link to create
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(symlink, 2);
+
+/*
+ * --- Reads a symbolic link's target.
+ * ---@param path string the link to read
+ * ---@return string|nil target the link's contents, or nil on failure
+ * ---@return string error what went wrong, when target is nil
+ * ---@return integer errno the error number, when target is nil
+ */
+COSMIC_SYSCALL(readlink, 1);
+
+/*
+ * --- Sets a path's access and modification times, in whole seconds
+ * --- since the epoch. The link itself is changed, not its target.
+ * ---@param path string the path to change
+ * ---@param atime_s integer the access time to set
+ * ---@param mtime_s integer the modification time to set
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(utimens, 3);
+
+/*
+ * --- Flushes a descriptor's data and metadata to storage.
+ * ---@param fd integer the descriptor to flush
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(fsync, 1);
+
+/*
  * --- The numbers the calls above take and give back. They come from
  * --- this libc, so nothing above the table carries a platform's own.
  * ---@class Constants
@@ -532,6 +607,7 @@ COSMIC_SYSCALL(inflate, 2);
  * ---@field ESRCH integer there is no such process or group
  * ---@field EBADF integer the descriptor is not open
  * ---@field ENOSYS integer this platform has no such call
+ * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal

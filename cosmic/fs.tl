@@ -127,6 +127,7 @@ end
 
 --- Creates a directory and every missing directory above it.
 function Fs.mkdirs(path: string): boolean, string
+  path = path:gsub("(.)/+$", "%1")
   if path == "" or path == "/" then
     return true, ""
   end
@@ -173,6 +174,76 @@ function Fs.mkdtemp(prefix: string): string | nil, string
   return path, ""
 end
 
+--- A directory of this user's own at `path`, made 0700 when missing:
+--- one that exists owned by another user, or writable by its group or
+--- by others, is refused, since whatever such a directory holds could
+--- have been put there by someone else.
+local function private_dir(path: string): boolean, string
+  local made, why, number = sys.mkdir(path, 0x1c0)
+  if not made and number ~= sys.EEXIST then
+    return false, path .. ": " .. why
+  end
+  local st, trouble = sys.stat(path)
+  if st == nil then
+    return false, path .. ": " .. trouble
+  end
+  if st.kind ~= "dir" then
+    return false, path .. ": not a directory"
+  end
+  if st.uid ~= sys.getuid() then
+    return false, path .. ": owned by another user"
+  end
+  if st.mode & 0x12 ~= 0 then
+    return false, path .. ": writable by its group or others"
+  end
+  return true, ""
+end
+
+--- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
+--- when `XDG_CACHE_HOME` is unset, empty or not absolute, created when
+--- missing. What a tool keeps there it trusts on later runs, so there
+--- is no shared fallback: with neither variable naming an absolute
+--- path this is nil and an error, as it is when the base directory is
+--- owned by another user (root aside), or `cosmic` or `cosmic/<tool>`
+--- under it is owned by another user or writable by its group or by
+--- others. The two are made 0700 when missing. `environment` is the
+--- variables to read, by default the process's own.
+function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil, string
+  local function get(name: string): string
+    if environment ~= nil then
+      return environment[name] or ""
+    end
+    return Env.get_or(name, "")
+  end
+  local base = get("XDG_CACHE_HOME")
+  if base:sub(1, 1) ~= "/" then
+    local home = get("HOME")
+    if home:sub(1, 1) ~= "/" then
+      return nil, "no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
+    end
+    base = home .. "/.cache"
+  end
+  local made, trouble = Fs.mkdirs(base)
+  if not made then
+    return nil, trouble
+  end
+  local st, strouble = Fs.stat(base)
+  if st == nil then
+    return nil, strouble
+  end
+  if st.uid ~= sys.getuid() and st.uid ~= 0 then
+    return nil, base .. ": owned by another user"
+  end
+  local dir = base .. "/cosmic"
+  for _, path in ipairs({ dir, dir .. "/" .. tool }) do
+    local ok, ptrouble = private_dir(path)
+    if not ok then
+      return nil, ptrouble
+    end
+  end
+  return dir .. "/" .. tool, ""
+end
+
 --- Removes a name: the path operation corresponding to os.remove. A name that
 --- is already gone is not a failure.
 function Fs.remove(path: string): boolean, string
@@ -181,6 +252,38 @@ function Fs.remove(path: string): boolean, string
     return true, ""
   end
   return false, path .. ": " .. trouble
+end
+
+--- Removes a path and, when it is a directory, everything under it:
+--- the `rm -rf` a scratch directory wants. A link is removed, never
+--- followed, so nothing outside `path` is touched. A path that is
+--- already gone is not a failure.
+function Fs.remove_tree(path: string): boolean, string
+  local st, trouble, number = sys.lstat(path)
+  if st == nil then
+    if number == sys.ENOENT or number == sys.ENOTDIR then
+      return true, ""
+    end
+    return false, path .. ": " .. trouble
+  end
+  if st.kind ~= "dir" then
+    return Fs.remove(path)
+  end
+  local entries, list_trouble = sys.readdir(path)
+  if entries == nil then
+    return false, path .. ": " .. list_trouble
+  end
+  for name in pairs(entries) do
+    local gone, why = Fs.remove_tree(path .. "/" .. name)
+    if not gone then
+      return false, why
+    end
+  end
+  local removed, rmdir_trouble, rmdir_number = sys.rmdir(path)
+  if not removed and rmdir_number ~= sys.ENOENT then
+    return false, path .. ": " .. rmdir_trouble
+  end
+  return true, ""
 end
 
 --- The names in a directory, sorted, without `.` and `..`.
@@ -299,6 +402,44 @@ end
 --- are the standard-stream descriptors used instead of io.write/io.output.
 function Fs.put(fd: integer, data: string): boolean, string
   return write_all(fd, data)
+end
+
+--- Creates a symbolic link at `path` pointing at `target`, which is
+--- stored verbatim and never resolved.
+function Fs.symlink(target: string, path: string): boolean, string
+  local made, trouble = sys.symlink(target, path)
+  if not made then
+    return false, path .. ": " .. trouble
+  end
+  return true, ""
+end
+
+--- The target of a symbolic link.
+function Fs.readlink(path: string): string | nil, string
+  local target, trouble = sys.readlink(path)
+  if target == nil then
+    return nil, path .. ": " .. trouble
+  end
+  return target, ""
+end
+
+--- Sets a path's access and modification times, in whole seconds since
+--- the epoch. Changes the link itself, not its target.
+function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean, string
+  local set, trouble = sys.utimens(path, atime_s, mtime_s)
+  if not set then
+    return false, path .. ": " .. trouble
+  end
+  return true, ""
+end
+
+--- Flushes a descriptor's data and metadata to storage.
+function Fs.fsync(fd: integer): boolean, string
+  local ok, trouble = sys.fsync(fd)
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
 end
 
 Fs.stdin = 0

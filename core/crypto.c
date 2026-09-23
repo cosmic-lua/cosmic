@@ -52,7 +52,7 @@ static const struct algorithm algorithms[] = {
     {"sha3-384", PSA_ALG_SHA3_384}, {"sha3-512", PSA_ALG_SHA3_512},
 };
 
-static psa_algorithm_t by_name(const char *name) {
+psa_algorithm_t cosmic_hash_algorithm(const char *name) {
   for (size_t i = 0; i < sizeof algorithms / sizeof *algorithms; i++) {
     if (strcmp(algorithms[i].name, name) == 0) {
       return algorithms[i].alg;
@@ -67,7 +67,7 @@ int cosmic_crypto_init(void) {
 
 int cosmic_digest(const char *name, const void *data, size_t len,
                   unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
-  psa_algorithm_t alg = by_name(name);
+  psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
     return -1;
   }
@@ -78,7 +78,7 @@ int cosmic_digest(const char *name, const void *data, size_t len,
 int cosmic_digest_fd(const char *name, int fd, uint64_t offset,
                      uint64_t length,
                      unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
-  psa_algorithm_t alg = by_name(name);
+  psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) return -1;
   if (offset > (uint64_t)INT64_MAX || length > (uint64_t)INT64_MAX - offset)
     return PSA_ERROR_INVALID_ARGUMENT;
@@ -112,7 +112,7 @@ int cosmic_digest_fd(const char *name, int fd, uint64_t offset,
 int cosmic_hmac(const char *name, const void *key, size_t key_len,
                 const void *data, size_t len,
                 unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
-  psa_algorithm_t alg = by_name(name);
+  psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
     return -1;
   }

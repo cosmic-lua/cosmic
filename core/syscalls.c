@@ -22,6 +22,7 @@ extern long syscall(long, ...);
 #endif
 #include <time.h>
 #include <unistd.h>
+#include <sys/utsname.h>
 
 #include "check.h"
 #include "fail.h"
@@ -41,6 +42,22 @@ extern long syscall(long, ...);
 extern char **environ;
 #define COSMIC_ENVIRON environ
 #endif
+
+const char *cosmic_path(lua_State *L, int index) {
+  size_t length;
+  const char *value = luaL_checklstring(L, index, &length);
+  if (memchr(value, '\0', length) != NULL) return NULL;
+  return value;
+}
+
+/* An execve argument or environment string with no NUL inside it, or
+ * NULL: a NUL would silently cut the string short. */
+static const char *whole_string(lua_State *L, int index) {
+  size_t length;
+  const char *value = lua_tolstring(L, index, &length);
+  if (value == NULL || memchr(value, '\0', length) != NULL) return NULL;
+  return value;
+}
 
 COSMIC_SYSCALL(executable, 0) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
@@ -91,6 +108,11 @@ COSMIC_SYSCALL(exit, 1) {
 
 COSMIC_SYSCALL(getpid, 0) {
   lua_pushinteger(L, (lua_Integer)getpid());
+  return 1;
+}
+
+COSMIC_SYSCALL(getuid, 0) {
+  lua_pushinteger(L, (lua_Integer)getuid());
   return 1;
 }
 
@@ -167,54 +189,62 @@ COSMIC_SYSCALL(hmac, 3) {
   return hashed(L, status, mac, mac_len);
 }
 
-/* The argv and environment arrays are built from the Lua tables, which
- * stay on the stack and so keep every string alive until execve, which
- * frees nothing on success because nothing of this process remains. */
+/* Everything that can raise happens before anything is allocated: argv
+ * entries, environment names and values must already be strings, and
+ * each "NAME=value" entry is built by concatenation into a table on the
+ * stack, which is what keeps its bytes alive. After the two calloc()s
+ * only raw reads of strings the stack already holds remain, so nothing
+ * between them and free() can raise. execve frees nothing on success
+ * because nothing of this process remains. */
 COSMIC_SYSCALL(execve, 3) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
   luaL_checktype(L, 2, LUA_TTABLE);
   luaL_checktype(L, 3, LUA_TTABLE);
 
-  lua_Integer count = luaL_len(L, 2);
-  char **argv = calloc((size_t)count + 1, sizeof *argv);
-  if (argv == NULL) {
-    return cosmic_fail(L, ENOMEM);
-  }
+  lua_Integer count = (lua_Integer)lua_rawlen(L, 2);
   for (lua_Integer i = 1; i <= count; i++) {
-    lua_geti(L, 2, i);
-    argv[i - 1] = (char *)luaL_checkstring(L, -1);
+    if (lua_rawgeti(L, 2, i) != LUA_TSTRING)
+      return luaL_argerror(L, 2, "argv entries must be strings");
     lua_pop(L, 1);
   }
 
-  /* Each "NAME=value" entry is built by concatenation and kept in a
-   * table on the stack, which is what keeps its bytes alive; the key
-   * itself is left exactly as lua_next needs it. */
   lua_newtable(L);
   int entries = lua_gettop(L);
   lua_Integer variables = 0;
   lua_pushnil(L);
   while (lua_next(L, 3) != 0) {
-    luaL_checktype(L, -2, LUA_TSTRING);
+    if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TSTRING)
+      return luaL_argerror(L, 3, "environment names and values must be strings");
     lua_pushvalue(L, -2);
     lua_pushliteral(L, "=");
     lua_pushvalue(L, -3);
     lua_concat(L, 3);
-    lua_seti(L, entries, ++variables);
+    lua_rawseti(L, entries, ++variables);
     lua_pop(L, 1);
   }
+  if (path == NULL) return cosmic_fail(L, EINVAL);
+
+  char **argv = calloc((size_t)count + 1, sizeof *argv);
   char **envp = calloc((size_t)variables + 1, sizeof *envp);
-  if (envp == NULL) {
-    free(argv);
-    return cosmic_fail(L, ENOMEM);
+  int number = ENOMEM;
+  if (argv == NULL || envp == NULL) goto done;
+  number = EINVAL;
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_rawgeti(L, 2, i);
+    argv[i - 1] = (char *)whole_string(L, -1);
+    lua_pop(L, 1);
+    if (argv[i - 1] == NULL) goto done;
   }
   for (lua_Integer i = 1; i <= variables; i++) {
-    lua_geti(L, entries, i);
-    envp[i - 1] = (char *)lua_tostring(L, -1);
+    lua_rawgeti(L, entries, i);
+    envp[i - 1] = (char *)whole_string(L, -1);
     lua_pop(L, 1);
+    if (envp[i - 1] == NULL) goto done;
   }
 
   execve(path, argv, envp);
-  int number = errno;
+  number = errno;
+done:
   free(envp);
   free(argv);
   return cosmic_fail(L, number);
@@ -659,6 +689,19 @@ COSMIC_SYSCALL(cpu_count, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(uname, 0) {
+  struct utsname info;
+  if (uname(&info) != 0) {
+    return cosmic_fail(L, errno);
+  }
+  lua_createtable(L, 0, 2);
+  lua_pushstring(L, info.sysname);
+  lua_setfield(L, -2, "sysname");
+  lua_pushstring(L, info.machine);
+  lua_setfield(L, -2, "machine");
+  return 1;
+}
+
 static volatile sig_atomic_t child_cancelled;
 static int child_signals_guarded;
 static struct sigaction previous_int;
@@ -803,6 +846,7 @@ static const luaL_Reg table[] = {
     ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
     ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
+    ENTRY(getuid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
     ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
     ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
@@ -810,7 +854,8 @@ static const luaL_Reg table[] = {
     ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
     ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
     ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
-    ENTRY(relaunch),
+    ENTRY(relaunch), ENTRY(uname),
+    ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
     {NULL, NULL},
 };
 
@@ -848,6 +893,7 @@ static const struct constant constants[] = {
     {"ESRCH", ESRCH},
     {"EBADF", EBADF},
     {"ENOSYS", ENOSYS},
+    {"EINVAL", EINVAL},
     {"SIGHUP", SIGHUP},
     {"SIGINT", SIGINT},
     {"SIGQUIT", SIGQUIT},

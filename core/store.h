@@ -24,17 +24,22 @@ int cosmic_store_install(lua_State *L, sqlite3 *binary,
                          const struct cosmic_artifact *artifact);
 
 /* Registers the value on top of the stack (popped) as the raw module a
- * trusted caller's `require(name)` resolves to. `name` is
- * "cosmic.internal.store", "cosmic.internal.sqlite", or
- * "cosmic.internal.debug"; nothing else is ever looked up this way. */
+ * trusted caller's `require(name)` resolves to. core/surface.c's
+ * coverage collector is the one outside caller; store.c's own
+ * `raw_modules` table names every raw module there is. */
 void cosmic_store_set_raw(lua_State *L, const char *name);
 
-/* Puts the raw value already registered under `name` (see
- * cosmic_store_set_raw) into package.preload, unconditionally. Boot mode
- * is the only caller: before any artifact database is opened, the whole tree is
- * trusted source, and the bridge's own searcher does not go through the
- * trust-gated store searcher at all. A shipped binary never calls this. */
-void cosmic_store_preload_raw(lua_State *L, const char *name);
+/* Opens and registers every raw module core C builds on its own --
+ * the sqlite, hash, compress and http bindings -- and the table of
+ * them all that `build.entry_points` is handed. */
+void cosmic_store_open_raw(lua_State *L);
+
+/* Puts every registered raw value into package.preload under its own
+ * name, unconditionally. Boot mode is the only caller: before any
+ * artifact database is opened, the whole tree is trusted source, and the
+ * bridge's own searcher does not go through the trust-gated store
+ * searcher at all. A shipped binary never calls this. */
+void cosmic_store_preload_raw(lua_State *L);
 
 /* Copies one entry of the meta table into `out`, NUL-terminated. Returns
  * 0 when the entry is missing, cannot be read, or does not fit in `size`

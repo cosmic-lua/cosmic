@@ -78,3 +78,44 @@ local function test_sql_knows_the_same_digests()
   assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)
   db:close()
 end
+
+local function test_hasher_matches_digest_for_chunked_input()
+  local algorithms: {Hash.Algorithm} = { "sha1", "sha256", "sha512", "md5" }
+  for _, algorithm in ipairs(algorithms) do
+    local whole = string.rep(fox, 37)
+    local hasher = assert(Hash.hasher(algorithm))
+    local pos = 1
+    local sizes = { 1, 2, 3, 5, 8, 13, 4096 }
+    local size_i = 1
+    while pos <= #whole do
+      local size = sizes[(size_i - 1) % #sizes + 1]
+      size_i = size_i + 1
+      local piece = whole:sub(pos, pos + size - 1)
+      hasher:update(piece)
+      pos = pos + #piece
+    end
+    local digest = assert(hasher:digest())
+    assert(digest == Hash.digest(algorithm, whole), algorithm)
+  end
+end
+
+local function test_hasher_throws_after_digest()
+  local hasher = assert(Hash.hasher("sha256"))
+  hasher:update("abc")
+  assert(hasher:digest())
+  local ok, trouble = pcall(function(): string, string
+    return hasher:update("more")
+  end)
+  assert(not ok and tostring(trouble):find("finished", 1, true) ~= nil)
+  local ok2 = pcall(function(): string, string
+    return hasher:digest()
+  end)
+  assert(not ok2)
+end
+
+local function test_hasher_raises_on_an_unknown_algorithm()
+  local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm)
+  assert(not ok)
+  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
+    tostring(trouble))
+end

@@ -1,9 +1,10 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or
---- build, fix, db, docs, uses, help, run) answers with what that verb
---- does. This is not an argument parser for a project's own command
---- line: a project's cmd/<name>/main.tl gets its arguments as a plain
---- array and dispatches on them itself -- see argv.
+--- build, fix, db, docs, uses, help, run, standalone) answers with
+--- what that verb does. This is not an argument parser for a
+--- project's own command line: a project's cmd/<name>/main.tl gets its
+--- arguments as a plain array and dispatches on them itself -- see
+--- argv.
 ---
 --- `cosmic help` is generated from these fields (`cmd/cosmic/main.tl`'s
 --- `verb_help`), in the order `order` gives, rather than keeping a
@@ -18,6 +19,16 @@ local record Cli
   --- returns is a function, calls it with one argument -- see argv --
   --- and exits with the integer it returns, or 0
   run: string
+  --- `cosmic --standalone <file.tl>`: runs one file against this
+  --- binary's own standard library, with no tree around it -- nothing
+  --- staged or built, nothing under o/ written, and no staleness
+  --- check, so it runs the same whatever state the working directory
+  --- is in. The file may require `cosmic.*` modules only; it is
+  --- checked and compiled in memory (a clean compile is cached under
+  --- $XDG_CACHE_HOME/cosmic/standalone), then called as `run` calls
+  --- one -- see argv -- with a record's `main` field standing for a
+  --- returned function
+  standalone: string
   --- `cosmic test`: builds the tree in the working directory, then
   --- runs every test it defines -- see test, Example -- which
   --- `cosmic docs` also shows under every symbol an example calls.
@@ -70,10 +81,10 @@ end
 
 local module: Module = {
   fields = {
-    run = "run", test = "test", fix = "fix", build = "build",
+    run = "run", standalone = "standalone", test = "test", fix = "fix", build = "build",
     db = "db", docs = "docs", uses = "uses", help = "help",
   },
-  order = { "run", "test", "fix", "build", "db", "docs", "uses", "help" },
+  order = { "run", "standalone", "test", "fix", "build", "db", "docs", "uses", "help" },
 }
 
 return module
