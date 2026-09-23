@@ -77,7 +77,7 @@ local record work
   version: string
 end
 
-work.version = "18"
+work.version = "19"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -122,6 +122,11 @@ work.version = "18"
 --- function of the bytes and of that module's rule for what counts as
 --- executable, so a change to the rule bumps `work.version`, as a
 --- change to what a parse records does for `parsed`.
+---
+--- `contracts` is one source that `positions.check_api_contracts` passed,
+--- under one set of fallible syscalls (`fallible`, their names sorted and
+--- joined by spaces): a function of the bytes and that set alone, so a
+--- source it names is not checked again.
 ---
 --- Raw cores remain build outputs under `o/core`; they are never copied into
 --- this working database. The compiler lives in `derived`, the one row there
@@ -278,6 +283,9 @@ work.schema = {
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS contracts (source_hash TEXT NOT NULL,
+                                          fallible TEXT NOT NULL,
+                                          PRIMARY KEY (source_hash, fallible)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
