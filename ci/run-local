@@ -1,0 +1,85 @@
+#!/bin/sh
+# Runs this checkout's CI platform job on this machine, for the host's own
+# target: the same driver phases in the same order, against a fresh
+# candidate snapshot of the working tree, with the environment a workflow
+# job would set. Nothing is written into the checkout except ci/o.
+#
+#   ci/run-local                run every phase from a fresh snapshot
+#   ci/run-local fixtures       re-run named phases against the last run
+#
+# The candidate is a snapshot: the product is built from the tree as it was
+# when the run started, tracked and untracked files alike, but ignored ones
+# not. The fixture tests themselves are read from this checkout's ci/ at the
+# moment they run, so after one full run, `ci/run-local fixtures` exercises
+# an edited fixture against the same products in about a minute.
+#
+# The driver is this checkout's own o/bin/cosmic (run `bin/zig build boot`
+# first), not the pinned release CI uses. State lives outside the checkout,
+# in $COSMIC_CI_LOCAL (default ${TMPDIR:-/tmp}/cosmic-ci-local-<uid>).
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+cosmic=$root/o/bin/cosmic
+[ -x "$cosmic" ] || { echo "run-local: no $cosmic; run bin/zig build boot" >&2; exit 2; }
+
+case $(uname -sm) in
+  'Linux x86_64') target=x86_64-linux-musl ;;
+  'Linux aarch64') target=aarch64-linux-musl ;;
+  'Darwin arm64') target=aarch64-macos ;;
+  *) echo "run-local: unsupported host: $(uname -sm)" >&2; exit 2 ;;
+esac
+
+uid=$(id -u)
+state=${COSMIC_CI_LOCAL:-${TMPDIR:-/tmp}/cosmic-ci-local-$uid}
+case $state in /*) ;; *) echo "run-local: COSMIC_CI_LOCAL must be absolute" >&2; exit 2 ;; esac
+case $state/ in "$root"/*) echo "run-local: state must be outside the checkout" >&2; exit 2 ;; esac
+candidate=$state/candidate
+if [ "$uid" = 0 ]; then
+  echo "run-local: running as root; CI runs as an unprivileged user, so a" \
+    "permission a fixture expects to be refused may be granted here" >&2
+fi
+
+if [ "$#" = 0 ]; then
+  set -- build local-boundary assemble portable portable-boundary fixtures
+fi
+
+for phase in "$@"; do
+  if [ "$phase" = build ]; then
+    # A commit of the whole working tree, made through a private index so
+    # the checkout's own index and stash are untouched.
+    index=$(mktemp "${TMPDIR:-/tmp}/cosmic-ci-local-index.XXXXXX")
+    rm -f "$index"
+    GIT_INDEX_FILE=$index git -C "$root" add -A
+    tree=$(GIT_INDEX_FILE=$index git -C "$root" write-tree)
+    rm -f "$index"
+    snapshot=$(echo "ci/run-local snapshot" |
+      git -C "$root" commit-tree "$tree" -p HEAD)
+    if [ -e "$candidate" ]; then
+      git -C "$root" worktree remove --force "$candidate" 2>/dev/null ||
+        rm -rf "$candidate"
+      git -C "$root" worktree prune
+    fi
+    rm -rf "$state/runner"
+    mkdir -p "$state"
+    git -C "$root" worktree add --quiet --detach "$candidate" "$snapshot"
+    echo "run-local: candidate $snapshot at $candidate" >&2
+  fi
+  [ -d "$candidate" ] || { echo "run-local: no candidate; run the build phase first" >&2; exit 2; }
+  mkdir -p "$state/runner" "$state/logs"
+  log=$state/logs/$phase.log
+  started=$(date +%s)
+  status=0
+  (
+    cd "$root/ci"
+    GITHUB_WORKSPACE=$candidate RUNNER_TEMP=$state/runner \
+    GITHUB_RUN_ID=local GITHUB_RUN_ATTEMPT=1 COSMIC_WORKER=local \
+    TARGET=$target XDG_CACHE_HOME=$state/cache \
+    COSMIC_ZIG_CACHE_SEED=$root/o \
+      exec "$cosmic" cosmic_ci/driver.tl platform "$phase" success
+  ) > "$log" 2>&1 || status=$?
+  echo "run-local: $phase: status $status, $(( $(date +%s) - started )) s, log $log" >&2
+  if [ "$status" != 0 ]; then
+    grep -E '(^| )FAIL|timed out|error' "$log" | head -20 >&2 || :
+    exit "$status"
+  fi
+done

@@ -390,7 +390,10 @@ function work.open(root: string): work.Handle | nil, string
     return work.open(root)
   end
 
-  local begun, begin_trouble = db:exec("BEGIN")
+  -- IMMEDIATE takes the write lock before reading, so a second build of
+  -- the same tree waits for the first (the handle's busy timeout) instead
+  -- of both reading and then one failing to upgrade.
+  local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then
     db:close()
     return nil, path .. ": " .. begin_trouble
@@ -455,7 +458,7 @@ end
 --- Opens another transaction on the run, for a phase that comes after
 --- the projection: the test runner's records, written together.
 function work.begin(handle: work.Handle): boolean, string
-  local begun, trouble = handle.db:exec("BEGIN")
+  local begun, trouble = handle.db:exec("BEGIN IMMEDIATE")
   if not begun then
     return false, trouble
   end
