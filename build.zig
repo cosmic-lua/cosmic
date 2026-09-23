@@ -1043,9 +1043,9 @@ fn core(
 
     // yyjson reads JSON for cosmic.json, and writes each number's
     // shortest form for its encoder. What the core never calls is
-    // compiled out: the incremental reader, file and FILE* I/O, JSON
-    // Pointer and Patch, and every non-standard extension, so nothing
-    // but RFC 8259 JSON can be read however a caller asks.
+    // compiled out: the incremental reader, file and FILE* I/O, and
+    // JSON Pointer and Patch. The non-standard extensions stay, for
+    // the JSON5 a caller asks for by name; every other read is RFC 8259.
     mod.addCSourceFiles(.{
         .root = yyjson.path(b, "src"),
         .files = &.{"yyjson.c"},
@@ -1054,7 +1054,6 @@ fn core(
             "-DYYJSON_DISABLE_INCR_READER=1",
             "-DYYJSON_DISABLE_FILE=1",
             "-DYYJSON_DISABLE_UTILS=1",
-            "-DYYJSON_DISABLE_NON_STANDARD=1",
         },
     });
     mod.addIncludePath(yyjson.path(b, "src"));

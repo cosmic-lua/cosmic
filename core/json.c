@@ -193,10 +193,10 @@ static int read_failure (lua_State *L, const char *text, size_t len,
   return 2;
 }
 
-/* decode(text, null?, max_depth?): the value `text` holds, and "". nil
- * and a message when it is not one JSON value, or nests past
- * `max_depth` (64 by default). JSON `null` is `null` when given, and
- * nil when not. */
+/* decode(text, null?, max_depth?, json5?): the value `text` holds, and
+ * "". nil and a message when it is not one JSON value -- RFC 8259, or
+ * JSON5 when `json5` is true -- or nests past `max_depth` (64 by
+ * default). JSON `null` is `null` when given, and nil when not. */
 static int json_decode (lua_State *L) {
   size_t len;
   const char *text = luaL_checklstring(L, 1, &len);
@@ -204,13 +204,15 @@ static int json_decode (lua_State *L) {
   d.L = L;
   d.null_index = lua_isnoneornil(L, 2) ? 0 : 2;
   d.max_depth = checked_depth(L, 3);
-  lua_settop(L, 3);
+  yyjson_read_flag flags = lua_toboolean(L, 4) ? YYJSON_READ_JSON5
+                                               : YYJSON_READ_NOFLAG;
+  lua_settop(L, 4);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
   yyjson_read_err err;
-  yyjson_doc *doc = yyjson_read_opts((char *)text, len, YYJSON_READ_NOFLAG,
-                                     &allocator, &err);
+  yyjson_doc *doc =
+      yyjson_read_opts((char *)text, len, flags, &allocator, &err);
   if (doc == NULL) return read_failure(L, text, len, &err);
   guard->resource = doc;
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {

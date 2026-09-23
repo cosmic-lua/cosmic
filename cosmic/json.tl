@@ -5,6 +5,15 @@
 --- A failure names the line and column where the text stopped being
 --- JSON. The reader is yyjson, vendored and fuzzed upstream.
 ---
+--- `decode(text, { json5 = true })` reads JSON5 instead -- comments,
+--- trailing commas, single-quoted strings, unquoted keys, hexadecimal
+--- and `+`/`.5`/`5.` numbers, NaN and Infinity -- for text people
+--- write, like configuration. yyjson's JSON5 is a little wider than
+--- the specification: it also takes escapes such as `\a` and `\e`,
+--- unquoted keys with any character past U+007F, and `nan`, `inf` and
+--- `infinity` in any case. Output is always RFC 8259, which every JSON5
+--- reader reads.
+---
 ---     local value, err = Json.decode('{"name": "cosmic", "tags": ["lua"]}')
 ---     if err ~= "" then error(err) end
 ---
@@ -82,6 +91,9 @@ local record Json
     null_value: any
     --- How many arrays and objects may nest, 1 to 1000 (default 64).
     max_depth: integer
+    --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
+    --- Infinity decode to the float they name.
+    json5: boolean
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
@@ -101,7 +113,7 @@ function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
     return raw.decode(text)
   end
-  return raw.decode(text, opts.null_value, opts.max_depth)
+  return raw.decode(text, opts.null_value, opts.max_depth, opts.json5)
 end
 
 --- What JSON calls a decoded value, for a wrong-shape message.

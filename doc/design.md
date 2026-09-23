@@ -213,8 +213,8 @@ implementation exists. HTTP/1.1 framing starts in C on the second
 half of that rule, a fuzzed implementation existing. JSON starts in C
 on the same half: every program that talks to a service parses it,
 and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
-exact, and reads only RFC 8259 once its extensions are compiled out.
-it reads; the core's own C walks the document into Lua values and
+exact, and reads RFC 8259 unless a caller names JSON5 for the one
+read. it reads; the core's own C walks the document into Lua values and
 writes JSON back, with yyjson printing each float's shortest form.
 the benchmark harness, not taste, moves a module across the line in
 either direction.

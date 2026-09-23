@@ -113,6 +113,37 @@ local function test_only_rfc_8259_is_read()
   end
 end
 
+local function test_json5_is_read_when_asked()
+  local five = { json5 = true }
+  local text = [[
+// a comment
+{
+  unquoted: 'single',
+  "trailing": [1, 2,],
+  hex: 0x1F, plus: +1, lead: .5, trail: 5.,
+  /* block */ nl: "a\
+b",
+}
+]]
+  local v = decoded(text, five) as {string: any}
+  assert(v.unquoted == "single", "an unquoted key and a single-quoted string")
+  local list = v.trailing as {integer}
+  assert(#list == 2 and Json.is_array(list), "a trailing comma")
+  assert(v.hex == 31 and math.type(v.hex as number) == "integer", "a hexadecimal integer")
+  assert(v.plus == 1 and v.lead == 0.5 and v.trail == 5.0, "the other number forms")
+  assert(v.nl == "ab", "a line continuation")
+  local nan = decoded("NaN", five) as number
+  assert(nan ~= nan, "NaN is the float")
+  assert(decoded("-Infinity", five) == -math.huge, "and so is -Infinity")
+  assert(decoded("[inf]", five) ~= nil, "yyjson takes inf in any case")
+  assert(decoded("'\\a'", five) == "\a", "and escapes JSON5 does not have")
+  assert(Json.decode_object("{a: 1,}", five) ~= nil, "decode_object takes json5")
+  assert(Json.decode_array("[1,]", five) ~= nil, "and decode_array")
+  assert(decode_failure("{a: 1,}"):match("^invalid JSON"), "the default stays strict")
+  assert(decode_failure("{a: 1", five):match("^invalid JSON at line 1"), "JSON5 fails with a place too")
+  assert(encoded(decoded("{a: [1,],}", five)) == '{"a":[1]}', "output is RFC 8259")
+end
+
 local function test_strings_are_utf8()
   assert(decoded('"\\u0041\\u00e9"') == "A\xc3\xa9", "escapes decode to UTF-8")
   assert(decoded('"\\ud83d\\ude00"') == "\xf0\x9f\x98\x80", "a surrogate pair is one character")
