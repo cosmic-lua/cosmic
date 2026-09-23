@@ -93,12 +93,23 @@ const lua_sources = [_][]const u8{
 };
 
 /// mbedtls's compile-time configuration: digests and HMAC through the
-/// PSA API and nothing else, with randomness from the OS rather than
-/// the library's own entropy and DRBG modules. Flags rather than a
+/// PSA API, plus (since the `fetch`/`http` module landed) the PSA
+/// algorithms and key types a TLS 1.2/1.3 client needs -- ECDHE key
+/// agreement, ECDSA and RSA (PKCS#1v1.5 and PSS) signature verification,
+/// AES-GCM and ChaCha20-Poly1305 record protection, and the TLS 1.2 PRF
+/// and TLS 1.3 HKDF key schedules -- with randomness from the OS rather
+/// than the library's own entropy and DRBG modules. Flags rather than a
 /// header, for the same reason SQLite's are; the header the library
 /// insists on naming is empty. Every file that includes the library's
 /// headers is compiled with these, the core's own included, or the
 /// headers would describe another library.
+///
+/// Most of the classic `MBEDTLS_xxx_C` module flags (ECP_C, RSA_C,
+/// BIGNUM_C, ASN1_PARSE_C, AES_C, GCM_C, CHACHA20_C, ...) are derived
+/// automatically from the PSA_WANT flags below by
+/// `crypto_adjust_config_enable_builtins.h`; naming them here as well
+/// only produces `-Wmacro-redefined` warnings under `-Werror`; see
+/// `mbedtls_tls_config` for the handful that PSA does not derive.
 const mbedtls_config = [_][]const u8{
     "-DTF_PSA_CRYPTO_CONFIG_FILE=\"crypto_config.h\"",
     "-DPSA_WANT_ALG_MD5=1",
@@ -116,6 +127,108 @@ const mbedtls_config = [_][]const u8{
     "-DMBEDTLS_PSA_CRYPTO_C",
     "-DMBEDTLS_PSA_CRYPTO_EXTERNAL_RNG",
     "-DMBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS",
+    // Key agreement and signature verification for ECDHE_ECDSA and
+    // ECDHE_RSA cipher suites.
+    "-DPSA_WANT_ALG_ECDH=1",
+    "-DPSA_WANT_ALG_ECDSA=1",
+    "-DPSA_WANT_ALG_DETERMINISTIC_ECDSA=1",
+    "-DPSA_WANT_ALG_RSA_PKCS1V15_SIGN=1",
+    "-DPSA_WANT_ALG_RSA_PSS=1",
+    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_IMPORT=1",
+    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_EXPORT=1",
+    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_GENERATE=1",
+    "-DPSA_WANT_KEY_TYPE_ECC_KEY_PAIR_BASIC=1",
+    "-DPSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY=1",
+    "-DPSA_WANT_ECC_SECP_R1_256=1",
+    "-DPSA_WANT_ECC_SECP_R1_384=1",
+    "-DPSA_WANT_ECC_SECP_R1_521=1",
+    "-DPSA_WANT_ECC_MONTGOMERY_255=1",
+    "-DPSA_WANT_KEY_TYPE_RSA_KEY_PAIR_IMPORT=1",
+    "-DPSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY=1",
+    // Record protection: AES-GCM and ChaCha20-Poly1305 (TLS 1.2 and 1.3).
+    "-DPSA_WANT_ALG_GCM=1",
+    "-DPSA_WANT_ALG_CHACHA20_POLY1305=1",
+    "-DPSA_WANT_KEY_TYPE_AES=1",
+    "-DPSA_WANT_KEY_TYPE_CHACHA20=1",
+    // Key schedules: TLS 1.2's PRF (HMAC-based) and TLS 1.3's HKDF.
+    "-DPSA_WANT_ALG_HKDF=1",
+    "-DPSA_WANT_ALG_HKDF_EXTRACT=1",
+    "-DPSA_WANT_ALG_HKDF_EXPAND=1",
+    "-DPSA_WANT_ALG_TLS12_PRF=1",
+    "-DPSA_WANT_ALG_TLS12_PSK_TO_MS=1",
+};
+
+/// The handful of `MBEDTLS_xxx` flags the TLS client and X.509
+/// verification path need that `mbedtls_config` above (PSA_WANT_*)
+/// does not derive on its own: the client role and protocol versions
+/// themselves, SNI (a plain HTTP client is always going through a
+/// virtual-hosted server) and peer certificate retention (curl reads
+/// the verified chain back out), and the certificate/key encoding
+/// layers (PK, OID, PEM, base64) that sit above the PSA-derived crypto
+/// primitives. A second configuration-header placeholder, for the same
+/// reason `crypto_config.h` is one.
+const mbedtls_tls_config = [_][]const u8{
+    "-DMBEDTLS_CONFIG_FILE=\"mbedtls_tls_config.h\"",
+    "-DMBEDTLS_SSL_TLS_C=1",
+    "-DMBEDTLS_SSL_CLI_C=1",
+    "-DMBEDTLS_SSL_PROTO_TLS1_2=1",
+    "-DMBEDTLS_SSL_PROTO_TLS1_3=1",
+    "-DMBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL_ENABLED=1",
+    "-DMBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED=1",
+    "-DMBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED=1",
+    "-DMBEDTLS_SSL_SERVER_NAME_INDICATION=1",
+    "-DMBEDTLS_SSL_ALPN=1",
+    "-DMBEDTLS_SSL_KEEP_PEER_CERTIFICATE=1",
+    "-DMBEDTLS_X509_USE_C=1",
+    "-DMBEDTLS_X509_CRT_PARSE_C=1",
+    "-DMBEDTLS_PK_C=1",
+    "-DMBEDTLS_PK_PARSE_C=1",
+    "-DMBEDTLS_OID_C=1",
+    "-DMBEDTLS_PEM_PARSE_C=1",
+    "-DMBEDTLS_BASE64_C=1",
+    "-DMBEDTLS_ERROR_C=1",
+    "-DMBEDTLS_VERSION_C=1",
+};
+
+/// The TLS 1.2/1.3 client and X.509 chain sources under mbedtls's own
+/// `library/`, plus the PK (certificate public-key) and encoding
+/// (ASN.1, PEM, base64) sources that moved under `tf-psa-crypto/extras`
+/// and `tf-psa-crypto/utilities` in the 4.x restructuring -- both
+/// already on the include path the crypto subtree sets up. Server-only
+/// (`ssl_tls12_server.c`, `ssl_tls13_server.c`), session-cache/ticket,
+/// and certificate/key-writing sources are left out: nothing here signs
+/// or serves.
+const mbedtls_tls_sources = [_][]const u8{
+    "ssl_tls.c",
+    "ssl_msg.c",
+    "ssl_ciphersuites.c",
+    "ssl_client.c",
+    "ssl_tls12_client.c",
+    "ssl_tls13_client.c",
+    "ssl_tls13_generic.c",
+    "ssl_tls13_keys.c",
+    "mps_reader.c",
+    "mps_trace.c",
+    "error.c",
+    "version.c",
+    "version_features.c",
+    "x509.c",
+    "x509_crt.c",
+    "x509_oid.c",
+};
+
+const mbedtls_pk_and_encoding_sources = [_][]const u8{
+    "extras/md.c",
+    "extras/pk.c",
+    "extras/pkparse.c",
+    "extras/pk_wrap.c",
+    "extras/pk_ecc.c",
+    "extras/pk_rsa.c",
+    "utilities/asn1parse.c",
+    "utilities/asn1write.c",
+    "utilities/base64.c",
+    "utilities/pem.c",
+    "utilities/oid.c",
 };
 
 const core_sources = [_][]const u8{
@@ -630,6 +743,41 @@ fn core(
             "drivers/builtin/src/sha512.c",
             "platform/platform_util.c",
             "utilities/constant_time.c",
+            // The rest of the driver subtree the TLS-layer PSA_WANT
+            // flags above (ECDH/ECDSA, RSA sign/verify, AES-GCM,
+            // ChaCha20-Poly1305, the TLS 1.2 PRF and TLS 1.3 HKDF) pull
+            // in: big-number and elliptic-curve arithmetic, the AEAD
+            // and cipher dispatch layers, and HMAC-DRBG (deterministic
+            // ECDSA's nonce generator -- the only DRBG built, since
+            // everything else still draws randomness from the OS
+            // through mbedtls_psa_external_get_random).
+            "drivers/builtin/src/bignum.c",
+            "drivers/builtin/src/bignum_core.c",
+            "drivers/builtin/src/bignum_mod.c",
+            "drivers/builtin/src/bignum_mod_raw.c",
+            "drivers/builtin/src/ecp.c",
+            "drivers/builtin/src/ecp_curves.c",
+            "drivers/builtin/src/ecp_curves_new.c",
+            "drivers/builtin/src/ecdsa.c",
+            "drivers/builtin/src/rsa.c",
+            "drivers/builtin/src/rsa_alt_helpers.c",
+            "drivers/builtin/src/aes.c",
+            "drivers/builtin/src/gcm.c",
+            "drivers/builtin/src/chacha20.c",
+            // On aarch64, the NEON-multiblock path splits update() into
+            // this file instead of chacha20.c; harmless to compile
+            // elsewhere, since it is itself `#if`-gated on the same
+            // NEON-multiblock detection.
+            "drivers/builtin/src/chacha20_neon.c",
+            "drivers/builtin/src/chachapoly.c",
+            "drivers/builtin/src/poly1305.c",
+            "drivers/builtin/src/cipher.c",
+            "drivers/builtin/src/cipher_wrap.c",
+            "drivers/builtin/src/block_cipher.c",
+            "drivers/builtin/src/hmac_drbg.c",
+            "drivers/builtin/src/psa_crypto_aead.c",
+            "drivers/builtin/src/psa_crypto_ecp.c",
+            "core/psa_crypto_random.c",
         },
         .flags = &mbedtls_flags,
     });
@@ -640,6 +788,23 @@ fn core(
     }) |dir| {
         mod.addIncludePath(crypto.path(b, dir));
     }
+
+    // mbedtls's own TLS 1.2/1.3 client and X.509 verification layer,
+    // above the PSA crypto subtree just built. See `mbedtls_tls_config`
+    // and `mbedtls_tls_sources` for what and why.
+    const mbedtls_tls_flags = [_][]const u8{"-std=c11"} ++ mbedtls_config ++ mbedtls_tls_config;
+    mod.addCSourceFiles(.{
+        .root = mbedtls.path(b, "library"),
+        .files = &mbedtls_tls_sources,
+        .flags = &mbedtls_tls_flags,
+    });
+    mod.addCSourceFiles(.{
+        .root = crypto,
+        .files = &mbedtls_pk_and_encoding_sources,
+        .flags = &mbedtls_tls_flags,
+    });
+    mod.addIncludePath(mbedtls.path(b, "include"));
+    mod.addIncludePath(mbedtls.path(b, "library"));
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.
