@@ -22,10 +22,11 @@
 --- not reached a fixed point. `cosmic fix --check .` over the whole
 --- tree is how that is checked here, in CI's own format-check step.
 ---
---- In cosmic's own tree it also checks the tree's C, against the rules
---- `build.c` holds: a C file it covers is compiled to its syntax tree, and
---- a finding is a file refused. Nothing is rewritten; a finding is fixed
---- by hand.
+--- In cosmic's own tree it also covers the tree's C: every C file it
+--- covers is written back in the layout `build.c` holds, and every
+--- `.c` file is then compiled to its syntax tree and held to the rules
+--- `build.c` holds, where a finding is a file refused and is fixed by
+--- hand. A header is held to them through the files that include it.
 
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
@@ -311,7 +312,27 @@ function fix.run(argv: {integer:string}): integer
       failures[#failures + 1] = file .. ": C is checked only inside the tree"
     end
   end
-  for _, outcome in ipairs(c_check.check(root, c_files)) do
+  local compiled: {string} = {}
+  for _, file in ipairs(c_files) do
+    local source, read_trouble = Fs.read(root .. "/" .. file)
+    local out, layout_trouble: string, string
+    if source ~= nil then
+      out, layout_trouble = c_check.laid_out(source)
+    else
+      layout_trouble = read_trouble
+    end
+    if out == nil then
+      failures[#failures + 1] = file .. ": " .. layout_trouble
+    elseif out ~= source then
+      changed[#changed + 1] = file
+      if not checking then
+        local written, write_trouble = Fs.write(root .. "/" .. file, out)
+        if not written then failures[#failures + 1] = write_trouble end
+      end
+    end
+    if file:sub(-2) == ".c" then compiled[#compiled + 1] = file end
+  end
+  for _, outcome in ipairs(c_check.check(root, compiled)) do
     if outcome.findings == nil then
       failures[#failures + 1] = outcome.file .. ": " .. outcome.trouble
     else
