@@ -3,6 +3,7 @@
 --- its configuration's name, "sanitized" for the checked one.
 
 local record testing
+  --- The running core's configuration: "sanitized" for the checked one.
   configuration: string
 
   --- Grants the next `after` growing allocations and refuses every one
