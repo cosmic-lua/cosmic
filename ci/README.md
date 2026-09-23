@@ -14,6 +14,22 @@ digest, and copies it to a runner path (`$RUNNER_TEMP/bin/cosmic-driver`,
 which CI then puts on `PATH` via `GITHUB_PATH`). CI then runs the driver in
 place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 
+## running the platform job locally
+
+`ci/run-local` runs the platform job's phases (`build` through `fixtures`) on
+this machine, for its own target, with this checkout's `o/bin/cosmic` as the
+driver instead of the pinned release. It snapshots the working tree, tracked
+and untracked files alike, into a fresh candidate outside the checkout, sets
+the variables a workflow job would, and seeds the zig caches from this
+checkout's `o/`. A full run takes a few minutes. The fixtures are read from
+this checkout's `ci/fixtures/` when they run, so after one full run
+`ci/run-local fixtures` re-runs edited fixtures against the same products.
+Each phase's log is under `$COSMIC_CI_LOCAL/logs/` (default
+`${TMPDIR:-/tmp}/cosmic-ci-local-<uid>`). Run it as an unprivileged user:
+as root, a permission a fixture expects to be refused may be granted.
+
+## runner users
+
 Three legs already run every step as the unprivileged host runner user; the
 fourth, `alpine-x86_64`, is a GitHub job container, which always executes
 `uses:` and `run:` steps as the container's default user. That default user

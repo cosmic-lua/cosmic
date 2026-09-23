@@ -175,6 +175,9 @@ static int sqlite_open(lua_State *L) {
   luaL_setmetatable(L, HANDLE_TYPE);
 
   int rc = sqlite3_open_v2(path, &h->db, flags, NULL);
+  /* Another process may hold the file's lock: two builds of one tree, or a
+   * reader meeting a writer's commit. Wait for it rather than failing. */
+  if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
   for (size_t i = 0; rc == SQLITE_OK && i < sizeof functions / sizeof *functions;
        i++) {
     rc = sqlite3_create_function(

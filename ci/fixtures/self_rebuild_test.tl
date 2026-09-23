@@ -6,6 +6,9 @@ local Fixture = require("cosmic_ci.fixture")
 -- rebuilt-child wait and blocking subprocess call below stays under.
 local child_wait_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
+-- The second readiness comes only after the paused tool has rebuilt itself
+-- from the tree: a whole compile, 3-5 s on a runner, not a handshake.
+local rebuild_timeout_ms <const> = 30000
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
 -- which must itself be exactly `length` bytes. Mirrors self-rebuild test's
@@ -152,10 +155,10 @@ local function fifo(work: string, diagnostics: string, name: string): string
 end
 
 local function await_ready(work: string, diagnostics: string, label: string,
-    path: string)
+    path: string, timeout_ms?: integer)
   local answer = Fixture.run("ready-" .. label,
     { "/usr/bin/env", "cat", path }, work, diagnostics, nil,
-    handshake_timeout_ms)
+    timeout_ms or handshake_timeout_ms)
   assert(Fixture.small(answer.out, 128) == "ready\n",
     "self-rebuild hook readiness differs")
 end
@@ -275,7 +278,8 @@ local function run_rebuild_case(root: string, fixture_dir: string,
 
     release(case_root, diagnostics, "first-" .. action, go)
     -- The rebuilt artifact starts once more at the same logical path.
-    await_ready(case_root, diagnostics, "second-" .. action, ready)
+    await_ready(case_root, diagnostics, "second-" .. action, ready,
+      rebuild_timeout_ms)
     release(case_root, diagnostics, "second-" .. action, go)
 
     local result = finish(child)

@@ -1,4 +1,9 @@
+local Child = require("cosmic.child")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Time = require("cosmic.time")
 local work = require("build.work")
 
 local function count(db: Sqlite.Handle, table_name: string): integer
@@ -67,4 +72,23 @@ local function test_symbol_schema_upgrade_discards_old_analysis(tmp: string)
   for _, row in ipairs(columns) do names[row[2]] = true end
   assert(names["source_symbol"] and names["exported"])
   assert(work.close(upgraded))
+end
+
+--- A second process building the same tree waits for the first's
+--- transaction instead of failing with "database is locked": two builds
+--- of one tree at once, from two terminals or two parallel tests, both
+--- finish.
+local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
+  assert(Fs.write(tmp .. "/main.tl", "return function(): integer return 0 end\n"))
+  local held = assert(work.open(tmp))
+  local output = tmp .. "/second.out"
+  local fd = assert(Fs.open_write(output))
+  local second, trouble = Child.start({ assert(Proc.executable()), "main.tl" },
+    { cwd = tmp, env = Env.all(), stdout = fd, stderr = fd })
+  assert(Fs.close(fd))
+  assert(second, trouble)
+  assert(Time.sleep_ns(300000000))
+  assert(work.abort(held))
+  local result = assert(second:wait(60000))
+  assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
 end
