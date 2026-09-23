@@ -40,6 +40,13 @@ void cosmic_coverage_install (lua_State *L);
  * Built before a fork, since the child may not allocate. */
 char **cosmic_coverage_environment (char **envp);
 
+/* In a process a test started, arranges for it to report the C it runs
+ * (`cosmic_coverage_report`) and hides how from everything after. Called
+ * first thing, before startup can fail, so a process that ends in its
+ * own startup -- a refused portable launch -- still reports; install
+ * calls it too, and a second call does nothing. */
+void cosmic_coverage_prepare (void);
+
 /* In a process a test started, writes the C it has run to the test's
  * directory; does nothing in any other. Runs at exit, and before `_exit`
  * and `execve`, which end this image without it. */

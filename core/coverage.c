@@ -448,6 +448,18 @@ static int coverage_entries (lua_State *L) {
   return 1;
 }
 
+void cosmic_coverage_prepare (void) {
+  const char *children = getenv(CHILDREN_NAME);
+  if (children && children[0] && !reports && set_children(children)) {
+    unsetenv(CHILDREN_NAME);
+    reports = 1;
+#ifdef COSMIC_NATIVE_COVERAGE
+    if (native_count) native_ever = calloc(native_count, 1);
+#endif
+    atexit(cosmic_coverage_report);
+  }
+}
+
 void cosmic_coverage_install (lua_State *L) {
   luaL_newmetatable(L, "cosmic.coverage.collector");
   lua_pushcfunction(L, collector_gc);
@@ -471,16 +483,7 @@ void cosmic_coverage_install (lua_State *L) {
     collector->from_startup = 1;
     lua_sethook(L, native_line_hook, LUA_MASKLINE, 0);
   }
-  /* A process a test started reports what it ran when it exits. */
-  const char *children = getenv(CHILDREN_NAME);
-  if (children && children[0] && !reports && set_children(children)) {
-    unsetenv(CHILDREN_NAME);
-    reports = 1;
-#ifdef COSMIC_NATIVE_COVERAGE
-    if (native_count) native_ever = calloc(native_count, 1);
-#endif
-    atexit(cosmic_coverage_report);
-  }
+  cosmic_coverage_prepare();
   lua_newtable(L);
   lua_pushcfunction(L, coverage_start);
   lua_setfield(L, -2, "start");
