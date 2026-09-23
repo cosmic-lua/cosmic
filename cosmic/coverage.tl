@@ -37,6 +37,10 @@ local record Coverage
   --- leading `@` removed (see cosmic/internal/debug.d.tl).
   type Hits = NativeCoverage.Hits
 
+  --- One of the core's own C functions: `path` and `line` name the line
+  --- it begins on, which a hit names when the function was entered.
+  type Function = NativeCoverage.Function
+
   --- The line of a `called_path` path a call is recorded on.
   called_line: integer
 
@@ -153,6 +157,14 @@ end
 --- @return Hits Every C function's first line, each true
 function Coverage.native_entries(): Coverage.Hits
   return native.entries()
+end
+
+--- Every one of the core's own C functions, by the line it begins on
+--- (`native_entries`) and its name. Empty in a core without native
+--- coverage.
+--- @return {Function} Every C function of the core
+function Coverage.native_functions(): {Coverage.Function}
+  return native.functions()
 end
 
 --- Every process started from now on, and every one those start --

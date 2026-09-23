@@ -114,6 +114,7 @@ extern const char *const cosmic_native_coverage_paths[];
 extern const uint16_t cosmic_native_coverage_path[];
 extern const uint32_t cosmic_native_coverage_line[];
 extern const uint8_t cosmic_native_coverage_entry[];
+extern const char *const cosmic_native_coverage_function[];
 
 static bool *native_flags;
 static size_t native_count;
@@ -473,6 +474,32 @@ static int coverage_lines(lua_State *L) {
   return 1;
 }
 
+/* functions(): every one of the core's own C functions, as a sequence of
+ * {path =, line =, name =}: its file by repository path, the line it
+ * begins on (an `entries` line), and its name. Empty in a core built
+ * without native coverage. */
+static int coverage_functions(lua_State *L) {
+  lua_newtable(L);
+#ifdef COSMIC_NATIVE_COVERAGE
+  if (!native_ready(L)) return 1;
+  lua_Integer at = 0;
+  for (size_t block = 0; block < native_count; block++) {
+    uint16_t path = cosmic_native_coverage_path[block];
+    const char *name = cosmic_native_coverage_function[block];
+    if (path == UINT16_MAX || !cosmic_native_coverage_entry[block] || !name) continue;
+    lua_createtable(L, 0, 3);
+    lua_pushstring(L, cosmic_native_coverage_paths[path]);
+    lua_setfield(L, -2, "path");
+    lua_pushinteger(L, (lua_Integer)cosmic_native_coverage_line[block]);
+    lua_setfield(L, -2, "line");
+    lua_pushstring(L, name);
+    lua_setfield(L, -2, "name");
+    lua_rawseti(L, -2, ++at);
+  }
+#endif
+  return 1;
+}
+
 /* children(directory): every process this one starts from now on, and
  * every one those start, reports the C it ran there as it exits. */
 static int coverage_children(lua_State *L) {
@@ -537,4 +564,6 @@ void cosmic_coverage_install(lua_State *L) {
   lua_setfield(L, -2, "entries");
   lua_pushcfunction(L, coverage_children);
   lua_setfield(L, -2, "children");
+  lua_pushcfunction(L, coverage_functions);
+  lua_setfield(L, -2, "functions");
 }
