@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local test = require("build.test")
 local worker = require("build.test_worker")
 
 local function invoke(root: string, output: string, args: {string},
@@ -96,6 +97,30 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   env.COSMIC_TEST_TIMEOUT = "5"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
+end
+
+--- A fixture runtime's startup hooks pause one startup for a handshake;
+--- a worker inheriting them would pause too, with nobody to release it.
+local function test_workers_start_without_the_startup_hooks(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/hooks_test.tl", [[
+local Env = require("cosmic.env")
+local function test_no_hooks()
+  assert(Env.get("COSMIC_PORTABLE_STARTUP_TEST_READY") == nil)
+  assert(Env.get("KEPT_BY_THE_WORKER") == "yes")
+end
+]]))
+  local env = Env.all()
+  env.COSMIC_PORTABLE_STARTUP_TEST_READY = tmp .. "/never"
+  env.KEPT_BY_THE_WORKER = "yes"
+  local output = tmp .. "/hooks.out"
+  local result = invoke(root, output, { "suite/hooks_test.tl" }, env)
+  assert(result.ok, assert(Fs.read(output)))
+  local kept = test.worker_environment({ COSMIC_PORTABLE_STARTUP_TEST_GO = "x",
+    COSMIC_PORTABLE_CACHE = "c", PATH = "p" })
+  assert(kept.COSMIC_PORTABLE_STARTUP_TEST_GO == nil)
+  assert(kept.COSMIC_PORTABLE_CACHE == "c" and kept.PATH == "p")
 end
 
 local function test_a_report_reads_back_whole_or_not_at_all()

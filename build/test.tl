@@ -919,10 +919,22 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   end
 end
 
+--- The environment a worker starts with: this process's, less the
+--- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
+--- one startup of a fixture runtime for a handshake and belong to this
+--- process's own launch, not to every worker it starts.
+function test.worker_environment(environment: {string:string}): {string:string}
+  local out: {string:string} = {}
+  for name, value in pairs(environment) do
+    if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" then out[name] = value end
+  end
+  return out
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, executable: string,
-                      limits: test.Limits): boolean
+                      limits: test.Limits, environment: {string:string}): boolean
   local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
   if tmp == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
@@ -933,7 +945,7 @@ local function launch(rec: Recording, job: Job, executable: string,
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local handle, trouble = Child.start(
     { executable, "test", "--worker", rec.root, job.m.path, job.name, tmp },
-    { stdin = "null", stdout = "capture", stderr = "stdout",
+    { env = environment, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = { [worker.report_fd] = "capture" } })
   if handle == nil then
     finish(rec, job, nil, trouble, limits)
@@ -953,6 +965,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. exe_trouble
     return 0
   end
+  local environment = test.worker_environment(Env.all())
   local guarded = sys.guard_child_signals()
   local running: {Job} = {}
   local next_job = 1
@@ -961,7 +974,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     while #running < limits.jobs and next_job <= #jobs do
       local job = jobs[next_job]
       next_job = next_job + 1
-      if launch(rec, job, executable, limits) then
+      if launch(rec, job, executable, limits, environment) then
         running[#running + 1] = job
       end
     end
