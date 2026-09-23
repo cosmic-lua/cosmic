@@ -5,8 +5,8 @@
  * x86/arm64 BCJ filters, and the CRC-32, CRC-64 and SHA-256 integrity
  * checks. The build's three targets (musl Linux x86_64/aarch64,
  * macOS aarch64) are all little-endian with 8-byte size_t and a
- * standards-conforming <stdint.h>/<stdbool.h>, so nothing here branches
- * on the host. */
+ * standards-conforming <stdint.h>/<stdbool.h>; only the hardware CRC
+ * choice below branches, and on the target, never the host. */
 
 #ifndef COSMIC_XZ_CONFIG_H
 #define COSMIC_XZ_CONFIG_H
@@ -30,15 +30,37 @@
 #define HAVE_CHECK_CRC64 1
 #define HAVE_CHECK_SHA256 1
 
-/* Every target here supports it; it is what lets crc32_small.c's table
- * build itself the first time it is used instead of the core calling
- * an explicit init function. */
+/* Every target here supports it: it is what lets crc32_fast.c and
+ * crc64_fast.c pick their implementation once, at startup, instead of
+ * on the first call. */
 #define HAVE_FUNC_ATTRIBUTE_CONSTRUCTOR 1
 
-/* Keeps to the size-optimized, table-free CRC32/CRC64 (crc32_small.c /
- * crc64_small.c), which is the pair this tree vendors -- the large
- * precomputed-table versions are not. */
-#define HAVE_SMALL 1
+/* HAVE_SMALL is left undefined on purpose. It would swap in the
+ * table-free CRCs and, worse, drop the LZMA decoder's fast
+ * non-resumable loop, which roughly halves decode throughput. Without
+ * it the CRCs come from crc32_fast.c / crc64_fast.c and their
+ * precomputed little-endian tables.
+ *
+ * The hardware CRC paths below are all chosen at run time: every target
+ * builds for its baseline CPU, so the binary is the same whatever
+ * machine built it, and a CPU without the instructions falls back to
+ * the table code. x86_64 checks CPUID for CLMUL/SSSE3/SSE4.1; aarch64
+ * asks the kernel (getauxval's HWCAP_CRC32 on Linux, the
+ * hw.optional.armv8_crc32 sysctl on macOS), unless the compiler already
+ * knows the target has CRC32 (__ARM_FEATURE_CRC32), in which case it is
+ * used unconditionally. */
+#if defined(__x86_64__)
+#define HAVE_USABLE_CLMUL 1
+#define HAVE_CPUID_H 1
+#elif defined(__aarch64__)
+#define HAVE_ARM64_CRC32 1
+#if defined(__APPLE__)
+#define HAVE_SYSCTLBYNAME 1
+#elif defined(__linux__)
+#define HAVE_GETAUXVAL 1
+#define HAVE_HWCAP_CRC32 1
+#endif
+#endif
 
 #define ASSUME_RAM 128
 

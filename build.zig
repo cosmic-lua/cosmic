@@ -1039,8 +1039,8 @@ fn core(
         .root = xz_src,
         .files = &.{
             "liblzma/check/check.c",
-            "liblzma/check/crc32_small.c",
-            "liblzma/check/crc64_small.c",
+            "liblzma/check/crc32_fast.c",
+            "liblzma/check/crc64_fast.c",
             "liblzma/check/sha256.c",
             "liblzma/common/block_decoder.c",
             "liblzma/common/block_header_decoder.c",

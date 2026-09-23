@@ -33,8 +33,10 @@ local record Hash
   end
 
   --- An incremental digest: feed it chunks with `update`, then read the
-  --- raw digest with `digest`, which finishes it. Calling either method
-  --- again afterward throws.
+  --- raw digest with `digest`, which answers `digest, ""` (or
+  --- `nil, error`) and finishes it. Calling either method again
+  --- afterward throws. A hasher is closeable: `local h <close> = ...`
+  --- abandons an unfinished digest at the end of the scope.
   type Hasher = raw_hash.Hasher
 end
 
@@ -77,9 +79,19 @@ end
 --- An incremental hasher over an algorithm, for data that arrives in
 --- chunks rather than all at once; its raw digest equals
 --- `Hash.digest(algorithm, ...)` over the whole of what was fed to it.
+--- Answers `hasher, ""`, or `nil, error` when the digest cannot start.
 --- Raises on an unknown algorithm, as `digest` and `hmac` do.
 function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher | nil, string
   return raw.hasher(algorithm)
+end
+
+--- The sum of the unsigned bytes of `data` from `first` through `last`
+--- (1-based and inclusive; the whole string by default), as a tar
+--- header checksum adds them up. Raises when `first` is below 1, `last`
+--- is past the end, or `first` is more than one past `last`; an empty
+--- range sums to 0.
+function Hash.byte_sum(data: string, first?: integer, last?: integer): integer
+  return raw.byte_sum(data, first, last)
 end
 
 return Hash
