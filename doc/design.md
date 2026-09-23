@@ -333,7 +333,12 @@ database: compile, check, record, embed. `build.zig` owns the C.
 under `o/vendor/`, and the core for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the vendored `tl.lua`, writes `o/cosmic.db`, and
-attaches it as `o/bin/cosmic`. a fresh clone and CI run `boot`; a
+attaches it to one executable per binary the tree defines,
+`o/bin/<name>`. every `cmd/<name>/main.tl` is one, and a tree may
+hold as many as it likes: each binary carries the same database but
+for the one meta row naming its main module, so no binary picks its
+main by `argv[0]` and a renamed file still runs. a fresh clone and
+CI run `boot`; a
 developer runs `o/bin/cosmic build` the other hundred times a day.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
@@ -532,7 +537,7 @@ core/               C: entry, locator, VFS, store, sqlite, surface, boot
 core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
-cmd/cosmic/         the binary's main
+cmd/<name>/main.tl  one binary each; cmd/cosmic/ is cosmic's own
 build/              the importer, checker driver, embed (Teal, private)
 doc/                prose
 o/                  output; o/cosmic.db, o/records.db; never committed

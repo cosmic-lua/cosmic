@@ -22,10 +22,19 @@ local type Module = positions.Module
 local record importer
   Module: Module
 
+  --- One executable the tree defines: `cmd/<name>/main.tl` is the
+  --- binary `<name>`, whose main module is `cmd.<name>.main`.
+  record Binary
+    name: string
+    main: string
+  end
+
   record Result
     modules: {Module}
     boot_hash: string
-    main: string | nil
+    -- Every binary the tree defines, sorted by name; empty when the
+    -- tree has no `cmd/`.
+    binaries: {Binary}
     -- One message per `kind = "test"` module refused compilation
     -- because it both defines its own tests and returns its own value;
     -- every module NOT in this list compiled and is in `modules`.
@@ -128,6 +137,12 @@ local function kind_of(file: string): string
   return "module"
 end
 
+--- The binary a `kind = "main"` file makes: `cmd/<name>/main.tl` is
+--- `<name>`, which is also the file the build writes under `o/bin/`.
+local function binary_of(file: string): string
+  return file:match("^cmd/([^/]+)/main%.tl$") or ""
+end
+
 --- The modules another module names, in the order they appear.
 ---
 --- Structural, over `file`'s real AST (`build.ast.parse` +
@@ -184,6 +199,12 @@ local function collect(root: string, self_tree: boolean,
         return nil, failure
       end
       local kind = kind_of(file)
+      if kind == "main" and binary_of(file):find(".", 1, true) ~= nil then
+        -- `cmd/a.b/main.tl` would import as `cmd.a.b.main`, the path
+        -- `cmd/a/b/main.tl` has, and name a binary its position does
+        -- not say it is.
+        return nil, file .. ": a binary's name may not hold a '.'"
+      end
       local tests: {string} = {}
       local has_top_level_return = false
       if kind == "test" then
@@ -427,7 +448,7 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
     return nil, why
   end
   local keys: {string:string} = {}
-  local main: string | nil = nil
+  local binaries: {importer.Binary} = {}
   local compiled: {Module} = {}
   local refused: {string} = {}
 
@@ -483,13 +504,16 @@ function importer.compile(root: string, built: compiler, env: compiler.Env,
       end
 
       if m.kind == "main" then
-        main = m.path
+        binaries[#binaries + 1] = { name = binary_of(m.file), main = m.path }
       end
       compiled[#compiled + 1] = m
     end
   end
 
-  return { modules = compiled, boot_hash = boot_hash, main = main,
+  table.sort(binaries, function(a: importer.Binary, b: importer.Binary): boolean
+    return a.name < b.name
+  end)
+  return { modules = compiled, boot_hash = boot_hash, binaries = binaries,
            refused = refused }
 end
 

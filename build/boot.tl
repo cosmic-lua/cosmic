@@ -71,46 +71,72 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  local database_path = root .. "/o/cosmic.db"
-  local written, write_trouble =
-    writer.write(root, database_path, compiler, env, boot_hash, images,
-                 teal_source)
-  if not written then
-    report("boot: FAIL\n" .. write_trouble)
+  local result, compile_trouble = importer.compile(root, compiler, env, boot_hash)
+  if result == nil then
+    report("boot: FAIL\n" .. compile_trouble)
+    return 1
+  end
+  if #result.binaries == 0 then
+    report("boot: FAIL (the tree defines no cmd/<name>/main.tl)")
     return 1
   end
 
-  local database, read_trouble = Fs.read(database_path)
-  if database == nil then
-    report("boot: FAIL (" .. read_trouble .. ")")
+  local made, mkdir_trouble = Fs.mkdirs(root .. "/o/cmd")
+  if not made then
+    report("boot: FAIL (" .. mkdir_trouble .. ")")
     return 1
   end
-
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
+  made, mkdir_trouble = Fs.mkdirs(root .. "/o/bin")
   if not made then
     report("boot: FAIL (" .. mkdir_trouble .. ")")
     return 1
   end
 
-  for _, target in ipairs(targets) do
-    local out = root .. "/o/bin/cosmic-" .. target
-    local ok, failure = attach.write(out, target, images[target], database)
-    if not ok then
-      report("boot: FAIL (" .. failure .. ")")
+  -- One database per binary, each the tree's own with that binary's
+  -- main named, left under o/cmd/ and attached from there.
+  local databases: {string:string} = {}
+  for _, binary in ipairs(result.binaries) do
+    databases[root .. "/o/cmd/" .. binary.name .. ".db"] = binary.main
+  end
+  local database_path = root .. "/o/cosmic.db"
+  local written, write_trouble =
+    writer.write_result(database_path, result, images, teal_source, databases)
+  if not written then
+    report("boot: FAIL\n" .. write_trouble)
+    return 1
+  end
+
+  local database_bytes = 0
+  for _, binary in ipairs(result.binaries) do
+    local database, read_trouble =
+      Fs.read(root .. "/o/cmd/" .. binary.name .. ".db")
+    if database == nil then
+      report("boot: FAIL (" .. read_trouble .. ")")
       return 1
     end
-    if target == host then
-      local same, host_trouble =
-        attach.write(root .. "/o/bin/cosmic", target, images[target], database)
-      if not same then
-        report("boot: FAIL (" .. host_trouble .. ")")
+    database_bytes = database_bytes + #database
+    for _, target in ipairs(targets) do
+      local out = root .. "/o/bin/" .. binary.name .. "-" .. target
+      local ok, failure = attach.write(out, target, images[target], database)
+      if not ok then
+        report("boot: FAIL (" .. failure .. ")")
         return 1
+      end
+      if target == host then
+        local same, host_trouble = attach.write(root .. "/o/bin/" .. binary.name,
+          target, images[target], database)
+        if not same then
+          report("boot: FAIL (" .. host_trouble .. ")")
+          return 1
+        end
       end
     end
   end
 
-  report("boot: PASS (" .. #targets .. " targets, " ..
-    #database .. " database bytes, " .. elapsed_ms(started) .. " ms)")
+  report("boot: PASS (" .. #result.binaries ..
+    (#result.binaries == 1 and " binary, " or " binaries, ") ..
+    #targets .. " targets, " .. database_bytes .. " database bytes, " ..
+    elapsed_ms(started) .. " ms)")
   return 0
 end
 

@@ -89,3 +89,69 @@ local function test_finds_a_real_top_level_require()
   assert(#requires == 1, "expected 1 require, got " .. #requires)
   assert(requires[1] == "real_dep", "got: " .. tostring(requires[1]))
 end
+
+--- Compiles the fixture project at `root`, whole.
+local function compile_fixture(root: string): importer.Result | nil, string
+  local env, env_trouble = teal.environment_for(built, root)
+  if env == nil then
+    return nil, env_trouble
+  end
+  return importer.compile(root, built, env, "importer-test")
+end
+
+--- Every `cmd/<name>/main.tl` is a binary of its own, named by its
+--- directory, and the result lists them all in name order -- not only
+--- whichever main the import order happened to reach last.
+local function test_every_cmd_directory_is_a_binary()
+  local main = "local function main(_argv: {integer:string}): integer\n" ..
+    "  return 0\nend\nreturn main\n"
+  local root, write_trouble = write_fixture("binaries", {
+    ["lib.tl"] = "local record lib\nend\nreturn lib\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  for _, name in ipairs({ "zeta", "alpha", "mid" }) do
+    local made, mkdir_trouble = Fs.mkdirs(root .. "/cmd/" .. name)
+    assert(made, tostring(mkdir_trouble))
+    local ok, trouble = Fs.write(root .. "/cmd/" .. name .. "/main.tl", main)
+    assert(ok, tostring(trouble))
+  end
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "compile failed: " .. tostring(trouble))
+  assert(#result.binaries == 3, "expected 3 binaries, got " .. #result.binaries)
+  local expected = { "alpha", "mid", "zeta" }
+  for i, name in ipairs(expected) do
+    local binary = result.binaries[i]
+    assert(binary.name == name, "binary " .. i .. ": got " .. binary.name)
+    assert(binary.main == "cmd." .. name .. ".main",
+      "binary " .. name .. ": got main " .. binary.main)
+  end
+end
+
+--- A tree with no `cmd/` defines no binaries, and that is no error:
+--- a library is a tree too.
+local function test_a_tree_without_cmd_defines_no_binaries()
+  local root, write_trouble = write_fixture("no-binaries", {
+    ["lib.tl"] = "local record lib\nend\nreturn lib\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local result, trouble = compile_fixture(root)
+  assert(result ~= nil, "compile failed: " .. tostring(trouble))
+  assert(#result.binaries == 0, "expected none, got " .. #result.binaries)
+end
+
+--- `cmd/a.b/main.tl` would import as `cmd.a.b.main`, which is where
+--- `cmd/a/b/main.tl` sits, so a binary's name may not hold a dot.
+local function test_refuses_a_binary_name_with_a_dot()
+  local root, write_trouble = write_fixture("dotted-binary", {
+    ["lib.tl"] = "local record lib\nend\nreturn lib\n",
+  })
+  assert(root ~= nil, "could not write fixture: " .. tostring(write_trouble))
+  local made, mkdir_trouble = Fs.mkdirs(root .. "/cmd/a.b")
+  assert(made, tostring(mkdir_trouble))
+  local ok, failure = Fs.write(root .. "/cmd/a.b/main.tl", "return 0\n")
+  assert(ok, tostring(failure))
+  local result, trouble = compile_fixture(root)
+  assert(result == nil, "expected a refusal")
+  assert(trouble:find("cmd/a.b/main.tl", 1, true) ~= nil,
+    "the refusal should name the file: " .. trouble)
+end

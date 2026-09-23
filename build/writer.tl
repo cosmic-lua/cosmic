@@ -3,8 +3,8 @@
 --- `build.importer` turns the tree into Lua and bytecode; this turns
 --- that result into the database file `require` reads at run time. The
 --- two are split so a caller that needs the compiled modules for
---- itself, such as the test runner, gets them from one compile rather
---- than paying for the second one `write` alone would otherwise run.
+--- itself, such as the test runner or `boot` reading which binaries the
+--- tree defines, gets them from one compile rather than paying for two.
 
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -12,7 +12,6 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
 local schema = require("build.schema")
-local type compiler = require("build.compiler")
 
 local type Module = importer.Module
 
@@ -75,22 +74,45 @@ local function insert_imports(handle: Sqlite.Handle, modules: {Module}): boolean
   return true, ""
 end
 
+--- Leaves the in-memory database at `path`, whole or not at all.
+local function vacuum_into(handle: Sqlite.Handle, path: string): boolean, string
+  Fs.remove(path .. ".building")
+  local vacuumed, vacuum_trouble = Sqlite.run(handle,
+    "VACUUM INTO ?1", { text(path .. ".building") })
+  if not vacuumed then
+    return false, vacuum_trouble
+  end
+  return Fs.rename(path .. ".building", path)
+end
+
 --- Writes an already-compiled result into a fresh database and leaves
---- it at `out`.
+--- it at `out`. That database names no main module, because a tree may
+--- define any number of binaries; each one a caller asks for in
+--- `binaries` is the same database with its own main named, so two
+--- binaries of one tree differ by that one row.
 --- @param images the core image for each target, by target name
 --- @param teal_source the vendored compiler, which a binary must carry
 ---   so it can build a tree of its own; nil when building a project
 ---   with a binary that already has one
+--- @param binaries where to leave each binary's database, by path, and
+---   the main module it names; nil for none
 function writer.write_result(out: string, result: importer.Result,
                              images: {string:string},
-                             teal_source: string | nil): boolean, string
+                             teal_source: string | nil,
+                             binaries?: {string:string}): boolean, string
+  -- A copy, so the vendored compiler's row never lands in the caller's
+  -- result and a second write of the same result stores it once.
+  local modules: {Module} = {}
+  for i, m in ipairs(result.modules) do
+    modules[i] = m
+  end
   if teal_source ~= nil then
     local chunk, load_trouble = load(teal_source, "@vendor.tl", "t")
     if chunk == nil then
       return false, "the vendored compiler would not load: " ..
         tostring(load_trouble)
     end
-    result.modules[#result.modules + 1] = {
+    modules[#modules + 1] = {
       path = "vendor.tl",
       file = "o/vendor/tl/tl.lua",
       kind = "vendor",
@@ -125,11 +147,11 @@ function writer.write_result(out: string, result: importer.Result,
       end
     end
 
-    local stored, module_trouble = insert_modules(handle, result.modules)
+    local stored, module_trouble = insert_modules(handle, modules)
     if not stored then
       return false, module_trouble
     end
-    local edged, import_trouble = insert_imports(handle, result.modules)
+    local edged, import_trouble = insert_imports(handle, modules)
     if not edged then
       return false, import_trouble
     end
@@ -157,7 +179,7 @@ function writer.write_result(out: string, result: importer.Result,
 
     local meta: {{string}} = {
       { "boot_hash", result.boot_hash },
-      { "main", result.main or "" },
+      { "main", "" },
     }
     for _, pair in ipairs(meta) do
       local ok, failure = Sqlite.run(handle,
@@ -174,32 +196,37 @@ function writer.write_result(out: string, result: importer.Result,
     return false, refused
   end
 
-  Fs.remove(out .. ".building")
-  local vacuumed, vacuum_trouble = Sqlite.run(handle,
-    "VACUUM INTO ?1", { text(out .. ".building") })
+  local written, write_trouble = vacuum_into(handle, out)
+  if not written then
+    handle:close()
+    return false, write_trouble
+  end
+
+  local mains: {string:string} = {}
+  if binaries ~= nil then
+    mains = binaries
+  end
+  local paths: {string} = {}
+  for path in pairs(mains) do
+    paths[#paths + 1] = path
+  end
+  table.sort(paths)
+  for _, path in ipairs(paths) do
+    local named, name_trouble = Sqlite.run(handle,
+      "UPDATE meta SET value = ?1 WHERE key = 'main'",
+      { text(mains[path]) })
+    if not named then
+      handle:close()
+      return false, name_trouble
+    end
+    local ok, failure = vacuum_into(handle, path)
+    if not ok then
+      handle:close()
+      return false, failure
+    end
+  end
   handle:close()
-  if not vacuumed then
-    return false, vacuum_trouble
-  end
-
-  return Fs.rename(out .. ".building", out)
-end
-
---- Compiles the whole tree and writes the result into a fresh database
---- at `out`.
---- @param images the core image for each target, by target name
---- @param teal_source the vendored compiler, which a binary must carry
----   so it can build a tree of its own; nil when building a project
----   with a binary that already has one
-function writer.write(root: string, out: string, built: compiler,
-                      env: compiler.Env, boot_hash: string,
-                      images: {string:string},
-                      teal_source: string | nil): boolean, string
-  local result, trouble = importer.compile(root, built, env, boot_hash)
-  if result == nil then
-    return false, trouble
-  end
-  return writer.write_result(out, result, images, teal_source)
+  return true, ""
 end
 
 return writer
