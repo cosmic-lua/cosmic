@@ -183,7 +183,8 @@ end
 local function host_identifier(work: string, diagnostics: string): string
   local sysname = host_uname(work, diagnostics, "-s", "sysname")
   local arch = host_uname(work, diagnostics, "-m", "arch")
-  return sysname .. ":" .. arch
+  -- A launcher arm is the quoted `uname -sm` answer it selects.
+  return "'" .. sysname .. " " .. arch .. "'"
 end
 
 -- The manifest header is a run of human-readable lines within the first
