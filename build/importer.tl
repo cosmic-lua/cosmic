@@ -52,7 +52,24 @@ local record importer
     compiled: integer
     cached: integer
   end
+
+  --- The modules whose code decides what the analysis tables record:
+  --- the importer's own derive and parse, and every module of the tree's
+  --- that the extractors, generators and parser it calls reach. What a
+  --- source parses to is a function of these and of the compiler, and
+  --- of nothing else in the tool; `build/importer_test.tl` holds the
+  --- list closed under `require`.
+  analyzer_modules: {string}
 end
+
+importer.analyzer_modules = {
+  "build.importer",
+  "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
+  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.compiler",
+  "build.doctest", "build.doctest.generate", "build.doctest.markdown",
+  "build.gen_syscalls", "build.positions",
+  "cosmic.env", "cosmic.fs",
+}
 
 --- Whether `root` is cosmic's own tree, structurally. Exposed so a
 --- caller can gate other cosmic's-own-tree behavior on the same test
@@ -288,31 +305,39 @@ end
 --- derived them.
 local analysis_tables: {string} = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "examples",
+  "contracts",
 }
+
+--- The identity of the analyzer that is running: the compiler, and the
+--- source of every one of `importer.analyzer_modules` as the running
+--- binary carries it -- the code actually deriving, which in a stale
+--- tool rebuilding itself is older than the tree's. A binary that
+--- carries no source for one of them can only be named whole.
+local function analyzer_identity(): string
+  local parts: {string} = { Store.meta("compiler") or "" }
+  for _, name in ipairs(importer.analyzer_modules) do
+    local source = Store.source(name)
+    if source == nil then
+      return "binary " .. (Store.meta("boot_hash") or "")
+    end
+    parts[#parts + 1] = name .. "\n" .. source
+  end
+  return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
+end
 
 --- Forgets every derived row when the code that derives them has
 --- changed since they were made. A row keyed by its source's hash is
 --- found again for as long as that source stands, which is right only
 --- while the analyzer stands too: an extractor that learns to see
 --- something new, or a generator that emits differently, must see
---- every source again. The analyzer's identity is the running binary's
---- boot hash and, in cosmic's own tree, the tree's too (every tool
---- input, already in `meta` from this run's staleness check). The tree's
---- alone is not enough: a stale tool rebuilding itself derives and parses
---- with its own, older code before the new tool re-enters, and must not
---- leave rows the new tool takes for its own. A change to anything in
---- the tool reparses everything, which costs a fraction of a second and
---- is never wrong.
-local function forget_stale_analysis(db: Sqlite.Handle, self_tree: boolean): boolean, string
-  local analyzer = Store.meta("boot_hash") or ""
-  if self_tree then
-    local rows, trouble = Sqlite.text_rows(db,
-      "SELECT value FROM meta WHERE key = 'boot_hash'")
-    if rows == nil then
-      return false, trouble
-    end
-    analyzer = analyzer .. " " .. (#rows > 0 and rows[1][1] or "")
-  end
+--- every source again. The analyzer is named by the code that is
+--- running it (`analyzer_identity`), not by the tree: a stale tool
+--- rebuilding itself derives and parses with its own, older code before
+--- the new tool re-enters, and must not leave rows the new tool takes
+--- for its own. Only a change to that code reparses everything; an edit
+--- anywhere else in the tool reparses just what it edited.
+local function forget_stale_analysis(db: Sqlite.Handle): boolean, string
+  local analyzer = analyzer_identity()
   local last, last_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
@@ -370,7 +395,7 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     end
   end
 
-  local forgotten, forget_trouble = forget_stale_analysis(db, self_tree)
+  local forgotten, forget_trouble = forget_stale_analysis(db)
   if not forgotten then
     return false, forget_trouble
   end
@@ -606,6 +631,33 @@ local function collect(handle: work.Handle, self_tree: boolean,
     }
   end
   return out
+end
+
+--- `positions.check_api_contracts` over the modules no earlier build saw
+--- pass under the same fallible syscalls, and a record of each that
+--- passes now: the check parses every module it is handed, and what it
+--- finds is a function of a module's bytes and that set alone.
+local function check_contracts(db: Sqlite.Handle, built: compiler, modules: {Module},
+                               fallible: {string:boolean}, names: string): boolean, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT source_hash FROM contracts WHERE fallible = ?1", { text(names) })
+  if rows == nil then return false, trouble end
+  local passed: {string:boolean} = {}
+  for _, row in ipairs(rows) do passed[row[1]] = true end
+  local unchecked: {Module} = {}
+  for _, m in ipairs(modules) do
+    if not passed[m.source_hash] then unchecked[#unchecked + 1] = m end
+  end
+  if #unchecked == 0 then return true, "" end
+  local contracted, contract_trouble = positions.check_api_contracts(built, unchecked, fallible)
+  if not contracted then return false, contract_trouble end
+  for _, m in ipairs(unchecked) do
+    local ok, why = Sqlite.run(db,
+      "INSERT OR IGNORE INTO contracts (source_hash, fallible) VALUES (?1, ?2)",
+      { text(m.source_hash), text(names) })
+    if not ok then return false, why end
+  end
+  return true, ""
 end
 
 --- The modules in an order where nothing is compiled before what it
@@ -1045,11 +1097,16 @@ function importer.compile(handle: work.Handle, built: compiler,
     local declared, declaration_trouble = gen_syscalls.read(header_rows[1][1])
     if declared == nil then return nil, declaration_trouble end
     local fallible: {string:boolean} = {}
+    local names: {string} = {}
     for _, call in ipairs(declared.calls) do
-      if #call.results == 3 then fallible[call.name] = true end
+      if #call.results == 3 then
+        fallible[call.name] = true
+        names[#names + 1] = call.name
+      end
     end
+    table.sort(names)
     local contracted, contract_trouble =
-      positions.check_api_contracts(built, modules, fallible)
+      check_contracts(handle.db, built, modules, fallible, table.concat(names, " "))
     if not contracted then return nil, contract_trouble end
   end
   local order, why = ordered(modules)
