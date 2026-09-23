@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -298,9 +299,23 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
   if (cosmic_digest_fd("sha256", startup->core_fd, 0, selected->length,
                        digest, &digest_length) != 0 ||
       digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
-      memcmp(digest, selected->sha256, digest_length) != 0)
-    return fail_adoption(artifact, startup->core_fd, -1, error,
-                         "executing core digest differs from manifest");
+      memcmp(digest, selected->sha256, digest_length) != 0) {
+    /* The launcher checks a cached core's kind, owner, mode and length but
+     * leaves its digest to this one pass, so a cached core damaged in place
+     * stops here. Name the entry: removing it lets the next launch extract
+     * it again. */
+    static char corrupt[COSMIC_ARTIFACT_PATH_CAPACITY + 96];
+    char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
+    if (cosmic_executable_path(core_path, sizeof core_path))
+      snprintf(corrupt, sizeof corrupt,
+               "executing core digest differs from manifest; remove %s "
+               "to extract it again", core_path);
+    else
+      snprintf(corrupt, sizeof corrupt,
+               "executing core digest differs from manifest; remove the "
+               "cached core to extract it again");
+    return fail_adoption(artifact, startup->core_fd, -1, error, corrupt);
+  }
 
   int physical_fd = cosmic_executable_fd();
   struct stat physical_stat;

@@ -541,6 +541,46 @@ local function test_runtime_corrupt_ranges(tmp: string)
   Fixture.contains(cold.err, "extracted core digest differs")
 end
 
+-- The launcher does not hash a warm core; startup does, once. A cached core
+-- damaged in place keeps its length, so it runs, and startup refuses it by
+-- naming the entry; removing that entry lets the next launch extract it
+-- again. The damage is the core's last byte: on Linux it lies outside every
+-- loaded segment, so the core still starts; on macOS it is the code
+-- signature, and the kernel refuses the core before startup can speak.
+local function test_runtime_warm_core_damaged_in_place(tmp: string)
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local work = tmp
+  local diagnostics = work .. "/logs"
+  Fixture.mkdir(diagnostics)
+  chmod(fixture_dir .. "/runtime.release", 0x1ed)
+  local cache = work .. "/cache-damaged"
+  local values = { COSMIC_PORTABLE_CACHE = cache }
+  local program = fixture_dir .. "/runtime.release"
+  Fixture.run("damaged-cold", { program, "help" }, work, diagnostics, values)
+
+  local core: string | nil = nil
+  for _, name in ipairs((assert(Fs.list(cache)))) do
+    if name:sub(1, 5) == "core-" then core = cache .. "/" .. name end
+  end
+  local path = assert(core, "cold launch published no core")
+  local bytes = Fixture.read(path)
+  local last = string.char(bytes:byte(#bytes) ~ 0xff)
+  Fixture.write(path, bytes:sub(1, #bytes - 1) .. last, 0x140)
+
+  local damaged = Fixture.call_with_environment("damaged-warm",
+    { program, "help" }, work, diagnostics, Fixture.environment(values))
+  assert(not damaged.result.ok, "a damaged cached core ran")
+  if host_uname(work, diagnostics, "-s", "damaged-sysname") == "Linux" then
+    Fixture.contains(damaged.err,
+      "executing core digest differs from manifest; remove ")
+    Fixture.contains(damaged.err, path:match("[^/]+$") .. " to extract it again")
+  end
+
+  assert(Fs.remove(path))
+  Fixture.run("damaged-removed", { program, "help" }, work, diagnostics, values)
+  assert(Fixture.read(path) == bytes, "re-extracted core differs")
+end
+
 --------------------------------------------------------------------------
 -- 6. Atomic replace/unlink/mismatch races.
 --------------------------------------------------------------------------

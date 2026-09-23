@@ -23,11 +23,6 @@ defines the target; once something ships, it leaves this file.
 
 ## process isolation and containment
 
-Hash the portable core once per start. A warm launch hashes the cached core in
-the launcher and again in C startup; the two SHA-256 passes over the 1.9 MB
-core are about 15 ms of a 23 ms minimal start. Decide which check the trust
-model keeps, then drop the other.
-
 Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and `Child.end_strays` ends them; macOS has no subreaper, so a
 process group a timed-out test started for itself is left to launchd.
