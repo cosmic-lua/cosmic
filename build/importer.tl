@@ -157,6 +157,28 @@ local function duplicate_import_paths(db: Sqlite.Handle): boolean, string
   return true, ""
 end
 
+--- Where a generated source's declarations sit in the file it was
+--- generated from, by symbol: its `-- line <symbol> <line>` comments,
+--- which `build.gen_syscalls` writes. Its own lines say nothing about
+--- that file, so a symbol it does not name has no line: 0. `nil` when
+--- the source names none -- a source written by hand, or generated with
+--- no such map -- whose own lines stand.
+local function origin_lines(source: string): {string: integer} | nil
+  local lines: {string: integer} = {}
+  local any = false
+  for each in source:gmatch("[^\n]+") do
+    local symbol, line = each:match("^%-%- line ([%w_.]+) (%d+)$")
+    if symbol ~= nil then
+      lines[symbol] = math.tointeger(tonumber(line)) or 0
+      any = true
+    end
+  end
+  if not any then
+    return nil
+  end
+  return lines
+end
+
 --- One parse of every source no parse has seen: what it requires, in
 --- order, the tests it defines, and whether it returns its own value.
 --- Structural, over the real AST, never a regex over text: a
@@ -165,7 +187,7 @@ end
 --- dependencies the build order must see.
 local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   local fresh, trouble = Sqlite.text_rows(db,
-    "SELECT source_hash, min(file), source FROM inputs " ..
+    "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
     "WHERE kind <> 'vendor' " ..
     "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
     "GROUP BY source_hash ORDER BY source_hash")
@@ -174,6 +196,7 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
   end
   for _, row in ipairs(fresh) do
     local source_hash, file, source = row[1], row[2], row[3]
+    local mapped = row[4] == "1" and origin_lines(source) or nil
     local parsed, parse_trouble = ast.parse(built, source, file)
     if parsed == nil then
       return false, file .. ": " .. parse_trouble
@@ -220,6 +243,10 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
       end
     end
     for ordinal, entry in ipairs(found.docs) do
+      local line = entry.line
+      if mapped ~= nil then
+        line = mapped[entry.symbol] or 0
+      end
       ok, why = Sqlite.run(db,
         "INSERT INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
         "exported, kind, signature, text, line) " ..
@@ -227,7 +254,7 @@ local function parse_new(db: Sqlite.Handle, built: compiler): boolean, string
         { text(source_hash), { integer = ordinal }, text(entry.symbol),
           text(entry.source_symbol), { integer = entry.exported and 1 or 0 },
           text(entry.kind), text(entry.signature), text(entry.text),
-          { integer = entry.line } })
+          { integer = line } })
       if not ok then
         return false, file .. ": " .. why
       end
@@ -268,22 +295,23 @@ local analysis_tables: {string} = {
 --- found again for as long as that source stands, which is right only
 --- while the analyzer stands too: an extractor that learns to see
 --- something new, or a generator that emits differently, must see
---- every source again. The analyzer's identity is the boot hash: in
---- cosmic's own tree, the tree's (every tool input, already in `meta`
---- from this run's staleness check), and in a project, the running
---- binary's. A change to anything in the tool reparses everything,
---- which costs a fraction of a second and is never wrong.
+--- every source again. The analyzer's identity is the running binary's
+--- boot hash and, in cosmic's own tree, the tree's too (every tool
+--- input, already in `meta` from this run's staleness check). The tree's
+--- alone is not enough: a stale tool rebuilding itself derives and parses
+--- with its own, older code before the new tool re-enters, and must not
+--- leave rows the new tool takes for its own. A change to anything in
+--- the tool reparses everything, which costs a fraction of a second and
+--- is never wrong.
 local function forget_stale_analysis(db: Sqlite.Handle, self_tree: boolean): boolean, string
-  local analyzer: string
+  local analyzer = Store.meta("boot_hash") or ""
   if self_tree then
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT value FROM meta WHERE key = 'boot_hash'")
     if rows == nil then
       return false, trouble
     end
-    analyzer = #rows > 0 and rows[1][1] or ""
-  else
-    analyzer = Store.meta("boot_hash") or ""
+    analyzer = analyzer .. " " .. (#rows > 0 and rows[1][1] or "")
   end
   local last, last_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'analyzer'")

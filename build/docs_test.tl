@@ -425,3 +425,36 @@ local function test_public_use_count_matches_list_across_project_collision()
   assert(entry ~= nil and entry.uses == 0, tostring(entry and entry.uses))
   assert(#assert(docs.uses(layered, "Helper.run")) == 0)
 end
+
+--- A module that is only a declaration -- `cosmic.sys`, generated from
+--- a C header -- is owned through `decls`, and its rows, which carry
+--- no line of their own, render without one.
+local function test_a_declared_module_is_found_without_a_line()
+  local rows: {{string}} = {
+    { "cosmic.sys", "syscalls.lstat", "field",
+      "lstat: function(path: string): Stat | nil, string, integer",
+      "Describes a path, not a link's target.", "core/syscalls.h", "0" },
+  }
+  local db = database(rows, {}, nil, {})
+  assert(db:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
+  local found = assert(docs.lookup(view({ db }), "lstat"))
+  assert(#found == 1 and found[1].module == "cosmic.sys", tostring(#found))
+  local lines = docs.render(view({ db }), found[1])
+  assert(lines[1] == "cosmic.sys syscalls.lstat (core/syscalls.h)", lines[1])
+end
+
+--- A database that copied a declaration without its documentation --
+--- an executable's own, which carries every declaration it was built
+--- against -- does not hide the database that documents it.
+local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
+  local copy = database({}, {}, nil, {})
+  assert(copy:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
+  local rows: {{string}} = {
+    { "cosmic.sys", "syscalls.lstat", "field", "lstat: function(path: string)",
+      "Describes a path.", "core/syscalls.h", "154" },
+  }
+  local documented = database(rows, {}, nil, {})
+  assert(documented:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
+  local found = assert(docs.lookup(view({ copy, documented }), "lstat"))
+  assert(#found == 1 and found[1].line == 154, tostring(#found))
+end

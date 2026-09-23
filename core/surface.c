@@ -4,11 +4,13 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "check.h"
 #include "coverage.h"
 #include "lauxlib.h"
 #include "lualib.h"
 #include "store.h"
 #include "syscalls.h"
+#include "testing.h"
 
 /* A name that was removed says what took its place, at the site that
  * reached for it, rather than in a document somewhere else. */
@@ -71,7 +73,7 @@ static int surface_print(lua_State *L) {
  * reporting a failure needs to say where it happened. */
 static int surface_trace(lua_State *L) {
   const char *message = luaL_optstring(L, 1, NULL);
-  int level = (int)luaL_optinteger(L, 2, 1);
+  int level = cosmic_optint(L, 2, 1);
   luaL_traceback(L, L, message, level);
   return 1;
 }
@@ -152,6 +154,8 @@ lua_State *cosmic_surface_open(const char *logical_executable) {
   lua_setfield(L, -2, "cosmic.sys");
   lua_pushcfunction(L, open_errors);
   lua_setfield(L, -2, "cosmic.internal.errors");
+  lua_pushcfunction(L, cosmic_open_testing);
+  lua_setfield(L, -2, "cosmic.internal.testing");
   lua_pop(L, 1);
 
   lua_newtable(L);

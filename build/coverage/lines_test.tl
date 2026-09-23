@@ -2,6 +2,7 @@
 --- `executable` table `build.work`'s schema adds so a run where a
 --- module's source has not changed answers from `o/build.db` instead
 --- of reparsing it.
+local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")
 local lines = require("build.coverage.lines")
 local teal = require("build.teal")
@@ -77,4 +78,24 @@ local function test_parse_failure_stores_nothing(tmp: string)
     "error should name the file: " .. tostring(trouble))
   assert(count(handle.db, "executable") == 0)
   assert(work.close(handle))
+end
+
+--- Every line counted executable is one the VM can report: a chunk
+--- with no branches, run to completion under this test's own window,
+--- hits each of them. A `local function` statement runs on its `end`
+--- line -- Lua attributes the closure there -- never on its first.
+local function test_every_executable_line_of_straight_code_is_hit()
+  local source = "local function f()\n  return 1\nend\nlocal g = f()\n" ..
+    "local t = {}\nfunction t.h()\n  return g\nend\nlocal h = t.h()\n"
+  local executable = assert(lines.executable(built, source, "straight.tl"))
+  assert(not executable[1], "a local function's first line never runs")
+  assert(executable[3], "a local function runs on its end line")
+  assert(executable[6], "function t.h runs on its first line")
+  local name = "coverage.lines_test.straight"
+  local chunk = assert(load(source, "@" .. name, "t"))
+  chunk()
+  local hit = Coverage.snapshot()[name] or {}
+  for line in pairs(executable) do
+    assert(hit[line], "executable line " .. line .. " was never hit")
+  end
 end

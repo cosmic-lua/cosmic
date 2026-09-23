@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <string.h>
 
+#include "check.h"
 #include "lauxlib.h"
 #include "crypto.h"
 #include "sqlite3.h"
@@ -328,13 +329,13 @@ static int statement_parameters(lua_State *L) {
 
 static int statement_bind_null(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = cosmic_checkint(L, 2);
   return bound(L, sqlite3_bind_null(s->stmt, index), s->db);
 }
 
 static int statement_bind_integer(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = cosmic_checkint(L, 2);
   lua_Integer value = luaL_checkinteger(L, 3);
   return bound(L, sqlite3_bind_int64(s->stmt, index, (sqlite3_int64)value),
                s->db);
@@ -342,14 +343,14 @@ static int statement_bind_integer(lua_State *L) {
 
 static int statement_bind_number(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = cosmic_checkint(L, 2);
   lua_Number value = luaL_checknumber(L, 3);
   return bound(L, sqlite3_bind_double(s->stmt, index, (double)value), s->db);
 }
 
 static int statement_bind_text(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = cosmic_checkint(L, 2);
   size_t len;
   const char *value = luaL_checklstring(L, 3, &len);
   return bound(L,
@@ -360,7 +361,7 @@ static int statement_bind_text(lua_State *L) {
 
 static int statement_bind_blob(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = cosmic_checkint(L, 2);
   size_t len;
   const char *value = luaL_checklstring(L, 3, &len);
   return bound(L,
@@ -389,9 +390,20 @@ static int statement_columns(lua_State *L) {
   return 1;
 }
 
+/* The column argument 2 names, refused unless the statement is on a
+ * row that has it. SQLite leaves a column read out of range, or read
+ * when the last step did not return a row, undefined; sqlite3_data_count
+ * is zero exactly then, so one check covers both. */
+static int checked_column(lua_State *L, struct statement *s) {
+  int index = cosmic_checkint(L, 2);
+  luaL_argcheck(L, index >= 0 && index < sqlite3_data_count(s->stmt), 2,
+                "no such column in the current row");
+  return index;
+}
+
 static int statement_kind(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = checked_column(L, s);
   const char *name;
   switch (sqlite3_column_type(s->stmt, index)) {
     case SQLITE_INTEGER: name = "integer"; break;
@@ -406,14 +418,14 @@ static int statement_kind(lua_State *L) {
 
 static int statement_integer(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = checked_column(L, s);
   lua_pushinteger(L, (lua_Integer)sqlite3_column_int64(s->stmt, index));
   return 1;
 }
 
 static int statement_number(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = checked_column(L, s);
   lua_pushnumber(L, (lua_Number)sqlite3_column_double(s->stmt, index));
   return 1;
 }
@@ -422,7 +434,7 @@ static int statement_number(lua_State *L) {
  * says which it expects and a blob never arrives silently as text. */
 static int statement_bytes(lua_State *L) {
   struct statement *s = checked_statement(L);
-  int index = (int)luaL_checkinteger(L, 2);
+  int index = checked_column(L, s);
   const void *data = sqlite3_column_blob(s->stmt, index);
   int len = sqlite3_column_bytes(s->stmt, index);
   if (data == NULL && len == 0) {

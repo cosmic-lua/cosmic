@@ -945,9 +945,12 @@ end
 --- How a worker is started: this exact program again -- the same core,
 --- whose runtime identity every verdict of the run is keyed under -- with
 --- `test.worker_environment`. A process not started from a portable
---- artifact starts its logical executable instead.
+--- artifact starts its logical executable instead. The worker also
+--- collects coverage from its first instruction (core/coverage.c), so
+--- its first window holds the Lua that loaded before it could open.
 local function worker_start(environment: {string:string}): Proc.Relaunch | nil, string
   local env = test.worker_environment(environment)
+  env.COSMIC_COVERAGE_STARTUP = "1"
   local relaunch = Proc.relaunch()
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end

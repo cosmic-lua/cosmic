@@ -21,7 +21,9 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "check.h"
 #include "fail.h"
+#include "guard.h"
 #include "lauxlib.h"
 #include "syscalls.h"
 
@@ -68,8 +70,8 @@ static void push_stat(lua_State *L, const struct stat *st) {
 COSMIC_SYSCALL(open, 3) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
-  int flags = (int)luaL_checkinteger(L, 2);
-  int mode = (int)luaL_optinteger(L, 3, 0644);
+  int flags = cosmic_checkint(L, 2);
+  int mode = cosmic_optint(L, 3, 0644);
   int fd;
   do {
     /* Every descriptor this table opens is close-on-exec: there is no
@@ -87,7 +89,7 @@ COSMIC_SYSCALL(open, 3) {
 COSMIC_SYSCALL(open_temporary, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
-  int mode = (int)luaL_optinteger(L, 2, 0644);
+  int mode = cosmic_optint(L, 2, 0644);
   static unsigned long serial;
   char temporary[PATH_MAX];
 
@@ -118,7 +120,7 @@ COSMIC_SYSCALL(open_temporary, 2) {
 }
 
 COSMIC_SYSCALL(close, 1) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   if (close(fd) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -126,7 +128,7 @@ COSMIC_SYSCALL(close, 1) {
 }
 
 COSMIC_SYSCALL(read, 2) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   if (count < 0) {
     return luaL_argerror(L, 2, "count is negative");
@@ -148,7 +150,7 @@ COSMIC_SYSCALL(read, 2) {
 }
 
 COSMIC_SYSCALL(pread, 3) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   lua_Integer count = luaL_checkinteger(L, 2);
   lua_Integer offset = luaL_checkinteger(L, 3);
   if (count < 0) {
@@ -174,7 +176,7 @@ COSMIC_SYSCALL(pread, 3) {
 }
 
 COSMIC_SYSCALL(write, 2) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
   ssize_t put;
@@ -189,9 +191,9 @@ COSMIC_SYSCALL(write, 2) {
 }
 
 COSMIC_SYSCALL(lseek, 3) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   lua_Integer offset = luaL_checkinteger(L, 2);
-  int whence = (int)luaL_checkinteger(L, 3);
+  int whence = cosmic_checkint(L, 3);
   off_t at = lseek(fd, (off_t)offset, whence);
   if (at < 0) {
     return cosmic_fail(L, errno);
@@ -201,7 +203,7 @@ COSMIC_SYSCALL(lseek, 3) {
 }
 
 COSMIC_SYSCALL(fstat, 1) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   struct stat st;
   if (fstat(fd, &st) != 0) {
     return cosmic_fail(L, errno);
@@ -235,7 +237,7 @@ COSMIC_SYSCALL(lstat, 1) {
 COSMIC_SYSCALL(mkdir, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  int mode = (int)luaL_optinteger(L, 2, 0755);
+  int mode = cosmic_optint(L, 2, 0755);
   if (mkdir(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
   }
@@ -274,20 +276,26 @@ COSMIC_SYSCALL(rename, 2) {
 COSMIC_SYSCALL(chmod, 2) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail_effect(L, EINVAL);
-  int mode = (int)luaL_checkinteger(L, 2);
+  int mode = cosmic_checkint(L, 2);
   if (chmod(path, (mode_t)mode) != 0) {
     return cosmic_fail_effect(L, errno);
   }
   return cosmic_ok(L);
 }
 
+static void release_dir(void *dir) { closedir(dir); }
+
 COSMIC_SYSCALL(readdir, 1) {
   const char *path = cosmic_path(L, 1);
   if (path == NULL) return cosmic_fail(L, EINVAL);
+  /* Filling the table allocates, and an allocation can raise: the guard
+   * closes the directory then, and on every return. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, release_dir);
   DIR *dir = opendir(path);
   if (dir == NULL) {
     return cosmic_fail(L, errno);
   }
+  guard->resource = dir;
   /* opendir's close-on-exec default is not guaranteed across the libc
    * this core links; asking outright costs one call and leaves nothing
    * to a platform's discretion. */
@@ -299,7 +307,6 @@ COSMIC_SYSCALL(readdir, 1) {
     if (entry == NULL) {
       if (errno != 0) {
         int number = errno;
-        closedir(dir);
         lua_pop(L, 1);
         return cosmic_fail(L, number);
       }
@@ -331,7 +338,6 @@ COSMIC_SYSCALL(readdir, 1) {
     lua_pushstring(L, kind);
     lua_setfield(L, -2, entry->d_name);
   }
-  closedir(dir);
   return 1;
 }
 
@@ -427,7 +433,7 @@ COSMIC_SYSCALL(utimens, 3) {
 }
 
 COSMIC_SYSCALL(fsync, 1) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   if (fsync(fd) != 0) {
     return cosmic_fail_effect(L, errno);
   }

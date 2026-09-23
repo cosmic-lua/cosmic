@@ -1,5 +1,5 @@
 --- The core's own C in coverage. A core built with native coverage (the
---- sanitized one, on an ELF host) answers every C line a block begins on
+--- sanitized one) answers every C line a block begins on
 --- and puts hits on those lines; any other core answers none, and its
 --- hits never name a C file. Both kinds of core run these.
 

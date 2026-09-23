@@ -24,6 +24,7 @@ extern long syscall(long, ...);
 #include <unistd.h>
 #include <sys/utsname.h>
 
+#include "check.h"
 #include "fail.h"
 #include "lauxlib.h"
 #include "executable.h"
@@ -101,7 +102,7 @@ COSMIC_SYSCALL(environ, 0) {
 }
 
 COSMIC_SYSCALL(exit, 1) {
-  int status = (int)luaL_optinteger(L, 1, 0);
+  int status = cosmic_optint(L, 1, 0);
   _exit(status); /* exits: the process boundary has no caller to return to */
 }
 
@@ -111,7 +112,7 @@ COSMIC_SYSCALL(getpid, 0) {
 }
 
 COSMIC_SYSCALL(clock_gettime, 1) {
-  int which = (int)luaL_checkinteger(L, 1);
+  int which = cosmic_checkint(L, 1);
   struct timespec now;
   if (clock_gettime((clockid_t)which, &now) != 0) {
     return cosmic_fail(L, errno);
@@ -141,7 +142,7 @@ COSMIC_SYSCALL(nanosleep, 1) {
 }
 
 COSMIC_SYSCALL(isatty, 1) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   lua_pushboolean(L, isatty(fd) == 1);
   return 1;
 }
@@ -608,7 +609,7 @@ COSMIC_SYSCALL(pipe, 0) {
 }
 
 COSMIC_SYSCALL(set_nonblocking, 2) {
-  int fd = (int)luaL_checkinteger(L, 1);
+  int fd = cosmic_checkint(L, 1);
   int on = lua_toboolean(L, 2);
   int flags = fcntl(fd, F_GETFL);
   if (flags < 0) return cosmic_fail_effect(L, errno);

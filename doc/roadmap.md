@@ -15,7 +15,9 @@ defines the target; once something ships, it leaves this file.
   `*_test.tl` files beside it (`core/syscalls_test.tl`, `core/sqlite_test.tl`,
   `core/surface_test.tl`), and a whole run of this tree fails for any C entry
   point no test calls (`build/entry_points.tl`); that bar is whether each is
-  reached, not which of its lines ran. The current direction for lines is LLVM
+  reached, not which of its lines ran. The checked core also carries a failing
+  allocator (`core/testing.h`), and `core/allocation_test.tl` walks the paths a
+  binding takes when an allocation fails. The current direction for lines is LLVM
   source coverage for `core/*.c`, a vendored profile runtime for each target,
   and `llvm-profdata` and `llvm-cov` matched to the pinned Zig LLVM version,
   written into the same `coverage` table so C and Teal lines report together.

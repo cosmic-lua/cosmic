@@ -431,3 +431,36 @@ end
 local function test_inflate_raises_on_a_negative_size()
   raises(sys.inflate, "", -1)
 end
+
+--- A descriptor past what an int holds is refused, not truncated: 2^32
+--- + 2 must never reach the system as descriptor 2.
+local function test_a_descriptor_past_an_int_raises()
+  local wide = (1 << 32) + 2
+  raises(sys.fstat, wide)
+  raises(sys.close, wide)
+  raises(sys.read, wide, 1)
+  raises(sys.write, wide, "x")
+  raises(sys.isatty, wide)
+  raises(sys.lseek, wide, 0, sys.SEEK_SET)
+end
+
+local function test_a_mode_or_flag_past_an_int_raises(tmp: string)
+  raises(sys.open, tmp .. "/a", (1 << 40) | sys.O_RDONLY)
+  raises(sys.mkdir, tmp .. "/d", 1 << 40)
+  raises(sys.clock_gettime, (1 << 32) + sys.CLOCK_MONOTONIC)
+end
+
+--- A directory listed and one refused both leave no descriptor behind:
+--- the listing's handle is released however the call ends.
+local function test_readdir_leaves_no_descriptor_open(tmp: string)
+  assert(sys.mkdir(tmp .. "/d"))
+  local before = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
+  sys.close(before)
+  for _ = 1, 50 do
+    assert(sys.readdir(tmp .. "/d"))
+    failed(sys.readdir(tmp .. "/missing"))
+  end
+  local after = assert(sys.open(tmp .. "/probe", sys.O_RDWR))
+  sys.close(after)
+  assert(after == before, "descriptor " .. after .. " opened where " .. before .. " was free")
+end

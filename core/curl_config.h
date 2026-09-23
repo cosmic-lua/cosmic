@@ -138,11 +138,12 @@
  * Nor anything else core/http.c never asks for: HSTS and Alt-Svc
  * caches, DNS-over-HTTPS, WebSockets, MIME and form posts, .netrc,
  * binding to a local address or interface, the option-introspection
- * API (curl_easy_option_*), the header API (curl_easy_header -- the
- * core reads headers through CURLOPT_HEADERFUNCTION), the progress
- * meter, and SHA-512/256 (only Digest auth's RFC 7616 variant uses it;
- * MD5 and SHA-256 Digest stay). CURLOPT_VERBOSE's strings stay on, as
- * does proxy support: HTTPS_PROXY is how most sandboxes reach out. */
+ * API (curl_easy_option_*), the progress meter, and SHA-512/256
+ * (only Digest auth's RFC 7616 variant uses it; MD5 and SHA-256
+ * Digest stay). CURLOPT_VERBOSE's strings stay on, as
+ * does proxy support: HTTPS_PROXY is how most sandboxes reach out,
+ * and the header API: core/http.c reads the final response's headers
+ * with curl_easy_nextheader. */
 #define CURL_DISABLE_COOKIES 1
 #define CURL_DISABLE_ALTSVC 1
 #define CURL_DISABLE_HSTS 1
@@ -154,7 +155,6 @@
 #define CURL_DISABLE_SHUFFLE_DNS 1
 #define CURL_DISABLE_BINDLOCAL 1
 #define CURL_DISABLE_GETOPTIONS 1
-#define CURL_DISABLE_HEADERS_API 1
 #define CURL_DISABLE_PROGRESS_METER 1
 #define CURL_DISABLE_SHA512_256 1
 
