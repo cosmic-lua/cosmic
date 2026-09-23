@@ -162,8 +162,15 @@ static const struct function functions[] = {
 };
 
 static int sqlite_open (lua_State *L) {
-  const char *path = luaL_checkstring(L, 1);
+  size_t path_len;
+  const char *path = luaL_checklstring(L, 1, &path_len);
   int writable = lua_toboolean(L, 2);
+  /* SQLite takes a C string: a NUL would silently open a shorter path. */
+  if (memchr(path, '\0', path_len) != NULL) {
+    lua_pushnil(L);
+    lua_pushstring(L, "the path contains an embedded NUL byte");
+    return 2;
+  }
   /* No SQLITE_OPEN_URI: `path` is an ordinary filename, never a `file:`
    * URI. M1 documents no URI form, so `vfs=`, `off=` and `len=` are
    * never parsed out of a caller's path at all, not even refused. */
@@ -197,7 +204,14 @@ static int sqlite_open (lua_State *L) {
 
 static int handle_exec (lua_State *L) {
   struct handle *h = checked_handle(L);
-  const char *sql = luaL_checkstring(L, 2);
+  size_t len;
+  const char *sql = luaL_checklstring(L, 2, &len);
+  /* sqlite3_exec would stop at a NUL and skip the statements after it. */
+  if (memchr(sql, '\0', len) != NULL) {
+    lua_pushboolean(L, 0);
+    lua_pushstring(L, "SQL contains an embedded NUL byte");
+    return 2;
+  }
   /* No message of exec's own: it would be a copy of the connection's,
    * held in a local across the push that can raise. */
   int rc = sqlite3_exec(h->db, sql, NULL, NULL, NULL);

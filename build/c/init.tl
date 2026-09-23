@@ -43,16 +43,17 @@ local function command(root: string, file: string, cwd: string): {string}
     root .. "/bin/zig", "cc", "-E", "-o", "/dev/null", "-Xclang", "-ast-dump",
     "-fno-color-diagnostics", "-std=c11", "-Wno-unused-command-line-argument",
     "-DLUA_USE_POSIX", "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
-    "-DTF_PSA_CRYPTO_CONFIG_FILE=\"crypto_config.h\"",
-    "-DMBEDTLS_PSA_CRYPTO_C", "-DMBEDTLS_PSA_CRYPTO_EXTERNAL_RNG",
-    "-DMBEDTLS_PSA_ASSUME_EXCLUSIVE_BUFFERS",
-    "-DPSA_WANT_ALG_SHA_256=1", "-DPSA_WANT_ALG_HMAC=1", "-DPSA_WANT_KEY_TYPE_HMAC=1",
+    "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
+    "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
     "-DCOSMIC_TARGET_ID=1", "-DCOSMIC_TARGET_NAME=\"check\"",
     "-DCOSMIC_CONFIGURATION_ID=1", "-DCOSMIC_CONFIGURATION_NAME=\"check\"",
     "-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C(1)",
     "-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID=1",
   }
-  for _, dir in ipairs({ "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz" }) do
+  for _, dir in ipairs({
+    "core", "vendor/lua/src", "vendor/sqlite", "vendor/miniz", "vendor/mbedtls/include",
+    "vendor/bzip2", "vendor/xz/src/liblzma/api", "vendor/cares/include", "vendor/curl/include",
+  }) do
     out[#out + 1] = "-I" .. prefix .. dir
   end
   for _, dir in ipairs(crypto_include_dirs) do

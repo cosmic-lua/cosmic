@@ -64,6 +64,10 @@ rules.exempt = {
   ["core/boot.c slurp held-across-raise"] =
     "boot runs outside any protected call: a raise there ends the process, " ..
     "which releases everything",
+  ["core/syscalls.c cosmic_sys_execve held-across-raise"] =
+    "every argv and environment value it reads once argv is taken was checked " ..
+    "to be a string before the calloc, so lua_tolstring converts nothing and " ..
+    "cannot raise",
   ["core/syscalls.c cosmic_sys_spawn held-across-raise"] =
     "every value it reads once argv is taken was checked to be a string first, " ..
     "so lua_tolstring converts nothing and cannot raise",

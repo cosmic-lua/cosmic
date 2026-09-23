@@ -52,6 +52,8 @@ c_functions.exempt = {
   ["core/vfs.c:vfs_sleep"] = forwarded,
   ["core/vfs.c:vfs_current_time"] = forwarded,
   ["core/vfs.c:vfs_last_error"] = forwarded,
+  ["core/compress.c:bz_internal_error"] =
+    "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
   ["core/strnlen.c:strnlen"] = "a host libc's own strnlen can win the link; bin/zig build boot's strnlen check covers the core's",
 }
 

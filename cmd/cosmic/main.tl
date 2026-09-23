@@ -154,8 +154,10 @@ end
 --- at `argv[0]`, the way C, Lua and every shell give a program its
 --- own name -- but nothing ordinary reaches it, since no length or
 --- loop starts before 1; a caller that wants its own name reads
---- `argv[0]` directly. An integer the function returns is the exit
---- code; anything else, or no function at all, is 0.
+--- `argv[0]` directly. A record whose `main` field is a function is
+--- called the same way, through that field. An integer the function
+--- returns is the exit code; anything else, or no function at all,
+--- is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
@@ -262,8 +264,9 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  local produced: any = require(name)
-  if produced is function(...: any): any then
+  local standalone = require("build.standalone")
+  local entry = standalone.entry(require(name))
+  if entry ~= nil then
     local arguments: {string} = {}
     arguments[0] = file
     local slot = 2
@@ -271,7 +274,7 @@ local function run(file: string, argv: {integer:string}): integer
       arguments[slot - 1] = argv[slot]
       slot = slot + 1
     end
-    local status: any = produced(arguments)
+    local status: any = entry(arguments)
     if status is integer then
       return status
     end
@@ -333,6 +336,14 @@ local function main(argv: {integer:string}): integer
   if verb == "uses" then
     local docs = require("build.docs")
     return docs.run_uses(argv)
+  end
+  if verb == "--standalone" then
+    -- One file against this binary's own standard library: no tree is
+    -- staged or built and no staleness is checked -- see
+    -- build.standalone. What bin/zig and bin/vendor run, so a stale
+    -- core never stops the tool that rebuilds it.
+    local standalone = require("build.standalone")
+    return standalone.run(argv)
   end
   if verb:sub(1, 1) == "-" then
     complain("cosmic: no such option: " .. verb)

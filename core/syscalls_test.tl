@@ -314,6 +314,57 @@ local function test_cpu_count_is_at_least_one()
   assert(math.type(count) == "integer" and count >= 1)
 end
 
+local function test_uname_reports_nonempty_sysname_and_machine()
+  local names, trouble = sys.uname()
+  assert(names ~= nil and trouble == nil, "uname answers with one record")
+  assert(#names.sysname > 0, "sysname is nonempty")
+  assert(#names.machine > 0, "machine is nonempty")
+  -- Stable across a call: this is the running host, not a moving target.
+  local again = assert(sys.uname())
+  assert(again.sysname == names.sysname and again.machine == names.machine)
+end
+
+--- C reads a path up to its first NUL, so a call handed "<dir>\0/x"
+--- would act on "<dir>" -- a different file from the one named. Every
+--- path-taking call refuses such a path with EINVAL instead, and the
+--- file the truncated path names is never touched.
+local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
+  local file = tmp .. "/file"
+  sys.close(create(file))
+  local nul = file .. "\0/../escaped"
+  failed_with(sys.EINVAL, sys.open(nul, sys.O_RDONLY))
+  failed_with(sys.EINVAL, sys.open_temporary(nul))
+  failed_with(sys.EINVAL, sys.stat(nul))
+  failed_with(sys.EINVAL, sys.lstat(nul))
+  failed_with(sys.EINVAL, sys.mkdir(tmp .. "/made\0x"))
+  assert(sys.stat(tmp .. "/made") == nil, "mkdir acted on the truncated path")
+  failed_with(sys.EINVAL, sys.rmdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.unlink(nul))
+  failed_with(sys.EINVAL, sys.rename(nul, tmp .. "/moved"))
+  failed_with(sys.EINVAL, sys.rename(file, tmp .. "/moved\0x"))
+  failed_with(sys.EINVAL, sys.chmod(nul, 511))
+  failed_with(sys.EINVAL, sys.readdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.chdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.realpath(nul))
+  failed_with(sys.EINVAL, sys.mkdtemp(tmp .. "/t\0-XXXXXX"))
+  failed_with(sys.EINVAL, sys.symlink(nul, tmp .. "/link"))
+  failed_with(sys.EINVAL, sys.symlink(file, tmp .. "/link\0x"))
+  failed_with(sys.EINVAL, sys.readlink(nul))
+  failed_with(sys.EINVAL, sys.utimens(nul, 0, 0))
+  -- execve, like spawn, refuses a NUL by raising, before it allocates.
+  raises(sys.execve, tmp .. "\0/sh", { "sh" }, {})
+  raises(sys.execve, "/bin/sh", { "sh", "-c\0x" }, {})
+  raises(sys.execve, "/bin/sh", { "sh" }, { A = "b\0c" })
+  -- spawn refused a NUL before this rule existed, by raising, and
+  -- `cosmic.child` relies on that; it never truncates either way.
+  raises(sys.spawn, tmp .. "\0/sh", { "sh" }, nil, nil, nil, nil, nil, false)
+  raises(sys.spawn, "/bin/sh", { "sh" }, nil, tmp .. "\0x", nil, nil, nil, false)
+  -- The file the truncated paths name is exactly as it was.
+  local st = assert(sys.stat(file))
+  assert(st.kind == "file" and st.mode & 511 == 420)
+  assert(sys.stat(tmp .. "/moved") == nil and sys.lstat(tmp .. "/link") == nil)
+end
+
 local function test_executable_is_a_file()
   local path = assert(sys.executable())
   assert(path:sub(1, 1) == "/", "the executable's path is absolute")
@@ -335,6 +386,13 @@ local function test_getpid_is_stable_and_positive()
   local pid = sys.getpid()
   assert(pid > 0)
   assert(sys.getpid() == pid)
+end
+
+local function test_getuid_owns_what_the_process_creates(tmp: string)
+  local path = tmp .. "/mine"
+  assert(sys.mkdir(path))
+  local st = assert(sys.stat(path))
+  assert(st.uid == sys.getuid(), tostring(st.uid) .. " " .. tostring(sys.getuid()))
 end
 
 local function test_clocks_read_and_the_monotonic_one_advances()
@@ -409,34 +467,6 @@ end
 local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
   raises(sys.digest, "sha0", "abc")
   raises(sys.hmac, "sha0", "key", "abc")
-end
-
-local function test_deflate_and_inflate_round_trip()
-  for _, data in ipairs({ "", "a", string.rep("compressible ", 10000),
-                          sys.digest("sha256", "seed"):rep(3000) }) do
-    local packed = assert(sys.deflate(data))
-    assert(sys.inflate(packed, #data) == data, #data .. " bytes did not round-trip")
-  end
-end
-
---- miniz's own result code rides in slot three where an errno would,
---- so these check the shape by hand rather than through `failed`.
-local function test_inflate_refuses_bytes_that_are_not_deflate()
-  local value, message, code = sys.inflate("not deflate at all", 100)
-  assert(value == nil and type(message) == "string" and message ~= "")
-  assert(math.type(code) == "integer" and code ~= 0)
-end
-
-local function test_inflate_refuses_a_size_too_small()
-  local data = string.rep("abc", 1000)
-  local packed = assert(sys.deflate(data))
-  local value, message, code = sys.inflate(packed, #data - 1)
-  assert(value == nil and type(message) == "string" and message ~= "")
-  assert(math.type(code) == "integer" and code ~= 0)
-end
-
-local function test_inflate_raises_on_a_negative_size()
-  raises(sys.inflate, "", -1)
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32

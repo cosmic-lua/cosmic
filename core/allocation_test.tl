@@ -2,8 +2,10 @@
 --- Lua's own test suite walks them: run the same work with the first
 --- allocation refused, then the second, and so on, until it runs with
 --- every allocation granted. Each refusal raises "not enough memory"
---- from wherever Lua asked, and each must leave nothing behind -- no
---- descriptor, no statement -- and nothing freed that is still in use.
+--- from wherever Lua asked, or is the NULL a C allocation of the core's
+--- own answers with (core/memory.h), and each must leave nothing behind
+--- -- no descriptor, no statement, no block on the C heap, no HTTP
+--- transfer -- and nothing freed that is still in use.
 ---
 --- "Nothing behind" is checked after a collection: when memory is so
 --- short that Lua cannot even call a guard's close, the guard's __gc is
@@ -17,6 +19,9 @@
 --- CI runs this suite on it; any other core has no instrument to
 --- refuse one with, which these tests say rather than pass unseen.
 
+local Compress = require("cosmic.compress")
+local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -64,7 +69,8 @@ end
 local function test_only_the_checked_core_carries_the_instruments()
   assert(type(testing.configuration) == "string" and testing.configuration ~= "")
   local instruments = testing as {string: any}
-  for _, name in ipairs({ "fail_allocations", "allow_allocations", "open_statements" }) do
+  for _, name in ipairs({ "fail_allocations", "allow_allocations", "open_statements",
+                          "c_heap", "fail_at", "live_transfers" }) do
     assert((instruments[name] ~= nil) == checked,
       name .. " must be present exactly on the checked core, not on " ..
       testing.configuration)
@@ -234,4 +240,204 @@ local function test_attach_leaves_no_connection_whenever_an_allocation_fails(tmp
   local after = next_descriptor(tmp)
   assert(after == before + held, "descriptors from " .. before .. " to " .. after ..
     " for " .. held .. " attached: a refused attach left a connection open")
+end
+
+--- Asserts the core's own C heap holds what it held when `c_heap`
+--- answered `before_bytes` and `before_blocks`: a block a refusal path
+--- forgot to free shows here.
+local function assert_c_heap(before_bytes: integer, before_blocks: integer, what: string)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  assert(bytes == before_bytes and blocks == before_blocks,
+    what .. " left " .. (blocks - before_blocks) .. " blocks (" ..
+    (bytes - before_bytes) .. " bytes) on the C heap")
+end
+
+--- The C heap counts what the core's C allocates and frees, and a
+--- refused C allocation is counted with Lua's.
+local function test_the_c_heap_counts_its_blocks_and_refusals()
+  if not checked then return end
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  do
+    local _stream = assert(Compress.inflater("raw"))
+    local held_bytes, held_blocks = testing.c_heap()
+    assert(held_blocks == blocks + 1 and held_bytes > bytes, "an inflater holds its window")
+  end
+  assert_c_heap(bytes, blocks, "a collected inflater")
+  -- Some run grants the userdata and refuses the window: the inflater
+  -- answers that refused C allocation with nil and a message.
+  local answered = false
+  for after = 0, 100 do
+    testing.fail_allocations(after)
+    local ok, made, trouble = pcall(Compress.inflater, "raw")
+    local refused = testing.allow_allocations()
+    if ok and made == nil then
+      assert(trouble == "out of memory", tostring(trouble))
+      assert(refused >= 1, "the refused window is counted")
+      answered = true
+      break
+    end
+    if refused == 0 then break end
+  end
+  assert(answered, "no run refused the window alone")
+  assert_c_heap(bytes, blocks, "a refused inflater")
+end
+
+--- "hello, cosmic!", as `xz -c` and `bzip2 -c` write it.
+local hello = "hello, cosmic!"
+local hello_xz = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\28\0\0\0\16\207\88\204\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
+local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
+
+--- Decodes `packed` with `stream` in two pieces and at most four bytes
+--- an update, so input is kept back between updates, and answers what
+--- came out.
+local function decode_in_pieces(stream: Compress.Stream, packed: string): string
+  local parts: {string} = {}
+  local half = #packed // 2
+  for _, piece in ipairs({ packed:sub(1, half), packed:sub(half + 1) }) do
+    while true do
+      parts[#parts + 1] = assert(stream:update(piece, 4))
+      if not stream:pending() then break end
+      piece = ""
+    end
+  end
+  parts[#parts + 1] = assert(stream:finish())
+  return table.concat(parts)
+end
+
+local record Decoding
+  name: string
+  make: function(): Compress.Stream | nil, string
+  input: string
+end
+
+--- Every decoder, over a small vector with bytes trailing it, and the
+--- deflater, whenever an allocation fails: a refusal raises or answers
+--- nil and a message, and leaves no block behind.
+local function test_compress_leaves_nothing_whenever_an_allocation_fails()
+  if not checked then return end
+  local packed: {string: string} = {}
+  for _, format in ipairs({ "raw", "zlib", "gzip" } as {Compress.Format}) do
+    local encoder = assert(Compress.deflater(format))
+    packed[format] = assert(encoder:update(hello)) .. assert(encoder:finish())
+  end
+  local decodings: {Decoding} = {
+    { name = "raw", input = packed.raw,
+      make = function(): Compress.Stream | nil, string return Compress.inflater("raw") end },
+    { name = "zlib", input = packed.zlib,
+      make = function(): Compress.Stream | nil, string return Compress.inflater("zlib") end },
+    { name = "gzip", input = packed.gzip .. "trailing",
+      make = function(): Compress.Stream | nil, string return Compress.inflater("gzip") end },
+    { name = "xz", input = hello_xz .. "trailing",
+      make = function(): Compress.Stream | nil, string return Compress.xz_decoder() end },
+    { name = "bz2", input = hello_bz2 .. "trailing", make = Compress.bz2_decoder },
+  }
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = 0
+  for _, decoding in ipairs(decodings) do
+    ended = ended + under_every_failure(function()
+      local stream = assert(decoding.make())
+      assert(decode_in_pieces(stream, decoding.input) == hello, decoding.name .. " decodes")
+      assert(stream:done(), decoding.name .. " is done")
+    end)
+    assert_c_heap(bytes, blocks, decoding.name .. " decoding under refusal")
+  end
+  ended = ended + under_every_failure(function()
+    local encoder = assert(Compress.deflater("gzip"))
+    local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
+    assert(#out > 0)
+  end)
+  assert_c_heap(bytes, blocks, "deflating under refusal")
+  assert(ended > 0, "decoding allocates")
+end
+
+--- A hasher holds no C memory of the core's own, and a refusal while it
+--- updates or digests leaves none.
+local function test_hash_leaves_nothing_whenever_an_allocation_fails()
+  if not checked then return end
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local hasher = assert(Hash.hasher("sha256"))
+    hasher:update("hello, ")
+    hasher:update("cosmic!")
+    local digest = assert(hasher:digest())
+    assert(Hash.hex(digest) == Hash.hex_sha256(hello))
+  end)
+  assert(ended > 0, "a hasher is an allocation")
+  assert_c_heap(bytes, blocks, "hashing under refusal")
+end
+
+--- A whole reply: a status line, `head`'s header lines, and `body`.
+local function reply(status: string, head: string, body: string): string
+  return "HTTP/1.1 " .. status .. "\r\n" .. head .. "Content-Length: " ..
+    tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body
+end
+
+local record Exchange
+  name: string
+  options: Http.Options
+end
+
+--- Each shape of scripted exchange a request walks: a Content-Length
+--- body, a chunked one, a redirect curl follows, an interim 100
+--- Continue, and a POST with a body and a header.
+local exchanges: {Exchange} = {
+  { name = "a Content-Length body", options = { script = { reply("200 OK", "", hello) } } },
+  { name = "a chunked body", options = { script = {
+    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
+    "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
+  { name = "a redirect", options = { script = {
+    reply("302 Found", "Location: /next\r\n", "moved"), reply("200 OK", "", hello) } } },
+  { name = "a 100 Continue", options = { script = {
+    "HTTP/1.1 100 Continue\r\n\r\n" .. reply("200 OK", "", hello) } } },
+  { name = "a POST", options = { method = "POST", body = "payload",
+    headers = { ["X-One"] = "1" }, script = { reply("200 OK", "", hello) } } },
+}
+
+--- Opens `options`' exchange, reads the body to its end, closes, and
+--- answers the body. A response a refusal leaves open is the
+--- collector's to close, as any dropped one is.
+local function exchange(options: Http.Options): string
+  local response = assert(Http.open("http://cosmic.test/", options))
+  local parts: {string} = {}
+  while true do
+    local chunk, trouble = response:read()
+    if chunk == nil then
+      assert(trouble == "", trouble)
+      break
+    end
+    parts[#parts + 1] = chunk
+  end
+  response:close()
+  return table.concat(parts)
+end
+
+--- `open`, `read` to the end and `close`, over each exchange, whenever
+--- an allocation fails -- Lua's or a C buffer's: nothing is left behind,
+--- no descriptor, no transfer, no block, and the run with nothing
+--- refused reads the whole body.
+local function test_http_leaves_nothing_whenever_an_allocation_fails(tmp: string)
+  if not checked then return end
+  -- The first request makes the process-wide state -- curl's global
+  -- init, the trust store, the multi handle and its wakeup pair -- which
+  -- is made once and kept, so it is made before anything is counted.
+  assert(exchange(exchanges[1].options) == hello)
+  collectgarbage("collect")
+  local before = next_descriptor(tmp)
+  local bytes, blocks = testing.c_heap()
+  assert(testing.live_transfers() == 0, "no transfer outlives its close")
+  local ended = 0
+  for _, case in ipairs(exchanges) do
+    ended = ended + under_every_failure(function()
+      assert(exchange(case.options) == hello, case.name .. " reads the whole body")
+    end)
+    assert(testing.live_transfers() == 0, case.name .. " left a transfer alive")
+    assert_c_heap(bytes, blocks, case.name .. " under refusal")
+    local after = next_descriptor(tmp)
+    assert(after == before, case.name .. " left descriptor " .. before .. " open")
+  end
+  assert(ended > 0, "a request allocates")
 end

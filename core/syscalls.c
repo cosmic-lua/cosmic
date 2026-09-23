@@ -22,6 +22,7 @@ extern long syscall (long, ...);
 #endif
 #include <time.h>
 #include <unistd.h>
+#include <sys/utsname.h>
 
 #include "check.h"
 #include "coverage.h"
@@ -29,7 +30,6 @@ extern long syscall (long, ...);
 #include "guard.h"
 #include "lauxlib.h"
 #include "executable.h"
-#include "miniz.h"
 #include "crypto.h"
 #include "syscalls.h"
 #include "portable.h"
@@ -43,6 +43,13 @@ extern long syscall (long, ...);
 extern char **environ;
 #define COSMIC_ENVIRON environ
 #endif
+
+const char *cosmic_path (lua_State *L, int index) {
+  size_t length;
+  const char *value = luaL_checklstring(L, index, &length);
+  if (memchr(value, '\0', length) != NULL) return NULL;
+  return value;
+}
 
 COSMIC_SYSCALL(executable, 0) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
@@ -98,6 +105,11 @@ COSMIC_SYSCALL(exit, 1) {
 
 COSMIC_SYSCALL(getpid, 0) {
   lua_pushinteger(L, (lua_Integer)getpid());
+  return 1;
+}
+
+COSMIC_SYSCALL(getuid, 0) {
+  lua_pushinteger(L, (lua_Integer)getuid());
   return 1;
 }
 
@@ -712,6 +724,19 @@ COSMIC_SYSCALL(cpu_count, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(uname, 0) {
+  struct utsname info;
+  if (uname(&info) != 0) {
+    return cosmic_fail(L, errno);
+  }
+  lua_createtable(L, 0, 2);
+  lua_pushstring(L, info.sysname);
+  lua_setfield(L, -2, "sysname");
+  lua_pushstring(L, info.machine);
+  lua_setfield(L, -2, "machine");
+  return 1;
+}
+
 static volatile sig_atomic_t child_cancelled;
 static int child_signals_guarded;
 static struct sigaction previous_int;
@@ -799,51 +824,6 @@ COSMIC_SYSCALL(cancelled_child_signal, 0) {
   return 1;
 }
 
-COSMIC_SYSCALL(deflate, 1) {
-  size_t len;
-  const char *data = luaL_checklstring(L, 1, &len);
-  mz_ulong room = mz_compressBound((mz_ulong)len);
-  luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, room);
-  int rc = mz_compress2((unsigned char *)into, &room,
-                        (const unsigned char *)data, (mz_ulong)len,
-                        MZ_BEST_COMPRESSION);
-  if (rc != MZ_OK) {
-    luaL_pushresultsize(&buffer, 0);
-    lua_pop(L, 1);
-    lua_pushnil(L);
-    lua_pushstring(L, mz_error(rc));
-    lua_pushinteger(L, rc);
-    return 3;
-  }
-  luaL_pushresultsize(&buffer, room);
-  return 1;
-}
-
-COSMIC_SYSCALL(inflate, 2) {
-  size_t len;
-  const char *data = luaL_checklstring(L, 1, &len);
-  lua_Integer size = luaL_checkinteger(L, 2);
-  if (size < 0) {
-    return luaL_argerror(L, 2, "the expanded size is negative");
-  }
-  mz_ulong room = (mz_ulong)size;
-  luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, room);
-  int rc = mz_uncompress((unsigned char *)into, &room,
-                         (const unsigned char *)data, (mz_ulong)len);
-  if (rc != MZ_OK) {
-    luaL_pushresultsize(&buffer, 0);
-    lua_pop(L, 1);
-    lua_pushnil(L);
-    lua_pushstring(L, mz_error(rc));
-    lua_pushinteger(L, rc);
-    return 3;
-  }
-  luaL_pushresultsize(&buffer, room);
-  return 1;
-}
-
 #define ENTRY(name) {#name, cosmic_sys_##name}
 
 static const luaL_Reg table[] = {
@@ -856,14 +836,16 @@ static const luaL_Reg table[] = {
   ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
   ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
   ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
+  ENTRY(getuid),
   ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
-  ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
-  ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
+  ENTRY(digest),   ENTRY(hmac),          ENTRY(execve),
+  ENTRY(spawn),
   ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
   ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
   ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
   ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
-  ENTRY(relaunch),
+  ENTRY(relaunch), ENTRY(uname),
+  ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
   {NULL, NULL},
 };
 
@@ -901,6 +883,7 @@ static const struct constant constants[] = {
   {"ESRCH", ESRCH},
   {"EBADF", EBADF},
   {"ENOSYS", ENOSYS},
+  {"EINVAL", EINVAL},
   {"SIGHUP", SIGHUP},
   {"SIGINT", SIGINT},
   {"SIGQUIT", SIGQUIT},

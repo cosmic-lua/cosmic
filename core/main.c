@@ -17,7 +17,6 @@
 #include "crypto.h"
 #include "lauxlib.h"
 #include "executable.h"
-#include "sqlite.h"
 #include "sqlite3.h"
 #include "store.h"
 #include "startup.h"
@@ -520,8 +519,7 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
   }
   cosmic_store_install(L, db,
                        startup->kind != COSMIC_STARTUP_NATIVE ? &artifact : NULL);
-  cosmic_open_sqlite(L); /* leaves the module table on the stack */
-  cosmic_store_set_raw(L, "cosmic.internal.sqlite");
+  cosmic_store_open_raw(L);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_STORE_INSTALLED);
 
   if (db == NULL) {
@@ -530,17 +528,11 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
      * everything reachable here is the tree's own trusted source, so
      * every raw module goes straight in package.preload for the
      * bridge's searcher, which does not go through the store's trust
-     * check -- `cosmic.store`, `cosmic.sqlite`, and `cosmic.coverage`
-     * are ordinary tree modules the bridge compiles from source, and
-     * each still `require`s its raw half, under `cosmic.internal.`, by
-     * the same name a shipped binary resolves through the trust-gated
-     * searcher instead. */
-    lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
-    lua_pushcfunction(L, cosmic_open_sqlite);
-    lua_setfield(L, -2, "cosmic.internal.sqlite");
-    lua_pop(L, 1);
-    cosmic_store_preload_raw(L, "cosmic.internal.store");
-    cosmic_store_preload_raw(L, "cosmic.internal.debug");
+     * check -- the wrappers are ordinary tree modules the bridge
+     * compiles from source, and each still `require`s its raw half,
+     * under `cosmic.internal.`, by the same name a shipped binary
+     * resolves through the trust-gated searcher instead. */
+    cosmic_store_preload_raw(L);
 
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);

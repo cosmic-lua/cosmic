@@ -171,6 +171,101 @@ local function test_put_rejects_zero_progress(tmp: string)
   assert(not ok and trouble == "write made no progress")
 end
 
+local function test_cache_dir_has_no_shared_fallback()
+  for _, environment in ipairs({ {}, { HOME = "" }, { XDG_CACHE_HOME = "rel", HOME = "also/rel" } }) do
+    local dir, trouble = Fs.cache_dir("tool", environment)
+    assert(dir == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(dir))
+  end
+end
+
+local function test_cache_dir_is_made_private_under_xdg_or_home(tmp: string)
+  local dir = assert(Fs.cache_dir("tool", { XDG_CACHE_HOME = tmp .. "/xdg", HOME = tmp .. "/home" }))
+  assert(dir == tmp .. "/xdg/cosmic/tool", dir)
+  for _, path in ipairs({ tmp .. "/xdg/cosmic", dir }) do
+    local st = assert(Fs.stat(path))
+    assert(st.uid == sys.getuid() and st.mode & 0x3f == 0, path)
+  end
+  -- a relative XDG_CACHE_HOME is ignored, as the XDG spec says
+  dir = assert(Fs.cache_dir("tool", { XDG_CACHE_HOME = "rel", HOME = tmp .. "/home" }))
+  assert(dir == tmp .. "/home/.cache/cosmic/tool", dir)
+end
+
+local function test_cache_dir_refuses_one_others_can_write_to(tmp: string)
+  local environment = { XDG_CACHE_HOME = tmp }
+  assert(Fs.cache_dir("tool", environment))
+  assert(sys.chmod(tmp .. "/cosmic/tool", 0x1ff))
+  local dir, trouble = Fs.cache_dir("tool", environment)
+  assert(dir == nil and trouble:find("writable by its group or others", 1, true) ~= nil, trouble)
+  assert(sys.chmod(tmp .. "/cosmic", 0x1f8))
+  dir, trouble = Fs.cache_dir("other", environment)
+  assert(dir == nil and trouble == tmp .. "/cosmic: writable by its group or others", trouble)
+  assert(Fs.write(tmp .. "/plain", ""))
+  dir, trouble = Fs.cache_dir("tool", { XDG_CACHE_HOME = tmp .. "/plain" })
+  assert(dir == nil, tostring(dir))
+end
+
+local function test_mkdirs_with_a_trailing_slash_makes_every_parent()
+  local root = assert(Fs.mkdtemp("mkdirs"))
+  local ok, trouble = Fs.mkdirs(root .. "/a/b/c/")
+  assert(ok, trouble)
+  assert(Fs.is_dir(root .. "/a/b/c") == true)
+end
+
+local function test_symlink_and_readlink_round_trip(tmp: string)
+  local target = tmp .. "/target"
+  local link = tmp .. "/link"
+  assert(Fs.write(target, "contents"))
+  local made, trouble = Fs.symlink(target, link)
+  assert(made and trouble == "")
+
+  local read_back, read_trouble = Fs.readlink(link)
+  assert(read_back == target and read_trouble == "")
+
+  -- The link resolves through to the target's contents.
+  assert(Fs.read(link) == "contents")
+
+  local missing, missing_trouble = Fs.readlink(tmp .. "/missing")
+  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true))
+end
+
+local function test_set_mtime_changes_the_stat(tmp: string)
+  local path = tmp .. "/file"
+  assert(Fs.write(path, "contents"))
+  local set, trouble = Fs.set_mtime(path, 1000, 2000)
+  assert(set and trouble == "")
+  local st = assert(sys.stat(path))
+  assert(st.mtime == 2000)
+end
+
+local function test_fsync_reports_bad_descriptor(tmp: string)
+  local path = tmp .. "/file"
+  local fd = assert(Fs.open_write(path))
+  local ok, trouble = Fs.fsync(fd)
+  assert(ok and trouble == "")
+  assert(Fs.close(fd))
+
+  local failed, failed_trouble = Fs.fsync(fd)
+  assert(not failed and failed_trouble ~= "")
+end
+
+local function test_remove_tree_removes_everything_but_follows_no_link(tmp: string)
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(outside .. "/keep", "kept"))
+  local tree = tmp .. "/tree"
+  assert(Fs.mkdirs(tree .. "/a/b"))
+  assert(Fs.write(tree .. "/a/b/file", "gone"))
+  assert(Fs.write(tree .. "/top", "gone"))
+  assert(Fs.symlink(outside, tree .. "/a/link"))
+  assert(Fs.remove_tree(tree))
+  assert(Fs.exists(tree) == false)
+  assert(Fs.read(outside .. "/keep") == "kept", "a link was followed")
+  -- Already gone is not a failure, and neither is a plain file.
+  assert(Fs.remove_tree(tree))
+  assert(Fs.remove_tree(outside .. "/keep"))
+  assert(Fs.exists(outside .. "/keep") == false)
+end
+
 --- A regular file comes back in the one read its size asks for, and a
 --- file that says nothing true of its size (/proc's) in chunks.
 local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: string)
