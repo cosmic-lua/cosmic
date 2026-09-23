@@ -68,3 +68,56 @@ local function test_a_low_max_redirects_of_zero_is_accepted()
   assert(response == nil)
   assert(trouble ~= "")
 end
+
+-- A header name or value carrying CR or LF could otherwise smuggle a
+-- second header, or even a whole extra request, past curl and onto the
+-- wire (CRLF/header injection). This is caught before any connection
+-- is attempted -- the closed port at 127.0.0.1:1 never gets reached --
+-- so these are deterministic and offline like the option-validation
+-- cases above.
+local function test_a_header_value_with_crlf_is_rejected()
+  local response, trouble = Http.open("http://127.0.0.1:1/",
+    { headers = { ["X-Evil"] = "value\r\nX-Injected: yes" } })
+  assert(response == nil)
+  assert(trouble ~= "")
+  assert(trouble:lower():find("cr or lf", 1, true) ~= nil, trouble)
+end
+
+local function test_a_header_value_with_a_bare_lf_is_rejected()
+  local response, trouble = Http.open("http://127.0.0.1:1/",
+    { headers = { ["X-Evil"] = "value\nX-Injected: yes" } })
+  assert(response == nil)
+  assert(trouble ~= "")
+end
+
+local function test_a_header_name_with_crlf_is_rejected()
+  local response, trouble = Http.open("http://127.0.0.1:1/",
+    { headers = { ["X-Evil\r\nX-Injected"] = "yes" } })
+  assert(response == nil)
+  assert(trouble ~= "")
+end
+
+local function test_a_header_name_with_a_colon_is_rejected()
+  local response, trouble = Http.open("http://127.0.0.1:1/",
+    { headers = { ["X-Evil: yes\r\nX-Injected"] = "yes" } })
+  assert(response == nil)
+  assert(trouble ~= "")
+end
+
+local function test_an_empty_header_name_is_rejected()
+  local response, trouble = Http.open("http://127.0.0.1:1/",
+    { headers = { [""] = "yes" } })
+  assert(response == nil)
+  assert(trouble ~= "")
+end
+
+local function test_an_ordinary_header_is_still_accepted()
+  -- The validation above must not reject well-formed headers; this
+  -- still fails (nothing is listening on port 1), but for the
+  -- connection-refused reason, not a rejected header.
+  local response, trouble = Http.open("http://127.0.0.1:1/",
+    { headers = { ["X-Fine"] = "a normal value" }, connect_timeout_ms = 2000 })
+  assert(response == nil)
+  assert(trouble ~= "")
+  assert(trouble:lower():find("invalid header", 1, true) == nil, trouble)
+end
