@@ -257,12 +257,8 @@ portable_inspect_entry() {
     portable_entry_reason='length differs'
     return 0
   fi
-  portable_sha256 "$cosmic_core"
-  if [ "$portable_actual" != "$cosmic_sha256" ]; then
-    portable_entry_state=invalid
-    portable_entry_reason='digest differs'
-    return 0
-  fi
+  # The digest is not repeated here: startup hashes the core it runs from
+  # and refuses one that differs from the manifest, naming the entry.
   portable_entry_state=valid
   portable_entry_reason=
   return 0
@@ -376,8 +372,8 @@ if [ "$portable_entry_state" != valid ]; then
   cosmic_stage=
 fi
 
-# A warm winner is hashed once above. A cold publisher has already hashed its
-# stage and linked that same inode; a losing publisher hashes the winner once.
+# A cold publisher has hashed its stage and linked that same inode. A warm
+# winner, or a losing publisher's, is hashed once by startup instead.
 [ "$cosmic_core_verified" = 1 ] || portable_die 'selected core was not verified'
 eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"' ||
   portable_die 'cannot open verified core descriptor'

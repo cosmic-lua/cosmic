@@ -337,15 +337,17 @@ core_bytes, 0x1c0)
   outcome_ok(mode_repair, "entry mode repair")
   Fixture.contains(mode_repair.err, "mode is not 0500; repairing")
 
-  Fixture.write(core, "Z" .. core_bytes:sub(2), 0x140); chmod(base, 0x140)
-  local marker = ctx.work .. "/read-only-corrupt.marker"
-  local corrupt = run(ctx, "read-only-corrupt", base,
+  -- A cached core damaged in place keeps its length, so the launcher runs it
+  -- and startup, the one pass that hashes it, refuses it by name.
+  Fixture.write(core, "Z" .. core_bytes:sub(2), 0x140)
+  local marker = ctx.work .. "/corrupt.marker"
+  local corrupt = run(ctx, "warm-corrupt", base,
     { PORTABLE_PAYLOAD_MARKER = marker })
   assert(not corrupt.result.ok and Fs.exists(marker) == false)
-  Fixture.contains(corrupt.err, "digest differs and cache is read-only")
-  chmod(base, 0x1c0)
-  local warm = run(ctx, "warm-corrupt", base); outcome_ok(warm, "warm repair")
-  Fixture.contains(warm.err, "digest differs; repairing")
+  Fixture.contains(corrupt.err, "executing core digest differs from manifest")
+  Fixture.contains(corrupt.err, "/" .. key .. " to extract it again")
+  assert(Fs.remove(core))
+  outcome_ok(run(ctx, "corrupt-removed", base), "extract after removal")
   assert(Fixture.hash(core) == core_hash)
   Fixture.write(core, core_bytes:sub(1, 20), 0x140)
   local short = run(ctx, "short-repair", base); outcome_ok(short, "short repair")

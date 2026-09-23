@@ -34,8 +34,8 @@ shell builtins plus `uname`, `stat`, `id`, `mkdir`, `chmod`, `mktemp`, `dd`,
 `head`, `ln`, `rm`, and either `sha256sum` or `shasum`. The directory
 containing the cache leaf is the user's trust boundary; the launcher
 rejects a linked leaf, an unexpected owner or mode, and unexpected entries,
-and a warm launch still stats and hashes the complete cached core before
-execution. `COSMIC_PORTABLE_CACHE` is the public cache setting; the
+a warm launch stats the cached core, and startup hashes the core it runs
+from before any Lua runs. `COSMIC_PORTABLE_CACHE` is the public cache setting; the
 remaining `COSMIC_PORTABLE_*` fields are a reserved launcher-to-core
 contract that startup requires complete, adopts, and clears before Lua
 runs.
