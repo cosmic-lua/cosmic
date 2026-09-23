@@ -7,17 +7,21 @@ local record http
   record Handle
     userdata
 
-    -- The response status code, once `open` has returned it.
+    -- The final response's status code.
     status: function(Handle): integer
     -- The effective URL: the one that was actually fetched, after
     -- every redirect `open`'s `follow` option let it take.
     url: function(Handle): string
-    -- Response headers, lowercased names, last one wins.
+    -- The final response's headers, by lowercased name; a repeated
+    -- name's values joined with ", " (Set-Cookie's with "\n").
     headers: function(Handle): {string:string}
     -- One chunk of the body, at most `max` bytes (a default when
     -- omitted). `nil, ""` at a clean end of body; `nil, err` on
     -- failure.
     read: function(Handle, max?: integer): string | nil, string
+    -- What curl has written to a scripted transfer's connections so
+    -- far; "" for one over the network.
+    sent: function(Handle): string
     close: function(Handle): boolean
   end
 
@@ -32,11 +36,15 @@ local record http
     low_speed_bytes: integer
     low_speed_seconds: integer
     verbose: boolean
+    -- Tests only: canned replies, one per connection, in place of the
+    -- network.
+    script: {string}
   end
 
   -- Blocks until the final response's headers have arrived (after
   -- every redirect `opts.follow` allows), or until the request fails
   -- outright (a bad URL, a refused connection, a TLS failure, ...).
+  -- A malformed option (a non-string method, body or header) throws.
   open: function(url: string, opts?: Options): Handle | nil, string
 end
 
