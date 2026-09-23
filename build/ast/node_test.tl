@@ -5,9 +5,9 @@
 --- these fails loudly here rather than silently downstream, in
 --- whichever consumer reads it next.
 ---
---- v2's checker has not yet landed record-field narrowing
---- (`patch/tl/` carries only the four basic narrowing patches so
---- far -- design.md's own roadmap names this gap), so an optional
+--- The checker has not yet landed record-field narrowing
+--- (`patch/tl/` carries only the basic nil-narrowing patches so far
+--- -- doc/roadmap.md names this gap), so an optional
 --- FIELD read twice in one chain (`call.op ~= nil and call.op.op ==
 --- ...`, the shape cosmic (v1)'s own version of this file uses
 --- throughout) does not narrow here. Every such read below goes

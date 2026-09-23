@@ -2,13 +2,17 @@
 
 cosmic is a runtime for building correct, self-contained command-line
 software. one file holds the language runtime, the compiler and type
-checker, the formatter, the test runner, the standard library, and
-the documentation, and it works offline on Linux and macOS. programs
-written for it ship the same way: one executable, built by cosmic,
-that carries everything it needs.
+checker, the formatter, the test runner, and the standard library,
+and it works offline on Linux and macOS. programs written for it ship
+the same way: one executable, built by cosmic, that carries
+everything it needs.
 
 the language is Teal, typed Lua. the runtime is Lua 5.5 in a C core.
 the store is SQLite.
+
+this doc says what cosmic is and how it is built today. what is
+decided but not yet built, and what is still open, is in
+[roadmap.md](roadmap.md).
 
 ## promises
 
@@ -82,10 +86,9 @@ them without Rosetta.
 every cosmic binary carries the core image for all three targets, so
 any host builds any target offline with nothing fetched.
 
-a target exists when three things hold: zig links it, a CI lane runs
-its full suite on it, and the sandbox conformance matrix runs on it.
-nothing ships that nothing has run. a BSD that meets the three is a
-target; the syscall table is POSIX and the attach is plain ELF, so
+a target exists when zig links it and a CI lane runs its full suite
+on it. nothing ships that nothing has run. a BSD that meets both is
+a target; the syscall table is POSIX and the attach is plain ELF, so
 the work is the lane, not the code.
 
 ## the stack
@@ -94,17 +97,13 @@ the work is the lane, not the code.
 kernel                               Linux; macOS
   libc                               musl, static, from the zig pin (Linux)
                                      libSystem (macOS)
-    lua 5.5                          vendored pristine
-    sqlite3                          vendored pristine
-    mbedtls, miniz, argon2,          vendored pristine
-    a regex engine
+    lua 5.5, sqlite3, miniz          vendored, unedited
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
     teal compiler + checker          vendored tl, carried patches
     cosmic.* stdlib in teal          typed wrappers, honest returns
-    docs, the three core images,     rows in the same database
-    CA roots
+    the three core images            rows in the same database
 ```
 
 ### toolchain
@@ -131,13 +130,7 @@ and Mach-O alike; debug info carries the absolute path and a
 content-derived Mach-O UUID follows it. the Linux lane builds a
 fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
-bare trap, and runs the whole test suite and the fuzzers under it on
-every push. zig ships no address sanitizer runtime for any target;
-an address-sanitized job on a real clang, outside the pinned
-toolchain and with that caveat stated, is a later addition. a
-`cosmic-debug` asset, the sanitized build published beside the
-release, is added once the fuzzers exist; being unstripped, it takes
-prefix-map flags to keep the build path out of its bytes.
+bare trap, and boots the whole build under it on every push.
 
 the C layer is POSIX plus a declared platform seam: no signalfd,
 inotify, epoll, or procfs outside modules guarded as Linux-only.
@@ -148,59 +141,32 @@ the core is a syscall table plus a few vendored libraries; anything
 with a policy in it is Teal, stored once in the database and shared
 by every target.
 
-native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; argon2; a regex engine; the
+native, per target: the Lua VM; SQLite; miniz for deflate; SHA-256,
+about two hundred lines, for record keys and the Mach-O signer; the
 syscall table; the database VFS and the entry. measured stripped on
-x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
-another 222 KB, miniz 98 KB; Lua and SQLite together in one static
-binary 1.4 MB. three carried cores plus mbedtls is on the order of
-6 MB per shipped binary before any Teal, and the size report carries
-that per component.
+x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, miniz
+98 KB; Lua and SQLite together in one static binary 1.4 MB.
 
 the syscall table is one C function per syscall with the same
 signature on Linux and macOS, written by hand in one strict shape in
 one annotated header, `core/syscalls.h`, each entry naming its
 arity. the annotation grammar is LuaCATS, `---@param`, `---@return`,
 `---@class`, `---@field`, the grammar the cosmopolitan fork's
-`definitions.lua` proved on this exact job. the Teal declaration and
-the doc row for each function are generated from that header when
-the core first runs over the tree, and the generator refuses, by
-name, any function whose annotation is incomplete, whose parameter
-count disagrees with the arity, or whose returns are not one value
-or the fallible three, so a binding cannot exist without its type
-and the C surface cannot grow without a diff in that header.
-argument-shape errors raise; runtime failures return `nil, err,
-errno`, plain values, the convention the fork already uses at over a
-hundred sites. one trace point at the table's dispatch gives a
-syscall log for every call uniformly when asked.
+`definitions.lua` proved on this exact job. the Teal declaration for
+each function is generated from that header when the core first runs
+over the tree, and the generator refuses, by name, any function whose
+annotation is incomplete, whose parameter count disagrees with the
+arity, or whose returns are not one value or the fallible three, so
+a binding cannot exist without its type and the C surface cannot
+grow without a diff in that header. argument-shape errors raise;
+runtime failures return `nil, err, errno`, plain values, the
+convention the fork already uses at over a hundred sites.
 
-`posix` is a reserved name of a different kind: not privacy, but
-scope. a module lives under `cosmic.posix.` when its whole job is
-exposing a POSIX standard's own vocabulary directly, names and
-numeric codes, rather than presenting cosmic's own abstraction over
-it. `posix.errno` and `posix.signal` are the first two; a module
-that instead builds an abstraction on top of a standard call, `fs`
-over `open`, `poll` over `poll(2)`, stays where it is.
-
-never borrowed from the libc where semantics are observable: regex,
-DNS resolution, anything locale-shaped. musl and libSystem agree on
-`open`; they do not agree on `regcomp`'s corners or `getaddrinfo`'s
-ordering. the regex engine is a standalone extraction of musl's
-TRE-derived one, about 4,300 lines, compiled the same on both OSes.
-DNS is a resolver in Teal over UDP and TCP, reading
-`/etc/resolv.conf` and `/etc/hosts`, which both OSes have; this also
-keeps Mach services out of the macOS sandbox profile.
-
-Teal by default: filesystem policy (walk, find, atomic write), child
-processes above spawn and wait, sandbox policy over raw enforcement
-syscalls, URL, SSE, tar, the zip directory, JSON, the whole build
-including the Mach-O writer and ad-hoc signer. C when a benchmark on
-a real scenario says the Teal is too slow and a fuzzed, vendorable C
-implementation exists. HTTP/1.1 framing starts in C on the second
-half of that rule, a fuzzed implementation existing; JSON starts in
-Teal and is measured against a C implementation on the harness when
-its tier lands, and the numbers pick. the benchmark harness, not
-taste, moves a module across the line in either direction.
+Teal by default: filesystem policy, the whole build including the
+Mach-O writer and ad-hoc signer. C when a benchmark on a real
+scenario says the Teal is too slow and a fuzzed, vendorable C
+implementation exists. the benchmark harness, not taste, moves a
+module across the line in either direction.
 
 ### the lua surface
 
@@ -209,16 +175,16 @@ reaches outside the process: `string`, `table`, `math`, `utf8`,
 `coroutine`, and the base functions minus `dofile` and `loadfile`.
 `package` keeps `loaded`, `preload`, and `searchers`, and the one
 searcher reads the database; `path`, `cpath`, `loadlib`, and
-`searchpath` do not exist. `io`, `os`, and `debug` are not globals.
-files, standard streams, environment, time, and processes are
-`cosmic.fs`, `cosmic.env`, `cosmic.time`, and `cosmic.proc`, all
-over the syscall table, so the same call behaves the same on both
-OSes and the sandbox has one door. `print` writes through the
-syscall table, and `fs` writes to a stream without a newline.
-`cosmic.errors` exposes a traceback for error reporting; the test
-runner and the coverage collector reach the rest of `debug` through
-a private binding. a name that is missing errors with the module
-that replaces it.
+`searchpath` do not exist. `io` and `os` are never opened, and
+`debug` is not a global. files, standard streams, environment, time,
+and processes are `cosmic.fs`, `cosmic.env`, `cosmic.time`, and
+`cosmic.proc`, all over the syscall table, so the same call behaves
+the same on both OSes and the sandbox has one door. `print` writes
+through the syscall table, and `fs` writes to a stream without a
+newline. `cosmic.errors` exposes a traceback for error reporting; the
+coverage collector reaches `debug`'s hook functions as
+`cosmic.internal.debug`. a name that is missing errors with the
+module that replaces it.
 
 the vendored `tl.lua` reaches outside the pure libraries in five
 places: `io.open` and the file handle it returns, `os.getenv`,
@@ -236,19 +202,19 @@ Lua is built with `LUA_USE_POSIX` on both OSes and no compatibility
 defines, so assigning an undeclared global is a compile error and
 nothing can `dlopen`.
 
-the raw C modules behind `cosmic.internal.store` and
-`cosmic.internal.sqlite` have no requireable name for anything
-outside them. the searcher hands each to its Teal wrapper,
-`cosmic.store` and `cosmic.sqlite`, as the loader's second argument,
-and only when the wrapper is loaded, trusted, from the binary's own
-database; nothing else ever calls `require` and gets an answer.
-`cosmic.internal.errors` is the same shape behind `cosmic.errors`,
-unconditionally preloaded rather than argument-passed, since a
-traceback carries less risk than a raw database handle. `internal`
-is a reserved name: a path under `cosmic.internal.` never satisfies
-an ordinary `require`, for any caller, which is stronger than
-positional privacy and is where every raw C binding that is not
-itself the public surface belongs, not only these three.
+the raw C modules behind `cosmic.internal.store`,
+`cosmic.internal.sqlite`, and `cosmic.internal.debug` have no
+requireable name for anything outside them. the searcher hands each
+to its Teal wrapper, `cosmic.store`, `cosmic.sqlite`, and
+`cosmic.coverage`, as the loader's second argument, and only when the
+wrapper is loaded, trusted, from the binary's own database; nothing
+else ever calls `require` and gets an answer. `cosmic.internal.errors`
+is the same shape behind `cosmic.errors`, unconditionally preloaded
+rather than argument-passed, since a traceback carries less risk than
+a raw database handle. `internal` is a reserved name: a path under
+`cosmic.internal.` never satisfies an ordinary `require`, for any
+caller, which is stronger than positional privacy and is where every
+raw C binding that is not itself the public surface belongs.
 
 ### the database
 
@@ -256,26 +222,23 @@ itself the public surface belongs, not only these three.
 input to the build, never to the runtime. one database holds:
 
 - **modules**: import path, source hash, Teal source, compiled Lua
-  and bytecode, declaration, kind (module, test, example, main),
-  and the test names the compile step found.
-- **docs**: extracted per symbol, queried by `cosmic docs`, from a
-  module named `cosmic.doc`.
-- **payload**: for an embed-built executable, the user's files.
+  and bytecode, kind (module, test, example, main), and the test
+  names the compile step found.
+- **imports**: which module requires which.
 - **images**: the core executable for every target, deflated at
   rest; two of the three are inert on any host.
-- **roots**: Mozilla's CA bundle.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
+- **meta**: the boot hash and the main module.
 
 every table is `WITHOUT ROWID` on a natural key. records, meaning
-test verdicts, coverage, and timings, live in a second database
-beside it, `o/records.db`, and never ship: they move by host, and a
-shipped file must not.
+test verdicts, the paths each test opened, and coverage, live in a
+second database beside it, `o/records.db`, and never ship: they move
+by host, and a shipped file must not.
 
 all three targets are little-endian 64-bit, so one bytecode column
-serves them all, verified by a test that each image loads it, and
-it keeps line information so a runtime error names its line; the
-bytecode header check is the safety net. the core image column is
-the only per-target data.
+serves them all, and it keeps line information so a runtime error
+names its line; the bytecode header check is the safety net. the
+core image column is the only per-target data.
 
 the binary carries its database attached to the executable. on ELF
 it is appended and located by a trailer at end of file. on Mach-O it
@@ -311,12 +274,6 @@ under `cosmic.`, naming the path, so a project cannot shadow the
 standard library by accident or on purpose. that is how the tool
 builds and tests a tree other than its own.
 
-inside cosmic's own tree, every run first compares the boot hash of
-`build/` and `core/` with the one the running binary carries; on a
-mismatch the tool refuses with `the tool is stale; run bin/zig build
-boot` and exit 3, and a re-import over the boot database carries the
-images and the compiler row forward unchanged.
-
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
 problem and are fixed first: a typo'd or overlong parameter table
 never binds NULL silently, TEXT and BLOB are distinguishable at the
@@ -328,190 +285,93 @@ double-quoted strings, or deprecated interfaces.
 ### the build
 
 the build is a cosmic program reading the tree by position into the
-database: compile, check, record, embed. `build.zig` owns the C.
-`zig build` produces the patch applier, the patched vendor tree
-under `o/vendor/`, and the core for each target. `zig build boot`
-bridges: it runs the fresh host core over `build/` to compile the
-importer with the vendored `tl.lua`, writes `o/cosmic.db`, and
-attaches it as `o/bin/cosmic`. a fresh clone and CI run `boot`; a
-developer runs `o/bin/cosmic build` the other hundred times a day.
+database: compile, check, record. `build.zig` owns the C. `zig build`
+produces the patch applier, the patched vendor tree under
+`o/vendor/`, and the core for each target. `zig build boot` bridges:
+it runs the fresh host core over `build/` to compile the importer
+with the vendored `tl.lua`, writes `o/cosmic.db`, and attaches it as
+`o/bin/cosmic`. a fresh clone and CI run `boot`; after that,
+`cosmic test` and `cosmic <file.tl>` rebuild the tree's database
+before they run anything.
 
 cosmic builds itself, so the tool is also an artifact of the tree,
 and a stale tool is the bug to design against. `boot` stores a hash
-of `build/` and `core/` in the binary it produces. every `o/bin/cosmic
-build` hashes the same trees first; on a mismatch it runs `boot` and
-re-execs into the result, once, and refuses a second round by name.
+of `build/` and `core/` in the binary it produces. every run inside
+cosmic's own tree hashes the same trees first; on a mismatch it
+refuses with `the tool is stale; run bin/zig build boot` and exit 3.
 that hash is also part of every record key, so a row compiled by an
-older importer is never mistaken for a current one.
+older importer is never mistaken for a current one, and a re-import
+over the boot database carries the images and the compiler row
+forward unchanged.
 
 the C stage is hermetic and checked. `build.zig` runs with both of
 zig's caches under `o/`, and `o/` is the only thing to delete. the
 applier's output replaces the vendor directory the core compiles
-from, whole, never one file beside a pristine tree, because a quoted
-`#include` finds the neighbor first and a half-applied patch builds
-green. a provenance gate in CI asserts that no bytes from outside
-the tree and the pinned zig reach any output, checked by building on
-two hosts with different system libraries and comparing hashes; zig
-opens a few host paths to probe the native target even for a cross
-build, so the gate judges outputs, not opens. the trust chain has
-exactly two seeds that nothing in the repository built, and they are
-named here: the POSIX sh `bin/zig` and the zig tarball its pin
-verifies. everything else is vendored or built from it.
+from, whole, never one file beside an unpatched tree, because a
+quoted `#include` finds the neighbor first and a half-applied patch
+builds green. the trust chain has exactly two seeds that nothing in
+the repository built, and they are named here: the POSIX sh
+`bin/zig` and the zig tarball its pin verifies. everything else is
+vendored or built from it.
 
-the build is fast, incremental, and reproducible, all three at once:
+the build is incremental and reproducible:
 
 - *incremental*: a module row is keyed by the content hash of its
-  source, the hashes of its import closure, the boot hash, and, for
-  a test, the set of files it was observed to read. an unchanged key
-  is a stat; a changed one recompiles and re-records only what
-  depended on it. observed reads come free: every file a test opens
-  goes through the syscall table, and the runner records the paths.
-- *fast*: compile and check run in one process, one transaction,
-  against declarations already in the database. tests run in a
-  child process each, for a fresh temp directory, a deadline, and
-  captured streams; a child never opens a database, it reports its
-  result over a pipe and the one build process writes it.
+  source, the hashes of its import closure, and the boot hash. an
+  unchanged key is a stat; a changed one recompiles only what
+  depended on it.
 - *reproducible*: the shipped database is a pure function of the
-  tree. it is built fresh in memory in one transaction, every table
-  is `WITHOUT ROWID` on a natural key so insertion order cannot
-  reach the bytes, and the file is produced by `VACUUM INTO`. a
-  second build of the same tree is byte-identical, and CI's repro
-  lane asserts it from a second transaction layout as well as a
-  second host.
+  tree. it is built in one transaction, every table is `WITHOUT
+  ROWID` on a natural key so insertion order cannot reach the bytes,
+  and the file is produced by `VACUUM INTO`. CI's repro lane builds
+  the tree again at a different path and asserts the database and
+  all three binaries are byte-identical.
+
+tests run in the build's own process, each handed a fresh temp
+directory, and every path a test opens through the syscall table is
+recorded beside its verdict.
 
 one Linux lane builds every image; three lanes run the full suite on
 the real thing: Linux x86_64, Linux aarch64 on an arm runner, macOS
-aarch64 on an arm Mac runner. the sandbox conformance matrix runs on
-all three.
-
-`cosmic build` and `cosmic test` fence themselves with the sandbox
-core, so a build cannot read outside its tree and a test cannot reach
-the network by accident. CI's profile requires the fence; a laptop
-reports it.
+aarch64 on an arm Mac runner.
 
 ### vendored sources
 
-`vendor/<name>/` is the extracted upstream tarball, never edited,
-with a `PIN` file naming version and hash. `patch/<name>/` holds
-records, each an exact `find`, a `replace`, and a `note` saying why
-it exists. a ~200-line C applier that zig builds first writes the
-patched copy to `o/vendor/<name>`; a record whose anchor no longer
-matches fails the build by name. repo size is a one-time clone cost,
-the cheap kind under principle 1.
+`vendor/<name>/` holds the files the build reads from the upstream
+archive its `PIN` names, unedited. `PIN` gives the version, the url,
+the archive's sha256, and which of its files are kept; `bin/vendor`
+fetches the archive and runs `vendor.tl` under the bootstrap cosmic,
+which verifies the hash and rewrites the tree to exactly the kept
+files. `patch/<name>/` holds records, each an exact `find`, a
+`replace`, and a `note` saying why it exists. a ~200-line C applier
+that zig builds first writes the patched copy to `o/vendor/<name>`; a
+record whose anchor no longer matches fails the build by name.
 
-vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz,
-argon2's reference implementation built without threads, the regex
-engine, and tl.
+vendored: Lua 5.5, the SQLite amalgamation, miniz, and tl.
 
 ### teal
 
 tl vendored, carried patches, upstream-first and fork-if-blocked.
-casts are foreclosed: `x as T` type-checks only from `any`, from a
-userdata record declared in a `.d.tl`, or from the enclosing
-generic's type variable. `any` is legal only where untrusted data
-enters and a shape validator turns it into a record by construction.
-no justification comments, no ledger. the rule is switched on from
-the first line, which is possible only because the narrowing gaps
-that forced casts before it, record-field narrowing and container
-covariance chiefly, land as carried patches before `cosmic check`
-and the lint rules `cosmic fix` applies do; both gate on them.
-
-the spirit is consistent, strong, explicit typing, the same shape the
-languages that hold it converged on: the top type inert until
-narrowed, casts confined to subtype moves or runtime-checked, the
-escape hatch in one greppable region, boundaries decoded through
-declared shapes. a runtime-checked cast is closed to Teal because
-Lua erases record types, so shapes construct their records rather
-than asserting them.
-
-three rules follow. `any` never assigns into a typed slot; tl
-already refuses that on assignment, argument, return, index, and
-call. an unannotated parameter is an error, never an implicit `any`,
-which tl does not enforce and a lint does. `v is R` for a record `R`
-is refused on an `any` or a union of records by lint, because it
-compiles to a table check that cannot tell two records apart; the
-shape module is the way in. the checker's own hint on an `any`
-index points at a shape, not at a cast. the per-release report
-names the modules that cast from `any`; the expected list is the
-shape module, the codec decoders, the C declaration layer, and the
-build step that loads the compiler chunk.
+the carried patches narrow nil unions under a truthiness guard, a
+comparison against nil, and `assert`, and keep the comments the
+lexer would otherwise drop at the end of input or in front of a
+`--#` run.
 
 ### the runtime
 
-one Lua state, one thread, coroutines over `poll`. every blocking
-binding takes a timeout and can be driven from one event loop, which
-is Teal over the `poll` binding; `http.serve` and `fetch` are
-coroutine-driven; CPU parallelism is by process through `child`.
-
-the C layer is re-entrant, which costs discipline, not code: no
-static buffers, no process-global state outside the entry, every
-binding takes its context explicitly, SQLite opened per connection
-and never shared across a boundary that could later be a thread. one
-state per OS thread with message passing stays open as a later
-addition that rewrites no bindings.
-
-### tls
-
-mbedtls: TLS 1.2 and 1.3, one configuration, hashes and HMAC from
-the same library. the branch is chosen when the `fetch` module is
-pulled; 4.x is the expectation, since 3.6's support ends in March
-2027 and 4.1's runs to 2029 as one tarball with its crypto subtree
-included. nothing before that needs mbedtls: SHA-256 for records and
-for the Mach-O signer is two hundred lines in the core. Mozilla's
-root bundle is stored in the database, identical on every machine,
-moved only by a pinned bump; an environment variable adds a
-certificate for the corporate-proxy case without making per-machine
-trust the default.
-
-### the sandbox
-
-an opt-in library and the toolchain's own fence. default-deny for
-user scripts is not promised; hard containment of a script is the
-host's job, and the module makes it one call when a caller wants it
-in-process.
-
-the policy model is what Landlock plus seccomp on Linux and Seatbelt
-on macOS both enforce: read, write, and exec under paths; network
-none, loopback, or all; TCP connect and bind by port; new processes
-allowed or denied; inherited by children and never liftable. on
-Linux, Landlock carries the path and port rules and seccomp carries
-the rest: `network none` denies `socket` for the internet families,
-because Landlock cannot see UDP at all, and `no new processes`
-denies `clone`, because denying `execve` would refuse the box its
-own launch and a self-replacing exec is not a new process. every
-denial returns one errno on both OSes, chosen once, whatever kernel
-mechanism produced it.
-
-per-host network rules are not in the core. Landlock's port rule has
-no address, so "only the proxy's port" reaches any host on that
-port, and no Landlock ABI or seccomp filter can close it. a caller
-who needs per-host rules takes the Linux extension below or a
-container.
-
-Linux extensions (a loopback-only network namespace, seccomp
-syscall lists, a private mount namespace, abstract socket scoping)
-may only deny what the core allows, never allow what the core
-denies; macOS reports them `skipped` by name. every section reports
-`full`, `degraded`, or `skipped` from a conformance cell that ran,
-never from an ABI number: a Landlock ABI below 3 cannot restrict
-truncate, gVisor has no Landlock at all, and a healthy ABI 7 has been
-seen to misenforce one right on one host. none of these is an error.
-
-one conformance matrix (read inside and outside, create, unlink,
-rename across the boundary, symlink escape before and after
-restriction, truncate, UDP under `none`, allowed and denied ports,
-bind, a new process) runs under the same declared policy on every CI
-lane and fails on any cell that differs. equivalence is a test, not
-a claim.
+one Lua state, one thread. the C layer is re-entrant, which costs
+discipline, not code: no static buffers, no process-global state
+outside the entry, every binding takes its context explicitly,
+SQLite opened per connection and never shared across a boundary that
+could later be a thread.
 
 ### the command line
 
-verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
-`cosmic check`, `cosmic fix`, `cosmic docs`, `cosmic embed`; `cosmic
-file.tl` runs a file; `-e` stays as Lua's one-liner idiom. every verb
-takes paths to narrow it, ends in a verdict line and an exit code,
-and `cosmic help <verb>` is the whole discovery surface. no other
-stock-interpreter flags, no argv[0] personality.
+verbs, with a bare path meaning run: `cosmic test`, `cosmic fix`,
+`cosmic help`; `cosmic file.tl` builds the tree the file sits in and
+runs it. `fix` takes paths to narrow it. every verb ends in a verdict
+line and an exit code, and `cosmic help` is the whole discovery
+surface. no stock-interpreter flags, no argv[0] personality.
 
 `fix` rather than `format`, because there is one verb and not two: it
 parses, applies whatever structural rewrites the lint has earned, and
@@ -525,25 +385,25 @@ it would have changed.
 README.md           what cosmic is and the one command to build it
 bin/zig             POSIX sh: fetch, verify, exec the pinned zig
 bin/zig.pin         version and per-host sha256; build.zig reads it
+bin/vendor          POSIX sh: fetch the archives vendor.tl unpacks
+vendor.tl           rewrite a vendor tree from its verified archive
 build.zig           the C build; build.zig.zon names the package
-vendor/<name>/      pristine upstream, never edited, with a PIN file
+vendor/<name>/      the upstream files the build reads, with a PIN
 patch/<name>/       exact find/replace records, each with a note
 core/               C: entry, locator, VFS, store, sqlite, surface, boot
-core/syscalls.h     the annotated header the .d.tl and doc rows derive from
+core/syscalls.h     the annotated header the .d.tl derives from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
-build/              the importer, checker driver, embed (Teal, private)
+build/              the importer, checker driver, test runner, fix (Teal, private)
+test/               tests of the tree as a whole
 doc/                prose
 o/                  output; o/cosmic.db, o/records.db; never committed
 ```
 
 every directory name is singular: `doc`, not `docs`; `patch`, not
 `patches`. the rule reaches module paths too, since a module that
-grows past one file becomes a directory of the same name:
-`cosmic.docs` is `cosmic.doc` for exactly this reason. the one
-deliberate exception is a CLI verb, `cosmic docs`, since a verb
-names an action and reads differently from a module naming a thing.
+grows past one file becomes a directory of the same name.
 
 every module path is lowercase; no name is spelled differently
 because of what it is. reachability is a question of position
@@ -559,34 +419,9 @@ and the checker refuses an import of it from any file outside
 under `cosmic/`. a project tree may hold no `cosmic`-prefixed path
 at all unless it is cosmic's own tree, so a project can never place
 itself as a false sibling to claim another module's private surface.
-one lint follows: no two names in a directory may differ only in
-case, because macOS's default filesystem cannot tell them apart, and
-a case-only rename is a two-step commit there. entry-point
-reachability is settled; whether an exported function's own name is
-capitalized by convention, `fs.Read` rather than `fs.read`, is a
-readability question and not yet decided, and the checker does not
-enforce it either way. positional reachability is a compile-time
-check over statically written imports; it says nothing about a value
-already held by a script that walks a table's fields at runtime,
-which is why `cosmic.sqlite` and `cosmic.store` keep their own
-stronger mechanism, no requireable name at all, on top of this rule
-rather than instead of it.
-
-### the surface
-
-the tier order is a reading order for what to write, not a size
-target:
-
-- **core**: `check`, `ast`, `fs`, `child`, `env`, `proc`, `hash`,
-  `sqlite`, `json`, `time`, `rand`, `flags`, `string`, `posix.errno`,
-  `errors`, `log`, `teal`, `format`, `test`, `coverage`, `doc`,
-  `embed`, `shape`.
-- **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
-  `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
-  `sandbox`, `posix.signal`, `poll`, `fd`, `tty`, `ansi`, `user`,
-  `host`, `stream`, `deep`, `graph`, `fuzzy`, `literal`, `template`.
-- **later, if pulled**: namespaces and egress proxying beyond what
-  the sandbox core needs, `shm`, `instrument`, `html`, `css`, `js`.
-
-what comes next, and the open questions that stand in the way, are
-in [roadmap.md](roadmap.md).
+positional reachability is a compile-time check over statically
+written imports; it says nothing about a value already held by a
+script that walks a table's fields at runtime, which is why
+`cosmic.sqlite` and `cosmic.store` keep their own stronger mechanism,
+no requireable name at all, on top of this rule rather than instead
+of it.
