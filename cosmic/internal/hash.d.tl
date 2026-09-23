@@ -10,7 +10,8 @@ local record hash
     digest: function(Hasher): string | nil, string
   end
 
-  -- nil, error when no algorithm has that name.
+  -- Raises when no algorithm has that name; nil, error when the
+  -- digest cannot start.
   hasher: function(algorithm: string): Hasher | nil, string
 end
 

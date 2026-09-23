@@ -113,7 +113,9 @@ local function test_hasher_throws_after_digest()
   assert(not ok2)
 end
 
-local function test_hasher_refuses_an_unknown_algorithm()
-  local hasher, trouble = Hash.hasher("sha0" as Hash.Algorithm)
-  assert(hasher == nil and trouble:find("no such digest algorithm", 1, true) ~= nil)
+local function test_hasher_raises_on_an_unknown_algorithm()
+  local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm)
+  assert(not ok)
+  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
+    tostring(trouble))
 end

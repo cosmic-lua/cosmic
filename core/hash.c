@@ -25,9 +25,7 @@ static int hash_hasher(lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
-    lua_pushnil(L);
-    lua_pushstring(L, "no such digest algorithm");
-    return 2;
+    return luaL_argerror(L, 1, "no such digest algorithm");
   }
   struct hasher *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->operation = (psa_hash_operation_t)PSA_HASH_OPERATION_INIT;
