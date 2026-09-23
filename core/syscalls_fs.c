@@ -38,12 +38,12 @@
 #define COSMIC_MTIME_NANOSECONDS(st) ((st).st_mtim.tv_nsec)
 #endif
 
-static void push_field(lua_State *L, const char *name, lua_Integer value) {
+static void push_field (lua_State *L, const char *name, lua_Integer value) {
   lua_pushinteger(L, value);
   lua_setfield(L, -2, name);
 }
 
-static void push_stat(lua_State *L, const struct stat *st) {
+static void push_stat (lua_State *L, const struct stat *st) {
   lua_createtable(L, 0, 10);
   push_field(L, "size", (lua_Integer)st->st_size);
   push_field(L, "mode", (lua_Integer)st->st_mode);
@@ -287,7 +287,7 @@ COSMIC_SYSCALL(chmod, 2) {
   return cosmic_ok(L);
 }
 
-static void release_dir(void *dir) { closedir(dir); }
+static void release_dir (void *dir) { closedir(dir); }
 
 COSMIC_SYSCALL(readdir, 1) {
   const char *path = cosmic_path(L, 1);

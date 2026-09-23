@@ -16,8 +16,8 @@
  * bzlib, never a shape corrupt input can reach -- that comes back as an
  * ordinary BZ_* status code instead), so there is nothing a caller can
  * do but stop. */
-_Noreturn void bz_internal_error(int errcode);
-_Noreturn void bz_internal_error(int errcode) {
+_Noreturn void bz_internal_error (int errcode);
+_Noreturn void bz_internal_error (int errcode) {
   fprintf(stderr, "cosmic: internal bzip2 library error %d\n", errcode);
   abort();
 }
@@ -145,13 +145,13 @@ struct sink {
   size_t budget;
 };
 
-static void sink_add(struct sink *out, const void *p, size_t n) {
+static void sink_add (struct sink *out, const void *p, size_t n) {
   if (n == 0) return;
   luaL_addlstring(out->b, (const char *)p, n);
   out->budget -= n;
 }
 
-static int bytes_append(struct bytes *b, const void *data, size_t len) {
+static int bytes_append (struct bytes *b, const void *data, size_t len) {
   if (len == 0) return 0;
   if (len > SIZE_MAX - b->len) return -1;
   if (b->len + len > b->cap) {
@@ -169,12 +169,12 @@ static int bytes_append(struct bytes *b, const void *data, size_t len) {
   return 0;
 }
 
-static uint32_t le32(const unsigned char *p) {
+static uint32_t le32 (const unsigned char *p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
          ((uint32_t)p[3] << 24);
 }
 
-static struct stream *checked_stream(lua_State *L) {
+static struct stream *checked_stream (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   if (s->finished) {
     luaL_error(L, "the stream is finished"); /* throws: a use after the
@@ -185,7 +185,7 @@ static struct stream *checked_stream(lua_State *L) {
 }
 
 /* The second result of every success: "" in the error slot. */
-static int succeeded(lua_State *L) {
+static int succeeded (lua_State *L) {
   lua_pushliteral(L, "");
   return 2;
 }
@@ -195,10 +195,10 @@ static int succeeded(lua_State *L) {
  * on memory, and nothing can say where it stopped, so a raise leaves
  * the stream finished; only a normal return from `update` clears the
  * mark again. */
-static void begin(struct stream *s) { s->finished = 1; }
+static void begin (struct stream *s) { s->finished = 1; }
 
 /* Frees the codec's own state; `rest` stays for the caller to read. */
-static void release(struct stream *s) {
+static void release (struct stream *s) {
   free(s->tdefl);
   s->tdefl = NULL;
   free(s->inf);
@@ -215,9 +215,10 @@ static void release(struct stream *s) {
 }
 
 /* Drops the partial output in `out`, finishes the stream, and returns
- * nil, `msg` -- the shape of every decoder failure. */
-static int fail(lua_State *L, struct stream *s, luaL_Buffer *out,
-                const char *msg) {
+ * nil, `msg` -- the shape of every decoder failure. Never inlined, so
+ * the tests that reach a failure enter this one copy. */
+__attribute__((noinline)) static int fail (lua_State *L, struct stream *s, luaL_Buffer *out,
+                 const char *msg) {
   luaL_pushresult(out);
   lua_pop(L, 1);
   s->finished = 1;
@@ -230,8 +231,8 @@ static int fail(lua_State *L, struct stream *s, luaL_Buffer *out,
 
 /* ---- tinfl: raw deflate, zlib, and the gzip body ---- */
 
-static int inflate_step(struct stream *s, const unsigned char *p, size_t n,
-                        size_t *used, struct sink *out, const char **err) {
+static int inflate_step (struct stream *s, const unsigned char *p, size_t n,
+                         size_t *used, struct sink *out, const char **err) {
   struct inflate_state *f = s->inf;
   /* The gzip body is plain deflate: its framing is parsed here. */
   mz_uint32 flags = TINFL_FLAG_HAS_MORE_INPUT |
@@ -283,7 +284,7 @@ static int inflate_step(struct stream *s, const unsigned char *p, size_t n,
   }
 }
 
-static void inflate_start_body(struct inflate_state *f) {
+static void inflate_start_body (struct inflate_state *f) {
   tinfl_init(&f->tinfl);
   f->body_done = 0;
   f->crc = 0;
@@ -292,15 +293,15 @@ static void inflate_start_body(struct inflate_state *f) {
 
 /* Copies bytes toward a fixed-size header field; true once it holds
  * `need` of them. */
-static int gzip_collect(struct inflate_state *f, const unsigned char *p,
-                        size_t n, size_t *i, size_t need) {
+static int gzip_collect (struct inflate_state *f, const unsigned char *p,
+                         size_t n, size_t *i, size_t need) {
   while (*i < n && f->field_have < need) f->field[f->field_have++] = p[(*i)++];
   return f->field_have == need;
 }
 
 /* Moves to whichever optional header part the flags still name, or to
  * the body once none is left. Each part clears its flag when done. */
-static void gzip_next(struct inflate_state *f) {
+static void gzip_next (struct inflate_state *f) {
   f->field_have = 0;
   if (f->flg & GZ_FEXTRA) {
     f->gstate = GZ_XLEN;
@@ -316,26 +317,26 @@ static void gzip_next(struct inflate_state *f) {
   }
 }
 
-static int gzip_step(struct stream *s, const unsigned char *p, size_t n,
-                     size_t *used, struct sink *out, const char **err) {
+static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
+                      size_t *used, struct sink *out, const char **err) {
   struct inflate_state *f = s->inf;
   size_t i = 0;
   for (;;) {
     switch (f->gstate) {
       case GZ_FIXED:
-        if (!gzip_collect(f, p, n, &i, 10)) goto starved;
-        if (f->field[2] != 8) {
-          *err = "unsupported gzip compression method";
-          return STEP_ERROR;
-        }
-        f->flg = f->field[3];
-        gzip_next(f);
-        break;
+      if (!gzip_collect(f, p, n, &i, 10)) goto starved;
+      if (f->field[2] != 8) {
+        *err = "unsupported gzip compression method";
+        return STEP_ERROR;
+      }
+      f->flg = f->field[3];
+      gzip_next(f);
+      break;
       case GZ_XLEN:
-        if (!gzip_collect(f, p, n, &i, 2)) goto starved;
-        f->extra_remaining = (size_t)f->field[0] | ((size_t)f->field[1] << 8);
-        f->gstate = GZ_EXTRA;
-        break;
+      if (!gzip_collect(f, p, n, &i, 2)) goto starved;
+      f->extra_remaining = (size_t)f->field[0] | ((size_t)f->field[1] << 8);
+      f->gstate = GZ_EXTRA;
+      break;
       case GZ_EXTRA: {
         size_t take = n - i < f->extra_remaining ? n - i : f->extra_remaining;
         i += take;
@@ -358,10 +359,10 @@ static int gzip_step(struct stream *s, const unsigned char *p, size_t n,
         break;
       }
       case GZ_HCRC:
-        if (!gzip_collect(f, p, n, &i, 2)) goto starved;
-        f->flg &= ~GZ_FHCRC;
-        gzip_next(f);
-        break;
+      if (!gzip_collect(f, p, n, &i, 2)) goto starved;
+      f->flg &= ~GZ_FHCRC;
+      gzip_next(f);
+      break;
       case GZ_BODY: {
         size_t u = 0;
         int rc = inflate_step(s, p + i, n - i, &u, out, err);
@@ -375,20 +376,20 @@ static int gzip_step(struct stream *s, const unsigned char *p, size_t n,
         break;
       }
       case GZ_TRAILER:
-        if (!gzip_collect(f, p, n, &i, 8)) goto starved;
-        if (le32(f->field) != f->crc) {
-          *err = "gzip CRC-32 mismatch";
-          return STEP_ERROR;
-        }
-        if (le32(f->field + 4) != f->isize) {
-          *err = "gzip size mismatch";
-          return STEP_ERROR;
-        }
-        *used = i;
-        return STEP_END;
+      if (!gzip_collect(f, p, n, &i, 8)) goto starved;
+      if (le32(f->field) != f->crc) {
+        *err = "gzip CRC-32 mismatch";
+        return STEP_ERROR;
+      }
+      if (le32(f->field + 4) != f->isize) {
+        *err = "gzip size mismatch";
+        return STEP_ERROR;
+      }
+      *used = i;
+      return STEP_END;
     }
   }
-starved:
+  starved:
   *used = i;
   return STEP_INPUT;
 }
@@ -398,8 +399,8 @@ starved:
 /* The most output one library call is offered at a time. */
 #define CODEC_SLICE ((size_t)1 << 16)
 
-static int bz2_step(struct stream *s, const unsigned char *p, size_t n,
-                    size_t *used, struct sink *out, const char **err) {
+static int bz2_step (struct stream *s, const unsigned char *p, size_t n,
+                     size_t *used, struct sink *out, const char **err) {
   bz_stream *bz = &s->u.bz;
   size_t i = 0;
   for (;;) {
@@ -437,8 +438,8 @@ static int bz2_step(struct stream *s, const unsigned char *p, size_t n,
   }
 }
 
-static int xz_step(struct stream *s, const unsigned char *p, size_t n,
-                   size_t *used, struct sink *out, const char **err) {
+static int xz_step (struct stream *s, const unsigned char *p, size_t n,
+                    size_t *used, struct sink *out, const char **err) {
   lzma_stream *z = &s->u.lzma;
   size_t i = 0;
   for (;;) {
@@ -484,8 +485,8 @@ static int xz_step(struct stream *s, const unsigned char *p, size_t n,
 
 /* Whether `p[0..n)` begins the next member: 1 when it does, 0 when it
  * cannot, -1 when too few bytes have arrived to tell. */
-static int magic_match(const struct stream *s, const unsigned char *p,
-                       size_t n) {
+static int magic_match (const struct stream *s, const unsigned char *p,
+                        size_t n) {
   static const unsigned char gz[] = {0x1f, 0x8b};
   static const unsigned char bz[] = {'B', 'Z', 'h', 0};
   static const unsigned char xz[] = {0xfd, '7', 'z', 'X', 'Z', 0};
@@ -503,7 +504,7 @@ static int magic_match(const struct stream *s, const unsigned char *p,
   return 1;
 }
 
-static int start_member(struct stream *s, const char **err) {
+static int start_member (struct stream *s, const char **err) {
   if (s->op == OP_INFLATE) {
     s->inf->gstate = GZ_FIXED;
     s->inf->field_have = 0;
@@ -533,26 +534,26 @@ static int start_member(struct stream *s, const char **err) {
   return 0;
 }
 
-static int member_step(struct stream *s, const unsigned char *p, size_t n,
-                       size_t *used, struct sink *out, const char **err) {
+static int member_step (struct stream *s, const unsigned char *p, size_t n,
+                        size_t *used, struct sink *out, const char **err) {
   switch (s->op) {
     case OP_BZ2:
-      return bz2_step(s, p, n, used, out, err);
+    return bz2_step(s, p, n, used, out, err);
     case OP_XZ:
-      return xz_step(s, p, n, used, out, err);
+    return xz_step(s, p, n, used, out, err);
     default:
-      return s->format == FMT_GZIP ? gzip_step(s, p, n, used, out, err)
-                                   : inflate_step(s, p, n, used, out, err);
+    return s->format == FMT_GZIP ? gzip_step(s, p, n, used, out, err)
+                                 : inflate_step(s, p, n, used, out, err);
   }
 }
 
-static const char *not_a_stream(const struct stream *s) {
+static const char *not_a_stream (const struct stream *s) {
   return s->op == OP_BZ2  ? "not a bzip2 stream"
          : s->op == OP_XZ ? "not an xz stream"
                           : "not a gzip stream";
 }
 
-static const char *truncated(const struct stream *s) {
+static const char *truncated (const struct stream *s) {
   if (s->op == OP_BZ2) return "truncated bzip2 stream";
   if (s->op == OP_XZ) return "truncated xz stream";
   if (s->format == FMT_GZIP) return "truncated gzip stream";
@@ -562,7 +563,7 @@ static const char *truncated(const struct stream *s) {
 /* Past the last member: the NUL bytes of an xz stream padding that is
  * not a whole number of four-byte words are not padding, so they are
  * the first bytes of `rest`. */
-static int enter_trailing(struct stream *s) {
+static int enter_trailing (struct stream *s) {
   static const unsigned char zeros[4] = {0};
   if (s->padding % 4 != 0) {
     for (size_t k = 0; k < s->padding; k += 4) {
@@ -581,9 +582,9 @@ static int enter_trailing(struct stream *s) {
  * `s->more`, when the sink's budget runs out. `at_end` says no input
  * follows, so bytes that might yet have begun a further member are
  * judged now as trailing bytes. Returns -1 with `*err` on failure. */
-static int decode(struct stream *s, const unsigned char *p, size_t n,
-                  int at_end, struct sink *out, size_t *used,
-                  const char **err) {
+static int decode (struct stream *s, const unsigned char *p, size_t n,
+                   int at_end, struct sink *out, size_t *used,
+                   const char **err) {
   size_t i = 0;
   s->more = 0;
   for (;;) {
@@ -641,7 +642,7 @@ static int decode(struct stream *s, const unsigned char *p, size_t n,
     if (start_member(s, err) != 0) return -1;
     s->ph = PH_MEMBER;
   }
-oom:
+  oom:
   *err = "out of memory";
   return -1;
 }
@@ -650,7 +651,7 @@ oom:
 
 static const char *const format_names[] = {"raw", "zlib", "gzip", NULL};
 
-static struct stream *new_stream(lua_State *L, stream_op op) {
+static struct stream *new_stream (lua_State *L, stream_op op) {
   struct stream *s = lua_newuserdatauv(L, sizeof *s, 0);
   memset(s, 0, sizeof *s);
   luaL_setmetatable(L, STREAM_TYPE);
@@ -658,7 +659,7 @@ static struct stream *new_stream(lua_State *L, stream_op op) {
   return s;
 }
 
-static int inflater(lua_State *L) {
+static int inflater (lua_State *L) {
   stream_format fmt =
       (stream_format)luaL_checkoption(L, 1, NULL, format_names);
   struct stream *s = new_stream(L, OP_INFLATE);
@@ -679,7 +680,7 @@ static int inflater(lua_State *L) {
   return succeeded(L);
 }
 
-static int deflater(lua_State *L) {
+static int deflater (lua_State *L) {
   stream_format fmt =
       (stream_format)luaL_checkoption(L, 1, NULL, format_names);
   lua_Integer level = luaL_optinteger(L, 2, MZ_DEFAULT_LEVEL);
@@ -701,7 +702,7 @@ static int deflater(lua_State *L) {
   return succeeded(L);
 }
 
-static int xz_decoder(lua_State *L) {
+static int xz_decoder (lua_State *L) {
   lua_Integer memlimit = luaL_optinteger(L, 1, DEFAULT_XZ_MEMLIMIT);
   luaL_argcheck(L, memlimit > 0, 1, "the memory limit must be positive");
   struct stream *s = new_stream(L, OP_XZ);
@@ -710,7 +711,7 @@ static int xz_decoder(lua_State *L) {
   return succeeded(L);
 }
 
-static int bz2_decoder(lua_State *L) {
+static int bz2_decoder (lua_State *L) {
   struct stream *s = new_stream(L, OP_BZ2);
   s->ph = PH_BETWEEN;
   return succeeded(L);
@@ -720,8 +721,8 @@ static int bz2_decoder(lua_State *L) {
 
 /* Compresses `data` (which may be empty, to flush) with `flush`,
  * appending to `out`. */
-static void deflate_chunk(struct stream *s, const unsigned char *data,
-                          size_t len, tdefl_flush flush, luaL_Buffer *out) {
+static void deflate_chunk (struct stream *s, const unsigned char *data,
+                           size_t len, tdefl_flush flush, luaL_Buffer *out) {
   unsigned char buffer[8192];
   size_t in_pos = 0;
   for (;;) {
@@ -736,24 +737,24 @@ static void deflate_chunk(struct stream *s, const unsigned char *data,
   }
 }
 
-static void gzip_write_header(struct stream *s, luaL_Buffer *out) {
+static void gzip_write_header (struct stream *s, luaL_Buffer *out) {
   static const unsigned char header[10] = {
-      0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255,
+    0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255,
   };
   if (s->format != FMT_GZIP || s->wrote_header) return;
   luaL_addlstring(out, (const char *)header, sizeof header);
   s->wrote_header = 1;
 }
 
-static void push_u32le(luaL_Buffer *out, uint32_t v) {
+static void push_u32le (luaL_Buffer *out, uint32_t v) {
   unsigned char b[4] = {(unsigned char)(v), (unsigned char)(v >> 8),
-                        (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
+    (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
   luaL_addlstring(out, (const char *)b, 4);
 }
 
 /* ---- methods ---- */
 
-static int stream_update(lua_State *L) {
+static int stream_update (lua_State *L) {
   struct stream *s = checked_stream(L);
   size_t len;
   const unsigned char *data =
@@ -814,7 +815,7 @@ static int stream_update(lua_State *L) {
  * of it over at once: past the drain, what is left is at most a partial
  * magic, which goes to `rest`, so `finish` never returns a decoder's
  * bulk. */
-static int stream_finish(lua_State *L) {
+static int stream_finish (lua_State *L) {
   struct stream *s = checked_stream(L);
   if (s->more) {
     return luaL_error(L, "the stream has pending output: drain it with "
@@ -853,19 +854,19 @@ static int stream_finish(lua_State *L) {
   return succeeded(L);
 }
 
-static int stream_done(lua_State *L) {
+static int stream_done (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   lua_pushboolean(L, s->ended);
   return 1;
 }
 
-static int stream_pending(lua_State *L) {
+static int stream_pending (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   lua_pushboolean(L, s->more);
   return 1;
 }
 
-static int stream_rest(lua_State *L) {
+static int stream_rest (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   lua_pushlstring(L, s->rest.p == NULL ? "" : (const char *)s->rest.p,
                   s->rest.len);
@@ -873,7 +874,7 @@ static int stream_rest(lua_State *L) {
 }
 
 /* `__close`: the stream ends here, as after an error. `rest` stays. */
-static int stream_close(lua_State *L) {
+static int stream_close (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   s->finished = 1;
   release(s);
@@ -883,7 +884,7 @@ static int stream_close(lua_State *L) {
 /* `__gc`: as `__close`, and `rest` goes too. A finalizer elsewhere can
  * still hand the object back to Lua afterward, so it is left finished:
  * every method that would reach the freed state throws instead. */
-static int stream_gc(lua_State *L) {
+static int stream_gc (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   s->finished = 1;
   release(s);
@@ -892,7 +893,7 @@ static int stream_gc(lua_State *L) {
   return 0;
 }
 
-static int compress_crc32(lua_State *L) {
+static int compress_crc32 (lua_State *L) {
   size_t len;
   const char *data = luaL_checklstring(L, 1, &len);
   lua_Integer crc = luaL_optinteger(L, 2, 0);
@@ -905,18 +906,18 @@ static int compress_crc32(lua_State *L) {
 }
 
 static const luaL_Reg stream_methods[] = {
-    {"update", stream_update}, {"finish", stream_finish},
-    {"done", stream_done},     {"pending", stream_pending},
-    {"rest", stream_rest},     {NULL, NULL},
+  {"update", stream_update}, {"finish", stream_finish},
+  {"done", stream_done},     {"pending", stream_pending},
+  {"rest", stream_rest},     {NULL, NULL},
 };
 
 static const luaL_Reg module[] = {
-    {"inflater", inflater},     {"deflater", deflater},
-    {"xz_decoder", xz_decoder}, {"bz2_decoder", bz2_decoder},
-    {"crc32", compress_crc32},  {NULL, NULL},
+  {"inflater", inflater},     {"deflater", deflater},
+  {"xz_decoder", xz_decoder}, {"bz2_decoder", bz2_decoder},
+  {"crc32", compress_crc32},  {NULL, NULL},
 };
 
-int cosmic_open_compress(lua_State *L) {
+int cosmic_open_compress (lua_State *L) {
   luaL_newmetatable(L, STREAM_TYPE);
   lua_pushcfunction(L, stream_gc);
   lua_setfield(L, -2, "__gc");

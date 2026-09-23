@@ -15,12 +15,12 @@ struct hasher {
 };
 
 /* The second result of every success: "" in the error slot. */
-static int succeeded(lua_State *L) {
+static int succeeded (lua_State *L) {
   lua_pushliteral(L, "");
   return 2;
 }
 
-static struct hasher *checked_hasher(lua_State *L) {
+static struct hasher *checked_hasher (lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
   if (h->finished) {
     luaL_error(L, "the hasher is finished"); /* throws: a use after the
@@ -30,7 +30,7 @@ static struct hasher *checked_hasher(lua_State *L) {
   return h;
 }
 
-static int hash_hasher(lua_State *L) {
+static int hash_hasher (lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
@@ -51,7 +51,7 @@ static int hash_hasher(lua_State *L) {
   return succeeded(L);
 }
 
-static int hasher_update(lua_State *L) {
+static int hasher_update (lua_State *L) {
   struct hasher *h = checked_hasher(L);
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
@@ -67,7 +67,7 @@ static int hasher_update(lua_State *L) {
   return 0;
 }
 
-static int hasher_digest(lua_State *L) {
+static int hasher_digest (lua_State *L) {
   struct hasher *h = checked_hasher(L);
   unsigned char out[COSMIC_DIGEST_MAX];
   size_t out_len = 0;
@@ -86,7 +86,7 @@ static int hasher_digest(lua_State *L) {
 /* `__close` and `__gc` alike: abandons an unfinished digest. A
  * finalizer elsewhere can hand a collected hasher back to Lua, where it
  * is finished like any other. */
-static int hasher_gc(lua_State *L) {
+static int hasher_gc (lua_State *L) {
   struct hasher *h = luaL_checkudata(L, 1, HASHER_TYPE);
   if (!h->finished) {
     psa_hash_abort(&h->operation);
@@ -98,7 +98,7 @@ static int hasher_gc(lua_State *L) {
 /* The sum of the unsigned bytes of data[first..last], 1-based and
  * inclusive, the whole string by default. A range outside the string
  * raises; an empty one (first == last + 1) sums to 0. */
-static int hash_byte_sum(lua_State *L) {
+static int hash_byte_sum (lua_State *L) {
   size_t len;
   const unsigned char *data =
       (const unsigned char *)luaL_checklstring(L, 1, &len);
@@ -115,18 +115,18 @@ static int hash_byte_sum(lua_State *L) {
 }
 
 static const luaL_Reg hasher_methods[] = {
-    {"update", hasher_update},
-    {"digest", hasher_digest},
-    {NULL, NULL},
+  {"update", hasher_update},
+  {"digest", hasher_digest},
+  {NULL, NULL},
 };
 
 static const luaL_Reg module[] = {
-    {"hasher", hash_hasher},
-    {"byte_sum", hash_byte_sum},
-    {NULL, NULL},
+  {"hasher", hash_hasher},
+  {"byte_sum", hash_byte_sum},
+  {NULL, NULL},
 };
 
-int cosmic_open_hash(lua_State *L) {
+int cosmic_open_hash (lua_State *L) {
   luaL_newmetatable(L, HASHER_TYPE);
   lua_pushcfunction(L, hasher_gc);
   lua_setfield(L, -2, "__gc");

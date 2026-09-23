@@ -42,7 +42,7 @@
  * does. `spawn`, whose path and cwd refused a NUL by raising before
  * this rule, still does: `cosmic.child` depends on it, and neither way
  * truncates. */
-const char *cosmic_path(lua_State *L, int index);
+const char *cosmic_path (lua_State *L, int index);
 
 /*
  * --- What `stat`, `lstat` and `fstat` report about a path.
@@ -604,6 +604,6 @@ COSMIC_SYSCALL(fsync, 1);
  */
 
 /* Opens the table as the `cosmic.sys` module. */
-int cosmic_open_syscalls(lua_State *L);
+int cosmic_open_syscalls (lua_State *L);
 
 #endif

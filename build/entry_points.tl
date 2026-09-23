@@ -5,9 +5,9 @@
 --- `print`, and `errors.trace`. A test
 --- worker watches them all, so a call of one is recorded among the
 --- test's hits (see `Coverage.called_path`), and a whole test run fails
---- for any that no test calls. Every core now sees its own C lines too
---- (core/coverage.c), so a stricter bar -- every C function entered --
---- can replace this one once processes a test starts report theirs.
+--- for any that no test calls. `build.c_functions` holds every C
+--- function to the stricter bar of being entered at all; this one stays
+--- until that bar has held for a while.
 
 local Coverage = require("cosmic.coverage")
 local Sqlite = require("cosmic.sqlite")

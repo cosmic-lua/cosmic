@@ -69,31 +69,31 @@ struct cosmic_startup {
   const char *contract_error;
 };
 
-void cosmic_startup_native(struct cosmic_startup *startup);
+void cosmic_startup_native (struct cosmic_startup *startup);
 /* A native start whose own executable, held open by `fd` at `path`, ends in
  * a host program trailer. */
-void cosmic_startup_host(struct cosmic_startup *startup, int fd,
-                         const char *path);
+void cosmic_startup_host (struct cosmic_startup *startup, int fd,
+                          const char *path);
 /* Whether the artifact's selected core range hashes to its manifest digest,
  * checked once and remembered. */
-int cosmic_artifact_core_matches(struct cosmic_artifact *artifact);
-void cosmic_startup_portable(struct cosmic_startup *startup,
-                             const char *artifact_path);
-int cosmic_startup_has_private_environment(void);
-const char *cosmic_startup_validate(const struct cosmic_startup *startup);
-int cosmic_startup_adopt(const struct cosmic_startup *startup,
-                         struct cosmic_artifact *artifact,
-                         const char **error);
-int cosmic_startup_test_pause(const struct cosmic_startup *startup,
-                              const char **error);
+int cosmic_artifact_core_matches (struct cosmic_artifact *artifact);
+void cosmic_startup_portable (struct cosmic_startup *startup,
+                              const char *artifact_path);
+int cosmic_startup_has_private_environment (void);
+const char *cosmic_startup_validate (const struct cosmic_startup *startup);
+int cosmic_startup_adopt (const struct cosmic_startup *startup,
+                          struct cosmic_artifact *artifact,
+                          const char **error);
+int cosmic_startup_test_pause (const struct cosmic_startup *startup,
+                               const char **error);
 /* The names under the reserved COSMIC_PORTABLE_ prefix the linked hook
  * reads for itself and leaves in place for the processes this one
  * starts, NULL-terminated; the product hook names none, so startup
  * clears every reserved name but COSMIC_PORTABLE_CACHE. */
-const char *const *cosmic_startup_test_environment(void);
-void cosmic_startup_test_phase(const struct cosmic_startup *startup,
-                               enum cosmic_startup_test_phase phase);
-int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
-                         char **argv);
+const char *const *cosmic_startup_test_environment (void);
+void cosmic_startup_test_phase (const struct cosmic_startup *startup,
+                                enum cosmic_startup_test_phase phase);
+int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
+                          char **argv);
 
 #endif

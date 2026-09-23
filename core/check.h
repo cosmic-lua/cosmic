@@ -14,14 +14,14 @@
 #include "lauxlib.h"
 #include "lua.h"
 
-static inline int cosmic_checkint(lua_State *L, int arg) {
+static inline int cosmic_checkint (lua_State *L, int arg) {
   lua_Integer value = luaL_checkinteger(L, arg);
   luaL_argcheck(L, value >= INT_MIN && value <= INT_MAX, arg,
                 "does not fit in an int");
   return (int)value;
 }
 
-static inline int cosmic_optint(lua_State *L, int arg, int otherwise) {
+static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
   return lua_isnoneornil(L, arg) ? otherwise : cosmic_checkint(L, arg);
 }
 
@@ -30,7 +30,7 @@ static inline int cosmic_optint(lua_State *L, int arg, int otherwise) {
  * refuse: an exit keeps only the low byte, so 256 would pass for success,
  * and the value is read outside any protected call, where a raise ends
  * the process in a panic. */
-static inline int cosmic_tostatus(lua_State *L, int index) {
+static inline int cosmic_tostatus (lua_State *L, int index) {
   if (lua_isnoneornil(L, index)) return 0;
   int exact = 0;
   lua_Integer status = lua_tointegerx(L, index, &exact);

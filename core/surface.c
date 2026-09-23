@@ -20,17 +20,17 @@ struct replacement {
 };
 
 static const struct replacement replacements[] = {
-    {"io", "io is not available: files are cosmic.fs, and the standard "
-           "streams are cosmic.fs.stdout, .stderr and .stdin"},
-    {"os", "os is not available: time is cosmic.time, the environment is "
-           "cosmic.env, and processes are cosmic.proc"},
-    {"debug", "debug is not available: a traceback is cosmic.errors.trace"},
-    {"dofile", "dofile is not available: a module comes from require, and "
-               "a file's bytes come from cosmic.fs.read"},
-    {"loadfile", "loadfile is not available: a module comes from require, "
-                 "and a file's bytes come from cosmic.fs.read"},
-    {"require", NULL},
-    {NULL, NULL},
+  {"io", "io is not available: files are cosmic.fs, and the standard "
+         "streams are cosmic.fs.stdout, .stderr and .stdin"},
+  {"os", "os is not available: time is cosmic.time, the environment is "
+         "cosmic.env, and processes are cosmic.proc"},
+  {"debug", "debug is not available: a traceback is cosmic.errors.trace"},
+  {"dofile", "dofile is not available: a module comes from require, and "
+             "a file's bytes come from cosmic.fs.read"},
+  {"loadfile", "loadfile is not available: a module comes from require, "
+               "and a file's bytes come from cosmic.fs.read"},
+  {"require", NULL},
+  {NULL, NULL},
 };
 
 /* `print` over the syscall table, so every byte the process writes goes
@@ -38,7 +38,7 @@ static const struct replacement replacements[] = {
  * buffer, so it goes in with luaL_addvalue: every other buffer call
  * needs the buffer's own slot on top, and once the line outgrows the
  * buffer's inline room that slot is a heap box a stray pop would free. */
-static int surface_print(lua_State *L) {
+static int surface_print (lua_State *L) {
   int count = lua_gettop(L);
   luaL_Buffer line;
   luaL_buffinit(L, &line);
@@ -71,14 +71,14 @@ static int surface_print(lua_State *L) {
 
 /* A traceback built from Lua's internal debugging support: a program
  * reporting a failure needs to say where it happened. */
-static int surface_trace(lua_State *L) {
+static int surface_trace (lua_State *L) {
   const char *message = luaL_optstring(L, 1, NULL);
   int level = cosmic_optint(L, 2, 1);
   luaL_traceback(L, L, message, level);
   return 1;
 }
 
-static int open_errors(lua_State *L) {
+static int open_errors (lua_State *L) {
   lua_createtable(L, 0, 1);
   lua_pushcfunction(L, surface_trace);
   lua_setfield(L, -2, "trace");
@@ -86,7 +86,7 @@ static int open_errors(lua_State *L) {
 }
 
 /* Raised when a program reaches for a name this surface removed. */
-static int surface_missing(lua_State *L) {
+static int surface_missing (lua_State *L) {
   const char *name = lua_tostring(L, 2);
   lua_getfield(L, lua_upvalueindex(1), name == NULL ? "" : name);
   if (lua_isstring(L, -1)) {
@@ -97,20 +97,20 @@ static int surface_missing(lua_State *L) {
   return 1;
 }
 
-static void open_library(lua_State *L, const char *name, lua_CFunction opener,
-                         int global) {
+static void open_library (lua_State *L, const char *name, lua_CFunction opener,
+                          int global) {
   luaL_requiref(L, name, opener, global);
   lua_pop(L, 1);
 }
 
-static void clear_field(lua_State *L, const char *table, const char *field) {
+static void clear_field (lua_State *L, const char *table, const char *field) {
   lua_getglobal(L, table);
   lua_pushnil(L);
   lua_setfield(L, -2, field);
   lua_pop(L, 1);
 }
 
-lua_State *cosmic_surface_open(const char *logical_executable) {
+lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_State *L = luaL_newstate();
   if (L == NULL) {
     return NULL;

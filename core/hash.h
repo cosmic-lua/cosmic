@@ -8,6 +8,6 @@
 
 /* Opens the table that backs the `cosmic.hash` wrapper's streaming
  * hasher, registered under the raw `cosmic.internal.hash` name. */
-int cosmic_open_hash(lua_State *L);
+int cosmic_open_hash (lua_State *L);
 
 #endif

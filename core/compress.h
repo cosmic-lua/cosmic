@@ -9,6 +9,6 @@
 
 /* Opens the table that backs the `cosmic.compress` wrapper's streaming
  * codecs, registered under the raw `cosmic.internal.compress` name. */
-int cosmic_open_compress(lua_State *L);
+int cosmic_open_compress (lua_State *L);
 
 #endif

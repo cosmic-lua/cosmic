@@ -6,11 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(void) {
+int main (void) {
   static const char *const keep[] = {
-      "COSMIC_PORTABLE_STARTUP_TEST_READY",
-      "COSMIC_PORTABLE_STARTUP_TEST_GO",
-      NULL,
+    "COSMIC_PORTABLE_STARTUP_TEST_READY",
+    "COSMIC_PORTABLE_STARTUP_TEST_GO",
+    NULL,
   };
   if (setenv("COSMIC_PORTABLE_CACHE", "/tmp/cache", 1) != 0) return 2;
   if (setenv("COSMIC_PORTABLE_ADJACENT_A", "a", 1) != 0) return 2;

@@ -11,6 +11,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local layout = require("build.c.layout")
 local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 
@@ -72,14 +73,13 @@ local function skip(entry: string): boolean
   return name:sub(1, 1) == "."
 end
 
---- Every `.c` file under `dir`, relative to it and sorted. A header is
---- checked through the files that include it.
+--- Every C file under `dir`, `.c` and `.h`, relative to it and sorted.
 function c.sources(dir: string): {string} | nil, string
   local files, trouble = Fs.walk(dir, skip)
   if files == nil then return nil, trouble end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if file:sub(-2) == ".c" then out[#out + 1] = file end
+    if file:sub(-2) == ".c" or file:sub(-2) == ".h" then out[#out + 1] = file end
   end
   table.sort(out)
   return out
@@ -153,6 +153,12 @@ function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
     end
   end
   return outcomes
+end
+
+--- `source`, a C file, in the layout `build.c.layout` holds; or nil and
+--- why, when laying it out would change more than whitespace.
+function c.laid_out(source: string): string | nil, string
+  return layout.rendered(source)
 end
 
 return c

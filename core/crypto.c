@@ -20,7 +20,7 @@
  * its entropy and DRBG modules out of the core. Nothing here draws
  * randomness today; this is what will, over the same two OS calls both
  * targets have. */
-psa_status_t mbedtls_psa_external_get_random(
+psa_status_t mbedtls_psa_external_get_random (
     mbedtls_psa_external_random_context_t *context, uint8_t *output,
     size_t output_size, size_t *output_length) {
   (void)context;
@@ -45,14 +45,14 @@ struct algorithm {
 };
 
 static const struct algorithm algorithms[] = {
-    {"md5", PSA_ALG_MD5},         {"sha1", PSA_ALG_SHA_1},
-    {"sha224", PSA_ALG_SHA_224},  {"sha256", PSA_ALG_SHA_256},
-    {"sha384", PSA_ALG_SHA_384},  {"sha512", PSA_ALG_SHA_512},
-    {"sha3-224", PSA_ALG_SHA3_224}, {"sha3-256", PSA_ALG_SHA3_256},
-    {"sha3-384", PSA_ALG_SHA3_384}, {"sha3-512", PSA_ALG_SHA3_512},
+  {"md5", PSA_ALG_MD5},         {"sha1", PSA_ALG_SHA_1},
+  {"sha224", PSA_ALG_SHA_224},  {"sha256", PSA_ALG_SHA_256},
+  {"sha384", PSA_ALG_SHA_384},  {"sha512", PSA_ALG_SHA_512},
+  {"sha3-224", PSA_ALG_SHA3_224}, {"sha3-256", PSA_ALG_SHA3_256},
+  {"sha3-384", PSA_ALG_SHA3_384}, {"sha3-512", PSA_ALG_SHA3_512},
 };
 
-psa_algorithm_t cosmic_hash_algorithm(const char *name) {
+psa_algorithm_t cosmic_hash_algorithm (const char *name) {
   for (size_t i = 0; i < sizeof algorithms / sizeof *algorithms; i++) {
     if (strcmp(algorithms[i].name, name) == 0) {
       return algorithms[i].alg;
@@ -61,12 +61,12 @@ psa_algorithm_t cosmic_hash_algorithm(const char *name) {
   return PSA_ALG_NONE;
 }
 
-int cosmic_crypto_init(void) {
+int cosmic_crypto_init (void) {
   return (int)psa_crypto_init();
 }
 
-int cosmic_digest(const char *name, const void *data, size_t len,
-                  unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
+int cosmic_digest (const char *name, const void *data, size_t len,
+                   unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
     return -1;
@@ -75,9 +75,9 @@ int cosmic_digest(const char *name, const void *data, size_t len,
                                out_len);
 }
 
-int cosmic_digest_fd(const char *name, int fd, uint64_t offset,
-                     uint64_t length,
-                     unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
+int cosmic_digest_fd (const char *name, int fd, uint64_t offset,
+                      uint64_t length,
+                      unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) return -1;
   if (offset > (uint64_t)INT64_MAX || length > (uint64_t)INT64_MAX - offset)
@@ -109,9 +109,9 @@ int cosmic_digest_fd(const char *name, int fd, uint64_t offset,
   return (int)status;
 }
 
-int cosmic_hmac(const char *name, const void *key, size_t key_len,
-                const void *data, size_t len,
-                unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
+int cosmic_hmac (const char *name, const void *key, size_t key_len,
+                 const void *data, size_t len,
+                 unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len) {
   psa_algorithm_t alg = cosmic_hash_algorithm(name);
   if (alg == PSA_ALG_NONE) {
     return -1;

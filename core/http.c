@@ -116,7 +116,7 @@ static size_t ca_blob_len;
  * $SSL_CERT_FILE when it names a readable file -- which is how a
  * TLS-intercepting proxy's own CA gets trusted. NUL-terminated, so
  * mbedtls can parse it in place. */
-static char *build_ca_blob(size_t *out_len) {
+static char *build_ca_blob (size_t *out_len) {
   const char *extra_path = getenv("SSL_CERT_FILE");
   char *extra = NULL;
   size_t extra_len = 0;
@@ -155,7 +155,7 @@ static char *build_ca_blob(size_t *out_len) {
  * first time any request needs them. Returns NULL, or why not. Each
  * piece is made once: a later call after a failure picks up where the
  * last one stopped, so nothing made is leaked or made twice. */
-static const char *http_ready(void) {
+static const char *http_ready (void) {
   if (shared_multi != NULL) return NULL;
   if (!curl_ready) {
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
@@ -181,8 +181,8 @@ static const char *http_ready(void) {
  * fold into the value on the wire); or an empty name. Returns NULL if
  * `name`/`value` are fine to send as-is, or a static description of
  * why not. */
-static const char *header_problem(const char *name, size_t name_len,
-                                  const char *value, size_t value_len) {
+static const char *header_problem (const char *name, size_t name_len,
+                                   const char *value, size_t value_len) {
   if (name_len == 0) return "a header name must not be empty";
   for (size_t i = 0; i < name_len; i++) {
     if (name[i] == '\r' || name[i] == '\n') {
@@ -203,7 +203,7 @@ static const char *header_problem(const char *name, size_t name_len,
 /* True when `method` is an HTTP token (RFC 9110 5.6.2), so it cannot
  * carry a space or line break into the request line -- nor a NUL, which
  * would cut the C string curl reads short. */
-static int is_token(const char *method, size_t len) {
+static int is_token (const char *method, size_t len) {
   if (len == 0) return 0;
   for (size_t i = 0; i < len; i++) {
     char c = method[i];
@@ -222,8 +222,8 @@ static int is_token(const char *method, size_t len) {
  * option; a value of the right shape that cannot be sent (a CR in a
  * header, a method that is no token, a bad URL) is data, which `open`
  * returns as `nil, err`. */
-_Noreturn static void bad_option(lua_State *L, const char *key,
-                                 const char *want) {
+_Noreturn static void bad_option (lua_State *L, const char *key,
+                                  const char *want) {
   luaL_argerror(L, 2, lua_pushfstring(L, "opts.%s must be %s", key, want));
   abort(); /* luaL_argerror never returns */
 }
@@ -231,7 +231,7 @@ _Noreturn static void bad_option(lua_State *L, const char *key,
 /* Pushes opts[key] and returns it, or NULL when it is nil; anything but
  * a string raises. The value stays on the stack, which is what keeps
  * the returned pointer valid for the rest of `open`. */
-static const char *opt_string(lua_State *L, const char *key, size_t *len) {
+static const char *opt_string (lua_State *L, const char *key, size_t *len) {
   lua_getfield(L, 2, key);
   *len = 0;
   if (lua_isnil(L, -1)) return NULL;
@@ -240,7 +240,7 @@ static const char *opt_string(lua_State *L, const char *key, size_t *len) {
 }
 
 /* Pushes opts[key], which must be nil or a table. */
-static int opt_table(lua_State *L, const char *key) {
+static int opt_table (lua_State *L, const char *key) {
   lua_getfield(L, 2, key);
   if (lua_isnil(L, -1)) return 0;
   if (lua_type(L, -1) != LUA_TTABLE) bad_option(L, key, "a table");
@@ -251,8 +251,8 @@ static int opt_table(lua_State *L, const char *key) {
  * number with an integer value will do: a string is not coerced, and a
  * negative or oversized value raises rather than reaching curl, which
  * would refuse or clamp it without a word. */
-static long opt_integer(lua_State *L, const char *key, long fallback,
-                        lua_Integer max) {
+static long opt_integer (lua_State *L, const char *key, long fallback,
+                         lua_Integer max) {
   lua_getfield(L, 2, key);
   lua_Integer v = fallback;
   if (!lua_isnil(L, -1)) {
@@ -269,7 +269,7 @@ static long opt_integer(lua_State *L, const char *key, long fallback,
   return (long)v;
 }
 
-static int opt_boolean(lua_State *L, const char *key, int fallback) {
+static int opt_boolean (lua_State *L, const char *key, int fallback) {
   lua_getfield(L, 2, key);
   int v = fallback;
   if (!lua_isnil(L, -1)) {
@@ -284,7 +284,7 @@ static int opt_boolean(lua_State *L, const char *key, int fallback) {
 
 /* Records bytes curl sent. Once memory runs out the record has a hole
  * in it, so it stops there and `sent` raises rather than return it. */
-static void sent_append(struct script *s, const char *bytes, size_t len) {
+static void sent_append (struct script *s, const char *bytes, size_t len) {
   if (s->sent_lost) return;
   if (s->sent_len + len > s->sent_cap) {
     size_t want = s->sent_cap == 0 ? 4096 : s->sent_cap * 2;
@@ -305,7 +305,7 @@ static void sent_append(struct script *s, const char *bytes, size_t len) {
  * what curl sent, writes as much of the canned reply as fits, and
  * shuts the far end for writing once the whole reply is out, which is
  * how curl sees the server end the response. */
-static void script_step(struct script *s) {
+static void script_step (struct script *s) {
   for (size_t i = 0; i < s->opened; i++) {
     struct scripted *c = &s->conns[i];
     if (c->fd < 0) continue;
@@ -341,8 +341,8 @@ static void script_step(struct script *s) {
 /* The CURLOPT_OPENSOCKETFUNCTION of a scripted transfer: hands curl one
  * end of a new socketpair and keeps the other as the next connection's
  * far end, or fails the connection once every canned reply is used. */
-static curl_socket_t script_socket(void *clientp, curlsocktype purpose,
-                                   struct curl_sockaddr *address) {
+static curl_socket_t script_socket (void *clientp, curlsocktype purpose,
+                                    struct curl_sockaddr *address) {
   (void)purpose;
   (void)address;
   struct script *s = clientp;
@@ -365,18 +365,18 @@ static curl_socket_t script_socket(void *clientp, curlsocktype purpose,
 }
 
 /* A socketpair is born connected; this tells curl not to connect it. */
-static int script_sockopt(void *clientp, curl_socket_t fd,
-                          curlsocktype purpose) {
+static int script_sockopt (void *clientp, curl_socket_t fd,
+                           curlsocktype purpose) {
   (void)clientp;
   (void)fd;
   (void)purpose;
   return CURL_SOCKOPT_ALREADY_CONNECTED;
 }
 
-static void script_free(struct script *s);
+static void script_free (struct script *s);
 
 /* Raises unless opts.script, on the stack top, is a list of strings. */
-static void script_check(lua_State *L) {
+static void script_check (lua_State *L) {
   lua_Unsigned count = lua_rawlen(L, -1);
   for (lua_Unsigned i = 1; i <= count; i++) {
     int type = lua_rawgeti(L, -1, (lua_Integer)i);
@@ -387,7 +387,7 @@ static void script_check(lua_State *L) {
 
 /* Copies opts.script, a list of canned replies script_check passed, off
  * the stack top. Returns NULL when memory runs out. */
-static struct script *script_new(lua_State *L) {
+static struct script *script_new (lua_State *L) {
   size_t count = (size_t)lua_rawlen(L, -1);
   struct script *s = calloc(1, sizeof *s);
   if (s == NULL) return NULL;
@@ -421,7 +421,7 @@ static struct script *script_new(lua_State *L) {
   return s;
 }
 
-static void script_free(struct script *s) {
+static void script_free (struct script *s) {
   *s->prev_next = s->next;
   if (s->next != NULL) s->next->prev_next = s->prev_next;
   for (size_t i = 0; i < s->count; i++) {
@@ -435,7 +435,7 @@ static void script_free(struct script *s) {
 
 /* ---- curl callbacks ---------------------------------------------- */
 
-static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+static size_t write_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct transfer *t = userdata;
   size_t len = size * nmemb;
   if (t->body_len >= BODY_PAUSE_THRESHOLD) {
@@ -461,7 +461,7 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
  * curl is about to follow (a 3xx carrying a Location, with follow on).
  * `open` returns there, so a body that is slow to start, or never
  * comes, is the business of `read`, not of `open`. */
-static size_t header_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
   struct transfer *t = userdata;
   size_t len = size * nmemb;
   int blank = (len == 2 && ptr[0] == '\r' && ptr[1] == '\n') ||
@@ -492,7 +492,7 @@ static size_t header_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
  * the handle, driving one drives them all; whichever finishes is marked
  * done through its CURLINFO_PRIVATE pointer. Returns CURLM_OK, or the
  * multi handle's own failure, which no amount of waiting would mend. */
-static CURLMcode pump_once(void) {
+static CURLMcode pump_once (void) {
   struct curl_waitfd extra[16];
   unsigned extra_count = 0;
   for (struct script *s = live_scripts; s != NULL; s = s->next) {
@@ -536,14 +536,14 @@ static CURLMcode pump_once(void) {
 /* Undoes the write callback's pause. Clearing the flag first matters:
  * curl may call the write callback, which may pause again, from inside
  * curl_easy_pause. */
-static void resume(struct transfer *t) {
+static void resume (struct transfer *t) {
   if (!t->paused || t->easy == NULL) return;
   t->paused = 0;
   curl_easy_pause(t->easy, CURLPAUSE_CONT);
 }
 
 /* curl's own message, without the newline it sometimes ends with. */
-static const char *transfer_error(struct transfer *t) {
+static const char *transfer_error (struct transfer *t) {
   if (t->errbuf[0] == '\0') return curl_easy_strerror(t->result);
   size_t end = strlen(t->errbuf);
   while (end > 0 && isspace((unsigned char)t->errbuf[end - 1])) {
@@ -554,7 +554,7 @@ static const char *transfer_error(struct transfer *t) {
 
 /* ---- teardown ------------------------------------------------------ */
 
-static void transfer_release(struct transfer *t) {
+static void transfer_release (struct transfer *t) {
   if (t->easy != NULL) {
     curl_multi_remove_handle(shared_multi, t->easy);
     curl_easy_cleanup(t->easy);
@@ -577,7 +577,7 @@ static void transfer_release(struct transfer *t) {
 
 /* ---- Lua-facing functions ------------------------------------------ */
 
-static struct transfer *checked(lua_State *L) {
+static struct transfer *checked (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (t->closed) {
     luaL_error(L, "the response is closed"); /* throws: use after close is
@@ -586,7 +586,7 @@ static struct transfer *checked(lua_State *L) {
   return t;
 }
 
-static int handle_status(lua_State *L) {
+static int handle_status (lua_State *L) {
   struct transfer *t = checked(L);
   long status = 0;
   curl_easy_getinfo(t->easy, CURLINFO_RESPONSE_CODE, &status);
@@ -594,7 +594,7 @@ static int handle_status(lua_State *L) {
   return 1;
 }
 
-static int handle_url(lua_State *L) {
+static int handle_url (lua_State *L) {
   struct transfer *t = checked(L);
   const char *url = NULL;
   curl_easy_getinfo(t->easy, CURLINFO_EFFECTIVE_URL, &url);
@@ -606,7 +606,7 @@ static int handle_url(lua_State *L) {
  * repeats gets its values joined with ", ", as RFC 9110 5.3 allows --
  * except Set-Cookie, whose values may themselves hold commas, which are
  * joined with "\n" instead, a byte no header value can contain. */
-static int handle_headers(lua_State *L) {
+static int handle_headers (lua_State *L) {
   struct transfer *t = checked(L);
   lua_newtable(L);
   struct curl_header *h = NULL;
@@ -635,18 +635,18 @@ static int handle_headers(lua_State *L) {
 /* Every fallible function here returns `value, ""` on success and
  * `nil, err` on failure, as core/sqlite.c's do: the second slot is
  * always a string. */
-static int succeeded(lua_State *L) {
+static int succeeded (lua_State *L) {
   lua_pushliteral(L, "");
   return 2;
 }
 
-static int failed(lua_State *L, const char *why) {
+static int failed (lua_State *L, const char *why) {
   lua_pushnil(L);
   lua_pushstring(L, why);
   return 2;
 }
 
-static int handle_read(lua_State *L) {
+static int handle_read (lua_State *L) {
   struct transfer *t = checked(L);
   lua_Integer max = luaL_optinteger(L, 2, 65536);
   luaL_argcheck(L, max > 0, 2, "must be positive");
@@ -678,7 +678,7 @@ static int handle_read(lua_State *L) {
 
 /* What curl has written to a scripted transfer's connections so far,
  * all of them in order; "" for a transfer over the network. */
-static int handle_sent(lua_State *L) {
+static int handle_sent (lua_State *L) {
   struct transfer *t = checked(L);
   if (t->script == NULL) {
     lua_pushliteral(L, "");
@@ -693,7 +693,7 @@ static int handle_sent(lua_State *L) {
   return 1;
 }
 
-static int handle_close(lua_State *L) {
+static int handle_close (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   transfer_release(t);
   lua_pushboolean(L, 1);
@@ -702,7 +702,7 @@ static int handle_close(lua_State *L) {
 
 /* Both __gc and __close: a handle closed either way, even one a
  * finalizer elsewhere revives, is `closed`, and its methods raise. */
-static int handle_gc(lua_State *L) {
+static int handle_gc (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   transfer_release(t);
   return 0;
@@ -738,8 +738,8 @@ struct request {
  * own options for them, so a redirect curl follows changes the method
  * exactly as RFC 9110 says (a 303, or a 301/302 after POST, becomes a
  * GET); any other method is sent as a custom one, still with the body. */
-static CURLcode set_method(CURL *easy, const struct request *r,
-                           const char **which) {
+static CURLcode set_method (CURL *easy, const struct request *r,
+                            const char **which) {
   const char *method = r->method;
   if (method != NULL && strcmp(method, "HEAD") == 0) {
     SET(CURLOPT_NOBODY, 1L);
@@ -760,8 +760,8 @@ static CURLcode set_method(CURL *easy, const struct request *r,
 }
 
 /* Every option but the headers and the script. */
-static CURLcode configure(struct transfer *t, const struct request *r,
-                          const char **which) {
+static CURLcode configure (struct transfer *t, const struct request *r,
+                           const char **which) {
   CURL *easy = t->easy;
   SET(CURLOPT_PRIVATE, (void *)t);
   SET(CURLOPT_URL, r->url);
@@ -790,7 +790,7 @@ static CURLcode configure(struct transfer *t, const struct request *r,
 }
 
 /* Routes every connection through the script instead of the network. */
-static CURLcode configure_script(struct transfer *t, const char **which) {
+static CURLcode configure_script (struct transfer *t, const char **which) {
   CURL *easy = t->easy;
   SET(CURLOPT_OPENSOCKETFUNCTION, script_socket);
   SET(CURLOPT_OPENSOCKETDATA, (void *)t->script);
@@ -806,9 +806,11 @@ static CURLcode configure_script(struct transfer *t, const char **which) {
 
 #undef SET
 
-/* Releases `t` and returns `nil, err` for an option curl refused. */
-static int setopt_failed(lua_State *L, struct transfer *t, const char *which,
-                         CURLcode rc) {
+/* Releases `t` and returns `nil, err` for an option curl refused. Never
+ * inlined, so the test that has curl refuse an option enters this one
+ * copy. */
+__attribute__((noinline)) static int setopt_failed (lua_State *L, struct transfer *t, const char *which,
+                          CURLcode rc) {
   transfer_release(t);
   lua_pushnil(L);
   lua_pushfstring(L, "curl_easy_setopt(%s): %s", which,
@@ -818,7 +820,7 @@ static int setopt_failed(lua_State *L, struct transfer *t, const char *which,
 
 /* Raises unless the headers table on the stack top maps strings to
  * strings: the shape check, which comes before any data check. */
-static void headers_check(lua_State *L) {
+static void headers_check (lua_State *L) {
   lua_pushnil(L);
   while (lua_next(L, -2) != 0) {
     if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TSTRING) {
@@ -830,7 +832,7 @@ static void headers_check(lua_State *L) {
 
 /* Pushes why a header in the table on the stack top cannot be sent and
  * returns 1, or returns 0 when every one can. */
-static int headers_problem(lua_State *L) {
+static int headers_problem (lua_State *L) {
   lua_pushnil(L);
   while (lua_next(L, -2) != 0) {
     size_t name_len, value_len;
@@ -853,7 +855,7 @@ static int headers_problem(lua_State *L) {
 
 /* Appends each header in the table on the stack top to the request's
  * list as a "Name: value" line. Returns 0 when memory runs out. */
-static int headers_build(lua_State *L, struct transfer *t) {
+static int headers_build (lua_State *L, struct transfer *t) {
   lua_pushnil(L);
   while (lua_next(L, -2) != 0) {
     size_t name_len, value_len;
@@ -879,7 +881,7 @@ static int headers_build(lua_State *L, struct transfer *t) {
   return 1;
 }
 
-static int http_open(lua_State *L) {
+static int http_open (lua_State *L) {
   struct request r;
   memset(&r, 0, sizeof r);
   size_t url_len;
@@ -1003,18 +1005,18 @@ static int http_open(lua_State *L) {
 }
 
 static const luaL_Reg handle_methods[] = {
-    {"status", handle_status}, {"url", handle_url},
-    {"headers", handle_headers}, {"read", handle_read},
-    {"sent", handle_sent},     {"close", handle_close},
-    {NULL, NULL},
+  {"status", handle_status}, {"url", handle_url},
+  {"headers", handle_headers}, {"read", handle_read},
+  {"sent", handle_sent},     {"close", handle_close},
+  {NULL, NULL},
 };
 
 static const luaL_Reg module[] = {
-    {"open", http_open},
-    {NULL, NULL},
+  {"open", http_open},
+  {NULL, NULL},
 };
 
-int cosmic_open_http(lua_State *L) {
+int cosmic_open_http (lua_State *L) {
   luaL_newmetatable(L, HANDLE_TYPE);
   lua_pushcfunction(L, handle_gc);
   lua_setfield(L, -2, "__gc");

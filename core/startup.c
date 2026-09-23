@@ -32,16 +32,16 @@
 #endif
 
 static const char *const portable_environment[] = {
-    COSMIC_PORTABLE_ENV_ARTIFACT_FD,
-    COSMIC_PORTABLE_ENV_CORE_FD,
-    COSMIC_PORTABLE_ENV_TARGET_ID,
-    COSMIC_PORTABLE_ENV_CONFIGURATION_ID,
-    COSMIC_PORTABLE_ENV_CORE_OFFSET,
-    COSMIC_PORTABLE_ENV_CORE_LENGTH,
-    COSMIC_PORTABLE_ENV_CORE_SHA256,
+  COSMIC_PORTABLE_ENV_ARTIFACT_FD,
+  COSMIC_PORTABLE_ENV_CORE_FD,
+  COSMIC_PORTABLE_ENV_TARGET_ID,
+  COSMIC_PORTABLE_ENV_CONFIGURATION_ID,
+  COSMIC_PORTABLE_ENV_CORE_OFFSET,
+  COSMIC_PORTABLE_ENV_CORE_LENGTH,
+  COSMIC_PORTABLE_ENV_CORE_SHA256,
 };
 
-static int decimal(const char *text, uint64_t maximum, uint64_t *out) {
+static int decimal (const char *text, uint64_t maximum, uint64_t *out) {
   if (text == NULL || *text == '\0') return 0;
   uint64_t value = 0;
   size_t digits = 0;
@@ -55,8 +55,8 @@ static int decimal(const char *text, uint64_t maximum, uint64_t *out) {
   return 1;
 }
 
-static int hex_digest(const char *text,
-                      unsigned char out[COSMIC_PORTABLE_SHA256_LENGTH]) {
+static int hex_digest (const char *text,
+                       unsigned char out[COSMIC_PORTABLE_SHA256_LENGTH]) {
   if (text == NULL) return 0;
   for (size_t i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++) {
     unsigned value = 0;
@@ -75,23 +75,23 @@ static int hex_digest(const char *text,
 }
 
 
-static void compiled_startup(struct cosmic_startup *startup,
-                             enum cosmic_startup_kind kind,
-                             const char *artifact_path) {
+static void compiled_startup (struct cosmic_startup *startup,
+                              enum cosmic_startup_kind kind,
+                              const char *artifact_path) {
   *startup = (struct cosmic_startup){
-      .version = COSMIC_STARTUP_VERSION,
-      .kind = kind,
-      .target_id = COSMIC_TARGET_ID,
-      .configuration_id = COSMIC_CONFIGURATION_ID,
-      .target_name = COSMIC_TARGET_NAME,
-      .configuration_name = COSMIC_CONFIGURATION_NAME,
-      .artifact_path = artifact_path,
-      .artifact_fd = -1,
-      .core_fd = -1,
+    .version = COSMIC_STARTUP_VERSION,
+    .kind = kind,
+    .target_id = COSMIC_TARGET_ID,
+    .configuration_id = COSMIC_CONFIGURATION_ID,
+    .target_name = COSMIC_TARGET_NAME,
+    .configuration_name = COSMIC_CONFIGURATION_NAME,
+    .artifact_path = artifact_path,
+    .artifact_fd = -1,
+    .core_fd = -1,
   };
 }
 
-int cosmic_startup_has_private_environment(void) {
+int cosmic_startup_has_private_environment (void) {
   for (size_t i = 0; i < sizeof portable_environment /
                               sizeof portable_environment[0]; i++) {
     if (getenv(portable_environment[i]) != NULL) return 1;
@@ -99,21 +99,21 @@ int cosmic_startup_has_private_environment(void) {
   return 0;
 }
 
-void cosmic_startup_native(struct cosmic_startup *startup) {
+void cosmic_startup_native (struct cosmic_startup *startup) {
   compiled_startup(startup, COSMIC_STARTUP_NATIVE, NULL);
   if (!cosmic_environment_clear_reserved(cosmic_startup_test_environment()))
     startup->contract_error = "reserved portable environment cannot be cleared";
 }
 
-void cosmic_startup_host(struct cosmic_startup *startup, int fd,
-                         const char *path) {
+void cosmic_startup_host (struct cosmic_startup *startup, int fd,
+                          const char *path) {
   cosmic_startup_native(startup);
   startup->kind = COSMIC_STARTUP_HOST;
   startup->artifact_path = path;
   startup->artifact_fd = fd;
 }
 
-int cosmic_artifact_core_matches(struct cosmic_artifact *artifact) {
+int cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
   if (artifact == NULL || artifact->fd < 0) return 0;
   if (artifact->core_checked == 0) {
     const struct cosmic_portable_entry *entry = &artifact->portable.selected;
@@ -130,8 +130,8 @@ int cosmic_artifact_core_matches(struct cosmic_artifact *artifact) {
   return artifact->core_checked == 1;
 }
 
-void cosmic_startup_portable(struct cosmic_startup *startup,
-                             const char *artifact_path) {
+void cosmic_startup_portable (struct cosmic_startup *startup,
+                              const char *artifact_path) {
   compiled_startup(startup, COSMIC_STARTUP_PORTABLE, artifact_path);
 
   const char *values[7];
@@ -170,7 +170,7 @@ void cosmic_startup_portable(struct cosmic_startup *startup,
     startup->contract_error = "reserved portable environment cannot be cleared";
 }
 
-const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
+const char *cosmic_startup_validate (const struct cosmic_startup *startup) {
   if (startup == NULL) return "startup record is missing";
   if (startup->version != COSMIC_STARTUP_VERSION)
     return "startup record has an unsupported version";
@@ -201,7 +201,7 @@ const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
  * after hashing the entry, once a second has passed since the entry last
  * changed, so any later write moves one of the times it records. While it
  * holds, neither the launcher nor startup hashes the entry again. */
-static void stamp_line(const struct stat *core_stat, char *line, size_t room) {
+static void stamp_line (const struct stat *core_stat, char *line, size_t room) {
   snprintf(line, room, "%llu|%llu|%lld|%lld\n",
            (unsigned long long)core_stat->st_size,
            (unsigned long long)core_stat->st_ino,
@@ -211,9 +211,9 @@ static void stamp_line(const struct stat *core_stat, char *line, size_t room) {
 /* The stamp's path and its directory, when the executing core is the cache
  * entry the launcher names for this manifest entry; 0 for a core run from
  * anywhere else, which is always hashed and never stamped. */
-static int stamp_path(const struct cosmic_portable_entry *entry,
-                      const struct stat *core_stat, char *path, size_t room,
-                      char *directory, size_t directory_room) {
+static int stamp_path (const struct cosmic_portable_entry *entry,
+                       const struct stat *core_stat, char *path, size_t room,
+                       char *directory, size_t directory_room) {
   char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
   if (!cosmic_executable_path(core_path, sizeof core_path)) return 0;
   char *slash = strrchr(core_path, '/');
@@ -240,7 +240,7 @@ static int stamp_path(const struct cosmic_portable_entry *entry,
   return used >= 0 && (size_t)used < directory_room;
 }
 
-static int stamp_holds(const char *path, const struct stat *core_stat) {
+static int stamp_holds (const char *path, const struct stat *core_stat) {
   char expected[96];
   stamp_line(core_stat, expected, sizeof expected);
   int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
@@ -255,8 +255,8 @@ static int stamp_holds(const char *path, const struct stat *core_stat) {
 
 /* Best effort: a read-only cache, or an entry changed within this second,
  * is simply hashed again next time. */
-static void stamp_write(const char *path, const char *directory,
-                        const struct stat *core_stat) {
+static void stamp_write (const char *path, const char *directory,
+                         const struct stat *core_stat) {
   time_t now = time(NULL);
   if (now == (time_t)-1 || core_stat->st_ctime >= now ||
       core_stat->st_mtime >= now)
@@ -275,9 +275,9 @@ static void stamp_write(const char *path, const char *directory,
   if (!written || rename(temporary, path) != 0) unlink(temporary);
 }
 
-static int fail_adoption(struct cosmic_artifact *artifact, int core_fd,
-                         int physical_fd, const char **error,
-                         const char *why) {
+static int fail_adoption (struct cosmic_artifact *artifact, int core_fd,
+                          int physical_fd, const char **error,
+                          const char *why) {
   if (physical_fd >= 0) close(physical_fd);
   if (core_fd >= 0) close(core_fd);
   cosmic_artifact_close(artifact);
@@ -285,9 +285,9 @@ static int fail_adoption(struct cosmic_artifact *artifact, int core_fd,
   return 0;
 }
 
-int cosmic_startup_adopt(const struct cosmic_startup *startup,
-                         struct cosmic_artifact *artifact,
-                         const char **error) {
+int cosmic_startup_adopt (const struct cosmic_startup *startup,
+                          struct cosmic_artifact *artifact,
+                          const char **error) {
   cosmic_artifact_init(artifact);
   if (error != NULL) *error = NULL;
   if (startup->kind == COSMIC_STARTUP_NATIVE) return 1;

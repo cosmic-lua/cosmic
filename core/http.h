@@ -9,6 +9,6 @@
  * registered under cosmic.internal.*" shape core/sqlite.c uses, listed
  * in core/store.c's `raw_modules` the same way. See cosmic/http.tl for
  * the typed wrapper this backs. */
-int cosmic_open_http(lua_State *L);
+int cosmic_open_http (lua_State *L);
 
 #endif /* COSMIC_HTTP_H */

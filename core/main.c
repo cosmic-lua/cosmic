@@ -22,7 +22,7 @@
 #include "surface.h"
 #include "vfs.h"
 
-static int complain(const char *what, const char *detail) {
+static int complain (const char *what, const char *detail) {
   if (detail == NULL) {
     fprintf(stderr, "cosmic: %s\n", what);
   } else {
@@ -31,8 +31,8 @@ static int complain(const char *what, const char *detail) {
   return 2;
 }
 
-static sqlite3 *open_artifact(const char *path, int retained_fd,
-                              int64_t offset, int64_t length) {
+static sqlite3 *open_artifact (const char *path, int retained_fd,
+                               int64_t offset, int64_t length) {
   if (cosmic_vfs_register(path, retained_fd, offset, length) !=
       SQLITE_OK) {
     return NULL;
@@ -59,13 +59,13 @@ static sqlite3 *open_artifact(const char *path, int retained_fd,
  * this is english function words cosmic's own messages actually use,
  * not a general-purpose stopword list. */
 static const char *const stopwords[] = {
-    "a",    "an",   "the",  "is",   "are",  "was",  "were", "be",
-    "to",   "of",   "in",   "on",   "at",   "for",  "and",  "or",
-    "not",  "no",   "this", "that", "it",   "its",  "as",   "by",
-    "with", "from", "own",  NULL,
+  "a",    "an",   "the",  "is",   "are",  "was",  "were", "be",
+  "to",   "of",   "in",   "on",   "at",   "for",  "and",  "or",
+  "not",  "no",   "this", "that", "it",   "its",  "as",   "by",
+  "with", "from", "own",  NULL,
 };
 
-static bool is_stopword(const char *word, size_t len) {
+static bool is_stopword (const char *word, size_t len) {
   for (const char *const *s = stopwords; *s != NULL; s++) {
     if (strlen(*s) == len && strncasecmp(*s, word, len) == 0) {
       return true;
@@ -91,7 +91,7 @@ static bool is_stopword(const char *word, size_t len) {
  * than a phrase match of the whole message, which the catalog's shorter
  * text could never satisfy. `bm25` ranks a catalog row sharing more, or
  * rarer, words above one sharing only a common word like "parameter". */
-static void catalog_query(const char *message, char *out, size_t outsz) {
+static void catalog_query (const char *message, char *out, size_t outsz) {
   size_t used = 0;
   int terms = 0;
   out[0] = '\0';
@@ -141,7 +141,7 @@ static void catalog_query(const char *message, char *out, size_t outsz) {
 
 /* The next alphanumeric word of `*at`, advancing past it: its start,
  * and its length in `*len`, 0 at the end of the text. */
-static const char *next_word(const char **at, size_t *len) {
+static const char *next_word (const char **at, size_t *len) {
   const char *p = *at;
   while (*p != '\0' && !isalnum((unsigned char)*p)) {
     p++;
@@ -157,7 +157,7 @@ static const char *next_word(const char **at, size_t *len) {
 
 /* Whether `text` holds `word` as a whole word, case-insensitively:
  * "os" is not in "cosmic", and "cosmic" is one word of "cosmic.time". */
-static bool has_word(const char *text, const char *word, size_t len) {
+static bool has_word (const char *text, const char *word, size_t len) {
   const char *at = text;
   for (;;) {
     size_t found_len = 0;
@@ -186,7 +186,7 @@ static bool has_word(const char *text, const char *word, size_t len) {
  * cosmic.env, and processes are cosmic.proc" met the bar against a row
  * about "cosmic's own tree" on "cosmic" alone, counted per mention,
  * and on "os" found inside "cosmic"). */
-static int count_shared_words(const char *message, const char *candidate) {
+static int count_shared_words (const char *message, const char *candidate) {
   int shared = 0;
   const char *at = message;
   for (;;) {
@@ -225,7 +225,7 @@ static int count_shared_words(const char *message, const char *candidate) {
  * from. Guidance is a doc comment's own lines, already wrapped; its
  * `@param`/`@return` lines describe the signature, not the failure,
  * and are left out here. */
-static void print_guidance(const char *head, const char *text) {
+static void print_guidance (const char *head, const char *text) {
   const char *p = text;
   bool first = true;
   while (*p != '\0') {
@@ -255,7 +255,7 @@ static void print_guidance(const char *head, const char *text) {
  * `sqlite3_prepare_v2`/`step`/`column` shape `store.c` uses -- an
  * uncaught error is exactly the one path with no Lua state left in
  * working order to ask instead. */
-static bool catalog_guidance(sqlite3 *db, const char *message) {
+static bool catalog_guidance (sqlite3 *db, const char *message) {
   if (db == NULL || message == NULL || message[0] == '\0') {
     return false;
   }
@@ -308,7 +308,7 @@ static bool catalog_guidance(sqlite3 *db, const char *message) {
  * Teal it came from. Prints `cosmic: at <file>:<line>: <that line>`
  * from the first database in `db`'s search order that holds the module,
  * and says whether it did. */
-static bool source_position(lua_State *L, const char *message) {
+static bool source_position (lua_State *L, const char *message) {
   if (message == NULL) {
     return false;
   }
@@ -382,7 +382,7 @@ static bool source_position(lua_State *L, const char *message) {
  * raised, then the guidance the first database in search order (a
  * project's own ahead of the binary's) holds for it. `db` is the
  * binary's own connection, the last one searched. */
-static int failed(lua_State *L, sqlite3 *db) {
+static int failed (lua_State *L, sqlite3 *db) {
   const char *message = lua_tostring(L, -1);
   fprintf(stderr, "cosmic: %s\n", message == NULL ? "failed" : message);
   source_position(L, message);
@@ -401,7 +401,7 @@ static int failed(lua_State *L, sqlite3 *db) {
  * any other, and what it returns is called with the command line as a
  * table whose slot 0 is the program's own name. `db` is threaded
  * through only for an uncaught failure's own catalog lookup. */
-static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
+static int run_main (lua_State *L, sqlite3 *db, int argc, char **argv) {
   char main_name[256];
   if (!cosmic_store_meta(L, "main", main_name, sizeof main_name) ||
       main_name[0] == '\0') {
@@ -433,8 +433,8 @@ static int run_main(lua_State *L, sqlite3 *db, int argc, char **argv) {
   return status;
 }
 
-int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
-                         char **argv) {
+int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
+                          char **argv) {
   const char *startup_trouble = cosmic_startup_validate(startup);
   if (startup_trouble != NULL) {
     return complain(startup_trouble, NULL);

@@ -502,7 +502,9 @@ end
 --- stands. It is right only while the code that derived it stands too:
 --- when the analyzer's identity moves, every derived row is forgotten
 --- and every source is seen again, so an extractor that learns to see
---- something new sees it in old sources as well.
+--- something new sees it in old sources as well. The analyzer is the
+--- code that ran, not the tree: a tool edited anywhere else keeps what
+--- was derived.
 local function test_a_changed_analyzer_forgets_what_it_derived()
   local root = assert(Fs.mkdtemp("cosmic-importer-test-analyzer-"))
   for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "patch/tl",
@@ -543,14 +545,12 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   assert(derived_with("tool-one", false) == 0)
   -- The same analyzer: a planted row survives, as any derived row does.
   assert(derived_with("tool-one", true) == 1, "the same analyzer forgot its rows")
-  -- A different analyzer: everything derived is gone and re-derived.
-  assert(derived_with("tool-two", false) == 0, "a changed analyzer kept stale rows")
-  -- The same tree, derived by another binary: a stale tool rebuilding
-  -- itself derives with its own, older code, and its rows are not this
-  -- binary's.
-  assert(derived_with("tool-two", true) == 1)
-  assert(derived_with("tool-two", true, "an older binary tool-two") == 0,
-    "rows another binary derived were kept")
+  -- The tool changed, but not the code that analyzes: nothing is re-derived.
+  assert(derived_with("tool-two", true) == 1, "an edit outside the analyzer forgot its rows")
+  -- Derived by another analyzer: a stale tool rebuilding itself derives
+  -- with its own, older code, and its rows are not this binary's.
+  assert(derived_with("tool-two", true, "an older analyzer") == 0,
+    "rows another analyzer derived were kept")
 end
 
 --- tl's checker silently accepts a `_`-prefixed name as intentionally
@@ -801,4 +801,43 @@ local function test_generated_syscall_docs_carry_header_lines()
     rows[1][3] == "12", table.concat(rows[1], " "))
   assert(rows[2][1] == "read" and rows[2][3] == "8", table.concat(rows[2], " "))
   assert(rows[2][4]:find("Reads bytes.", 1, true) == 1, rows[2][4])
+end
+
+--- What a source parses to is decided by `importer.analyzer_modules` and
+--- nothing else in the tool, so an edit anywhere else reparses only what
+--- it edited. That holds only while the list is closed: every module of
+--- the tree's that one of them requires is on it too. The importer's own
+--- requires are the exception -- it is on the list for its derive and
+--- parse, not for the rest of the build it also runs. A declaration of a
+--- C binding (`cosmic.internal.*`) is types over the core, not analysis.
+local function test_the_analyzer_modules_are_closed_under_require()
+  local ast = require("build.ast")
+  local listed: {string:boolean} = {}
+  for _, name in ipairs(importer.analyzer_modules) do listed[name] = true end
+  local function file_of(name: string): string
+    local base = name:gsub("%.", "/")
+    for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
+      if Fs.exists(candidate) then return candidate end
+    end
+    return nil
+  end
+  local missing: {string} = {}
+  for _, name in ipairs(importer.analyzer_modules) do
+    local file = file_of(name)
+    assert(file ~= nil, name .. " is listed but is no module of the tree's")
+    assert(Store.source(name) ~= nil, name .. " has no source in the running binary, " ..
+      "so the analyzer could only be named by the whole binary")
+    if name ~= "build.importer" then
+      local source = assert(Fs.read(file))
+      local parsed = assert(ast.parse(assert(built), source, file))
+      for _, required in ipairs((assert(ast.all_requires(assert(built), parsed)))) do
+        local ours = (required:match("^build%.") or required:match("^cosmic%."))
+          and not required:match("^cosmic%.internal%.")
+        if ours and not listed[required] and file_of(required) ~= nil then
+          missing[#missing + 1] = name .. " requires " .. required
+        end
+      end
+    end
+  end
+  assert(#missing == 0, "not in importer.analyzer_modules: " .. table.concat(missing, ", "))
 end

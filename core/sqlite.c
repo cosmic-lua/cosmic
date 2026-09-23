@@ -23,7 +23,7 @@ struct statement {
   sqlite3 *db;
 };
 
-static int failed(lua_State *L, sqlite3 *db, int rc) {
+static int failed (lua_State *L, sqlite3 *db, int rc) {
   lua_pushnil(L);
   if (db != NULL) {
     lua_pushstring(L, sqlite3_errmsg(db));
@@ -33,7 +33,7 @@ static int failed(lua_State *L, sqlite3 *db, int rc) {
   return 2;
 }
 
-static int failed_effect(lua_State *L, sqlite3 *db, int rc) {
+static int failed_effect (lua_State *L, sqlite3 *db, int rc) {
   lua_pushboolean(L, 0);
   if (db != NULL) {
     lua_pushstring(L, sqlite3_errmsg(db));
@@ -43,12 +43,12 @@ static int failed_effect(lua_State *L, sqlite3 *db, int rc) {
   return 2;
 }
 
-static int succeeded(lua_State *L) {
+static int succeeded (lua_State *L) {
   lua_pushliteral(L, "");
   return 2;
 }
 
-static struct handle *checked_handle(lua_State *L) {
+static struct handle *checked_handle (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
     luaL_error(L, "the database handle is closed"); /* throws: a use after
@@ -58,7 +58,7 @@ static struct handle *checked_handle(lua_State *L) {
   return h;
 }
 
-static struct statement *checked_statement(lua_State *L) {
+static struct statement *checked_statement (lua_State *L) {
   struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
   if (s->stmt == NULL) {
     luaL_error(L, "the statement is finalized"); /* throws: as above */
@@ -73,8 +73,8 @@ static struct statement *checked_statement(lua_State *L) {
  * algorithm named A; `hmac(A, K, X)` the HMAC of X under key K over
  * A. A NULL among the arguments gives NULL; an algorithm no one has
  * heard of is an error. */
-static void finish_digest(sqlite3_context *ctx, int status,
-                          const unsigned char *digest, size_t len) {
+static void finish_digest (sqlite3_context *ctx, int status,
+                           const unsigned char *digest, size_t len) {
   if (status == -1) {
     sqlite3_result_error(ctx, "no such digest algorithm", -1);
     return;
@@ -86,7 +86,7 @@ static void finish_digest(sqlite3_context *ctx, int status,
   sqlite3_result_blob(ctx, digest, (int)len, SQLITE_TRANSIENT);
 }
 
-static int any_null(int argc, sqlite3_value **argv) {
+static int any_null (int argc, sqlite3_value **argv) {
   for (int i = 0; i < argc; i++) {
     if (sqlite3_value_type(argv[i]) == SQLITE_NULL) {
       return 1;
@@ -97,14 +97,14 @@ static int any_null(int argc, sqlite3_value **argv) {
 
 /* A value's bytes, with an empty text or blob as a valid empty span
  * rather than a NULL pointer. */
-static const void *bytes_of(sqlite3_value *value, size_t *len) {
+static const void *bytes_of (sqlite3_value *value, size_t *len) {
   const void *data = sqlite3_value_blob(value);
   *len = (size_t)sqlite3_value_bytes(value);
   return data == NULL ? "" : data;
 }
 
-static void sha256_function(sqlite3_context *ctx, int argc,
-                            sqlite3_value **argv) {
+static void sha256_function (sqlite3_context *ctx, int argc,
+                             sqlite3_value **argv) {
   if (any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
@@ -117,8 +117,8 @@ static void sha256_function(sqlite3_context *ctx, int argc,
   finish_digest(ctx, status, digest, digest_len);
 }
 
-static void digest_function(sqlite3_context *ctx, int argc,
-                            sqlite3_value **argv) {
+static void digest_function (sqlite3_context *ctx, int argc,
+                             sqlite3_value **argv) {
   if (any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
@@ -132,8 +132,8 @@ static void digest_function(sqlite3_context *ctx, int argc,
   finish_digest(ctx, status, digest, digest_len);
 }
 
-static void hmac_function(sqlite3_context *ctx, int argc,
-                          sqlite3_value **argv) {
+static void hmac_function (sqlite3_context *ctx, int argc,
+                           sqlite3_value **argv) {
   if (any_null(argc, argv)) {
     sqlite3_result_null(ctx);
     return;
@@ -156,12 +156,12 @@ struct function {
 };
 
 static const struct function functions[] = {
-    {"sha256", 1, sha256_function},
-    {"digest", 2, digest_function},
-    {"hmac", 3, hmac_function},
+  {"sha256", 1, sha256_function},
+  {"digest", 2, digest_function},
+  {"hmac", 3, hmac_function},
 };
 
-static int sqlite_open(lua_State *L) {
+static int sqlite_open (lua_State *L) {
   size_t path_len;
   const char *path = luaL_checklstring(L, 1, &path_len);
   int writable = lua_toboolean(L, 2);
@@ -202,7 +202,7 @@ static int sqlite_open(lua_State *L) {
   return succeeded(L);
 }
 
-static int handle_exec(lua_State *L) {
+static int handle_exec (lua_State *L) {
   struct handle *h = checked_handle(L);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
@@ -224,7 +224,7 @@ static int handle_exec(lua_State *L) {
   return succeeded(L);
 }
 
-static int handle_prepare(lua_State *L) {
+static int handle_prepare (lua_State *L) {
   struct handle *h = checked_handle(L);
   size_t len;
   const char *sql = luaL_checklstring(L, 2, &len);
@@ -279,7 +279,7 @@ static int handle_prepare(lua_State *L) {
   return succeeded(L);
 }
 
-static int handle_close(lua_State *L) {
+static int handle_close (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db == NULL) {
     lua_pushboolean(L, 1);
@@ -299,7 +299,7 @@ static int handle_close(lua_State *L) {
   return succeeded(L);
 }
 
-static int handle_gc(lua_State *L) {
+static int handle_gc (lua_State *L) {
   struct handle *h = luaL_checkudata(L, 1, HANDLE_TYPE);
   if (h->db != NULL && !h->borrowed) {
     sqlite3_close_v2(h->db);
@@ -308,26 +308,26 @@ static int handle_gc(lua_State *L) {
   return 0;
 }
 
-void cosmic_sqlite_push_borrowed(lua_State *L, sqlite3 *db) {
+void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   struct handle *h = lua_newuserdatauv(L, sizeof *h, 0);
   h->db = db;
   h->borrowed = 1;
   luaL_setmetatable(L, HANDLE_TYPE);
 }
 
-static int handle_changes(lua_State *L) {
+static int handle_changes (lua_State *L) {
   struct handle *h = checked_handle(L);
   lua_pushinteger(L, (lua_Integer)sqlite3_changes64(h->db));
   return 1;
 }
 
-static int handle_last_insert_rowid(lua_State *L) {
+static int handle_last_insert_rowid (lua_State *L) {
   struct handle *h = checked_handle(L);
   lua_pushinteger(L, (lua_Integer)sqlite3_last_insert_rowid(h->db));
   return 1;
 }
 
-static int bound(lua_State *L, int rc, sqlite3 *db) {
+static int bound (lua_State *L, int rc, sqlite3 *db) {
   if (rc != SQLITE_OK) {
     return failed_effect(L, db, rc);
   }
@@ -335,19 +335,19 @@ static int bound(lua_State *L, int rc, sqlite3 *db) {
   return succeeded(L);
 }
 
-static int statement_parameters(lua_State *L) {
+static int statement_parameters (lua_State *L) {
   struct statement *s = checked_statement(L);
   lua_pushinteger(L, sqlite3_bind_parameter_count(s->stmt));
   return 1;
 }
 
-static int statement_bind_null(lua_State *L) {
+static int statement_bind_null (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = cosmic_checkint(L, 2);
   return bound(L, sqlite3_bind_null(s->stmt, index), s->db);
 }
 
-static int statement_bind_integer(lua_State *L) {
+static int statement_bind_integer (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = cosmic_checkint(L, 2);
   lua_Integer value = luaL_checkinteger(L, 3);
@@ -355,14 +355,14 @@ static int statement_bind_integer(lua_State *L) {
                s->db);
 }
 
-static int statement_bind_number(lua_State *L) {
+static int statement_bind_number (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = cosmic_checkint(L, 2);
   lua_Number value = luaL_checknumber(L, 3);
   return bound(L, sqlite3_bind_double(s->stmt, index, (double)value), s->db);
 }
 
-static int statement_bind_text(lua_State *L) {
+static int statement_bind_text (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = cosmic_checkint(L, 2);
   size_t len;
@@ -373,7 +373,7 @@ static int statement_bind_text(lua_State *L) {
                s->db);
 }
 
-static int statement_bind_blob(lua_State *L) {
+static int statement_bind_blob (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = cosmic_checkint(L, 2);
   size_t len;
@@ -384,7 +384,7 @@ static int statement_bind_blob(lua_State *L) {
                s->db);
 }
 
-static int statement_step(lua_State *L) {
+static int statement_step (lua_State *L) {
   struct statement *s = checked_statement(L);
   int rc = sqlite3_step(s->stmt);
   if (rc == SQLITE_ROW) {
@@ -398,7 +398,7 @@ static int statement_step(lua_State *L) {
   return failed(L, s->db, rc);
 }
 
-static int statement_columns(lua_State *L) {
+static int statement_columns (lua_State *L) {
   struct statement *s = checked_statement(L);
   lua_pushinteger(L, sqlite3_column_count(s->stmt));
   return 1;
@@ -408,14 +408,14 @@ static int statement_columns(lua_State *L) {
  * row that has it. SQLite leaves a column read out of range, or read
  * when the last step did not return a row, undefined; sqlite3_data_count
  * is zero exactly then, so one check covers both. */
-static int checked_column(lua_State *L, struct statement *s) {
+static int checked_column (lua_State *L, struct statement *s) {
   int index = cosmic_checkint(L, 2);
   luaL_argcheck(L, index >= 0 && index < sqlite3_data_count(s->stmt), 2,
                 "no such column in the current row");
   return index;
 }
 
-static int statement_kind(lua_State *L) {
+static int statement_kind (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = checked_column(L, s);
   const char *name;
@@ -430,14 +430,14 @@ static int statement_kind(lua_State *L) {
   return 1;
 }
 
-static int statement_integer(lua_State *L) {
+static int statement_integer (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = checked_column(L, s);
   lua_pushinteger(L, (lua_Integer)sqlite3_column_int64(s->stmt, index));
   return 1;
 }
 
-static int statement_number(lua_State *L) {
+static int statement_number (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = checked_column(L, s);
   lua_pushnumber(L, (lua_Number)sqlite3_column_double(s->stmt, index));
@@ -446,7 +446,7 @@ static int statement_number(lua_State *L) {
 
 /* Text and blob read the same bytes; they are two calls so the caller
  * says which it expects and a blob never arrives silently as text. */
-static int statement_bytes(lua_State *L) {
+static int statement_bytes (lua_State *L) {
   struct statement *s = checked_statement(L);
   int index = checked_column(L, s);
   const void *data = sqlite3_column_blob(s->stmt, index);
@@ -459,7 +459,7 @@ static int statement_bytes(lua_State *L) {
   return 1;
 }
 
-static int statement_reset(lua_State *L) {
+static int statement_reset (lua_State *L) {
   struct statement *s = checked_statement(L);
   sqlite3_clear_bindings(s->stmt);
   int rc = sqlite3_reset(s->stmt);
@@ -470,7 +470,7 @@ static int statement_reset(lua_State *L) {
   return succeeded(L);
 }
 
-static int statement_finalize(lua_State *L) {
+static int statement_finalize (lua_State *L) {
   struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
   if (s->stmt != NULL) {
     sqlite3_finalize(s->stmt);
@@ -480,7 +480,7 @@ static int statement_finalize(lua_State *L) {
   return 1;
 }
 
-static int statement_gc(lua_State *L) {
+static int statement_gc (lua_State *L) {
   struct statement *s = luaL_checkudata(L, 1, STATEMENT_TYPE);
   if (s->stmt != NULL) {
     sqlite3_finalize(s->stmt);
@@ -490,32 +490,32 @@ static int statement_gc(lua_State *L) {
 }
 
 static const luaL_Reg handle_methods[] = {
-    {"exec", handle_exec},     {"prepare", handle_prepare},
-    {"close", handle_close},   {"changes", handle_changes},
-    {"last_insert_rowid", handle_last_insert_rowid},
-    {NULL, NULL},
+  {"exec", handle_exec},     {"prepare", handle_prepare},
+  {"close", handle_close},   {"changes", handle_changes},
+  {"last_insert_rowid", handle_last_insert_rowid},
+  {NULL, NULL},
 };
 
 static const luaL_Reg statement_methods[] = {
-    {"parameters", statement_parameters},
-    {"bind_null", statement_bind_null},
-    {"bind_integer", statement_bind_integer},
-    {"bind_number", statement_bind_number},
-    {"bind_text", statement_bind_text},
-    {"bind_blob", statement_bind_blob},
-    {"step", statement_step},
-    {"columns", statement_columns},
-    {"kind", statement_kind},
-    {"integer", statement_integer},
-    {"number", statement_number},
-    {"bytes", statement_bytes},
-    {"reset", statement_reset},
-    {"finalize", statement_finalize},
-    {NULL, NULL},
+  {"parameters", statement_parameters},
+  {"bind_null", statement_bind_null},
+  {"bind_integer", statement_bind_integer},
+  {"bind_number", statement_bind_number},
+  {"bind_text", statement_bind_text},
+  {"bind_blob", statement_bind_blob},
+  {"step", statement_step},
+  {"columns", statement_columns},
+  {"kind", statement_kind},
+  {"integer", statement_integer},
+  {"number", statement_number},
+  {"bytes", statement_bytes},
+  {"reset", statement_reset},
+  {"finalize", statement_finalize},
+  {NULL, NULL},
 };
 
-static void make_type(lua_State *L, const char *name, const luaL_Reg *methods,
-                      lua_CFunction collect) {
+static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
+                       lua_CFunction collect) {
   luaL_newmetatable(L, name);
   lua_pushcfunction(L, collect);
   lua_setfield(L, -2, "__gc");
@@ -528,11 +528,11 @@ static void make_type(lua_State *L, const char *name, const luaL_Reg *methods,
 }
 
 static const luaL_Reg module[] = {
-    {"open", sqlite_open},
-    {NULL, NULL},
+  {"open", sqlite_open},
+  {NULL, NULL},
 };
 
-int cosmic_open_sqlite(lua_State *L) {
+int cosmic_open_sqlite (lua_State *L) {
   sqlite3_initialize();
   make_type(L, HANDLE_TYPE, handle_methods, handle_gc);
   make_type(L, STATEMENT_TYPE, statement_methods, statement_gc);
