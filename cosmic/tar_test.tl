@@ -440,3 +440,75 @@ local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp
   assert(none == nil and trouble:find("end of archive", 1, true) ~= nil, trouble)
   rc:close()
 end
+
+local function test_numeric_and_text_fields_read_to_their_edges()
+  -- a name and link name filling their fields with no NUL, a mode with
+  -- digits right up to its end, a space-padded uid, a NUL-padded gid
+  local name = string.rep("n", 100)
+  local link = string.rep("l", 100)
+  local block = name .. "00000644" .. "   1750 " .. "31\0\0\0\0\0\0" ..
+    octal(0, 12) .. octal(7, 12) .. string.rep(" ", 8) .. "2" .. link ..
+    "ustar\0" .. "00" .. string.rep("\0", 247)
+  local r = Tar.reader(Stream.from_string(recompute_checksum(block) .. END))
+  local entry = assert(r:next())
+  assert(entry.path == name, entry.path)
+  assert(entry.linkpath == link, entry.linkpath)
+  assert(entry.mode == 0x1a4, tostring(entry.mode))
+  assert(entry.uid == 1000, tostring(entry.uid))
+  assert(entry.gid == 25, tostring(entry.gid))
+  assert(entry.mtime == 7, tostring(entry.mtime))
+  assert(r:next() == nil)
+end
+
+--- A Reader over `data` that hands out at most `step` bytes a read
+--- and cannot skip, like a pipe.
+local function trickle(data: string, step: integer): Stream.Reader
+  local inner = Stream.from_string(data)
+  local r: Stream.Reader = {}
+  r.read = function(_self: Stream.Reader, max?: integer): string | nil, string
+    local want = max or step
+    if want > step then want = step end
+    return inner:read(want)
+  end
+  r.close = function(_self: Stream.Reader): boolean, string
+    return inner:close()
+  end
+  return r
+end
+
+local function test_bodies_read_and_skipped_through_a_trickling_unseekable_reader()
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  local big = string.rep("0123456789", 20000)
+  assert(w:add_file("a", "first"))
+  assert(w:add_file("big", big))
+  assert(w:add_file("skipped", string.rep("s", 70000)))
+  assert(w:add_file("b", "last"))
+  assert(w:close())
+  for _, step in ipairs({ 7, 512, 100000 }) do
+    local r = Tar.reader(trickle(c:result(), step))
+    local a = assert(r:next())
+    assert(Stream.read_all((assert(a:open()))) == "first")
+    local b = assert(r:next())
+    assert(Stream.read_all((assert(b:open()))) == big)
+    assert((assert(r:next())).path == "skipped")
+    local last = assert(r:next())
+    assert(last.path == "b" and Stream.read_all((assert(last:open()))) == "last")
+    local none, trouble = r:next()
+    assert(none == nil and trouble == "", trouble)
+  end
+end
+
+local function test_a_stale_entry_cannot_be_opened()
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("a", "one"))
+  assert(w:add_file("b", "two"))
+  assert(w:close())
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local a = assert(r:next())
+  local b = assert(r:next())
+  local body, trouble = a:open()
+  assert(body == nil and trouble:find("no longer current", 1, true) ~= nil, trouble)
+  assert(Stream.read_all((assert(b:open()))) == "two")
+end

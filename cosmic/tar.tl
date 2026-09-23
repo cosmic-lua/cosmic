@@ -9,6 +9,7 @@
 --- `Stream.Reader`/`Stream.Writer` before it reaches this module --
 --- see `cosmic.archive`.
 
+local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 
 local record Tar
@@ -112,34 +113,72 @@ local function numeric(field: string): integer
   return math.tointeger(tonumber(digits, 8)) or 0
 end
 
---- The sum of up to 32 byte values, passed as `string.byte` returns
---- them: summing a header 32 bytes to a call, rather than one `byte`
---- call per byte or a table of all 512, is what keeps walking a tar of
---- many small entries cheap.
-local function add32(...: integer): integer
-  local b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30, b31, b32 = ...
-  return (b1 or 0) + (b2 or 0) + (b3 or 0) + (b4 or 0) + (b5 or 0) + (b6 or 0) + (b7 or 0) +
-    (b8 or 0) + (b9 or 0) + (b10 or 0) + (b11 or 0) + (b12 or 0) + (b13 or 0) + (b14 or 0) +
-    (b15 or 0) + (b16 or 0) + (b17 or 0) + (b18 or 0) + (b19 or 0) + (b20 or 0) + (b21 or 0) +
-    (b22 or 0) + (b23 or 0) + (b24 or 0) + (b25 or 0) + (b26 or 0) + (b27 or 0) + (b28 or 0) +
-    (b29 or 0) + (b30 or 0) + (b31 or 0) + (b32 or 0)
+--- `numeric` of the `len`-byte field at `off` in `block`. The usual
+--- field -- octal digits, perhaps space-padded, ending in a NUL or a
+--- space -- goes straight to `tonumber`; anything else (a base-256
+--- field, digits right up to the field's end, NUL padding before the
+--- terminator) takes `numeric`'s slower, general path.
+local function numeric_at(block: string, off: integer, len: integer): integer
+  local stop = off + len - 2
+  local last = block:byte(stop + 1)
+  if last == 0 or last == 32 then
+    -- The checksum field ends in a NUL and then a space.
+    if block:byte(stop) == 0 then stop = stop - 1 end
+    local n = math.tointeger(tonumber(block:sub(off, stop), 8))
+    if n ~= nil and n >= 0 then return n end
+  end
+  return numeric(block:sub(off, off + len - 1))
 end
 
-local ZERO32 <const> = string.rep("\0", 32)
+--- The NUL-terminated text of the `len`-byte field at `off`, which may
+--- also fill the field with no NUL at all.
+local function text_at(block: string, off: integer, len: integer): string
+  local stop = off + len - 1
+  local nul = block:find("\0", off, true)
+  if nul ~= nil and nul <= stop then stop = nul - 1 end
+  return block:sub(off, stop)
+end
+
+local type ByteSum = function(string, integer, integer): integer
+--- Becomes `Hash.byte_sum` outright once `cosmic.hash` has it.
+local byte_sum = (Hash as {string:any}).byte_sum as ByteSum
+
+local SUM_MASK <const> = 0x00FF00FF00FF00FF
+local SIXTEEN_WORDS <const> = "<" .. string.rep("i8", 16)
+local unpack16 = string.unpack as function(string, string, integer): integer, integer, integer,
+  integer, integer, integer, integer, integer, integer, integer, integer, integer, integer,
+  integer, integer, integer
+
+--- The byte sum of the 128 bytes at `i`, eight at a time: each word's
+--- even and odd bytes are added into 16-bit lanes, which cannot
+--- overflow across 16 words, and then the lanes are folded together.
+local function sum128(block: string, i: integer): integer
+  local w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15, w16 =
+    unpack16(SIXTEEN_WORDS, block, i)
+  local m = SUM_MASK
+  local x = (w1 & m) + ((w1 >> 8) & m) + (w2 & m) + ((w2 >> 8) & m) +
+    (w3 & m) + ((w3 >> 8) & m) + (w4 & m) + ((w4 >> 8) & m) +
+    (w5 & m) + ((w5 >> 8) & m) + (w6 & m) + ((w6 >> 8) & m) +
+    (w7 & m) + ((w7 >> 8) & m) + (w8 & m) + ((w8 >> 8) & m) +
+    (w9 & m) + ((w9 >> 8) & m) + (w10 & m) + ((w10 >> 8) & m) +
+    (w11 & m) + ((w11 >> 8) & m) + (w12 & m) + ((w12 >> 8) & m) +
+    (w13 & m) + ((w13 >> 8) & m) + (w14 & m) + ((w14 >> 8) & m) +
+    (w15 & m) + ((w15 >> 8) & m) + (w16 & m) + ((w16 >> 8) & m)
+  return (x & 0xFFFF) + ((x >> 16) & 0xFFFF) + ((x >> 32) & 0xFFFF) + (x >> 48)
+end
+
+--- `header_sum` in Lua, for while `cosmic.hash` has no `byte_sum`.
+local function lua_header_sum(block: string): integer
+  local c1, c2, c3, c4, c5, c6, c7, c8 = block:byte(149, 156)
+  return sum128(block, 1) + sum128(block, 129) + sum128(block, 257) + sum128(block, 385) -
+    (c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8) + 256
+end
 
 --- The header checksum: every byte summed, the checksum field itself
---- (bytes 149 to 156) counted as eight spaces. All-zero stretches,
---- most of a typical header, are passed over without summing.
+--- (bytes 149 to 156) counted as eight spaces.
 local function header_sum(block: string): integer
-  local sum = 256 - add32(block:byte(149, 156))
-  for i = 1, BLOCK, 32 do
-    if block:sub(i, i + 31) ~= ZERO32 then sum = sum + add32(block:byte(i, i + 31)) end
-  end
-  return sum
-end
-
-local function checksum_ok(block: string): boolean
-  return header_sum(block) == numeric(block:sub(149, 156))
+  if byte_sum == nil then return lua_header_sum(block) end
+  return byte_sum(block, 1, 148) + byte_sum(block, 157, BLOCK) + 256
 end
 
 ------------------------------------------------------------------
@@ -272,14 +311,124 @@ local function kind_of(typeflag: string): Tar.Kind
   return "other"
 end
 
+--- How much a reader asks of its underlying Reader at a time.
+local READ_AHEAD <const> = 1 << 16
+
+--- A Reader over another that asks it for `READ_AHEAD` bytes at a
+--- time, so that walking an archive of small entries costs one read
+--- of the underlying Reader per 64 KiB rather than a read per header,
+--- a read per body and a seek per padding. A read at least that big
+--- with nothing held goes straight through, and a skip past what is
+--- held goes to the underlying Reader's own skip.
+local record Buffered is Stream.Reader
+  raw: Stream.Reader
+  buf: string
+  at: integer
+end
+
+local Buffered_methods: {string:any} = {}
+local buffered_mt: metatable<Buffered> = { __index = Buffered_methods as Buffered }
+
+Buffered_methods.read = function(self: Buffered, max: integer): string | nil, string
+  local buf, at = self.buf, self.at
+  local avail = #buf - at + 1
+  if avail <= 0 then
+    if max ~= nil and max >= READ_AHEAD then return self.raw:read(max) end
+    local chunk, trouble = self.raw:read(READ_AHEAD)
+    if chunk == nil then return nil, trouble end
+    buf, at, avail = chunk, 1, #chunk
+    self.buf = buf
+  end
+  local n = max or avail
+  if n > avail then n = avail end
+  self.at = at + n
+  if at == 1 and n == #buf then return buf, "" end
+  return buf:sub(at, at + n - 1), ""
+end
+
+Buffered_methods.skip = function(self: Buffered, n: integer): boolean, string
+  local avail = #self.buf - self.at + 1
+  if n <= avail then
+    self.at = self.at + n
+    return true, ""
+  end
+  self.buf, self.at = "", 1
+  return Stream.skip(self.raw, n - avail)
+end
+
+Buffered_methods.close = function(self: Buffered): boolean, string
+  self.buf, self.at = "", 1
+  return self.raw:close()
+end
+
+local function buffered(raw: Stream.Reader): Buffered
+  return setmetatable({ raw = raw, buf = "", at = 1 } as Buffered, buffered_mt)
+end
+
+--- What a reader shares with the bodies it hands out: an entry's body
+--- reads through `raw`, and counts down `pending_skip`, only while
+--- `generation` is still the one it was opened in.
+local record ReaderState
+  raw: Stream.Reader
+  pending_skip: integer
+  generation: integer
+  --- The entry `next` last returned, and whether it has been opened.
+  current: Tar.Entry
+  opened: boolean
+  --- The current entry's body size, as its header gave it.
+  size: integer
+end
+
+--- An entry's body: a Reader bounded to the entry's size, whose
+--- methods live on one shared metatable rather than in closures made
+--- per entry.
+local record Body is Stream.Reader
+  state: ReaderState
+  generation: integer
+  left: integer
+  failed: string
+  closed: boolean
+end
+
+local Body_methods: {string:any} = {}
+local body_mt: metatable<Body> = { __index = Body_methods as Body }
+
+Body_methods.read = function(self: Body, max: integer): string | nil, string
+  if self.failed then return nil, self.failed end
+  if self.closed then return nil, "tar: entry body is closed" end
+  local state = self.state
+  if self.generation ~= state.generation then
+    return nil, "tar: entry is no longer current"
+  end
+  local left = self.left
+  if left <= 0 then return nil, "" end
+  local want = max or (1 << 16)
+  if want > left then want = left end
+  local chunk, rtrouble = state.raw:read(want)
+  if chunk == nil then
+    self.failed = rtrouble ~= "" and rtrouble or "tar: unexpected end of archive"
+    return nil, self.failed
+  end
+  self.left = left - #chunk
+  state.pending_skip = state.pending_skip - #chunk
+  return chunk, ""
+end
+
+Body_methods.close = function(self: Body): boolean, string
+  self.closed = true
+  return true, ""
+end
+
 --- A streaming reader over `raw`'s tar bytes. Closing it closes `raw`.
 function Tar.reader(raw: Stream.Reader): Tar.TarReader
   local ended = false
   local failed: string
   local closed = false
-  local pending_skip = 0
-  local generation = 0
   local pax_global: {string:string} = {}
+  local src = buffered(raw)
+  local state: ReaderState = {
+    raw = src, pending_skip = 0, generation = 0, opened = false, size = 0,
+  }
   local tr: Tar.TarReader = {}
 
   local function fail(trouble: string): nil, string
@@ -287,13 +436,33 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
     return nil, failed
   end
 
+  -- Every entry this reader makes shares one `open`, through its
+  -- metatable: only the current entry can be opened, and only once.
+  local entry_mt: metatable<Tar.Entry> = {
+    __index = {
+      open = function(e: Tar.Entry): Stream.Reader | nil, string
+        if e ~= state.current then return nil, "tar: entry is no longer current" end
+        -- A second `open` on the same entry would share `left` and
+        -- `pending_skip` with the first and read wherever that one
+        -- left off, silently -- refuse it.
+        if state.opened then return nil, "tar: entry already opened once" end
+        state.opened = true
+        local body: Body = setmetatable({
+          state = state, generation = state.generation, left = state.size, closed = false,
+        } as Body, body_mt)
+        return body, ""
+      end,
+    } as Tar.Entry,
+  }
+
   tr.next = function(_self: Tar.TarReader): Tar.Entry | nil, string
     if failed then return nil, failed end
     if closed then return nil, "tar: reader is closed" end
     if ended then return nil, "" end
-    generation = generation + 1
-    local skipped, dtrouble = Stream.skip(raw, pending_skip)
-    pending_skip = 0
+    state.generation = state.generation + 1
+    state.current = nil
+    local skipped, dtrouble = Stream.skip(src, state.pending_skip)
+    state.pending_skip = 0
     if not skipped then
       if dtrouble:find("end of", 1, true) ~= nil then
         return fail("tar: unexpected end of archive")
@@ -306,24 +475,25 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
     local pax_local: {string:string}
 
     while true do
-      local block, at_eof, trouble = read_block_or_eof(raw)
+      local block, at_eof, trouble = read_block_or_eof(src)
       if at_eof then
         ended = true
         return nil, ""
       end
       if block == nil then return fail(trouble) end
-      if is_zero_block(block) then
-        local _second, _second_eof, strouble = read_block_or_eof(raw)
+      local chksum = numeric_at(block, 149, 8)
+      if chksum == 0 and is_zero_block(block) then
+        local _second, _second_eof, strouble = read_block_or_eof(src)
         if strouble ~= "" then return fail(strouble) end
         ended = true
         return nil, ""
       end
-      if not checksum_ok(block) then
+      if header_sum(block) ~= chksum then
         return fail("tar: bad header checksum")
       end
       local typeflag = block:sub(157, 157)
       if typeflag == "L" or typeflag == "K" or typeflag == "x" or typeflag == "g" then
-        local data, rtrouble = read_special_body(raw, numeric(block:sub(125, 136)))
+        local data, rtrouble = read_special_body(src, numeric_at(block, 125, 12))
         if data == nil then return fail(rtrouble) end
         if typeflag == "L" or typeflag == "K" then
           local value, ltrouble = long_field(data)
@@ -335,82 +505,49 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
           for key, value in pairs(parse_pax(data)) do pax_global[key] = value end
         end
       else
-        local name = block:sub(1, 100):match("^[^%z]*")
-        local prefix = block:sub(346, 500):match("^[^%z]*")
-        if prefix ~= "" then name = prefix .. "/" .. name end
-        if long_name ~= nil then name = long_name end
-        local linkname = block:sub(158, 257):match("^[^%z]*")
-        if long_link ~= nil then linkname = long_link end
-        local f: Fields = {
-          name = name,
-          linkname = linkname,
-          size = numeric(block:sub(125, 136)),
-          mtime = numeric(block:sub(137, 148)),
-          uid = numeric(block:sub(109, 116)),
-          gid = numeric(block:sub(117, 124)),
-          sparse = false,
-        }
-        local mode = numeric(block:sub(101, 108)) & 0xFFF
-        local ok, ptrouble = apply_pax(pax_global, f)
-        if ok and pax_local ~= nil then ok, ptrouble = apply_pax(pax_local, f) end
-        if not ok then return fail(ptrouble) end
-        if f.size < 0 then return fail("tar: negative entry size") end
-
-        local my_generation = generation
-        local size = f.size
-        pending_skip = size + padding_of(size)
-        local body_left = size
+        local name = long_name
+        if name == nil then
+          name = text_at(block, 1, 100)
+          -- A ustar prefix is only there when byte 346 is not NUL.
+          if block:byte(346) ~= 0 then name = text_at(block, 346, 155) .. "/" .. name end
+        end
+        local linkname = long_link or (block:byte(158) ~= 0 and text_at(block, 158, 100) or "")
+        local size = numeric_at(block, 125, 12)
+        local mtime = numeric_at(block, 137, 12)
+        local uid = numeric_at(block, 109, 8)
+        local gid = numeric_at(block, 117, 8)
+        local mode = numeric_at(block, 101, 8) & 0xFFF
+        local sparse = false
+        if pax_local ~= nil or next(pax_global) ~= nil then
+          local f: Fields = {
+            name = name, linkname = linkname, size = size, mtime = mtime, uid = uid, gid = gid,
+            sparse = false,
+          }
+          local ok, ptrouble = apply_pax(pax_global, f)
+          if ok and pax_local ~= nil then ok, ptrouble = apply_pax(pax_local, f) end
+          if not ok then return fail(ptrouble) end
+          name, linkname, size, mtime, uid, gid, sparse =
+            f.name, f.linkname, f.size, f.mtime, f.uid, f.gid, f.sparse
+        end
+        if size < 0 then return fail("tar: negative entry size") end
+        state.pending_skip = size + padding_of(size)
 
         local kind = kind_of(typeflag)
-        if typeflag == "S" or f.sparse then kind = "other" end
-        local entry: Tar.Entry = {
-          path = f.name,
+        if typeflag == "S" or sparse then kind = "other" end
+        local entry: Tar.Entry = setmetatable({
+          path = name,
           kind = kind,
           mode = mode,
           size = size,
-          mtime = f.mtime,
-          linkpath = f.linkname,
-          uid = f.uid,
-          gid = f.gid,
+          mtime = mtime,
+          linkpath = linkname,
+          uid = uid,
+          gid = gid,
           typeflag = typeflag,
-        }
-        local opened = false
-        entry.open = function(_e: Tar.Entry): Stream.Reader | nil, string
-          -- A second `open` on the same entry would share
-          -- `body_left`/`pending_skip` with the first and read
-          -- wherever that one left off, silently -- refuse it.
-          if opened then return nil, "tar: entry already opened once" end
-          if my_generation ~= generation then
-            return nil, "tar: entry is no longer current"
-          end
-          opened = true
-          local body_failed: string
-          local body_closed = false
-          local body: Stream.Reader = {}
-          body.read = function(_self2: Stream.Reader, max: integer): string | nil, string
-            if body_failed then return nil, body_failed end
-            if body_closed then return nil, "tar: entry body is closed" end
-            if my_generation ~= generation then
-              return nil, "tar: entry is no longer current"
-            end
-            if body_left <= 0 then return nil, "" end
-            local want = max or (1 << 16)
-            if want > body_left then want = body_left end
-            local chunk, rtrouble = raw:read(want)
-            if chunk == nil then
-              body_failed = rtrouble ~= "" and rtrouble or "tar: unexpected end of archive"
-              return nil, body_failed
-            end
-            body_left = body_left - #chunk
-            pending_skip = pending_skip - #chunk
-            return chunk, ""
-          end
-          body.close = function(_self2: Stream.Reader): boolean, string
-            body_closed = true
-            return true, ""
-          end
-          return body, ""
-        end
+        }, entry_mt)
+        state.current = entry
+        state.opened = false
+        state.size = size
         return entry, ""
       end
     end
@@ -419,7 +556,8 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
   tr.close = function(_self: Tar.TarReader): boolean, string
     if closed then return true, "" end
     closed = true
-    generation = generation + 1
+    state.generation = state.generation + 1
+    state.current = nil
     return raw:close()
   end
 
