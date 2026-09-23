@@ -57,7 +57,7 @@ local function summary(r: Tar.TarReader, read_bodies: boolean): {string} | nil, 
     end
     local body = ""
     if read_bodies and entry.kind == "file" then
-      local reader = entry:open()
+      local reader = assert(entry:open())
       local data, rtrouble = Stream.read_all(reader)
       if data == nil then return nil, rtrouble end
       body = data
@@ -72,7 +72,7 @@ end
 
 local function test_writer_and_reader_roundtrip_files_dirs_and_symlinks()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_dir("adir"))
   assert(w:add_file("adir/short.txt", "hello there"))
   assert(w:add_symlink("adir/link", "short.txt"))
@@ -92,21 +92,21 @@ local function test_a_long_path_round_trips_through_a_pax_header()
     "/" .. string.rep("c", 40) .. "/file.txt"
   assert(#long_path > 100)
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file(long_path, "payload"))
   assert(w:close())
 
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
   assert(entry.path == long_path, entry.path)
-  assert(Stream.read_all(entry:open()) == "payload")
+  assert(Stream.read_all((assert(entry:open()))) == "payload")
   local last, trouble = r:next()
   assert(last == nil and trouble == "")
 end
 
 local function test_deterministic_mode_zeroes_mtime_uid_and_gid()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer, { deterministic = true })
+  local w = Tar.writer(c, { deterministic = true })
   assert(w:add_file("f", "x", { mtime = 12345 }))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
@@ -116,24 +116,27 @@ end
 
 local function test_add_file_from_a_reader_needs_an_explicit_size()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
-  local ok, trouble = pcall(w.add_file, w, "f", Stream.from_string("abc"))
-  assert(not ok, tostring(trouble))
+  local w = Tar.writer(c)
+  local ok, trouble = w:add_file("f", Stream.from_string("abc"))
+  assert(not ok and trouble:find("opts.size", 1, true) ~= nil, trouble)
+  -- nothing was written, so the writer is still usable
+  assert(w:add_file("g", "x"))
+  assert(w:close())
 end
 
 local function test_add_file_from_a_reader_streams_the_body()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file("f", Stream.from_string("abcdef"), { size = 6 }))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
-  assert(Stream.read_all(entry:open()) == "abcdef")
+  assert(Stream.read_all((assert(entry:open()))) == "abcdef")
 end
 
 local function test_a_body_not_opened_is_skipped_automatically()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file("first", "one payload here"))
   assert(w:add_file("second", "two"))
   assert(w:close())
@@ -143,18 +146,18 @@ local function test_a_body_not_opened_is_skipped_automatically()
   -- first.open() is never called: next() must skip its body itself
   local second = assert(r:next())
   assert(second.path == "second")
-  assert(Stream.read_all(second:open()) == "two")
+  assert(Stream.read_all((assert(second:open()))) == "two")
 end
 
 local function test_an_entry_reader_is_invalid_once_the_next_entry_is_asked_for()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file("first", "one"))
   assert(w:add_file("second", "two"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
   local first = assert(r:next())
-  local stale = first:open()
+  local stale = assert(first:open())
   assert(r:next())
   local chunk, trouble = stale:read()
   assert(chunk == nil and trouble ~= "")
@@ -183,7 +186,7 @@ end
 
 local function test_a_negative_base256_mtime_decodes_as_negative()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file("f", "x", { mtime = 0 }))
   assert(w:close())
   local raw = c:result()
@@ -197,21 +200,20 @@ end
 
 local function test_opening_an_entry_a_second_time_is_refused()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file("f", "hello"))
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
-  local first = entry:open()
+  local first = assert(entry:open())
   assert(Stream.read_all(first) == "hello")
-  local second = entry:open()
-  local chunk, trouble = second:read()
-  assert(chunk == nil and trouble:find("already opened", 1, true) ~= nil, trouble)
+  local second, trouble = entry:open()
+  assert(second == nil and trouble:find("already opened", 1, true) ~= nil, trouble)
 end
 
 local function test_a_corrupt_checksum_is_refused()
   local c = Stream.collect()
-  local w = Tar.writer(c as Stream.Writer)
+  local w = Tar.writer(c)
   assert(w:add_file("f", "data"))
   assert(w:close())
   local raw = c:result()

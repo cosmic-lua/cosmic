@@ -51,7 +51,7 @@ end
 
 local function test_writer_and_reader_roundtrip_stored_files_and_dirs()
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer)
+  local w = Zip.writer(c)
   assert(w:add_dir("adir", { mode = 0x1c0 }))
   assert(w:add_file("adir/short.txt", "hello there", { method = "store" }))
   assert(w:close())
@@ -69,7 +69,7 @@ end
 
 local function test_deterministic_mode_uses_the_1980_epoch()
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer, { deterministic = true })
+  local w = Zip.writer(c, { deterministic = true })
   assert(w:add_file("f", "x", { method = "store", mtime = 1700000000 }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
@@ -80,7 +80,7 @@ end
 
 local function test_mode_bits_round_trip_through_external_attributes()
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer)
+  local w = Zip.writer(c)
   assert(w:add_file("exe", "x", { method = "store", mode = 0x1ff }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))
@@ -90,7 +90,7 @@ end
 
 local function test_a_corrupt_body_fails_its_crc_check()
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer)
+  local w = Zip.writer(c)
   assert(w:add_file("f", "hello", { method = "store" }))
   assert(w:close())
   local raw = c:result()
@@ -112,7 +112,7 @@ end
 
 local function test_open_reads_a_zip_from_a_path(tmp: string)
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer)
+  local w = Zip.writer(c)
   assert(w:add_file("f", "on disk", { method = "store" }))
   assert(w:close())
   local path = tmp .. "/archive.zip"
@@ -125,7 +125,7 @@ end
 
 local function test_list_reads_entries_without_keeping_the_file_open(tmp: string)
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer)
+  local w = Zip.writer(c)
   assert(w:add_file("a", "1", { method = "store" }))
   assert(w:add_file("b", "2", { method = "store" }))
   assert(w:close())
@@ -137,7 +137,7 @@ end
 
 local function test_writer_and_reader_roundtrip_a_deflated_file()
   local c = Stream.collect()
-  local w = Zip.writer(c as Stream.Writer)
+  local w = Zip.writer(c)
   assert(w:add_file("f", "hello there, deflated", { method = "deflate" }))
   assert(w:close())
   local r = assert(Zip.open_string(c:result()))

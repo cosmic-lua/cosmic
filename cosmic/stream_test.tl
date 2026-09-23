@@ -4,6 +4,15 @@
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 
+--- A plain-table stand-in for a `cosmic.compress` codec, cast to one
+--- where `transform` takes it.
+local record Fake
+  update: function(Fake, string): string | nil, string
+  finish: function(Fake): string | nil, string
+  done: function(Fake): boolean
+  rest: function(Fake): string
+end
+
 local function drain(reader: Stream.Reader, max?: integer): string
   local parts: {string} = {}
   while true do
@@ -156,45 +165,45 @@ local function test_transform_applies_a_fake_codec_across_chunk_boundaries()
   -- own output oddly to prove the transform Reader does not assume
   -- one chunk in yields one chunk out.
   local pending = ""
-  local codec: Stream.CodecStream = {}
-  codec.update = function(_self: Stream.CodecStream, chunk: string): string | nil, string
+  local codec: Fake = {}
+  codec.update = function(_self: Fake, chunk: string): string | nil, string
     pending = pending .. chunk:upper()
     local out = pending:sub(1, 1)
     pending = pending:sub(2)
     return out, ""
   end
-  codec.finish = function(_self: Stream.CodecStream): string | nil, string
+  codec.finish = function(_self: Fake): string | nil, string
     return pending, ""
   end
-  codec.done = function(_self: Stream.CodecStream): boolean
+  codec.done = function(_self: Fake): boolean
     return pending == ""
   end
-  codec.rest = function(_self: Stream.CodecStream): string
+  codec.rest = function(_self: Fake): string
     return pending
   end
   local underlying = Stream.from_string("hello world")
-  local transformed = Stream.transform(underlying, codec)
+  local transformed = Stream.transform(underlying, codec as Stream.Codec)
   assert(drain(transformed) == "HELLO WORLD")
 end
 
 local function test_transform_writer_flushes_the_codec_on_close()
   local held = ""
-  local codec: Stream.CodecStream = {}
-  codec.update = function(_self: Stream.CodecStream, chunk: string): string | nil, string
+  local codec: Fake = {}
+  codec.update = function(_self: Fake, chunk: string): string | nil, string
     held = held .. chunk
     return "", ""
   end
-  codec.finish = function(_self: Stream.CodecStream): string | nil, string
+  codec.finish = function(_self: Fake): string | nil, string
     return held, ""
   end
-  codec.done = function(_self: Stream.CodecStream): boolean
+  codec.done = function(_self: Fake): boolean
     return true
   end
-  codec.rest = function(_self: Stream.CodecStream): string
+  codec.rest = function(_self: Fake): string
     return ""
   end
   local c = Stream.collect()
-  local w = Stream.transform_writer(c as Stream.Writer, codec)
+  local w = Stream.transform_writer(c, codec as Stream.Codec)
   assert(w:write("ab"))
   assert(w:write("cd"))
   assert(c:result() == "")
@@ -210,26 +219,160 @@ local function test_transform_serves_small_reads_from_one_large_batch()
   -- this proves reads of any size still see the batch intact and in
   -- order, not just that it eventually finishes.
   local given = false
-  local codec: Stream.CodecStream = {}
-  codec.update = function(_self: Stream.CodecStream, chunk: string): string | nil, string
+  local codec: Fake = {}
+  codec.update = function(_self: Fake, chunk: string): string | nil, string
     if given then return "", "" end
     given = true
     return chunk, ""
   end
-  codec.finish = function(_self: Stream.CodecStream): string | nil, string
+  codec.finish = function(_self: Fake): string | nil, string
     return "", ""
   end
-  codec.done = function(_self: Stream.CodecStream): boolean
+  codec.done = function(_self: Fake): boolean
     return given
   end
-  codec.rest = function(_self: Stream.CodecStream): string
+  codec.rest = function(_self: Fake): string
     return ""
   end
   local big = string.rep("0123456789", 5000) -- 50,000 bytes, under the
     -- 64 KiB the transform Reader pulls from `underlying` at once, so
     -- the whole thing reaches the codec, and this Reader, in one batch
   local underlying = Stream.from_string(big)
-  local transformed = Stream.transform(underlying, codec)
+  local transformed = Stream.transform(underlying, codec as Stream.Codec)
   local out = drain(transformed, 7) -- an odd small size, on purpose
   assert(out == big, "length " .. tostring(#out))
+end
+
+local function test_a_codec_error_is_sticky_rather_than_a_later_false_eof()
+  local Compress = require("cosmic.compress")
+  local inflater = assert(Compress.inflater("gzip"))
+  local r = Stream.transform(Stream.from_string(string.rep("x", 100)), inflater)
+  local first, trouble = r:read()
+  assert(first == nil and trouble ~= "")
+  for _ = 1, 3 do
+    local again, again_trouble = r:read()
+    assert(again == nil and again_trouble == trouble, again_trouble)
+  end
+end
+
+local function test_a_truncated_compressed_stream_fails_at_its_end_every_time()
+  local Compress = require("cosmic.compress")
+  local deflater = assert(Compress.deflater("gzip"))
+  local packed = assert(deflater:update("hello, world")) .. assert(deflater:finish())
+  local inflater = assert(Compress.inflater("gzip"))
+  local r = Stream.transform(Stream.from_string(packed:sub(1, #packed - 4)), inflater)
+  local parts: {string} = {}
+  local trouble = ""
+  while true do
+    local chunk, why = r:read()
+    if chunk == nil then
+      trouble = why
+      break
+    end
+    parts[#parts + 1] = chunk
+  end
+  assert(trouble ~= "", "a truncated gzip stream ended cleanly")
+  local again, again_trouble = r:read()
+  assert(again == nil and again_trouble == trouble, again_trouble)
+end
+
+local function test_a_file_reader_skips_by_seeking_and_refuses_to_pass_the_end(tmp: string)
+  local path = tmp .. "/f"
+  assert(Fs.write(path, "0123456789"))
+  local r = assert(Stream.open(path))
+  assert(r.skip ~= nil)
+  assert(r:skip(3))
+  assert(r:read(2) == "34")
+  assert(Stream.skip(r, 2))
+  assert(r:read() == "789")
+  local skipped, trouble = r:skip(1)
+  assert(not skipped and trouble:find("end", 1, true) ~= nil, trouble)
+  assert(r:close())
+end
+
+local function test_skip_falls_back_to_reading_for_a_reader_that_cannot_seek()
+  local r = Stream.limit(Stream.from_string("abcdef"), 6)
+  assert(r.skip == nil)
+  assert(Stream.skip(r, 4))
+  assert(r:read() == "ef")
+  local skipped = Stream.skip(Stream.limit(Stream.from_string("ab"), 2), 3)
+  assert(not skipped)
+end
+
+local function test_a_reader_refuses_reads_after_close(tmp: string)
+  local path = tmp .. "/f"
+  assert(Fs.write(path, "data"))
+  local r = assert(Stream.open(path))
+  assert(r:close())
+  assert(r:close()) -- idempotent
+  local chunk, trouble = r:read()
+  assert(chunk == nil and trouble ~= "")
+end
+
+local function test_create_abort_leaves_neither_the_file_nor_a_temporary(tmp: string)
+  local path = tmp .. "/target"
+  local w = assert(Stream.create(path))
+  assert(w:write("partial"))
+  assert(w:abort())
+  assert(w:close()) -- a close after abort commits nothing
+  assert(Fs.exists(path) == false)
+  local left = assert(Fs.list(tmp))
+  assert(#left == 0, table.concat(left, ","))
+end
+
+local function test_writers_refuse_writes_after_close(tmp: string)
+  local w = assert(Stream.create(tmp .. "/f"))
+  assert(w:close())
+  assert(w:close()) -- idempotent
+  assert(not w:write("late"))
+  local c = Stream.collect()
+  assert(c:close())
+  assert(not c:write("late"))
+  local fd = assert(Fs.open_write(tmp .. "/g"))
+  local f = Stream.to_fd(fd)
+  assert(f:close())
+  assert(not f:write("late"))
+  assert(Fs.close(fd))
+end
+
+local function test_copy_moves_everything_and_can_be_capped()
+  local c = Stream.collect()
+  local n = assert(Stream.copy(Stream.from_string(string.rep("z", 100000)), c))
+  assert(n == 100000 and c:result() == string.rep("z", 100000))
+  local capped = Stream.collect()
+  local none, trouble = Stream.copy(Stream.from_string("0123456789"), capped, 5)
+  assert(none == nil and trouble:find("more than 5", 1, true) ~= nil, trouble)
+  assert(capped:result() == "")
+end
+
+local function test_tee_feeds_a_hashing_writer_beside_the_real_one()
+  local Hash = require("cosmic.hash")
+  local c = Stream.collect()
+  local h = assert(Stream.hashing("sha256"))
+  local w = Stream.tee(c, h)
+  assert(w:write("hello "))
+  assert(w:write("world"))
+  assert(w:close())
+  assert(c:result() == "hello world")
+  assert(h:digest() == Hash.sha256("hello world"))
+  assert(h:digest() == Hash.sha256("hello world")) -- asking again is fine
+  assert(not h:write("more"))
+end
+
+local function test_transform_writer_aborts_its_writer_when_the_codec_fails_to_finish(tmp: string)
+  local codec: Fake = {}
+  codec.update = function(_self: Fake, chunk: string): string | nil, string
+    return chunk, ""
+  end
+  codec.finish = function(_self: Fake): string | nil, string
+    return nil, "injected finish failure"
+  end
+  local path = tmp .. "/out"
+  local w = Stream.transform_writer(assert(Stream.create(path)), codec as Stream.Codec)
+  assert(w:write("data"))
+  local ok, trouble = w:close()
+  assert(not ok and trouble:find("injected", 1, true) ~= nil, trouble)
+  assert(Fs.exists(path) == false)
+  local left = assert(Fs.list(tmp))
+  assert(#left == 0, table.concat(left, ","))
 end
