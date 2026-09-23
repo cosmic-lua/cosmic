@@ -415,34 +415,6 @@ local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
   raises(sys.hmac, "sha0", "key", "abc")
 end
 
-local function test_deflate_and_inflate_round_trip()
-  for _, data in ipairs({ "", "a", string.rep("compressible ", 10000),
-                          sys.digest("sha256", "seed"):rep(3000) }) do
-    local packed = assert(sys.deflate(data))
-    assert(sys.inflate(packed, #data) == data, #data .. " bytes did not round-trip")
-  end
-end
-
---- miniz's own result code rides in slot three where an errno would,
---- so these check the shape by hand rather than through `failed`.
-local function test_inflate_refuses_bytes_that_are_not_deflate()
-  local value, message, code = sys.inflate("not deflate at all", 100)
-  assert(value == nil and type(message) == "string" and message ~= "")
-  assert(math.type(code) == "integer" and code ~= 0)
-end
-
-local function test_inflate_refuses_a_size_too_small()
-  local data = string.rep("abc", 1000)
-  local packed = assert(sys.deflate(data))
-  local value, message, code = sys.inflate(packed, #data - 1)
-  assert(value == nil and type(message) == "string" and message ~= "")
-  assert(math.type(code) == "integer" and code ~= 0)
-end
-
-local function test_inflate_raises_on_a_negative_size()
-  raises(sys.inflate, "", -1)
-end
-
 --- A descriptor past what an int holds is refused, not truncated: 2^32
 --- + 2 must never reach the system as descriptor 2.
 local function test_a_descriptor_past_an_int_raises()

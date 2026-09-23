@@ -518,25 +518,6 @@ COSMIC_SYSCALL(digest, 2);
 COSMIC_SYSCALL(hmac, 3);
 
 /*
- * --- Compresses bytes with deflate.
- * ---@param data string the bytes to compress
- * ---@return string|nil packed the compressed bytes, or nil on failure
- * ---@return string error what went wrong, when packed is nil
- * ---@return integer code miniz's own result code, when packed is nil
- */
-COSMIC_SYSCALL(deflate, 1);
-
-/*
- * --- Expands bytes that deflate compressed.
- * ---@param data string the compressed bytes
- * ---@param size integer the expanded size, which the caller recorded
- * ---@return string|nil data the expanded bytes, or nil on failure
- * ---@return string error what went wrong, when data is nil
- * ---@return integer code miniz's own result code, when data is nil
- */
-COSMIC_SYSCALL(inflate, 2);
-
-/*
  * --- Creates a symbolic link at `path` pointing at `target`. `target`
  * --- is stored verbatim and is never resolved.
  * ---@param target string the link's contents
