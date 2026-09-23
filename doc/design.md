@@ -105,12 +105,14 @@ kernel                               Linux; macOS
     sqlite3                          vendored pristine
     mbedtls, miniz, argon2,          vendored pristine
     a regex engine
+    bzip2, xz, c-ares, curl,         vendored pristine
+    Mozilla's CA roots
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
     teal compiler + checker          vendored tl, carried patches
     cosmic.* stdlib in teal          typed wrappers, honest returns
-    docs, CA roots                    rows in the same database
+    docs                             rows in the same database
     three raw cores                  manifest ranges before the database
 ```
 
@@ -520,18 +522,31 @@ planned. CI will require the fence; a laptop will report its enforcement level.
 `vendor/<name>/` holds the files the build reads from the upstream
 archive its `PIN` names, never edited. `PIN` gives the version, the
 url, the archive's sha256, and globs for which files are kept.
-`bin/vendor` fetches and verifies the archive the way `bin/zig` does,
-unpacks it with the system's `tar` or `unzip`, and runs
-`build/vendor.tl` under the bootstrap cosmic to rewrite the tree to
-exactly the kept files. `patch/<name>/` holds
+`bin/vendor` runs `build/vendor.tl` with `cosmic --standalone`, which
+fetches the archive with `cosmic.http`, verifies its sha256, unpacks
+it with `cosmic.archive`, and rewrites the tree to exactly the kept
+files -- no `curl`, `tar` or `unzip`, and from any directory, since a
+standalone run reads nothing of the tree but the one file.
+`patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
 it exists. a ~200-line C applier that zig builds first writes the
 patched copy to `o/vendor/<name>`; a record whose anchor no longer
 matches fails the build by name.
 
-vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz,
-argon2's reference implementation built without threads, the regex
-engine, and tl.
+vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
+xz's liblzma decoder, c-ares, curl, Mozilla's CA bundle, and tl;
+argon2's reference implementation built without threads and the regex
+engine are planned. a library that needs a configuration header gets a
+hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
+`xz_config/config.h`, `mbedtls_cosmic_config.h`), never one generated
+by the library's own configure step.
+
+each tree keeps its upstream license file (`vendor/<name>/COPYING`,
+`LICENSE`, `LICENSE.md`). one vendored file carries a license of its
+own: c-ares' `src/lib/thirdparty/apple/dnsinfo.h`, Apple's declarations
+for reading macOS's DNS configuration, is under the Apple Public Source
+License 2.0 (APSL-2.0), not c-ares' MIT license. only the macOS core
+includes it.
 
 ### teal
 
@@ -584,17 +599,21 @@ addition that rewrites no bindings.
 ### tls
 
 mbedtls 4.1, vendored as one tarball with its crypto subtree
-included, whose support runs to 2029. today only the crypto subtree
-is built, and only for digests and HMAC: MD5, SHA-1, the SHA-2 and
-SHA-3 sizes, through the PSA API, with randomness from the OS rather
-than the library's own entropy and DRBG modules. `cosmic.hash` is
-the Teal face of it, the syscall table's `digest` and `hmac` the
-bindings, and every SQLite handle knows the same functions, so a
-query hashes in place. TLS 1.2 and 1.3 come from the same library,
-one configuration, when the `fetch` module is pulled. Mozilla's
-root bundle is stored in the database, identical on every machine,
-moved only by a pinned bump; an environment variable adds a
-certificate for the corporate-proxy case without making per-machine
+included, whose support runs to 2029. the crypto subtree serves
+digests and HMAC: MD5, SHA-1, the SHA-2 and SHA-3 sizes, through the
+PSA API, with randomness from the OS rather than the library's own
+entropy and DRBG modules. `cosmic.hash` is the Teal face of it, the
+syscall table's `digest` and `hmac` the bindings, and every SQLite
+handle knows the same functions, so a query hashes in place. the TLS
+1.2 and 1.3 client under `cosmic.http` (curl over c-ares and mbedtls)
+comes from the same library and the same configuration: one header,
+`core/mbedtls_cosmic_config.h`, which every file that includes an
+mbedtls header is compiled against, curl's included. it keeps
+certificate expiry checks, extended master secret and TLS 1.3
+middlebox compatibility on, and renegotiation and session tickets
+off. Mozilla's root bundle is embedded in the core, identical on
+every machine, moved only by a pinned bump; `SSL_CERT_FILE` adds
+certificates for the corporate-proxy case without making per-machine
 trust the default.
 
 ### the sandbox
@@ -664,9 +683,10 @@ it would have changed.
 
 ```
 README.md           what cosmic is and the one command to build it
-bin/zig             POSIX sh: fetch, verify, exec the pinned zig
+bin/zig             POSIX sh: hand off to build/zig.tl, which fetches, verifies, execs the pinned zig
 bin/zig.pin         version and per-host sha256; build.zig reads it
-bin/vendor          POSIX sh: fetch, verify, unpack a vendor archive; build/vendor.tl prunes
+bin/vendor          POSIX sh: hand off to build/vendor.tl, which refetches vendor/<name>/
+bin/cosmic-bootstrap POSIX sh: fetch, verify, cache the cosmic ci/cosmic-driver.pin names
 build.zig           the C build; build.zig.zon names the package
 vendor/<name>/      the upstream files the build reads, unedited, with a PIN
 patch/<name>/       exact find/replace records, each with a note

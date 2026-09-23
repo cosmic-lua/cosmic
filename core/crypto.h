@@ -6,8 +6,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "psa/crypto.h"
+
 /* The longest digest any algorithm here produces, in bytes. */
 #define COSMIC_DIGEST_MAX 64
+
+/* The PSA algorithm an algorithm name names, or PSA_ALG_NONE when no
+ * algorithm has that name. Shared with the streaming hasher, so the
+ * name-to-algorithm table lives in exactly one place. */
+psa_algorithm_t cosmic_hash_algorithm(const char *name);
 
 /* Brings the library up. Once per process, before any other call. */
 int cosmic_crypto_init(void);
