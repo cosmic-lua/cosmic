@@ -38,6 +38,8 @@
 #include <curl/curl.h>
 
 #include "cacert.h"
+#include "fault.h"
+#include "memory.h"
 
 #define HANDLE_TYPE "cosmic.http.handle"
 
@@ -127,7 +129,7 @@ static char *build_ca_blob (size_t *out_len) {
     if (fseek(f, 0, SEEK_END) == 0) {
       long size = ftell(f);
       if (size > 0 && fseek(f, 0, SEEK_SET) == 0 &&
-          (extra = malloc((size_t)size)) != NULL) {
+          (extra = cosmic_malloc((size_t)size)) != NULL) {
         extra_len = fread(extra, 1, (size_t)size, f);
       }
     }
@@ -135,9 +137,9 @@ static char *build_ca_blob (size_t *out_len) {
   }
 
   size_t total = cosmic_cacert_pem_len + 1 + extra_len + 1;
-  char *blob = malloc(total);
+  char *blob = cosmic_malloc(total);
   if (blob == NULL) {
-    free(extra);
+    cosmic_free(extra);
     return NULL;
   }
   memcpy(blob, cosmic_cacert_pem, cosmic_cacert_pem_len);
@@ -146,7 +148,7 @@ static char *build_ca_blob (size_t *out_len) {
   if (extra_len > 0) memcpy(blob + at, extra, extra_len);
   at += extra_len;
   blob[at++] = '\0';
-  free(extra);
+  cosmic_free(extra);
   *out_len = at;
   return blob;
 }
@@ -167,7 +169,7 @@ static const char *http_ready (void) {
     ca_blob = build_ca_blob(&ca_blob_len);
     if (ca_blob == NULL) return "no memory for the CA bundle";
   }
-  shared_multi = curl_multi_init();
+  shared_multi = COSMIC_FAULT("curl_multi_init") ? NULL : curl_multi_init();
   if (shared_multi == NULL) return "curl_multi_init failed";
   return NULL;
 }
@@ -289,7 +291,7 @@ static void sent_append (struct script *s, const char *bytes, size_t len) {
   if (s->sent_len + len > s->sent_cap) {
     size_t want = s->sent_cap == 0 ? 4096 : s->sent_cap * 2;
     while (want < s->sent_len + len) want *= 2;
-    char *grown = realloc(s->sent, want);
+    char *grown = cosmic_realloc(s->sent, want);
     if (grown == NULL) {
       s->sent_lost = 1;
       return;
@@ -389,11 +391,11 @@ static void script_check (lua_State *L) {
  * the stack top. Returns NULL when memory runs out. */
 static struct script *script_new (lua_State *L) {
   size_t count = (size_t)lua_rawlen(L, -1);
-  struct script *s = calloc(1, sizeof *s);
+  struct script *s = cosmic_calloc(1, sizeof *s);
   if (s == NULL) return NULL;
-  s->conns = calloc(count > 0 ? count : 1, sizeof *s->conns);
+  s->conns = cosmic_calloc(count > 0 ? count : 1, sizeof *s->conns);
   if (s->conns == NULL) {
-    free(s);
+    cosmic_free(s);
     return NULL;
   }
   s->count = count;
@@ -407,7 +409,7 @@ static struct script *script_new (lua_State *L) {
     size_t len = 0;
     const char *reply = lua_tolstring(L, -1, &len);
     struct scripted *c = &s->conns[i];
-    c->reply = malloc(len > 0 ? len : 1);
+    c->reply = cosmic_malloc(len > 0 ? len : 1);
     if (c->reply != NULL) {
       memcpy(c->reply, reply, len);
       c->reply_len = len;
@@ -426,11 +428,11 @@ static void script_free (struct script *s) {
   if (s->next != NULL) s->next->prev_next = s->prev_next;
   for (size_t i = 0; i < s->count; i++) {
     if (s->conns[i].fd >= 0) close(s->conns[i].fd);
-    free(s->conns[i].reply);
+    cosmic_free(s->conns[i].reply);
   }
-  free(s->conns);
-  free(s->sent);
-  free(s);
+  cosmic_free(s->conns);
+  cosmic_free(s->sent);
+  cosmic_free(s);
 }
 
 /* ---- curl callbacks ---------------------------------------------- */
@@ -445,7 +447,7 @@ static size_t write_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
   if (t->body_len + len > t->body_cap) {
     size_t want = t->body_cap == 0 ? 16384 : t->body_cap * 2;
     while (want < t->body_len + len) want *= 2;
-    char *grown = realloc(t->body, want);
+    char *grown = cosmic_realloc(t->body, want);
     if (grown == NULL) return 0; /* signals an error to curl */
     t->body = grown;
     t->body_cap = want;
@@ -491,8 +493,9 @@ static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
  * to have something to do, then does it. Since every transfer shares
  * the handle, driving one drives them all; whichever finishes is marked
  * done through its CURLINFO_PRIVATE pointer. Returns CURLM_OK, or the
- * multi handle's own failure, which no amount of waiting would mend. */
-static CURLMcode pump_once (void) {
+ * multi handle's own failure, which no amount of waiting would mend,
+ * with the call that failed in `*which`. */
+static CURLMcode pump_once (const char **which) {
   struct curl_waitfd extra[16];
   unsigned extra_count = 0;
   for (struct script *s = live_scripts; s != NULL; s = s->next) {
@@ -508,16 +511,26 @@ static CURLMcode pump_once (void) {
     }
   }
   int numfds = 0;
-  CURLMcode mc = curl_multi_poll(shared_multi, extra, extra_count, 1000,
-                                 &numfds);
-  if (mc != CURLM_OK) return mc;
+  CURLMcode mc = COSMIC_FAULT("curl_multi_poll")
+                      ? CURLM_UNRECOVERABLE_POLL
+                      : curl_multi_poll(shared_multi, extra, extra_count, 1000,
+                                        &numfds);
+  if (mc != CURLM_OK) {
+    *which = "curl_multi_poll";
+    return mc;
+  }
   for (struct script *s = live_scripts; s != NULL; s = s->next) {
     script_step(s);
   }
 
   int running = 0;
-  mc = curl_multi_perform(shared_multi, &running);
-  if (mc != CURLM_OK) return mc;
+  mc = COSMIC_FAULT("curl_multi_perform")
+           ? CURLM_OUT_OF_MEMORY
+           : curl_multi_perform(shared_multi, &running);
+  if (mc != CURLM_OK) {
+    *which = "curl_multi_perform";
+    return mc;
+  }
   int msgs_left = 0;
   CURLMsg *msg;
   while ((msg = curl_multi_info_read(shared_multi, &msgs_left)) != NULL) {
@@ -554,7 +567,16 @@ static const char *transfer_error (struct transfer *t) {
 
 /* ---- teardown ------------------------------------------------------ */
 
+#ifdef COSMIC_CHECKED
+lua_Integer cosmic_http_live_transfers;
+#endif
+
+/* Releases everything `t` holds, once; `open` counts a transfer live
+ * from the moment its userdata is made, so each is counted out here. */
 static void transfer_release (struct transfer *t) {
+#ifdef COSMIC_CHECKED
+  if (!t->closed) cosmic_http_live_transfers--;
+#endif
   if (t->easy != NULL) {
     curl_multi_remove_handle(shared_multi, t->easy);
     curl_easy_cleanup(t->easy);
@@ -568,7 +590,7 @@ static void transfer_release (struct transfer *t) {
     script_free(t->script);
     t->script = NULL;
   }
-  free(t->body);
+  cosmic_free(t->body);
   t->body = NULL;
   t->body_cap = 0;
   t->body_len = 0;
@@ -646,6 +668,13 @@ static int failed (lua_State *L, const char *why) {
   return 2;
 }
 
+/* `nil, err` for the multi handle's refusal, naming the call. A macro
+ * rather than a function: nothing a test does on a release core makes
+ * a multi call fail, and every function of a core is one a test must
+ * enter (build/c_functions.tl). */
+#define MULTI_FAILED(L, which, mc) \
+  failed((L), lua_pushfstring((L), "%s: %s", (which), curl_multi_strerror(mc)))
+
 static int handle_read (lua_State *L) {
   struct transfer *t = checked(L);
   lua_Integer max = luaL_optinteger(L, 2, 65536);
@@ -654,8 +683,9 @@ static int handle_read (lua_State *L) {
   if (t->body_len == 0) {
     resume(t);
     while (t->body_len == 0 && !t->done) {
-      CURLMcode mc = pump_once();
-      if (mc != CURLM_OK) return failed(L, curl_multi_strerror(mc));
+      const char *which = NULL;
+      CURLMcode mc = pump_once(&which);
+      if (mc != CURLM_OK) return MULTI_FAILED(L, which, mc);
     }
     if (t->body_len == 0) {
       lua_pushnil(L);
@@ -725,13 +755,15 @@ struct request {
 
 /* Sets one option on `easy`, or returns curl's refusal from the
  * enclosing function with the option's name in `*which`. */
-#define SET(option, value)                                    \
-  do {                                                        \
-    CURLcode set_rc_ = curl_easy_setopt(easy, option, value); \
-    if (set_rc_ != CURLE_OK) {                                \
-      *which = #option;                                       \
-      return set_rc_;                                         \
-    }                                                         \
+#define SET(option, value)                                           \
+  do {                                                               \
+    CURLcode set_rc_ = COSMIC_FAULT("curl_easy_setopt(" #option ")") \
+                           ? CURLE_OUT_OF_MEMORY                     \
+                           : curl_easy_setopt(easy, option, value);  \
+    if (set_rc_ != CURLE_OK) {                                       \
+      *which = #option;                                              \
+      return set_rc_;                                                \
+    }                                                                \
   } while (0)
 
 /* Sets the request's method and body. GET, HEAD and POST use curl's
@@ -854,31 +886,36 @@ static int headers_problem (lua_State *L) {
 }
 
 /* Appends each header in the table on the stack top to the request's
- * list as a "Name: value" line. Returns 0 when memory runs out. */
-static int headers_build (lua_State *L, struct transfer *t) {
+ * list as a "Name: value" line. Returns NULL, or why not when memory
+ * runs out. */
+static const char *headers_build (lua_State *L, struct transfer *t) {
   lua_pushnil(L);
   while (lua_next(L, -2) != 0) {
     size_t name_len, value_len;
     const char *name = lua_tolstring(L, -2, &name_len);
     const char *value = lua_tolstring(L, -1, &value_len);
-    char *line = malloc(name_len + 2 + value_len + 1);
+    char *line = cosmic_malloc(name_len + 2 + value_len + 1);
     struct curl_slist *more = NULL;
+    const char *why = "no memory for the request headers";
     if (line != NULL) {
       memcpy(line, name, name_len);
       memcpy(line + name_len, ": ", 2);
       memcpy(line + name_len + 2, value, value_len);
       line[name_len + 2 + value_len] = '\0';
-      more = curl_slist_append(t->request_headers, line);
-      free(line);
+      more = COSMIC_FAULT("curl_slist_append")
+                 ? NULL
+                 : curl_slist_append(t->request_headers, line);
+      why = "curl_slist_append failed for the request headers";
+      cosmic_free(line);
     }
     lua_pop(L, 1);
     if (more == NULL) {
       lua_pop(L, 1);
-      return 0;
+      return why;
     }
     t->request_headers = more;
   }
-  return 1;
+  return NULL;
 }
 
 static int http_open (lua_State *L) {
@@ -938,15 +975,18 @@ static int http_open (lua_State *L) {
    * still be sending it, which is well past `open`'s return. */
   struct transfer *t = lua_newuserdatauv(L, sizeof *t, 1); /* index 7 */
   memset(t, 0, sizeof *t);
+#ifdef COSMIC_CHECKED
+  cosmic_http_live_transfers++;
+#endif
   luaL_setmetatable(L, HANDLE_TYPE);
   if (r.body != NULL) {
     lua_pushvalue(L, 4);
     lua_setiuservalue(L, 7, 1);
   }
 
-  t->easy = curl_easy_init();
+  t->easy = COSMIC_FAULT("curl_easy_init") ? NULL : curl_easy_init();
   if (t->easy == NULL) {
-    t->closed = 1;
+    transfer_release(t);
     return failed(L, "curl_easy_init failed");
   }
   t->follow = r.follow;
@@ -956,13 +996,16 @@ static int http_open (lua_State *L) {
 
   if (has_headers) {
     lua_pushvalue(L, 5);
-    int built = headers_build(L, t);
+    const char *unbuilt = headers_build(L, t);
     lua_pop(L, 1);
-    if (!built) {
+    if (unbuilt != NULL) {
       transfer_release(t);
-      return failed(L, "no memory for the request headers");
+      return failed(L, unbuilt);
     }
-    rc = curl_easy_setopt(t->easy, CURLOPT_HTTPHEADER, t->request_headers);
+    rc = COSMIC_FAULT("curl_easy_setopt(CURLOPT_HTTPHEADER)")
+             ? CURLE_OUT_OF_MEMORY
+             : curl_easy_setopt(t->easy, CURLOPT_HTTPHEADER,
+                                t->request_headers);
     if (rc != CURLE_OK) {
       return setopt_failed(L, t, "CURLOPT_HTTPHEADER", rc);
     }
@@ -972,25 +1015,33 @@ static int http_open (lua_State *L) {
     lua_pushvalue(L, 6);
     t->script = script_new(L);
     lua_pop(L, 1);
-    t->connect_to = curl_slist_append(NULL, "::127.0.0.1:");
-    if (t->script == NULL || t->connect_to == NULL) {
+    if (t->script == NULL) {
       transfer_release(t);
       return failed(L, "no memory for the script");
+    }
+    t->connect_to = COSMIC_FAULT("curl_slist_append")
+                        ? NULL
+                        : curl_slist_append(NULL, "::127.0.0.1:");
+    if (t->connect_to == NULL) {
+      transfer_release(t);
+      return failed(L, "curl_slist_append failed for the script");
     }
     rc = configure_script(t, &which);
     if (rc != CURLE_OK) return setopt_failed(L, t, which, rc);
   }
 
-  CURLMcode mc = curl_multi_add_handle(shared_multi, t->easy);
+  CURLMcode mc = COSMIC_FAULT("curl_multi_add_handle")
+                    ? CURLM_OUT_OF_MEMORY
+                    : curl_multi_add_handle(shared_multi, t->easy);
   if (mc != CURLM_OK) {
     transfer_release(t);
-    return failed(L, curl_multi_strerror(mc));
+    return MULTI_FAILED(L, "curl_multi_add_handle", mc);
   }
   while (!t->ready) {
-    mc = pump_once();
+    mc = pump_once(&which);
     if (mc != CURLM_OK) {
       transfer_release(t);
-      return failed(L, curl_multi_strerror(mc));
+      return MULTI_FAILED(L, which, mc);
     }
   }
   /* A failure after the headers is the body's, for `read` to report. */

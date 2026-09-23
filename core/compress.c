@@ -9,6 +9,7 @@
 #include "bzlib.h"
 #include "lauxlib.h"
 #include "lzma.h"
+#include "memory.h"
 #include "miniz.h"
 
 /* bzlib built with BZ_NO_STDIO asks its embedder to supply this: it is
@@ -159,7 +160,7 @@ static int bytes_append (struct bytes *b, const void *data, size_t len) {
     while (room < b->len + len) {
       room = room > SIZE_MAX / 2 ? b->len + len : room * 2;
     }
-    unsigned char *grown = realloc(b->p, room);
+    unsigned char *grown = cosmic_realloc(b->p, room);
     if (grown == NULL) return -1;
     b->p = grown;
     b->cap = room;
@@ -199,11 +200,11 @@ static void begin (struct stream *s) { s->finished = 1; }
 
 /* Frees the codec's own state; `rest` stays for the caller to read. */
 static void release (struct stream *s) {
-  free(s->tdefl);
+  cosmic_free(s->tdefl);
   s->tdefl = NULL;
-  free(s->inf);
+  cosmic_free(s->inf);
   s->inf = NULL;
-  free(s->in.p);
+  cosmic_free(s->in.p);
   memset(&s->in, 0, sizeof s->in);
   s->in_pos = 0;
   s->more = 0;
@@ -664,7 +665,7 @@ static int inflater (lua_State *L) {
       (stream_format)luaL_checkoption(L, 1, NULL, format_names);
   struct stream *s = new_stream(L, OP_INFLATE);
   s->format = fmt;
-  s->inf = malloc(sizeof *s->inf);
+  s->inf = cosmic_malloc(sizeof *s->inf);
   if (s->inf == NULL) {
     lua_pushnil(L);
     lua_pushstring(L, "out of memory");
@@ -687,7 +688,7 @@ static int deflater (lua_State *L) {
   luaL_argcheck(L, level >= 0 && level <= 10, 2, "level must be 0 to 10");
   struct stream *s = new_stream(L, OP_DEFLATE);
   s->format = fmt;
-  s->tdefl = malloc(sizeof(tdefl_compressor));
+  s->tdefl = cosmic_malloc(sizeof(tdefl_compressor));
   if (s->tdefl == NULL) {
     lua_pushnil(L);
     lua_pushstring(L, "out of memory");
@@ -888,7 +889,7 @@ static int stream_gc (lua_State *L) {
   struct stream *s = luaL_checkudata(L, 1, STREAM_TYPE);
   s->finished = 1;
   release(s);
-  free(s->rest.p);
+  cosmic_free(s->rest.p);
   memset(&s->rest, 0, sizeof s->rest);
   return 0;
 }
