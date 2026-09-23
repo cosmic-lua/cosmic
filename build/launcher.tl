@@ -117,8 +117,8 @@ fi
 # utility itself and not a subshell around it too.
 portable_lstat() {
   case $cosmic_os in
-    Linux) portable_out=$(LC_ALL=C stat -c '%F|%u|%a|%s' -- "$@") ;;
-    Darwin) portable_out=$(LC_ALL=C stat -f '%HT|%u|%Lp|%z' "$@") ;;
+    Linux) portable_out=$(LC_ALL=C stat -c '%F|%u|%a|%s|%i|%Y|%Z' -- "$@") ;;
+    Darwin) portable_out=$(LC_ALL=C stat -f '%HT|%u|%Lp|%z|%i|%m|%c' "$@") ;;
     *) return 1 ;;
   esac
 }
@@ -127,6 +127,7 @@ portable_kind=
 portable_owner=
 portable_mode=
 portable_size=
+portable_identity=
 portable_fields=
 portable_stat() {
   portable_lstat "$1" || return 1
@@ -139,7 +140,10 @@ portable_split() {
   portable_owner=${portable_fields%%|*}
   portable_fields=${portable_fields#*|}
   portable_mode=${portable_fields%%|*}
-  portable_size=${portable_fields#*|}
+  portable_fields=${portable_fields#*|}
+  portable_size=${portable_fields%%|*}
+  # Inode, modification and change seconds: what a verified stamp records.
+  portable_identity=${portable_fields#*|}
   return 0
 }
 
@@ -162,6 +166,7 @@ portable_owned() {
 cosmic_key=core-$cosmic_target_id-$cosmic_configuration_id-$cosmic_length-$cosmic_sha256
 cosmic_core=$cosmic_cache/$cosmic_key
 cosmic_repair_lock=$cosmic_cache/.repair-$cosmic_key
+cosmic_stamp=$cosmic_cache/.verified-$cosmic_key
 
 # One stat answers for both the leaf and the selected entry: on a warm start,
 # the only one. The entry's line is kept for its first inspection below. A
@@ -257,8 +262,24 @@ portable_inspect_entry() {
     portable_entry_reason='length differs'
     return 0
   fi
-  # The digest is not repeated here: startup hashes the core it runs from
-  # and refuses one that differs from the manifest, naming the entry.
+  # Startup, having hashed this entry, records its size, inode, and
+  # modification and change seconds in a stamp beside it, once a second has
+  # passed since it last changed. While the entry still answers the same,
+  # it has not been written since it was hashed: neither this launcher nor
+  # startup hashes it again. Anything else is hashed here, before the core
+  # runs, so damage is repaired rather than executed.
+  portable_stamp=
+  if [ ! -L "$cosmic_stamp" ]; then
+    IFS= read -r portable_stamp 2>/dev/null < "$cosmic_stamp" || portable_stamp=
+  fi
+  if [ "$portable_stamp" != "$portable_size|$portable_identity" ]; then
+    portable_sha256 "$cosmic_core"
+    if [ "$portable_actual" != "$cosmic_sha256" ]; then
+      portable_entry_state=invalid
+      portable_entry_reason='digest differs'
+      return 0
+    fi
+  fi
   portable_entry_state=valid
   portable_entry_reason=
   return 0
@@ -317,6 +338,7 @@ portable_remove_invalid_entry() {
       ;;
     *) rm -f "$cosmic_core" || portable_die 'cannot remove invalid cache entry' ;;
   esac
+  rm -f "$cosmic_stamp" 2>/dev/null || :
 }
 
 portable_inspect_entry
@@ -372,8 +394,8 @@ if [ "$portable_entry_state" != valid ]; then
   cosmic_stage=
 fi
 
-# A cold publisher has hashed its stage and linked that same inode. A warm
-# winner, or a losing publisher's, is hashed once by startup instead.
+# A cold publisher has hashed its stage and linked that same inode; a warm
+# entry was hashed above unless its stamp still holds.
 [ "$cosmic_core_verified" = 1 ] || portable_die 'selected core was not verified'
 eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"' ||
   portable_die 'cannot open verified core descriptor'
@@ -429,11 +451,26 @@ local function substitute(text: string, marker: string, replacement: string): st
   return (text:gsub(marker, function(): string return replacement end))
 end
 
+--- The template without its comment lines, which explain it here but
+--- would only spend the header's fixed 16 KiB in every artifact. The
+--- template has no heredoc and no quoted text spanning lines, so a line
+--- whose first non-blank is `#` is always a comment; the first line is
+--- the `#!` interpreter line and stays.
+local function without_comments(text: string): string
+  local kept: {string} = {}
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    if #kept == 0 or not line:match("^%s*#") then kept[#kept + 1] = line end
+  end
+  return table.concat(kept, "\n")
+end
+
+local shipped = without_comments(template)
+
 --- Renders a release launcher, or a fixture-only launcher with deterministic
 --- FIFO gates. Release bytes contain neither the hooks nor their environment
 --- names.
 function launcher.render(arms: string, test_hooks: boolean): string
-  local rendered = substitute(template, "@TARGETS@", arms)
+  local rendered = substitute(shipped, "@TARGETS@", arms)
   if test_hooks then
     rendered = substitute(rendered, "@SELECT_HOOK@",
       "portable_test_hook after_select")

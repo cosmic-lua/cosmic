@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local Fixture = require("cosmic_ci.fixture")
 
 -- runtime test's own default subprocess bound, and the bound each paused
@@ -541,44 +542,44 @@ local function test_runtime_corrupt_ranges(tmp: string)
   Fixture.contains(cold.err, "extracted core digest differs")
 end
 
--- The launcher does not hash a warm core; startup does, once. A cached core
--- damaged in place keeps its length, so it runs, and startup refuses it by
--- naming the entry; removing that entry lets the next launch extract it
--- again. The damage is the core's last byte: on Linux it lies outside every
--- loaded segment, so the core still starts; on macOS it is the code
--- signature, and the kernel refuses the core before startup can speak.
-local function test_runtime_warm_core_damaged_in_place(tmp: string)
+-- Startup stamps a cache entry it hashed once a second has passed since the
+-- entry last changed; while the stamp holds, no one hashes the entry again.
+-- A write moves the entry's times, so a core damaged in place no longer
+-- matches its stamp: the launcher hashes it and repairs it before it runs,
+-- on every host, including where the kernel would refuse a damaged signed
+-- core before startup could speak.
+local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local work = tmp
   local diagnostics = work .. "/logs"
   Fixture.mkdir(diagnostics)
   chmod(fixture_dir .. "/runtime.release", 0x1ed)
-  local cache = work .. "/cache-damaged"
+  local cache = work .. "/cache-stamped"
   local values = { COSMIC_PORTABLE_CACHE = cache }
   local program = fixture_dir .. "/runtime.release"
-  Fixture.run("damaged-cold", { program, "help" }, work, diagnostics, values)
+  Fixture.run("stamp-cold", { program, "help" }, work, diagnostics, values)
 
-  local core: string | nil = nil
+  local key: string | nil = nil
   for _, name in ipairs((assert(Fs.list(cache)))) do
-    if name:sub(1, 5) == "core-" then core = cache .. "/" .. name end
+    if name:sub(1, 5) == "core-" then key = name end
   end
-  local path = assert(core, "cold launch published no core")
-  local bytes = Fixture.read(path)
+  local core = cache .. "/" .. assert(key, "cold launch published no core")
+  local stamp = cache .. "/.verified-" .. assert(key)
+  assert(Fs.exists(stamp) == false, "a core changed this second was stamped")
+  assert(Time.sleep_ns(1100000000))
+  Fixture.run("stamp-warm", { program, "help" }, work, diagnostics, values)
+  local st = assert(sys.lstat(core))
+  local recorded = string.format("%d|%d|%d|", st.size, st.ino, st.mtime)
+  assert(Fixture.read(stamp):sub(1, #recorded) == recorded,
+    "stamp does not record the entry")
+
+  local bytes = Fixture.read(core)
   local last = string.char(bytes:byte(#bytes) ~ 0xff)
-  Fixture.write(path, bytes:sub(1, #bytes - 1) .. last, 0x140)
-
-  local damaged = Fixture.call_with_environment("damaged-warm",
-    { program, "help" }, work, diagnostics, Fixture.environment(values))
-  assert(not damaged.result.ok, "a damaged cached core ran")
-  if host_uname(work, diagnostics, "-s", "damaged-sysname") == "Linux" then
-    Fixture.contains(damaged.err,
-      "executing core digest differs from manifest; remove ")
-    Fixture.contains(damaged.err, path:match("[^/]+$") .. " to extract it again")
-  end
-
-  assert(Fs.remove(path))
-  Fixture.run("damaged-removed", { program, "help" }, work, diagnostics, values)
-  assert(Fixture.read(path) == bytes, "re-extracted core differs")
+  Fixture.write(core, bytes:sub(1, #bytes - 1) .. last, 0x140)
+  local repaired = Fixture.run("stamp-damaged", { program, "help" }, work,
+    diagnostics, values)
+  Fixture.contains(repaired.err, "digest differs; repairing")
+  assert(Fixture.read(core) == bytes, "repair did not restore the core")
 end
 
 --------------------------------------------------------------------------

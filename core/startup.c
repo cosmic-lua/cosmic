@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE
 
 #include "startup.h"
 
@@ -9,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "crypto.h"
@@ -193,6 +195,86 @@ const char *cosmic_startup_validate(const struct cosmic_startup *startup) {
   return NULL;
 }
 
+/* A verified stamp: beside a cache entry named for the selected core, one
+ * line of the entry's size, inode, and modification and change seconds --
+ * the fields the launcher's stat prints, in its order. Startup writes it
+ * after hashing the entry, once a second has passed since the entry last
+ * changed, so any later write moves one of the times it records. While it
+ * holds, neither the launcher nor startup hashes the entry again. */
+static void stamp_line(const struct stat *core_stat, char *line, size_t room) {
+  snprintf(line, room, "%llu|%llu|%lld|%lld\n",
+           (unsigned long long)core_stat->st_size,
+           (unsigned long long)core_stat->st_ino,
+           (long long)core_stat->st_mtime, (long long)core_stat->st_ctime);
+}
+
+/* The stamp's path and its directory, when the executing core is the cache
+ * entry the launcher names for this manifest entry; 0 for a core run from
+ * anywhere else, which is always hashed and never stamped. */
+static int stamp_path(const struct cosmic_portable_entry *entry,
+                      const struct stat *core_stat, char *path, size_t room,
+                      char *directory, size_t directory_room) {
+  char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
+  if (!cosmic_executable_path(core_path, sizeof core_path)) return 0;
+  char *slash = strrchr(core_path, '/');
+  if (slash == NULL || slash == core_path) return 0;
+  char key[64 + 2 * COSMIC_PORTABLE_SHA256_LENGTH];
+  int used = snprintf(key, sizeof key, "core-%u-%u-%llu-",
+                      (unsigned)entry->target_id,
+                      (unsigned)entry->configuration_id,
+                      (unsigned long long)entry->length);
+  if (used < 0 || (size_t)used + 2 * COSMIC_PORTABLE_SHA256_LENGTH >= sizeof key)
+    return 0;
+  for (unsigned i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
+    snprintf(key + used + 2 * i, 3, "%02x", entry->sha256[i]);
+  if (strcmp(slash + 1, key) != 0) return 0;
+  struct stat path_stat;
+  if (lstat(core_path, &path_stat) != 0 ||
+      path_stat.st_dev != core_stat->st_dev ||
+      path_stat.st_ino != core_stat->st_ino)
+    return 0;
+  *slash = '\0';
+  used = snprintf(path, room, "%s/.verified-%s", core_path, key);
+  if (used < 0 || (size_t)used >= room) return 0;
+  used = snprintf(directory, directory_room, "%s", core_path);
+  return used >= 0 && (size_t)used < directory_room;
+}
+
+static int stamp_holds(const char *path, const struct stat *core_stat) {
+  char expected[96];
+  stamp_line(core_stat, expected, sizeof expected);
+  int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return 0;
+  char found[sizeof expected];
+  ssize_t length = read(fd, found, sizeof found - 1);
+  close(fd);
+  if (length <= 0) return 0;
+  found[length] = '\0';
+  return strcmp(found, expected) == 0;
+}
+
+/* Best effort: a read-only cache, or an entry changed within this second,
+ * is simply hashed again next time. */
+static void stamp_write(const char *path, const char *directory,
+                        const struct stat *core_stat) {
+  time_t now = time(NULL);
+  if (now == (time_t)-1 || core_stat->st_ctime >= now ||
+      core_stat->st_mtime >= now)
+    return;
+  char line[96];
+  stamp_line(core_stat, line, sizeof line);
+  char temporary[COSMIC_ARTIFACT_PATH_CAPACITY + 32];
+  int used = snprintf(temporary, sizeof temporary, "%s/.verified.XXXXXX",
+                      directory);
+  if (used < 0 || (size_t)used >= sizeof temporary) return;
+  int fd = mkstemp(temporary);
+  if (fd < 0) return;
+  size_t length = strlen(line);
+  int written = write(fd, line, length) == (ssize_t)length;
+  if (close(fd) != 0) written = 0;
+  if (!written || rename(temporary, path) != 0) unlink(temporary);
+}
+
 static int fail_adoption(struct cosmic_artifact *artifact, int core_fd,
                          int physical_fd, const char **error,
                          const char *why) {
@@ -294,12 +376,18 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
   if ((uint64_t)core_stat.st_size != selected->length)
     return fail_adoption(artifact, startup->core_fd, -1, error,
                          "executing core length differs from manifest");
+  char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
+  char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
+  int stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
+                           stamp_directory, sizeof stamp_directory);
   unsigned char digest[COSMIC_DIGEST_MAX];
   size_t digest_length = 0;
-  if (cosmic_digest_fd("sha256", startup->core_fd, 0, selected->length,
-                       digest, &digest_length) != 0 ||
-      digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
-      memcmp(digest, selected->sha256, digest_length) != 0) {
+  if (stamped && stamp_holds(stamp, &core_stat)) {
+    /* Hashed before, and not written since. */
+  } else if (cosmic_digest_fd("sha256", startup->core_fd, 0, selected->length,
+                              digest, &digest_length) != 0 ||
+             digest_length != COSMIC_PORTABLE_SHA256_LENGTH ||
+             memcmp(digest, selected->sha256, digest_length) != 0) {
     /* The launcher checks a cached core's kind, owner, mode and length but
      * leaves its digest to this one pass, so a cached core damaged in place
      * stops here. Name the entry: removing it lets the next launch extract
@@ -316,6 +404,8 @@ int cosmic_startup_adopt(const struct cosmic_startup *startup,
                "cached core to extract it again");
     return fail_adoption(artifact, startup->core_fd, -1, error, corrupt);
   }
+  if (stamped && digest_length != 0)
+    stamp_write(stamp, stamp_directory, &core_stat);
 
   int physical_fd = cosmic_executable_fd();
   struct stat physical_stat;

@@ -41,10 +41,13 @@ end
 -- Counts the plain files directly inside `directory`. The portable cache is
 -- assumed flat, the same assumption launcher_test.tl's `only_core` and
 -- `no_private_entries` make about a cache directory.
+-- The cores a cache holds: its public entries. A name beginning with "."
+-- is the launcher's or startup's own (a verified stamp, a repair lock).
 local function count_cache_files(directory: string): integer
   local count = 0
   for _, name in ipairs((assert(Fs.list(directory)))) do
-    if assert(Fs.stat(directory .. "/" .. name)).kind == "file" then
+    if name:sub(1, 1) ~= "." and
+        assert(Fs.stat(directory .. "/" .. name)).kind == "file" then
       count = count + 1
     end
   end
