@@ -170,3 +170,16 @@ local function test_no_example_needs_no_helpers_at_all()
   assert(code:find("require(\"cosmic.fs\")", 1, true) == nil, "got:\n" .. code)
   assert(code:find("__doctest_capture", 1, true) == nil, "got:\n" .. code)
 end
+
+--- The generated file names each example's line in the doc, which the
+--- build shows in place of the generated file's own lines.
+local function test_each_example_names_its_doc_line()
+  local first = block("teal", "local x = 1", no_mods)
+  local second = block("teal", 'print("hi")', no_mods)
+  second.line = 12
+  local blocks: {Block} = { first, second, block("output", "hi", no_mods) }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  assert(code:find("\n-- line example_1 1\n", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("\n-- line test_2 12\n", 1, true) ~= nil, "got:\n" .. code)
+end

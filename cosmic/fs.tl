@@ -5,6 +5,10 @@
 --- returns `T | nil, string`: a value and `""` on success, or nil and
 --- an error. A predicate uses the same contract, with false as a valid
 --- answer. A call that only has an effect returns `boolean, string`.
+---
+--- The syscall table itself is `cosmic.sys`. A call this module does not
+--- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
+--- `cosmic docs cosmic.sys` lists every one.
 
 local Env = require("cosmic.env")
 local sys = require("cosmic.sys")

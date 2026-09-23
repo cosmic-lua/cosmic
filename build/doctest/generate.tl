@@ -28,6 +28,8 @@ local record Example
   --- once every block has been read, so numbering never depends on
   --- which examples turn out runnable.
   name: string
+  --- The doc line of the block that opens it.
+  line: integer
 end
 
 local record Item
@@ -128,6 +130,7 @@ local function to_items(blocks: {Block}): {Item} | nil, string
           has_output = false,
           output_text = "",
           name = "",
+          line = b.line,
         }
         pending_files = {}
         items[#items + 1] = { kind = "example", example = example }
@@ -314,6 +317,16 @@ function generate.from_blocks(blocks: {Block}, file: string): string | nil, stri
       if example ~= nil then
         emit_example(out, file, example)
       end
+    end
+  end
+
+  -- Where each example opens in the doc, which `cosmic docs` shows in
+  -- place of this file's own lines -- see `build.importer`'s
+  -- `origin_lines`.
+  for _, item in ipairs(items) do
+    local example = item.example
+    if item.kind == "example" and example ~= nil then
+      out[#out + 1] = "-- line " .. example.name .. " " .. example.line
     end
   end
 

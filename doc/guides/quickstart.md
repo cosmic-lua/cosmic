@@ -45,6 +45,24 @@ hello from notes.txt
 568a78ac9be8ab08ce84c90363cef53bab5d6aecf684e83cd44193dbad50cca6
 ```
 
+## below cosmic.fs
+
+`cosmic.fs` is built on `cosmic.sys`, the syscall table: one C function
+per call, the same on Linux and on macOS. A call no module wraps, such
+as `lstat`, is there. A failure returns nil, the error, and the errno.
+`cosmic docs cosmic.sys` lists every call.
+
+```teal
+local syscalls = require("cosmic.sys")
+
+local stat = assert(syscalls.lstat(tmp))
+print(stat.kind)
+```
+
+```output
+dir
+```
+
 ## running another cosmic program
 
 `cosmic.child` starts an executable from an exact path; it does not search
