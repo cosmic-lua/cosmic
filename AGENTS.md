@@ -61,15 +61,15 @@ warning rather than silencing it; `-Wcast-qual` is left out only because the
 calls the core makes take const-dropping casts by design. `bin/zig build
 analyze` runs the static analyzer `bin/zig cc` carries over the same files, and
 `bin/zig build sanitized` runs it too, so CI fails on a finding. `cosmic fix`
-compiles each C file to clang's syntax tree and holds it to the three items
-marked (checked) below; a case a rule cannot see past goes in `rules.exempt`
+compiles each C file to clang's syntax tree and holds it to the items marked
+(checked) below; a case a rule cannot see past goes in `rules.exempt`
 with its reason. When reviewing C, check for:
 
 - A value pushed above an open `luaL_Buffer`: only `luaL_addvalue` may find
   one there. Every other buffer call needs the buffer's own slot on top.
   (checked)
 - A pointer into a Lua string kept after the value leaves the stack. Copy it
-  first.
+  first. (checked, for a string counted from the top)
 - A resource held in a C local across a Lua call that can allocate: any call
   can raise on memory. Hold it in a guard (`core/guard.h`), or, for one the
   caller is to own, acquire it after everything that allocates. (checked)
@@ -78,7 +78,8 @@ with its reason. When reviewing C, check for:
   (checked)
 - A binding's failure in another shape than its contract's: a degenerate
   argument raises, and a runtime failure returns `nil` or `false`, a message,
-  and an errno (`core/fail.h`).
+  and an errno (`core/fail.h`). (checked: what a binding returns, against its
+  declaration in `core/syscalls.h`)
 - A function that never returns without `_Noreturn`.
 - A new C entry point without a test that calls it: a whole run fails for one
   (`build/entry_points.tl`). Allocation-failure paths are walked on the checked

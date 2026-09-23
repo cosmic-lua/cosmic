@@ -51,22 +51,17 @@ const char *cosmic_path (lua_State *L, int index) {
   return value;
 }
 
-/* An execve argument or environment string with no NUL inside it, or
- * NULL: a NUL would silently cut the string short. */
-static const char *whole_string (lua_State *L, int index) {
-  size_t length;
-  const char *value = lua_tolstring(L, index, &length);
-  if (value == NULL || memchr(value, '\0', length) != NULL) return NULL;
-  return value;
-}
-
 COSMIC_SYSCALL(executable, 0) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
   if (lua_isstring(L, -1)) return 1;
   lua_pop(L, 1);
   char resolved[PATH_MAX];
+  /* Cleared first: a failure that sets no errno of its own (a path too
+   * long for the room) must not report whatever an earlier call left. */
+  errno = 0;
   if (!cosmic_executable_path(resolved, sizeof resolved)) {
-    return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);
+    int number = errno;
+    return cosmic_fail(L, number == 0 ? ENAMETOOLONG : number);
   }
   lua_pushstring(L, resolved);
   return 1;
@@ -191,70 +186,6 @@ COSMIC_SYSCALL(hmac, 3) {
   return hashed(L, status, mac, mac_len);
 }
 
-/* Everything that can raise happens before anything is allocated: argv
- * entries, environment names and values must already be strings, and
- * each "NAME=value" entry is built by concatenation into a table on the
- * stack, which is what keeps its bytes alive. After the two calloc()s
- * only raw reads of strings the stack already holds remain, so nothing
- * between them and free() can raise. execve frees nothing on success
- * because nothing of this process remains. */
-COSMIC_SYSCALL(execve, 3) {
-  const char *path = cosmic_path(L, 1);
-  luaL_checktype(L, 2, LUA_TTABLE);
-  luaL_checktype(L, 3, LUA_TTABLE);
-
-  lua_Integer count = (lua_Integer)lua_rawlen(L, 2);
-  for (lua_Integer i = 1; i <= count; i++) {
-    if (lua_rawgeti(L, 2, i) != LUA_TSTRING)
-      return luaL_argerror(L, 2, "argv entries must be strings");
-    lua_pop(L, 1);
-  }
-
-  lua_newtable(L);
-  int entries = lua_gettop(L);
-  lua_Integer variables = 0;
-  lua_pushnil(L);
-  while (lua_next(L, 3) != 0) {
-    if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TSTRING)
-      return luaL_argerror(L, 3, "environment names and values must be strings");
-    lua_pushvalue(L, -2);
-    lua_pushliteral(L, "=");
-    lua_pushvalue(L, -3);
-    lua_concat(L, 3);
-    lua_rawseti(L, entries, ++variables);
-    lua_pop(L, 1);
-  }
-  if (path == NULL) return cosmic_fail(L, EINVAL);
-
-  char **argv = calloc((size_t)count + 1, sizeof *argv);
-  char **envp = calloc((size_t)variables + 1, sizeof *envp);
-  int number = ENOMEM;
-  if (argv == NULL || envp == NULL) goto done;
-  number = EINVAL;
-  for (lua_Integer i = 1; i <= count; i++) {
-    lua_rawgeti(L, 2, i);
-    argv[i - 1] = (char *)whole_string(L, -1);
-    lua_pop(L, 1);
-    if (argv[i - 1] == NULL) goto done;
-  }
-  for (lua_Integer i = 1; i <= variables; i++) {
-    lua_rawgeti(L, entries, i);
-    envp[i - 1] = (char *)whole_string(L, -1);
-    lua_pop(L, 1);
-    if (envp[i - 1] == NULL) goto done;
-  }
-
-  char **given = cosmic_coverage_environment(envp);
-  cosmic_coverage_report(); /* nothing of this image remains to report later */
-  execve(path, argv, given);
-  number = errno;
-  if (given != envp) free(given);
-  done:
-  free(envp);
-  free(argv);
-  return cosmic_fail(L, number);
-}
-
 static const char *plain_string (lua_State *L, int index, const char *what) {
   if (lua_type(L, index) != LUA_TSTRING)
     luaL_error(L, "%s must be a string", what);
@@ -263,6 +194,85 @@ static const char *plain_string (lua_State *L, int index, const char *what) {
   if (memchr(value, '\0', length) != NULL)
     luaL_error(L, "%s contains a NUL byte", what);
   return value;
+}
+
+/* Whether cosmic itself set SIGPIPE to be ignored, so that a program it
+ * starts or becomes gets the default disposition back instead of
+ * inheriting ours. */
+static int sigpipe_ignored_here;
+
+/* The argv and environment arrays are built from the Lua tables, which
+ * stay on the stack and so keep every string alive until execve, which
+ * frees nothing on success because nothing of this process remains.
+ * Every argv entry must already be a string -- a number converted in
+ * place would be a string nothing holds -- and everything that can
+ * raise is checked before the arrays are allocated; each array is held
+ * by a guard all the same, which frees it on every return. */
+COSMIC_SYSCALL(execve, 3) {
+  const char *path = plain_string(L, 1, "path");
+  luaL_checktype(L, 2, LUA_TTABLE);
+  luaL_checktype(L, 3, LUA_TTABLE);
+
+  size_t count = lua_rawlen(L, 2);
+  if (count > (size_t)LUA_MAXINTEGER ||
+      count > SIZE_MAX / sizeof(char *) - 1)
+    return luaL_argerror(L, 2, "argv is too large");
+  for (size_t i = 1; i <= count; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i);
+    plain_string(L, -1, "argv entry");
+    lua_pop(L, 1);
+  }
+
+  /* Each "NAME=value" entry is built by concatenation and kept in a
+   * table on the stack, which is what keeps its bytes alive; the key
+   * itself is left exactly as lua_next needs it. */
+  lua_newtable(L);
+  int entries = lua_gettop(L);
+  lua_Integer variables = 0;
+  lua_pushnil(L);
+  while (lua_next(L, 3) != 0) {
+    const char *name = plain_string(L, -2, "environment name");
+    plain_string(L, -1, "environment value");
+    if (*name == '\0' || strchr(name, '=') != NULL)
+      return luaL_argerror(L, 3, "environment name is empty or contains '='");
+    lua_pushvalue(L, -2);
+    lua_pushliteral(L, "=");
+    lua_pushvalue(L, -3);
+    lua_concat(L, 3);
+    lua_rawseti(L, entries, ++variables);
+    lua_pop(L, 1);
+  }
+
+  struct cosmic_guard *argv_guard = cosmic_guard_push(L, free);
+  struct cosmic_guard *envp_guard = cosmic_guard_push(L, free);
+  char **argv = calloc(count + 1, sizeof *argv);
+  argv_guard->resource = argv;
+  char **envp = calloc((size_t)variables + 1, sizeof *envp);
+  envp_guard->resource = envp;
+  if (argv == NULL || envp == NULL) {
+    return cosmic_fail(L, ENOMEM);
+  }
+  for (size_t i = 1; i <= count; i++) {
+    lua_rawgeti(L, 2, (lua_Integer)i);
+    argv[i - 1] = (char *)lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+  for (lua_Integer i = 1; i <= variables; i++) {
+    lua_rawgeti(L, entries, i);
+    envp[i - 1] = (char *)lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+
+  /* The program this process becomes starts with SIGPIPE at its
+   * default, as a spawned child does; ignored again if the exec fails. */
+  char **given = cosmic_coverage_environment(envp);
+  cosmic_coverage_report(); /* nothing of this image remains to report later */
+  if (sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
+  execve(path, argv, given);
+  int number = errno;
+  if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
+  if (given != envp) free(given);
+  return cosmic_fail(L, number);
 }
 
 static void free_environment (char **envp, lua_Integer count) {
@@ -286,10 +296,6 @@ static int report_child_error (int fd, int number) {
 
 /* The highest descriptor number a child may be handed besides stdio. */
 #define CHILD_FD_MAX 255
-
-/* Whether cosmic itself set SIGPIPE to be ignored, so that a child it
- * starts gets the default disposition back instead of inheriting ours. */
-static int sigpipe_ignored_here;
 
 /* Close every descriptor from `from` up. Cosmic-opened descriptors are
  * CLOEXEC already; this also closes foreign descriptors that are not. */
@@ -412,9 +418,11 @@ COSMIC_SYSCALL(spawn, 9) {
   /* Move both ends clear of every descriptor the child is handed, so
    * closed parent stdio cannot make a pipe end collide with the
    * remapping below. */
+  int promote_error = 0;
   int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
+  if (status_read < 0) promote_error = errno;
   int status_write = fcntl(status_pipe[1], F_DUPFD_CLOEXEC, top + 2);
-  int promote_error = errno;
+  if (status_write < 0 && promote_error == 0) promote_error = errno;
   close(status_pipe[0]);
   close(status_pipe[1]);
   if (status_read < 0 || status_write < 0) {
@@ -513,17 +521,24 @@ COSMIC_SYSCALL(waitpid, 2) {
     return luaL_argerror(L, 1, "pid is out of range");
   pid_t pid = (pid_t)value;
   int nohang = lua_toboolean(L, 2);
+  /* The answer and its keys are made before the wait, and filling a
+   * table sized for them allocates nothing: a child the wait reaped
+   * cannot be reaped again, so a raise after it would lose its status. */
+  lua_createtable(L, 0, 3);
+  lua_pushliteral(L, "signal");
+  lua_pushliteral(L, "code");
+  lua_pushliteral(L, "pid");
   int status;
   pid_t answer;
   do { answer = waitpid(pid, &status, nohang ? WNOHANG : 0); }
   while (answer < 0 && errno == EINTR);
   if (answer < 0) return cosmic_fail(L, errno);
-  lua_createtable(L, 0, 3);
-  lua_pushinteger(L, answer); lua_setfield(L, -2, "pid");
+  lua_pushinteger(L, answer);
+  lua_rawset(L, -5);
   lua_pushinteger(L, answer > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1);
-  lua_setfield(L, -2, "code");
+  lua_rawset(L, -4);
   lua_pushinteger(L, answer > 0 && WIFSIGNALED(status) ? WTERMSIG(status) : -1);
-  lua_setfield(L, -2, "signal");
+  lua_rawset(L, -3);
   return 1;
 }
 
@@ -556,8 +571,11 @@ COSMIC_SYSCALL(relaunch, 2) {
   const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
   if (artifact == NULL) return cosmic_fail(L, ENOSYS);
   char physical[PATH_MAX];
-  if (!cosmic_executable_path(physical, sizeof physical))
-    return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);
+  errno = 0; /* as for executable */
+  if (!cosmic_executable_path(physical, sizeof physical)) {
+    int number = errno;
+    return cosmic_fail(L, number == 0 ? ENAMETOOLONG : number);
+  }
   if (artifact->host) {
     /* A host program is its own launcher: executing it again is enough. */
     lua_createtable(L, 0, 2);
@@ -567,8 +585,6 @@ COSMIC_SYSCALL(relaunch, 2) {
     lua_setfield(L, -2, "host");
     return 1;
   }
-  int core_fd = cosmic_executable_fd();
-  if (core_fd < 0) return cosmic_fail(L, errno);
   const struct cosmic_portable_entry *selected = &artifact->portable.selected;
   lua_createtable(L, 0, 5);
   lua_pushstring(L, physical);
@@ -577,8 +593,6 @@ COSMIC_SYSCALL(relaunch, 2) {
   lua_setfield(L, -2, "artifact");
   lua_pushinteger(L, artifact->fd);
   lua_setfield(L, -2, "artifact_fd");
-  lua_pushinteger(L, core_fd);
-  lua_setfield(L, -2, "core_fd");
   lua_createtable(L, 0, 7);
   set_decimal(L, COSMIC_PORTABLE_ENV_ARTIFACT_FD, (uint64_t)artifact_to);
   set_decimal(L, COSMIC_PORTABLE_ENV_CORE_FD, (uint64_t)core_to);
@@ -592,10 +606,23 @@ COSMIC_SYSCALL(relaunch, 2) {
   lua_pushstring(L, digest);
   lua_setfield(L, -2, COSMIC_PORTABLE_ENV_CORE_SHA256);
   lua_setfield(L, -2, "environment");
+  /* The descriptor is opened last, into a slot the table already has
+   * room for, so no raise can come between it and the answer. */
+  lua_pushliteral(L, "core_fd");
+  int core_fd = cosmic_executable_fd();
+  if (core_fd < 0) return cosmic_fail(L, errno);
+  lua_pushinteger(L, core_fd);
+  lua_rawset(L, -3);
   return 1;
 }
 
 COSMIC_SYSCALL(pipe, 0) {
+  /* The answer and its keys are made before the pipe, and filling a
+   * table sized for them allocates nothing: a raise after the pipe
+   * would leak both ends. */
+  lua_createtable(L, 0, 2);
+  lua_pushliteral(L, "writer");
+  lua_pushliteral(L, "reader");
   int ends[2];
   if (pipe(ends) != 0) return cosmic_fail(L, errno);
   /* One thread and no fork between these calls, so setting CLOEXEC
@@ -608,9 +635,10 @@ COSMIC_SYSCALL(pipe, 0) {
       return cosmic_fail(L, number);
     }
   }
-  lua_createtable(L, 0, 2);
-  lua_pushinteger(L, ends[0]); lua_setfield(L, -2, "reader");
-  lua_pushinteger(L, ends[1]); lua_setfield(L, -2, "writer");
+  lua_pushinteger(L, ends[0]);
+  lua_rawset(L, -4);
+  lua_pushinteger(L, ends[1]);
+  lua_rawset(L, -3);
   return 1;
 }
 

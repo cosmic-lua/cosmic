@@ -31,9 +31,17 @@ function Fs.read(path: string): string | nil, string
   if fd == nil then
     return nil, path .. ": " .. trouble
   end
+  -- A regular file says how big it is, so its bytes come in one read
+  -- into one string of that size; chunks follow only for whatever it
+  -- holds past that, or for a file that does not say (a pipe, /proc).
+  local st = sys.fstat(fd)
+  local ask = chunk_size
+  if st ~= nil and st.kind == "file" and st.size > chunk_size then
+    ask = st.size
+  end
   local parts: {string} = {}
   while true do
-    local chunk, failure = sys.read(fd, chunk_size)
+    local chunk, failure = sys.read(fd, ask)
     if chunk == nil then
       sys.close(fd)
       return nil, path .. ": " .. failure
@@ -42,15 +50,21 @@ function Fs.read(path: string): string | nil, string
       break
     end
     parts[#parts + 1] = chunk
+    ask = chunk_size
   end
   sys.close(fd)
+  if #parts == 1 then
+    return parts[1], ""
+  end
   return table.concat(parts), ""
 end
 
 local function write_all(fd: integer, data: string): boolean, string
   local at = 1
   while at <= #data do
-    local put, trouble = sys.write(fd, data:sub(at))
+    -- The whole string the first time, rather than a copy of it.
+    local rest = at == 1 and data or data:sub(at)
+    local put, trouble = sys.write(fd, rest)
     if put == nil then
       return false, trouble
     end

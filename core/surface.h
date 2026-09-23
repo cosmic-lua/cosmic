@@ -15,4 +15,8 @@
  * when there is no memory for a state at all. */
 lua_State *cosmic_surface_open (const char *logical_executable);
 
+/* Closes a state cosmic_surface_open made, and frees the big blocks its
+ * allocator kept for reuse. */
+void cosmic_surface_close (lua_State *L);
+
 #endif

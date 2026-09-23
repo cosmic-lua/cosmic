@@ -265,3 +265,39 @@ local function test_remove_tree_removes_everything_but_follows_no_link(tmp: stri
   assert(Fs.remove_tree(outside .. "/keep"))
   assert(Fs.exists(outside .. "/keep") == false)
 end
+
+--- A regular file comes back in the one read its size asks for, and a
+--- file that says nothing true of its size (/proc's) in chunks.
+local function test_read_takes_a_file_in_the_one_read_its_size_asks_for(tmp: string)
+  local path = tmp .. "/big"
+  local data = string.rep("0123456789abcdef", 20000)
+  assert(Fs.write(path, data))
+  local real_read = sys.read
+  local reads = 0
+  sys.read = function(fd: integer, count: integer): string | nil, string, integer
+    reads = reads + 1
+    return real_read(fd, count)
+  end
+  local read, trouble = Fs.read(path)
+  local file_reads = reads
+  local proc = Fs.exists("/proc/self/status") and Fs.read("/proc/self/status") or nil
+  sys.read = real_read
+  assert(read == data, trouble)
+  assert(file_reads == 2, "one read for the bytes and one for the end, not " .. file_reads)
+  if proc ~= nil then
+    assert(proc:find("SigIgn:", 1, true) ~= nil, proc)
+  end
+end
+
+--- A write the kernel takes part of goes on from where it stopped.
+local function test_write_resumes_a_short_write(tmp: string)
+  local path = tmp .. "/short"
+  local real_write = sys.write
+  sys.write = function(fd: integer, bytes: string): integer | nil, string, integer
+    return real_write(fd, bytes:sub(1, 3))
+  end
+  local ok, trouble = Fs.write(path, "abcdefghij")
+  sys.write = real_write
+  assert(ok, trouble)
+  assert(Fs.read(path) == "abcdefghij")
+end

@@ -14,6 +14,12 @@
 ---   descriptor, a stream, a directory, a statement -- is still held at a
 ---   call that can raise. The raise unwinds past the C frame, and nothing
 ---   releases what it held; a guard (core/guard.h) does.
+--- - "string-after-pop": a pointer into a Lua string, taken from a slot
+---   counted from the top, is read after the string has left the stack.
+---   Nothing keeps a popped string alive; copy it first.
+--- - "returned-shape": a binding of the syscall table returns a count of
+---   values its declaration in core/syscalls.h does not, or a fallible
+---   one returns two -- a failure without its errno (core/fail.h).
 ---
 --- The walk is source order, not a flow analysis. A branch that ends --
 --- in a `return`, a `goto`, or a call that never returns -- leaves what
@@ -44,6 +50,14 @@ local record rules
   --- The findings a rule cannot see past, and why each is not one, by
   --- `"<file> <function> <rule>"`.
   exempt: {string: string}
+
+  --- What core/syscalls.h declares a binding returns: how many values,
+  --- and whether the last is an errno or a code, so that a failure is
+  --- three of them.
+  record Declared
+    count: integer
+    fallible: boolean
+  end
 end
 
 rules.exempt = {
@@ -315,6 +329,16 @@ local record Held
   line: integer
 end
 
+--- A pointer into a string on the stack, and how many values sit above
+--- that string -- or where it left the stack.
+local record Pointer
+  name: string
+  line: integer
+  above: integer
+  --- The line the string was popped on, or 0 while it is on the stack.
+  gone: integer
+end
+
 local record State
   held: {string: Held}
   --- The locals of this function, by address: only they can hold.
@@ -324,13 +348,19 @@ local record State
   --- The local each status was stored in, to the resource that status
   --- says was never taken when it is a failure.
   status: {string: string}
+  --- The locals pointing into a string on the stack, by address.
+  strings: {string: Pointer}
 end
 
 local function copy(state: State): State
   local held: {string: Held} = {}
   for id, h in pairs(state.held) do held[id] = h end
+  local strings: {string: Pointer} = {}
+  for id, s in pairs(state.strings) do
+    strings[id] = { name = s.name, line = s.line, above = s.above, gone = s.gone }
+  end
   return { held = held, locals = state.locals, reported = state.reported,
-           status = state.status }
+           status = state.status, strings = strings }
 end
 
 --- The local a call's value is given to: the variable it initializes,
@@ -370,6 +400,106 @@ local function given(call: Node, slot: integer, state: State): string, string
   return id, name
 end
 
+--- The value of an integer constant expression, or nil: `-1`, `-(1)-1`.
+local function constant(node: Node): integer
+  local bare = tree.bare(node)
+  if bare == nil then return nil end
+  if bare.kind == "IntegerLiteral" then
+    return math.tointeger(tonumber(bare.text:match("(%d+)$")))
+  end
+  if bare.kind == "UnaryOperator" and bare.text:match("'%-'") and #bare.children == 1 then
+    local v = constant(bare.children[1])
+    return v ~= nil and -v or nil
+  end
+  if bare.kind == "BinaryOperator" and #bare.children == 2 then
+    local op = bare.text:match("'([^']*)'$")
+    local a, b = constant(bare.children[1]), constant(bare.children[2])
+    if a == nil or b == nil then return nil end
+    if op == "+" then return a + b end
+    if op == "-" then return a - b end
+  end
+  return nil
+end
+
+--- The calls that pop the value on top and push nothing, by how many.
+local popping: {string: integer} = {
+  lua_setfield = 1, lua_seti = 1, lua_rawseti = 1, lua_rawsetp = 1,
+  lua_setglobal = 1, lua_setmetatable = 1, lua_setiuservalue = 1, luaL_ref = 1,
+  lua_settable = 2, lua_rawset = 2,
+}
+
+--- What a call does to the stack above what is already there: how many
+--- values it leaves (negative for what it takes), or nil when that cannot
+--- be told from the call, and whether it may take everything (a
+--- `lua_settop` to a height no constant says).
+local function stack_effect(name: string, call: Node): integer, boolean
+  local args = arguments(call)
+  if name == "lua_settop" then
+    local n = args[2] and constant(args[2])
+    if n ~= nil and n < 0 then return n + 1, false end
+    return nil, true
+  elseif name == "lua_callk" or name == "lua_pcallk" then
+    local nargs, nresults = args[2] and constant(args[2]), args[3] and constant(args[3])
+    if nargs == nil or nresults == nil or nresults < 0 then return nil, false end
+    return nresults - nargs - 1, false
+  elseif name == "lua_concat" then
+    local n = args[2] and constant(args[2])
+    if n == nil then return nil, false end
+    return 1 - n, false
+  elseif name == "lua_next" then
+    return nil, false
+  elseif popping[name] ~= nil then
+    return -popping[name], false
+  elseif pushes(name) then
+    return 1, false
+  end
+  return 0, false
+end
+
+--- The calls that hand back a pointer into a string on the stack, and
+--- whether they push that string themselves.
+local string_pointers: {string: boolean} = {
+  lua_tolstring = false, luaL_checklstring = false, luaL_optlstring = false,
+  luaL_tolstring = true,
+}
+
+--- What one call does to the pointers into strings on the stack: moves
+--- them up or down, marks the ones whose string it takes, and takes a
+--- new one.
+local function track_strings(state: State, call: Node, name: string, line: integer)
+  local delta, clears = stack_effect(name, call)
+  for id, p in pairs(state.strings) do
+    if p.gone == 0 then
+      if clears then
+        p.gone = line
+      elseif delta == nil then
+        -- What the call does to the stack cannot be told: the pointer
+        -- is no longer followed, rather than reported on a guess.
+        state.strings[id] = nil
+      else
+        p.above = p.above + delta
+        if p.above < 0 then p.gone = line end
+      end
+    end
+  end
+  local pushed = string_pointers[name]
+  if pushed == nil then return end
+  local id, var = receiver(state, call)
+  if id == nil then return end
+  if pushed then
+    state.strings[id] = { name = var, line = line, above = 0, gone = 0 }
+    return
+  end
+  local index = arguments(call)[2]
+  local at = index and constant(index)
+  if at ~= nil and at < 0 then
+    state.strings[id] = { name = var, line = line, above = -at - 1, gone = 0 }
+  else
+    -- An argument's slot, or one counted from the bottom, stays.
+    state.strings[id] = nil
+  end
+end
+
 --- Reads what one expression does to `state`: what it takes, releases,
 --- hands on, and whether it calls something that can raise while a
 --- resource is held.
@@ -387,6 +517,10 @@ local function expression(ctx: Context, node: Node, state: State)
             state.held[id] = nil
           end
         end
+      end
+      if name ~= nil then
+        local _, line = tree.place(n)
+        track_strings(state, n, name, line or 0)
       end
       if takes_state(n) and not (name ~= nil and quiet[name]) then
         for id, h in pairs(state.held) do
@@ -417,7 +551,25 @@ local function expression(ctx: Context, node: Node, state: State)
           state.held[id] = { name = var or "a resource", from = name as string, line = line or 0 }
         end
       end
+    elseif n.kind == "DeclRefExpr" then
+      local _, id = tree.referent(n)
+      local p = id ~= nil and state.strings[id] or nil
+      local assigned = n.parent ~= nil and n.parent.kind == "BinaryOperator"
+        and n.parent.text:match("'='$") ~= nil and n.parent.children[1] == n
+      if p ~= nil and p.gone ~= 0 and not assigned and not state.reported["s" .. id] then
+        state.reported["s" .. id] = true
+        report(ctx, n, "string-after-pop", "reads " .. p.name .. " (from line " .. p.line ..
+          "), which points into a string that left the stack on line " .. p.gone ..
+          ": copy it first, or keep the string on the stack while it is read")
+      end
     elseif n.kind == "BinaryOperator" and n.text:match("'='$") then
+      -- A pointer given another value points into nothing on the stack.
+      local lhs_kind, lhs_id = tree.referent(tree.bare(n.children[1]))
+      local rhs = tree.bare(n.children[2])
+      if lhs_kind == "Var" and state.strings[lhs_id] ~= nil and not (rhs ~= nil
+          and rhs.kind == "CallExpr" and string_pointers[tree.callee(rhs) or ""] ~= nil) then
+        state.strings[lhs_id] = nil
+      end
       -- A held resource stored anywhere but in a local has been handed
       -- on: to a record, a guard, an array that owns it.
       local id = referenced(n.children[2])
@@ -487,10 +639,22 @@ local statement: function(Context, Node, State): boolean
 
 local function merge(into: State, from: {State})
   local held: {string: Held} = {}
+  local strings: {string: Pointer} = {}
   for _, s in ipairs(from) do
     for id, h in pairs(s.held) do held[id] = h end
+    for id, p in pairs(s.strings) do
+      local seen = strings[id]
+      if seen == nil then
+        strings[id] = { name = p.name, line = p.line, above = p.above, gone = p.gone }
+      else
+        -- Gone on either side is gone; otherwise the nearer the top.
+        seen.gone = math.max(seen.gone, p.gone)
+        seen.above = math.min(seen.above, p.above)
+      end
+    end
   end
   into.held = held
+  into.strings = strings
 end
 
 statement = function(ctx: Context, node: Node, state: State): boolean
@@ -606,9 +770,37 @@ local function releasing(fns: {Function}): {string: {integer: boolean}}
   return out
 end
 
+-- returned-shape -------------------------------------------------------
+
+--- Every `return` of a count in a binding of the syscall table, against
+--- what the binding is declared to return. A count is what a binding
+--- returns only when it returns a literal: `return cosmic_fail(...)` is
+--- the shape fail.h makes.
+local function returned_shape(ctx: Context, name: string, body: Node,
+                              declared: {string: rules.Declared})
+  local call = name:match("^cosmic_sys_(.+)$")
+  local d = call ~= nil and declared[call] or nil
+  if d == nil then return end
+  after(body, function(n: Node)
+    if n.kind ~= "ReturnStmt" or #n.children ~= 1 then return end
+    local count = constant(n.children[1])
+    if count == nil then return end
+    if count > d.count then
+      report(ctx, n, "returned-shape", "returns " .. count .. " values where cosmic.sys." ..
+        call .. " is declared to return " .. d.count .. " (core/syscalls.h)")
+    elseif d.fallible and count == 2 then
+      report(ctx, n, "returned-shape", "returns 2 values where a failure of cosmic.sys." ..
+        call .. " is nil or false, a message and an errno: return cosmic_fail or " ..
+        "cosmic_fail_effect (core/fail.h)")
+    end
+  end)
+end
+
 --- Every finding in `decls`, a translation unit's own declarations, that
---- `exempt` does not excuse, sorted by place.
-function rules.check(decls: {Node}, file: string): {rules.Finding}
+--- `exempt` does not excuse, sorted by place. `declared` is what
+--- core/syscalls.h declares each binding returns, by the binding's name.
+function rules.check(decls: {Node}, file: string,
+                     declared?: {string: rules.Declared}): {rules.Finding}
   local fns = functions(decls)
   local findings: {rules.Finding} = {}
   local ctx: Context = { file = file, within = "", findings = findings,
@@ -617,7 +809,8 @@ function rules.check(decls: {Node}, file: string): {rules.Finding}
     ctx.within = fn.name
     narrowed(ctx, fn.body)
     above_buffer(ctx, fn.body, fn.params)
-    local state: State = { held = {}, locals = {}, reported = {}, status = {} }
+    returned_shape(ctx, fn.name, fn.body, declared or {})
+    local state: State = { held = {}, locals = {}, reported = {}, status = {}, strings = {} }
     statement(ctx, fn.body, state)
   end
   local out: {rules.Finding} = {}

@@ -11,6 +11,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local gen_syscalls = require("build.gen_syscalls")
 local layout = require("build.c.layout")
 local rules = require("build.c.rules")
 local tree = require("build.c.tree")
@@ -85,7 +86,22 @@ function c.sources(dir: string): {string} | nil, string
   return out
 end
 
-local function outcome(file: string, result: Child.Result, trouble: string): c.Outcome
+--- What core/syscalls.h under `root` declares each binding returns, or
+--- nothing when there is no such header to read.
+local function declared_in(root: string): {string: rules.Declared}
+  local out: {string: rules.Declared} = {}
+  local header = Fs.read(root .. "/core/syscalls.h")
+  if header == nil then return out end
+  local found = gen_syscalls.read(header)
+  if found == nil then return out end
+  for _, call in ipairs(found.calls) do
+    out[call.name] = { count = #call.results, fallible = #call.results == 3 }
+  end
+  return out
+end
+
+local function outcome(root: string, file: string, result: Child.Result, trouble: string,
+                       declared: {string: rules.Declared}): c.Outcome
   if result == nil then
     return { file = file, trouble = trouble }
   end
@@ -93,7 +109,9 @@ local function outcome(file: string, result: Child.Result, trouble: string): c.O
     local err = tostring(result.stderr or "")
     return { file = file, trouble = "clang could not read it:\n" .. (err:gsub("\n+$", "")) }
   end
-  return { file = file, findings = rules.check(tree.parse(tostring(result.stdout or "")), file) }
+  return { file = file,
+           findings = rules.check(tree.parse(tostring(result.stdout or ""), root), file,
+             declared) }
 end
 
 --- Checks every one of `files`, paths relative to `cwd` (by default
@@ -102,6 +120,7 @@ end
 --- checked with each, and what is found in it is reported once.
 function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
   cwd = cwd or root
+  local declared = declared_in(root)
   local outcomes: {c.Outcome} = {}
   local running: {Child.Handle} = {}
   local which: {Child.Handle: integer} = {}
@@ -129,7 +148,8 @@ function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
         running = {}
       else
         local result, wait_trouble = done:wait()
-        outcomes[which[done]] = outcome(files[which[done]], result, wait_trouble)
+        outcomes[which[done]] = outcome(root, files[which[done]], result, wait_trouble,
+          declared)
         local still: {Child.Handle} = {}
         for _, handle in ipairs(running) do
           if handle ~= done then still[#still + 1] = handle end
