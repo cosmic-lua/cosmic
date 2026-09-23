@@ -13,9 +13,13 @@ keep src/common/tuklib_config.h
 keep src/common/tuklib_integer.h
 keep src/liblzma/check/check.c
 keep src/liblzma/check/check.h
-keep src/liblzma/check/crc32_small.c
-keep src/liblzma/check/crc64_small.c
+keep src/liblzma/check/crc32_arm64.h
+keep src/liblzma/check/crc32_fast.c
+keep src/liblzma/check/crc32_table_le.h
+keep src/liblzma/check/crc64_fast.c
+keep src/liblzma/check/crc64_table_le.h
 keep src/liblzma/check/crc_common.h
+keep src/liblzma/check/crc_x86_clmul.h
 keep src/liblzma/check/sha256.c
 keep src/liblzma/common/block_decoder.c
 keep src/liblzma/common/block_decoder.h
