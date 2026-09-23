@@ -24,4 +24,14 @@ function Compress.inflate(data: string, size: integer): string | nil, string
   return out
 end
 
+--- Expands a raw deflate stream -- a zip entry's or a gzip member's --
+--- into at most `size` bytes.
+function Compress.inflate_raw(data: string, size: integer): string | nil, string
+  local out, trouble = sys.inflate_raw(data, size)
+  if out == nil then
+    return nil, trouble
+  end
+  return out
+end
+
 return Compress

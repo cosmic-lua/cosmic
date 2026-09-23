@@ -1,0 +1,48 @@
+#!/bin/sh
+# Refetch vendored trees from the archives their PINs name, keeping only
+# what the build reads: `bin/vendor [name...]`, every tree by default.
+#
+# This fetches; `vendor.tl`, run by the bootstrap cosmic, verifies the
+# archive against the pin, unpacks it and prunes the tree. Archives are
+# cached under $XDG_CACHE_HOME/cosmic/vendor (default ~/.cache/...).
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cosmic=$root/o/bin/cosmic
+
+die() {
+  printf 'bin/vendor: %s\n' "$1" >&2
+  exit 1
+}
+
+[ -x "$cosmic" ] || die "no $cosmic; run bin/zig build cores boot first"
+
+if [ $# -eq 0 ]; then
+  for pin in "$root"/vendor/*/PIN; do
+    set -- "$@" "$(basename "$(dirname "$pin")")"
+  done
+fi
+
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/vendor
+mkdir -p "$cache"
+
+for name in "$@"; do
+  pin=$root/vendor/$name/PIN
+  [ -f "$pin" ] || die "no pin at $pin"
+  url=$(awk '$1 == "url" { print $2; exit }' "$pin")
+  [ -n "$url" ] || die "$pin names no url"
+  archive=$cache/${url##*/}
+
+  if [ ! -f "$archive" ]; then
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$archive.part" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -O "$archive.part" "$url"
+    else
+      die "need curl or wget to fetch $url"
+    fi
+    mv "$archive.part" "$archive"
+  fi
+
+  "$cosmic" "$root/vendor.tl" "$root/vendor/$name" "$archive"
+done

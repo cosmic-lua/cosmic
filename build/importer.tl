@@ -69,7 +69,7 @@ local bytecode_header =
 local not_source: {string:boolean} = {
   ["o"] = true,
   ["vendor"] = true,
-  ["patches"] = true,
+  ["patch"] = true,
   ["bin"] = true,
 }
 

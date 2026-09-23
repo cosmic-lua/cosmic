@@ -1,3 +1,11 @@
 version 5.5.1
 url https://www.lua.org/ftp/lua-5.5.1.tar.gz
 sha256 1c4b4068d67061f2a2231ad2b5422e77acea1487ea9890f6320af614f4373dce
+strip lua-5.5.1/
+keep src/*.c
+keep src/*.h
+drop src/lua.c
+drop src/luac.c
+drop src/linit.c
+drop src/liolib.c
+drop src/loslib.c

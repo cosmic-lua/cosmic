@@ -1,7 +1,0 @@
-return {
-   default = {
-      ["auto-insulate"] = false,
-      lpath = "./?.lua;"
-         .. (require("lfs").currentdir()) .. "/?.lua;";
-   }
-}

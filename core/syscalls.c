@@ -162,6 +162,28 @@ COSMIC_SYSCALL(inflate, 2) {
   return 1;
 }
 
+COSMIC_SYSCALL(inflate_raw, 2) {
+  size_t len;
+  const char *data = luaL_checklstring(L, 1, &len);
+  lua_Integer size = luaL_checkinteger(L, 2);
+  if (size < 0) {
+    return luaL_argerror(L, 2, "the expanded size is negative");
+  }
+  luaL_Buffer buffer;
+  char *into = luaL_buffinitsize(L, &buffer, (size_t)size);
+  size_t got = tinfl_decompress_mem_to_mem(into, (size_t)size, data, len, 0);
+  if (got == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED) {
+    luaL_pushresultsize(&buffer, 0);
+    lua_pop(L, 1);
+    lua_pushnil(L);
+    lua_pushstring(L, "the stream is not raw deflate, or expands past size");
+    lua_pushinteger(L, -1);
+    return 3;
+  }
+  luaL_pushresultsize(&buffer, got);
+  return 1;
+}
+
 #define ENTRY(name) {#name, cosmic_sys_##name}
 
 static const luaL_Reg table[] = {
@@ -175,6 +197,7 @@ static const luaL_Reg table[] = {
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
     ENTRY(sha256),   ENTRY(deflate),       ENTRY(inflate),
+    ENTRY(inflate_raw),
     {NULL, NULL},
 };
 

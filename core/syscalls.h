@@ -311,6 +311,17 @@ COSMIC_SYSCALL(deflate, 1);
 COSMIC_SYSCALL(inflate, 2);
 
 /*
+ * --- Expands a raw deflate stream, with no zlib header or trailer: what
+ * --- a zip entry or a gzip member carries.
+ * ---@param data string the compressed bytes
+ * ---@param size integer the most bytes the stream may expand to
+ * ---@return string|nil data the expanded bytes, or nil on failure
+ * ---@return string error what went wrong, when data is nil
+ * ---@return integer code -1, when data is nil
+ */
+COSMIC_SYSCALL(inflate_raw, 2);
+
+/*
  * --- The numbers the calls above take and give back. They come from
  * --- this libc, so nothing above the table carries a platform's own.
  * ---@class Constants
