@@ -80,6 +80,13 @@ local self_rebuild_test_timeout_ms <const> = 180000
 local runtime_test_timeout_ms <const> = 180000
 local identity_test_timeout_ms <const> = 120000
 
+-- A whole `cosmic test` run takes 12-16 s on a runner and its slowest test
+-- about a second. Each test gets far less than the whole run, so a test that
+-- hangs is ended and named by the runner, not hidden under a cancelled run;
+-- the run's own bound leaves room for a runner several times slower.
+local suite_timeout_ms <const> = 120000
+local suite_test_timeout_s <const> = "10"
+
 local function parent(path: string): string
   return (assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory"))
 end
@@ -224,12 +231,14 @@ local function snapshot(c: Context, diagnostics: string, label: string,
 end
 
 local function suite(c: Context, name: string, executable: string,
-    diagnostics: string, env?: {string:string}, timeout?: integer): integer
+    diagnostics: string, env?: {string:string}): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
+  local values = environment(env)
+  values.COSMIC_TEST_TIMEOUT = suite_test_timeout_s
   local status = logged(c, name .. " suite", { executable, "test" }, out, err,
-    timeout or 30000, c.root, env and environment(env) or environment())
+    suite_timeout_ms, c.root, values)
   write(diagnostics .. "/" .. name .. "-test.status", tostring(status) .. "\n")
   local snap_called, snap_answer = pcall(snapshot, c, diagnostics,
     name .. "-immediate", executable)
@@ -289,7 +298,7 @@ local function phase_build(p: PlatformContext): integer
   end
   local s = checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
   if s ~= 0 then return s end
-  return suite(c, "local", root .. "/o/bin/cosmic", local_d, nil, 30000)
+  return suite(c, "local", root .. "/o/bin/cosmic", local_d)
 end
 
 local function phase_local_boundary(p: PlatformContext): integer
@@ -371,7 +380,7 @@ local function phase_portable(p: PlatformContext): integer
   local portable_context: Context = { db = c.db, worker = c.worker, run = c.run,
     attempt = c.attempt, root = fresh, driver = c.driver }
   local s = suite(portable_context, "portable", executable, portable_d,
-    { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache" }, 30000)
+    { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache" })
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
     assert(read(portable_d .. "/portable-artifact.before.sha256") ==
