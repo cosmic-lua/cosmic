@@ -27,7 +27,7 @@ local function test_relaunch_starts_this_same_program(tmp: string)
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 return function(): integer
-  print(Store.meta("host_image"), Store.meta("runtime"), Proc.executable())
+  print(Store.meta("host_image"), Store.meta("runtime"), (Proc.executable()))
   return 0
 end
 ]]))
@@ -42,6 +42,6 @@ end
     stdout = "capture", stderr = "capture", timeout_ms = 30000 }))
   assert(r.ok, tostring(r.stderr))
   local expected = table.concat({ assert(Store.meta("host_image")),
-    assert(Store.meta("runtime")), assert(Proc.executable()) }, "\t") .. "\n"
+    assert(Store.meta("runtime")), (assert(Proc.executable())) }, "\t") .. "\n"
   assert(r.stdout == expected, tostring(r.stdout) .. " ~= " .. expected)
 end

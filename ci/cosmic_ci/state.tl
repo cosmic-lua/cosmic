@@ -44,7 +44,7 @@ function State.external_path(path: string, candidate: string): string
   local unresolved = directory == "/" and "/" .. leaf or directory .. "/" .. leaf
   local absolute, trouble = Fs.absolute(unresolved)
   if not absolute then
-    for _, entry in ipairs(assert(Fs.list(directory))) do
+    for _, entry in ipairs((assert(Fs.list(directory)))) do
       assert(entry ~= leaf, "path cannot be resolved: " .. trouble)
     end
     absolute = unresolved

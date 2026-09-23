@@ -14,7 +14,7 @@ local function chmod(path: string, mode: integer)
 end
 
 local function small_line(path: string): string
-  return assert(Fixture.small(path, 256):match("^(%S+)"), path .. " is empty")
+  return (assert(Fixture.small(path, 256):match("^(%S+)"), path .. " is empty"))
 end
 
 -- Opens fd 8 on $1 and fd 9 on $2, then execs the remaining arguments.
@@ -176,8 +176,8 @@ local function host_uname(work: string, diagnostics: string, flag: string,
     label: string): string
   local answer = Fixture.run("uname-" .. label,
     { "/usr/bin/env", "uname", flag }, work, diagnostics)
-  return assert(Fixture.small(answer.out, 256):match("^(%S+)"),
-    "uname " .. flag .. " produced no output")
+  return (assert(Fixture.small(answer.out, 256):match("^(%S+)"),
+    "uname " .. flag .. " produced no output"))
 end
 
 local function host_identifier(work: string, diagnostics: string): string
@@ -200,7 +200,7 @@ local function selected_header_line(artifact_bytes: string, host: string):
       line = candidate
     end
   end
-  return assert(line, "no manifest header line selected for host: " .. host)
+  return (assert(line, "no manifest header line selected for host: " .. host))
 end
 
 -- Each of the four integer fields is `NAME=DIGITS;` and

@@ -120,13 +120,13 @@ end
 local function read_prefix_length(fixture_dir: string): integer
   local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
   local digits = text:match("^(%d+)\n*$")
-  return assert(digits and math.tointeger(tonumber(digits)),
-    "invalid prefix length: " .. text)
+  return (assert(digits and math.tointeger(tonumber(digits)),
+    "invalid prefix length: " .. text))
 end
 
 local function cache_entries(cache: string): integer
   local count = 0
-  for _, name in ipairs(assert(Fs.list(cache))) do
+  for _, name in ipairs((assert(Fs.list(cache)))) do
     if name:match("^core%-") then count = count + 1 end
   end
   return count

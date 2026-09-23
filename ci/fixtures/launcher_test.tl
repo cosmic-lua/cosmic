@@ -98,7 +98,7 @@ end
 
 local function only_core(cache: string): string
   local found: string | nil = nil
-  for _, name in ipairs(assert(Fs.list(cache))) do
+  for _, name in ipairs((assert(Fs.list(cache)))) do
     local path = cache .. "/" .. name
     local st = assert(sys.lstat(path))
     if name:sub(1, 1) ~= "." and st.kind == "file" then
@@ -106,11 +106,11 @@ local function only_core(cache: string): string
       found = path
     end
   end
-  return assert(found, "cache contains no public core")
+  return (assert(found, "cache contains no public core"))
 end
 
 local function no_private_entries(cache: string, stem: string)
-  for _, name in ipairs(assert(Fs.list(cache))) do
+  for _, name in ipairs((assert(Fs.list(cache)))) do
     assert(name:sub(1, #stem) ~= stem,
       "cache retained private entry: " .. name)
   end
@@ -425,13 +425,13 @@ local function test_launcher_publication_and_interruption(tmp: string)
     assert(not finish(killed).ok, "killed repair succeeded")
     expect_failure(ctx, "stale-lock", "cache repair is already locked:", interrupted)
     local stale: string | nil = nil
-    for _, name in ipairs(assert(Fs.list(interrupted))) do
+    for _, name in ipairs((assert(Fs.list(interrupted)))) do
       if name:sub(1, 8) == ".repair-" then
         assert(stale == nil, "multiple stale repair owners")
         stale = interrupted .. "/" .. name
       end
     end
-    assert(Fs.remove(assert(stale, "stale repair owner is missing")))
+    assert(Fs.remove((assert(stale, "stale repair owner is missing"))))
     outcome_ok(run(ctx, "repair-after-stale", interrupted),
       "launch after stale owner removal")
   end)

@@ -32,7 +32,7 @@ local record AstModule
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(built: compiler, source: string, name: string, pattern: Node,
-  replacement: string): RewriteResult | nil, string
+  replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
 end
 
 local M: AstModule = {

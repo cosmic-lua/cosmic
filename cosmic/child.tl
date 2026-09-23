@@ -791,7 +791,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   local called, r, wait_trouble = pcall(supervised)
   local cancellation: integer
   if called and wait_trouble and wait_trouble:sub(1, 10) == "cancelled:" then
-    cancellation = assert(math.tointeger(assert(tonumber(wait_trouble:sub(11)))))
+    cancellation = assert(math.tointeger((assert(tonumber(wait_trouble:sub(11))))))
   end
   local cleanup_trouble: string
   if h and not h._closed and (not called or cancellation or not r) then

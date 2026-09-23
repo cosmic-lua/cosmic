@@ -1,0 +1,15 @@
+file: tl.lua
+note: a return that fails only because its last expression, an assert(...), expanded to more values than the function returns names that assert; see 17
+--- find
+            if n_got > n_expected and (not self.feat_lax) and not vatype then
+               self.errs:add(node, what .. ": excess return values, expected " .. n_expected .. " %s, got " .. n_got .. " %s", expected, got)
+            end
+--- replace
+            local spill_before = #self.errs.errors
+            if n_got > n_expected and (not self.feat_lax) and not vatype then
+               self.errs:add(node, what .. ": excess return values, expected " .. n_expected .. " %s, got " .. n_got .. " %s", expected, got)
+            end
+            if n_got > #node.exps then
+               self:assert_spill_hint(node.exps[#node.exps], spill_before)
+            end
+--- end

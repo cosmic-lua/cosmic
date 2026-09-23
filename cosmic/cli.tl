@@ -32,7 +32,10 @@ local record Cli
   --- hand -- checking along the way that rendering it again would
   --- change nothing further, and refusing a file it does not. `cosmic
   --- fix --check` is for CI: it writes nothing, only names the files a
-  --- fix would change, and fails if there are any
+  --- fix would change, and fails if there are any. It also builds the
+  --- tree and parenthesizes every `assert(...)` the type checker says
+  --- passes on more values than its place can take -- `(assert(...))`
+  --- keeps only the first
   fix: string
   --- `cosmic build`: builds the tree in the working directory, then
   --- writes one executable under o/bin/ for each cmd/<name>/main.tl

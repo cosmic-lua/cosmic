@@ -9,7 +9,7 @@ local Fixture = require("cosmic_ci.fixture")
 --- its parent is the checkout the self-check runs against.
 local function checkout_root(): string
   local cwd = assert(Fs.absolute("."))
-  return assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory")
+  return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory"))
 end
 
 --- The self-check holds a write transaction on `ci/o/build.db` while

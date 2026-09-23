@@ -92,7 +92,7 @@ local function test_timeout_kills_the_process_group_and_reaps_child()
   -- A process-group timeout includes descendants. Signal zero would succeed
   -- for a surviving process (or fail with EPERM, not ESRCH).
   local contents = assert(Fs.read(path))
-  local pid = math.tointeger(assert(tonumber(contents)))
+  local pid = math.tointeger((assert(tonumber(contents))))
   assert(pid)
   local alive = sys.kill(pid, 0)
   assert(not alive)
@@ -173,8 +173,8 @@ end
     "driver cancellation result code=" .. tostring(stopped.code) ..
     " signal=" .. tostring(stopped.signal) .. " log=" ..
     (Fs.read(diagnostic) or "<none>"))
-  local descendant = assert(math.tointeger(assert(tonumber(
-    assert(Fs.read(descendant_path)):match("%d+")))))
+  local descendant = assert(math.tointeger((assert(tonumber(
+    assert(Fs.read(descendant_path)):match("%d+"))))))
   local gone_by = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
   while sys.kill(descendant, 0) and assert(Time.monotonic_ns()) < gone_by do
     Time.sleep_ns(10 * 1000 * 1000)

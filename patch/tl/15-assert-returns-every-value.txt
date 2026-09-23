@@ -1,0 +1,7 @@
+file: tl.lua
+note: assert returns every value it was given, as Lua's does; declaring only the first let `f(assert(g()))` hand g's error slot on to f unchecked. See 16 for what a call returns and 17 through 19 for the diagnostic that names the spilling call.
+--- find
+      assert: function<A, B>(A | nil, ? B, ...: any): A --[[special_function]]
+--- replace
+      assert: function<A, B>(A | nil, ? B, ...: any): (A, B, any...) --[[special_function]]
+--- end
