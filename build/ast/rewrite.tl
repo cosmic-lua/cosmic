@@ -15,6 +15,10 @@
 --- a source and a pattern by callers that want the splice itself, and
 --- `build.fix` would then render twice.
 ---
+--- A `keep` predicate narrows the hits to the nodes a caller already
+--- knows it wants -- `build.fix.spill` names its sites by position --
+--- before anything is spliced.
+---
 --- Single-pass, single-file: no fixpoint (a rewrite creating a new
 --- match of itself or another rule), no project-wide loop. A rewrite
 --- that would silently delete a comment is refused instead of applied
@@ -114,6 +118,12 @@ local function offset_of(starts: {integer}, y: integer, x: integer): integer
   return starts[y] + x - 1
 end
 
+--- Whether `node` is a rest capture that matched nothing: it stands for
+--- no source at all, and substitutes as nothing.
+local function empty_rest(node: Node): boolean
+  return node.kind == "rest_capture" and #node == 0
+end
+
 --- `node`'s own span as an inclusive `[a, b]` byte range.
 --- @param node Node
 --- @param tokens {compiler.Token} The token stream from the SAME parse as `node`
@@ -197,7 +207,7 @@ local function kept_ranges(caps: {string: Node}, replacement: string,
     tokens: {compiler.Token}, starts: {integer}): {{integer, integer}}
   local kept: {{integer, integer}} = {}
   for name, cap in pairs(caps) do
-    if find_name(replacement, name, 1) then
+    if find_name(replacement, name, 1) and not empty_rest(cap) then
       local a, b = byte_span(cap, tokens, starts)
       kept[#kept + 1] = { a, b }
     end
@@ -294,13 +304,20 @@ end
 --- @return RewriteResult|nil The spliced result plus any refused hits, or nil on failure
 --- @return string Error message on failure, nil on success
 local function rewrite(built: compiler, source: string, name: string, pattern: Node,
-    replacement: string): RewriteResult | nil, string
+    replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
   local parsed, perr = node_mod.parse(built, source, name)
   if not parsed then
     return nil, perr
   end
   local desugared = ast_match.desugar(replacement)
   local hits = find_all(parsed.node, pattern)
+  if keep ~= nil then
+    local kept: {Hit} = {}
+    for _, h in ipairs(hits) do
+      if keep(h.node) then kept[#kept + 1] = h end
+    end
+    hits = kept
+  end
   local starts = line_starts(source)
   local out = source
   local refused: {Refusal} = {}
@@ -320,8 +337,12 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
     else
       local text = desugared
       for cname, cap in pairs(h.caps) do
-        local ca, cb = byte_span(cap, parsed.tokens, starts)
-        text = substitute(text, cname, source:sub(ca, cb))
+        local value = ""
+        if not empty_rest(cap) then
+          local ca, cb = byte_span(cap, parsed.tokens, starts)
+          value = source:sub(ca, cb)
+        end
+        text = substitute(text, cname, value)
       end
       out = out:sub(1, a - 1) .. text .. out:sub(b + 1)
       -- Splicing walks backwards to preserve byte offsets. Insert at the
@@ -340,7 +361,7 @@ local record RewriteModule
   line_starts: function(source: string): {integer}
   offset_of: function(starts: {integer}, y: integer, x: integer): integer
   rewrite: function(built: compiler, source: string, name: string, pattern: Node,
-  replacement: string): RewriteResult | nil, string
+  replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
 end
 
 local M: RewriteModule = {

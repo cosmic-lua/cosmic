@@ -344,7 +344,7 @@ local function time_runtime(argv: {string}): integer
   end
 
   local environment = Env.all()
-  environment[marker] = tostring(assert(Time.monotonic_ns()))
+  environment[marker] = tostring((assert(Time.monotonic_ns())))
   environment["COSMIC_PORTABLE_CACHE"] = cache
   local arguments = { target, argv[0], "time-runtime", target, cache }
   local _, trouble = Proc.exec(target, arguments, environment)

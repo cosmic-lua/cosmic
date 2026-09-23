@@ -11,10 +11,6 @@ defines the target; once something ships, it leaves this file.
   `docs/design/cast-legality.md` are useful implementation and migration
   evidence.
 - add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
-- make the checker choose an overload by the number of values a multi-value
-  last argument expands to. `tonumber(assert(Fs.read(p)))` checks against
-  `tonumber(any)` while the `""` error slot reaches `base` at run time; a
-  function that is not overloaded already refuses the same spill.
 - add C tests and C coverage. They should use the same discovery and command as
   Lua and Teal tests, with one combined report. The current direction is LLVM
   source coverage for `core/*.c`, a vendored profile runtime for each target,

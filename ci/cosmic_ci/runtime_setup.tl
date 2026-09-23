@@ -28,8 +28,8 @@ local function host_target_row(targets_path: string, work: string,
   local function host_uname(flag: string, label: string): string
     local answer = Fixture.run("uname-" .. label,
       { "/usr/bin/env", "uname", flag }, work, diagnostics)
-    return assert(Fixture.small(answer.out, 256):match("^(%S+)"),
-      "uname " .. flag .. " produced no output")
+    return (assert(Fixture.small(answer.out, 256):match("^(%S+)"),
+      "uname " .. flag .. " produced no output"))
   end
   local sysname = host_uname("-s", "sysname")
   local arch = host_uname("-m", "arch")

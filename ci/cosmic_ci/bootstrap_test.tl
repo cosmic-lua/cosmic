@@ -27,7 +27,7 @@ end
 --- its parent is the checkout the self-check runs against.
 local function checkout_root(): string
   local cwd = assert(Fs.absolute("."))
-  return assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory")
+  return (assert(cwd:match("^(.*)/[^/]+$"), cwd .. ": no parent directory"))
 end
 
 local function pin(path: string, commit: string, digest: string)
@@ -38,7 +38,7 @@ end
 
 local function seeded_bootstrap(tmp: string): string, string
   local program = assert(Proc.executable())
-  local digest = Hash.hex_sha256(assert(Fs.read(program)))
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
   local cache, runner = tmp .. "/cache", tmp .. "/runner"
   assert(Fs.mkdirs(cache))
   assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program)))))
@@ -109,7 +109,7 @@ end
 
 local function test_bootstrap_replaces_a_corrupt_cache_from_a_verified_download(tmp: string)
   local program = assert(Proc.executable())
-  local digest = Hash.hex_sha256(assert(Fs.read(program)))
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
   local cache, fake = tmp .. "/cache", tmp .. "/fake bin"
   assert(Fs.mkdirs(cache) and Fs.mkdirs(fake))
   assert(Fs.write(cache .. "/cosmic-" .. digest, "corrupt"))
@@ -128,13 +128,13 @@ cp "$DOWNLOAD_SOURCE" "$output"
     tmp .. "/download.out", { PATH = fake .. ":" .. assert(Env.get("PATH")),
       DOWNLOAD_SOURCE = program })
   assert(result.ok, assert(Fs.read(tmp .. "/download.out")))
-  assert(Hash.hex_sha256(assert(Fs.read(tmp .. "/runner"))) == digest,
+  assert(Hash.hex_sha256((assert(Fs.read(tmp .. "/runner")))) == digest,
     "downloaded runner changed after verification")
 end
 
 local function test_bootstrap_rejects_hostile_destinations(tmp: string)
   local program = assert(Proc.executable())
-  local digest = Hash.hex_sha256(assert(Fs.read(program)))
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
   local cache = tmp .. "/cache"
   assert(Fs.mkdirs(cache))
   assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program)))))
@@ -212,7 +212,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   -- ever touch a throwaway file.
   local sentinel = candidate .. "/ci/o/sentinel.db"
   assert(Fs.mkdirs(candidate .. "/ci/o") and Fs.write(sentinel, "sentinel"))
-  local before = Hash.hex_sha256(assert(Fs.read(sentinel)))
+  local before = Hash.hex_sha256((assert(Fs.read(sentinel))))
   local symlink_runner_temp = tmp .. "/symlink-runner-temp"
   assert(Fs.mkdirs(symlink_runner_temp .. "/cosmic-ci"))
   assert(call({ "/bin/ln", "-s", sentinel,
@@ -221,7 +221,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
       "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
     driver_context(candidate, symlink_runner_temp))
   assert(not linked.ok, "symlink operation database was accepted")
-  assert(Hash.hex_sha256(assert(Fs.read(sentinel))) == before,
+  assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
     "rejected symlink changed its target")
 end
 

@@ -197,8 +197,9 @@ end
 --- "expression_list"/"statements" nodes already use, so a captured
 --- rest is a real `Node` even though nothing here computes a real
 --- span for it -- that is `build.ast.walk`'s job, kept out of this
---- matcher on purpose. Position is borrowed from the pattern's own
---- capture marker, never read by anything in this module's own scope.
+--- matcher on purpose. Its position is its first element's, so the span
+--- walk starts it where the matched source does; an empty rest keeps
+--- the pattern marker's, and has no span to take (see `build.ast.rewrite`).
 --- @param marker any The pattern's rest-capture marker node
 --- @param elements {any} The matched trailing elements, in order
 --- @return Node A bare-list node wrapping `elements`
@@ -207,6 +208,10 @@ local function rest_value(marker: any, elements: {any}): Node
   local out: {any: any} = { kind = "rest_capture", f = mt["f"], y = mt["y"], x = mt["x"] }
   for i, e in ipairs(elements) do
     out[i] = e
+  end
+  local first = elements[1]
+  if first is {any: any} and first["y"] ~= nil then
+    out["y"], out["x"] = first["y"], first["x"]
   end
   return out as Node -- cast: synthetic bare-list node for a rest-capture's value
 end

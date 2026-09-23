@@ -3,7 +3,10 @@
 ---
 --- One pipeline, always in one order: parse, apply the structural rules
 --- (`build.fix.rule`), render (`build.fix.render`), compare. The order
---- is the point. A fix is a change to the parsed tree and never a patch
+--- is the point. Then one fix only the type checker can place
+--- (`build.fix.spill`): the tree is built, and every `assert(...)` the
+--- checker names as passing on values it should not is parenthesized,
+--- until it names none. A fix is a change to the parsed tree and never a patch
 --- over bytes, and whatever a rule produces is rendered rather than
 --- spliced, so the result of a fix reads the same as source that was
 --- never fixed at all.
@@ -25,6 +28,7 @@ local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local render_mod = require("build.fix.render")
 local rule = require("build.fix.rule")
+local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local type compiler = require("build.compiler")
 
@@ -283,6 +287,61 @@ function fix.run(argv: {integer:string}): integer
           end
         end
       end
+    end
+  end
+
+  -- What only the checker can see: built from what is on disk, so a
+  -- check reports the files once and a fix repeats until it settles.
+  local chosen_files: {string:string} = {}
+  for _, file in ipairs(files) do
+    local absolute = Fs.absolute(file)
+    if absolute ~= nil then chosen_files[absolute] = file end
+  end
+  local listed: {string:boolean} = {}
+  for _, file in ipairs(changed) do listed[file] = true end
+  local rounds = 0
+  while true do
+    local sites, check_trouble = spill.check(root)
+    if check_trouble ~= "" then
+      failures[#failures + 1] = "checking asserts: " .. check_trouble
+      break
+    end
+    local wrapped = false
+    for name, at in pairs(sites) do
+      local file = chosen_files[root .. "/" .. name]
+      if file ~= nil and not checking then
+        local source, read_trouble = Fs.read(file)
+        local out, wrap_trouble: string, string
+        if source ~= nil then
+          out, wrap_trouble = spill.wrap(built, source, file, at)
+        else
+          wrap_trouble = read_trouble
+        end
+        local result: fix.Fixed
+        if out ~= nil then
+          result, wrap_trouble = fix.source(built, out, file)
+        end
+        if result == nil then
+          failures[#failures + 1] = file .. ": " .. wrap_trouble
+        elseif result.source ~= source then
+          local written, write_trouble = Fs.write(file, result.source)
+          if not written then
+            failures[#failures + 1] = write_trouble
+          else
+            wrapped = true
+          end
+        end
+      end
+      if file ~= nil and (checking or wrapped) and not listed[file] then
+        listed[file] = true
+        changed[#changed + 1] = file
+      end
+    end
+    rounds = rounds + 1
+    if checking or not wrapped then break end
+    if rounds >= 50 then
+      failures[#failures + 1] = "wrapping asserts did not settle after " .. rounds .. " builds"
+      break
     end
   end
 

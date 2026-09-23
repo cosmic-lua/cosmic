@@ -27,7 +27,7 @@ end
 --- xpcall(function, handler, ...) transforms errors. print(...)
 --- writes values. Runtime-only warn(message, ...) emits enabled warnings.
 function Example.protected_calls()
-  local ok, n = pcall(function(): integer return assert(7) end)
+  local ok, n = pcall(function(): integer return (assert(7)) end)
   assert(ok and n == 7)
   local false_ok, false_value = pcall(function(): boolean return false end)
   local all_args = assert(load(

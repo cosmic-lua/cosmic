@@ -1,0 +1,19 @@
+file: tl.lua
+note: a call to assert returns exactly the values it was given -- the first without its nil, the rest as they are -- rather than the declaration's open-ended (A, B, any...), so `{ s, assert(x) }` with one argument is one value, as it is at run time
+--- find
+         self:apply_facts(node, node.e2[1].known)
+         return r
+      end,
+--- replace
+         self:apply_facts(node, node.e2[1].known)
+         if r and r.typename == "tuple" and r.tuple[1] then
+            local returned = a_type(node, "tuple", { tuple = { r.tuple[1] } })
+            for i = 2, #b.tuple do
+               returned.tuple[i] = b.tuple[i]
+            end
+            returned.is_va = b.is_va
+            return returned
+         end
+         return r
+      end,
+--- end

@@ -81,12 +81,12 @@ local runtime_test_timeout_ms <const> = 180000
 local identity_test_timeout_ms <const> = 120000
 
 local function parent(path: string): string
-  return assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory")
+  return (assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory"))
 end
 
 local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
-  for _, name in ipairs(assert(Fs.list(source))) do
+  for _, name in ipairs((assert(Fs.list(source)))) do
     assert(name:match("%.tl$") and
       assert(Fs.stat(source .. "/" .. name)).kind == "file",
       "invalid fixture source entry: " .. name)

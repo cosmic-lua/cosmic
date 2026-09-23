@@ -28,8 +28,8 @@ end
 local function read_prefix_length(fixture_dir: string): integer
   local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
   local digits = text:match("^(%d+)\n*$")
-  return assert(digits and math.tointeger(tonumber(digits)),
-    "invalid prefix length: " .. text)
+  return (assert(digits and math.tointeger(tonumber(digits)),
+    "invalid prefix length: " .. text))
 end
 
 -- Teal has no recursive-copy primitive, so use the standard POSIX utility.
@@ -43,7 +43,7 @@ end
 -- `no_private_entries` make about a cache directory.
 local function count_cache_files(directory: string): integer
   local count = 0
-  for _, name in ipairs(assert(Fs.list(directory))) do
+  for _, name in ipairs((assert(Fs.list(directory)))) do
     if assert(Fs.stat(directory .. "/" .. name)).kind == "file" then
       count = count + 1
     end
@@ -55,8 +55,8 @@ local function host_uname(work: string, diagnostics: string, flag: string,
     label: string): string
   local answer = Fixture.run("uname-" .. label,
     { "/usr/bin/env", "uname", flag }, work, diagnostics)
-  return assert(Fixture.small(answer.out, 256):match("^(%S+)"),
-    "uname " .. flag .. " produced no output")
+  return (assert(Fixture.small(answer.out, 256):match("^(%S+)"),
+    "uname " .. flag .. " produced no output"))
 end
 
 -- Find the single generated target whose uname fields match this host.
@@ -76,8 +76,8 @@ local function host_target_field(fixture_dir: string, work: string,
       found = name
     end
   end
-  return assert(found, "no generated target matches this host: " ..
-    sysname .. " " .. arch)
+  return (assert(found, "no generated target matches this host: " ..
+    sysname .. " " .. arch))
 end
 
 local record Running
