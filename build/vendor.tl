@@ -1,19 +1,34 @@
---- Rewrites one `vendor/<name>/` tree from an upstream archive already
---- unpacked into a directory, keeping only the files the build reads.
+--- Rewrites one `vendor/<name>/` tree from an upstream archive,
+--- keeping only the files the build reads.
 ---
----     cosmic build/vendor.tl vendor/<name> <unpacked>
+---     cosmic build/vendor.tl vendor/<name> <archive>
 ---
---- `bin/vendor` fetches and verifies the archive, unpacks it, and runs
---- this. Paths lose PIN's `strip` prefix, and a file is kept when a
---- `keep` glob matches it and no `drop` glob does: `*` matches within
---- one path segment, `**` across them. Every `keep` must match
---- something, so an upstream rename fails here rather than in the
---- build. Everything else in the tree but PIN is removed.
+--- `bin/vendor` fetches and verifies the archive and runs this over
+--- it directly, without unpacking it first: `<archive>` is walked with
+--- `cosmic.archive`, whatever format it turns out to be. Paths lose
+--- PIN's `strip` prefix, and a file is kept when a `keep` glob matches
+--- it and no `drop` glob does: `*` matches within one path segment,
+--- `**` across them. Every `keep` must match something, so an
+--- upstream rename fails here rather than in the build.
+---
+--- When `<archive>` is not a format `cosmic.archive` recognizes (a
+--- single file such as a `.pem`, say) and PIN names no `strip`, it is
+--- vendored as one file instead: named by a `file <name>` PIN line,
+--- or by the basename of PIN's `url` when there is no `file` line.
+---
+--- Everything else in the tree but PIN is removed.
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local Stream = require("cosmic.stream")
+local Archive = require("cosmic.archive")
 
 local record Pin
+  url: string
   strip: string
+  --- The name a single-file PIN (one with no `keep`) vendors its
+  --- archive as, when it is not itself a recognized archive format.
+  --- Defaults to the basename of `url` when empty.
+  file: string
   keep: {string}
   drop: {string}
 end
@@ -23,18 +38,19 @@ local function complain(line: string)
 end
 
 local function read_pin(text: string): Pin | nil, string
-  local pin: Pin = { strip = "", keep = {}, drop = {} }
+  local pin: Pin = { url = "", strip = "", file = "", keep = {}, drop = {} }
   for key, value in text:gmatch("([%w_]+)[ \t]+([^\n]+)") do
-    if key == "strip" then
+    if key == "url" then
+      pin.url = value
+    elseif key == "strip" then
       pin.strip = value
+    elseif key == "file" then
+      pin.file = value
     elseif key == "keep" then
       pin.keep[#pin.keep + 1] = value
     elseif key == "drop" then
       pin.drop[#pin.drop + 1] = value
     end
-  end
-  if #pin.keep == 0 then
-    return nil, "a PIN needs at least one keep"
   end
   return pin, ""
 end
@@ -59,7 +75,8 @@ local function matches(globs: {string}, path: string, used?: {string:boolean}): 
   return any
 end
 
---- The unpacked paths PIN keeps, by their path under the tree.
+--- The archive paths PIN keeps, by the path they land at under the
+--- tree (with `strip` removed).
 local function kept(pin: Pin, paths: {string}): {string:string} | nil, string
   local out: {string:string} = {}
   local used: {string:boolean} = {}
@@ -111,8 +128,103 @@ local function prune(tree: string, files: {string:string}, under?: string): bool
   return true, ""
 end
 
---- Rewrites `tree` to exactly what its PIN keeps of `unpacked`.
-local function rewrite(tree: string, unpacked: string): integer | nil, string
+--- Writes `data` to `tree/under`, making its parent directories first.
+local function write_under(tree: string, under: string, data: string): boolean, string
+  local dir = under:match("^(.*)/[^/]+$")
+  if dir ~= nil then
+    local made, mkdir_trouble = Fs.mkdirs(tree .. "/" .. dir)
+    if not made then return false, mkdir_trouble end
+  end
+  return Fs.write(tree .. "/" .. under, data)
+end
+
+--- Every regular file `reader` holds, by its archive path.
+local function file_paths(reader: Archive.ArchiveReader): {string} | nil, string
+  local paths: {string} = {}
+  while true do
+    local entry, etrouble = reader:next()
+    if entry == nil then
+      reader:close()
+      if etrouble ~= "" then return nil, etrouble end
+      return paths, ""
+    end
+    if entry.kind == "file" then
+      paths[#paths + 1] = entry.path
+    end
+  end
+end
+
+--- Rewrites `tree` to exactly what `pin` keeps of the archive at
+--- `archive_path`, walked in two passes: `cosmic.archive`'s readers
+--- run forward only, so which paths are kept (needed before `prune`
+--- can run, since a keep that matches nothing is refused) has to be
+--- settled in a pass of its own, ahead of one that reads bodies.
+local function from_archive(tree: string, pin: Pin, archive_path: string): integer | nil, string
+  if #pin.keep == 0 then
+    return nil, tree .. "/PIN: a PIN needs at least one keep"
+  end
+  local reader, otrouble = Archive.open(archive_path)
+  if reader == nil then return nil, archive_path .. ": " .. otrouble end
+  local paths, walk_trouble = file_paths(reader)
+  if paths == nil then return nil, archive_path .. ": " .. walk_trouble end
+  local files, keep_trouble = kept(pin, paths)
+  if files == nil then return nil, tree .. ": " .. keep_trouble end
+  local pruned, prune_trouble = prune(tree, files)
+  if not pruned then return nil, prune_trouble end
+
+  local wanted: {string:string} = {} -- archive path -> path under tree
+  for under, path in pairs(files) do wanted[path] = under end
+
+  local reader2, otrouble2 = Archive.open(archive_path)
+  if reader2 == nil then return nil, archive_path .. ": " .. otrouble2 end
+  local count = 0
+  while true do
+    local entry, etrouble = reader2:next()
+    if entry == nil then
+      reader2:close()
+      if etrouble ~= "" then return nil, etrouble end
+      return count, ""
+    end
+    if entry.kind == "file" then
+      local under = wanted[entry.path]
+      if under ~= nil then
+        local body, btrouble = entry:open()
+        if body == nil then return nil, btrouble end
+        local data, rtrouble = Stream.read_all(body)
+        if data == nil then return nil, rtrouble end
+        local written, write_trouble = write_under(tree, under, data)
+        if not written then return nil, write_trouble end
+        count = count + 1
+      end
+    end
+  end
+end
+
+--- `pin.file`, or the basename of `pin.url` when that is empty.
+local function single_file_name(pin: Pin): string | nil
+  if pin.file ~= "" then return pin.file end
+  if pin.url == "" then return nil end
+  return pin.url:match("([^/]+)$")
+end
+
+--- Rewrites `tree` to hold just `archive_path`'s own bytes, named by
+--- `single_file_name`, for a PIN whose archive turned out not to be
+--- one `cosmic.archive` recognizes.
+local function as_single_file(tree: string, pin: Pin, archive_path: string): integer | nil, string
+  local name = single_file_name(pin)
+  if name == nil then
+    return nil, tree .. "/PIN: cannot name the vendored file -- add a 'file <name>' line"
+  end
+  local data, read_trouble = Fs.read(archive_path)
+  if data == nil then return nil, read_trouble end
+  local pruned, prune_trouble = prune(tree, { [name] = archive_path })
+  if not pruned then return nil, prune_trouble end
+  local written, write_trouble = write_under(tree, name, data)
+  if not written then return nil, write_trouble end
+  return 1, ""
+end
+
+local function rewrite(tree: string, archive_path: string): integer | nil, string
   local text, pin_trouble = Fs.read(tree .. "/PIN")
   if text == nil then
     return nil, pin_trouble
@@ -121,48 +233,25 @@ local function rewrite(tree: string, unpacked: string): integer | nil, string
   if pin == nil then
     return nil, tree .. "/PIN: " .. trouble
   end
-  local paths, walk_trouble = Fs.walk(unpacked)
-  if paths == nil then
-    return nil, walk_trouble
-  end
-  local files, keep_trouble = kept(pin, paths)
-  if files == nil then
-    return nil, tree .. ": " .. keep_trouble
-  end
-  local pruned, prune_trouble = prune(tree, files)
-  if not pruned then
-    return nil, prune_trouble
-  end
-  local count = 0
-  for under, path in pairs(files) do
-    local data, read_trouble = Fs.read(unpacked .. "/" .. path)
-    if data == nil then
-      return nil, read_trouble
+  local probe, otrouble = Archive.open(archive_path)
+  if probe == nil then
+    if pin.strip == "" then
+      return as_single_file(tree, pin, archive_path)
     end
-    local dir = under:match("^(.*)/[^/]+$")
-    if dir ~= nil then
-      local made, mkdir_trouble = Fs.mkdirs(tree .. "/" .. dir)
-      if not made then
-        return nil, mkdir_trouble
-      end
-    end
-    local written, write_trouble = Fs.write(tree .. "/" .. under, data)
-    if not written then
-      return nil, write_trouble
-    end
-    count = count + 1
+    return nil, archive_path .. ": " .. otrouble
   end
-  return count, ""
+  probe:close()
+  return from_archive(tree, pin, archive_path)
 end
 
 return function(argv: {integer:string}): integer
-  local tree, unpacked = argv[1], argv[2]
-  if tree == nil or unpacked == nil then
-    complain("usage: cosmic build/vendor.tl vendor/<name> <unpacked>")
+  local tree, archive_path = argv[1], argv[2]
+  if tree == nil or archive_path == nil then
+    complain("usage: cosmic build/vendor.tl vendor/<name> <archive>")
     return 2
   end
   tree = tree:gsub("/+$", "")
-  local count, trouble = rewrite(tree, unpacked)
+  local count, trouble = rewrite(tree, archive_path)
   if count == nil then
     complain(trouble)
     return 1

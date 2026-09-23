@@ -2,11 +2,12 @@
 # Refetch vendored trees from the archives their PINs name, keeping only
 # what the build reads: `bin/vendor [name...]`, every tree by default.
 #
-# Like bin/zig, this fetches into a cache, verifies the sha256 the pin
-# names, and unpacks with the system's tar (or unzip, for a zip). The
-# bootstrap cosmic then runs build/vendor.tl, which rewrites the tree
-# to the files the pin's keep and drop globs name. Archives are cached
-# under $XDG_CACHE_HOME/cosmic/vendor (default ~/.cache/cosmic/vendor).
+# Like bin/zig, this fetches into a cache and verifies the sha256 the
+# pin names. The bootstrap cosmic's build/vendor.tl then walks the
+# archive itself -- with cosmic.archive, whatever format it turns out
+# to be, no system tar or unzip needed -- and rewrites the tree to the
+# files the pin's keep and drop globs name. Archives are cached under
+# $XDG_CACHE_HOME/cosmic/vendor (default ~/.cache/cosmic/vendor).
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -27,8 +28,6 @@ fi
 
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/vendor
 mkdir -p "$cache"
-work=$(mktemp -d "${TMPDIR:-/tmp}/cosmic-vendor.XXXXXX")
-trap 'rm -rf "$work"' EXIT INT TERM
 
 for name in "$@"; do
   pin=$root/vendor/$name/PIN
@@ -59,12 +58,5 @@ for name in "$@"; do
   fi
   [ "$got" = "$want" ] || die "$archive has sha256 $got; the pin says $want"
 
-  unpacked=$work/$name
-  mkdir -p "$unpacked"
-  case $archive in
-    *.zip | *.rock) unzip -q "$archive" -d "$unpacked" ;;
-    *) tar -xf "$archive" -C "$unpacked" ;;
-  esac
-
-  (cd "$root" && "$cosmic" build/vendor.tl "vendor/$name" "$unpacked")
+  (cd "$root" && "$cosmic" build/vendor.tl "vendor/$name" "$archive")
 done
