@@ -160,6 +160,55 @@ local function test_an_entry_reader_is_invalid_once_the_next_entry_is_asked_for(
   assert(chunk == nil and trouble ~= "")
 end
 
+--- Big-endian 8-byte two's complement of `n`, sign-extended to a
+--- 12-byte GNU base-256 numeric field (the marker bit comes for free:
+--- a negative number's sign-extension bytes are already 0xFF).
+local function base256_field_12(n: integer): string
+  local bytes: {string} = {}
+  local fill = n < 0 and 0xFF or 0x00
+  for _ = 1, 4 do bytes[#bytes + 1] = string.char(fill) end
+  for k = 7, 0, -1 do
+    bytes[#bytes + 1] = string.char((n >> (k * 8)) & 0xFF)
+  end
+  return table.concat(bytes)
+end
+
+local function recompute_checksum(block: string): string
+  local sum = 256
+  for i = 1, 148 do sum = sum + block:byte(i) end
+  for i = 157, 512 do sum = sum + block:byte(i) end
+  local checksum = string.format("%06o", sum) .. "\0 "
+  return block:sub(1, 148) .. checksum .. block:sub(157)
+end
+
+local function test_a_negative_base256_mtime_decodes_as_negative()
+  local c = Stream.collect()
+  local w = Tar.writer(c as Stream.Writer)
+  assert(w:add_file("f", "x", { mtime = 0 }))
+  assert(w:close())
+  local raw = c:result()
+  local target = -100000 -- well before the Unix epoch
+  local patched = raw:sub(1, 136) .. base256_field_12(target) .. raw:sub(149)
+  patched = recompute_checksum(patched)
+  local r = Tar.reader(Stream.from_string(patched))
+  local entry = assert(r:next())
+  assert(entry.mtime == target, tostring(entry.mtime))
+end
+
+local function test_opening_an_entry_a_second_time_is_refused()
+  local c = Stream.collect()
+  local w = Tar.writer(c as Stream.Writer)
+  assert(w:add_file("f", "hello"))
+  assert(w:close())
+  local r = Tar.reader(Stream.from_string(c:result()))
+  local entry = assert(r:next())
+  local first = entry:open()
+  assert(Stream.read_all(first) == "hello")
+  local second = entry:open()
+  local chunk, trouble = second:read()
+  assert(chunk == nil and trouble:find("already opened", 1, true) ~= nil, trouble)
+end
+
 local function test_a_corrupt_checksum_is_refused()
   local c = Stream.collect()
   local w = Tar.writer(c as Stream.Writer)

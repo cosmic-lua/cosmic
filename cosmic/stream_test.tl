@@ -201,3 +201,35 @@ local function test_transform_writer_flushes_the_codec_on_close()
   assert(w:close())
   assert(c:result() == "abcd")
 end
+
+local function test_transform_serves_small_reads_from_one_large_batch()
+  -- A codec that hands back its entire input as one batch on the
+  -- first update, then nothing more. `transform` used to re-slice the
+  -- whole remaining batch on every read (`pending = pending:sub(want
+  -- + 1)`), which is quadratic when a caller reads in small pieces --
+  -- this proves reads of any size still see the batch intact and in
+  -- order, not just that it eventually finishes.
+  local given = false
+  local codec: Stream.CodecStream = {}
+  codec.update = function(_self: Stream.CodecStream, chunk: string): string | nil, string
+    if given then return "", "" end
+    given = true
+    return chunk, ""
+  end
+  codec.finish = function(_self: Stream.CodecStream): string | nil, string
+    return "", ""
+  end
+  codec.done = function(_self: Stream.CodecStream): boolean
+    return given
+  end
+  codec.rest = function(_self: Stream.CodecStream): string
+    return ""
+  end
+  local big = string.rep("0123456789", 5000) -- 50,000 bytes, under the
+    -- 64 KiB the transform Reader pulls from `underlying` at once, so
+    -- the whole thing reaches the codec, and this Reader, in one batch
+  local underlying = Stream.from_string(big)
+  local transformed = Stream.transform(underlying, codec)
+  local out = drain(transformed, 7) -- an odd small size, on purpose
+  assert(out == big, "length " .. tostring(#out))
+end

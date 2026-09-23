@@ -2,18 +2,11 @@
 --- fixture made once, ahead of time, by the system `zip` -- a mix of
 --- stored and deflated entries and a symlink -- embedded as base64 so
 --- this file has no binary bytes of its own and no test spawns an
---- external program. A case needing `cosmic.compress.inflater` or
---- `.deflater` is guarded and skips itself until that module grows
---- them.
+--- external program.
 
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
-local Compress = require("cosmic.compress")
 local Zip = require("cosmic.zip")
-
---- Read dynamically, same as cosmic.zip itself, since these fields
---- do not exist on cosmic.compress yet.
-local compress_dyn: {string:any} = Compress as {string:any}
 
 local B64_ALPHABET <const> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
@@ -142,16 +135,19 @@ local function test_list_reads_entries_without_keeping_the_file_open(tmp: string
   assert(#entries == 2)
 end
 
-local function test_deflate_write_is_refused_until_compress_grows_a_deflater()
-  if compress_dyn.deflater ~= nil then return end
+local function test_writer_and_reader_roundtrip_a_deflated_file()
   local c = Stream.collect()
   local w = Zip.writer(c as Stream.Writer)
-  local ok, trouble = w:add_file("f", "data", { method = "deflate" })
-  assert(not ok and trouble:find("deflater", 1, true) ~= nil, trouble)
+  assert(w:add_file("f", "hello there, deflated", { method = "deflate" }))
+  assert(w:close())
+  local r = assert(Zip.open_string(c:result()))
+  local entry = by_path(r:entries(), "f")
+  assert(entry.method == 8, tostring(entry.method))
+  local body = assert(Stream.read_all((assert(entry:open()))))
+  assert(body == "hello there, deflated")
 end
 
-local function test_a_system_made_deflated_entry_reads_back_once_inflater_exists()
-  if compress_dyn.inflater == nil then return end
+local function test_a_system_made_deflated_entry_reads_back()
   local raw = base64_decode(ZIP_B64)
   local r = assert(Zip.open_string(raw))
   local entry = by_path(r:entries(), "src/big.txt")

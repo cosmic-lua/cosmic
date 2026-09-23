@@ -9,10 +9,49 @@ local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
-local Compress = require("cosmic.compress")
 local Archive = require("cosmic.archive")
 
-local compress_dyn: {string:any} = Compress as {string:any}
+local B64_ALPHABET <const> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function b64_index(): {string:integer}
+  local map: {string:integer} = {}
+  for i = 1, #B64_ALPHABET do
+    map[B64_ALPHABET:sub(i, i)] = i - 1
+  end
+  return map
+end
+
+local B64_INDEX <const> = b64_index()
+
+local function base64_decode(data: string): string
+  local out: {string} = {}
+  local bits = 0
+  local nbits = 0
+  for i = 1, #data do
+    local c = data:sub(i, i)
+    local v = B64_INDEX[c]
+    if v ~= nil then
+      bits = (bits << 6) | v
+      nbits = nbits + 6
+      if nbits >= 8 then
+        nbits = nbits - 8
+        out[#out + 1] = string.char((bits >> nbits) & 0xFF)
+      end
+    end
+  end
+  return table.concat(out)
+end
+
+--- `tar -cf a.tar src` (a directory holding src/short.txt and the
+--- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2 -c.
+local TAR_GZ_B64 <const> =
+  "H4sICDBss2oAA2EudGFyAO3V0QrCIBiGYS/FKyh16q5n1GCjkaAGXX7bDoIGFTuwUb3PiYqCv3yoKR72ojA1qp2b29GynfvaGWe998p5obSqvBHSlS5sckm5iVKKGEJ+te7d/JdKY/6pCzHv8rXU+aaAvbXP89fVIn8zDoRUhep58Of5d+0wBJm7NrZbl4INTPe/Ofax5Cew/v3XldK8/59wz78Z+vOpzB5z/nW9In9rdC2kKf0xTf48fwAAAAAAAAAAAADAb7gBw+SVgAAoAAA="
+
+local TAR_XZ_B64 <const> =
+  "/Td6WFoAAATm1rRGAgAhARYAAAB0L+Wj4Cf/ALRdADmciIYQ5JSzSsi80f5CS2Mz1B2NDlCga8DZbb93I37BWWvMTbmf7QGoFp8jKOHhdLipWR/C76M30KCW71uapGjA/XCYBA6qOA77bNygKo4HKw2ATQ/wFkCDaKWVRIgGH2eHfxoC5QfvkUJ81yTZ7ZDFUU/49FBz6H2UMewyMRqRzv8Ci3fb8f/0MeZw40GVioKYeHI/X5kJT484FpxP9ajNSxfcYNbm3ueaV6PKpejl8jfYAAAiL5Q/NnCwYQAB0AGAUAAAyXnubbHEZ/sCAAAAAARZWg=="
+
+local TAR_BZ2_B64 <const> =
+  "QlpoOTFBWSZTWftqLH0AAPT7hcqAAEBAAf+AGIRubZ5AAACAAhAIMADNphKKAABoAAACVTT1MgAGgAAAKqalPNDVG1G1AzU9NTanqPKcBmsKrFONp8mSgiNPggJSyiluAckAYE4xZRQYkEiolBUalRrg8M5RFkwl0yyyoDkigrmCAL0deBq2rRoSoPotGICxQgMcGrSsmUvqLy62tESPmWJiZo0f1ez81bXaV7RQUZiZYvLeRqTYfG/HNuTOEHm8gy9Pk3uKAQPxdyRThQkPtqLH0A=="
 
 local function make_tar(path: string)
   local w = assert(Stream.create(path))
@@ -132,6 +171,28 @@ local function test_extract_refuses_a_dotdot_entry_path(tmp: string)
   assert(Fs.exists(tmp .. "/escaped.txt") == false)
 end
 
+local function test_extract_refuses_a_backslash_dotdot_entry_path(tmp: string)
+  local archive = tmp .. "/evil.tar"
+  local w = assert(Stream.create(archive))
+  local tw = Tar.writer(w)
+  assert(tw:add_file("adir\\..\\..\\escaped.txt", "pwned"))
+  assert(tw:close())
+  local dest = tmp .. "/out"
+  local written, trouble = Archive.extract(archive, dest)
+  assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
+end
+
+local function test_extract_refuses_a_drive_letter_entry_path(tmp: string)
+  local archive = tmp .. "/evil.tar"
+  local w = assert(Stream.create(archive))
+  local tw = Tar.writer(w)
+  assert(tw:add_file("C:evil.txt", "pwned"))
+  assert(tw:close())
+  local dest = tmp .. "/out"
+  local written, trouble = Archive.extract(archive, dest)
+  assert(written == nil and trouble:find("unsafe entry path", 1, true) ~= nil, trouble)
+end
+
 local function test_extract_skips_symlinks_by_default_without_erroring(tmp: string)
   local archive = tmp .. "/a.tar"
   make_tar(archive)
@@ -153,9 +214,18 @@ local function test_extract_refuses_a_symlink_escaping_the_destination(tmp: stri
   assert(written == nil and trouble:find("escaping the destination", 1, true) ~= nil, trouble)
 end
 
-local function test_extract_creates_a_safe_symlink_once_fs_symlink_exists(tmp: string)
-  local fs_dyn: {string:any} = Fs as {string:any}
-  if fs_dyn.symlink == nil then return end
+local function test_extract_refuses_a_backslash_symlink_target(tmp: string)
+  local archive = tmp .. "/evil_link.tar"
+  local w = assert(Stream.create(archive))
+  local tw = Tar.writer(w)
+  assert(tw:add_symlink("adir/link", "..\\..\\..\\..\\etc\\passwd"))
+  assert(tw:close())
+  local dest = tmp .. "/out"
+  local written, trouble = Archive.extract(archive, dest, { links = "create" })
+  assert(written == nil and trouble:find("escaping the destination", 1, true) ~= nil, trouble)
+end
+
+local function test_extract_creates_a_safe_symlink(tmp: string)
   local archive = tmp .. "/a.tar"
   make_tar(archive)
   local dest = tmp .. "/out"
@@ -165,13 +235,36 @@ local function test_extract_creates_a_safe_symlink_once_fs_symlink_exists(tmp: s
     if rel == "adir/link" then found = true end
   end
   assert(found)
+  local target = assert(Fs.readlink(dest .. "/adir/link"))
+  assert(target == "short.txt", target)
 end
 
-local function test_a_compressed_tar_whose_decoder_is_missing_names_it(tmp: string)
-  if compress_dyn.inflater ~= nil then return end
+local function test_extract_a_gzip_compressed_tar_made_by_system_tar(tmp: string)
   local path = tmp .. "/a.tar.gz"
-  assert(Fs.write(path, "\31\139" .. string.rep("\0", 30)))
-  local r, trouble = Archive.open(path)
-  assert(r == nil and trouble:find("gzip support requires cosmic.compress.inflater", 1, true) ~= nil,
-    trouble)
+  assert(Fs.write(path, base64_decode(TAR_GZ_B64)))
+  local dest = tmp .. "/out"
+  local written = assert(Archive.extract(path, dest))
+  table.sort(written)
+  assert(#written == 3, table.concat(written, ","))
+  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+end
+
+local function test_extract_an_xz_compressed_tar_made_by_system_tar(tmp: string)
+  local path = tmp .. "/a.tar.xz"
+  assert(Fs.write(path, base64_decode(TAR_XZ_B64)))
+  local dest = tmp .. "/out"
+  local written = assert(Archive.extract(path, dest))
+  table.sort(written)
+  assert(#written == 3, table.concat(written, ","))
+  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+end
+
+local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: string)
+  local path = tmp .. "/a.tar.bz2"
+  assert(Fs.write(path, base64_decode(TAR_BZ2_B64)))
+  local dest = tmp .. "/out"
+  local written = assert(Archive.extract(path, dest))
+  table.sort(written)
+  assert(#written == 3, table.concat(written, ","))
+  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
 end

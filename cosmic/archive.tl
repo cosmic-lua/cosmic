@@ -10,41 +10,6 @@ local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 
---- `cosmic.compress`'s xz/bzip2 decoders and `cosmic.fs.symlink` do not
---- exist yet; reached dynamically, the same way `cosmic.zip` reaches
---- the deflater/inflater, so this module and the tests that do not
---- need them work now.
-local compress_dyn: {string:any} = Compress as {string:any}
-local fs_dyn: {string:any} = Fs as {string:any}
-
-local type InflaterFn = function(string): Stream.CodecStream
-local type DecoderFn = function(): Stream.CodecStream
-local type SymlinkFn = function(string, string): boolean, string
-
-local function get_inflater(): InflaterFn | nil
-  local f = compress_dyn.inflater
-  if f == nil then return nil end
-  return f as InflaterFn
-end
-
-local function get_xz_decoder(): DecoderFn | nil
-  local f = compress_dyn.xz_decoder
-  if f == nil then return nil end
-  return f as DecoderFn
-end
-
-local function get_bz2_decoder(): DecoderFn | nil
-  local f = compress_dyn.bz2_decoder
-  if f == nil then return nil end
-  return f as DecoderFn
-end
-
-local function get_symlink(): SymlinkFn | nil
-  local f = fs_dyn.symlink
-  if f == nil then return nil end
-  return f as SymlinkFn
-end
-
 local record Archive
   --- Shared with `cosmic.tar`'s own Entry.kind; zip only ever produces
   --- "file" or "dir".
@@ -170,30 +135,20 @@ function Archive.open(path: string): Archive.ArchiveReader | nil, string
   if kind == "gzip" or kind == "xz" or kind == "bzip2" then
     local raw, otrouble = Stream.open(path)
     if raw == nil then return nil, otrouble end
-    local codec: Stream.CodecStream
+    local codec: Compress.Stream
+    local ctrouble: string
     if kind == "gzip" then
-      local inflater = get_inflater()
-      if inflater == nil then
-        raw:close()
-        return nil, "archive: " .. path .. ": gzip support requires cosmic.compress.inflater"
-      end
-      codec = inflater("gzip")
+      codec, ctrouble = Compress.inflater("gzip")
     elseif kind == "xz" then
-      local decoder = get_xz_decoder()
-      if decoder == nil then
-        raw:close()
-        return nil, "archive: " .. path .. ": xz support requires cosmic.compress.xz_decoder"
-      end
-      codec = decoder()
+      codec, ctrouble = Compress.xz_decoder()
     else
-      local decoder = get_bz2_decoder()
-      if decoder == nil then
-        raw:close()
-        return nil, "archive: " .. path .. ": bzip2 support requires cosmic.compress.bz2_decoder"
-      end
-      codec = decoder()
+      codec, ctrouble = Compress.bz2_decoder()
     end
-    local transformed = Stream.transform(raw, codec)
+    if codec == nil then
+      raw:close()
+      return nil, "archive: " .. path .. ": " .. ctrouble
+    end
+    local transformed = Stream.transform(raw, codec as Stream.CodecStream)
     return wrap_tar(Tar.reader(transformed), function(): boolean, string return transformed:close() end), ""
   end
   return nil, "archive: " .. path .. ": not a recognized archive format"
@@ -219,12 +174,24 @@ end
 -- extraction
 ------------------------------------------------------------------
 
---- False for an absolute path or one with a `..` component -- the
---- archive path itself, before `strip` is applied, since `strip` only
---- removes a prefix or leading components and cannot make an escaping
---- path safe.
+--- Whether `path` has a drive letter ("C:") or a UNC prefix ("\\\\"):
+--- Windows path forms that a `/`-only escape check would miss.
+local function has_drive_or_unc(path: string): boolean
+  if path:sub(1, 2):match("^%a:$") ~= nil then return true end
+  if path:sub(1, 2) == "\\\\" then return true end
+  return false
+end
+
+--- False for an absolute path, a `\`-separated or drive/UNC path, or
+--- one with a `..` component -- the archive path itself, before
+--- `strip` is applied, since `strip` only removes a prefix or leading
+--- components and cannot make an escaping path safe. `\` is refused
+--- outright, along with drive letters and UNC prefixes, since none of
+--- this format's writers put one in a path on purpose.
 local function safe_relative(path: string): boolean
   if path == "" or path:sub(1, 1) == "/" then return false end
+  if path:find("\\", 1, true) ~= nil then return false end
+  if has_drive_or_unc(path) then return false end
   for segment in (path .. "/"):gmatch("([^/]*)/") do
     if segment == ".." then return false end
   end
@@ -253,6 +220,8 @@ end
 --- need not exist yet.
 local function stays_inside(rel_dir: string, target: string): boolean
   if target == "" or target:sub(1, 1) == "/" then return false end
+  if target:find("\\", 1, true) ~= nil then return false end
+  if has_drive_or_unc(target) then return false end
   local depth = 0
   if rel_dir ~= "" then
     for _ in rel_dir:gmatch("[^/]+") do depth = depth + 1 end
@@ -356,14 +325,9 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
           reader:close()
           return nil, "archive: refusing a symlink escaping the destination: " .. entry.path
         end
-        local symlink_fn = get_symlink()
-        if symlink_fn == nil then
-          reader:close()
-          return nil, "archive: creating symlinks requires cosmic.fs.symlink"
-        end
         local parent = dirname(dest_path)
         if parent ~= nil then Fs.mkdirs(parent) end
-        local ok, strouble = symlink_fn(entry.linkpath, dest_path)
+        local ok, strouble = Fs.symlink(entry.linkpath, dest_path)
         if not ok then
           reader:close()
           return nil, strouble

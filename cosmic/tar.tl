@@ -72,10 +72,16 @@ local chunk_size <const> = 1 << 16
 
 --- A numeric header field: usual NUL/space-padded octal text, or a
 --- GNU base-256 field (its first byte's high bit set) for a value too
---- large for octal text to hold.
+--- large for octal text to hold, or negative (a pre-1970 mtime, say).
+--- The field, taken as a whole, is a two's-complement integer: the
+--- first byte's second-highest bit is its sign, sign-extended before
+--- the rest of the bytes are folded in, so a negative value decodes
+--- to a small negative number rather than a huge positive one.
 local function numeric(field: string): integer
   if #field > 0 and (field:byte(1) & 0x80) ~= 0 then
-    local value = field:byte(1) & 0x7f
+    local negative = (field:byte(1) & 0x40) ~= 0
+    local value: integer = negative and -1 or 0
+    value = (value << 7) | (field:byte(1) & 0x7f)
     for i = 2, #field do
       value = (value << 8) | field:byte(i)
     end
@@ -298,7 +304,24 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
           uid = uid,
           gid = gid,
         }
+        local opened = false
         entry.open = function(_e: Tar.Entry): Stream.Reader
+          if opened then
+            -- A second `open` on the same entry would share
+            -- `body_left`/`pending_skip` with the first and read
+            -- wherever that one left off, silently -- refuse it
+            -- instead of handing back a reader that lies about
+            -- starting from the beginning.
+            local reopened: Stream.Reader = {}
+            reopened.read = function(_self2: Stream.Reader, _max: integer): string | nil, string
+              return nil, "tar: entry already opened once"
+            end
+            reopened.close = function(_self2: Stream.Reader): boolean, string
+              return true, ""
+            end
+            return reopened
+          end
+          opened = true
           local body: Stream.Reader = {}
           body.read = function(_self2: Stream.Reader, max: integer): string | nil, string
             if my_generation ~= generation then

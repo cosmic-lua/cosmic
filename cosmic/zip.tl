@@ -14,27 +14,6 @@ local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
 local Stream = require("cosmic.stream")
 
---- `cosmic.compress` does not have `inflater`/`deflater` yet (they are
---- landing separately); reached dynamically so this module, and tests
---- of the entries that need them, are ready the moment it does,
---- without this file breaking type-checking until then.
-local compress_dyn: {string:any} = Compress as {string:any}
-
-local type InflaterFn = function(string): Stream.CodecStream
-local type DeflaterFn = function(string, integer | nil): Stream.CodecStream
-
-local function get_inflater(): InflaterFn | nil
-  local f = compress_dyn.inflater
-  if f == nil then return nil end
-  return f as InflaterFn
-end
-
-local function get_deflater(): DeflaterFn | nil
-  local f = compress_dyn.deflater
-  if f == nil then return nil end
-  return f as DeflaterFn
-end
-
 local record Zip
   enum Kind
     "file"
@@ -180,39 +159,6 @@ local function unix_to_dos(epoch: integer): integer, integer
 end
 
 ------------------------------------------------------------------
--- CRC32 (the plain, table-based algorithm -- self-contained so the
--- writer works before cosmic.compress grows its own crc32)
-------------------------------------------------------------------
-
-local function crc32_table(): {integer:integer}
-  local t: {integer:integer} = {}
-  for n = 0, 255 do
-    local c = n
-    for _ = 1, 8 do
-      if c & 1 == 1 then c = 0xEDB88320 ~ (c >> 1) else c = c >> 1 end
-    end
-    t[n] = c
-  end
-  return t
-end
-
-local CRC_TABLE <const> = crc32_table()
-
-local function crc32_update(state: integer, data: string): integer
-  local c = state
-  for i = 1, #data do
-    c = CRC_TABLE[(c ~ data:byte(i)) & 0xFF] ~ (c >> 8)
-  end
-  return c
-end
-
---- The CRC32 of `data`, continuing from `seed` (a previous call's
---- result) when given.
-local function crc32(data: string, seed?: integer): integer
-  return crc32_update((seed or 0) ~ 0xFFFFFFFF, data) ~ 0xFFFFFFFF & 0xFFFFFFFF
-end
-
-------------------------------------------------------------------
 -- reading
 ------------------------------------------------------------------
 
@@ -284,20 +230,20 @@ end
 --- against `expected` at end of file.
 local function crc_checked_reader(inner: Stream.Reader, expected_crc: integer,
     expected_size: integer): Stream.Reader
-  local state = 0xFFFFFFFF
+  local state: integer = nil
   local seen = 0
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max: integer): string | nil, string
     local chunk, trouble = inner:read(max)
     if chunk == nil then
       if trouble ~= "" then return nil, trouble end
-      if (state ~ 0xFFFFFFFF) & 0xFFFFFFFF ~= expected_crc then
+      if (state or 0) ~= expected_crc then
         return nil, "zip: crc32 mismatch"
       end
       if seen ~= expected_size then return nil, "zip: size mismatch" end
       return nil, ""
     end
-    state = crc32_update(state, chunk)
+    state = Compress.crc32(chunk, state)
     seen = seen + #chunk
     return chunk, ""
   end
@@ -324,11 +270,9 @@ local function make_open(pread: Pread, local_offset: integer, method: integer,
     if method == 0 then
       body = raw
     elseif method == 8 then
-      local inflater = get_inflater()
-      if inflater == nil then
-        return nil, "zip: deflate support requires cosmic.compress.inflater"
-      end
-      body = Stream.transform(raw, inflater("raw"))
+      local inflater, itrouble = Compress.inflater("raw")
+      if inflater == nil then return nil, itrouble end
+      body = Stream.transform(raw, inflater as Stream.CodecStream)
     else
       return nil, "zip: unsupported compression method " .. tostring(method)
     end
@@ -524,18 +468,15 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     else
       dos_date, dos_time = unix_to_dos(mtime)
     end
-    local crc = crc32(data)
+    local crc = Compress.crc32(data)
     local usize = #data
     local method: integer
     local payload: string
     if method_name == "store" or is_dir then
       method, payload = 0, data
     elseif method_name == "deflate" then
-      local deflater_fn = get_deflater()
-      if deflater_fn == nil then
-        return false, "zip: deflate requires cosmic.compress.deflater"
-      end
-      local deflater = deflater_fn("raw", nil)
+      local deflater, dtrouble = Compress.deflater("raw")
+      if deflater == nil then return false, dtrouble end
       local part1, trouble = deflater:update(data)
       if part1 == nil then return false, trouble end
       local part2, ftrouble = deflater:finish()

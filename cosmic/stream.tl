@@ -32,10 +32,9 @@ local record Stream
 
   --- The shape `cosmic.compress`'s incremental codecs take: an
   --- inflater, a deflater, or a decoder, each a stateful transform
-  --- over chunks. Declared here, rather than required from
-  --- `cosmic.compress`, so this module and its callers can be written
-  --- and tested against it before that module grows it; a real one
-  --- satisfies this shape once it exists.
+  --- over chunks. A real `Compress.Stream` satisfies this shape; kept
+  --- as its own record, rather than an alias for it, so a plain-table
+  --- fake codec can still stand in for one in a test.
   record CodecStream
     update: function(CodecStream, string): string | nil, string
     finish: function(CodecStream): string | nil, string
@@ -110,17 +109,24 @@ end
 --- called once, at `reader`'s end of file, for whatever the codec was
 --- still holding.
 function Stream.transform(reader: Stream.Reader, codec: Stream.CodecStream): Stream.Reader
+  -- `pending` holds the codec's last batch of output, and `at` is how
+  -- far into it this reader has already given out -- an offset rather
+  -- than shrinking `pending` on every read, since a codec can hand
+  -- back megabytes at once and a caller that reads in small pieces
+  -- (a tar header at a time, say) would otherwise re-copy the whole
+  -- remaining batch on every read.
   local pending = ""
+  local at = 1
   local at_eof = false
   local finished = false
   local r: Stream.Reader = {}
   r.read = function(_self: Stream.Reader, max: integer): string | nil, string
-    while pending == "" and not finished do
+    while at > #pending and not finished do
       if at_eof then
         local out, trouble = codec:finish()
         finished = true
         if out == nil then return nil, trouble end
-        pending = out
+        pending, at = out, 1
       else
         local chunk, trouble = reader:read(chunk_size)
         if chunk == nil then
@@ -129,15 +135,20 @@ function Stream.transform(reader: Stream.Reader, codec: Stream.CodecStream): Str
         else
           local out, ctrouble = codec:update(chunk)
           if out == nil then return nil, ctrouble end
-          pending = out
+          pending, at = out, 1
         end
       end
     end
-    if pending == "" then return nil, "" end
+    if at > #pending then return nil, "" end
     local want = max or chunk_size
-    if want > #pending then want = #pending end
-    local piece = pending:sub(1, want)
-    pending = pending:sub(want + 1)
+    local avail = #pending - at + 1
+    if want >= avail then
+      local piece = at == 1 and pending or pending:sub(at)
+      pending, at = "", 1
+      return piece, ""
+    end
+    local piece = pending:sub(at, at + want - 1)
+    at = at + want
     return piece, ""
   end
   r.close = function(_self: Stream.Reader): boolean, string
