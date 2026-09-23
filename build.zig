@@ -166,6 +166,19 @@ const mbedtls_config = [_][]const u8{
     "-DPSA_WANT_ALG_HKDF_EXPAND=1",
     "-DPSA_WANT_ALG_TLS12_PRF=1",
     "-DPSA_WANT_ALG_TLS12_PSK_TO_MS=1",
+    // Wall-clock time, needed for X.509 certificate expiry checking
+    // (MBEDTLS_HAVE_TIME_DATE gates mbedtls_x509_time_gmtime() and the
+    // BADCERT_EXPIRED/BADCERT_FUTURE checks in x509_crt.c's verify
+    // callback -- without it those checks compile out entirely and an
+    // expired or not-yet-valid certificate verifies as trusted).
+    // MBEDTLS_HAVE_TIME_DATE's own implementation (platform_util.c's
+    // mbedtls_platform_gmtime_r) lives in the PSA/crypto source group
+    // this flag list feeds (mbedtls_flags), so both flags belong here
+    // rather than in mbedtls_tls_config, even though the X.509 code that
+    // calls it is compiled with mbedtls_tls_config's flags too (which
+    // include this list via `++`).
+    "-DMBEDTLS_HAVE_TIME=1",
+    "-DMBEDTLS_HAVE_TIME_DATE=1",
 };
 
 /// The handful of `MBEDTLS_xxx` flags the TLS client and X.509
