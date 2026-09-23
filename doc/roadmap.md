@@ -33,20 +33,23 @@ defines the target; once something ships, it leaves this file.
 
 ## untrusted input
 
-design.md promises that the parsers facing untrusted input are fuzzed, and the
-`cosmic-debug` release asset waits on the fuzzers existing.
+design.md promises that the parsers facing untrusted input are fuzzed.
+`build.fuzz` runs the tar, zip and archive properties and the host-program
+locator's on every `cosmic test`, and CI reruns them deep on the checked core.
+curl and c-ares are fuzzed upstream; record that as their evidence rather
+than fuzzing them here.
 
-- add a seeded, shrinking fuzzer framework. the proposed one uses `FUZZ_SEED`
-  and `FUZZ_ITERS`, runs iterations in isolated children for crash
-  containment, and uses an instruction budget as the hang backstop. main's
-  `_fuzz/` is the reference.
-- fuzz the Teal parsers that read untrusted bytes: `cosmic.tar`'s header,
-  pax and GNU long-name reader, `cosmic.zip`'s directory, and `cosmic.archive`'s
-  extraction paths (link and `..` handling), then the executable locator.
-  curl and c-ares are fuzzed upstream; record that as their evidence rather
-  than fuzzing them here.
-- publish `cosmic-debug`, the sanitized build, beside the release once the
-  fuzzers run in CI.
+- fuzz the portable launch. `build/locator_fuzz_test.tl` covers a host
+  program's trailer and manifest, which share `decode_blocks` with a portable
+  artifact, but not the launcher's own reading of the shell header or the core
+  a portable start adopts from the cache.
+- publish `cosmic-debug`, the sanitized build, beside the release. the
+  unstripped core still carries build paths: the checkout's in `.rodata`,
+  where the undefined-behavior checks keep their source locations, and in its
+  line tables, and zig's library directory in the line tables of the musl and
+  compiler-rt it compiles, which no flag of ours reaches. decide between
+  `-ffile-prefix-map` plus debug info without those paths, and no debug info,
+  before the asset is added to `prerelease.yml`.
 
 ## process isolation and containment
 
@@ -77,7 +80,7 @@ promises lean on come first:
   a declared shape, and there is no shape validator or JSON codec to do it.
   JSON starts in Teal and is measured against a C implementation once the
   benchmark harness exists.
-- `flags`, `log`, `rand`, `string`, `format`, `check`: small modules a program
+- `flags`, `log`, `string`, `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under
   `build/`. decide which become public `cosmic.*` modules and what a program

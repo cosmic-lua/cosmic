@@ -561,7 +561,9 @@ local function split_ustar(path: string): string, string, boolean
     if path:byte(i) == 47 then -- '/'
       local prefix_len = i - 1
       local name_len = #path - i
-      if prefix_len <= 155 and name_len > 0 and name_len <= 100 then
+      -- An empty prefix reads back as no prefix at all, so a split at
+      -- a leading `/` would lose it.
+      if prefix_len > 0 and prefix_len <= 155 and name_len > 0 and name_len <= 100 then
         best = i
       end
     end

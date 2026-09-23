@@ -87,6 +87,15 @@ local identity_test_timeout_ms <const> = 120000
 local suite_timeout_ms <const> = 120000
 local suite_test_timeout_s <const> = "10"
 
+-- The fuzz properties again on the checked core, over many more inputs
+-- than a suite run's 64 (build/fuzz/init.tl). FUZZ_ITERS is part of each
+-- fuzz test's key, so a whole run re-runs exactly those, and the tests
+-- that start processes, which never stand; every other verdict the
+-- checked suite just reached stands.
+local deep_fuzz_iters <const> = "2000"
+local deep_fuzz_timeout_ms <const> = 900000
+local deep_fuzz_test_timeout_s <const> = "300"
+
 local function parent(path: string): string
   return (assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory"))
 end
@@ -185,6 +194,12 @@ local function checked_suite(c: Context, target: string, work: string): integer
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
     90000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
+  if s ~= 0 then return s end
+  s = logged(c, "checked deep fuzz", { cosmic, "test" },
+    diagnostics .. "/checked-fuzz.out", diagnostics .. "/checked-fuzz.err",
+    deep_fuzz_timeout_ms, c.root, environment({ FUZZ_ITERS = deep_fuzz_iters,
+      COSMIC_TEST_TIMEOUT = deep_fuzz_test_timeout_s }))
+  write(diagnostics .. "/checked-fuzz.status", tostring(s) .. "\n")
   if s ~= 0 then return s end
   return 0
 end

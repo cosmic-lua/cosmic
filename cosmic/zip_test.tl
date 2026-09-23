@@ -303,6 +303,16 @@ local function test_a_nul_byte_in_an_entry_name_is_refused()
   assert(not ok and wtrouble:find("NUL", 1, true) ~= nil, wtrouble)
 end
 
+-- Found by zip_fuzz_test.tl: a trailing `/` marks a directory, so a
+-- file written under one read back as a directory.
+local function test_a_file_path_ending_in_a_slash_is_refused()
+  local w = Zip.writer(Stream.collect())
+  local ok, trouble = w:add_file("a/", "x")
+  assert(not ok and trouble:find("ends in /", 1, true) ~= nil, trouble)
+  assert(w:add_file("a", "x"))
+  assert(w:close())
+end
+
 local function test_an_entry_body_larger_than_its_recorded_size_fails_at_once()
   local c = Stream.collect()
   local w = Zip.writer(c)
