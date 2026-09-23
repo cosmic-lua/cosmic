@@ -62,6 +62,20 @@ that runs both, coverage reported the same way for either.
   takes down the whole run), and the re-exec the stale-tool refusal
   needs (it detects a stale tool and refuses today; it has no
   process yet to re-exec into).
+- **`cosmic build` for a project's own binaries.** a tree may define
+  any number of `cmd/<name>/main.tl`, but only `zig build boot` on
+  cosmic's own tree turns them into executables, reading the core
+  images from `o/core/`. a project holding only the binary cannot yet,
+  though every binary already carries all three images in its
+  `images` table. what is missing: a store accessor that hands a
+  trusted caller one carried image, since the VFS refuses any other
+  open of the executable; a way for the binary to name its own target,
+  which boot is told on its command line; and the verb itself, sharing
+  boot's per-binary attach loop rather than copying it. a project's
+  binaries likely carry no vendored compiler. done when a fresh
+  project with `cmd/a/` and `cmd/b/` gets a working `o/bin/a` and
+  `o/bin/b` and their per-target files from `o/bin/cosmic build`,
+  byte-identical on a second build.
 - **the provenance gate**: no bytes from outside the tree and the
   pinned zig reach an output, checked by building on two hosts and
   comparing hashes.
