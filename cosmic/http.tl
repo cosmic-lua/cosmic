@@ -32,6 +32,7 @@ end
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local sys = require("cosmic.sys")
 
 local record Http
   --- One request. `follow` defaults to true, `max_redirects` to 10;
@@ -160,12 +161,14 @@ local function copy_body(response: Http.Response, fd: integer, hasher: Hash.Hash
   end
 end
 
---- Downloads `url` to `path`, streaming to `path .. ".part"` and
---- renaming into place only once the transfer is complete, synced to
---- disk and, when `opts.sha256` is given, verified -- a reader never
---- sees a partial file at the final name. Fails on a non-2xx status (a
---- redirect `opts.follow` already took does not count) or a checksum
---- mismatch, and removes the `.part` file on every failure.
+--- Downloads `url` to `path`, streaming to a fresh temporary file
+--- beside it -- created exclusively, so two downloads never share one
+--- and a planted symlink is never followed -- and renaming into place
+--- only once the transfer is complete, synced to disk and, when
+--- `opts.sha256` is given, verified -- a reader never sees a partial
+--- file at the final name. Fails on a non-2xx status (a redirect
+--- `opts.follow` already took does not count) or a checksum mismatch,
+--- and removes the temporary file on every failure.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
   local want = opts ~= nil and opts.sha256 or ""
   local hasher: Hash.Hasher = nil
@@ -185,12 +188,12 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
     return false, url .. ": HTTP " .. tostring(response.status)
   end
 
-  local part = path .. ".part"
-  local fd, open_write_trouble = Fs.open_write(part)
-  if fd == nil then
+  local temporary, open_write_trouble = sys.open_temporary(path, 0x1a4)
+  if temporary == nil then
     response:close()
-    return false, open_write_trouble
+    return false, path .. ": " .. open_write_trouble
   end
+  local part, fd = temporary.path, temporary.fd
   local ok, trouble = copy_body(response, fd, hasher)
   response:close()
   if ok then

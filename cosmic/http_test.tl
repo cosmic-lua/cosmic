@@ -276,25 +276,38 @@ local function test_download_writes_verifies_and_renames(tmp: string)
     script = { reply("200 OK", "", data) } })
   assert(ok, trouble)
   assert(Fs.read(path) == data)
-  assert(not Fs.exists(path .. ".part"))
+  local names = assert(Fs.list(tmp))
+  assert(#names == 1 and names[1] == "got", "a temporary file was left behind")
 end
 
-local function test_download_removes_the_part_file_on_a_mismatch(tmp: string)
+local function test_download_never_writes_through_a_planted_part_file(tmp: string)
+  -- it used to open path .. ".part" with O_TRUNC, following a symlink
+  -- someone else put there, and sharing it with a concurrent download
+  local path = tmp .. "/got"
+  assert(Fs.write(tmp .. "/victim", "keep me"))
+  assert(Fs.symlink(tmp .. "/victim", path .. ".part"))
+  local ok, trouble = Http.download(url, path, { script = { reply("200 OK", "", "fresh") } })
+  assert(ok, trouble)
+  assert(Fs.read(path) == "fresh")
+  assert(Fs.read(tmp .. "/victim") == "keep me")
+end
+
+local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: string)
   local path = tmp .. "/bad"
   local ok, trouble = Http.download(url, path, { sha256 = string.rep("0", 64),
     script = { reply("200 OK", "", "not what was promised") } })
   assert(not ok)
   assert(trouble:find("mismatch", 1, true) ~= nil, trouble)
-  assert(not Fs.exists(path) and not Fs.exists(path .. ".part"))
+  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0)
 end
 
-local function test_download_removes_the_part_file_on_a_truncated_body(tmp: string)
+local function test_download_removes_its_temporary_file_on_a_truncated_body(tmp: string)
   local path = tmp .. "/short"
   local ok = Http.download(url, path, { script = {
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
-  assert(not Fs.exists(path) and not Fs.exists(path .. ".part"))
+  assert(not Fs.exists(path) and #assert(Fs.list(tmp)) == 0)
 end
 
 local function test_download_fails_on_a_non_2xx_status(tmp: string)
