@@ -27,11 +27,12 @@ defines the target; once something ships, it leaves this file.
 
 ## process isolation and containment
 
-Start test workers without the portable launcher. Each worker is this binary
-again, and the shell launcher's `uname`, `id`, `stat`, and `sha256sum` steps
-cost about 23 ms of the roughly 43 ms a minimal worker takes to start. A
+Make the first launch cheap too. A process relaunching itself (`Proc.relaunch`,
+which test workers use) already skips the shell launcher, but every launch from
+a shell still pays for its `uname`, `id`, `stat`, and `sha256sum` steps: about
+23 ms of the roughly 43 ms a minimal start takes. Trim the launcher, and add a
 host-only "assimilated" program -- the native core with the database appended,
-executed directly -- would skip them, and serve any repeated self-launch.
+executed directly -- for hosts that want no launcher at all.
 
 Contain a dead worker's escaped descendants on macOS. Linux adopts them as a
 child subreaper and `Child.end_strays` ends them; macOS has no subreaper, so a

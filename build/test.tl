@@ -931,10 +931,26 @@ function test.worker_environment(environment: {string:string}): {string:string}
   return out
 end
 
+--- How a worker is started: this exact program again -- the same core,
+--- whose runtime identity every verdict of the run is keyed under -- with
+--- `test.worker_environment`. A process not started from a portable
+--- artifact starts its logical executable instead.
+function test.worker_start(environment: {string:string}): Proc.Relaunch | nil, string
+  local env = test.worker_environment(environment)
+  local relaunch = Proc.relaunch()
+  if relaunch ~= nil then
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
+  end
+  local executable, trouble = Proc.executable()
+  if executable == nil then return nil, trouble end
+  return { argv = { executable }, env = env, fds = {} }, ""
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
-local function launch(rec: Recording, job: Job, executable: string,
-                      limits: test.Limits, environment: {string:string}): boolean
+local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
+                      limits: test.Limits): boolean
   local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
   if tmp == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
@@ -943,10 +959,15 @@ local function launch(rec: Recording, job: Job, executable: string,
   job.tmp = tmp
   job.started_ns = Time.monotonic_ns() or 0
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
-  local handle, trouble = Child.start(
-    { executable, "test", "--worker", rec.root, job.m.path, job.name, tmp },
-    { env = environment, stdin = "null", stdout = "capture", stderr = "stdout",
-      fds = { [worker.report_fd] = "capture" } })
+  local argv: {string} = {}
+  for i, value in ipairs(start.argv) do argv[i] = value end
+  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp }) do
+    argv[#argv + 1] = value
+  end
+  local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
+  for number, fd in pairs(start.fds) do fds[number] = fd end
+  local handle, trouble = Child.start(argv,
+    { env = start.env, stdin = "null", stdout = "capture", stderr = "stdout", fds = fds })
   if handle == nil then
     finish(rec, job, nil, trouble, limits)
     return false
@@ -960,12 +981,11 @@ end
 --- this process is ended by it; the signal comes back as the return.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integer
   if #jobs == 0 then return 0 end
-  local executable, exe_trouble = Proc.executable()
-  if executable == nil then
-    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. exe_trouble
+  local start, start_trouble = test.worker_start(Env.all())
+  if start == nil then
+    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
     return 0
   end
-  local environment = test.worker_environment(Env.all())
   local guarded = sys.guard_child_signals()
   local running: {Job} = {}
   local next_job = 1
@@ -974,7 +994,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     while #running < limits.jobs and next_job <= #jobs do
       local job = jobs[next_job]
       next_job = next_job + 1
-      if launch(rec, job, executable, limits, environment) then
+      if launch(rec, job, start, limits) then
         running[#running + 1] = job
       end
     end

@@ -338,6 +338,26 @@ COSMIC_SYSCALL(waitpid, 2);
 COSMIC_SYSCALL(kill, 2);
 
 /*
+ * --- How to start this same program again without its launcher: the physical core, given the private startup contract the launcher would give it.
+ * ---@class Relaunch
+ * ---@field path string the running core's own path, to execute
+ * ---@field artifact string the artifact's logical path, the core's `--artifact` argument
+ * ---@field artifact_fd integer this process's retained artifact descriptor, for the child's artifact descriptor
+ * ---@field core_fd integer a new descriptor on the running core, closed on exec, for the child's core descriptor
+ * ---@field environment {string:string} the private startup contract, naming the two child descriptors
+ */
+
+/*
+ * --- Describes starting this program again exactly: the same core, artifact and database, bypassing the launcher.
+ * ---@param artifact_fd integer the descriptor the child sees the artifact as, 3 to 255
+ * ---@param core_fd integer the descriptor the child sees its core as, 3 to 255
+ * ---@return Relaunch|nil relaunch how to start it, or nil when this process has no portable artifact
+ * ---@return string error what went wrong, when relaunch is nil
+ * ---@return integer errno the error number, ENOSYS for a start without an artifact
+ */
+COSMIC_SYSCALL(relaunch, 2);
+
+/*
  * --- The two ends of a new pipe, each closed on exec.
  * ---@class Pipe
  * ---@field reader integer the end to read from

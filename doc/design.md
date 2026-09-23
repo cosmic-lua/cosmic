@@ -478,7 +478,8 @@ that does run runs in a worker process of its own:
   depended on it. observations come through the syscall table, where the runner
   records the paths, names, and answers that can affect the verdict.
 - *fast*: compile and check run in one process, one transaction,
-  against declarations already in the database. each test runs in a worker,
+  against declarations already in the database. each test runs in a worker
+  -- the same core relaunched directly, never through the launcher --
   one per processor at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. the
   worker never opens a database; it reports what it read, what it hit, and

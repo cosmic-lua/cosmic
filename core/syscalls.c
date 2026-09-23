@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <poll.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -28,6 +29,9 @@ extern long syscall(long, ...);
 #include "miniz.h"
 #include "crypto.h"
 #include "syscalls.h"
+#include "portable.h"
+#include "startup.h"
+#include "store.h"
 
 #if defined(__APPLE__)
 #include <crt_externs.h>
@@ -498,6 +502,52 @@ COSMIC_SYSCALL(kill, 2) {
   return cosmic_ok(L);
 }
 
+static void set_decimal(lua_State *L, const char *name, uint64_t value) {
+  char text[32];
+  snprintf(text, sizeof text, "%llu", (unsigned long long)value);
+  lua_pushstring(L, text);
+  lua_setfield(L, -2, name);
+}
+
+COSMIC_SYSCALL(relaunch, 2) {
+  lua_Integer artifact_to = luaL_checkinteger(L, 1);
+  lua_Integer core_to = luaL_checkinteger(L, 2);
+  if (artifact_to < 3 || artifact_to > 255 || core_to < 3 || core_to > 255 ||
+      artifact_to == core_to)
+    return luaL_argerror(L, 1, "the child descriptors must differ, from 3 to 255");
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact == NULL) return cosmic_fail(L, ENOSYS);
+  char physical[PATH_MAX];
+  if (!cosmic_executable_path(physical, sizeof physical))
+    return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);
+  int core_fd = cosmic_executable_fd();
+  if (core_fd < 0) return cosmic_fail(L, errno);
+  const struct cosmic_portable_entry *selected = &artifact->portable.selected;
+  lua_createtable(L, 0, 5);
+  lua_pushstring(L, physical);
+  lua_setfield(L, -2, "path");
+  lua_pushstring(L, artifact->logical_path);
+  lua_setfield(L, -2, "artifact");
+  lua_pushinteger(L, artifact->fd);
+  lua_setfield(L, -2, "artifact_fd");
+  lua_pushinteger(L, core_fd);
+  lua_setfield(L, -2, "core_fd");
+  lua_createtable(L, 0, 7);
+  set_decimal(L, COSMIC_PORTABLE_ENV_ARTIFACT_FD, (uint64_t)artifact_to);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CORE_FD, (uint64_t)core_to);
+  set_decimal(L, COSMIC_PORTABLE_ENV_TARGET_ID, selected->target_id);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CONFIGURATION_ID, selected->configuration_id);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CORE_OFFSET, selected->offset);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CORE_LENGTH, selected->length);
+  char digest[COSMIC_PORTABLE_SHA256_LENGTH * 2 + 1];
+  for (size_t i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
+    snprintf(digest + i * 2, 3, "%02x", selected->sha256[i]);
+  lua_pushstring(L, digest);
+  lua_setfield(L, -2, COSMIC_PORTABLE_ENV_CORE_SHA256);
+  lua_setfield(L, -2, "environment");
+  return 1;
+}
+
 COSMIC_SYSCALL(pipe, 0) {
   int ends[2];
   if (pipe(ends) != 0) return cosmic_fail(L, errno);
@@ -750,6 +800,7 @@ static const luaL_Reg table[] = {
     ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
     ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
     ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
+    ENTRY(relaunch),
     {NULL, NULL},
 };
 

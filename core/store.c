@@ -557,6 +557,14 @@ int cosmic_store_count(lua_State *L) {
   return count;
 }
 
+const struct cosmic_artifact *cosmic_store_artifact(lua_State *L) {
+  lua_getfield(L, LUA_REGISTRYINDEX, STORE_ARTIFACT);
+  const struct cosmic_artifact *artifact = lua_touserdata(L, -1);
+  lua_pop(L, 1);
+  if (artifact == NULL || artifact->fd < 0) return NULL;
+  return artifact;
+}
+
 sqlite3 *cosmic_store_database(lua_State *L, int index) {
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   sqlite3 *db = database_at(L, -1, index);
