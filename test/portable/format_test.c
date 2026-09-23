@@ -18,21 +18,21 @@
 #define PORTABLE_TEST_CONFIGURATION_ID 1u
 #endif
 
-static void put32(unsigned char *p, uint32_t value) {
+static void put32 (unsigned char *p, uint32_t value) {
   for (int i = 3; i >= 0; i--) {
     p[i] = (unsigned char)value;
     value >>= 8;
   }
 }
 
-static void put64(unsigned char *p, uint64_t value) {
+static void put64 (unsigned char *p, uint64_t value) {
   for (int i = 7; i >= 0; i--) {
     p[i] = (unsigned char)value;
     value >>= 8;
   }
 }
 
-static int all_zero(const void *data, size_t length) {
+static int all_zero (const void *data, size_t length) {
   const unsigned char *p = data;
   for (size_t i = 0; i < length; i++) {
     if (p[i] != 0) return 0;
@@ -40,7 +40,7 @@ static int all_zero(const void *data, size_t length) {
   return 1;
 }
 
-static int write_all(int fd, const unsigned char *data, size_t length) {
+static int write_all (int fd, const unsigned char *data, size_t length) {
   while (length > 0) {
     ssize_t put = write(fd, data, length);
     if (put <= 0) return 0;
@@ -50,10 +50,10 @@ static int write_all(int fd, const unsigned char *data, size_t length) {
   return 1;
 }
 
-static int decode_bytes(const unsigned char *data, size_t length,
-                        uint32_t target, uint32_t configuration,
-                        struct cosmic_portable *decoded,
-                        const char **error) {
+static int decode_bytes (const unsigned char *data, size_t length,
+                         uint32_t target, uint32_t configuration,
+                         struct cosmic_portable *decoded,
+                         const char **error) {
   char path[] = "/tmp/cosmic-format-test.XXXXXX";
   int fd = mkstemp(path);
   if (fd < 0) return -1;
@@ -65,8 +65,8 @@ static int decode_bytes(const unsigned char *data, size_t length,
   return result;
 }
 
-static int expect_rejected(const char *name, const unsigned char *data,
-                           size_t length) {
+static int expect_rejected (const char *name, const unsigned char *data,
+                            size_t length) {
   struct cosmic_portable decoded;
   const char *error = NULL;
   memset(&decoded, 0xa5, sizeof decoded);
@@ -83,15 +83,15 @@ static int expect_rejected(const char *name, const unsigned char *data,
   return 1;
 }
 
-static unsigned char *copy_of(const unsigned char *data, size_t length) {
+static unsigned char *copy_of (const unsigned char *data, size_t length) {
   unsigned char *copy = malloc(length);
   if (copy != NULL) memcpy(copy, data, length);
   return copy;
 }
 
-static int mutation(const char *name, const unsigned char *original,
-                    size_t length, uint64_t offset,
-                    const unsigned char *replacement, size_t replace_length) {
+static int mutation (const char *name, const unsigned char *original,
+                     size_t length, uint64_t offset,
+                     const unsigned char *replacement, size_t replace_length) {
   unsigned char *changed = copy_of(original, length);
   if (changed == NULL || offset > length || replace_length > length - offset) {
     free(changed);
@@ -103,7 +103,7 @@ static int mutation(const char *name, const unsigned char *original,
   return ok;
 }
 
-static int inspect(const char *path) {
+static int inspect (const char *path) {
   int fd = open(path, O_RDONLY);
   if (fd < 0) return 2;
   struct cosmic_portable decoded;
@@ -134,7 +134,7 @@ static int inspect(const char *path) {
   return 0;
 }
 
-static int self_test(const char *path) {
+static int self_test (const char *path) {
   int fd = open(path, O_RDONLY);
   struct stat st;
   if (fd < 0 || fstat(fd, &st) != 0 || st.st_size < 1) return 2;
@@ -239,7 +239,7 @@ static int self_test(const char *path) {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main (int argc, char **argv) {
   if (argc == 3 && strcmp(argv[1], "--inspect") == 0) return inspect(argv[2]);
   if (argc == 2) return self_test(argv[1]);
   fprintf(stderr, "usage: format-test [--inspect] ARTIFACT\n");

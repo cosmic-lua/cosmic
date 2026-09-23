@@ -14,6 +14,6 @@
 #include "lua.h"
 
 /* Pushes the module table. */
-int cosmic_open_testing(lua_State *L);
+int cosmic_open_testing (lua_State *L);
 
 #endif

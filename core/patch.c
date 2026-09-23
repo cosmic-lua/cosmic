@@ -39,7 +39,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static _Noreturn void fail(const char *what, const char *detail) {
+static _Noreturn void fail (const char *what, const char *detail) {
   if (detail != NULL) {
     fprintf(stderr, "patch: %s: %s\n", what, detail);
   } else {
@@ -48,12 +48,12 @@ static _Noreturn void fail(const char *what, const char *detail) {
   exit(1);
 }
 
-static _Noreturn void fail_errno(const char *what, const char *path) {
+static _Noreturn void fail_errno (const char *what, const char *path) {
   fprintf(stderr, "patch: %s %s: %s\n", what, path, strerror(errno));
   exit(1);
 }
 
-static void *xmalloc(size_t n) {
+static void *xmalloc (size_t n) {
   void *p = malloc(n == 0 ? 1 : n);
   if (p == NULL) {
     fail("out of memory", NULL);
@@ -61,7 +61,7 @@ static void *xmalloc(size_t n) {
   return p;
 }
 
-static char *join(const char *dir, const char *name) {
+static char *join (const char *dir, const char *name) {
   size_t a = strlen(dir), b = strlen(name);
   char *out = xmalloc(a + b + 2);
   memcpy(out, dir, a);
@@ -72,7 +72,7 @@ static char *join(const char *dir, const char *name) {
 }
 
 /* Reads a whole file. Sets *len; the buffer gets a trailing NUL. */
-static char *slurp(const char *path, size_t *len) {
+static char *slurp (const char *path, size_t *len) {
   FILE *f = fopen(path, "rb");
   if (f == NULL) {
     fail_errno("cannot read", path);
@@ -111,7 +111,7 @@ static char *slurp(const char *path, size_t *len) {
   return buf;
 }
 
-static void spit(const char *path, const char *data, size_t len, mode_t mode) {
+static void spit (const char *path, const char *data, size_t len, mode_t mode) {
   FILE *f = fopen(path, "wb");
   if (f == NULL) {
     fail_errno("cannot write", path);
@@ -127,18 +127,18 @@ static void spit(const char *path, const char *data, size_t len, mode_t mode) {
   }
 }
 
-static void make_dir(const char *path) {
+static void make_dir (const char *path) {
   if (mkdir(path, 0755) != 0 && errno != EEXIST) {
     fail_errno("cannot create", path);
   }
 }
 
-static int compare_names(const void *a, const void *b) {
+static int compare_names (const void *a, const void *b) {
   return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
 
 /* Reads a directory into a sorted array, so a copy is reproducible. */
-static char **list_dir(const char *path, size_t *count) {
+static char **list_dir (const char *path, size_t *count) {
   DIR *d = opendir(path);
   if (d == NULL) {
     fail_errno("cannot open", path);
@@ -169,7 +169,7 @@ static char **list_dir(const char *path, size_t *count) {
   return names;
 }
 
-static void copy_tree(const char *from, const char *to) {
+static void copy_tree (const char *from, const char *to) {
   make_dir(to);
   size_t count;
   char **names = list_dir(from, &count);
@@ -198,8 +198,8 @@ static void copy_tree(const char *from, const char *to) {
 
 /* Finds a line that is exactly `prefix` + ` ` + `word`. Returns its start,
  * and sets *after to the first byte of the next line. */
-static char *find_fence(char *from, const char *prefix, const char *word,
-                        char **after) {
+static char *find_fence (char *from, const char *prefix, const char *word,
+                         char **after) {
   size_t plen = strlen(prefix), wlen = strlen(word);
   char *at = from;
   while (at != NULL && *at != '\0') {
@@ -219,7 +219,7 @@ static char *find_fence(char *from, const char *prefix, const char *word,
 }
 
 /* Reads a `key: value` header line at `*at`, advancing past it. */
-static char *header(char **at, const char *key, const char *record) {
+static char *header (char **at, const char *key, const char *record) {
   size_t klen = strlen(key);
   char *line = *at;
   char *eol = strchr(line, '\n');
@@ -237,7 +237,7 @@ static char *header(char **at, const char *key, const char *record) {
   return value;
 }
 
-static void apply_record(const char *record, const char *out_dir) {
+static void apply_record (const char *record, const char *out_dir) {
   size_t len;
   char *text = slurp(record, &len);
   char *at = text;
@@ -333,7 +333,7 @@ static void apply_record(const char *record, const char *out_dir) {
   free(text);
 }
 
-int main(int argc, char **argv) {
+int main (int argc, char **argv) {
   if (argc != 4) {
     fprintf(stderr, "usage: patch <vendor dir> <patch dir> <out dir>\n");
     return 2;

@@ -43,7 +43,7 @@ struct cosmic_guard {
 
 /* Releases what the guard holds, once; a guard holding nothing is left
  * alone, so an early release and the close that follows it compose. */
-static inline void cosmic_guard_release(struct cosmic_guard *guard) {
+static inline void cosmic_guard_release (struct cosmic_guard *guard) {
   void *resource = guard->resource;
   if (resource != NULL) {
     guard->resource = NULL;
@@ -51,7 +51,7 @@ static inline void cosmic_guard_release(struct cosmic_guard *guard) {
   }
 }
 
-static inline int cosmic_guard_close(lua_State *L) {
+static inline int cosmic_guard_close (lua_State *L) {
   cosmic_guard_release(lua_touserdata(L, 1));
   return 0;
 }
@@ -62,7 +62,7 @@ static inline int cosmic_guard_close(lua_State *L) {
  * (as luaL_newmetatable does) and then raised out of while it was being
  * filled, it would stay in the registry without __close or __gc, and
  * every guard after it would release nothing. */
-static inline struct cosmic_guard *cosmic_guard_push(
+static inline struct cosmic_guard *cosmic_guard_push (
     lua_State *L, void (*release)(void *resource)) {
   struct cosmic_guard *guard = lua_newuserdatauv(L, sizeof *guard, 0);
   guard->release = release;

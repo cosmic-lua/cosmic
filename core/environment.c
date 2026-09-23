@@ -16,7 +16,7 @@ extern char **environ;
 #define COSMIC_PORTABLE_ENV_PREFIX "COSMIC_PORTABLE_"
 #define COSMIC_PORTABLE_ENV_CACHE "COSMIC_PORTABLE_CACHE"
 
-int cosmic_environment_clear_reserved(const char *const *keep) {
+int cosmic_environment_clear_reserved (const char *const *keep) {
   const size_t prefix_length = strlen(COSMIC_PORTABLE_ENV_PREFIX);
   for (;;) {
     const char *found = NULL;
