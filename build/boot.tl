@@ -7,19 +7,12 @@
 
 local Fs = require("cosmic.fs")
 local Time = require("cosmic.time")
+local clock = require("build.clock")
 local artifact = require("build.artifact")
 local compiler = require("build.compiler")
 local importer = require("build.importer")
 local work = require("build.work")
 local writer = require("build.writer")
-
-local function elapsed_ms(from: integer): integer
-  local now = Time.monotonic_ns()
-  if now == nil then
-    return 0
-  end
-  return (now - from) // 1000000
-end
 
 local function report(line: string)
   Fs.put(Fs.stdout, line .. "\n")
@@ -176,7 +169,7 @@ local function boot(root: string, argv: {integer:string}): integer
   local result, compile_trouble =
     importer.compile(handle, compiler, identities.compiler)
   if result == nil then
-    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
+    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
     report("boot: FAIL\n" .. compile_trouble)
     return 1
@@ -184,7 +177,7 @@ local function boot(root: string, argv: {integer:string}): integer
   local database_path = output .. "/cosmic.db"
   local written, write_trouble =
     writer.write_result(handle, database_path, result)
-  work.record(handle, elapsed_ms(started), staged, result.compiled,
+  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then
     work.close(handle)
@@ -225,7 +218,7 @@ local function boot(root: string, argv: {integer:string}): integer
 
   report("boot: PASS (" .. #targets .. " targets, " .. staged.files ..
     " files staged, " .. result.compiled .. " modules compiled, " ..
-    #database .. " database bytes, " .. elapsed_ms(started) .. " ms)")
+    #database .. " database bytes, " .. clock.elapsed_ms(started) .. " ms)")
   return 0
 end
 

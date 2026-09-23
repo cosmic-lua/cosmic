@@ -167,11 +167,8 @@ work.version = "17"
 ---
 --- `test_runs`/`coverage`/`coverage_by_test` are real history instead:
 --- one snapshot per `cosmic test` invocation, each run identified by
---- its own start time in nanoseconds (`ran_at_ns`) rather than an
---- autoincrement id -- `cosmic.sqlite` has no `last_insert_rowid`
---- helper, and a nanosecond timestamp is already how `runs.ran_at_ns`
---- identifies things above, so reusing that convention needs no new
---- sqlite API surface. This database is dev-only and never shipped,
+--- its own start time in nanoseconds (`ran_at_ns`), the convention
+--- `runs.ran_at_ns` already uses. This database is dev-only and never shipped,
 --- but its growth is still bounded: `build.test`'s `prune_history`
 --- runs in the same transaction as every write here and keeps
 --- `coverage` to the newest `kept_snapshots` runs, `coverage_by_test`
@@ -495,11 +492,9 @@ local tool_files: {string:boolean} = {
   ["bin/zig"] = true,
   ["bin/zig.pin"] = true,
 }
---- The directories the files above sit in, walked for them alone.
---- `vendor` is walked one level down for each tree's `PIN`.
+--- The directory the `bin/` files above sit in, walked for them alone.
 local tool_dirs: {string:boolean} = {
   ["bin"] = true,
-  ["vendor"] = true,
 }
 
 --- Trees of their own that sit inside cosmic's: `ci/` is the project

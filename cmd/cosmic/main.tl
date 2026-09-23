@@ -9,6 +9,7 @@ local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local clock = require("build.clock")
 
 -- Require build modules lazily inside the verb that needs them, so `help`
 -- remains fast and loads only `build.docs` and `build.reboot`.
@@ -92,14 +93,6 @@ Every verb ends in a verdict line and an exit code.
 
 local function say(line: string)
   Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function elapsed_ms(from: integer): integer
-  local now = Time.monotonic_ns()
-  if now == nil then
-    return 0
-  end
-  return (now - from) // 1000000
 end
 
 local function complain(line: string)
@@ -238,14 +231,14 @@ local function run(file: string, argv: {integer:string}): integer
 
   local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
-    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
+    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
     complain("cosmic: " .. compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(handle, database, result)
-  work.record(handle, elapsed_ms(started), staged, result.compiled,
+  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   work.close(handle)
   if not written then

@@ -1,15 +1,11 @@
-local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
+local Process = require("cosmic_ci.process")
 
--- Bound subprocess waits and the shorter paused-build handshakes separately.
-local child_wait_timeout_ms <const> = 30000
-local handshake_timeout_ms <const> = 5000
-
-local function chmod(path: string, mode: integer)
-  assert(sys.chmod(path, mode))
-end
+local type Running = Process.Running
+local start, finish, supervised = Process.start, Process.finish, Process.supervised
+local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.release
+local chmod, host_uname = Process.chmod, Process.host_uname
 
 -- Both inputs must contain the entire prefix; neither must end at its boundary.
 local function compare_file_prefixes(left: string, right: string,
@@ -54,14 +50,6 @@ local function count_cache_files(directory: string): integer
   return count
 end
 
-local function host_uname(work: string, diagnostics: string, flag: string,
-    label: string): string
-  local answer = Fixture.run("uname-" .. label,
-    { "/usr/bin/env", "uname", flag }, work, diagnostics)
-  return (assert(Fixture.small(answer.out, 256):match("^(%S+)"),
-    "uname " .. flag .. " produced no output"))
-end
-
 -- Find the single generated target whose uname fields match this host.
 -- `Fixture.targets` discards those fields, so it cannot perform this lookup.
 local function host_target_field(fixture_dir: string, work: string,
@@ -81,89 +69,6 @@ local function host_target_field(fixture_dir: string, work: string,
   end
   return (assert(found, "no generated target matches this host: " ..
     sysname .. " " .. arch))
-end
-
-local record Running
-  handle: Child.Handle
-  out_fd: integer
-  err_fd: integer
-  out: string
-  err: string
-  closed: boolean
-end
-
-local function start(label: string, argv: {string}, cwd: string,
-    values: {string:string}, diagnostics: string): Running
-  local out = diagnostics .. "/" .. label .. ".out"
-  local err = diagnostics .. "/" .. label .. ".err"
-  local out_fd = assert(Fs.open_write(out))
-  local err_fd = assert(Fs.open_write(err))
-  local options: Child.Options = { cwd = cwd, env = values,
-    stdout = out_fd, stderr = err_fd, process_group = false }
-  local handle, trouble = Child.start(argv, options)
-  if handle == nil then
-    Fs.close(out_fd); Fs.close(err_fd)
-    error(label .. ": " .. trouble)
-  end
-  return { handle = handle, out_fd = out_fd, err_fd = err_fd,
-    out = out, err = err, closed = false }
-end
-
-local function close_descriptors(running: Running)
-  if not running.closed then
-    assert(Fs.close(running.out_fd)); assert(Fs.close(running.err_fd))
-    running.closed = true
-  end
-end
-
-local function finish(running: Running, timeout?: integer): Child.Result
-  local result, trouble = running.handle:wait(timeout or child_wait_timeout_ms)
-  if result == nil then
-    running.handle:close(); close_descriptors(running)
-    error("identity child wait failed: " .. trouble)
-  end
-  close_descriptors(running)
-  return result as Child.Result
-end
-
-local function cleanup(running: Running)
-  if not running.closed then
-    running.handle:close()
-    close_descriptors(running)
-  end
-end
-
-local function supervised(action: function({Running}))
-  local active: {Running} = {}
-  local called, failure = pcall(function(): boolean
-    action(active); return true
-  end)
-  for _, running in ipairs(active) do cleanup(running) end
-  if not called then error(failure) end
-end
-
-local function fifo(work: string, diagnostics: string, name: string): string
-  local path = work .. "/" .. name
-  Fixture.run("mkfifo-" .. name, { "/usr/bin/env", "mkfifo", path }, work,
-    diagnostics)
-  return path
-end
-
-local function await_ready(work: string, diagnostics: string, label: string,
-    path: string)
-  local answer = Fixture.run("ready-" .. label,
-    { "/usr/bin/env", "cat", path }, work, diagnostics, nil,
-    handshake_timeout_ms)
-  assert(Fixture.small(answer.out, 128) == "ready\n",
-    "identity startup hook readiness differs")
-end
-
-local function release(work: string, diagnostics: string, label: string,
-    path: string)
-  local input = work .. "/release-" .. label
-  Fixture.write(input, "go\n")
-  Fixture.run("release-" .. label, { "/usr/bin/env", "tee", path }, work,
-    diagnostics, nil, handshake_timeout_ms, input)
 end
 
 -- The unlink-during-build and rename-during-build races: a throwaway copy of

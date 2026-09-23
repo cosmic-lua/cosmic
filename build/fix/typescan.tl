@@ -254,7 +254,6 @@ local record TypescanModule
   type Scan = Scan
   new: function(tokens: {compiler.Token}): Scan
   index_at: function(s: Scan, y: integer, x: integer): integer | nil
-  index_before: function(s: Scan, y: integer, x: integer): integer
   bounded_end: function(s: Scan, y: integer, x: integer): integer
   type_end: function(s: Scan, i: integer): integer
   rets_end: function(s: Scan, i: integer): integer
@@ -268,7 +267,6 @@ end
 local M: TypescanModule = {
   new = new,
   index_at = index_at,
-  index_before = index_before,
   bounded_end = bounded_end,
   type_end = type_end,
   rets_end = rets_end,

@@ -58,6 +58,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local clock = require("build.clock")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local entry_points = require("build.entry_points")
@@ -106,18 +107,15 @@ local record test
     --- How many workers run at once.
     jobs: integer
   end
-
-  --- The variable a test deadline's default is read from, in seconds.
-  timeout_variable: string
-  --- A test's deadline when neither the command line nor the
-  --- environment names one, in seconds: the slowest test in this tree
-  --- takes about a second, so this leaves a loaded CI host ample room
-  --- while still ending a hung test well inside any whole-run budget.
-  default_timeout_s: integer
 end
 
-test.timeout_variable = "COSMIC_TEST_TIMEOUT"
-test.default_timeout_s = 30
+--- The variable a test deadline's default is read from, in seconds.
+local timeout_variable = "COSMIC_TEST_TIMEOUT"
+--- A test's deadline when neither the command line nor the
+--- environment names one, in seconds: the slowest test in this tree
+--- takes about a second, so this leaves a loaded CI host ample room
+--- while still ending a hung test well inside any whole-run budget.
+local default_timeout_s = 30
 
 --- Whether one test module is named by a selector. A module name and its
 --- source path match exactly; a directory matches only at a `/` boundary.
@@ -154,14 +152,6 @@ end
 
 local function text(value: string): Sqlite.Value
   return { text = value }
-end
-
-local function elapsed_ms(from: integer): integer
-  local now = Time.monotonic_ns()
-  if now == nil then
-    return 0
-  end
-  return (now - from) // 1000000
 end
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
@@ -936,7 +926,7 @@ end
 --- whose runtime identity every verdict of the run is keyed under -- with
 --- `test.worker_environment`. A process not started from a portable
 --- artifact starts its logical executable instead.
-function test.worker_start(environment: {string:string}): Proc.Relaunch | nil, string
+local function worker_start(environment: {string:string}): Proc.Relaunch | nil, string
   local env = test.worker_environment(environment)
   local relaunch = Proc.relaunch()
   if relaunch ~= nil then
@@ -982,7 +972,7 @@ end
 --- this process is ended by it; the signal comes back as the return.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integer
   if #jobs == 0 then return 0 end
-  local start, start_trouble = test.worker_start(Env.all())
+  local start, start_trouble = worker_start(Env.all())
   if start == nil then
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
     return 0
@@ -1050,7 +1040,7 @@ end
 --- positive whole number.
 local function limits_of(argv: {integer:string}): test.Limits | nil, string
   local limits: test.Limits = {
-    timeout_ms = test.default_timeout_s * 1000,
+    timeout_ms = default_timeout_s * 1000,
     jobs = Proc.cpu_count(),
   }
   local function positive(value: string, what: string): integer | nil, string
@@ -1060,9 +1050,9 @@ local function limits_of(argv: {integer:string}): test.Limits | nil, string
     end
     return number, ""
   end
-  local from_env = Env.get(test.timeout_variable)
+  local from_env = Env.get(timeout_variable)
   if from_env ~= nil and from_env ~= "" then
-    local seconds, trouble = positive(from_env, test.timeout_variable)
+    local seconds, trouble = positive(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
     limits.timeout_ms = seconds * 1000
   end
@@ -1187,14 +1177,14 @@ function test.run(argv: {integer:string}): integer
 
   local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
-    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
+    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
     complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(handle, database, result)
-  work.record(handle, elapsed_ms(started), staged, result.compiled,
+  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then
     work.close(handle)
@@ -1204,7 +1194,7 @@ function test.run(argv: {integer:string}): integer
   report("build: " .. #result.modules .. " modules (" .. result.compiled ..
     " compiled, " .. result.cached .. " cached; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
-    elapsed_ms(started) .. " ms")
+    clock.elapsed_ms(started) .. " ms")
 
   local selected_modules: {importer.Module} = {}
   for _, m in ipairs(result.modules) do
@@ -1346,7 +1336,7 @@ function test.run(argv: {integer:string}): integer
         "record a *_example.tl file returns")
     end
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
-      tally.ran .. " ran, " .. tally.cached .. " stood, " .. elapsed_ms(started) .. " ms)")
+      tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms)")
     report(cov_line)
     if points_line ~= nil then report(points_line) end
     return 0
@@ -1370,7 +1360,7 @@ function test.run(argv: {integer:string}): integer
   end
   report("test: FAIL (" .. #failures .. " of " ..
     (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
-    elapsed_ms(started) .. " ms)")
+    clock.elapsed_ms(started) .. " ms)")
   if #errors == 0 then
     report(cov_line)
     if points_line ~= nil then report(points_line) end
