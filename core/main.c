@@ -516,7 +516,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
                        (int64_t)artifact.portable.database_offset,
                        (int64_t)artifact.portable.database_length);
     if (db == NULL) {
-      lua_close(L);
+      cosmic_surface_close(L);
       cosmic_artifact_close(&artifact);
       return complain("cannot open my own database", self);
     }
@@ -548,11 +548,11 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
 
     if (argc >= 5 && strcmp(argv[1], "--boot") == 0) {
       int status = cosmic_boot(L, argv[2], argv[3], argc, argv);
-      lua_close(L);
+      cosmic_surface_close(L);
       cosmic_artifact_close(&artifact);
       return status;
     }
-    lua_close(L);
+    cosmic_surface_close(L);
     cosmic_artifact_close(&artifact);
     return complain("no database attached, and no tree to boot from", self);
   }
@@ -560,7 +560,7 @@ int cosmic_runtime_entry(const struct cosmic_startup *startup, int argc,
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
   int status = run_main(L, db, argc, argv);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);
-  lua_close(L);
+  cosmic_surface_close(L);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_LUA_CLOSED);
   sqlite3_close_v2(db);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_DATABASE_CLOSED);

@@ -45,3 +45,31 @@ local function test_a_name_that_never_existed_is_nil()
   local globals = _G as {string: any}
   assert(globals["cosmic_surface_test_never_defined"] == nil)
 end
+
+--- The state's allocator keeps freed big blocks for reuse. A buffer
+--- that grows through its sizes moves between them, and one that ends
+--- shorter than it grew shrinks: every string made that way, and every
+--- one made after its blocks were freed and handed out again, holds
+--- exactly its own bytes.
+local function test_big_strings_keep_their_bytes_through_reused_blocks()
+  local sizes = { 30000, 33000, 40960, 40961, 65536, 65537, 100000, 1 << 20,
+    (2 << 20) - 1, 2 << 20, (2 << 20) + 1, 3 << 20 }
+  for round = 1, 3 do
+    local made: {string} = {}
+    for index, size in ipairs(sizes) do
+      local byte = string.char(65 + (index + round) % 26)
+      local pieces: {string} = {}
+      for i = 1, size // 1000 do pieces[i] = string.rep(byte, 1000) end
+      pieces[#pieces + 1] = string.rep(byte, size % 1000)
+      local joined = table.concat(pieces)
+      local repeated = string.rep(byte, size)
+      assert(#joined == size and joined == repeated, "size " .. size)
+      made[index] = joined:sub(2) .. "!"
+    end
+    collectgarbage("collect")
+    for index, size in ipairs(sizes) do
+      local byte = string.char(65 + (index + round) % 26)
+      assert(made[index] == string.rep(byte, size - 1) .. "!", "size " .. size)
+    end
+  end
+end
