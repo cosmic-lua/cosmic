@@ -12,10 +12,6 @@
 --- predicate, or a rewrite item, can reach the site's rendered type
 --- text) and otherwise compares two casts' rendered type text for
 --- equality -- the only type-aware comparison this feature makes.
----
---- Operates entirely on already-parsed nodes and type payloads, so it
---- needs no compiler capsule of its own; unchanged from cosmic's own
---- `cosmic.ast.match_cast` beyond its `require` paths.
 local node_mod = require("build.ast.node")
 
 local type Node = node_mod.Node

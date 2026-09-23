@@ -1,11 +1,19 @@
 /*
- * SHA-256. The one hash the core needs before mbedtls exists: the
- * importer's content keys and the Mach-O code signature's page hashes.
+ * SHA-256, the one hash the core carries: the importer's content keys
+ * and the Mach-O code signature's page hashes.
  */
 
 #include "sha256.h"
 
+#include <stdint.h>
 #include <string.h>
+
+struct cosmic_sha256 {
+  uint32_t state[8];
+  uint64_t length;
+  unsigned char block[64];
+  size_t held;
+};
 
 static const uint32_t round_constants[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
@@ -68,7 +76,7 @@ static void compress(struct cosmic_sha256 *s, const unsigned char *block) {
   s->state[7] += h;
 }
 
-void cosmic_sha256_begin(struct cosmic_sha256 *s) {
+static void cosmic_sha256_begin(struct cosmic_sha256 *s) {
   s->state[0] = 0x6a09e667;
   s->state[1] = 0xbb67ae85;
   s->state[2] = 0x3c6ef372;
@@ -81,7 +89,8 @@ void cosmic_sha256_begin(struct cosmic_sha256 *s) {
   s->held = 0;
 }
 
-void cosmic_sha256_add(struct cosmic_sha256 *s, const void *data, size_t len) {
+static void cosmic_sha256_add(struct cosmic_sha256 *s, const void *data,
+                              size_t len) {
   const unsigned char *at = data;
   s->length += (uint64_t)len;
   while (len > 0) {
@@ -98,7 +107,7 @@ void cosmic_sha256_add(struct cosmic_sha256 *s, const void *data, size_t len) {
   }
 }
 
-void cosmic_sha256_end(struct cosmic_sha256 *s, unsigned char out[32]) {
+static void cosmic_sha256_end(struct cosmic_sha256 *s, unsigned char out[32]) {
   uint64_t bits = s->length * 8;
   unsigned char pad = 0x80;
   cosmic_sha256_add(s, &pad, 1);

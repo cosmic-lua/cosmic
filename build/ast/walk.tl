@@ -14,30 +14,11 @@
 --- either a real node (a `Node`) or a BARE array of nodes with no
 --- position of its own (`if_blocks`; a "statements" node's own array
 --- part, reached again through a DIFFERENT node's named field).
---- Checking `is {any: any}` cannot tell the two apart -- Teal's generic
---- map type structurally covers an array too, so it matches EITHER
---- shape at runtime. That was exactly the first version of this walk's
---- bug: an `elseif v is {any} then ...` fallback placed after an
---- `is {any: any}` branch never ran, so `if_blocks` was silently never
---- descended into at all. `classify` below checks the actual `kind`
---- field instead -- present as a string on every real `Node`, and on
---- nothing else reachable this way, including the "op" node's own
---- `OpInfo` payload table (`build/ast/node.tl`'s `.op` field), which
---- the live parser also stamps with `y`/`x` (arity and precedence live
---- there too) but never with `kind`. A `y`-field check reads that
---- payload as a real node too -- inert for span computation only
---- because `OpInfo.y`/`.x` duplicate the enclosing "op" node's own
---- position, but it violates `walk`'s "once per node reached" contract
---- and a consumer built on `walk` (a matcher) has no such guarantee to
---- lean on. Confirmed against a real "if" fixture and against
---- `os.execute(cmd)`'s "op" payload rather than assumed from reading
---- tl's grammar alone.
----
---- Adapted from cosmic's own `cosmic.ast.walk`: needs no compiler
---- capsule of its own (it operates on already-parsed `Node` values),
---- so only its `tl.Token` reference moves, to `build.compiler`'s own
---- `Token` -- the same declared shape `build.ast.node` already parses
---- into a `Parsed.tokens`.
+--- `is {any: any}` cannot tell the two apart -- Teal's generic map
+--- type structurally covers an array too. `classify` below checks the
+--- `kind` field instead: a string on every real `Node` and on nothing
+--- else reachable this way, including the "op" node's `OpInfo`
+--- payload, which carries `y`/`x` but is not a node.
 local type compiler = require("build.compiler")
 local node_mod = require("build.ast.node")
 

@@ -3,7 +3,7 @@
  * Teal, because it is what makes Teal available. It builds the handful
  * of things the vendored compiler reaches for outside the pure
  * libraries -- `io.open` and the handle it returns, `io.stderr`,
- * `io.type`, `os.getenv`, `package.path` and `package.searchers` -- over
+ * `os.getenv`, `package.path` and `package.searchers` -- over
  * the syscall table, so the compiler runs unpatched and never observes
  * that those names are gone.
  */
@@ -30,7 +30,7 @@ static const char cosmic_bridge_source[] =
     "end\n"
     "\n"
     "local function make_handle(fd)\n"
-    "  local h = { is_boot_handle = true }\n"
+    "  local h = {}\n"
     "  function h:read(what)\n"
     "    if what ~= '*a' and what ~= 'a' then\n"
     "      error('the boot handle reads whole files only')\n"
@@ -63,14 +63,7 @@ static const char cosmic_bridge_source[] =
     "end\n"
     "\n"
     "local shim_io = {\n"
-    "  stdout = make_handle(1),\n"
     "  stderr = make_handle(2),\n"
-    "  type = function(value)\n"
-    "    if type(value) == 'table' and value.is_boot_handle then\n"
-    "      return 'file'\n"
-    "    end\n"
-    "    return nil\n"
-    "  end,\n"
     "  open = function(path, mode)\n"
     "    local flags = sys.O_RDONLY\n"
     "    if mode and mode:find('w') then\n"
@@ -89,7 +82,7 @@ static const char cosmic_bridge_source[] =
     "local environment = setmetatable({\n"
     "  io = shim_io,\n"
     "  os = { getenv = sys.getenv },\n"
-    "  package = { path = '', searchers = {}, loaded = {} },\n"
+    "  package = { path = '', searchers = {} },\n"
     "}, { __index = function(_, name) return rawget(_G, name) end })\n"
     "\n"
     "local function complain(file, result)\n"

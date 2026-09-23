@@ -10,10 +10,6 @@
 
 #include "lua.h"
 
-/* The registry key holding the libraries that are not globals. A private
- * binding hands `debug` to the test runner and the coverage collector. */
-#define COSMIC_PRIVATE "cosmic.private"
-
 /* Creates the state and opens the surface. Returns NULL when there is no
  * memory for a state at all. */
 lua_State *cosmic_surface_open(void);

@@ -26,7 +26,6 @@ static const struct replacement replacements[] = {
                "a file's bytes come from cosmic.fs.read"},
     {"loadfile", "loadfile is not available: a module comes from require, "
                  "and a file's bytes come from cosmic.fs.read"},
-    {"require", NULL},
     {NULL, NULL},
 };
 
@@ -65,9 +64,8 @@ static int surface_print(lua_State *L) {
   return 0;
 }
 
-/* A traceback, which is the one thing `debug` is kept for above the
- * private binding: a program reporting a failure needs to say where it
- * happened. */
+/* A traceback, the one thing of `debug`'s every program keeps: a
+ * program reporting a failure needs to say where it happened. */
 static int surface_trace(lua_State *L) {
   const char *message = luaL_optstring(L, 1, NULL);
   int level = (int)luaL_optinteger(L, 2, 1);
@@ -100,20 +98,6 @@ static void open_library(lua_State *L, const char *name, lua_CFunction opener,
   lua_pop(L, 1);
 }
 
-/* Moves a library out of `package.loaded` and into the private table, so
- * neither a global nor `require` can reach it. */
-static void make_private(lua_State *L, const char *name) {
-  lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
-  lua_getfield(L, -1, name);
-  lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
-  lua_pushvalue(L, -2);
-  lua_setfield(L, -2, name);
-  lua_pop(L, 2);
-  lua_pushnil(L);
-  lua_setfield(L, -2, name);
-  lua_pop(L, 1);
-}
-
 static void clear_field(lua_State *L, const char *table, const char *field) {
   lua_getglobal(L, table);
   lua_pushnil(L);
@@ -127,9 +111,6 @@ lua_State *cosmic_surface_open(void) {
     return NULL;
   }
 
-  lua_newtable(L);
-  lua_setfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
-
   open_library(L, LUA_GNAME, luaopen_base, 1);
   open_library(L, LUA_LOADLIBNAME, luaopen_package, 1);
   open_library(L, LUA_COLIBNAME, luaopen_coroutine, 1);
@@ -138,26 +119,11 @@ lua_State *cosmic_surface_open(void) {
   open_library(L, LUA_MATHLIBNAME, luaopen_math, 1);
   open_library(L, LUA_UTF8LIBNAME, luaopen_utf8, 1);
 
-  /* Opened, then taken out of reach: boot mode and the private binding
-   * are the only callers, and they hold them directly. */
-  open_library(L, LUA_IOLIBNAME, luaopen_io, 0);
-  open_library(L, LUA_OSLIBNAME, luaopen_os, 0);
-  open_library(L, LUA_DBLIBNAME, luaopen_debug, 0);
-  make_private(L, LUA_IOLIBNAME);
-  make_private(L, LUA_OSLIBNAME);
-  make_private(L, LUA_DBLIBNAME);
-
-  /* `debug` was just taken out of reach above; the coverage collector
-   * still needs the real table, so it is fetched back out of the
-   * private binding and registered as the raw value behind
-   * `cosmic.internal.debug` -- the same handoff `cosmic.store` and
-   * `cosmic.sqlite` already get through the store searcher's trust
-   * check (core/store.c's store_searcher). This runs on every open,
-   * boot and normal alike, since cosmic_surface_open runs before
-   * either path branches. */
-  lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_PRIVATE);
-  lua_getfield(L, -1, LUA_DBLIBNAME);
-  lua_remove(L, -2);
+  /* `io` and `os` are never opened. `debug` is opened out of reach of
+   * globals and `require`, as the raw value behind
+   * `cosmic.internal.debug`: the coverage collector reaches it through
+   * the store searcher's trust check, as `cosmic.store` does. */
+  luaopen_debug(L);
   cosmic_store_set_raw(L, "cosmic.internal.debug");
 
   lua_pushnil(L);

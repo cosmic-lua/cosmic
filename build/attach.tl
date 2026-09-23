@@ -24,7 +24,7 @@ local function trailer(offset: integer): string
 end
 
 --- An ELF binary: the image, the database, the trailer.
-function attach.elf(image: string, database: string): string
+local function elf(image: string, database: string): string
   return image .. database .. trailer(#image)
 end
 
@@ -82,7 +82,7 @@ function attach.write(path: string, target: string, image: string,
     end
     bytes = built
   else
-    bytes = attach.elf(image, database)
+    bytes = elf(image, database)
   end
   local ok, why = Fs.write(path, bytes, 0x1ed)
   if not ok then

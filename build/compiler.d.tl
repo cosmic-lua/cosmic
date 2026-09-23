@@ -29,7 +29,6 @@ local record compiler
 
   record Env
     modules: {string:any}
-    module_filenames: {string:string}
     loaded: {string:any}
     defaults: Defaults
   end

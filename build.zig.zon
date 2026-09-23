@@ -5,8 +5,9 @@
     .paths = .{
         "build.zig",
         "build.zig.zon",
+        "bin/zig.pin",
         "core",
         "vendor",
-        "patches",
+        "patch",
     },
 }

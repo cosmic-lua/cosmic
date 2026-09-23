@@ -103,12 +103,11 @@ end
 function teal.environment(): {string:any}
   local environment: {string:any} = {
     io = {
-      stdout = make_handle(1),
       stderr = make_handle(2),
       open = open_file,
     },
     os = { getenv = Env.get },
-    package = { path = "", searchers = {}, loaded = {} },
+    package = { path = "", searchers = {} },
 
     _VERSION = _VERSION,
     assert = assert,

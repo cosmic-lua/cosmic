@@ -124,10 +124,7 @@ int main(int argc, char **argv) {
      * each still `require`s its raw half, under `cosmic.internal.`, by
      * the same name a shipped binary resolves through the trust-gated
      * searcher instead. */
-    lua_getfield(L, LUA_REGISTRYINDEX, LUA_PRELOAD_TABLE);
-    lua_pushcfunction(L, cosmic_open_sqlite);
-    lua_setfield(L, -2, "cosmic.internal.sqlite");
-    lua_pop(L, 1);
+    cosmic_store_preload_raw(L, "cosmic.internal.sqlite");
     cosmic_store_preload_raw(L, "cosmic.internal.store");
     cosmic_store_preload_raw(L, "cosmic.internal.debug");
 

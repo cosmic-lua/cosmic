@@ -27,15 +27,12 @@
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
-local payload = require("build.payload")
+local project = require("build.project")
 local records_schema = require("build.records_schema")
-local teal = require("build.teal")
-local writer = require("build.writer")
 local type compiler = require("build.compiler")
 
 local record test
@@ -185,63 +182,10 @@ function test.run(): integer
     return 1
   end
 
-  -- Same staleness guard `cosmic <file.tl>` applies when the tree under
-  -- test is cosmic's own: a stale tool would check and compile it with
-  -- a checker or patch set the tree no longer agrees with.
-  if importer.is_own_tree(root) then
-    local current, hash_trouble = importer.boot_hash(root)
-    if current == nil then
-      complain(hash_trouble)
-      return 1
-    end
-    local running = Store.meta("boot_hash") or ""
-    if current ~= running then
-      complain("the tool is stale; run bin/zig build boot")
-      return 3
-    end
-  end
-
-  local built, load_trouble = teal.load()
-  if built == nil then
-    complain(load_trouble)
-    return 1
-  end
-  local env, env_trouble = teal.environment_for(built, root)
-  if env == nil then
-    complain(env_trouble)
-    return 1
-  end
-
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    complain(mkdir_trouble)
-    return 1
-  end
-
-  local boot_hash = Store.meta("boot_hash") or ""
-  local database = root .. "/o/cosmic.db"
-  local images, teal_source, carry_trouble = payload.carried(database)
-  if carry_trouble ~= "" then
-    complain(carry_trouble)
-    return 1
-  end
-
-  local result, compile_trouble = importer.compile(root, built, env, boot_hash)
-  if result == nil then
-    complain(compile_trouble)
-    return 1
-  end
-  local written, write_trouble =
-    writer.write_result(database, result, images, teal_source)
-  if not written then
-    complain(write_trouble)
-    return 1
-  end
-
-  local attached, attach_trouble = Store.attach(database)
-  if not attached then
-    complain(attach_trouble)
-    return 1
+  local result, built, trouble, code = project.build(root)
+  if result == nil or built == nil then
+    complain(trouble)
+    return code
   end
 
   local records_path = root .. "/o/records.db"

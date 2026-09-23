@@ -34,7 +34,7 @@ local directory_header_size = 88
 ---   binary's own
 --- @param text_offset where the executable segment starts in the file
 --- @param text_size how long the executable segment is
-function codesign.directory(image: string, identifier: string,
+local function directory(image: string, identifier: string,
                             text_offset: integer, text_size: integer): string
   local pages = (#image + page_size - 1) // page_size
   local identifier_size = #identifier + 1
@@ -65,20 +65,20 @@ end
 
 --- Wraps a CodeDirectory in the SuperBlob that the load command points
 --- at.
-function codesign.superblob(directory: string): string
+local function superblob(code_directory: string): string
   local index_size = 8
   local offset = 12 + index_size
-  local length = offset + #directory
+  local length = offset + #code_directory
   return string.pack(">I4I4I4", superblob_magic, length, 1) ..
     string.pack(">I4I4", slot_code_directory, offset) ..
-    directory
+    code_directory
 end
 
 --- The whole signature for an image, ready to append.
 function codesign.sign(image: string, identifier: string,
                         text_offset: integer, text_size: integer): string
-  return codesign.superblob(
-    codesign.directory(image, identifier, text_offset, text_size))
+  return superblob(
+    directory(image, identifier, text_offset, text_size))
 end
 
 return codesign

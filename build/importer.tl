@@ -128,21 +128,11 @@ local function kind_of(file: string): string
   return "module"
 end
 
---- The modules another module names, in the order they appear.
----
---- Structural, over `file`'s real AST (`build.ast.parse` +
---- `build.ast.all_requires`), not a regex over source text: a
---- `require("cosmic.foo")` sitting inside a string literal or a
---- comment is not a real import, and a real parse never mistakes byte
---- content for syntax the way a text pattern has to. `all_requires`,
---- not the narrower alias-resolving `requires`, is the right tool
---- here: this tree's own `local type compiler =
---- require("build.compiler")` type-only imports and `cosmic/store.tl`
---- / `cosmic/sqlite.tl`'s conditional re-assignment
---- (`store = require("cosmic.internal.store")` inside an `if`/`else`)
---- are both real dependencies this module's `ordered()` and `compile()`
---- must see, and neither is a top-level `local <alias> = require(...)`
---- binding -- `requires`'s own stated scope leaves both unresolved.
+--- The modules another module names, in the order they appear, read
+--- from `file`'s real AST (`build.ast.all_requires`) so a `require`
+--- inside a string or a comment is not an import, while a type-only
+--- `local type x = require(...)` and a re-assignment inside an `if`
+--- both are.
 --- @param built the compiler, loaded and ready
 --- @param source the file's own source text
 --- @param file the file's path, for parse diagnostics

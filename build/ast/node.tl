@@ -3,9 +3,7 @@
 ---
 --- `tl.parse_program` returns its AST erased to `any`; this module is
 --- the one cast that turns it into a real shape, covering the fields
---- tl's parser actually sets across the "op"/"variable"/"identifier"/
---- "string"/"if"/"if_block"/"statements"/"return"/"expression_list"/
---- "local_function" kinds.
+--- tl's parser actually sets on the kinds this tree reads.
 ---
 --- tl's AST has real cycles: an "if_block" node's `if_parent` points
 --- back at its own enclosing "if" statement, not a copy. Array-shaped
@@ -14,14 +12,8 @@
 --- field, which `Node is {Node}` models directly instead of needing a
 --- second, generic array type alongside it.
 ---
---- Adapted from cosmic's own `cosmic.ast.node`: that tree's `tl` is an
---- ordinary requireable module, so `parse` reaches `tl.lex`/
---- `tl.parse_program` directly. Here the compiler is a privileged,
---- explicitly-threaded capsule (`build.teal`'s `teal.load()`, typed by
---- `build.compiler`) rather than a global `require("tl")`, so `parse`
---- takes one as its first argument instead -- the one place in this
---- whole module family that touches the compiler at all; every other
---- function in `build.ast.*` reaches it only by calling `parse`.
+--- `parse` is the one place in `build.ast.*` that calls into the
+--- compiler; everything else reaches it by calling `parse`.
 local type compiler = require("build.compiler")
 
 --- The operator payload of an "op" node. The live parser also sets
@@ -120,9 +112,6 @@ local record Node is {Node}
   body: Node | nil
 
   --- "return" and "local_declaration" alike: the RHS expression list.
-  --- Named once here because tl's parser uses the same field name for
-  --- both, not because "local_declaration" is one of this module's
-  --- covered kinds.
   exps: Node | nil
 
   --- "local_function": the declared name, an "identifier" node whose
@@ -180,10 +169,6 @@ local record Node is {Node}
   -- declared with a `:` rather than a `.`.
   fn_owner: Node | nil
   is_method: boolean | nil
-  --- "identifier", inside a method's argument list: the implicit `self`
-  --- the parser inserts at the `(`'s own position, which the source
-  --- never wrote.
-  is_self: boolean | nil
 
   -- "goto" and "label": the name jumped to, or declared.
   label: string | nil

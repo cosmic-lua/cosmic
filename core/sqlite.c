@@ -1,7 +1,5 @@
 #include "sqlite.h"
 
-#include <string.h>
-
 #include "lauxlib.h"
 #include "sqlite3.h"
 
@@ -316,8 +314,6 @@ static void make_type(lua_State *L, const char *name, const luaL_Reg *methods,
   luaL_newmetatable(L, name);
   lua_pushcfunction(L, collect);
   lua_setfield(L, -2, "__gc");
-  lua_pushstring(L, name);
-  lua_setfield(L, -2, "__name");
   lua_newtable(L);
   luaL_setfuncs(L, methods, 0);
   lua_setfield(L, -2, "__index");

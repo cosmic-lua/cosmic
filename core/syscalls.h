@@ -5,7 +5,7 @@
  *
  * Every entry is a LuaCATS annotation block followed by COSMIC_SYSCALL
  * naming it. The block is the source of truth: `build/gen_syscalls.tl`
- * turns it into the Teal declaration and the documentation row, and
+ * turns it into the Teal declaration, and
  * refuses a function whose annotation is missing a slot. A binding
  * cannot exist without its type, and the C surface cannot grow without
  * a diff in this file.
@@ -46,7 +46,7 @@
 /*
  * --- Opens a path and returns a descriptor.
  * ---@param path string the path to open
- * ---@param flags integer the O_* flags, from `syscalls.O`
+ * ---@param flags integer the O_* flags, ORed together
  * ---@param mode? integer the mode for a newly created file, default 0o644
  * ---@return integer|nil fd the descriptor, or nil on failure
  * ---@return string error what went wrong, when fd is nil

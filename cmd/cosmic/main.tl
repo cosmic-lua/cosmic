@@ -6,13 +6,9 @@
 --- and building a project are one path.
 
 local Fs = require("cosmic.fs")
-local Store = require("cosmic.store")
 local fix = require("build.fix")
-local importer = require("build.importer")
-local payload = require("build.payload")
-local teal = require("build.teal")
+local project = require("build.project")
 local test = require("build.test")
-local writer = require("build.writer")
 
 local help = [[
 cosmic -- a runtime for self-contained command-line software
@@ -27,25 +23,11 @@ cosmic -- a runtime for self-contained command-line software
                      would change, and fail if there are any
   cosmic help        this
 
-A verb takes paths to narrow it. `fix` rebuilds each file from its own
-parsed tree. It decides everything a line holds -- every keyword,
-operator and bracket, the spacing around each, and two columns of
-indentation per level of block -- from the tree rather than from
-whichever two tokens ended up adjacent, so `local x <const> = 5` is
-one unit attached to the name and can never come back as `local x <
-const > = 5`. It carries over where the lines break and where they do
-not, and never rewraps one. Type syntax is written as the original
-bytes. Nothing is written until the result has been parsed again and
-found to mean the same thing, comments included.
-
-That indentation is the indentation of LINES THAT OPEN SOMETHING: a
-statement, a block's closing keyword. A line that continues one keeps
-the column it was written at, moved with the statement it belongs to,
-and so does an entry of a table spread over several lines, a comment
-on a line of its own, and the body of a record or enum -- which is
-copied out as the bytes it was read from. Lining those up is a
-judgement about a whole line, which is the author's here, not the
-tool's.
+`fix` takes paths to narrow it. It rebuilds each file from its parsed
+tree: keywords, operators, brackets, spacing and the indentation of
+lines that open something come from the tree; line breaks, continued
+lines and type syntax are kept as written. Nothing is written until
+the result parses again to the same meaning, comments included.
 
 Every verb ends in a verdict line and an exit code.
 ]]
@@ -71,113 +53,39 @@ local function directory_of(path: string): string | nil, string
   return parent
 end
 
---- The module a file is, as its path relative to the root says.
-local function module_of(root: string, file: string): string | nil, string
-  local resolved, trouble = Fs.absolute(file)
-  if resolved == nil then
-    return nil, trouble
-  end
-  if resolved:sub(1, #root + 1) ~= root .. "/" then
-    return nil, file .. " is not inside " .. root
-  end
-  local relative = resolved:sub(#root + 2)
-  if relative:sub(-3) ~= ".tl" then
+--- The module a file is: its name, less `.tl`, within the directory it
+--- sits in.
+local function module_of(file: string): string | nil, string
+  local name = file:match("([^/]+)%.tl$")
+  if name == nil then
     return nil, file .. " is not a Teal source"
   end
-  return (relative:gsub("%.tl$", ""):gsub("/", "."))
+  return name
 end
 
 local function run(file: string, argv: {integer:string}): integer
+  local name, why = module_of(file)
+  if name == nil then
+    complain("cosmic: " .. why)
+    return 1
+  end
   local root, trouble = directory_of(file)
   if root == nil then
     complain("cosmic: " .. trouble)
     return 1
   end
-  local name, why = module_of(root, file)
-  if name == nil then
-    complain("cosmic: " .. why)
-    return 1
-  end
 
-  -- A stale tool: this binary's own build/** and core/** no longer
-  -- match what it was booted from. Rebuilding is the fix; running on
-  -- would compile the tree with a checker or patch set the tree no
-  -- longer agrees with.
-  -- intended: re-run boot and re-exec once, per design.md's staleness
-  -- section; M1 has no process spawning, so this only detects and
-  -- refuses.
-  if importer.is_own_tree(root) then
-    local current, hash_trouble = importer.boot_hash(root)
-    if current == nil then
-      complain("cosmic: " .. hash_trouble)
-      return 1
-    end
-    local running = Store.meta("boot_hash") or ""
-    if current ~= running then
-      complain("cosmic: the tool is stale; run bin/zig build boot")
-      return 3
-    end
-  end
-
-  local built, load_trouble = teal.load()
-  if built == nil then
-    complain("cosmic: " .. load_trouble)
-    return 1
-  end
-  local env, env_trouble = teal.environment_for(built, root)
-  if env == nil then
-    complain("cosmic: " .. env_trouble)
-    return 1
-  end
-
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    complain("cosmic: " .. mkdir_trouble)
-    return 1
-  end
-
-  -- The tool's own hash, which the build that made this binary recorded.
-  -- A project's rows are keyed by it, so a new cosmic recompiles them.
-  local boot_hash = Store.meta("boot_hash") or ""
-
-  local database = root .. "/o/cosmic.db"
-
-  -- Re-importing over cosmic's own database must not erase what `boot`
-  -- put there: the three core images and the vendored compiler row.
-  -- Read them back first and hand them straight through, so this run
-  -- carries them forward unchanged rather than writing an empty set.
-  local images, teal_source, carry_trouble = payload.carried(database)
-  if carry_trouble ~= "" then
-    complain("cosmic: " .. carry_trouble)
-    return 1
-  end
-
-  local result, compile_trouble = importer.compile(root, built, env, boot_hash)
+  local result, _, build_trouble, code = project.build(root)
   if result == nil then
-    complain("cosmic: " .. compile_trouble)
-    return 1
-  end
-  local written, write_trouble =
-    writer.write_result(database, result, images, teal_source)
-  if not written then
-    complain("cosmic: " .. write_trouble)
-    return 1
+    complain("cosmic: " .. build_trouble)
+    return code
   end
 
   -- A test file elsewhere in the tree that `importer.compile` refused
-  -- (the return-collision case `positions.analyze` and
-  -- `with_test_tail` guard against) is silently dropped from the
-  -- database otherwise; the file the caller actually asked to run
-  -- still compiled fine and still runs below, so this is a warning,
-  -- never a reason to fail this invocation.
+  -- is dropped from the database; the file asked for still runs, so
+  -- this is a warning, not a failure.
   for _, line in ipairs(result.refused) do
     complain("cosmic: warning: " .. line)
-  end
-
-  local attached, attach_trouble = Store.attach(database)
-  if not attached then
-    complain("cosmic: " .. attach_trouble)
-    return 1
   end
 
   local produced: any = require(name)
