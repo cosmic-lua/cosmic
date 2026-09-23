@@ -7,7 +7,9 @@ an unfinished step from an existing foundation.
 ## language and self-check
 
 `cosmic test`, doctests, Lua and Teal coverage, the structural AST, and the
-`cosmic fix` pipeline exist. the next language work is narrow:
+`cosmic fix` pipeline exist. `cosmic fix` refuses a file whose rendered output
+is not a fixed point, so idempotency is a property of the verb, not a test. the
+next language work is narrow:
 
 - implement the cast policy in design.md. a cast is legal only from `any`, from
   a userdata record declared in `.d.tl`, or from the enclosing generic's type
@@ -40,7 +42,17 @@ or a platform feature changes it.
 `cosmic.child` already provides `posix_spawn`, redirection to caller-owned file
 descriptors, bounded waits, process-group cleanup, and reap-on-drop behavior.
 It does not collect output. `cosmic test` does not yet use it: tests still run
-in the build process.
+in the build process. The runner already records each test's elapsed time in
+`runs` and carries it forward on a standing verdict, and `cosmic db` lists the
+slowest tests, so a per-test deadline can be chosen from measurements.
+
+Fix `cosmic.child_test`'s two descendant-cleanup tests first. They fail on a
+host whose PID 1 does not reap orphans, as in some containers: the killed
+grandchild stays a zombie reparented to PID 1, and `kill(pid, 0)` still
+succeeds on a zombie. Either the test counts a zombie as gone, or `cosmic.child`
+becomes a child subreaper (`PR_SET_CHILD_SUBREAPER` on Linux) so the group it
+kills is also reaped by the process that killed it. The second choice also
+serves the per-test runner above, which must not leak descendants either.
 
 Run each test in a child with a fresh temporary directory, captured streams,
 and a per-test deadline. The child must not open the build database; it reports
@@ -69,7 +81,8 @@ the remaining `fopen` paths in boot and the patch applier.
 ## documentation and examples
 
 `cosmic docs` and `cosmic uses` already query the shipped `docs`, `uses`, and
-`examples` records. Lookup includes fuzzy full-text search, and diagnostics can
+`examples` records. A module's listing shows only what its returned value
+reaches and the types it declares. Lookup includes fuzzy full-text search, and diagnostics can
 point to matching documentation. Preserve that one build-time index and one
 runtime query path as documentation grows; do not build another documentation
 system beside it. main's `cosmic/doc/` and `_tool/doc/` remain useful references
@@ -104,7 +117,11 @@ interpretation:
   pinned gitboard, as on main, proves a different property from building its
   source here. Write the check only after choosing the property.
 - grow `eval/` into a fixed task suite with tested graders and known pass,
-  partial, and fail fixtures. main's `_eval/` is a reference for keeping briefs,
+  partial, and fail fixtures. It has one task today (`eval/task/notes.md`),
+  its grader `eval/check/notes`, an arena builder, a journal contract, and a
+  friction summarizer; the first runs already produced fixes. A second task
+  should exercise a different part of the library (child processes, the store or
+  compression) so one task's friction is not mistaken for the whole product's. main's `_eval/` is a reference for keeping briefs,
   graders, their registry, and golden run directories consistent.
 
 A performance gate is future work once stable comparison targets exist. It
