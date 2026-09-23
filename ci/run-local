@@ -1,4 +1,6 @@
 #!/bin/sh
+# TODO: replace with a Teal script run by `cosmic --standalone`, as bin/zig
+# and bin/vendor are.
 # Runs this checkout's CI platform job on this machine, for the host's own
 # target: the same driver phases in the same order, against a fresh
 # candidate snapshot of the working tree, with the environment a workflow
