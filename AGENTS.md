@@ -80,9 +80,10 @@ with its reason. When reviewing C, check for:
   argument raises, and a runtime failure returns `nil` or `false`, a message,
   and an errno (`core/fail.h`).
 - A function that never returns without `_Noreturn`.
-- A new C entry point without a test that calls it: a whole run fails for one
-  (`build/entry_points.tl`). Allocation-failure paths are walked on the checked
-  core in `core/allocation_test.tl`.
+- A new C function without a test that enters it: a whole run fails for one
+  unless `build/c_functions.tl` exempts it with the reason no test can.
+  Allocation-failure paths are walked on the checked core in
+  `core/allocation_test.tl`.
 
 ## Bootstrap troubleshooting
 

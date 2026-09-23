@@ -19,10 +19,8 @@ local record native
   end
 
   --- Installs the line hook and begins a fresh, empty collection,
-  --- discarding anything collected before. With `watched`, which maps C
-  --- functions to names, calls are hooked too, and each one called is
-  --- named by `called`.
-  start: function(watched?: {any: string})
+  --- discarding anything collected before.
+  start: function()
 
   --- Removes the line hook and returns everything hit since the
   --- matching `start`.
@@ -32,9 +30,6 @@ local record native
   --- collection -- safe to call while collection keeps running, unlike
   --- `stop`. Empty when no `start` has run.
   snapshot: function(): Hits
-
-  --- The name of every watched function called since `start`.
-  called: function(): {string: boolean}
 
   --- Every line of the core's own C that a hit could land on, keyed by
   --- repository path (core/syscalls.c) the way hits on it are. Empty in

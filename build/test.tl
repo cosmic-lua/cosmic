@@ -62,7 +62,6 @@ local clock = require("build.clock")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local c_functions = require("build.c_functions")
-local entry_points = require("build.entry_points")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
 local teal = require("build.teal")
@@ -1305,23 +1304,12 @@ function test.run(argv: {integer:string}): integer
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
 
-  -- Every C entry point must be one some test calls, in this run or in
-  -- the run whose verdict stands for it: a standing verdict's calls are
-  -- among the hits credited to it just above. Only a whole run of
-  -- cosmic's own tree answers that: a run of chosen tests says nothing
-  -- about the rest, and another project's tests owe nothing to the C
-  -- underneath them.
-  local points_line: string = nil
-  if own_tree and #selectors == 0 then
-    local points = entry_points.tally(entry_points.all(), hits)
-    for _, name in ipairs(points.unreached) do
-      failures[#failures + 1] = name .. ": a C entry point no test calls"
-    end
-    points_line = string.format("test: C entry points %d/%d called by a test (%d exempt)",
-      points.reached, points.total - points.exempted, points.exempted)
-  end
-  -- Every C function must be one some test enters, where the core
-  -- observes its own C, on the same terms.
+  -- Every C function must be one some test enters, in this run or in
+  -- the run whose verdict stands for it: a standing verdict's hits are
+  -- among those credited to it just above. Only a whole run of cosmic's
+  -- own tree answers that: a run of chosen tests says nothing about the
+  -- rest, and another project's tests owe nothing to the C underneath
+  -- them. Every core cosmic tests with observes its own C.
   local functions_line: string = nil
   local functions = Coverage.native_functions()
   if own_tree and #selectors == 0 and #functions > 0 then
@@ -1374,7 +1362,6 @@ function test.run(argv: {integer:string}): integer
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms)")
     report(cov_line)
-    if points_line ~= nil then report(points_line) end
     if functions_line ~= nil then report(functions_line) end
     return 0
   end
@@ -1400,7 +1387,6 @@ function test.run(argv: {integer:string}): integer
     clock.elapsed_ms(started) .. " ms)")
   if #errors == 0 then
     report(cov_line)
-    if points_line ~= nil then report(points_line) end
     if functions_line ~= nil then report(functions_line) end
   end
   return 1

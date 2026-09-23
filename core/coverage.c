@@ -46,12 +46,8 @@ typedef struct Collector {
 
 static char collector_key;
 
-/* The collector's uservalues: the source strings it roots, the C
- * functions a call is counted for (nil when none are), and the names of
- * the ones called since `start`. */
+/* The collector's uservalue: the source strings it roots. */
 #define ROOTED 1
-#define WATCHED 2
-#define CALLED 3
 
 /* Installed before any Lua code runs (cosmic_surface_open). Lua copies the
  * main thread's extraspace into new coroutines. Keep this userdata rooted and
@@ -330,88 +326,24 @@ static void native_line_hook (lua_State *L, lua_Debug *ar) {
   page->bits[offset / 64] |= UINT64_C(1) << (offset % 64);
 }
 
-/* called[watched[f]] = true, when the function being called is a C
- * function `start` was asked to watch. A C function has no lines for the
- * line hook to see, so this is how a test is seen to reach one. Anything
- * that is not a C function goes back before a table is touched: most
- * calls are Lua's own. */
-static void record_call (lua_State *L, lua_Debug *ar) {
-  int top = lua_gettop(L);
-  if (lua_getinfo(L, "f", ar) && lua_iscfunction(L, -1)) {
-    lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
-    if (lua_getiuservalue(L, -1, WATCHED) == LUA_TTABLE) {
-      lua_pushvalue(L, top + 1);
-      if (lua_rawget(L, -2) == LUA_TSTRING) {
-        lua_getiuservalue(L, top + 2, CALLED);
-        lua_pushvalue(L, -2);
-        lua_pushboolean(L, 1);
-        lua_rawset(L, -3);
-      }
-    }
-  }
-  lua_settop(L, top);
-}
-
-static void native_hook (lua_State *L, lua_Debug *ar) {
-  if (ar->event == LUA_HOOKLINE) {
-    native_line_hook(L, ar);
-    return;
-  }
-  Collector *collector = current_collector(L);
-  if (collector && collector->active) {
-    record_call(L, ar);
-  }
-}
-
-/* start(watched?): `watched` maps C functions to the names `called`
- * reports them under. Without it only lines are hooked, and a call
- * costs nothing. */
+/* start(): hooks lines and begins a collection. */
 static int coverage_start (lua_State *L) {
-  int watching = !lua_isnoneornil(L, 1);
-  if (watching) {
-    luaL_checktype(L, 1, LUA_TTABLE);
-  }
   Collector *collector = current_collector(L);
   /* The first window after startup collection keeps what startup hit,
    * and the source strings rooted for it. */
   int keep = collector->from_startup;
   collector->from_startup = 0;
-  if (!keep) collector_clear(collector);
-  lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
   if (!keep) {
+    collector_clear(collector);
+    lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
     lua_newtable(L);
     lua_setiuservalue(L, -2, ROOTED);
+    lua_pop(L, 1);
   }
-  if (watching) {
-    lua_pushvalue(L, 1);
-  } else {
-    lua_pushnil(L);
-  }
-  lua_setiuservalue(L, -2, WATCHED);
-  lua_newtable(L);
-  lua_setiuservalue(L, -2, CALLED);
-  lua_pop(L, 1);
   collector->active = 1;
   native_open();
-  lua_sethook(L, native_hook, LUA_MASKLINE | (watching ? LUA_MASKCALL : 0), 0);
+  lua_sethook(L, native_line_hook, LUA_MASKLINE, 0);
   return 0;
-}
-
-/* called(): the name of every watched function called since `start`, as
- * a fresh {name = true} table. */
-static int coverage_called (lua_State *L) {
-  lua_newtable(L);
-  lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
-  if (lua_getiuservalue(L, -1, CALLED) == LUA_TTABLE) {
-    lua_pushnil(L);
-    while (lua_next(L, -2) != 0) {
-      lua_pushvalue(L, -2);
-      lua_insert(L, -2);
-      lua_rawset(L, -6);
-    }
-  }
-  lua_pop(L, 2);
-  return 1;
 }
 
 /* Materialize fresh tables only when requested. Separate Lua source strings
@@ -521,7 +453,7 @@ void cosmic_coverage_install (lua_State *L) {
   lua_pushcfunction(L, collector_gc);
   lua_setfield(L, -2, "__gc");
   lua_pop(L, 1);
-  Collector *collector = lua_newuserdatauv(L, sizeof(*collector), 3);
+  Collector *collector = lua_newuserdatauv(L, sizeof(*collector), 1);
   *collector = (Collector){0};
   luaL_setmetatable(L, "cosmic.coverage.collector");
   lua_newtable(L);
@@ -537,7 +469,7 @@ void cosmic_coverage_install (lua_State *L) {
     unsetenv("COSMIC_COVERAGE_STARTUP");
     collector->active = 1;
     collector->from_startup = 1;
-    lua_sethook(L, native_hook, LUA_MASKLINE, 0);
+    lua_sethook(L, native_line_hook, LUA_MASKLINE, 0);
   }
   /* A process a test started reports what it ran when it exits. */
   const char *children = getenv(CHILDREN_NAME);
@@ -556,8 +488,6 @@ void cosmic_coverage_install (lua_State *L) {
   lua_setfield(L, -2, "stop");
   lua_pushcfunction(L, coverage_snapshot);
   lua_setfield(L, -2, "snapshot");
-  lua_pushcfunction(L, coverage_called);
-  lua_setfield(L, -2, "called");
   lua_pushcfunction(L, coverage_lines);
   lua_setfield(L, -2, "lines");
   lua_pushcfunction(L, coverage_entries);
