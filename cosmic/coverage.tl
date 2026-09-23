@@ -139,8 +139,8 @@ end
 
 --- Every line of the core's own C a hit could land on, by repository
 --- path (`core/syscalls.c`), in the same form hits on it take: what C
---- hits are counted out of. Only a core built with native coverage
---- (the sanitized one) observes its C; any other core
+--- hits are counted out of. Every core cosmic ships and tests with is
+--- built with native coverage; one that is not (a test fixture's)
 --- answers an empty table, and its hits never name a C file.
 --- @return Hits Every observable C line, each true
 function Coverage.native_lines(): Coverage.Hits
