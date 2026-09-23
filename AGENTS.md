@@ -3,7 +3,8 @@
 - Use `bin/zig`, the repository's pinned compiler, rather than a system Zig.
 - Use a separate worktree for each independent fix. Check `git status --short`
   before building or switching branches: untracked test files can enter a build.
-- Keep `vendor/` pristine; express vendor changes as records under `patch/`.
+- Keep `vendor/` unedited; express vendor changes as records under `patch/`.
+  `bin/vendor` refetches a tree from its PIN, keeping only what the build reads.
   Generated output under `o/` must not be committed.
 
 ## Build, format, test

@@ -705,7 +705,7 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
---- tl's own checker (`vendor/tl/tl.tl`'s `var_name:sub(1, 1) == "_"`
+--- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"`
 --- check) already treats a name starting with `_` as intentionally
 --- unused and never warns about it -- but says so nowhere in the
 --- warning it raises for every other name, and every warning is a
