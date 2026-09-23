@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "coverage.h"
 
 #include <stdint.h>
@@ -35,6 +37,8 @@ typedef struct Collector {
   HitSource *buckets[SOURCE_BUCKETS];
   HitSource *last_source;
   int active;
+  /* Collecting since the state was made, for the first `start` to keep. */
+  int from_startup;
 } Collector;
 
 static char collector_key;
@@ -263,10 +267,16 @@ static int coverage_start(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
   }
   Collector *collector = current_collector(L);
-  collector_clear(collector);
+  /* The first window after startup collection keeps what startup hit,
+   * and the source strings rooted for it. */
+  int keep = collector->from_startup;
+  collector->from_startup = 0;
+  if (!keep) collector_clear(collector);
   lua_rawgetp(L, LUA_REGISTRYINDEX, &collector_key);
-  lua_newtable(L);
-  lua_setiuservalue(L, -2, ROOTED);
+  if (!keep) {
+    lua_newtable(L);
+    lua_setiuservalue(L, -2, ROOTED);
+  }
   if (watching) {
     lua_pushvalue(L, 1);
   } else {
@@ -371,6 +381,17 @@ void cosmic_coverage_install(lua_State *L) {
   lua_setiuservalue(L, -2, ROOTED);
   lua_rawsetp(L, LUA_REGISTRYINDEX, &collector_key);
   memcpy(lua_getextraspace(L), &collector, sizeof(collector));
+  /* A test worker's runner asks for the Lua that runs before its first
+   * window -- the command line's dispatch and every module it loads --
+   * by naming COSMIC_COVERAGE_STARTUP. The name is consumed here, before
+   * any Lua runs, so neither the test nor anything it starts sees it. */
+  const char *startup = getenv("COSMIC_COVERAGE_STARTUP");
+  if (startup && startup[0]) {
+    unsetenv("COSMIC_COVERAGE_STARTUP");
+    collector->active = 1;
+    collector->from_startup = 1;
+    lua_sethook(L, native_hook, LUA_MASKLINE, 0);
+  }
   lua_newtable(L);
   lua_pushcfunction(L, coverage_start);
   lua_setfield(L, -2, "start");
