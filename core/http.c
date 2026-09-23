@@ -10,14 +10,20 @@
  * between bytecode instructions, not from inside a C callback -- so a
  * `luaL_error` there unwinds ordinary Lua frames only.
  *
- * A transfer pauses itself (CURL_WRITEFUNC_PAUSE, returned from the
- * header callback) the instant the *final* response's header block
- * ends -- "final" meaning: not a 3xx curl is about to follow itself.
- * That is what makes `open` return as soon as headers arrive without
- * buffering an unbounded body first. `read` unpauses on demand and
- * re-pauses once the body buffer holds above ~1 MiB, so a slow reader
- * against a fast server bounds memory instead of buffering the whole
- * response. */
+ * `open`'s own pump loop stops driving the transfer the moment the
+ * header callback marks the *final* response's headers complete --
+ * "final" meaning: not a 3xx curl is about to follow itself. Nothing
+ * else calls curl_multi_perform again until `read` does, so whatever
+ * body bytes curl happened to hand write_cb within that same call are
+ * the only ones buffered before `open` returns; write_cb bounds that
+ * on its own by refusing (CURL_WRITEFUNC_PAUSE) once the buffer holds
+ * above ~1 MiB, and `read` undoes that pause once the buffer drains
+ * back under it. An earlier version tried pausing the transfer right
+ * at the header boundary too (returning CURL_WRITEFUNC_PAUSE from the
+ * header callback itself); that left the transfer's socket out of
+ * curl_multi_poll's wait set after the matching curl_easy_pause in
+ * `read`, so `read` polled on nothing forever. Simply not driving the
+ * transfer further, rather than actively pausing it, avoids that. */
 
 #include "http.h"
 
@@ -241,11 +247,18 @@ static size_t header_cb(char *buffer, size_t size, size_t nitems,
         break;
       }
     }
-    if (is_redirect && has_location) {
-      return len; /* curl is about to follow this itself */
+    if (!is_redirect || !has_location) {
+      t->headers_ready = 1; /* open()'s pump loop stops driving the
+        transfer further once it sees this; write_cb's own ~1 MiB
+        pause/resume (not a pause from here) is what then bounds how
+        much of the body a single further curl_multi_perform call can
+        buffer before read() is actually called. Pausing right here
+        instead (returning CURL_WRITEFUNC_PAUSE) looked cleaner but
+        left the transfer's socket unregistered from curl_multi_poll's
+        wait set after the matching curl_easy_pause(CURLPAUSE_CONT) in
+        read() -- read() polled forever on nothing. */
     }
-    t->headers_ready = 1;
-    return CURL_WRITEFUNC_PAUSE;
+    return len;
   }
 
   const char *colon = memchr(buffer, ':', len);
@@ -282,7 +295,7 @@ static void pump_once(struct transfer *t) {
     }
   }
 
-  if (!t->done && !t->headers_ready) {
+  if (!t->done) {
     int numfds = 0;
     curl_multi_poll(t->multi, NULL, 0, 1000, &numfds);
   }
@@ -365,6 +378,11 @@ static int handle_read(lua_State *L) {
   luaL_argcheck(L, max > 0, 2, "must be positive");
 
   if (t->body_len == 0) {
+    if (t->easy != NULL) {
+      curl_easy_pause(t->easy, CURLPAUSE_CONT); /* undoes open()'s
+        header-callback pause the first time read() is called, and any
+        pause the write callback added once the buffer was last full */
+    }
     while (t->body_len == 0 && !t->done) {
       pump_once(t);
     }
@@ -443,6 +461,13 @@ static int http_open(lua_State *L) {
   curl_easy_setopt(t->easy, CURLOPT_HEADERFUNCTION, header_cb);
   curl_easy_setopt(t->easy, CURLOPT_HEADERDATA, t);
   curl_easy_setopt(t->easy, CURLOPT_ERRORBUFFER, t->errbuf);
+  /* Without this, an HTTPS request through an HTTP proxy delivers the
+   * CONNECT tunnel's own "HTTP/1.1 200 Connection Established"
+   * response to header_cb before the real TLS handshake even starts;
+   * header_cb, seeing a status line followed immediately by a blank
+   * line, would treat that as the final response's (empty) header
+   * block and pause the transfer right there. */
+  curl_easy_setopt(t->easy, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L);
 
   if (body != NULL) {
     size_t body_len = 0;

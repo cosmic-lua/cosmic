@@ -199,6 +199,13 @@ const mbedtls_tls_config = [_][]const u8{
     "-DMBEDTLS_PK_WRITE_C=1",
     "-DMBEDTLS_SSL_RENEGOTIATION=1",
     "-DMBEDTLS_SSL_SESSION_TICKETS=1",
+    // TLS 1.3 forbids rsa_pkcs1_* as a CertificateVerify signature
+    // scheme (only for signing certificates in the chain); an RSA leaf
+    // certificate needs rsa_pss_rsae_* offered instead, which mbedtls
+    // gates on this flag rather than deriving it from PSA_WANT_ALG_RSA_PSS.
+    // Without it, a TLS 1.3 handshake against any RSA-keyed server
+    // (most of the web) fails outright with a handshake_failure alert.
+    "-DMBEDTLS_X509_RSASSA_PSS_SUPPORT=1",
 };
 
 /// The TLS 1.2/1.3 client and X.509 chain sources under mbedtls's own

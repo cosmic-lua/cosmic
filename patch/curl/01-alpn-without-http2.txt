@@ -1,0 +1,23 @@
+file: lib/vtls/mbedtls.c
+note: curl's mbedtls backend only offers ALPN when USE_HTTP2 is also
+  defined, since upstream's only use for ALPN is negotiating h2. This
+  tree deliberately has no HTTP/2 (no nghttp2 vendored), but still
+  wants to *offer* ALPN with "http/1.1" alone: several TLS-terminating
+  proxies and CDNs -- including this sandbox's own HTTPS-proxying setup
+  -- reject a ClientHello with no ALPN extension at all outright
+  (a fatal handshake_failure alert, no ServerHello), since they cannot
+  tell which protocol to speak to the upstream they are about to
+  connect to on our behalf. Offering ALPN is not the same as
+  negotiating h2: mbedtls_ssl_conf_alpn_protocols is handed exactly
+  the one-element "http/1.1" list vtls.c's ALPN_SPEC_H11 already builds
+  when USE_HTTP2 is unset, so the actual negotiated result can only
+  ever be "http/1.1" -- MBEDTLS_SSL_ALPN is the only real precondition.
+--- find
+#if defined(USE_HTTP2) && defined(MBEDTLS_SSL_ALPN)
+#define HAS_ALPN_MBEDTLS
+#endif
+--- replace
+#if defined(MBEDTLS_SSL_ALPN)
+#define HAS_ALPN_MBEDTLS
+#endif
+--- end
