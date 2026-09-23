@@ -22,6 +22,7 @@ extern long syscall(long, ...);
 #endif
 #include <time.h>
 #include <unistd.h>
+#include <sys/utsname.h>
 
 #include "fail.h"
 #include "lauxlib.h"
@@ -658,6 +659,16 @@ COSMIC_SYSCALL(cpu_count, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(uname, 0) {
+  struct utsname info;
+  if (uname(&info) != 0) {
+    return cosmic_fail(L, errno);
+  }
+  lua_pushstring(L, info.sysname);
+  lua_pushstring(L, info.machine);
+  return 2;
+}
+
 static volatile sig_atomic_t child_cancelled;
 static int child_signals_guarded;
 static struct sigaction previous_int;
@@ -809,7 +820,7 @@ static const luaL_Reg table[] = {
     ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
     ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
     ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
-    ENTRY(relaunch),
+    ENTRY(relaunch), ENTRY(uname),
     ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
     {NULL, NULL},
 };

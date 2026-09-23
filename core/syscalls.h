@@ -417,6 +417,16 @@ COSMIC_SYSCALL(ignore_sigpipe, 0);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
+ * --- The host's kernel name and machine, as `uname(2)` reports them --
+ * --- "Linux"/"Darwin" and, say, "x86_64"/"aarch64"/"arm64": raw values,
+ * --- unnormalized, for a caller to map onto its own host names.
+ * ---@return string|nil sysname the kernel name, or nil on failure
+ * ---@return string machine_or_error the machine, or the error when sysname is nil
+ * ---@return integer errno the error number, when sysname is nil
+ */
+COSMIC_SYSCALL(uname, 0);
+
+/*
  * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
  * --- Only one guard may be active; callers must restore it when done.
  * ---@return boolean ok false on failure

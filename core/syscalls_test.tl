@@ -257,6 +257,15 @@ local function test_cpu_count_is_at_least_one()
   assert(math.type(count) == "integer" and count >= 1)
 end
 
+local function test_uname_reports_nonempty_sysname_and_machine()
+  local sysname, machine = assert(sys.uname())
+  assert(#sysname > 0, "sysname is nonempty")
+  assert(#machine > 0, "machine is nonempty")
+  -- Stable across a call: this is the running host, not a moving target.
+  local again = assert(sys.uname())
+  assert(again == sysname)
+end
+
 local function test_executable_is_a_file()
   local path = assert(sys.executable())
   assert(path:sub(1, 1) == "/", "the executable's path is absolute")
