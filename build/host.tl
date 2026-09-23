@@ -45,11 +45,11 @@ end
 
 --- This host's triple, read from `sys.uname`.
 function Host.detect(): string | nil, string
-  local sysname, machine = sys.uname()
-  if sysname == nil then
-    return nil, "uname: " .. tostring(machine)
+  local names, trouble = sys.uname()
+  if names == nil then
+    return nil, "uname: " .. trouble
   end
-  return Host.triple(sysname, machine)
+  return Host.triple(names.sysname, names.machine)
 end
 
 return Host
