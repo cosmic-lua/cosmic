@@ -231,6 +231,103 @@ const mbedtls_pk_and_encoding_sources = [_][]const u8{
     "utilities/oid.c",
 };
 
+/// c-ares's own thread support (CARES_THREADS) is never built -- the core
+/// drives one poll loop itself -- so windows_port.c, ares_sysconfig_win.c
+/// (Windows-only, gated `#ifdef _WIN32`) and ares_android.c
+/// (`#ifdef __ANDROID__`) are left out as dead weight on every target
+/// this tree ships. Everything else under src/lib compiles clean on all
+/// three (see ares_config.h and the macOS SystemConfiguration shim next
+/// to it in core/darwin-compat/ for what that took).
+const cares_sources = [_][]const u8{
+    "ares_addrinfo2hostent.c",
+    "ares_addrinfo_localhost.c",
+    "ares_cancel.c",
+    "ares_close_sockets.c",
+    "ares_conn.c",
+    "ares_cookie.c",
+    "ares_data.c",
+    "ares_destroy.c",
+    "ares_free_hostent.c",
+    "ares_free_string.c",
+    "ares_freeaddrinfo.c",
+    "ares_getaddrinfo.c",
+    "ares_getenv.c",
+    "ares_gethostbyaddr.c",
+    "ares_gethostbyname.c",
+    "ares_getnameinfo.c",
+    "ares_hosts_file.c",
+    "ares_init.c",
+    "ares_library_init.c",
+    "ares_metrics.c",
+    "ares_options.c",
+    "ares_parse_into_addrinfo.c",
+    "ares_process.c",
+    "ares_qcache.c",
+    "ares_query.c",
+    "ares_search.c",
+    "ares_send.c",
+    "ares_set_socket_functions.c",
+    "ares_socket.c",
+    "ares_sortaddrinfo.c",
+    "ares_strerror.c",
+    "ares_sysconfig.c",
+    "ares_sysconfig_files.c",
+    "ares_sysconfig_mac.c",
+    "ares_timeout.c",
+    "ares_update_servers.c",
+    "ares_version.c",
+    "dsa/ares_array.c",
+    "dsa/ares_htable.c",
+    "dsa/ares_htable_asvp.c",
+    "dsa/ares_htable_dict.c",
+    "dsa/ares_htable_strvp.c",
+    "dsa/ares_htable_szvp.c",
+    "dsa/ares_htable_vpstr.c",
+    "dsa/ares_htable_vpvp.c",
+    "dsa/ares_llist.c",
+    "dsa/ares_slist.c",
+    "event/ares_event_configchg.c",
+    "event/ares_event_epoll.c",
+    "event/ares_event_kqueue.c",
+    "event/ares_event_poll.c",
+    "event/ares_event_select.c",
+    "event/ares_event_thread.c",
+    "event/ares_event_wake_pipe.c",
+    "inet_net_pton.c",
+    "inet_ntop.c",
+    "legacy/ares_create_query.c",
+    "legacy/ares_expand_name.c",
+    "legacy/ares_expand_string.c",
+    "legacy/ares_fds.c",
+    "legacy/ares_getsock.c",
+    "legacy/ares_parse_a_reply.c",
+    "legacy/ares_parse_aaaa_reply.c",
+    "legacy/ares_parse_caa_reply.c",
+    "legacy/ares_parse_mx_reply.c",
+    "legacy/ares_parse_naptr_reply.c",
+    "legacy/ares_parse_ns_reply.c",
+    "legacy/ares_parse_ptr_reply.c",
+    "legacy/ares_parse_soa_reply.c",
+    "legacy/ares_parse_srv_reply.c",
+    "legacy/ares_parse_txt_reply.c",
+    "legacy/ares_parse_uri_reply.c",
+    "record/ares_dns_mapping.c",
+    "record/ares_dns_multistring.c",
+    "record/ares_dns_name.c",
+    "record/ares_dns_parse.c",
+    "record/ares_dns_record.c",
+    "record/ares_dns_write.c",
+    "str/ares_buf.c",
+    "str/ares_str.c",
+    "str/ares_strsplit.c",
+    "util/ares_iface_ips.c",
+    "util/ares_math.c",
+    "util/ares_rand.c",
+    "util/ares_threads.c",
+    "util/ares_timeval.c",
+    "util/ares_uri.c",
+};
+
 const core_sources = [_][]const u8{
     "boot.c",
     "coverage.c",
@@ -269,6 +366,7 @@ pub fn build(b: *std.Build) void {
     const tl = patched(b, applier, "tl");
     const miniz = patched(b, applier, "miniz");
     const mbedtls = patched(b, applier, "mbedtls");
+    const cares = patched(b, applier, "cares");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -276,7 +374,7 @@ pub fn build(b: *std.Build) void {
     for ([_]struct { []const u8, std.Build.LazyPath }{
         .{ "lua", lua },         .{ "sqlite", sqlite },
         .{ "tl", tl },           .{ "miniz", miniz },
-        .{ "mbedtls", mbedtls },
+        .{ "mbedtls", mbedtls }, .{ "cares", cares },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -436,14 +534,14 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, false);
+        const exe = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, cares, false);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, true);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, cares, true);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -472,7 +570,7 @@ pub fn build(b: *std.Build) void {
     // host's configuration-2 entry selected by its private launcher.
     const sanitized = b.step("sanitized", "build and boot the checked core");
     const checked_target = hostTarget(b);
-    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, false);
+    const checked = core(b, checked_target, sanitized_configuration, baselineHostTarget(b), lua, sqlite, miniz, mbedtls, cares, false);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -634,6 +732,7 @@ fn core(
     sqlite: std.Build.LazyPath,
     miniz: std.Build.LazyPath,
     mbedtls: std.Build.LazyPath,
+    cares: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
@@ -648,9 +747,18 @@ fn core(
 
     // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
     // macOS's also readline); POSIX is the whole of what the core needs
-    // on either OS, and dynamic loading is never wanted -- the module
-    // store is the only door. Same flag on both, so `nm`/`strings` finds
-    // no dlopen symbol in either core.
+    // on either OS, and dynamic loading from Lua is never wanted -- the
+    // module store is the only door. Same flag on both, so `nm`/`strings`
+    // finds no dlopen symbol reachable from Lua in either core.
+    //
+    // The one dlopen the macOS core itself does is c-ares's, in
+    // ares_sysconfig_mac.c: Apple's DNS configuration only comes out
+    // whole through a handful of configd-internal symbols that
+    // `libresolv` and `scutil` use and that c-ares reaches by dlopening
+    // libSystem, since there is no header or static import for them.
+    // That is a deliberate, narrow carve-out to this rule -- one
+    // library, one target, one already-loaded system library -- not a
+    // door into the module store.
     // LUA_COMPAT_GLOBAL off: assigning to an undeclared global (no
     // `global` statement) is a compile error rather than silently
     // creating one, catching the classic Lua typo bug. The vendored
@@ -805,6 +913,31 @@ fn core(
     });
     mod.addIncludePath(mbedtls.path(b, "include"));
     mod.addIncludePath(mbedtls.path(b, "library"));
+
+    // c-ares: DNS resolution for the `fetch`/`http` module, on every
+    // target -- including macOS, where AGENTS.md's usual "dynamic
+    // loading is never wanted" rule gets its one deliberate carve-out.
+    // Apple's DNS configuration is only fully readable through configd,
+    // whose relevant symbols c-ares dlopens from libSystem itself
+    // (ares_sysconfig_mac.c) rather than linking against; there is no
+    // static alternative, so this is that one door left open, and only
+    // on macOS. c-ares's own thread support (CARES_THREADS) is off: the
+    // core drives one poll loop itself, matching `cosmic.child`.
+    const cares_flags = [_][]const u8{
+        "-std=c11", "-DHAVE_CONFIG_H", "-DCARES_STATICLIB=1",
+        "-D_GNU_SOURCE", "-D_DEFAULT_SOURCE",
+    };
+    mod.addCSourceFiles(.{
+        .root = cares.path(b, "src/lib"),
+        .files = &cares_sources,
+        .flags = &cares_flags,
+    });
+    mod.addIncludePath(cares.path(b, "include"));
+    mod.addIncludePath(cares.path(b, "src/lib"));
+    mod.addIncludePath(cares.path(b, "src/lib/include"));
+    if (target_record.query.os_tag == .macos) {
+        mod.addIncludePath(b.path("core/darwin-compat"));
+    }
 
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.

@@ -23,4 +23,5 @@ keep src/lib/str/*.c
 keep src/lib/str/*.h
 keep src/lib/util/*.c
 keep src/lib/util/*.h
+keep src/lib/thirdparty/apple/dnsinfo.h
 drop src/lib/event/ares_event_win32.*
