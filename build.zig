@@ -588,8 +588,16 @@ fn core(
     // compiler and every Teal-generated chunk run unchanged under it --
     // neither ever assigns an undeclared global -- so there is nothing
     // to trade for the safety.
+    const lua_base = [_][]const u8{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
+    // The checked core also turns on Lua's own internal assertions and
+    // its C API checks, which catch a binding that misuses the Lua stack
+    // -- a buffer popped out from under itself, a pointer to a string no
+    // longer on the stack -- where UBSan sees nothing wrong. Lua's
+    // headers change with them, so the core's own C gets them too.
+    const lua_checks = [_][]const u8{ "-DLUAI_ASSERT", "-DLUA_USE_APICHECK" };
+    const lua_checked = lua_base ++ lua_checks;
     const lua_flags: []const []const u8 =
-        &.{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
+        if (configuration.sanitize) &lua_checked else &lua_base;
     mod.addCSourceFiles(.{
         .root = lua.path(b, "src"),
         .files = &lua_sources,
@@ -696,13 +704,16 @@ fn core(
     } ++ mbedtls_config;
     // Only the core's own C is instrumented: the vendored libraries have
     // their own tests, and their blocks would outnumber the core's.
-    const observed_flags = core_flags ++ [_][]const u8{
+    const observed = [_][]const u8{
         "-fsanitize-coverage=inline-bool-flag,pc-table",
         "-DCOSMIC_NATIVE_COVERAGE",
     };
+    const observed_flags = core_flags ++ observed;
+    const checked_flags = core_flags ++ lua_checks;
+    const checked_observed_flags = checked_flags ++ observed;
     const own_flags: []const []const u8 = switch (native_coverage) {
-        .off => &core_flags,
-        .first_link, .map => &observed_flags,
+        .off => if (configuration.sanitize) &checked_flags else &core_flags,
+        .first_link, .map => if (configuration.sanitize) &checked_observed_flags else &observed_flags,
     };
     mod.addCSourceFiles(.{
         .root = b.path("core"),
