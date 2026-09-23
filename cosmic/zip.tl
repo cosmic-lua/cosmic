@@ -82,6 +82,7 @@ local record Zip
   --- later call, `close` included, returns that failure. A call after
   --- `close` fails too.
   record ZipWriter
+    --- Refuses a path ending in `/`, which zip reads as a directory.
     add_file: function(ZipWriter, string, string, opts?: EntryOptions): boolean, string
     add_dir: function(ZipWriter, string, opts?: EntryOptions): boolean, string
     close: function(ZipWriter): boolean, string
@@ -806,6 +807,9 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
 
   zw.add_file = function(_self: Zip.ZipWriter, path: string, data: string,
       fopts?: Zip.EntryOptions): boolean, string
+    -- A trailing `/` is what marks a directory: a file of that name
+    -- would read back as one.
+    if path:sub(-1) == "/" then return false, "zip: a file's path ends in /: " .. path end
     fopts = fopts or {}
     local mode = fopts.mode or 0x1a4
     local mtime = fopts.mtime or 0
