@@ -43,10 +43,19 @@ port but not a remote address. main's `cosmic/quicksand/` is a reference for a
 network namespace, guarded proxy, and declarative child runner; it should not
 be folded into the portable sandbox contract.
 
-Add a seeded, shrinking fuzzer for the executable locator. The proposed
-framework uses `FUZZ_SEED` and `FUZZ_ITERS`, runs iterations in isolated
-children for crash containment, and uses an instruction budget as the hang
-backstop. main's `_fuzz/` is the reference.
+Fuzz the portable launch. `build/locator_fuzz_test.tl` covers a host
+program's trailer and manifest, which share `decode_blocks` with a portable
+artifact, but not the launcher's own reading of the shell header or the core
+a portable start adopts from the cache.
+
+Publish `cosmic-debug`, the sanitized build, beside the release. The fuzzers
+it waited on run in CI (the checked core's deep run), but the unstripped core
+still carries build paths: the checkout's in `.rodata`, where the
+undefined-behavior checks keep their source locations, and in its line
+tables, and zig's library directory in the line tables of the musl and
+compiler-rt it compiles, which no flag of ours reaches. Decide between
+`-ffile-prefix-map` plus debug info without those paths, and no debug info,
+before the asset is added to `prerelease.yml`.
 
 Open the remaining `fopen` paths in `core/boot.c` and `core/patch.c` with
 `O_CLOEXEC`.
