@@ -200,7 +200,6 @@ static void native_collect(lua_State *L, int hits, enum native_want want) {
 #define CHILDREN_NAME "COSMIC_COVERAGE_CHILDREN"
 static char *children_entry; /* CHILDREN_NAME "=" directory, or NULL */
 static int reports;          /* this process is one a test started */
-static unsigned reported;
 
 static int set_children(const char *directory) {
   size_t size = sizeof CHILDREN_NAME + 1 + strlen(directory);
@@ -229,6 +228,7 @@ char **cosmic_coverage_environment(char **envp) {
 
 void cosmic_coverage_report(void) {
 #ifdef COSMIC_NATIVE_COVERAGE
+  static unsigned reported; /* a process can report more than once: before a failed execve */
   if (!reports || !native_flags || cosmic_native_coverage_blocks != native_count) return;
   char path[4096];
   int length = snprintf(path, sizeof path, "%s/%ld.%u", children_entry + sizeof CHILDREN_NAME,
