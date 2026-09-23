@@ -356,6 +356,13 @@ COSMIC_SYSCALL(mkdtemp, 1) {
   if (len >= PATH_MAX) {
     return luaL_argerror(L, 1, "template is too long");
   }
+  /* Linux refuses a template without the six X's; macOS takes it and
+   * makes that exact directory, name and all, which is no temporary
+   * directory at all. Refusing it here is what makes the call the same
+   * on both. */
+  if (len < 6 || strcmp(template + len - 6, "XXXXXX") != 0) {
+    return luaL_argerror(L, 1, "template does not end in XXXXXX");
+  }
   char room[PATH_MAX];
   memcpy(room, template, len + 1);
   if (mkdtemp(room) == NULL) {

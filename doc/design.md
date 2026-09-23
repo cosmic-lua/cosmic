@@ -225,9 +225,9 @@ files, standard streams, environment, time, and processes are
 over the syscall table, so the same call behaves the same on both
 OSes and the sandbox has one door. `print` writes through the
 syscall table, and `fs` writes to a stream without a newline.
-`cosmic.errors` exposes a traceback for error reporting; the test
-runner and the coverage collector reach the rest of `debug` through
-a private binding. a name that is missing errors with the module
+`cosmic.errors` exposes a traceback for error reporting; the coverage
+collector is a C hook behind a private binding, and `debug` itself is
+never opened. a name that is missing errors with the module
 that replaces it.
 
 the vendored `tl.lua` reaches outside the pure libraries in five

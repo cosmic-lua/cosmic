@@ -15,6 +15,7 @@ local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local entry_points = require("build.entry_points")
 local observations = require("build.filesystem_observations")
 
 local record worker
@@ -169,7 +170,10 @@ function worker.run(argv: {integer:string}): integer
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_reads = {}, test_reads = {},
   }
-  local load_session = Coverage.start()
+  -- Every C entry point is watched through both windows, so a test
+  -- that reaches one -- while loading or while running -- is seen to.
+  local watched = entry_points.all()
+  local load_session = Coverage.start(watched)
   local loaded, produced, load_reads = observations.capture(function(): any
     return require(module_path)
   end)
@@ -183,7 +187,7 @@ function worker.run(argv: {integer:string}): integer
     if type(fn) ~= "function" then
       report.message = module_path .. " has no test named " .. name
     else
-      local test_session = Coverage.start()
+      local test_session = Coverage.start(watched)
       local started = Time.monotonic_ns() or 0
       local passed, message, test_reads = observations.call(
         fn as function(any...): (any...), tmp)

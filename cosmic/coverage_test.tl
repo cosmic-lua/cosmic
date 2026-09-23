@@ -12,6 +12,7 @@
 
 local Store = require("cosmic.store")
 local Coverage = require("cosmic.coverage")
+local sys = require("cosmic.sys")
 
 local function test_internal_debug_not_reachable_by_name()
   local ok = pcall(require, "cosmic.internal.debug")
@@ -103,4 +104,26 @@ local function test_native_collector_hits_executed_lines_only()
   assert(for_file[2] == true, "the always-run line must be hit")
   assert(for_file[4] == true, "the taken branch's line must be hit")
   assert(for_file[6] == nil, "the untaken branch's line must not be hit")
+end
+
+--- The worker watches every C entry point through the window it opens
+--- around this test, so a C function this test calls is among the hits
+--- a snapshot reads back, under the path `called_path` names, and one
+--- it never calls is not.
+local function test_a_watched_c_function_called_is_among_the_hits()
+  sys.getpid()
+  local hits = Coverage.snapshot()
+  local called = hits[Coverage.called_path("sys.getpid")]
+  assert(called ~= nil and called[Coverage.called_line] == true,
+    "a watched C function this test called must be recorded")
+  assert(hits[Coverage.called_path("sys.exit")] == nil,
+    "one it never called must not be")
+end
+
+local function test_a_called_path_is_never_a_module_path()
+  local path = Coverage.called_path("sys.open")
+  assert(Coverage.called_name(path) == "sys.open")
+  assert(path:sub(1, 1) == "=", "Lua's own mark for a chunk name that is not a file")
+  assert(Coverage.called_name("cosmic.coverage") == nil)
+  assert(Coverage.called_name("coverage_probe") == nil)
 end

@@ -32,19 +32,20 @@ static const struct replacement replacements[] = {
 };
 
 /* `print` over the syscall table, so every byte the process writes goes
- * through one door. */
+ * through one door. Each argument's text is pushed above the open
+ * buffer, so it goes in with luaL_addvalue: every other buffer call
+ * needs the buffer's own slot on top, and once the line outgrows the
+ * buffer's inline room that slot is a heap box a stray pop would free. */
 static int surface_print(lua_State *L) {
   int count = lua_gettop(L);
   luaL_Buffer line;
   luaL_buffinit(L, &line);
   for (int i = 1; i <= count; i++) {
-    size_t len;
-    const char *text = luaL_tolstring(L, i, &len);
     if (i > 1) {
       luaL_addchar(&line, '\t');
     }
-    luaL_addlstring(&line, text, len);
-    lua_pop(L, 1);
+    luaL_tolstring(L, i, NULL);
+    luaL_addvalue(&line);
   }
   luaL_addchar(&line, '\n');
   luaL_pushresult(&line);
