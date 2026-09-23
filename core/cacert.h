@@ -1,6 +1,6 @@
 /*
  * The Mozilla CA bundle (vendor/cacert/cacert.pem), embedded into the
- * core at build time by build.zig's embedCacert; see there for why.
+ * core at build time by core/cacert.zig; see there for why it is PEM.
  * Not NUL-terminated as a C string -- `cosmic_cacert_pem_len` is the
  * byte count `CURLOPT_CAINFO_BLOB` wants, not a string length.
  */
