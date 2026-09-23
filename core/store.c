@@ -704,15 +704,26 @@ void cosmic_store_preload_raw(lua_State *L, const char *name) {
   lua_pop(L, 1);
 }
 
-const char *cosmic_store_meta(lua_State *L, const char *key) {
+int cosmic_store_meta(lua_State *L, const char *key, char *out, size_t size) {
+  if (size == 0) {
+    return 0;
+  }
+  out[0] = '\0';
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
   lua_pushcclosure(L, store_meta, 1);
   lua_pushstring(L, key);
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
     lua_pop(L, 1);
-    return NULL;
+    return 0;
   }
-  const char *value = lua_tostring(L, -1);
+  /* Copied while the value is still on the stack: once popped, nothing
+   * keeps its string alive. */
+  size_t length = 0;
+  const char *value = lua_tolstring(L, -1, &length);
+  int fits = value != NULL && length < size;
+  if (fits) {
+    memcpy(out, value, length + 1);
+  }
   lua_pop(L, 1);
-  return value;
+  return fits;
 }
