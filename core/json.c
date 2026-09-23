@@ -638,7 +638,7 @@ static int put_table (struct encoding *e, int idx, int depth) {
   if (top > count) {
     if (!e->sparse_as_null) {
       snprintf(e->failure, sizeof e->failure,
-               "cannot encode an array with a hole at index %lld",
+               "cannot encode an array with a hole (index %lld is nil)",
                (long long)first_hole(L, idx, top));
       return -1;
     }

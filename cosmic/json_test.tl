@@ -216,7 +216,7 @@ local function test_null_policy()
   assert(encoded(obj) == '{"b":1}', "and stays absent")
   local list = decoded("[1, null, 3]") as {any}
   assert(list[1] == 1 and list[2] == nil and list[3] == 3, "a null element is a hole")
-  assert(encode_failure(list) == "cannot encode an array with a hole at index 2",
+  assert(encode_failure(list) == "cannot encode an array with a hole (index 2 is nil)",
     "a hole is an error, not a truncation")
   assert(encoded(list, { sparse_as_null = true }) == "[1,null,3]", "sparse_as_null writes it")
   local kept = decoded('{"a": null, "b": [null]}', { null_value = Json.null }) as {string: any}
@@ -435,7 +435,7 @@ local function test_an_encode_failure_says_where()
   assert(encode_failure({ ['q"\1'] = print }) == 'cannot encode a function at $["q\\"?"]',
     "its quotes escaped and its unprintable bytes shown as ?")
   assert(encode_failure({ x = { 1, nil, 3 } as {any} }) ==
-    "cannot encode an array with a hole at index 2 at $.x", "a table's own failure names the table")
+    "cannot encode an array with a hole (index 2 is nil) at $.x", "a table's own failure names the table")
   assert(encode_failure({ x = { ["\xff"] = 1 } }) == "cannot encode a key that is not UTF-8 at $.x",
     "a bad key is the object's")
   assert(encode_failure(print) == "cannot encode a function", "nothing to say at the top")
