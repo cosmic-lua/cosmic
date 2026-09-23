@@ -6,7 +6,8 @@
 --- any field below) finds this doc comment directly; an uncaught
 --- error whose own message matches one of these `strerror()` strings
 --- (`core/main.c`'s `catalog_guidance`) finds the same doc comment,
---- by joining back to it -- see `cosmic/catalog.tl` for the bridge.
+--- by joining back to it through the catalog `build/positions.tl`'s
+--- `catalog_of` records.
 local record Errno
   --- the path does not exist -- check it is spelled right, and that
   --- every parent directory already exists; cosmic.fs creates no

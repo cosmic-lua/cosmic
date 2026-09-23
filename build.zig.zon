@@ -7,6 +7,6 @@
         "build.zig.zon",
         "core",
         "vendor",
-        "patches",
+        "patch",
     },
 }

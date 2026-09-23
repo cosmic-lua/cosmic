@@ -462,7 +462,6 @@ local record EmitModule
                     x: integer)
   consume: function(e: Emitter, y: integer, x: integer)
   done: function(e: Emitter): string
-  newlines: function(text: string): integer
   opening_column: function(e: Emitter, y: integer, x: integer): integer
 end
 
@@ -473,7 +472,6 @@ local M: EmitModule = {
   advance = advance,
   consume = consume,
   done = done,
-  newlines = newlines,
   opening_column = opening_column,
 }
 

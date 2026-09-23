@@ -106,7 +106,7 @@ end
 --- This is the compiler's private bootstrap environment, not a program's
 --- runtime surface: `environment_for` removes io, os and debug from the
 --- checker, and `core/surface.c` removes the same names at execution.
-function teal.environment(): {string:any}
+local function compiler_environment(): {string:any}
   local environment: {string:any} = {
     io = {
       stdout = make_handle(1),
@@ -154,7 +154,7 @@ function teal.load(): compiler | nil, string
   if bytes == nil then
     return nil, "the compiler is not in this binary: " .. trouble
   end
-  local chunk, why = load(bytes, "@vendor.tl", "b", teal.environment())
+  local chunk, why = load(bytes, "@vendor.tl", "b", compiler_environment())
   if chunk == nil then
     return nil, "the compiler would not load: " .. tostring(why)
   end

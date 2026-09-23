@@ -19,6 +19,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local importer = require("build.importer")
@@ -36,11 +37,6 @@ end
 
 local function complain(line: string)
   Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
-end
-
-local function elapsed_ms(started: integer): integer
-  local now = Time.monotonic_ns() or started
-  return (now - started) // 1000000
 end
 
 local function text(value: string): Sqlite.Value
@@ -285,12 +281,12 @@ function embed.tree(root: string, host?: boolean): {string} | nil, string
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "")
   if result == nil then
-    work.record(handle, elapsed_ms(started), staged, 0, 0, "FAIL")
+    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
     return nil, compile_trouble
   end
   local written, write_trouble = writer.write_result(handle, project, result)
-  work.record(handle, elapsed_ms(started), staged, result.compiled,
+  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   work.close(handle)
   if not written then
@@ -386,7 +382,7 @@ function embed.run(argv: {integer:string}): integer
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  report("build: PASS (" .. wrote .. ", " .. elapsed_ms(started) .. " ms)")
+  report("build: PASS (" .. wrote .. ", " .. clock.elapsed_ms(started) .. " ms)")
   return 0
 end
 
