@@ -100,6 +100,10 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local guidance = rows_of(path,
     "SELECT count(*) FROM catalog_fts WHERE catalog_fts MATCH 'coverage'")
   assert(tonumber(guidance[1][1]) > 0, "the error catalog is in, and indexed")
+  local text = rows_of(path,
+    "SELECT coalesce(length(text), 0) FROM catalog WHERE symbol = 'Coverage.start'")
+  assert(#text == 1 and tonumber(text[1][1]) > 0,
+    "a row carries its guidance, though the docs it comes from are not")
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
   assert(about_build[1][1] == "0", "guidance about the build is not")
@@ -185,15 +189,14 @@ local function test_a_host_program_names_no_identity_it_cannot_prove(tmp: string
 end
 
 --- An error a program's main module does not catch ends it through the
---- core's own report: the message, then the line it was raised from.
-local function test_an_uncaught_error_is_reported_where_it_was_raised(tmp: string)
+--- core's own report: the message, then the guidance the carried error
+--- catalog holds for the one it matches -- its symbol's doc comment,
+--- carried with the row since the docs themselves are not.
+local function test_an_uncaught_error_is_reported_with_its_guidance(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/boom"))
   assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
-local Child = require("cosmic.child")
-
 return function(): integer
-  local _ = Child.wait_any({})
-  return 0
+  error("coverage collection is already active", 0)
 end
 ]]))
   local names, trouble = embed.tree(tmp)
@@ -201,9 +204,10 @@ end
   local r = run_program(tmp .. "/o/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
   local err = assert(r.stderr)
-  assert(err:find("cosmic: cmd.boom.main:4: no handles to wait for", 1, true),
+  assert(err:find("cosmic: coverage collection is already active", 1, true),
     "the message is reported: " .. err)
-  assert(err:find("at cmd/boom/main.tl:4:", 1, true), "and where: " .. err)
+  assert(err:find("Coverage.start (cosmic/coverage.tl:", 1, true),
+    "and the guidance that matches it: " .. err)
 end
 
 --- A core started on its own, with no program inside and no tree to

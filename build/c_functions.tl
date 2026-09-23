@@ -33,7 +33,6 @@ local boot_only <const> = "runs only in the boot bridge, which bin/zig build boo
 local read_only <const> = "the store's VFS is read-only: SQLite never writes, syncs, locks or sizes sectors through it"
 local before_exec <const> = "runs in a forked child before exec, which reports nothing"
 local forwarded <const> = "passes to the base VFS a call SQLite never makes on the store's read-only database"
-local unguided <const> = "an uncaught error's guidance needs catalog text, which no carried database holds yet"
 local fixture_only <const> = "a portable launch's cache repair, which ci/fixtures/launcher_test.tl covers and which reports no coverage"
 
 c_functions.exempt = {
@@ -61,9 +60,6 @@ c_functions.exempt = {
   ["core/vfs.c:vfs_sleep"] = forwarded,
   ["core/vfs.c:vfs_current_time"] = forwarded,
   ["core/vfs.c:vfs_last_error"] = forwarded,
-  ["core/main.c:print_guidance"] = unguided,
-  ["core/main.c:count_shared_words"] = unguided,
-  ["core/main.c:next_word"] = unguided,
   ["core/strnlen.c:strnlen"] = "a host libc's own strnlen can win the link; bin/zig build boot's strnlen check covers the core's",
 }
 
