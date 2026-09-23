@@ -12,11 +12,18 @@ keep lib/vauth/*.c
 keep lib/vauth/*.h
 keep lib/vtls/*.c
 keep lib/vtls/*.h
+keep lib/vquic/*.c
 keep lib/vquic/*.h
 keep lib/vdns/*.c
 keep lib/vdns/*.h
 keep lib/vssh/*.h
-drop lib/vquic/*.c
+drop lib/vquic/cf-capsule.c
+drop lib/vquic/capsule.c
+drop lib/vquic/vquic-tls.c
+drop lib/vquic/cf-ngtcp2-cmn.c
+drop lib/vquic/cf-ngtcp2.c
+drop lib/vquic/cf-quiche.c
+drop lib/vquic/cf-ngtcp2-proxy.c
 drop lib/vdns/asyn-thrdd.c
 drop lib/ldap.c
 drop lib/imap.c
@@ -33,7 +40,6 @@ drop lib/openldap.c
 drop lib/file.c
 drop lib/ftp.c
 drop lib/ftplistparser.c
-drop lib/socks.c
 drop lib/socks_gssapi.c
 drop lib/socks_sspi.c
 drop lib/vtls/gtls.c

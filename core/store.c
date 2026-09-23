@@ -28,14 +28,15 @@ static void die_unreadable(sqlite3 *db) {
               return, honest or otherwise */
 }
 
-/* Where the raw `cosmic.internal.store`, `cosmic.internal.sqlite`, and
- * `cosmic.internal.debug` values live: never in package.preload and
- * never a name `require` resolves on its own, so nothing a project's
- * own code can `require` reaches them. `require` caches whatever a
- * loader returns under the name it was asked for, so a value that must
- * be re-checked on every access can never be that cached value --
- * `cosmic.store`, `cosmic.sqlite`, and `cosmic.coverage` (the wrappers,
- * one per raw module) get theirs handed straight to their own loader
+/* Where the raw `cosmic.internal.store`, `cosmic.internal.sqlite`,
+ * `cosmic.internal.debug`, and `cosmic.internal.http` values live: never
+ * in package.preload and never a name `require` resolves on its own, so
+ * nothing a project's own code can `require` reaches them. `require`
+ * caches whatever a loader returns under the name it was asked for, so
+ * a value that must be re-checked on every access can never be that
+ * cached value -- `cosmic.store`, `cosmic.sqlite`, `cosmic.coverage`,
+ * and `cosmic.http` (the wrappers, one per raw module) get theirs
+ * handed straight to their own loader
  * instead, as the `extra` argument `require` passes it. calling the
  * searcher by hand yields the same value, and that is no escalation:
  * the raw table holds nothing the wrapper does not already hand out. */
@@ -52,8 +53,9 @@ static int names_trusted_kind(const char *name, const char *kind) {
   return reserved && runnable;
 }
 
-/* The raw `cosmic.internal.store`, `cosmic.internal.sqlite`, or
- * `cosmic.internal.debug` value, when the registry holds one under
+/* The raw `cosmic.internal.store`, `cosmic.internal.sqlite`,
+ * `cosmic.internal.debug`, or `cosmic.internal.http` value, when the
+ * registry holds one under
  * `name`. Pushes it and returns 1, or pushes nothing and returns 0. */
 static int raw_value(lua_State *L, const char *name) {
   lua_getfield(L, LUA_REGISTRYINDEX, RAW_TABLE);
@@ -136,19 +138,20 @@ static sqlite3 *database_at(lua_State *L, int list, lua_Integer index) {
  * never shadow the binary's own -- everything else stays project
  * first, which is how a project overrides nothing it does not own.
  *
- * `cosmic.internal.store`, `cosmic.internal.sqlite`, and
- * `cosmic.internal.debug` are never rows in any database: they are raw
- * values `cosmic_surface_open` builds and registers directly (the
- * store module itself, the sqlite binding, and -- despite its name,
- * a holdover from when this raw name carried the real `debug` library
- * instead -- the native coverage collector, core/coverage.c). Nothing
- * ever resolves them by name -- `require` would cache the result under
- * that name
+ * `cosmic.internal.store`, `cosmic.internal.sqlite`,
+ * `cosmic.internal.debug`, and `cosmic.internal.http` are never rows in
+ * any database: they are raw values `cosmic_surface_open` builds and
+ * registers directly (the store module itself, the sqlite binding,
+ * the native coverage collector -- despite its name, a holdover from
+ * when this raw name carried the real `debug` library instead,
+ * core/coverage.c -- and the curl/c-ares/mbedtls HTTP client,
+ * core/http.c). Nothing ever resolves them by name -- `require` would
+ * cache the result under that name
  * process-wide, which would then answer for an untrusted caller too.
- * Instead, loading `cosmic.store`, `cosmic.sqlite`, or `cosmic.coverage`
- * (the typed wrappers) from a trusted position hands the matching raw
- * value straight to that one chunk, as the `extra` argument `require`
- * always passes its loader. */
+ * Instead, loading `cosmic.store`, `cosmic.sqlite`, `cosmic.coverage`,
+ * or `cosmic.http` (the typed wrappers) from a trusted position hands
+ * the matching raw value straight to that one chunk, as the `extra`
+ * argument `require` always passes its loader. */
 static int store_searcher(lua_State *L) {
   const char *name = luaL_checkstring(L, 1);
   int list = lua_upvalueindex(1);
@@ -172,6 +175,8 @@ static int store_searcher(lua_State *L) {
         raw_name = "cosmic.internal.sqlite";
       } else if (trusted && strcmp(name, "cosmic.coverage") == 0) {
         raw_name = "cosmic.internal.debug";
+      } else if (trusted && strcmp(name, "cosmic.http") == 0) {
+        raw_name = "cosmic.internal.http";
       } else if (trusted && strcmp(name, "build.artifact") == 0) {
         raw_name = "cosmic.internal.store";
       }

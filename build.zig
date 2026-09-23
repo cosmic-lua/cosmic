@@ -188,6 +188,17 @@ const mbedtls_tls_config = [_][]const u8{
     "-DMBEDTLS_BASE64_C=1",
     "-DMBEDTLS_ERROR_C=1",
     "-DMBEDTLS_VERSION_C=1",
+    // curl's mbedtls backend (vtls/mbedtls.c) is written against a
+    // fuller mbedtls build than a bare TLS-1.2/1.3-client-only config
+    // needs: it unconditionally offers CURLOPT_CAPATH/CURLOPT_CRLFILE/
+    // CURLOPT_SSLCERT-style file loading and renegotiation/session-
+    // ticket configuration, none of which this client's Teal API
+    // exposes or calls, but the functions still have to exist to link.
+    "-DMBEDTLS_FS_IO=1",
+    "-DMBEDTLS_X509_CRL_PARSE_C=1",
+    "-DMBEDTLS_PK_WRITE_C=1",
+    "-DMBEDTLS_SSL_RENEGOTIATION=1",
+    "-DMBEDTLS_SSL_SESSION_TICKETS=1",
 };
 
 /// The TLS 1.2/1.3 client and X.509 chain sources under mbedtls's own
@@ -215,15 +226,24 @@ const mbedtls_tls_sources = [_][]const u8{
     "x509.c",
     "x509_crt.c",
     "x509_oid.c",
+    // curl's mbedtls backend (vtls/mbedtls.c) unconditionally references
+    // CRL loading and DER pubkey export even though nothing here calls
+    // the options that would use them (no client certificates, no CRL
+    // file configured) -- see mbedtls_tls_config for the matching flags.
+    "x509_crl.c",
 };
 
 const mbedtls_pk_and_encoding_sources = [_][]const u8{
     "extras/md.c",
     "extras/pk.c",
     "extras/pkparse.c",
+    "extras/pkwrite.c",
     "extras/pk_wrap.c",
     "extras/pk_ecc.c",
     "extras/pk_rsa.c",
+    // Guarded on MBEDTLS_PK_C, which only this group's flags define;
+    // see the comment where it is left out of the crypto group above.
+    "drivers/builtin/src/psa_util_internal.c",
     "utilities/asn1parse.c",
     "utilities/asn1write.c",
     "utilities/base64.c",
@@ -335,6 +355,21 @@ const cares_sources = [_][]const u8{
 /// `version_win32.c`, `winapi.c`), which would compile to nothing on
 /// these targets but add nothing either. Everything named here compiled
 /// clean, individually, on all three targets before being wired in.
+///
+/// `socks.c` is in, despite SOCKS proxying being out of scope: its
+/// `Curl_cft_socks_proxy`/`Curl_cf_socks_proxy_insert_after` are
+/// referenced unconditionally by `cf-setup.c`/`curl_trc.c` (the proxy
+/// connection filter chain is wired up generically, whichever proxy
+/// type ends up chosen at runtime) -- HTTP proxying through
+/// HTTPS_PROXY, the thing this tree actually wants, needs the same
+/// file present to link, whether or not a caller ever asks for a
+/// `socks5://` proxy URL. `vquic/vquic.c` is in for the same reason:
+/// `Curl_conn_may_http3` is referenced from `http.c`/
+/// `cf-https-connect.c` regardless of HTTP/3 support; without
+/// `USE_NGTCP2`/`USE_NGHTTP3`/`USE_QUICHE` defined (none are, and none
+/// of those libraries are vendored) the file's own `#else` branch
+/// compiles to a five-line stub that always answers
+/// `CURLE_NOT_BUILT_IN`.
 const curl_sources = [_][]const u8{
     "altsvc.c",           "api.c",
     "bufq.c",              "bufref.c",
@@ -388,6 +423,7 @@ const curl_sources = [_][]const u8{
     "select.c",            "sendf.c",
     "setopt.c",            "sha256.c",
     "slist.c",             "socketpair.c",
+    "socks.c",
     "splay.c",             "strcase.c",
     "strequal.c",          "strerror.c",
     "thrdpool.c",          "thrdqueue.c",
@@ -404,6 +440,7 @@ const curl_sources = [_][]const u8{
     "vdns/doh.c",          "vdns/hostip.c",
     "vdns/hostip4.c",      "vdns/hostip6.c",
     "vdns/httpsrr.c",      "version.c",
+    "vquic/vquic.c",
     "vtls/apple.c",        "vtls/cipher_suite.c",
     "vtls/hostcheck.c",    "vtls/keylog.c",
     "vtls/mbedtls.c",      "vtls/vtls.c",
@@ -418,6 +455,7 @@ const core_sources = [_][]const u8{
     "crypto.c",
     "environment.c",
     "executable.c",
+    "http.c",
     "sqlite.c",
     "store.c",
     "strnlen.c",
@@ -962,7 +1000,6 @@ fn core(
             "drivers/builtin/src/psa_crypto_hash.c",
             "drivers/builtin/src/psa_crypto_mac.c",
             "drivers/builtin/src/psa_crypto_rsa.c",
-            "drivers/builtin/src/psa_util_internal.c",
             "drivers/builtin/src/sha1.c",
             "drivers/builtin/src/sha256.c",
             "drivers/builtin/src/sha3.c",
@@ -1004,6 +1041,12 @@ fn core(
             "drivers/builtin/src/psa_crypto_aead.c",
             "drivers/builtin/src/psa_crypto_ecp.c",
             "core/psa_crypto_random.c",
+            // NOT psa_util_internal.c: its PK-related helpers are
+            // guarded on MBEDTLS_PK_C, which only the TLS-layer flags
+            // below define, so it is compiled there instead, with the
+            // rest of that group's flags -- compiling it here (PSA
+            // flags only) silently skipped those helpers and produced
+            // undefined symbols in pk.c/pk_rsa.c at link time.
         },
         .flags = &mbedtls_flags,
     });
