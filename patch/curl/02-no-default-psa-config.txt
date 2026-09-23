@@ -7,9 +7,9 @@ note: curl's mbedtls backend includes <psa/crypto_config.h> directly,
   different idea of the PSA operation structs (and so of
   mbedtls_ssl_context) than the library it calls. The configuration
   already in effect through build_info.h is the only one wanted, so
-  the include goes; core/mbedtls_cosmic_config.h also claims the
-  header's include guard, so a future copy of this line would be a
-  no-op rather than a mismatch.
+  the include goes. vendor/mbedtls/PIN does not vendor the default
+  configuration at all, so a future copy of this line fails to compile
+  rather than silently mismatching.
 --- find
 #include <psa/crypto_config.h>
 #include <mbedtls/net_sockets.h>

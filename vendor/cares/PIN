@@ -25,3 +25,16 @@ keep src/lib/util/*.c
 keep src/lib/util/*.h
 keep src/lib/thirdparty/apple/dnsinfo.h
 drop src/lib/event/ares_event_win32.*
+drop src/lib/ares_android.c
+drop src/lib/ares_android.h
+drop src/lib/ares_getenv.c
+drop src/lib/ares_getenv.h
+drop src/lib/ares_sysconfig_win.c
+drop src/lib/config-dos.h
+drop src/lib/config-win32.h
+drop src/lib/event/ares_event_epoll.c
+drop src/lib/event/ares_event_kqueue.c
+drop src/lib/event/ares_event_poll.c
+drop src/lib/event/ares_event_select.c
+drop src/lib/event/ares_event_wake_pipe.c
+drop src/lib/windows_port.c

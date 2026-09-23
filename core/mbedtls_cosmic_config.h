@@ -9,7 +9,12 @@
  * changes a struct's layout (renegotiation state, session tickets, the
  * PSA operation unions) is decided here once. tf-psa-crypto's
  * build_info.h reads it first; mbedtls's build_info.h then names it
- * again, and the include guard makes that a no-op.
+ * again, and the include guard makes that a no-op. The library's own
+ * default configuration, tf-psa-crypto/include/psa/crypto_config.h, is
+ * not vendored (vendor/mbedtls/PIN drops it): three of curl's files
+ * included it directly (patch/curl removes those lines), and a file
+ * that tries again fails to compile rather than silently layering the
+ * defaults over this configuration.
  *
  * Digests and HMAC through the PSA API, plus what a TLS 1.2/1.3 client
  * needs -- ECDHE key agreement, ECDSA and RSA (PKCS#1 v1.5 and PSS)
@@ -25,12 +30,6 @@
  */
 #ifndef COSMIC_MBEDTLS_CONFIG_H
 #define COSMIC_MBEDTLS_CONFIG_H
-
-/* The library's own default configuration guards itself with this name.
- * Claiming it here makes a stray `#include <psa/crypto_config.h>` --
- * which curl's backend had until patch/curl removed it -- a no-op
- * rather than a second, fuller configuration layered over this one. */
-#define PSA_CRYPTO_CONFIG_H
 
 /* PSA core, randomness from the OS. */
 #define MBEDTLS_PSA_CRYPTO_C
