@@ -2,9 +2,12 @@
 --- over a plain file for the non-archive, single-file PIN: what the
 --- tree holds afterward, and what it refuses.
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
+local Fetch = require("build.fetch")
+local VendorLib = require("build.vendor_lib")
 local vendor = require("build.vendor")
 
 local function write_all(root: string, files: {string:string})
@@ -120,4 +123,64 @@ local function test_a_non_archive_file_with_strip_and_no_archive_format_is_refus
   assert(Fs.write(archive, "not an archive"))
   local status = vendor({ [1] = dir .. "/tree", [2] = archive })
   assert(status == 1)
+end
+
+local function test_read_pin_captures_sha256()
+  local pin = assert(VendorLib.read_pin("url https://example.com/a.tar\nsha256 abc123\n"))
+  assert(pin.url == "https://example.com/a.tar")
+  assert(pin.sha256 == "abc123")
+end
+
+local function test_is_direct_rewrite_needs_a_slash_in_the_first_argument()
+  assert(VendorLib.is_direct_rewrite({ [1] = "vendor/curl", [2] = "/tmp/curl.tar.gz" }))
+  assert(not VendorLib.is_direct_rewrite({ [1] = "curl" }))
+  assert(not VendorLib.is_direct_rewrite({ [1] = "curl", [2] = "mbedtls" }))
+  assert(not VendorLib.is_direct_rewrite({}))
+end
+
+local function test_all_names_lists_every_tree_with_a_pin(dir: string)
+  assert(Fs.mkdirs(dir .. "/vendor/alpha"))
+  assert(Fs.write(dir .. "/vendor/alpha/PIN", "url https://example.com/a\n"))
+  assert(Fs.mkdirs(dir .. "/vendor/beta"))
+  assert(Fs.write(dir .. "/vendor/beta/PIN", "url https://example.com/b\n"))
+  assert(Fs.mkdirs(dir .. "/vendor/not-vendored")) -- no PIN file
+  local names = assert(VendorLib.all_names(dir))
+  assert(#names == 2)
+  assert(names[1] == "alpha" and names[2] == "beta")
+end
+
+local function test_repo_root_from_the_scripts_own_path(dir: string)
+  assert(Fs.mkdirs(dir .. "/repo/build"))
+  assert(Fs.write(dir .. "/repo/build/vendor.tl", "-- stand-in"))
+  local root = assert(VendorLib.repo_root(dir .. "/repo/build/vendor.tl"))
+  assert(root == assert(Fs.absolute(dir .. "/repo")))
+end
+
+--- `fetch_and_rewrite`'s own fetch step, isolated: `Fetch.file`'s cache
+--- hit (the sha256 already on disk matches the PIN's) is what a
+--- name-list-mode run relies on to avoid the network; this proves that
+--- step end to end without depending on `$XDG_CACHE_HOME`, which a
+--- unit test cannot set for just itself.
+local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: string)
+  local archive = dir .. "/upstream.tar"
+  write_tar(archive, {
+    ["thing-1/src/one.c"] = "one",
+    ["thing-1/doc/readme"] = "prose",
+  })
+  local data = assert(Fs.read(archive))
+  local digest = Hash.hex_sha256(data)
+
+  local cached = dir .. "/cache/thing-1.tar"
+  assert(Fs.mkdirs(dir .. "/cache"))
+  assert(Fs.write(cached, data))
+
+  local fetched = assert(Fetch.file("https://example.invalid/thing-1.tar", cached, digest))
+  assert(fetched == cached)
+
+  local tree = dir .. "/vendor/thing"
+  assert(Fs.mkdirs(tree))
+  assert(Fs.write(tree .. "/PIN", "strip thing-1/\nkeep src/*.c\n"))
+  assert(vendor({ [1] = tree, [2] = fetched }) == 0)
+  assert(Fs.read(tree .. "/src/one.c") == "one")
+  assert(not Fs.exists(tree .. "/doc"))
 end

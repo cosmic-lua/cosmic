@@ -1,15 +1,24 @@
 --- Rewrites one `vendor/<name>/` tree from an upstream archive,
 --- keeping only the files the build reads.
 ---
+---     cosmic build/vendor.tl [name...]
 ---     cosmic build/vendor.tl vendor/<name> <archive>
 ---
---- `bin/vendor` fetches and verifies the archive and runs this over
---- it directly, without unpacking it first: `<archive>` is walked with
---- `cosmic.archive`, whatever format it turns out to be. Paths lose
---- PIN's `strip` prefix, and a file is kept when a `keep` glob matches
---- it and no `drop` glob does: `*` matches within one path segment,
---- `**` across them. Every `keep` must match something, so an
---- upstream rename fails here rather than in the build.
+--- With no archive argument, this fetches for itself: every `name`
+--- (every `vendor/*/PIN` by default) is downloaded from its PIN's
+--- `url` into `$XDG_CACHE_HOME/cosmic/vendor` (default
+--- `$HOME/.cache/cosmic/vendor`) -- reusing a cached file only when
+--- its sha256 still matches the PIN's -- verified with
+--- `Http.download`'s own `sha256` check, and then rewritten exactly
+--- as the two-argument form below. This is what `bin/vendor` runs.
+---
+--- The two-argument form rewrites one tree directly from an archive
+--- already on disk, without fetching or verifying it: `<archive>` is
+--- walked with `cosmic.archive`, whatever format it turns out to be.
+--- Paths lose PIN's `strip` prefix, and a file is kept when a `keep`
+--- glob matches it and no `drop` glob does: `*` matches within one
+--- path segment, `**` across them. Every `keep` must match something,
+--- so an upstream rename fails here rather than in the build.
 ---
 --- When `<archive>` is not a format `cosmic.archive` recognizes (a
 --- single file such as a `.pem`, say) and PIN names no `strip`, it is
@@ -21,38 +30,14 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Archive = require("cosmic.archive")
+local Fetch = require("build.fetch")
+local VendorLib = require("build.vendor_lib")
 
-local record Pin
-  url: string
-  strip: string
-  --- The name a single-file PIN (one with no `keep`) vendors its
-  --- archive as, when it is not itself a recognized archive format.
-  --- Defaults to the basename of `url` when empty.
-  file: string
-  keep: {string}
-  drop: {string}
-end
+local type Pin = VendorLib.Pin
+local read_pin = VendorLib.read_pin
 
 local function complain(line: string)
   Fs.put(Fs.stderr, "vendor: " .. line .. "\n")
-end
-
-local function read_pin(text: string): Pin | nil, string
-  local pin: Pin = { url = "", strip = "", file = "", keep = {}, drop = {} }
-  for key, value in text:gmatch("([%w_]+)[ \t]+([^\n]+)") do
-    if key == "url" then
-      pin.url = value
-    elseif key == "strip" then
-      pin.strip = value
-    elseif key == "file" then
-      pin.file = value
-    elseif key == "keep" then
-      pin.keep[#pin.keep + 1] = value
-    elseif key == "drop" then
-      pin.drop[#pin.drop + 1] = value
-    end
-  end
-  return pin, ""
 end
 
 --- A glob as an anchored Lua pattern.
@@ -244,18 +229,82 @@ local function rewrite(tree: string, archive_path: string): integer | nil, strin
   return from_archive(tree, pin, archive_path)
 end
 
+--- Fetches `name`'s PIN's archive into `cache` (reusing it when its
+--- sha256 still matches) and rewrites `vendor/<name>` from it.
+local function fetch_and_rewrite(root: string, cache: string, name: string): integer | nil, string
+  local tree = root .. "/vendor/" .. name
+  local text, pin_trouble = Fs.read(tree .. "/PIN")
+  if text == nil then
+    return nil, pin_trouble
+  end
+  local pin, trouble = read_pin(text)
+  if pin == nil then
+    return nil, tree .. "/PIN: " .. trouble
+  end
+  if pin.url == "" then
+    return nil, tree .. "/PIN names no url"
+  end
+  if pin.sha256 == "" then
+    return nil, tree .. "/PIN names no sha256"
+  end
+  local base = pin.url:match("([^/]+)$") or name
+  local archive_path = cache .. "/" .. base
+  local fetched, ftrouble = Fetch.file(pin.url, archive_path, pin.sha256)
+  if fetched == nil then
+    return nil, ftrouble
+  end
+  return rewrite(tree, fetched)
+end
+
 return function(argv: {integer:string}): integer
-  local tree, archive_path = argv[1], argv[2]
-  if tree == nil or archive_path == nil then
-    complain("usage: cosmic build/vendor.tl vendor/<name> <archive>")
+  if VendorLib.is_direct_rewrite(argv) then
+    local tree = (argv[1]):gsub("/+$", "")
+    local count, trouble = rewrite(tree, argv[2])
+    if count == nil then
+      complain(trouble)
+      return 1
+    end
+    Fs.put(Fs.stdout, "vendor: " .. tree .. " (" .. count .. " files)\n")
+    return 0
+  end
+
+  local root, root_trouble = VendorLib.repo_root(argv[0])
+  if root == nil then
+    complain(root_trouble)
     return 2
   end
-  tree = tree:gsub("/+$", "")
-  local count, trouble = rewrite(tree, archive_path)
-  if count == nil then
-    complain(trouble)
+
+  local names: {string} = {}
+  local at = 1
+  while argv[at] ~= nil do
+    names[#names + 1] = argv[at]
+    at = at + 1
+  end
+  if #names == 0 then
+    local found, trouble = VendorLib.all_names(root)
+    if found == nil then
+      complain(trouble)
+      return 1
+    end
+    names = found
+  end
+
+  local cache = Fetch.cache_dir("vendor")
+  local made, mtrouble = Fs.mkdirs(cache)
+  if not made then
+    complain(mtrouble)
     return 1
   end
-  Fs.put(Fs.stdout, "vendor: " .. tree .. " (" .. count .. " files)\n")
-  return 0
+
+  local failed = false
+  for _, name in ipairs(names) do
+    local count, trouble = fetch_and_rewrite(root, cache, name)
+    if count == nil then
+      complain(name .. ": " .. trouble)
+      failed = true
+    else
+      Fs.put(Fs.stdout, "vendor: vendor/" .. name .. " (" .. count .. " files)\n")
+    end
+  end
+  return failed and 1 or 0
 end
