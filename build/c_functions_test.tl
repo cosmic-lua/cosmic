@@ -21,7 +21,17 @@ local function test_an_exempt_function_is_not_a_failure()
   local exempt = next(c_functions.exempt) as string
   local path, name = exempt:match("^(.-):([^:]+)$")
   local tally = c_functions.tally({ fn(path, 1, name) }, {})
-  assert(tally.exempted == 1 and #tally.unentered == 0)
+  assert(tally.exempted == 1 and #tally.unentered == 0 and #tally.stale == 0)
+end
+
+--- An exempt function a test entered after all is named as stale, and
+--- counted as entered rather than exempt.
+local function test_an_exempt_function_entered_is_stale()
+  local exempt = next(c_functions.exempt) as string
+  local path, name = exempt:match("^(.-):([^:]+)$")
+  local tally = c_functions.tally({ fn(path, 1, name) }, { [path] = { [1] = true } })
+  assert(tally.entered == 1 and tally.exempted == 0)
+  assert(#tally.stale == 1 and tally.stale[1] == exempt)
 end
 
 local function test_a_header_helper_is_left_out()
@@ -40,6 +50,55 @@ local function test_a_hit_in_the_body_enters_an_inlined_function()
   }, { ["core/a.c"] = { [14] = true, [35] = true } })
   assert(tally.total == 3 and tally.entered == 2, tostring(tally.entered))
   assert(#tally.unentered == 1 and tally.unentered[1] == "core/a.c:next")
+end
+
+--- A file of `count` blank lines with `at` set.
+local function source(count: integer, at: {integer: string}): {string}
+  local lines: {string} = {}
+  for i = 1, count do lines[i] = at[i] or "" end
+  return lines
+end
+
+--- With the file's source, a body ends at its closing brace: a helper
+--- after it that was inlined everywhere, and so is no function of its
+--- own, does not lend its hits to the function before it.
+local function test_the_source_ends_a_body_at_its_brace()
+  local functions = { fn("core/a.c", 10, "dies"), fn("core/a.c", 30, "next") }
+  local hits = { ["core/a.c"] = { [22] = true, [31] = true } }
+  local lines = source(40, {
+    [10] = "static void dies (void) {", [14] = "}",
+    [20] = "static int helper (void) {", [25] = "}",
+    [30] = "static int next (void) {", [33] = "}",
+  })
+  local tally = c_functions.tally(functions, hits, { ["core/a.c"] = lines })
+  assert(tally.entered == 1 and tally.unentered[1] == "core/a.c:dies")
+  -- Without it, the body runs to the next function, over the helper.
+  assert(c_functions.tally(functions, hits).entered == 2)
+end
+
+--- A helper inlined at the top of a function gives the function its first
+--- instruction's line: the function's own body is found by its name, so
+--- the helper running elsewhere does not enter it.
+local function test_a_body_is_found_by_name_not_by_its_first_instruction()
+  local lines = source(12, {
+    [2] = "static sqlite3_vfs *helper (sqlite3_vfs *vfs) {", [5] = "}",
+    [8] = "static int forward (sqlite3_vfs *vfs) {", [10] = "}",
+  })
+  local functions = { fn("core/a.c", 3, "forward") }
+  local sources = { ["core/a.c"] = lines }
+  assert(c_functions.tally(functions, { ["core/a.c"] = { [3] = true } }, sources).entered == 0)
+  assert(c_functions.tally(functions, { ["core/a.c"] = { [9] = true } }, sources).entered == 1)
+end
+
+--- A function that opens and closes on its first line is that line.
+local function test_a_one_line_function_is_its_line()
+  local lines = source(12, {
+    [5] = "static void close_it (void *p) { release(p); }",
+    [7] = "static int after (void) {", [10] = "}",
+  })
+  local tally = c_functions.tally({ fn("core/a.c", 5, "close_it") },
+    { ["core/a.c"] = { [8] = true } }, { ["core/a.c"] = lines })
+  assert(tally.entered == 0 and #tally.unentered == 1)
 end
 
 local function test_one_copy_entered_enters_the_function()
