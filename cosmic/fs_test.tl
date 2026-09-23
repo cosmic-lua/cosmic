@@ -170,3 +170,40 @@ local function test_put_rejects_zero_progress(tmp: string)
   assert(Fs.close(fd))
   assert(not ok and trouble == "write made no progress")
 end
+
+local function test_symlink_and_readlink_round_trip(tmp: string)
+  local target = tmp .. "/target"
+  local link = tmp .. "/link"
+  assert(Fs.write(target, "contents"))
+  local made, trouble = Fs.symlink(target, link)
+  assert(made and trouble == "")
+
+  local read_back, read_trouble = Fs.readlink(link)
+  assert(read_back == target and read_trouble == "")
+
+  -- The link resolves through to the target's contents.
+  assert(Fs.read(link) == "contents")
+
+  local missing, missing_trouble = Fs.readlink(tmp .. "/missing")
+  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true))
+end
+
+local function test_set_mtime_changes_the_stat(tmp: string)
+  local path = tmp .. "/file"
+  assert(Fs.write(path, "contents"))
+  local set, trouble = Fs.set_mtime(path, 1000, 2000)
+  assert(set and trouble == "")
+  local st = assert(sys.stat(path))
+  assert(st.mtime == 2000)
+end
+
+local function test_fsync_reports_bad_descriptor(tmp: string)
+  local path = tmp .. "/file"
+  local fd = assert(Fs.open_write(path))
+  local ok, trouble = Fs.fsync(fd)
+  assert(ok and trouble == "")
+  assert(Fs.close(fd))
+
+  local failed, failed_trouble = Fs.fsync(fd)
+  assert(not failed and failed_trouble ~= "")
+end
