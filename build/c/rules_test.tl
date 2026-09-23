@@ -193,3 +193,74 @@ local function test_c_clang_cannot_read_is_refused(tmp: string)
   assert(outcome.findings == nil)
   assert(outcome.trouble:find("undeclared", 1, true) ~= nil, outcome.trouble)
 end
+
+--- A pointer into a string counted from the top is good only while the
+--- string is on the stack.
+local function test_a_string_read_after_its_pop_is_found(tmp: string)
+  one(findings(tmp, header .. [[
+#include <string.h>
+int f(lua_State *L) {
+  const char *s = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  return (int)strlen(s);
+}
+]]), "string-after-pop", 10)
+  one(findings(tmp, header .. [[
+#include <string.h>
+int f(lua_State *L) {
+  const char *s = luaL_tolstring(L, 1, NULL);
+  lua_setfield(L, 2, "x");
+  return s[0];
+}
+]]), "string-after-pop", 10)
+end
+
+local function test_a_string_still_on_the_stack_is_not(tmp: string)
+  none(findings(tmp, header .. [[
+#include <string.h>
+int copied(lua_State *L, char *out) {
+  const char *s = lua_tostring(L, -1);
+  memcpy(out, s, 4);
+  lua_pop(L, 1);
+  return 0;
+}
+
+int below(lua_State *L) {
+  const char *s = lua_tostring(L, -1);
+  lua_pushinteger(L, 1);
+  lua_pop(L, 1);
+  return s[0];
+}
+
+int argument(lua_State *L) {
+  const char *s = luaL_checkstring(L, 1);
+  lua_pushinteger(L, 1);
+  lua_pop(L, 2);
+  return s[0];
+}
+]]))
+end
+
+--- A binding returns what core/syscalls.h declares it does, and a
+--- fallible one fails in three values.
+local function test_a_binding_returning_another_shape_is_found(tmp: string)
+  local found = findings(tmp, header .. [[
+#include "syscalls.h"
+#include "fail.h"
+COSMIC_SYSCALL(getpid, 0) {
+  lua_pushinteger(L, 1);
+  lua_pushinteger(L, 2);
+  return 2;
+}
+
+COSMIC_SYSCALL(open, 3) {
+  if (lua_gettop(L) == 0) return cosmic_fail(L, EINVAL);
+  lua_pushnil(L);
+  lua_pushliteral(L, "no");
+  return 2;
+}
+]])
+  assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11
+    and found[2].rule == "returned-shape" and found[2].line == 18,
+    "expected two returned-shape findings, found " .. #found)
+end

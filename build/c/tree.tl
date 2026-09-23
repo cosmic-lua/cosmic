@@ -66,9 +66,13 @@ function tree.own(file: string): boolean
   return file:sub(1, 7) ~= "vendor/"
 end
 
-local function normalized(file: string): string
+--- `file` as the tree names it: relative to `root` when it is under it.
+local function normalized(file: string, root: string): string
   while file:sub(1, 2) == "./" do
     file = file:sub(3)
+  end
+  if root ~= nil and file:sub(1, #root + 1) == root .. "/" then
+    file = file:sub(#root + 2)
   end
   return file
 end
@@ -78,6 +82,7 @@ end
 local record Cursor
   file: string
   line: integer
+  root: string
 end
 
 --- Reads one position against `at`, moves `at` to it, and returns it.
@@ -94,7 +99,7 @@ local function located(at: Cursor, s: string): string, integer, integer
   end
   local file, fline, fcol = s:match("^(.+):(%d+):(%d+)$")
   if file ~= nil then
-    at.file = normalized(file)
+    at.file = normalized(file, at.root)
     at.line = math.tointeger(tonumber(fline))
     return at.file, at.line, math.tointeger(tonumber(fcol))
   end
@@ -158,9 +163,10 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
 end
 
 --- The declarations of this tree's own C in `dump`, a translation unit's
---- text dump, each with its whole subtree.
-function tree.parse(dump: string): {tree.Node}
-  local at: Cursor = { file = "", line = 0 }
+--- text dump, each with its whole subtree. A file under `root`, when it
+--- is given, is named relative to it, as a compile from the root names it.
+function tree.parse(dump: string, root?: string): {tree.Node}
+  local at: Cursor = { file = "", line = 0, root = root }
   local out: {tree.Node} = {}
   -- The innermost open node at each depth; depth 1 is a top-level
   -- declaration, and nil while one that is not kept is being skipped.
@@ -234,11 +240,25 @@ function tree.callee(call: tree.Node): string
   return nil
 end
 
+--- The first node under `node`, itself included, that was spelled in
+--- this tree's own C.
+local function own_within(node: tree.Node): tree.Node
+  if tree.own(node.file) then return node end
+  for _, child in ipairs(node.children) do
+    local found = own_within(child)
+    if found ~= nil then return found end
+  end
+  return nil
+end
+
 --- The line of this tree's own C that `node` belongs to: its own when it
---- was spelled there, else that of the nearest enclosing node that was,
---- so a node a macro expanded to is placed where the macro was used.
+--- was spelled there. A node a macro expanded to is placed where the
+--- macro was used: at the first of its arguments that was written there,
+--- or else at the nearest enclosing node that was.
 function tree.place(node: tree.Node): string, integer
-  local at = node
+  local within = own_within(node)
+  if within ~= nil then return within.file, within.line end
+  local at = node.parent
   while at ~= nil do
     if tree.own(at.file) then return at.file, at.line end
     at = at.parent
