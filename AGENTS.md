@@ -36,6 +36,14 @@
    from the `verdicts` table in `o/build.db`; preserve the staged database and
    report the `ran` and `stood` counts with the elapsed time.
 
+`ci/` is a tree of its own, with its own `o/`. After editing it, run
+`../o/bin/cosmic fix --check` from `ci/`; that also builds and type-checks it.
+Its `fixtures/*_test.tl` run only under the CI driver, which builds every
+target, so a fixture edit is otherwise first exercised in CI: read the
+fixture's setup before changing what it asserts. The launcher fixture's core
+is a stand-in payload that checks nothing; a case about what the real core
+does (its digest, its startup errors) belongs in `runtime_test.tl`.
+
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
 fail for the reported bug over assertions that pin incidental implementation.
