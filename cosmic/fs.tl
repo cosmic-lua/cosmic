@@ -123,6 +123,7 @@ end
 
 --- Creates a directory and every missing directory above it.
 function Fs.mkdirs(path: string): boolean, string
+  path = path:gsub("(.)/+$", "%1")
   if path == "" or path == "/" then
     return true, ""
   end

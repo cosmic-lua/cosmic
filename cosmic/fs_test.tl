@@ -170,3 +170,10 @@ local function test_put_rejects_zero_progress(tmp: string)
   assert(Fs.close(fd))
   assert(not ok and trouble == "write made no progress")
 end
+
+local function test_mkdirs_with_a_trailing_slash_makes_every_parent()
+  local root = assert(Fs.mkdtemp("mkdirs"))
+  local ok, trouble = Fs.mkdirs(root .. "/a/b/c/")
+  assert(ok, trouble)
+  assert(Fs.is_dir(root .. "/a/b/c") == true)
+end
