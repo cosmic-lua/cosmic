@@ -24,6 +24,7 @@ extern long syscall(long, ...);
 #include <unistd.h>
 
 #include "check.h"
+#include "coverage.h"
 #include "fail.h"
 #include "guard.h"
 #include "lauxlib.h"
@@ -87,6 +88,7 @@ COSMIC_SYSCALL(environ, 0) {
 
 COSMIC_SYSCALL(exit, 1) {
   int status = cosmic_optint(L, 1, 0);
+  cosmic_coverage_report(); /* _exit runs no atexit handler */
   _exit(status); /* exits: the process boundary has no caller to return to */
 }
 
@@ -220,8 +222,12 @@ COSMIC_SYSCALL(execve, 3) {
     lua_pop(L, 1);
   }
 
-  execve(path, argv, envp);
-  return cosmic_fail(L, errno);
+  char **given = cosmic_coverage_environment(envp);
+  cosmic_coverage_report(); /* nothing of this image remains to report later */
+  execve(path, argv, given);
+  int number = errno;
+  if (given != envp) free(given);
+  return cosmic_fail(L, number);
 }
 
 static const char *plain_string(lua_State *L, int index, const char *what) {
@@ -393,6 +399,7 @@ COSMIC_SYSCALL(spawn, 9) {
     free(argv);
     return cosmic_fail(L, promote_error);
   }
+  char **given = cosmic_coverage_environment(envp);
   pid_t pid = fork();
   if (pid == 0) {
     close(status_read);
@@ -441,13 +448,14 @@ COSMIC_SYSCALL(spawn, 9) {
       }
     }
     close_child_descriptors(top + 2, descriptor_limit);
-    if (!failure) execve(path, argv, envp);
+    if (!failure) execve(path, argv, given);
     if (!failure) failure = errno;
     report_child_error(status_fd, failure);
     _exit(127);
   }
   int fork_error = errno;
   close(status_write);
+  if (given != envp) free(given);
   if (!lua_isnoneornil(L, 3)) free_environment(envp, envc);
   free(argv);
   if (pid < 0) { close(status_read); return cosmic_fail(L, fork_error); }
