@@ -61,6 +61,7 @@ local Time = require("cosmic.time")
 local clock = require("build.clock")
 local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
+local entry_points = require("build.entry_points")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
 local teal = require("build.teal")
@@ -1280,6 +1281,22 @@ function test.run(argv: {integer:string}): integer
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
 
+  -- Every C entry point must be one some test calls, in this run or in
+  -- the run whose verdict stands for it: a standing verdict's calls are
+  -- among the hits credited to it just above. Only a whole run of
+  -- cosmic's own tree answers that: a run of chosen tests says nothing
+  -- about the rest, and another project's tests owe nothing to the C
+  -- underneath them.
+  local points_line: string = nil
+  if own_tree and #selectors == 0 then
+    local points = entry_points.tally(entry_points.all(), hits)
+    for _, name in ipairs(points.unreached) do
+      failures[#failures + 1] = name .. ": a C entry point no test calls"
+    end
+    points_line = string.format("test: C entry points %d/%d called by a test (%d exempt)",
+      points.reached, points.total - points.exempted, points.exempted)
+  end
+
   local cov_hit, cov_total, cov_trouble =
     write_coverage(records, built, result.modules, hits, by_test, run_at_ns)
   if cov_trouble ~= "" then
@@ -1321,6 +1338,7 @@ function test.run(argv: {integer:string}): integer
     report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
       tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms)")
     report(cov_line)
+    if points_line ~= nil then report(points_line) end
     return 0
   end
   table.sort(failures)
@@ -1345,6 +1363,7 @@ function test.run(argv: {integer:string}): integer
     clock.elapsed_ms(started) .. " ms)")
   if #errors == 0 then
     report(cov_line)
+    if points_line ~= nil then report(points_line) end
   end
   return 1
 end
