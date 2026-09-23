@@ -42,6 +42,22 @@ extern char **environ;
 #define COSMIC_ENVIRON environ
 #endif
 
+const char *cosmic_path(lua_State *L, int index) {
+  size_t length;
+  const char *value = luaL_checklstring(L, index, &length);
+  if (memchr(value, '\0', length) != NULL) return NULL;
+  return value;
+}
+
+/* An execve argument or environment string with no NUL inside it, or
+ * NULL: a NUL would silently cut the string short. */
+static const char *whole_string(lua_State *L, int index) {
+  size_t length;
+  const char *value = lua_tolstring(L, index, &length);
+  if (value == NULL || memchr(value, '\0', length) != NULL) return NULL;
+  return value;
+}
+
 COSMIC_SYSCALL(executable, 0) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
   if (lua_isstring(L, -1)) return 1;
@@ -171,9 +187,10 @@ COSMIC_SYSCALL(hmac, 3) {
  * stay on the stack and so keep every string alive until execve, which
  * frees nothing on success because nothing of this process remains. */
 COSMIC_SYSCALL(execve, 3) {
-  const char *path = luaL_checkstring(L, 1);
+  const char *path = cosmic_path(L, 1);
   luaL_checktype(L, 2, LUA_TTABLE);
   luaL_checktype(L, 3, LUA_TTABLE);
+  if (path == NULL) return cosmic_fail(L, EINVAL);
 
   lua_Integer count = luaL_len(L, 2);
   char **argv = calloc((size_t)count + 1, sizeof *argv);
@@ -182,8 +199,16 @@ COSMIC_SYSCALL(execve, 3) {
   }
   for (lua_Integer i = 1; i <= count; i++) {
     lua_geti(L, 2, i);
-    argv[i - 1] = (char *)luaL_checkstring(L, -1);
+    if (lua_type(L, -1) != LUA_TSTRING && lua_type(L, -1) != LUA_TNUMBER) {
+      free(argv);
+      luaL_checkstring(L, -1);
+    }
+    argv[i - 1] = (char *)whole_string(L, -1);
     lua_pop(L, 1);
+    if (argv[i - 1] == NULL) {
+      free(argv);
+      return cosmic_fail(L, EINVAL);
+    }
   }
 
   /* Each "NAME=value" entry is built by concatenation and kept in a
@@ -209,8 +234,13 @@ COSMIC_SYSCALL(execve, 3) {
   }
   for (lua_Integer i = 1; i <= variables; i++) {
     lua_geti(L, entries, i);
-    envp[i - 1] = (char *)lua_tostring(L, -1);
+    envp[i - 1] = (char *)whole_string(L, -1);
     lua_pop(L, 1);
+    if (envp[i - 1] == NULL) {
+      free(envp);
+      free(argv);
+      return cosmic_fail(L, EINVAL);
+    }
   }
 
   execve(path, argv, envp);
@@ -664,9 +694,12 @@ COSMIC_SYSCALL(uname, 0) {
   if (uname(&info) != 0) {
     return cosmic_fail(L, errno);
   }
+  lua_createtable(L, 0, 2);
   lua_pushstring(L, info.sysname);
+  lua_setfield(L, -2, "sysname");
   lua_pushstring(L, info.machine);
-  return 2;
+  lua_setfield(L, -2, "machine");
+  return 1;
 }
 
 static volatile sig_atomic_t child_cancelled;
@@ -859,6 +892,7 @@ static const struct constant constants[] = {
     {"ESRCH", ESRCH},
     {"EBADF", EBADF},
     {"ENOSYS", ENOSYS},
+    {"EINVAL", EINVAL},
     {"SIGHUP", SIGHUP},
     {"SIGINT", SIGINT},
     {"SIGQUIT", SIGQUIT},

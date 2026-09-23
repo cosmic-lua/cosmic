@@ -32,6 +32,18 @@
  * arguments come off the Lua stack, not a C parameter list. */
 #define COSMIC_SYSCALL(name, arity) int cosmic_sys_##name(lua_State *L)
 
+/* A path argument's bytes, or NULL when they hold a NUL byte. C reads a
+ * path only up to its first NUL, so a call handed "a\0/../b" would act
+ * on "a" -- a different file from the one the caller named, and one a
+ * check made on the whole string never saw. A path can come from bytes
+ * the caller did not write (an archive entry, say), so every call that
+ * takes one refuses such a path as a runtime failure, EINVAL, rather
+ * than raising. A non-string still raises, as any argument-shape error
+ * does. `spawn`, whose path and cwd refused a NUL by raising before
+ * this rule, still does: `cosmic.child` depends on it, and neither way
+ * truncates. */
+const char *cosmic_path(lua_State *L, int index);
+
 /*
  * --- What `stat`, `lstat` and `fstat` report about a path.
  * ---@class Stat
@@ -417,12 +429,18 @@ COSMIC_SYSCALL(ignore_sigpipe, 0);
 COSMIC_SYSCALL(cpu_count, 0);
 
 /*
- * --- The host's kernel name and machine, as `uname(2)` reports them --
- * --- "Linux"/"Darwin" and, say, "x86_64"/"aarch64"/"arm64": raw values,
- * --- unnormalized, for a caller to map onto its own host names.
- * ---@return string|nil sysname the kernel name, or nil on failure
- * ---@return string machine_or_error the machine, or the error when sysname is nil
- * ---@return integer errno the error number, when sysname is nil
+ * --- The host as `uname(2)` names it: raw values, unnormalized, for a
+ * --- caller to map onto its own host names.
+ * ---@class Uname
+ * ---@field sysname string the kernel name: "Linux", "Darwin"
+ * ---@field machine string the machine: "x86_64", "aarch64", "arm64"
+ */
+
+/*
+ * --- The host's kernel name and machine, as `uname(2)` reports them.
+ * ---@return Uname|nil uname the two names, or nil on failure
+ * ---@return string error what went wrong, when uname is nil
+ * ---@return integer errno the error number, when uname is nil
  */
 COSMIC_SYSCALL(uname, 0);
 
@@ -583,6 +601,7 @@ COSMIC_SYSCALL(fsync, 1);
  * ---@field ESRCH integer there is no such process or group
  * ---@field EBADF integer the descriptor is not open
  * ---@field ENOSYS integer this platform has no such call
+ * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
  * ---@field SIGQUIT integer quit, as from a terminal

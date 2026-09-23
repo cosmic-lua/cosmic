@@ -258,12 +258,53 @@ local function test_cpu_count_is_at_least_one()
 end
 
 local function test_uname_reports_nonempty_sysname_and_machine()
-  local sysname, machine = assert(sys.uname())
-  assert(#sysname > 0, "sysname is nonempty")
-  assert(#machine > 0, "machine is nonempty")
+  local names, trouble = sys.uname()
+  assert(names ~= nil and trouble == nil, "uname answers with one record")
+  assert(#names.sysname > 0, "sysname is nonempty")
+  assert(#names.machine > 0, "machine is nonempty")
   -- Stable across a call: this is the running host, not a moving target.
   local again = assert(sys.uname())
-  assert(again == sysname)
+  assert(again.sysname == names.sysname and again.machine == names.machine)
+end
+
+--- C reads a path up to its first NUL, so a call handed "<dir>\0/x"
+--- would act on "<dir>" -- a different file from the one named. Every
+--- path-taking call refuses such a path with EINVAL instead, and the
+--- file the truncated path names is never touched.
+local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
+  local file = tmp .. "/file"
+  sys.close(create(file))
+  local nul = file .. "\0/../escaped"
+  failed_with(sys.EINVAL, sys.open(nul, sys.O_RDONLY))
+  failed_with(sys.EINVAL, sys.open_temporary(nul))
+  failed_with(sys.EINVAL, sys.stat(nul))
+  failed_with(sys.EINVAL, sys.lstat(nul))
+  failed_with(sys.EINVAL, sys.mkdir(tmp .. "/made\0x"))
+  assert(sys.stat(tmp .. "/made") == nil, "mkdir acted on the truncated path")
+  failed_with(sys.EINVAL, sys.rmdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.unlink(nul))
+  failed_with(sys.EINVAL, sys.rename(nul, tmp .. "/moved"))
+  failed_with(sys.EINVAL, sys.rename(file, tmp .. "/moved\0x"))
+  failed_with(sys.EINVAL, sys.chmod(nul, 511))
+  failed_with(sys.EINVAL, sys.readdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.chdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.realpath(nul))
+  failed_with(sys.EINVAL, sys.mkdtemp(tmp .. "/t\0-XXXXXX"))
+  failed_with(sys.EINVAL, sys.symlink(nul, tmp .. "/link"))
+  failed_with(sys.EINVAL, sys.symlink(file, tmp .. "/link\0x"))
+  failed_with(sys.EINVAL, sys.readlink(nul))
+  failed_with(sys.EINVAL, sys.utimens(nul, 0, 0))
+  failed_with(sys.EINVAL, sys.execve(tmp .. "\0/sh", { "sh" }, {}))
+  failed_with(sys.EINVAL, sys.execve("/bin/sh", { "sh", "-c\0x" }, {}))
+  failed_with(sys.EINVAL, sys.execve("/bin/sh", { "sh" }, { A = "b\0c" }))
+  -- spawn refused a NUL before this rule existed, by raising, and
+  -- `cosmic.child` relies on that; it never truncates either way.
+  raises(sys.spawn, tmp .. "\0/sh", { "sh" }, nil, nil, nil, nil, nil, false)
+  raises(sys.spawn, "/bin/sh", { "sh" }, nil, tmp .. "\0x", nil, nil, nil, false)
+  -- The file the truncated paths name is exactly as it was.
+  local st = assert(sys.stat(file))
+  assert(st.kind == "file" and st.mode & 511 == 420)
+  assert(sys.stat(tmp .. "/moved") == nil and sys.lstat(tmp .. "/link") == nil)
 end
 
 local function test_executable_is_a_file()

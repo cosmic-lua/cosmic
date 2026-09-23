@@ -214,3 +214,21 @@ local function test_fsync_reports_bad_descriptor(tmp: string)
   local failed, failed_trouble = Fs.fsync(fd)
   assert(not failed and failed_trouble ~= "")
 end
+
+local function test_remove_tree_removes_everything_but_follows_no_link(tmp: string)
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(outside .. "/keep", "kept"))
+  local tree = tmp .. "/tree"
+  assert(Fs.mkdirs(tree .. "/a/b"))
+  assert(Fs.write(tree .. "/a/b/file", "gone"))
+  assert(Fs.write(tree .. "/top", "gone"))
+  assert(Fs.symlink(outside, tree .. "/a/link"))
+  assert(Fs.remove_tree(tree))
+  assert(Fs.exists(tree) == false)
+  assert(Fs.read(outside .. "/keep") == "kept", "a link was followed")
+  -- Already gone is not a failure, and neither is a plain file.
+  assert(Fs.remove_tree(tree))
+  assert(Fs.remove_tree(outside .. "/keep"))
+  assert(Fs.exists(outside .. "/keep") == false)
+end

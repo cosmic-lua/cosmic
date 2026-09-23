@@ -2,19 +2,36 @@
 # Refetch vendored trees from the archives their PINs name, keeping only
 # what the build reads: `bin/vendor [name...]`, every tree by default.
 #
-# All the logic now lives in build/vendor.tl, run by the tree's own
-# cosmic: fetching into $XDG_CACHE_HOME/cosmic/vendor (default
-# ~/.cache/cosmic/vendor) with cosmic.http's sha256 check, walking
-# whatever archive format it turns out to be with cosmic.archive, and
-# rewriting the tree -- no curl, wget, tar, unzip or sha256sum needed.
+# All the logic lives in build/vendor.tl, run with `cosmic --standalone`:
+# against that binary's own standard library, never the tree, so it
+# works from any directory, writes nothing under o/, and does not care
+# whether the tree has been booted. It fetches into
+# $XDG_CACHE_HOME/cosmic/vendor (default ~/.cache/cosmic/vendor) with
+# cosmic.http's sha256 check and unpacks with cosmic.archive -- no curl,
+# wget, tar, unzip or sha256sum needed.
+#
+# The cosmic it runs: $COSMIC_BOOTSTRAP when set (it must be an
+# executable file); else the pinned bootstrap, once bin/cosmic-bootstrap's
+# switch says that release can run it; else the tree's own o/bin/cosmic.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cosmic=$root/o/bin/cosmic
+script=$root/build/vendor.tl
 
-[ -x "$cosmic" ] || {
-  printf 'bin/vendor: no %s; run bin/zig build boot first\n' "$cosmic" >&2
+die() {
+  printf 'bin/vendor: %s\n' "$1" >&2
   exit 1
 }
 
-exec "$cosmic" "$root/build/vendor.tl" "$@"
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
+  fi
+  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
+fi
+if "$root/bin/cosmic-bootstrap" --ready; then
+  exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
+fi
+[ -x "$root/o/bin/cosmic" ] ||
+  die "no cosmic to run: set COSMIC_BOOTSTRAP, or run bin/zig build boot first"
+exec "$root/o/bin/cosmic" --standalone "$script" "$@"
