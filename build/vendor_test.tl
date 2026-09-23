@@ -199,10 +199,6 @@ local function test_repo_root_from_the_scripts_own_path(dir: string)
   assert(root == assert(Fs.absolute(dir .. "/repo")))
 end
 
-local function test_cache_dir_is_under_cosmic()
-  assert(Vendor.cache_dir():find("/cosmic/vendor$") ~= nil)
-end
-
 local function test_matches_compares_sha256_case_insensitively(dir: string)
   local path = dir .. "/data"
   assert(Fs.write(path, "hello"))

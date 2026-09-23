@@ -17,7 +17,12 @@
 --- `$HOME/.cache/cosmic/standalone`), named by the sha256 of this
 --- binary's own boot hash and the file's bytes, so a different binary
 --- or a single changed byte compiles afresh. That cache is the one
---- thing a run writes; one that cannot be written is skipped.
+--- thing a run writes; one that cannot be written is skipped. Cached
+--- Lua is run without another check, so the cache lives only where
+--- `Fs.cache_dir` vouches no other user can write -- a directory of
+--- this user's own, 0700 when made, never a shared fallback such as
+--- `/tmp` -- and each file is written 0600; with no such directory
+--- (neither variable set, say) every run compiles afresh.
 ---
 --- The file may require `cosmic.*` modules only -- the binary's own,
 --- typed from its own sources -- and a `require` of anything else is
@@ -29,7 +34,6 @@
 --- `main` field is one -- the shape that lets a test `require` the same
 --- file for its parts.
 
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Removed = require("cosmic.removed")
@@ -86,14 +90,16 @@ local function environment(built: compiler): compiler.Env | nil, string
   return env, ""
 end
 
---- Where a clean compile of `source` by this binary is kept.
-function standalone.cached_path(source: string): string
-  local base = Env.get("XDG_CACHE_HOME")
-  if base == nil or base == "" then
-    base = Env.get_or("HOME", "/tmp") .. "/.cache"
+--- Where a clean compile of `source` by this binary is kept: nil when
+--- there is no cache directory `Fs.cache_dir` will vouch for, and so
+--- no cache.
+function standalone.cached_path(source: string): string | nil
+  local dir = Fs.cache_dir("standalone")
+  if dir == nil then
+    return nil
   end
   local key = Hash.hex_sha256((Store.meta("boot_hash") or "") .. "\0" .. source)
-  return base .. "/cosmic/standalone/" .. key .. ".lua"
+  return dir .. "/" .. key .. ".lua"
 end
 
 --- `code`, loaded as `file`'s chunk.
@@ -139,16 +145,18 @@ end
 --- cache when this binary compiled these exact bytes cleanly before.
 function standalone.compile(file: string, source: string): standalone.Main | nil, string
   local cached = standalone.cached_path(source)
-  local code = Fs.read(cached)
+  local code: string
+  if cached ~= nil then
+    code = Fs.read(cached)
+  end
   if code == nil then
     local generated, trouble = generate(file, source)
     if generated == nil then
       return nil, trouble
     end
     code = generated
-    local dir = cached:match("^(.*)/[^/]+$")
-    if Fs.mkdirs(dir) then
-      Fs.write(cached, code)
+    if cached ~= nil then
+      Fs.write(cached, code, 0x180)
     end
   end
   return loaded(file, code)

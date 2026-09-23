@@ -171,6 +171,39 @@ local function test_put_rejects_zero_progress(tmp: string)
   assert(not ok and trouble == "write made no progress")
 end
 
+local function test_cache_dir_has_no_shared_fallback()
+  for _, environment in ipairs({ {}, { HOME = "" }, { XDG_CACHE_HOME = "rel", HOME = "also/rel" } }) do
+    local dir, trouble = Fs.cache_dir("tool", environment)
+    assert(dir == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(dir))
+  end
+end
+
+local function test_cache_dir_is_made_private_under_xdg_or_home(tmp: string)
+  local dir = assert(Fs.cache_dir("tool", { XDG_CACHE_HOME = tmp .. "/xdg", HOME = tmp .. "/home" }))
+  assert(dir == tmp .. "/xdg/cosmic/tool", dir)
+  for _, path in ipairs({ tmp .. "/xdg/cosmic", dir }) do
+    local st = assert(Fs.stat(path))
+    assert(st.uid == sys.getuid() and st.mode & 0x3f == 0, path)
+  end
+  -- a relative XDG_CACHE_HOME is ignored, as the XDG spec says
+  dir = assert(Fs.cache_dir("tool", { XDG_CACHE_HOME = "rel", HOME = tmp .. "/home" }))
+  assert(dir == tmp .. "/home/.cache/cosmic/tool", dir)
+end
+
+local function test_cache_dir_refuses_one_others_can_write_to(tmp: string)
+  local environment = { XDG_CACHE_HOME = tmp }
+  assert(Fs.cache_dir("tool", environment))
+  assert(sys.chmod(tmp .. "/cosmic/tool", 0x1ff))
+  local dir, trouble = Fs.cache_dir("tool", environment)
+  assert(dir == nil and trouble:find("writable by its group or others", 1, true) ~= nil, trouble)
+  assert(sys.chmod(tmp .. "/cosmic", 0x1f8))
+  dir, trouble = Fs.cache_dir("other", environment)
+  assert(dir == nil and trouble == tmp .. "/cosmic: writable by its group or others", trouble)
+  assert(Fs.write(tmp .. "/plain", ""))
+  dir, trouble = Fs.cache_dir("tool", { XDG_CACHE_HOME = tmp .. "/plain" })
+  assert(dir == nil, tostring(dir))
+end
+
 local function test_mkdirs_with_a_trailing_slash_makes_every_parent()
   local root = assert(Fs.mkdtemp("mkdirs"))
   local ok, trouble = Fs.mkdirs(root .. "/a/b/c/")

@@ -111,6 +111,11 @@ COSMIC_SYSCALL(getpid, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(getuid, 0) {
+  lua_pushinteger(L, (lua_Integer)getuid());
+  return 1;
+}
+
 COSMIC_SYSCALL(clock_gettime, 1) {
   int which = cosmic_checkint(L, 1);
   struct timespec now;
@@ -847,6 +852,7 @@ static const luaL_Reg table[] = {
     ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
     ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
+    ENTRY(getuid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
     ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
     ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),

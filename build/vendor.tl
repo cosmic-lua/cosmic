@@ -10,9 +10,9 @@
 ---
 --- With no archive argument it fetches for itself: every `name` (every
 --- `vendor/*/PIN` by default) is downloaded from its PIN's `url` into
---- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`)
---- -- reusing a cached file only when its sha256 still matches the
---- PIN's -- verified with `Http.download`'s own `sha256` check, and
+--- `$XDG_CACHE_HOME/cosmic/vendor` (default `$HOME/.cache/cosmic/vendor`;
+--- see `Fs.cache_dir`) -- reusing a cached file only when its sha256
+--- still matches the PIN's -- verified with `Http.download`'s own `sha256` check, and
 --- then rewritten exactly as the two-argument form does. This is what
 --- `bin/vendor` runs; the repository is found from this script's own
 --- path, so it works from any working directory.
@@ -36,7 +36,6 @@
 ---
 --- Everything else in the tree but PIN is removed.
 local Archive = require("cosmic.archive")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -123,15 +122,6 @@ function Vendor.all_names(root: string): {string} | nil, string
     end
   end
   return names, ""
-end
-
---- `$XDG_CACHE_HOME/cosmic/vendor`, or `$HOME/.cache/cosmic/vendor`.
-function Vendor.cache_dir(): string
-  local base = Env.get("XDG_CACHE_HOME")
-  if base == nil or base == "" then
-    base = Env.get_or("HOME", "/tmp") .. "/.cache"
-  end
-  return base .. "/cosmic/vendor"
 end
 
 --- True when `path` exists and its sha256 is `sha256`.
@@ -416,10 +406,9 @@ function Vendor.main(argv: {integer:string}): integer
     names = found
   end
 
-  local cache = Vendor.cache_dir()
-  local made, mtrouble = Fs.mkdirs(cache)
-  if not made then
-    complain(mtrouble)
+  local cache, ctrouble = Fs.cache_dir("vendor")
+  if cache == nil then
+    complain(ctrouble)
     return 1
   end
 

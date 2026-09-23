@@ -294,6 +294,12 @@ COSMIC_SYSCALL(exit, 1);
 COSMIC_SYSCALL(getpid, 0);
 
 /*
+ * --- Returns the real user identifier the process runs as.
+ * ---@return integer uid the user identifier
+ */
+COSMIC_SYSCALL(getuid, 0);
+
+/*
  * --- Replaces the process with another program. It returns only on failure.
  * ---@param path string the executable to run
  * ---@param argv {string} the arguments, the program's own name first

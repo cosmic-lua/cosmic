@@ -330,6 +330,13 @@ local function test_getpid_is_stable_and_positive()
   assert(sys.getpid() == pid)
 end
 
+local function test_getuid_owns_what_the_process_creates(tmp: string)
+  local path = tmp .. "/mine"
+  assert(sys.mkdir(path))
+  local st = assert(sys.stat(path))
+  assert(st.uid == sys.getuid(), tostring(st.uid) .. " " .. tostring(sys.getuid()))
+end
+
 local function test_clocks_read_and_the_monotonic_one_advances()
   assert(assert(sys.clock_gettime(sys.CLOCK_REALTIME)) > 0)
   local before = assert(sys.clock_gettime(sys.CLOCK_MONOTONIC))

@@ -170,6 +170,76 @@ function Fs.mkdtemp(prefix: string): string | nil, string
   return path, ""
 end
 
+--- A directory of this user's own at `path`, made 0700 when missing:
+--- one that exists owned by another user, or writable by its group or
+--- by others, is refused, since whatever such a directory holds could
+--- have been put there by someone else.
+local function private_dir(path: string): boolean, string
+  local made, why, number = sys.mkdir(path, 0x1c0)
+  if not made and number ~= sys.EEXIST then
+    return false, path .. ": " .. why
+  end
+  local st, trouble = sys.stat(path)
+  if st == nil then
+    return false, path .. ": " .. trouble
+  end
+  if st.kind ~= "dir" then
+    return false, path .. ": not a directory"
+  end
+  if st.uid ~= sys.getuid() then
+    return false, path .. ": owned by another user"
+  end
+  if st.mode & 0x12 ~= 0 then
+    return false, path .. ": writable by its group or others"
+  end
+  return true, ""
+end
+
+--- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
+--- when `XDG_CACHE_HOME` is unset, empty or not absolute, created when
+--- missing. What a tool keeps there it trusts on later runs, so there
+--- is no shared fallback: with neither variable naming an absolute
+--- path this is nil and an error, as it is when the base directory is
+--- owned by another user (root aside), or `cosmic` or `cosmic/<tool>`
+--- under it is owned by another user or writable by its group or by
+--- others. The two are made 0700 when missing. `environment` is the
+--- variables to read, by default the process's own.
+function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil, string
+  local function get(name: string): string
+    if environment ~= nil then
+      return environment[name] or ""
+    end
+    return Env.get_or(name, "")
+  end
+  local base = get("XDG_CACHE_HOME")
+  if base:sub(1, 1) ~= "/" then
+    local home = get("HOME")
+    if home:sub(1, 1) ~= "/" then
+      return nil, "no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
+    end
+    base = home .. "/.cache"
+  end
+  local made, trouble = Fs.mkdirs(base)
+  if not made then
+    return nil, trouble
+  end
+  local st, strouble = Fs.stat(base)
+  if st == nil then
+    return nil, strouble
+  end
+  if st.uid ~= sys.getuid() and st.uid ~= 0 then
+    return nil, base .. ": owned by another user"
+  end
+  local dir = base .. "/cosmic"
+  for _, path in ipairs({ dir, dir .. "/" .. tool }) do
+    local ok, ptrouble = private_dir(path)
+    if not ok then
+      return nil, ptrouble
+    end
+  end
+  return dir .. "/" .. tool, ""
+end
+
 --- Removes a name: the path operation corresponding to os.remove. A name that
 --- is already gone is not a failure.
 function Fs.remove(path: string): boolean, string

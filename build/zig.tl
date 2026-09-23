@@ -17,7 +17,9 @@
 ---
 --- Otherwise the release is cached at
 --- `$XDG_CACHE_HOME/cosmic/zig/<version>-<host>` (default
---- `$HOME/.cache/cosmic/zig/...`): if `<install>/zig` is already there
+--- `$HOME/.cache/cosmic/zig/...`, and no fallback when neither is set;
+--- see `Fs.cache_dir`, which also refuses a cache directory someone
+--- else could write to): if `<install>/zig` is already there
 --- it is used as is; otherwise the tarball
 --- `https://ziglang.org/download/<version>/zig-<host>-<version>.tar.xz`
 --- is downloaded with `Http.download`'s own `sha256` check into a
@@ -137,16 +139,6 @@ function Zig.build_args(root: string, argv: {string}): {string}
     out[#out + 1] = argv[i]
   end
   return out
-end
-
---- `$XDG_CACHE_HOME/cosmic/zig`, or `$HOME/.cache/cosmic/zig` when
---- `XDG_CACHE_HOME` is unset or empty.
-function Zig.cache_dir(): string
-  local base = Env.get("XDG_CACHE_HOME")
-  if base == nil or base == "" then
-    base = Env.get_or("HOME", "/tmp") .. "/.cache"
-  end
-  return base .. "/cosmic/zig"
 end
 
 --- Removes every `.work.<pid>` under `cache` whose process is gone:
@@ -274,7 +266,10 @@ function Zig.locate(root: string): string | nil, string
   if host == nil then
     return nil, htrouble
   end
-  local cache = Zig.cache_dir()
+  local cache, ctrouble = Fs.cache_dir("zig")
+  if cache == nil then
+    return nil, ctrouble
+  end
   return Zig.ensure_installed(cache, cache .. "/" .. pin.version .. "-" .. host, pin, host)
 end
 
