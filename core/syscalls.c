@@ -28,7 +28,6 @@ extern long syscall(long, ...);
 #include "fail.h"
 #include "lauxlib.h"
 #include "executable.h"
-#include "miniz.h"
 #include "crypto.h"
 #include "syscalls.h"
 #include "portable.h"
@@ -789,51 +788,6 @@ COSMIC_SYSCALL(cancelled_child_signal, 0) {
   return 1;
 }
 
-COSMIC_SYSCALL(deflate, 1) {
-  size_t len;
-  const char *data = luaL_checklstring(L, 1, &len);
-  mz_ulong room = mz_compressBound((mz_ulong)len);
-  luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, room);
-  int rc = mz_compress2((unsigned char *)into, &room,
-                        (const unsigned char *)data, (mz_ulong)len,
-                        MZ_BEST_COMPRESSION);
-  if (rc != MZ_OK) {
-    luaL_pushresultsize(&buffer, 0);
-    lua_pop(L, 1);
-    lua_pushnil(L);
-    lua_pushstring(L, mz_error(rc));
-    lua_pushinteger(L, rc);
-    return 3;
-  }
-  luaL_pushresultsize(&buffer, room);
-  return 1;
-}
-
-COSMIC_SYSCALL(inflate, 2) {
-  size_t len;
-  const char *data = luaL_checklstring(L, 1, &len);
-  lua_Integer size = luaL_checkinteger(L, 2);
-  if (size < 0) {
-    return luaL_argerror(L, 2, "the expanded size is negative");
-  }
-  mz_ulong room = (mz_ulong)size;
-  luaL_Buffer buffer;
-  char *into = luaL_buffinitsize(L, &buffer, room);
-  int rc = mz_uncompress((unsigned char *)into, &room,
-                         (const unsigned char *)data, (mz_ulong)len);
-  if (rc != MZ_OK) {
-    luaL_pushresultsize(&buffer, 0);
-    lua_pop(L, 1);
-    lua_pushnil(L);
-    lua_pushstring(L, mz_error(rc));
-    lua_pushinteger(L, rc);
-    return 3;
-  }
-  luaL_pushresultsize(&buffer, room);
-  return 1;
-}
-
 #define ENTRY(name) {#name, cosmic_sys_##name}
 
 static const luaL_Reg table[] = {
@@ -848,8 +802,8 @@ static const luaL_Reg table[] = {
     ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
     ENTRY(getuid),
     ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
-    ENTRY(digest),   ENTRY(hmac),          ENTRY(deflate),
-    ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
+    ENTRY(digest),   ENTRY(hmac),          ENTRY(execve),
+    ENTRY(spawn),
     ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
     ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
     ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),

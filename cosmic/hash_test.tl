@@ -119,3 +119,73 @@ local function test_hasher_raises_on_an_unknown_algorithm()
   assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
 end
+
+local function test_hasher_and_digest_carry_an_empty_error()
+  local hasher, trouble = Hash.hasher("sha256")
+  assert(hasher ~= nil and trouble == "", trouble)
+  hasher:update("abc")
+  local digest, dtrouble = hasher:digest()
+  assert(digest == Hash.digest("sha256", "abc") and dtrouble == "", dtrouble)
+end
+
+local record Holder
+  h: Hash.Hasher
+end
+
+local function test_a_hasher_revived_by_a_finalizer_is_finished()
+  local saved: Hash.Hasher
+  local holder: Holder = setmetatable({} as Holder, {
+    __gc = function(self: Holder) saved = self.h end,
+  } as metatable<Holder>)
+  holder.h = assert(Hash.hasher("sha256"))
+  holder = nil
+  collectgarbage()
+  collectgarbage()
+  assert(saved ~= nil, "the finalizer ran")
+  local ok, why = pcall(function(): any
+    saved:update("abc")
+    return nil
+  end)
+  assert(not ok and tostring(why):find("finished", 1, true), tostring(why))
+  assert(not pcall(saved.digest, saved))
+end
+
+local function test_a_closed_hasher_is_finished()
+  local kept: Hash.Hasher
+  do
+    local hasher <close> = assert(Hash.hasher("sha256"))
+    hasher:update("abc")
+    kept = hasher
+  end
+  assert(not pcall(kept.update, kept, "more"))
+  assert(not pcall(kept.digest, kept))
+  -- Closing a digested hasher is harmless too.
+  do
+    local hasher <close> = assert(Hash.hasher("md5"))
+    assert(hasher:digest())
+  end
+end
+
+local function test_byte_sum_adds_unsigned_bytes_over_a_range()
+  assert(Hash.byte_sum("") == 0)
+  assert(Hash.byte_sum("\0\1\2\255") == 258)
+  assert(Hash.byte_sum("abc", 2) == 98 + 99)
+  assert(Hash.byte_sum("abc", 1, 2) == 97 + 98)
+  assert(Hash.byte_sum("abc", 2, 2) == 98)
+  assert(Hash.byte_sum("abc", 3, 2) == 0)
+  assert(Hash.byte_sum("abc", 4) == 0)
+  -- A tar header's checksum: every byte, with the checksum field's own
+  -- eight counted as spaces.
+  local block = ("x"):rep(148) .. ("\255"):rep(8) .. ("\0"):rep(356)
+  assert(Hash.byte_sum(block, 1, 148) + 8 * 32 + Hash.byte_sum(block, 157, 512) ==
+    148 * 120 + 8 * 32)
+  assert(Hash.byte_sum(block) == 148 * 120 + 8 * 255)
+end
+
+local function test_byte_sum_raises_on_a_range_outside_the_string()
+  assert(not pcall(Hash.byte_sum, "abc", 0))
+  assert(not pcall(Hash.byte_sum, "abc", 1, 4))
+  assert(not pcall(Hash.byte_sum, "abc", 1, -1))
+  assert(not pcall(Hash.byte_sum, "abc", 5))
+  assert(not pcall(Hash.byte_sum, "abc", 3, 1))
+end

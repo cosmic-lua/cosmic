@@ -24,7 +24,9 @@ local record Compress
     "gzip"
   end
 
-  --- One incremental transform, a chunk at a time.
+  --- One incremental transform, a chunk at a time. Every call that
+  --- can fail answers `value, ""` on success and `nil, error` on
+  --- failure, like the constructors.
   ---
   --- `update(chunk, max?)` feeds `chunk` and returns output, possibly
   --- "". A decoder returns at most `max` bytes per call (default
@@ -36,20 +38,25 @@ local record Compress
   --- is never pending. On corrupt data `update` returns nil and an
   --- error, and the stream is finished.
   ---
-  --- `finish()` says no more input follows and returns ALL remaining
-  --- output, unbounded, so a caller that never looks at `pending()`
-  --- still gets every byte. To keep memory bounded, drain first:
+  --- `finish()` says no more input follows and returns what is left:
+  --- an encoder's last block and trailer, and for a decoder only what
+  --- follows its drained output (in practice ""). It raises while
+  --- `pending()` is true, so its output is bounded too; drain first:
   ---
   ---     local out = s:update(chunk)       -- use out
   ---     while s:pending() do
   ---       out = s:update("")              -- use out
   ---     end
   ---     ...                               -- at end of input:
-  ---     local last = s:finish()           -- only a small tail now
+  ---     local last = s:finish()           -- a small tail at most
   ---
   --- A decoder's `finish` errors when the compressed data stopped
-  --- early ("truncated ... stream"). After `finish`, or after an
-  --- error, `update` and `finish` throw.
+  --- early ("truncated ... stream"). After `finish`, after an error,
+  --- after a raise inside `update` or `finish` (out of memory: the
+  --- codec may have taken input it can no longer account for), or
+  --- once closed, `update` and `finish` throw. A stream is closeable:
+  --- `local s <close> = assert(Compress.inflater("gzip"))` frees its
+  --- codec at the end of the scope; `rest()` still answers after.
   ---
   --- `done()` turns true once a decoder has seen the end of the
   --- compressed data, and `rest()` returns the input bytes fed after
