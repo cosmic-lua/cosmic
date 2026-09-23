@@ -2,9 +2,12 @@
 
 #include "coverage.h"
 
+#include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "lauxlib.h"
 #include "lapi.h"
@@ -144,8 +147,17 @@ static int native_ready(lua_State *L) {
  * window could otherwise see. Every later window starts empty. */
 static int native_opened;
 
+/* Every block a process that reports to a test has hit, across the
+ * windows it opens itself (a nested test run's): allocated only then. */
+static bool *native_ever;
+
 static void native_open(void) {
-  if (native_opened++ && native_flags) memset(native_flags, 0, native_count);
+  if (native_opened++ && native_flags) {
+    if (native_ever) {
+      for (size_t block = 0; block < native_count; block++) native_ever[block] |= native_flags[block];
+    }
+    memset(native_flags, 0, native_count);
+  }
 }
 
 /* Adds to the {path: {line: true}} table at `hits` the line of every mapped
@@ -178,6 +190,84 @@ static void native_collect(lua_State *L, int hits, enum native_want want) {
   (void)want;
 }
 #endif
+
+/* A process a test starts reports the C it ran to a directory that test's
+ * worker names, so it counts for the test (build/test_worker.tl). The
+ * directory travels as COSMIC_COVERAGE_CHILDREN in every environment the
+ * core starts a process with, whatever environment the program gave it,
+ * and is taken out of this process's own before any Lua runs: a program
+ * never sees it, and a verdict's key never holds it. */
+#define CHILDREN_NAME "COSMIC_COVERAGE_CHILDREN"
+static char *children_entry; /* CHILDREN_NAME "=" directory, or NULL */
+static int reports;          /* this process is one a test started */
+static unsigned reported;
+
+static int set_children(const char *directory) {
+  size_t size = sizeof CHILDREN_NAME + 1 + strlen(directory);
+  char *entry = malloc(size);
+  if (!entry) return 0;
+  snprintf(entry, size, "%s=%s", CHILDREN_NAME, directory);
+  free(children_entry);
+  children_entry = entry;
+  return 1;
+}
+
+char **cosmic_coverage_environment(char **envp) {
+  if (!children_entry) return envp;
+  size_t count = 0;
+  size_t name = sizeof CHILDREN_NAME; /* with its '=' in place of the NUL */
+  for (; envp[count]; count++) {
+    if (strncmp(envp[count], children_entry, name) == 0) return envp;
+  }
+  char **given = malloc((count + 2) * sizeof *given);
+  if (!given) return envp; /* the child goes unreported rather than unstarted */
+  memcpy(given, envp, count * sizeof *given);
+  given[count] = children_entry;
+  given[count + 1] = NULL;
+  return given;
+}
+
+void cosmic_coverage_report(void) {
+#ifdef COSMIC_NATIVE_COVERAGE
+  if (!reports || !native_flags || cosmic_native_coverage_blocks != native_count) return;
+  char path[4096];
+  int length = snprintf(path, sizeof path, "%s/%ld.%u", children_entry + sizeof CHILDREN_NAME,
+                        (long)getpid(), reported++);
+  if (length < 0 || (size_t)length >= sizeof path) return;
+  int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+  if (fd < 0) return;
+  /* One "path TAB line" per hit block; a line hit twice is read once. */
+  char buffer[8192];
+  size_t used = 0;
+  for (size_t block = 0; block <= native_count; block++) {
+    int last = block == native_count;
+    if (!last) {
+      uint16_t file = cosmic_native_coverage_path[block];
+      int hit = native_flags[block] || (native_ever && native_ever[block]);
+      if (file == UINT16_MAX || !hit) continue;
+      int wrote = snprintf(buffer + used, sizeof buffer - used, "%s\t%u\n",
+                           cosmic_native_coverage_paths[file],
+                           (unsigned)cosmic_native_coverage_line[block]);
+      if (wrote < 0) break;
+      if ((size_t)wrote < sizeof buffer - used) {
+        used += (size_t)wrote;
+        continue;
+      }
+      block--; /* did not fit: flush, then write this block again */
+    }
+    for (size_t at = 0; at < used;) {
+      ssize_t written = write(fd, buffer + at, used - at);
+      if (written <= 0) {
+        close(fd);
+        return;
+      }
+      at += (size_t)written;
+    }
+    used = 0;
+  }
+  close(fd);
+#endif
+}
 
 static void native_line_hook(lua_State *L, lua_Debug *ar) {
   Collector *collector = current_collector(L);
@@ -383,6 +473,13 @@ static int coverage_lines(lua_State *L) {
   return 1;
 }
 
+/* children(directory): every process this one starts from now on, and
+ * every one those start, reports the C it ran there as it exits. */
+static int coverage_children(lua_State *L) {
+  if (!set_children(luaL_checkstring(L, 1))) return luaL_error(L, "coverage: out of memory");
+  return 0;
+}
+
 /* The line each of the core's own C functions begins on, keyed like
  * `lines`: a function is entered when that line is hit. Empty in a core
  * built without native coverage. */
@@ -415,6 +512,16 @@ void cosmic_coverage_install(lua_State *L) {
     collector->from_startup = 1;
     lua_sethook(L, native_hook, LUA_MASKLINE, 0);
   }
+  /* A process a test started reports what it ran when it exits. */
+  const char *children = getenv(CHILDREN_NAME);
+  if (children && children[0] && !reports && set_children(children)) {
+    unsetenv(CHILDREN_NAME);
+    reports = 1;
+#ifdef COSMIC_NATIVE_COVERAGE
+    if (native_count) native_ever = calloc(native_count, 1);
+#endif
+    atexit(cosmic_coverage_report);
+  }
   lua_newtable(L);
   lua_pushcfunction(L, coverage_start);
   lua_setfield(L, -2, "start");
@@ -428,4 +535,6 @@ void cosmic_coverage_install(lua_State *L) {
   lua_setfield(L, -2, "lines");
   lua_pushcfunction(L, coverage_entries);
   lua_setfield(L, -2, "entries");
+  lua_pushcfunction(L, coverage_children);
+  lua_setfield(L, -2, "children");
 }

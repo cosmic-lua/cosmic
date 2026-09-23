@@ -155,4 +155,14 @@ function Coverage.native_entries(): Coverage.Hits
   return native.entries()
 end
 
+--- Every process started from now on, and every one those start --
+--- whatever environment it is given -- writes the core's C it ran into
+--- `directory` as it exits: one file a process, each line a repository
+--- path, a tab, and a line number. A program never sees how: the core
+--- carries the directory to each process itself.
+--- @param directory string Where each process writes its lines
+function Coverage.children(directory: string)
+  native.children(directory)
+end
+
 return Coverage

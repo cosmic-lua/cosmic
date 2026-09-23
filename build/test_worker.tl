@@ -14,6 +14,7 @@
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local entry_points = require("build.entry_points")
 local observations = require("build.filesystem_observations")
@@ -81,6 +82,32 @@ end
 
 --- The report as text: a header, one line per fact, and a closing line
 --- whose absence says the worker never finished writing it.
+--- Folds into `into` every line the processes the test started wrote
+--- into `directory` (see `Coverage.children`), removing each file and
+--- then the directory. A file cut short by a process killed mid-write
+--- yields the whole lines it holds.
+local function child_hits(directory: string, into: Coverage.Hits)
+  local names = Fs.list(directory)
+  if names ~= nil then
+    for _, name in ipairs(names) do
+      local file = directory .. "/" .. name
+      local text = Fs.read(file)
+      if text ~= nil then
+        for path, line in text:gmatch("([^\t\n]+)\t(%d+)\n") do
+          local here = into[path]
+          if here == nil then
+            here = {}
+            into[path] = here
+          end
+          here[math.tointeger(tonumber(line)) as integer] = true
+        end
+      end
+      Fs.remove(file)
+    end
+  end
+  sys.rmdir(directory)
+end
+
 function worker.encode(report: worker.Report): string
   local lines: {string} = { HEADER,
     "loaded " .. (report.loaded and "1" or "0"),
@@ -170,6 +197,10 @@ function worker.run(argv: {integer:string}): integer
     loaded = false, passed = false, message = "", elapsed_ns = 0,
     load_reads = {}, test_reads = {},
   }
+  -- Processes the test starts report the core's C they ran here, so it
+  -- counts for the test like the C it runs itself.
+  local children = Fs.mkdtemp("cosmic-test-children-")
+  if children ~= nil then Coverage.children(children) end
   -- Every C entry point is watched through both windows, so a test
   -- that reaches one -- while loading or while running -- is seen to.
   local watched = entry_points.all()
@@ -197,6 +228,10 @@ function worker.run(argv: {integer:string}): integer
       report.test_reads = test_reads
       report.elapsed_ns = finished - started
     end
+  end
+  if children ~= nil then
+    local into = report.test_hits or report.load_hits
+    child_hits(children, into or {})
   end
   local written, trouble = Fs.put(worker.report_fd, worker.encode(report))
   if not written then

@@ -37,6 +37,11 @@ local record native
   -- same way: a function was entered when its line is hit. Empty in a
   -- core built without native coverage.
   entries: function(): Hits
+
+  -- Every process started from now on, and every one those start,
+  -- writes the core's C it ran into `directory` as it exits: one file
+  -- a process, each line a repository path, a tab, and a line number.
+  children: function(directory: string)
 end
 
 return native
