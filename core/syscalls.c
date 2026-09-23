@@ -7,11 +7,14 @@
 
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/wait.h>
 #if defined(__linux__)
+#include <sys/prctl.h>
 #include <sys/syscall.h>
 /* _XOPEN_SOURCE intentionally hides this libc escape hatch. It is used only
  * for close_range, whose wrapper musl does not expose. */
@@ -26,6 +29,9 @@ extern long syscall(long, ...);
 #include "miniz.h"
 #include "crypto.h"
 #include "syscalls.h"
+#include "portable.h"
+#include "startup.h"
+#include "store.h"
 
 #if defined(__APPLE__)
 #include <crt_externs.h>
@@ -242,32 +248,63 @@ static int report_child_error(int fd, int number) {
   return 0;
 }
 
-/* Leave only stdio and the exec-status descriptor. Cosmic-opened descriptors
- * are CLOEXEC already; this also closes foreign descriptors that are not. */
-static void close_child_descriptors(long limit) {
+/* The highest descriptor number a child may be handed besides stdio. */
+#define CHILD_FD_MAX 255
+
+/* Whether cosmic itself set SIGPIPE to be ignored, so that a child it
+ * starts gets the default disposition back instead of inheriting ours. */
+static int sigpipe_ignored_here;
+
+/* Close every descriptor from `from` up. Cosmic-opened descriptors are
+ * CLOEXEC already; this also closes foreign descriptors that are not. */
+static void close_child_descriptors(int from, long limit) {
 #if defined(__linux__) && defined(SYS_close_range)
-  if (syscall(SYS_close_range, 4u, ~0u, 0u) == 0) return;
+  if (syscall(SYS_close_range, (unsigned)from, ~0u, 0u) == 0) return;
 #endif
-  for (int fd = 4; fd < limit; fd++) close(fd);
+  for (int fd = from; fd < limit; fd++) close(fd);
 }
 
-COSMIC_SYSCALL(spawn, 8) {
+COSMIC_SYSCALL(spawn, 9) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
   const char *cwd = lua_isnoneornil(L, 4) ? NULL : plain_string(L, 4, "cwd");
-  int stdio[3];
+  /* source[t] is the parent descriptor the child sees as t, or -1: for
+   * 0..2 that means inherit, above that it means closed. */
+  int source[CHILD_FD_MAX + 1];
+  for (int i = 0; i <= CHILD_FD_MAX; i++) source[i] = -1;
   for (int i = 0; i < 3; i++) {
-    if (lua_isnoneornil(L, 5 + i)) { stdio[i] = i; continue; }
+    if (lua_isnoneornil(L, 5 + i)) continue;
     if (!lua_isinteger(L, 5 + i))
       return luaL_argerror(L, 5 + i, "descriptor must be an integer");
     lua_Integer value = lua_tointeger(L, 5 + i);
     if (value < 0 || value > INT_MAX)
       return luaL_argerror(L, 5 + i, "descriptor is out of range");
-    stdio[i] = (int)value;
-    if (fcntl(stdio[i], F_GETFD) < 0) return cosmic_fail(L, errno);
+    source[i] = (int)value;
   }
   int process_group = lua_toboolean(L, 8);
+  int top = 2;
+  if (!lua_isnoneornil(L, 9)) {
+    luaL_checktype(L, 9, LUA_TTABLE);
+    lua_pushnil(L);
+    while (lua_next(L, 9) != 0) {
+      if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+        return luaL_argerror(L, 9, "descriptors must map integers to integers");
+      lua_Integer target = lua_tointeger(L, -2);
+      lua_Integer value = lua_tointeger(L, -1);
+      if (target < 3 || target > CHILD_FD_MAX)
+        return luaL_argerror(L, 9, "a child descriptor must be 3 to 255");
+      if (value < 0 || value > INT_MAX)
+        return luaL_argerror(L, 9, "descriptor is out of range");
+      source[target] = (int)value;
+      if (target > top) top = (int)target;
+      lua_pop(L, 1);
+    }
+  }
+  for (int t = 0; t <= top; t++) {
+    if (source[t] >= 0 && fcntl(source[t], F_GETFD) < 0)
+      return cosmic_fail(L, errno);
+  }
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
 
@@ -336,11 +373,11 @@ COSMIC_SYSCALL(spawn, 8) {
     int number = errno; if (!lua_isnoneornil(L, 3)) free_environment(envp, envc); free(argv);
     return cosmic_fail(L, number);
   }
-  /* Move both ends clear of 0..3. The child reserves fd 3 for its error
-   * report, so closed parent stdio cannot make a pipe end collide with the
+  /* Move both ends clear of every descriptor the child is handed, so
+   * closed parent stdio cannot make a pipe end collide with the
    * remapping below. */
-  int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, 10);
-  int status_write = fcntl(status_pipe[1], F_DUPFD_CLOEXEC, 10);
+  int status_read = fcntl(status_pipe[0], F_DUPFD_CLOEXEC, top + 2);
+  int status_write = fcntl(status_pipe[1], F_DUPFD_CLOEXEC, top + 2);
   int promote_error = errno;
   close(status_pipe[0]);
   close(status_pipe[1]);
@@ -355,48 +392,53 @@ COSMIC_SYSCALL(spawn, 8) {
   if (pid == 0) {
     close(status_read);
     int failure = 0;
-    /* dup2 resolves every source before closing anything. A source in 0..3
-     * may be overwritten by an earlier dup, so first pin those sources. */
-    int pinned[3] = {-1, -1, -1};
-    for (int i = 0; !failure && i < 3; i++) {
-      if (stdio[i] >= 0 && stdio[i] <= 3 && stdio[i] != i) {
-        pinned[i] = fcntl(stdio[i], F_DUPFD_CLOEXEC, 10);
-        if (pinned[i] < 0) failure = errno;
+    /* dup2 onto a target can overwrite another mapping's source, so every
+     * source is first pinned above everything the child is handed. A
+     * source that is its own target is pinned too: the copy is what makes
+     * the final dup2 clear CLOEXEC on it. Inherited stdio is left alone,
+     * so a closed one stays closed. */
+    int pinned[CHILD_FD_MAX + 1];
+    for (int t = 0; t <= top; t++) {
+      pinned[t] = -1;
+      if (!failure && source[t] >= 0) {
+        pinned[t] = fcntl(source[t], F_DUPFD_CLOEXEC, top + 2);
+        if (pinned[t] < 0) failure = errno;
       }
     }
+    /* The exec-status descriptor sits just above the child's own. */
+    if (!failure && status_write != top + 1) {
+      if (dup2(status_write, top + 1) < 0) failure = errno;
+      else close(status_write);
+    }
+    int status_fd = failure ? status_write : top + 1;
+    if (!failure && fcntl(status_fd, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
     if (failure) {
-      report_child_error(status_write, failure);
+      report_child_error(status_fd, failure);
       _exit(127);
     }
-    if (dup2(status_write, 3) < 0) {
-      failure = errno;
-      report_child_error(status_write, failure);
-      _exit(127);
-    }
-    close(status_write);
-    if (fcntl(3, F_SETFD, FD_CLOEXEC) != 0) failure = errno;
-    if (!failure && process_group && setpgid(0, 0) != 0) failure = errno;
+    if (process_group && setpgid(0, 0) != 0) failure = errno;
     if (!failure && cwd != NULL && chdir(cwd) != 0) failure = errno;
-    for (int i = 0; !failure && i < 3; i++) {
-      int source = pinned[i] >= 0 ? pinned[i] : stdio[i];
-      if (source != i && dup2(source, i) < 0) failure = errno;
-    }
-    /* dup2 clears CLOEXEC, but a mapping whose source is already its
-     * destination must be made equally safe for exec. Closed inherited
-     * descriptors remain closed. */
-    for (int i = 0; !failure && i < 3; i++) {
-      int flags = fcntl(i, F_GETFD);
-      if (flags >= 0) {
-        if (fcntl(i, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
-      } else if (errno != EBADF) {
-        failure = errno;
+    if (!failure && sigpipe_ignored_here) signal(SIGPIPE, SIG_DFL);
+    for (int t = 0; !failure && t <= top; t++) {
+      if (pinned[t] >= 0) {
+        if (dup2(pinned[t], t) < 0) failure = errno;
+      } else if (t < 3) {
+        /* An inherited stdio descriptor must be as safe for exec as a
+         * mapped one. */
+        int flags = fcntl(t, F_GETFD);
+        if (flags >= 0) {
+          if (fcntl(t, F_SETFD, flags & ~FD_CLOEXEC) != 0) failure = errno;
+        } else if (errno != EBADF) {
+          failure = errno;
+        }
+      } else {
+        close(t);
       }
     }
-    for (int i = 0; i < 3; i++) if (pinned[i] >= 0) close(pinned[i]);
-    close_child_descriptors(descriptor_limit);
+    close_child_descriptors(top + 2, descriptor_limit);
     if (!failure) execve(path, argv, envp);
     if (!failure) failure = errno;
-    report_child_error(3, failure);
+    report_child_error(status_fd, failure);
     _exit(127);
   }
   int fork_error = errno;
@@ -429,7 +471,7 @@ COSMIC_SYSCALL(spawn, 8) {
 
 COSMIC_SYSCALL(waitpid, 2) {
   lua_Integer value = luaL_checkinteger(L, 1);
-  if (value <= 0 || value > INT_MAX)
+  if (value == 0 || value < -INT_MAX || value > INT_MAX)
     return luaL_argerror(L, 1, "pid is out of range");
   pid_t pid = (pid_t)value;
   int nohang = lua_toboolean(L, 2);
@@ -458,6 +500,153 @@ COSMIC_SYSCALL(kill, 2) {
   int signal = (int)signal_value;
   if (kill(pid, signal) != 0) return cosmic_fail_effect(L, errno);
   return cosmic_ok(L);
+}
+
+static void set_decimal(lua_State *L, const char *name, uint64_t value) {
+  char text[32];
+  snprintf(text, sizeof text, "%llu", (unsigned long long)value);
+  lua_pushstring(L, text);
+  lua_setfield(L, -2, name);
+}
+
+COSMIC_SYSCALL(relaunch, 2) {
+  lua_Integer artifact_to = luaL_checkinteger(L, 1);
+  lua_Integer core_to = luaL_checkinteger(L, 2);
+  if (artifact_to < 3 || artifact_to > 255 || core_to < 3 || core_to > 255 ||
+      artifact_to == core_to)
+    return luaL_argerror(L, 1, "the child descriptors must differ, from 3 to 255");
+  const struct cosmic_artifact *artifact = cosmic_store_artifact(L);
+  if (artifact == NULL) return cosmic_fail(L, ENOSYS);
+  char physical[PATH_MAX];
+  if (!cosmic_executable_path(physical, sizeof physical))
+    return cosmic_fail(L, errno == 0 ? ENAMETOOLONG : errno);
+  int core_fd = cosmic_executable_fd();
+  if (core_fd < 0) return cosmic_fail(L, errno);
+  const struct cosmic_portable_entry *selected = &artifact->portable.selected;
+  lua_createtable(L, 0, 5);
+  lua_pushstring(L, physical);
+  lua_setfield(L, -2, "path");
+  lua_pushstring(L, artifact->logical_path);
+  lua_setfield(L, -2, "artifact");
+  lua_pushinteger(L, artifact->fd);
+  lua_setfield(L, -2, "artifact_fd");
+  lua_pushinteger(L, core_fd);
+  lua_setfield(L, -2, "core_fd");
+  lua_createtable(L, 0, 7);
+  set_decimal(L, COSMIC_PORTABLE_ENV_ARTIFACT_FD, (uint64_t)artifact_to);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CORE_FD, (uint64_t)core_to);
+  set_decimal(L, COSMIC_PORTABLE_ENV_TARGET_ID, selected->target_id);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CONFIGURATION_ID, selected->configuration_id);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CORE_OFFSET, selected->offset);
+  set_decimal(L, COSMIC_PORTABLE_ENV_CORE_LENGTH, selected->length);
+  char digest[COSMIC_PORTABLE_SHA256_LENGTH * 2 + 1];
+  for (size_t i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
+    snprintf(digest + i * 2, 3, "%02x", selected->sha256[i]);
+  lua_pushstring(L, digest);
+  lua_setfield(L, -2, COSMIC_PORTABLE_ENV_CORE_SHA256);
+  lua_setfield(L, -2, "environment");
+  return 1;
+}
+
+COSMIC_SYSCALL(pipe, 0) {
+  int ends[2];
+  if (pipe(ends) != 0) return cosmic_fail(L, errno);
+  /* One thread and no fork between these calls, so setting CLOEXEC
+   * after the fact cannot leak an end into a child. */
+  for (int i = 0; i < 2; i++) {
+    if (fcntl(ends[i], F_SETFD, FD_CLOEXEC) != 0) {
+      int number = errno;
+      close(ends[0]);
+      close(ends[1]);
+      return cosmic_fail(L, number);
+    }
+  }
+  lua_createtable(L, 0, 2);
+  lua_pushinteger(L, ends[0]); lua_setfield(L, -2, "reader");
+  lua_pushinteger(L, ends[1]); lua_setfield(L, -2, "writer");
+  return 1;
+}
+
+COSMIC_SYSCALL(set_nonblocking, 2) {
+  int fd = (int)luaL_checkinteger(L, 1);
+  int on = lua_toboolean(L, 2);
+  int flags = fcntl(fd, F_GETFL);
+  if (flags < 0) return cosmic_fail_effect(L, errno);
+  flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+  if (fcntl(fd, F_SETFL, flags) != 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
+#define POLL_MAX 1024
+
+COSMIC_SYSCALL(poll, 3) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  lua_Integer timeout = luaL_checkinteger(L, 3);
+  if (timeout < -1 || timeout > INT_MAX)
+    return luaL_argerror(L, 3, "timeout is out of range");
+  lua_Integer count = (lua_Integer)lua_rawlen(L, 1);
+  if (count > POLL_MAX) return luaL_argerror(L, 1, "too many descriptors");
+  if ((lua_Integer)lua_rawlen(L, 2) != count)
+    return luaL_argerror(L, 2, "one event mask per descriptor");
+  struct pollfd fds[POLL_MAX];
+  for (lua_Integer i = 0; i < count; i++) {
+    lua_rawgeti(L, 1, i + 1);
+    lua_rawgeti(L, 2, i + 1);
+    if (!lua_isinteger(L, -2) || !lua_isinteger(L, -1))
+      return luaL_argerror(L, 1, "descriptors and masks must be integers");
+    lua_Integer fd = lua_tointeger(L, -2);
+    lua_Integer events = lua_tointeger(L, -1);
+    if (fd < -1 || fd > INT_MAX || events < 0 || events > SHRT_MAX)
+      return luaL_argerror(L, 1, "descriptor or mask is out of range");
+    fds[i].fd = (int)fd;
+    fds[i].events = (short)events;
+    fds[i].revents = 0;
+    lua_pop(L, 2);
+  }
+  /* An interrupted wait answers as a wait that found nothing, so the
+   * caller's loop gets to look at whatever the signal meant. */
+  if (poll(fds, (nfds_t)count, (int)timeout) < 0) {
+    if (errno != EINTR) return cosmic_fail(L, errno);
+    for (lua_Integer i = 0; i < count; i++) fds[i].revents = 0;
+  }
+  lua_createtable(L, (int)count, 0);
+  for (lua_Integer i = 0; i < count; i++) {
+    lua_pushinteger(L, fds[i].revents);
+    lua_rawseti(L, -2, i + 1);
+  }
+  return 1;
+}
+
+COSMIC_SYSCALL(subreaper, 0) {
+#if defined(__linux__) && defined(PR_SET_CHILD_SUBREAPER)
+  if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0)
+    return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+#else
+  return cosmic_fail_effect(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(ignore_sigpipe, 0) {
+  struct sigaction previous;
+  if (sigaction(SIGPIPE, NULL, &previous) != 0)
+    return cosmic_fail_effect(L, errno);
+  if (previous.sa_handler != SIG_DFL) return cosmic_ok(L);
+  struct sigaction ignore;
+  memset(&ignore, 0, sizeof ignore);
+  ignore.sa_handler = SIG_IGN;
+  sigemptyset(&ignore.sa_mask);
+  if (sigaction(SIGPIPE, &ignore, NULL) != 0)
+    return cosmic_fail_effect(L, errno);
+  sigpipe_ignored_here = 1;
+  return cosmic_ok(L);
+}
+
+COSMIC_SYSCALL(cpu_count, 0) {
+  long count = sysconf(_SC_NPROCESSORS_ONLN);
+  lua_pushinteger(L, count < 1 ? 1 : (lua_Integer)count);
+  return 1;
 }
 
 static volatile sig_atomic_t child_cancelled;
@@ -609,6 +798,9 @@ static const luaL_Reg table[] = {
     ENTRY(inflate),  ENTRY(execve),        ENTRY(spawn),
     ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
     ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
+    ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
+    ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
+    ENTRY(relaunch),
     {NULL, NULL},
 };
 
@@ -642,8 +834,22 @@ static const struct constant constants[] = {
     {"EAGAIN", EAGAIN},
     {"EPIPE", EPIPE},
     {"EXDEV", EXDEV},
-    {"SIGTERM", SIGTERM},
+    {"ECHILD", ECHILD},
+    {"ESRCH", ESRCH},
+    {"EBADF", EBADF},
+    {"ENOSYS", ENOSYS},
+    {"SIGHUP", SIGHUP},
+    {"SIGINT", SIGINT},
+    {"SIGQUIT", SIGQUIT},
     {"SIGKILL", SIGKILL},
+    {"SIGPIPE", SIGPIPE},
+    {"SIGTERM", SIGTERM},
+    {"SIGUSR1", SIGUSR1},
+    {"POLLIN", POLLIN},
+    {"POLLOUT", POLLOUT},
+    {"POLLERR", POLLERR},
+    {"POLLHUP", POLLHUP},
+    {"POLLNVAL", POLLNVAL},
     {NULL, 0},
 };
 

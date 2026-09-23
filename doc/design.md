@@ -467,9 +467,8 @@ projection of that one, written only when what it is a function of
 moved, and a test whose verdict stands is not run again. its identity includes
 the module and runtime keys plus observed file contents, stat results, directory
 listings, and environment reads. a test that spawns a process or makes an
-unsupported observation outside the tree is not cacheable. the
-runner still executes what does run in-process; child-process
-isolation is planned below, not implemented:
+unsupported observation outside the tree is not cacheable. each test
+that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, and the compiler identity. a test
@@ -479,10 +478,14 @@ isolation is planned below, not implemented:
   depended on it. observations come through the syscall table, where the runner
   records the paths, names, and answers that can affect the verdict.
 - *fast*: compile and check run in one process, one transaction,
-  against declarations already in the database. tests currently run in-process
-  with fresh temporary directories. per-test child isolation, captured streams,
-  and a deadline are target behavior. the child will not open a database; it
-  will report its result over a pipe for the build process to write.
+  against declarations already in the database. each test runs in a worker
+  -- the same core relaunched directly, never through the launcher --
+  one per processor at a time, with a fresh temporary directory, captured
+  streams, and a deadline past which its whole process group is ended. the
+  worker never opens a database; it reports what it read, what it hit, and
+  its verdict over a pipe, and the build process alone writes them. a test
+  that exits, crashes, or hangs fails by itself, and on Linux the runner, a
+  child subreaper, also ends what a dead worker's descendants left behind.
 - *reproducible*: the shipped database is a host-neutral projection of the
   working database into a fresh schema, filled in one transaction, with every
   table `WITHOUT ROWID` on a natural key and the file produced by `VACUUM

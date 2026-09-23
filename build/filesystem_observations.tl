@@ -153,10 +153,10 @@ function observations.start(): {observations.Observation}, function()
   end
   sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                        cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
-                       stderr: integer | nil, process_group: boolean):
-                       integer | nil, string, integer
+                       stderr: integer | nil, process_group: boolean,
+                       fds?: {integer:integer}): integer | nil, string, integer
     found[#found + 1] = { kind = "p", path = path, answer = "" }
-    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group)
+    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
   end
   sys.mkdtemp = function(template: string): string | nil, string, integer
     local path, trouble, errno = mkdtemp(template)

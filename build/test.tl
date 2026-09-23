@@ -1,15 +1,25 @@
 --- Runs every test the tree defines that a stored verdict does not
---- already answer for, in-process, and records each verdict into the
---- working database, `o/build.db`, which never ships and is never
---- carried in `o/cosmic.db`.
+--- already answer for, each in a process of its own, and records each
+--- verdict into the working database, `o/build.db`, which never ships
+--- and is never carried in `o/cosmic.db`.
+---
+--- A test runs in a worker, `build.test_worker`: this binary again,
+--- started with the test's module, name, and temporary directory, in a
+--- process group of its own, with its standard streams captured and a
+--- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
+--- default -- past which the whole group is ended and the test fails.
+--- Up to `--jobs N` workers run at once, one per processor by default.
+--- A worker reports over a pipe what it read and hit and whether the
+--- test passed; this process alone opens the build database and writes
+--- the verdict. A test that exits, crashes, or hangs its process fails
+--- by itself, and what it printed is shown only when it fails.
 ---
 --- A verdict is a function of the test module's key -- its source,
 --- its import closure, the tool -- and of every file under the root
---- the test was observed to read, by content hash. While that key
---- stands, a passing verdict stands, and the test is not run again:
---- its module is still loaded, so what loading it hits is counted
---- fresh, and the lines the test itself hit in the run that produced
---- the verdict are credited to this one. Verdicts are kept by key, so
+--- the test was observed to read, by content hash, loading its module
+--- included. While that key stands, a passing verdict stands, and the
+--- test is not run again: the lines it hit in the run that produced
+--- the verdict, loading its module included, are credited to this one. Verdicts are kept by key, so
 --- an edit undone finds its old verdict again. A failing verdict is
 --- never reused; the test runs until it passes. Opens, stat queries,
 --- and directory listings are observed through the syscall table.
@@ -35,18 +45,20 @@
 --- an argument nobody asked for.
 ---
 --- Every file `cosmic.fs` opens goes through `cosmic.sys`'s shared
---- `open` field, so wrapping it for the duration of one test's call
---- records every path that test caused to be opened, on every caller's
---- behalf, without any of them knowing. `pcall` around the call means
---- control always comes back here -- pass, fail, or an unrelated Lua
---- error -- so the original is always put back before the next test.
+--- `open` field, so the worker wraps it, and the other queries a
+--- verdict depends on, for the duration of loading the module and of
+--- calling the test; see `build.filesystem_observations`.
 
+local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local coverage_report = require("build.coverage.report")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
@@ -54,6 +66,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
+local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
 local record test
@@ -84,7 +97,26 @@ local record test
     ran: integer
     cached: integer
   end
+
+  --- How a run is bounded, from the command line and the environment.
+  record Limits
+    --- Each test's deadline.
+    timeout_ms: integer
+    --- How many workers run at once.
+    jobs: integer
+  end
+
+  --- The variable a test deadline's default is read from, in seconds.
+  timeout_variable: string
+  --- A test's deadline when neither the command line nor the
+  --- environment names one, in seconds: the slowest test in this tree
+  --- takes about a second, so this leaves a loaded CI host ample room
+  --- while still ending a hung test well inside any whole-run budget.
+  default_timeout_s: integer
 end
+
+test.timeout_variable = "COSMIC_TEST_TIMEOUT"
+test.default_timeout_s = 30
 
 --- Whether one test module is named by a selector. A module name and its
 --- source path match exactly; a directory matches only at a `/` boundary.
@@ -129,16 +161,6 @@ local function elapsed_ms(from: integer): integer
     return 0
   end
   return (now - from) // 1000000
-end
-
---- Nanoseconds elapsed since `from`, from the monotonic clock; 0 when
---- the clock is unavailable, same as `elapsed_ms` above.
-local function elapsed_ns(from: integer): integer
-  local now = Time.monotonic_ns()
-  if now == nil then
-    return 0
-  end
-  return now - from
 end
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
@@ -270,38 +292,6 @@ local function under_root(root: string, path: string): string | nil
   return relative
 end
 
---- Adds observations that can affect a verdict to the process-wide set.
---- Module loads are shared by every later test, so this set is cumulative;
---- keeping it small prevents every test from repeatedly walking irrelevant or
---- identical queries. Distinct answers remain distinct and make the run
---- unstable when `verdict_key` sees them.
-local function append_process_reads(root: string,
-                                    into: {observations.Observation},
-                                    seen: {string:{string:{string:boolean}}},
-                                    found: {observations.Observation})
-  for _, observation in ipairs(found) do
-    local kind = observation.kind
-    if kind == "e" or
-        ((kind == "o" or kind == "s" or kind == "d") and
-          under_root(root, observation.path) ~= nil) then
-      local by_path = seen[observation.kind]
-      if by_path == nil then
-        by_path = {}
-        seen[observation.kind] = by_path
-      end
-      local by_answer = by_path[observation.path]
-      if by_answer == nil then
-        by_answer = {}
-        by_path[observation.path] = by_answer
-      end
-      if not by_answer[observation.answer] then
-        by_answer[observation.answer] = true
-        into[#into + 1] = observation
-      end
-    end
-  end
-end
-
 --- What one test's verdict is a function of: the test itself, its
 --- module's key, the runtime it ran under -- see `build.work`'s
 --- `Identities` -- and the current hash of every file under the root
@@ -363,7 +353,10 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- `key_part` hex-encoding every read line already uses, so two distinct
   -- (id, module_key, runtime) triples can never concatenate to the same
   -- string regardless of what future caller or identity format hands them.
-  local lines: {string} = { "recording-3", "module-load-reads-v1",
+  -- Generation 4 runs each test in a worker process of its own: its reads
+  -- and hits are its module's load and its own call, nothing an earlier
+  -- test in the same process loaded, so no earlier verdict describes one.
+  local lines: {string} = { "recording-4", "module-load-reads-v1",
     observations.key_part("i", id, observations.key_part("m", module_key, runtime)) }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
@@ -790,151 +783,302 @@ local function merge_hits(into: Coverage.Hits, from: Coverage.Hits)
   end
 end
 
---- Calls one test function with a fresh temporary directory as its one
---- argument, through `pcall`, and reports what it observed opening.
-local function call_test(fn: function(any...): (any...)):
-                         boolean, string, {observations.Observation}, string
-  local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
-  if tmp == nil then
-    return false, "could not make a temporary directory: " .. tmp_trouble, {}, ""
-  end
-  local ok, message, reads = observations.call(fn, tmp)
-  return ok, message, reads, tmp
+--- One test the run has to run: no verdict stands for it.
+local record Job
+  m: importer.Module
+  name: string
+  id: string
+  tmp: string
+  handle: Child.Handle
+  started_ns: integer
+  deadline_ns: integer
 end
 
---- Runs every test one `kind = "test"` or `kind = "example"` module
---- found whose stored verdict does not stand, recording each into
---- `records` and appending
---- a line to `failures` for any that did not pass. Every hit line,
---- from this module's own one-time load and from each test in it, is
---- folded into `hits`, the whole-run accumulator; a test's own hits
---- are additionally kept in `by_test`, keyed by that test's own
---- identity, so `write_coverage` can credit specific lines to specific
---- tests. A test answered from its verdict has the hits of the run
---- that produced it folded into `hits`, and keeps pointing at that
---- run. Counts into `tally`.
-local function run_module(records: Sqlite.Handle, m: importer.Module,
-                          failures: {string}, errors: {string}, hits: Coverage.Hits,
-                          by_test: {string: Coverage.Hits}, root: string,
-                          previous: {string:test.Previous},
-                          verdicts: {string:test.Verdict}, credited: test.Credited,
-                          hashes: {string:string}, runtime: string,
-                          run_at_ns: integer, run: integer, tally: test.Tally,
-                          process_reads: {observations.Observation},
-                          process_seen: {string:{string:{string:boolean}}},
-                          key_parts: {string:string})
-  -- A module's own top-level code -- `local record X ... end`, `local Y
-  -- = require(...)` and the like -- runs exactly once, right here, at
-  -- first require, not once per test below. Left outside every
-  -- coverage window, it would run in the gap between one test's window
-  -- and the next and never be recorded as hit at all -- silently
-  -- deflating the aggregate percentage. Folded into `hits` like any
-  -- other window's hits; not attributed to `by_test`, since there is no
-  -- single test to credit module-load code to.
-  local module_session, module_start_trouble = Coverage.start()
-  if module_session == nil then
-    errors[#errors + 1] = m.path .. ": coverage start: " .. module_start_trouble
+--- Everything a finished job's verdict is recorded into.
+local record Recording
+  records: Sqlite.Handle
+  root: string
+  hashes: {string:string}
+  runtime: string
+  run_at_ns: integer
+  run: integer
+  key_parts: {string:string}
+  failures: {string}
+  errors: {string}
+  --- What each failing test printed, by its id.
+  outputs: {string:string}
+  hits: Coverage.Hits
+  by_test: {string: Coverage.Hits}
+  tally: test.Tally
+end
+
+--- A verdict from a stored one that still stands: what the test read
+--- last time still hashes the same, and so does everything it was
+--- compiled from. Nil when there is none.
+local function standing(rec: Recording, previous: {string:test.Previous},
+                        verdicts: {string:test.Verdict}, m: importer.Module,
+                        id: string): test.Verdict, {observations.Observation}, string
+  local was = previous[id]
+  if was == nil then return nil, nil, "" end
+  local key, stable = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime,
+    was.reads, rec.key_parts)
+  local stood = stable and verdicts[key] or nil
+  if stood == nil or not stood.passed then return nil, nil, "" end
+  return stood, was.reads, key
+end
+
+--- Records one test answered from its standing verdict.
+local function stand(rec: Recording, credited: test.Credited, m: importer.Module,
+                     name: string, id: string, stood: test.Verdict,
+                     reads: {observations.Observation}, key: string)
+  rec.tally.cached = rec.tally.cached + 1
+  local owed = credited[stood.run_at_ns]
+  if owed == nil then
+    owed = {}
+    credited[stood.run_at_ns] = owed
   end
-  local ok, produced, newly_read = observations.capture(function(): any
-    return require(m.path)
-  end)
-  local module_keyable = test.keyable(root, "", newly_read)
-  append_process_reads(root, process_reads, process_seen, newly_read)
-  if module_session ~= nil then
-    local collected, stop_trouble = Coverage.stop(module_session)
-    if collected == nil then
-      errors[#errors + 1] = m.path .. ": coverage stop: " .. stop_trouble
+  owed[#owed + 1] = id
+  local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
+    Time.now_ns() or 0, reads, key, stood.run_at_ns, stood.elapsed_ns)
+  if not kept then
+    rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
+  end
+  kept, keep_trouble = record_verdict(rec.records, key, true, stood.run_at_ns, rec.run,
+    stood.elapsed_ns)
+  if not kept then
+    rec.errors[#rec.errors + 1] = id .. ": verdict: " .. keep_trouble
+  end
+end
+
+--- How a worker's process ended, for a failure that has no report.
+local function ending(result: Child.Result): string
+  if result.signal ~= nil then return "was killed by signal " .. tostring(result.signal) end
+  return "exited with status " .. tostring(result.code)
+end
+
+--- Records one finished job: the verdict its worker reported, or a
+--- failure that says why there is no report to go by.
+local function finish(rec: Recording, job: Job, result: Child.Result,
+                      trouble: string, limits: test.Limits)
+  rec.tally.ran = rec.tally.ran + 1
+  local id = job.id
+  local wall_ns = (Time.monotonic_ns() or job.started_ns) - job.started_ns
+  local reported: worker.Report
+  local message: string
+  if result == nil then
+    message = "the test process could not be supervised: " .. trouble
+  elseif result.timed_out then
+    message = "timed out after " .. tostring(limits.timeout_ms // 1000) ..
+      " s; its process group was ended"
+  else
+    local decoded, decode_trouble = worker.decode(result.captured[worker.report_fd])
+    if decoded == nil then
+      message = "the test process " .. ending(result) .. " before it reported (" ..
+        decode_trouble .. ")"
     else
-      merge_hits(hits, collected)
+      reported = decoded
     end
   end
-  if not ok then
-    local message = "the module failed to load: " .. tostring(produced)
-    for _, name in ipairs(m.tests) do
-      failures[#failures + 1] = m.path .. " " .. name .. ": " .. message
-      tally.ran = tally.ran + 1
-      local saved, trouble = record_run(records, m.path, name, false, message,
-        Time.now_ns() or 0, {}, "", run_at_ns, 0)
-      if not saved then
-        errors[#errors + 1] = m.path .. " " .. name .. ": record: " .. trouble
-      end
+  local passed = false
+  local reads: {observations.Observation} = {}
+  local elapsed = wall_ns
+  local cacheable = false
+  if reported ~= nil then
+    passed, message = reported.passed, reported.message
+    reads = observations.join(reported.load_reads, reported.test_reads)
+    elapsed = reported.elapsed_ns
+    cacheable = reported.loaded and test.keyable(rec.root, job.tmp, reads)
+    local hit: Coverage.Hits = {}
+    merge_hits(hit, reported.load_hits)
+    merge_hits(hit, reported.test_hits)
+    merge_hits(rec.hits, hit)
+    rec.by_test[id] = hit
+    if passed and trouble ~= "" then
+      -- The test passed, but what it started outlived it.
+      passed, message = false, trouble
     end
-    return
   end
-  local mod = produced as {string:any}
-  for _, name in ipairs(m.tests) do
-    local id = m.path .. " " .. name
-    local was = previous[id]
-    local prior_reads = was ~= nil and
-      observations.join(process_reads, was.reads) or process_reads
-    local key = ""
-    local prior_stable = false
-    if was ~= nil then
-      key, prior_stable = test.verdict_key(root, hashes, id, m.key, runtime, prior_reads,
-        key_parts)
+  local reached, stable = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
+    rec.runtime, reads, rec.key_parts)
+  local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
+    message, Time.now_ns() or 0, reads, reached, rec.run_at_ns, elapsed,
+    stable and cacheable)
+  if not saved then
+    rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
+  end
+  saved, save_trouble = record_verdict(rec.records, reached, passed, rec.run_at_ns, rec.run,
+    elapsed)
+  if not saved then
+    rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+  end
+  if not passed then
+    rec.failures[#rec.failures + 1] = id .. ": " .. message
+    if result ~= nil and result.stdout ~= nil and result.stdout ~= "" then
+      rec.outputs[id] = result.stdout
     end
-    local stood = prior_stable and verdicts[key] or nil
-    if was ~= nil and stood ~= nil and stood.passed then
-      -- The verdict stands: what the test read last time still hashes
-      -- the same, and so does everything it was compiled from.
-      tally.cached = tally.cached + 1
-      local owed = credited[stood.run_at_ns]
-      if owed == nil then
-        owed = {}
-        credited[stood.run_at_ns] = owed
+  end
+end
+
+--- The environment a worker starts with: this process's, less the
+--- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
+--- one startup of a fixture runtime for a handshake and belong to this
+--- process's own launch, not to every worker it starts.
+function test.worker_environment(environment: {string:string}): {string:string}
+  local out: {string:string} = {}
+  for name, value in pairs(environment) do
+    if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" then out[name] = value end
+  end
+  return out
+end
+
+--- How a worker is started: this exact program again -- the same core,
+--- whose runtime identity every verdict of the run is keyed under -- with
+--- `test.worker_environment`. A process not started from a portable
+--- artifact starts its logical executable instead.
+function test.worker_start(environment: {string:string}): Proc.Relaunch | nil, string
+  local env = test.worker_environment(environment)
+  local relaunch = Proc.relaunch()
+  if relaunch ~= nil then
+    for name, value in pairs(relaunch.env) do env[name] = value end
+    return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
+  end
+  local executable, trouble = Proc.executable()
+  if executable == nil then return nil, trouble end
+  return { argv = { executable }, env = env, fds = {} }, ""
+end
+
+--- Starts one job's worker. False when it could not start, which is
+--- recorded as that test's failure.
+local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
+                      limits: test.Limits): boolean
+  local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
+  if tmp == nil then
+    finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
+    return false
+  end
+  job.tmp = tmp
+  job.started_ns = Time.monotonic_ns() or 0
+  job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
+  local argv: {string} = {}
+  for i, value in ipairs(start.argv) do argv[i] = value end
+  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp }) do
+    argv[#argv + 1] = value
+  end
+  local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
+  for number, fd in pairs(start.fds) do fds[number] = fd end
+  local handle, trouble = Child.start(argv,
+    { env = start.env, stdin = "null", stdout = "capture", stderr = "stdout", fds = fds })
+  if handle == nil then
+    finish(rec, job, nil, trouble, limits)
+    return false
+  end
+  job.handle = handle
+  return true
+end
+
+--- Runs every job, `limits.jobs` at a time, each to its verdict or its
+--- deadline. SIGINT or SIGTERM ends every worker still running before
+--- this process is ended by it; the signal comes back as the return.
+local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integer
+  if #jobs == 0 then return 0 end
+  local start, start_trouble = test.worker_start(Env.all())
+  if start == nil then
+    rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
+    return 0
+  end
+  local guarded = sys.guard_child_signals()
+  local running: {Job} = {}
+  local next_job = 1
+  local cancelled = 0
+  while next_job <= #jobs or #running > 0 do
+    while #running < limits.jobs and next_job <= #jobs do
+      local job = jobs[next_job]
+      next_job = next_job + 1
+      if launch(rec, job, start, limits) then
+        running[#running + 1] = job
       end
-      owed[#owed + 1] = id
-      local kept, keep_trouble = record_run(records, m.path, name, true, "",
-        Time.now_ns() or 0, prior_reads, key, stood.run_at_ns, stood.elapsed_ns)
-      if not kept then
-        errors[#errors + 1] = id .. ": record: " .. keep_trouble
+    end
+    if #running == 0 then break end
+    if guarded then
+      cancelled = sys.cancelled_child_signal() or 0
+      if cancelled ~= 0 then break end
+    end
+    local earliest = running[1].deadline_ns
+    local handles: {Child.Handle} = {}
+    for i, job in ipairs(running) do
+      handles[i] = job.handle
+      if job.deadline_ns < earliest then earliest = job.deadline_ns end
+    end
+    local left_ms = (earliest - (Time.monotonic_ns() or 0)) // (1000 * 1000)
+    local done, trouble = Child.wait_any(handles, math.max(0, math.min(100, left_ms)))
+    local still: {Job} = {}
+    for _, job in ipairs(running) do
+      if job.handle == done then
+        finish(rec, job, (job.handle:wait()), trouble, limits)
+      elseif done == nil and trouble ~= "timeout" then
+        -- Supervision itself failed; end this worker and say why.
+        job.handle:close()
+        finish(rec, job, nil, trouble, limits)
+      elseif (Time.monotonic_ns() or 0) >= job.deadline_ns then
+        local result, stop_trouble = job.handle:wait(0)
+        finish(rec, job, result, stop_trouble, limits)
+      else
+        still[#still + 1] = job
       end
-      kept, keep_trouble = record_verdict(records, key, true, stood.run_at_ns, run,
-        stood.elapsed_ns)
-      if not kept then
-        errors[#errors + 1] = id .. ": verdict: " .. keep_trouble
-      end
+    end
+    if #still < #running then
+      -- A worker that is gone may have left processes of its own
+      -- behind, outside the group its end reached; this process
+      -- adopted them, and ends them before the next test starts.
+      Child.end_strays()
+    end
+    running = still
+  end
+  for _, job in ipairs(running) do job.handle:close() end
+  Child.end_strays()
+  if guarded then
+    local late = sys.unguard_child_signals() or 0
+    if cancelled == 0 then cancelled = late end
+  end
+  return cancelled
+end
+
+--- The run's bounds: `--timeout SECONDS` and `--jobs N` from the
+--- command line, which also drop out of it; the deadline's default
+--- from `COSMIC_TEST_TIMEOUT`. Nil and why for a value that is not a
+--- positive whole number.
+local function limits_of(argv: {integer:string}): test.Limits | nil, string
+  local limits: test.Limits = {
+    timeout_ms = test.default_timeout_s * 1000,
+    jobs = Proc.cpu_count(),
+  }
+  local function positive(value: string, what: string): integer | nil, string
+    local number = value ~= nil and math.tointeger(tonumber(value)) or nil
+    if number == nil or number < 1 then
+      return nil, what .. " must be a positive whole number, not " .. tostring(value)
+    end
+    return number, ""
+  end
+  local from_env = Env.get(test.timeout_variable)
+  if from_env ~= nil and from_env ~= "" then
+    local seconds, trouble = positive(from_env, test.timeout_variable)
+    if seconds == nil then return nil, trouble end
+    limits.timeout_ms = seconds * 1000
+  end
+  local slot = 2
+  while argv[slot] ~= nil do
+    local flag = argv[slot]
+    if flag == "--timeout" or flag == "--jobs" then
+      local number, trouble = positive(argv[slot + 1], flag)
+      if number == nil then return nil, trouble end
+      if flag == "--timeout" then limits.timeout_ms = number * 1000 else limits.jobs = number end
+      table.remove(argv, slot)
+      table.remove(argv, slot)
     else
-      tally.ran = tally.ran + 1
-      local fn = mod[name] as function(any...): (any...)
-      local test_session, test_start_trouble = Coverage.start()
-      if test_session == nil then
-        errors[#errors + 1] = id .. ": coverage start: " .. test_start_trouble
-      end
-      local test_started = Time.monotonic_ns() or 0
-      local passed, message, reads, tmp = call_test(fn)
-      local test_elapsed_ns = elapsed_ns(test_started)
-      local test_reads = reads
-      local keyable = module_keyable and test.keyable(root, tmp, test_reads)
-      reads = observations.join(process_reads, test_reads)
-      append_process_reads(root, process_reads, process_seen, test_reads)
-      if test_session ~= nil then
-        local collected, stop_trouble = Coverage.stop(test_session)
-        if collected == nil then
-          errors[#errors + 1] = id .. ": coverage stop: " .. stop_trouble
-        else
-          merge_hits(hits, collected)
-          by_test[id] = collected
-        end
-      end
-      local reached, stable = test.verdict_key(root, hashes, id, m.key, runtime, reads,
-        key_parts)
-      local saved, trouble = record_run(records, m.path, name, passed, message,
-        Time.now_ns() or 0, reads, reached, run_at_ns, test_elapsed_ns,
-        stable and keyable)
-      if not saved then
-        errors[#errors + 1] = id .. ": record: " .. trouble
-      end
-      saved, trouble = record_verdict(records, reached, passed, run_at_ns, run,
-        test_elapsed_ns)
-      if not saved then
-        errors[#errors + 1] = id .. ": verdict: " .. trouble
-      end
-      if not passed then
-        failures[#failures + 1] = id .. ": " .. message
-      end
+      slot = slot + 1
     end
   end
+  return limits, ""
 end
 
 --- Builds the tree in the working directory and runs every test it
@@ -953,10 +1097,19 @@ function test.run(argv: {integer:string}): integer
     complain(root_trouble)
     return 1
   end
+  -- The re-entry after a rebuild gets the whole command line back, so the
+  -- flags are read from a copy.
+  local command: {integer:string} = {}
+  for slot, value in pairs(argv) do command[slot] = value end
+  local limits, limits_trouble = limits_of(command)
+  if limits == nil then
+    complain(limits_trouble)
+    return 2
+  end
   local selectors: {string} = {}
   local slot = 2
-  while argv[slot] ~= nil do
-    local selector = normalized(argv[slot])
+  while command[slot] ~= nil do
+    local selector = normalized(command[slot])
     local absolute = Fs.absolute(selector)
     if absolute == root then
       selector = "."
@@ -1052,13 +1205,6 @@ function test.run(argv: {integer:string}): integer
     " files staged, " .. staged.read .. " read) in " ..
     elapsed_ms(started) .. " ms")
 
-  local attached, attach_trouble = Store.attach(database)
-  if not attached then
-    work.close(handle)
-    complain(attach_trouble)
-    return 1
-  end
-
   local selected_modules: {importer.Module} = {}
   for _, m in ipairs(result.modules) do
     if (m.kind == "test" or m.kind == "example") and #m.tests > 0 and
@@ -1105,36 +1251,37 @@ function test.run(argv: {integer:string}): integer
   local credited: test.Credited = {}
 
   local tally: test.Tally = { ran = 0, cached = 0 }
-  local modules_run = 0
+  local modules_run = #selected_modules
   local failures: {string} = {}
   local errors: {string} = {}
-  -- One collection window per test, not one for the whole run: each
-  -- `start`/`stop` pair is a handful of cheap C calls (core/coverage.c),
-  -- and the real cost is proportional to lines executed, not to how
-  -- many times the hook toggles on and off, so this is not meaningfully
-  -- slower than the one-window-per-run design it replaces. What it buys
-  -- is attribution: a window scoped to exactly one test's own execution
-  -- means the hits it collects can be credited to that test by name,
-  -- which one continuous whole-suite window never could. The session
-  -- each `start` hands back is what keeps a window its own opener's:
-  -- an ordinary test elsewhere in the tree that also calls
-  -- `start`/`stop` cannot reset or end a window it did not open, since
-  -- it never has that same session value.
+  -- Every hit line of the run, and each test's own, which is what lets
+  -- a later run credit a standing verdict's lines to it by name.
   local hits: Coverage.Hits = {}
   local by_test: {string: Coverage.Hits} = {}
-  -- Requires are cached process-wide. Keeping every read observed while test
-  -- modules or test bodies execute means a helper loaded earlier remains an
-  -- input to later code that receives that already-loaded helper.
-  local process_reads: {observations.Observation} = {}
-  local process_seen: {string:{string:{string:boolean}}} = {}
-  -- The same (kind, relative, answer) triple's encoded key line recurs
-  -- across most of the run's tests; see `verdict_key`.
-  local key_parts: {string:string} = {}
+  local rec: Recording = {
+    records = records, root = root, hashes = hashes, runtime = runtime,
+    run_at_ns = run_at_ns, run = handle.run, key_parts = {},
+    failures = failures, errors = errors, outputs = {},
+    hits = hits, by_test = by_test, tally = tally,
+  }
+  local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
-    modules_run = modules_run + 1
-    run_module(records, m, failures, errors, hits, by_test, root, previous,
-      verdicts, credited, hashes, runtime, run_at_ns, handle.run, tally,
-      process_reads, process_seen, key_parts)
+    for _, name in ipairs(m.tests) do
+      local id = m.path .. " " .. name
+      local stood, reads, key = standing(rec, previous, verdicts, m, id)
+      if stood ~= nil then
+        stand(rec, credited, m, name, id, stood, reads, key)
+      else
+        jobs[#jobs + 1] = { m = m, name = name, id = id }
+      end
+    end
+  end
+  local cancelled = run_jobs(rec, jobs, limits)
+  if cancelled ~= 0 then
+    work.abort(handle)
+    complain("test: cancelled; every running test was ended")
+    sys.kill(sys.getpid(), cancelled)
+    return 130
   end
   local total = tally.ran + tally.cached
 
@@ -1186,8 +1333,19 @@ function test.run(argv: {integer:string}): integer
     report(cov_line)
     return 0
   end
-  for _, line in ipairs(failures) do
-    report("test: FAIL  " .. line)
+  table.sort(failures)
+  for _, failure in ipairs(failures) do
+    report("test: FAIL  " .. failure)
+    local id = failure:match("^(%S+ %S+):")
+    local printed = id ~= nil and rec.outputs[id] or nil
+    if printed ~= nil then
+      if #printed > 4096 then
+        printed = "..." .. printed:sub(-4096)
+      end
+      for printed_line in (printed:gsub("\n$", "") .. "\n"):gmatch("([^\n]*)\n") do
+        report("  | " .. printed_line)
+      end
+    end
   end
   for _, line in ipairs(errors) do
     report("test: ERROR  " .. records_path .. ": " .. line)

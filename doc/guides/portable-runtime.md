@@ -170,6 +170,15 @@ used by this process. Editing the same inode in place is unsupported. Failures
 name the violated contract, close adopted descriptors, and exit before the
 module store opens.
 
+A running program can start itself again without its launcher.
+`Proc.relaunch` describes the exact process: the physical core it is running,
+`--artifact` with its logical path, its retained artifact descriptor and a new
+descriptor on its core, and the private contract naming both, filled from the
+manifest entry startup already validated. The child's startup checks that
+contract like any other, so a relaunch cannot land on a different core: a
+checked build relaunches as a checked build, and `cosmic test` workers run
+under the runtime identity their verdicts are recorded for.
+
 ## expose one immutable database
 
 [`core/vfs.c`](../../core/vfs.c) registers a small SQLite virtual file system.

@@ -1,23 +1,11 @@
 local Child = require("cosmic.child")
-local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 
 -- Bound subprocess waits and the shorter paused-build handshakes separately.
 local child_wait_timeout_ms <const> = 30000
 local handshake_timeout_ms <const> = 5000
-
--- The fixed name, under the shared `TMPDIR` every test in this one `cosmic
--- test` process was started with, that carries the primary run's finished
--- `project` directory to the transported run. `Fs.mkdtemp` (build/test.tl's
--- "fresh, writable directory... made just for it" per test function) always
--- makes each test function its OWN directory, so the two functions below
--- cannot rely on their own `tmp` arguments to agree on a location; TMPDIR
--- itself, however, is one process-wide environment value both share; see
--- `test_identity_transported` below.
-local transported_state_name <const> = "cosmic-identity-transported-state"
 
 local function chmod(path: string, mode: integer)
   assert(sys.chmod(path, mode))
@@ -278,8 +266,57 @@ exec "$2" --artifact "$1" test
   })
 end
 
--- Build the primary project, then snapshot it under the shared TMPDIR for the
--- transported test, whose own `tmp` directory is unrelated.
+-- Restoring into a new project location invalidates the old verdict: the first
+-- run reruns and the immediate repeat stands. The assertions also ensure that
+-- relocation preserves the application database and exact executable bytes.
+-- It runs on the finished primary project, from inside the same test: each
+-- test runs in a process of its own, so no other test can hand it one.
+local function check_transported(fixture_dir: string, finished: string,
+    work: string, diagnostics: string)
+  -- The destination must not exist so this creates a fresh relocated project.
+  local project = work .. "/transported-project"
+  copy_tree("restore-transported-state", finished, project, work,
+    diagnostics)
+  local counter = project .. "/test-runs"
+  local cache = work .. "/transported-cache"
+
+  local projection_before = Fixture.hash(project .. "/o/cosmic.db")
+  expect_tally(run_release(project, cache, counter, diagnostics,
+    fixture_dir .. "/runtime.old", "transported"), 1, 0)
+  expect_tally(run_release(project, cache, counter, diagnostics,
+    fixture_dir .. "/runtime.old", "transported-repeat"), 0, 1)
+  assert(Fixture.hash(project .. "/o/cosmic.db") == projection_before,
+    "transported: a same-context re-run changed the application database")
+
+  -- These are the canonical application bytes transported with the work
+  -- database. Every host executes them unchanged through its own core.
+  local expected_hello = assert(Fixture.small(
+    project .. "/portable-hello.sha256", 256):match("^(%S+)"))
+  local expected_second = assert(Fixture.small(
+    project .. "/portable-second.sha256", 256):match("^(%S+)"))
+  assert(Fixture.hash(project .. "/o/bin/hello") == expected_hello,
+    "transported hello bytes differ from the recorded hash")
+  assert(Fixture.hash(project .. "/o/bin/second") == expected_second,
+    "transported second bytes differ from the recorded hash")
+
+  -- GitHub artifact transport normalizes executable modes; restore only the
+  -- launch permission after proving the transported bytes are unchanged.
+  -- A local copy preserves modes, but real artifact transport may not.
+  chmod(project .. "/o/bin/hello", 0x1ed)
+  chmod(project .. "/o/bin/second", 0x1ed)
+
+  local hello_run = Fixture.run("transported-hello",
+    { project .. "/o/bin/hello" }, project, diagnostics,
+    { COSMIC_PORTABLE_CACHE = cache })
+  local second_run = Fixture.run("transported-second",
+    { project .. "/o/bin/second" }, project, diagnostics,
+    { COSMIC_PORTABLE_CACHE = cache })
+  Fixture.contains(hello_run.out, "hello from the edited portable fixture")
+  Fixture.contains(second_run.out, "second portable application")
+end
+
+-- Build the primary project, check every runtime context against it, then
+-- check it again transported to a new location.
 local function test_identity_primary(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
@@ -429,72 +466,5 @@ local function test_identity_primary(tmp: string)
   assert(Fs.exists(missing_counter) == false,
     "missing-runtime test wrote a counter file")
 
-  -- Snapshot the finished project for test_identity_transported. TMPDIR is
-  -- one process-wide value every test function in this run shares (it is
-  -- set once, by orchestration.tl's fixture_test, for the whole `cosmic
-  -- test` invocation), so a fixed name under it is the one thing this
-  -- function and test_identity_transported -- each called with its own,
-  -- otherwise unrelated, `Fs.mkdtemp` directory -- can agree on.
-  local state_root = Env.get_or("TMPDIR", "/tmp") .. "/" ..
-    transported_state_name
-  Fixture.mkdir(state_root)
-  copy_tree("snapshot-transported-state", project .. "/.", state_root .. "/",
-    work, diagnostics)
-end
-
--- Restoring into a new project location invalidates the old verdict: the first
--- run reruns and the immediate repeat stands. The assertions also ensure that
--- relocation preserves the application database and exact executable bytes.
-local function test_identity_transported(tmp: string)
-  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
-  local state_root = Env.get_or("TMPDIR", "/tmp") .. "/" ..
-    transported_state_name
-  local state_exists = Predicate.is_dir(state_root)
-  assert(state_exists,
-    "identity transported state is missing; test_identity_primary must " ..
-    "run first in this same process")
-
-  local work = tmp
-  local diagnostics = work .. "/logs"
-  Fixture.mkdir(diagnostics)
-  -- The destination must not exist so this creates a fresh relocated project.
-  local project = work .. "/project"
-  copy_tree("restore-transported-state", state_root, project, work,
-    diagnostics)
-  local counter = project .. "/test-runs"
-  local cache = work .. "/cache"
-
-  local projection_before = Fixture.hash(project .. "/o/cosmic.db")
-  expect_tally(run_release(project, cache, counter, diagnostics,
-    fixture_dir .. "/runtime.old", "transported"), 1, 0)
-  expect_tally(run_release(project, cache, counter, diagnostics,
-    fixture_dir .. "/runtime.old", "transported-repeat"), 0, 1)
-  assert(Fixture.hash(project .. "/o/cosmic.db") == projection_before,
-    "transported: a same-context re-run changed the application database")
-
-  -- These are the canonical application bytes transported with the work
-  -- database. Every host executes them unchanged through its own core.
-  local expected_hello = assert(Fixture.small(
-    project .. "/portable-hello.sha256", 256):match("^(%S+)"))
-  local expected_second = assert(Fixture.small(
-    project .. "/portable-second.sha256", 256):match("^(%S+)"))
-  assert(Fixture.hash(project .. "/o/bin/hello") == expected_hello,
-    "transported hello bytes differ from the recorded hash")
-  assert(Fixture.hash(project .. "/o/bin/second") == expected_second,
-    "transported second bytes differ from the recorded hash")
-
-  -- GitHub artifact transport normalizes executable modes; restore only the
-  -- launch permission after proving the transported bytes are unchanged.
-  -- A local copy preserves modes, but real artifact transport may not.
-  chmod(project .. "/o/bin/hello", 0x1ed)
-  chmod(project .. "/o/bin/second", 0x1ed)
-
-  local hello_run = Fixture.run("transported-hello",
-    { project .. "/o/bin/hello" }, project, diagnostics,
-    { COSMIC_PORTABLE_CACHE = cache })
-  local second_run = Fixture.run("transported-second",
-    { project .. "/o/bin/second" }, project, diagnostics,
-    { COSMIC_PORTABLE_CACHE = cache })
-  Fixture.contains(hello_run.out, "hello from the edited portable fixture")
-  Fixture.contains(second_run.out, "second portable application")
+  check_transported(fixture_dir, project, work, diagnostics)
 end

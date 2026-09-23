@@ -44,6 +44,10 @@ const char *cosmic_store_meta(lua_State *L, const char *key);
  * are, and the connection at 1-based `index` (NULL past the end). The
  * last one is always the binary's own. */
 int cosmic_store_count(lua_State *L);
+
+/* The validated portable artifact this process was started from, or NULL
+ * for a native start. It stays owned by the entry. */
+const struct cosmic_artifact *cosmic_store_artifact(lua_State *L);
 sqlite3 *cosmic_store_database(lua_State *L, int index);
 
 #endif

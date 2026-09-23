@@ -117,7 +117,7 @@ end
 --- A test whose inputs are not keyable must never stand: an unhashable
 --- input -- a spawned process -- or a read outside the tree it cannot
 --- account for as its own scratch output makes `keyable` false, which
---- `run_module` ANDs into `record_run`'s `cacheable?` so the verdict is
+--- `finish` ANDs into `record_run`'s `cacheable?` so the verdict is
 --- stored as unstable and the test runs again regardless. An
 --- environment read is keyable: its answer enters the key instead.
 local function test_an_environment_read_is_keyable(tmp: string)
