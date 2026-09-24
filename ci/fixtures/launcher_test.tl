@@ -397,6 +397,18 @@ local function test_launcher_publication_and_interruption(tmp: string)
     only_core(race); no_private_entries(race, ".core.")
     no_private_entries(race, ".repair-")
 
+    -- A launcher that found no core, then finds one another launcher
+    -- published before it looked again, runs that winner.
+    local late = ctx.work .. "/late-cache"
+    local late_ready, late_go = fifo(ctx, "late-ready"), fifo(ctx, "late-go")
+    local waiting = start(ctx, "late-waiting", { ctx.artifact }, ctx.work,
+      hook_environment(late, "before_recheck", late_ready, late_go))
+    active[#active + 1] = waiting; await_ready(ctx, "late-waiting", late_ready)
+    outcome_ok(run(ctx, "late-publisher", late), "late publisher")
+    release(ctx, "late-waiting", late_go)
+    assert(finish(waiting).ok, "a launcher refused the core another published")
+    only_core(late); no_private_entries(late, ".core.")
+
     local interrupted = ctx.work .. "/interrupted-cache"
     local ready, go = fifo(ctx, "interrupt-ready"), fifo(ctx, "interrupt-go")
     local publisher = start(ctx, "interrupted", { ctx.artifact }, ctx.work,
