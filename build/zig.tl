@@ -77,6 +77,8 @@ local record Zig
   end
 end
 
+-- TODO: Log.new("bin/zig"):complain once ci/cosmic-driver.pin names a cosmic
+-- carrying cosmic.log: this file runs on the pinned bootstrap.
 local function complain(line: string)
   Fs.put(Fs.stderr, "bin/zig: " .. line .. "\n")
 end

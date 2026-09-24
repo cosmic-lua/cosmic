@@ -21,6 +21,9 @@ end
 --- with codesign, found on `path` (PATH when nil) as the shell script
 --- found it, and its own output passing straight through; the exit
 --- status the shell script gave.
+-- TODO: Log.new("verify-codesign") for these lines once
+-- ci/cosmic-driver.pin names a cosmic carrying cosmic.log: bin/verify-codesign
+-- runs this file on the pinned bootstrap.
 function VerifyCodesign.verify(sysname: string, binary: string, path?: string): integer
   if sysname ~= "Darwin" then
     Fs.put(Fs.stdout, "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
