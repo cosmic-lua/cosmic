@@ -219,7 +219,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     Fixture.contains(child.out, "args=a b||--literal\n")
     Fixture.contains(child.err, "payload stderr\n")
   end)
-  assert(Fixture.read(marker) == "ran\n")
+  assert(Fixture.read(marker) == "ran\n", "cold launch did not run the payload")
   assert(permissions(cache) == 0x1c0, "cold cache mode differs")
   local core = only_core(cache)
   assert(permissions(core) == 0x140, "cold core mode differs")
@@ -251,7 +251,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   local default_cache = ctx.target == "aarch64-macos" and
     home .. "/Library/Caches/cosmic/cores" or home .. "/.cache/cosmic/cores"
   local default_exists = Predicate.is_dir(default_cache)
-  assert(default_exists and permissions(default_cache) == 0x1c0)
+  assert(default_exists and permissions(default_cache) == 0x1c0,
+    "default cache is missing or not 0700: " .. default_cache)
   local xdg_env = environment()
   xdg_env.COSMIC_PORTABLE_CACHE = nil; xdg_env.XDG_CACHE_HOME = xdg
   xdg_env.HOME = home
@@ -259,7 +260,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
   local xdg_exists = Predicate.is_dir(xdg .. "/cosmic/cores")
-  assert(xdg_exists)
+  assert(xdg_exists, "XDG cache was not made under " .. xdg)
   local relative_home = ctx.work .. "/relative-home"; Fixture.mkdir(relative_home)
   local relative_xdg = environment()
   relative_xdg.COSMIC_PORTABLE_CACHE = nil
@@ -276,7 +277,8 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
     local answer = Fixture.call_with_environment(case[1],
       { ctx.artifact }, ctx.work,
       ctx.diagnostics, values)
-    assert(not answer.result.ok); Fixture.contains(answer.err, case[4])
+    assert(not answer.result.ok, case[1] .. " unexpectedly succeeded")
+    Fixture.contains(answer.err, case[4])
   end
   for _, name in ipairs({ "relative-home", "unset-home" }) do
     local temp = ctx.work .. "/" .. name .. "-tmp"; Fixture.mkdir(temp)
@@ -323,13 +325,15 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local repaired = run(ctx, "symlink-repair", linked)
   outcome_ok(repaired, "symlink repair")
   assert(Fixture.read(sentinel) == "untouched\n" and
-    assert(sys.lstat(linked .. "/" .. key)).kind == "file")
+    assert(sys.lstat(linked .. "/" .. key)).kind == "file",
+    "symlink repair wrote through the link or left no core file")
   Fixture.contains(repaired.err, "symbolic link; repairing")
 
   local directory_cache = ctx.work .. "/directory-cache"
   Fixture.mkdir(directory_cache .. "/" .. key); chmod(directory_cache, 0x1c0)
   outcome_ok(run(ctx, "directory-repair", directory_cache), "directory repair")
-  assert(assert(Fs.stat(directory_cache .. "/" .. key)).kind == "file")
+  assert(assert(Fs.stat(directory_cache .. "/" .. key)).kind == "file",
+    "directory repair left no core file")
   local mode_entry = ctx.work .. "/entry-mode-cache"; Fixture.mkdir(mode_entry)
   chmod(mode_entry, 0x1c0); Fixture.write(mode_entry .. "/" .. key,
 core_bytes, 0x1c0)
@@ -343,12 +347,13 @@ core_bytes, 0x1c0)
   local marker = ctx.work .. "/read-only-short.marker"
   local refused = run(ctx, "read-only-short", base,
     { PORTABLE_PAYLOAD_MARKER = marker })
-  assert(not refused.result.ok and Fs.exists(marker) == false)
+  assert(not refused.result.ok and Fs.exists(marker) == false,
+    "read-only short core was not refused before the payload ran")
   Fixture.contains(refused.err, "length differs and cache is read-only")
   chmod(base, 0x1c0)
   local short = run(ctx, "short-repair", base); outcome_ok(short, "short repair")
   Fixture.contains(short.err, "length differs; repairing")
-  assert(Fixture.hash(core) == core_hash)
+  assert(Fixture.hash(core) == core_hash, "short repair core digest differs")
 
   -- A launcher arm is the quoted `uname -sm` answer it selects.
   local host = ctx.target == "aarch64-macos" and "'Darwin arm64'" or
@@ -366,7 +371,7 @@ core_bytes, 0x1c0)
     selected_line:match("cosmic_offset=(%d+);"))))
   local length = math.tointeger(assert(tonumber(
     selected_line:match("cosmic_length=(%d+);"))))
-  assert(offset and length)
+  assert(offset and length, "selected launcher header offset or length is not an integer")
   local truncated = ctx.work .. "/truncated"
   Fixture.write(truncated, artifact:sub(1, offset + length - 1), 0x1ed)
   expect_failure(ctx, "truncated", "extracted core is truncated",
@@ -451,7 +456,8 @@ printf 'after\n' >&8
 ]], "sh", ctx.artifact, guard, ctx.socket }, ctx.work, ctx.diagnostics,
       environment(ctx.work .. "/mixed-fd-cache"))
     outcome_ok(mixed, "mixed descriptor launch")
-    assert(Fixture.read(guard) == "before\nafter\n")
+    assert(Fixture.read(guard) == "before\nafter\n",
+      "mixed descriptor launch disturbed the caller's descriptors")
   end
   for _, one in ipairs({
       { "one-free", [[
@@ -483,17 +489,20 @@ exit "$result"
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-      Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false)
+      Fs.exists(ctx.work .. "/" .. one[1] .. "-cache") == false,
+      one[1] .. " disturbed the caller's descriptors or made a cache")
   end
 
   local exit_marker = ctx.work .. "/exit.marker"
   local exited = run(ctx, "payload-exit", ctx.work .. "/exit-cache",
     { PORTABLE_PAYLOAD_MARKER = exit_marker, PORTABLE_PAYLOAD_EXIT = "23" })
-  assert(exited.result.code == 23 and Fixture.read(exit_marker) == "ran\n")
+  assert(exited.result.code == 23 and Fixture.read(exit_marker) == "ran\n",
+    "payload exit status 23 was not passed through")
   local signal_marker = ctx.work .. "/signal.marker"
   local signaled = run(ctx, "payload-signal", ctx.work .. "/signal-cache",
     { PORTABLE_PAYLOAD_MARKER = signal_marker, PORTABLE_PAYLOAD_SIGNAL = "1" })
-  assert(not signaled.result.ok and Fixture.read(signal_marker) == "ran\n")
+  assert(not signaled.result.ok and Fixture.read(signal_marker) == "ran\n",
+    "payload signal was not passed through")
 end
 
 local function test_launcher_noexec_timing_and_immutability(tmp: string)
@@ -518,7 +527,8 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
             local cache = noexec .. "/cache"
             local answer = run(ctx, "noexec-launch", cache)
             assert(answer.result.code == 126 and
-              assert(Fs.stat(cache .. "/" .. key)).kind == "file")
+              assert(Fs.stat(cache .. "/" .. key)).kind == "file",
+              "noexec launch did not stop at 126 with the core intact")
             -- `[ -x ]` reflects noexec only where test(1) asks the kernel;
             -- BusyBox answers from the mode bits, so there the exec itself
             -- fails, the shell names the errno, and the launcher's EXIT
