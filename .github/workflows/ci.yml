@@ -50,19 +50,14 @@ jobs:
           # moving a digest is a deliberate edit, after ci-images.yml
           # publishes a new one (its run summary gives it). The packages
           # are private, so the pull logs in with this job's token, which
-          # needs packages: read (see the job's permissions). (macOS cannot
-          # be containerized; that leg takes the image macos-15 names.)
-          # --init and the unprivileged `runner` user are as for
-          # alpine-x86_64, below.
+          # needs packages: read (see the job's container and permissions).
+          # (macOS cannot be containerized; that leg takes the image
+          # macos-15 names.) --init and the unprivileged `runner` user are
+          # as for alpine-x86_64, below.
           - name: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            container:
-              image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
-              credentials:
-                username: ${{ github.actor }}
-                password: ${{ github.token }}
-              options: --init
+            image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
             # useradd -o: the image's own `ubuntu` user may hold the uid.
             prepare: useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # setpriv, not su: util-linux su resets PATH, which drops the
@@ -72,18 +67,13 @@ jobs:
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
-            container:
-              image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
-              credentials:
-                username: ${{ github.actor }}
-                password: ${{ github.token }}
-              options: --init
+            image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
             prepare: useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
-            container: ''
+            image: ''
             shell: sh
           - name: alpine-x86_64
             runner: ubuntu-24.04
@@ -91,12 +81,7 @@ jobs:
             # --init puts a reaper at PID 1: a process-group kill leaves
             # orphaned descendants, and the suite checks they are gone,
             # not zombies nobody collects.
-            container:
-              image: ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72
-              credentials:
-                username: ${{ github.actor }}
-                password: ${{ github.token }}
-              options: --init
+            image: ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72
             prepare: adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # The container's default user stays root -- the runner never
             # passes --user to docker create/exec, and a default user whose
@@ -107,7 +92,15 @@ jobs:
             # root (creating that user, the hand-over) overrides this shell.
             shell: su runner -c "sh -e {0}"
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
+    # An empty image (macOS) runs the job on the host. The login is here,
+    # not in the matrix: a matrix is expanded before the job has a token,
+    # so github.token there is empty, and secrets are not available there.
+    container:
+      image: ${{ matrix.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --init
     permissions:
       contents: read
       # To pull the Linux legs' images from GHCR.
@@ -128,7 +121,7 @@ jobs:
       COSMIC_CI_CHECKED_SUITE: ${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}
     steps:
       - name: create the unprivileged builder
-        if: matrix.container
+        if: matrix.image
         working-directory: /
         shell: sh
         # Creating the unprivileged builder (matrix.prepare) needs root,
@@ -198,7 +191,7 @@ jobs:
             zig-build-${{ matrix.name }}-
 
       - name: hand the checkout and restored caches over to the unprivileged builder
-        if: matrix.container
+        if: matrix.image
         working-directory: /
         shell: sh
         # The checkout and the three cache restores above ran as root
