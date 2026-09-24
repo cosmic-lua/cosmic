@@ -1,6 +1,6 @@
 --- One test, run in a process of its own: the other half of
 --- `build.test`, which starts this as `cosmic test --worker <root>
---- <module> <test> <tmp>` and alone records what it reports.
+--- <module> <test> <tmp> <children>` and alone records what it reports.
 ---
 --- The worker never opens the build database. It attaches the tree's
 --- compiled modules, loads the test's module, calls the one test with
@@ -180,12 +180,16 @@ end
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
---- @param argv `cosmic test --worker <root> <module> <test> <tmp>`
+--- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>`,
+--- `children` a directory, not yet there, to collect the coverage of
+--- the processes the test starts in.
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
-  if root == nil or module_path == nil or name == nil or tmp == nil then
+  local children_path = argv[7]
+  if root == nil or module_path == nil or name == nil or tmp == nil or
+      children_path == nil then
     local _, _ = Fs.put(Fs.stderr,
-      "cosmic: test --worker needs a root, a module, a test and a directory\n")
+      "cosmic: test --worker needs a root, a module, a test and two directories\n")
     return 2
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
@@ -199,7 +203,8 @@ function worker.run(argv: {integer:string}): integer
   }
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
-  local children, _ = Fs.mkdtemp("cosmic-test-children-")
+  local made, _ = sys.mkdir(children_path, 0x1c0)
+  local children = made and children_path or nil
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
   local loaded, produced, load_reads = observations.capture(function(): any

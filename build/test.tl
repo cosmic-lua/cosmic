@@ -932,6 +932,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   end
   job.passed = passed
   if not passed then
+    if job.scratch ~= nil then
+      message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
+    end
     rec.failures[#rec.failures + 1] = id .. ": " .. message
     if result ~= nil and result.stdout ~= nil and result.stdout ~= "" then
       rec.outputs[id] = result.stdout
@@ -974,6 +977,8 @@ end
 --- its own path is a link, even where the system temp directory is
 --- one), holding `real`, an empty directory, and `tmp`, a link to it
 --- by the relative name `real`: the test is handed `<scratch>/tmp`.
+--- The worker makes `children` there for the coverage its test's
+--- processes report.
 --- Removing the scratch directory with `Fs.remove_tree` removes the
 --- link without following it, and the real directory beside it.
 function test.scratch(): string | nil, string
@@ -995,11 +1000,19 @@ end
 
 --- Removes the scratch directory of each job in `jobs` whose test
 --- finished and passed; a failing one's is left to look at, and one
---- still running is not finished.
-local function sweep(jobs: {Job})
+--- still running is not finished. A directory that cannot be removed
+--- (a test left something in it it may not delete) is an error of the
+--- run, naming the directory; `Fs.remove_tree` stops at the first entry
+--- it cannot remove, so the rest of that directory stays too.
+local function sweep(rec: Recording, jobs: {Job})
   for _, job in ipairs(jobs) do
     if job.passed and job.scratch ~= nil then
-      local _, _ = Fs.remove_tree(job.scratch)
+      local gone, trouble = Fs.remove_tree(job.scratch)
+      if not gone then
+        rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
+          job.scratch .. ": " .. trouble
+      end
+      job.scratch = nil
     end
   end
 end
@@ -1020,7 +1033,8 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
-  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp }) do
+  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp,
+                           scratch .. "/children" }) do
     argv[#argv + 1] = value
   end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
@@ -1093,9 +1107,15 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
       -- A worker that is gone may have left processes of its own
       -- behind, outside the group its end reached; this process
       -- adopted them, and ends them before the next test starts,
-      -- and before what they could still write into is removed.
+      -- and, on Linux, before what they could still write into is
+      -- removed.
+      -- TODO: a stray still writing into a passing test's directory
+      -- can race its removal: end_strays is a no-op on macOS and on
+      -- Linux gives up on a stray that outlives it by a second. Remove
+      -- the directory only once no stray is left, once end_strays can
+      -- end or wait for strays on macOS and report the ones it gave up on.
       Child.end_strays()
-      sweep(running)
+      sweep(rec, running)
     end
     running = still
   end

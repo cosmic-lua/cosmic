@@ -61,8 +61,12 @@ end
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   local root, pidfile = project(tmp)
   local output = tmp .. "/run.out"
+  -- The failing tests' directories are kept; they are kept here.
+  local env = Env.all()
+  env.TMPDIR = tmp .. "/temp"
+  assert(Fs.mkdirs(env.TMPDIR))
   local started = Time.monotonic_ns()
-  local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" })
+  local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" }, env)
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)
@@ -139,6 +143,8 @@ end
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("its directory is kept: " .. assert(Fs.absolute(temp)) .. "/cosmic-test-",
+    1, true), text)
   local left: {string} = {}
   for _, name in ipairs((assert(Fs.list(temp)))) do
     if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
