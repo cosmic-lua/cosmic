@@ -686,12 +686,20 @@ a claim.
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
 `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
-file; `-e` stays as Lua's one-liner idiom. `build` builds the tree and
+file; `-e` stays as Lua's one-liner idiom: `cosmic -e '<chunk>'` runs
+a chunk of Lua against the standard library, with no tree, and the
+words after it are its `...`. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
-takes paths to narrow it, ends in a verdict line and an exit code,
-and `cosmic help <verb>` is the whole discovery surface. no other
+takes paths to narrow it (`uses` after its symbol, `db` naming the
+databases to describe), except `docs`, which takes words to search
+for, and `help`, which takes a verb. every verb ends in a verdict line
+and an exit code; a file run, `--standalone` and `-e` are programs,
+not verbs, and print only what they print and exit with what they
+return. `cosmic help <verb>` prints that verb's line, and `cosmic
+help` all of them: the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
+[the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code
 and for the public standard library, `cosmic.*` less `internal` and

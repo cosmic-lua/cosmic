@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or
---- build, fix, db, docs, uses, todos, help, run, standalone) answers
+--- build, fix, db, docs, uses, todos, help, run, standalone, eval) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
@@ -29,6 +29,13 @@ local record Cli
   --- one -- see argv -- with a record's `main` field standing for a
   --- returned function
   standalone: string
+  --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
+  --- `lua -e` does, against this binary's own standard library, with no
+  --- tree around it -- nothing staged or built, nothing under o/
+  --- written, and no staleness check. The words after the chunk are its
+  --- `...`; it prints only what it prints, and an integer it returns is
+  --- the exit code, anything else 0
+  eval: string
   --- `cosmic test`: builds the tree in the working directory, then
   --- runs every test it defines -- see test, Example -- which
   --- `cosmic docs` also shows under every symbol an example calls.
@@ -48,23 +55,25 @@ local record Cli
   --- passes on more values than its place can take -- `(assert(...))`
   --- keeps only the first
   fix: string
-  --- `cosmic build`: builds the tree in the working directory, then
-  --- writes one executable under o/bin/ for each cmd/<name>/main.tl
-  --- it holds -- o/bin/<name>, which runs on its own, with nothing
-  --- beside it -- see cmd. It runs on every supported system. With
+  --- `cosmic build [path...]`: builds the tree in the working
+  --- directory, then writes one executable under o/bin/ for each
+  --- cmd/<name>/main.tl it holds -- or only those under the paths --
+  --- o/bin/<name>, which runs on its own, with nothing beside it -- see
+  --- cmd. It runs on every supported system. With
   --- `--host` it is instead this system's native executable with the
   --- program inside, which starts faster, with no launcher, but runs
   --- only on a system like this one
   build: string
-  --- `cosmic db`: what the two databases under o/ hold, table by
-  --- table -- rows, pages, bytes -- and how the last few builds went
+  --- `cosmic db [path...]`: what the two databases under o/ hold --
+  --- or the SQLite databases the paths name -- table by table: rows,
+  --- pages, bytes; and for o/build.db, how the last few builds went
   db: string
   --- `cosmic docs <q>`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs), or words to search the
   --- documentation for
   docs: string
-  --- `cosmic uses <sym>`: every place that refers to a symbol, as
-  --- file:line
+  --- `cosmic uses <sym> [path...]`: every place that refers to a
+  --- symbol, as file:line -- only those under the paths, when given
   uses: string
   --- `cosmic todos [--oldest] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
@@ -74,8 +83,8 @@ local record Cli
   --- search the TODOs' text for, best match first, in FTS5's own syntax
   --- ("a phrase", OR, prefix*) when they parse as that
   todos: string
-  --- `cosmic help`: prints the whole discovery surface -- every verb,
-  --- one line of prose each
+  --- `cosmic help [verb]`: prints the whole discovery surface -- every
+  --- verb, one line of prose each -- or, given a verb, only its line
   help: string
 end
 
@@ -89,10 +98,10 @@ end
 
 local module: Module = {
   fields = {
-    run = "run", standalone = "standalone", test = "test", fix = "fix", build = "build",
+    run = "run", standalone = "standalone", eval = "eval", test = "test", fix = "fix", build = "build",
     db = "db", docs = "docs", uses = "uses", todos = "todos", help = "help",
   },
-  order = { "run", "standalone", "test", "fix", "build", "db", "docs", "uses", "todos", "help" },
+  order = { "run", "standalone", "eval", "test", "fix", "build", "db", "docs", "uses", "todos", "help" },
 }
 
 return module

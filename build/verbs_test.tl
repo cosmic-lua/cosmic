@@ -16,6 +16,7 @@ local Proc = require("cosmic.proc")
 local passthrough: {string:string} = {
   run = "the words after the file are its program's argv",
   standalone = "the words after the file are its program's argv",
+  eval = "the words after the chunk are its `...`",
 }
 
 --- A command line with one argument more than each verb takes, or why
@@ -23,10 +24,10 @@ local passthrough: {string:string} = {
 local surplus: {string:{string} | string} = {
   test = "takes any number of selectors",
   fix = "takes any number of paths",
-  build = { "build", "extra" },
-  db = { "db", "extra" },
+  build = "takes any number of paths",
+  db = "takes any number of database paths",
   docs = "takes any number of words to search for",
-  uses = { "uses", "Fs.read", "Fs.write" },
+  uses = "takes a symbol and any number of paths",
   todos = "takes any number of paths and words",
   help = { "help", "test", "fix" },
 }
@@ -188,4 +189,80 @@ local function test_a_timeout_that_would_wrap_is_refused(tmp: string)
   local result = expect(tree, "test", { "test", "--timeout", "99999999999999999", "good" }, 2)
   local err = result.stderr or ""
   assert(err:find("--timeout must be at most", 1, true), err)
+end
+
+local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
+  local one = expect(tmp, "help", { "help", "test" }, 0).stdout or ""
+  assert(one:find("`cosmic test`", 1, true), one)
+  assert(not one:find("`cosmic fix`", 1, true), one)
+  assert(not one:find("cosmic -- a runtime", 1, true), one)
+  local all = expect(tmp, "help", { "help" }, 0).stdout or ""
+  assert(all:find("`cosmic test`", 1, true), all)
+  assert(all:find("`cosmic fix`", 1, true), all)
+  local e = expect(tmp, "help", { "help", "-e" }, 0).stdout or ""
+  assert(e:find("`cosmic -e", 1, true), e)
+  assert(not e:find("`cosmic test`", 1, true), e)
+end
+
+local function test_e_runs_a_lua_chunk(tmp: string)
+  local said = cosmic(tmp, { "-e", "print(...)", "a", "b c" })
+  assert(said.code == 0, said.stderr)
+  assert(said.stdout == "a\tb c\n", said.stdout)
+  assert(cosmic(tmp, { "-e", "return 3" }).code == 3)
+  local raised = cosmic(tmp, { "-e", "error('boom')" })
+  assert(raised.code == 1 and raised.stdout == "", raised.stdout)
+  assert((raised.stderr or ""):find("-e:1: boom", 1, true), raised.stderr)
+  local broken = cosmic(tmp, { "-e", "x =" })
+  assert(broken.code == 1, broken.stderr)
+  local bare = cosmic(tmp, { "-e" })
+  assert(bare.code == 2, bare.stderr)
+  assert((bare.stderr or ""):find("usage: cosmic -e", 1, true), bare.stderr)
+end
+
+--- A tree with two programs and a module that reads a file.
+local function write_programs(tmp: string): string
+  local tree = tmp .. "/programs"
+  local main = "return function(): integer\n  return 0\nend\n"
+  for _, name in ipairs({ "hi", "bye" }) do
+    assert(Fs.mkdirs(tree .. "/cmd/" .. name))
+    assert(Fs.write(tree .. "/cmd/" .. name .. "/main.tl", main))
+  end
+  assert(Fs.mkdirs(tree .. "/lib"))
+  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nreturn Fs.read\n"))
+  return tree
+end
+
+local function test_build_takes_paths_to_narrow_it(tmp: string)
+  local tree = write_programs(tmp)
+  local one = expect(tree, "build", { "build", "./cmd/hi/" }, 0).stdout or ""
+  assert(one:find("o/bin/hi,", 1, true) and not one:find("bye", 1, true), one)
+  assert(Fs.exists(tree .. "/o/bin/hi"))
+  assert(not Fs.exists(tree .. "/o/bin/bye"))
+  local refused = expect(tree, "build", { "build", "cmd/hi", "lib" }, 1)
+  assert((refused.stderr or ""):find("no cmd/<name>/main.tl under lib", 1, true), refused.stderr)
+  local _ = expect(tree, "build", { "build", "cmd" }, 0)
+  assert(Fs.exists(tree .. "/o/bin/bye"))
+end
+
+local function test_uses_takes_paths_to_narrow_it(tmp: string)
+  local tree = write_programs(tmp)
+  local _ = expect(tree, "build", { "build" }, 0)
+  local narrowed = expect(tree, "uses", { "uses", "Fs.read", "lib" }, 0).stdout or ""
+  assert(narrowed:find("lib/reader.tl:2:", 1, true), narrowed)
+  assert(not narrowed:find("cosmic/", 1, true), narrowed)
+  local all = expect(tree, "uses", { "uses", "Fs.read" }, 0).stdout or ""
+  assert(all:find("lib/reader.tl:2:", 1, true), all)
+  local none = expect(tree, "uses", { "uses", "Fs.read", "cmd" }, 1).stdout or ""
+  assert(none:find("nothing under cmd refers to 'Fs.read'", 1, true), none)
+end
+
+local function test_db_takes_paths_to_narrow_it(tmp: string)
+  local tree = write_programs(tmp)
+  local _ = expect(tree, "build", { "build" }, 0)
+  local one = expect(tree, "db", { "db", "o/cosmic.db" }, 0).stdout or ""
+  assert(one:find("in 1 databases", 1, true), one)
+  assert(not one:find("build.db", 1, true), one)
+  local both = expect(tree, "db", { "db" }, 0).stdout or ""
+  assert(both:find("in 2 databases", 1, true) and both:find("builds, latest first", 1, true), both)
+  local _ = expect(tree, "db", { "db", "o/nothing.db" }, 1)
 end

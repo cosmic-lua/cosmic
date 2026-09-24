@@ -121,19 +121,15 @@ local function slowest(path: string): boolean, string
   return true, ""
 end
 
---- Describes `o/cosmic.db` and `o/build.db` under the working
---- directory, printing a verdict line and returning the exit code.
+--- `cosmic db [path...]`: describes `o/cosmic.db` and `o/build.db` under
+--- the working directory -- or, given paths, the SQLite databases they
+--- name, `o/build.db`'s builds and slowest tests included when it is one
+--- -- printing a verdict line and returning the exit code.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.databases` itself -- see `build.reboot.ensure`
 function databases.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
-  -- TODO: take paths to narrow the description to the rows about them,
-  -- as doc/design.md's "a verb takes paths to narrow it" promises; until
-  -- then a word here is refused.
-  if parsed ~= nil and #parsed.words > 0 then
-    parsed, parse_trouble = nil, "takes no arguments, not " .. parsed.words[1]
-  end
   if parsed == nil then
     log:complain("db: " .. parse_trouble)
     return 2
@@ -150,10 +146,25 @@ function databases.run(argv: {integer:string}): integer
     end
     return code
   end
+  local asked = #parsed.words > 0
+  local paths: {string} = {}
+  if asked then
+    for _, word in ipairs(parsed.words) do
+      local path, trouble = Fs.absolute(word)
+      if path == nil then
+        log:complain("db: " .. word .. ": " .. trouble)
+        log:verdict("db", false, "no database at " .. word .. ", " ..
+          clock.elapsed_ms(started) .. " ms")
+        return 1
+      end
+      paths[#paths + 1] = path
+    end
+  else
+    paths = { root .. "/o/cosmic.db", root .. "/o/build.db" }
+  end
   local seen = 0
   local tables = 0
-  for _, name in ipairs({ "o/cosmic.db", "o/build.db" }) do
-    local path = root .. "/" .. name
+  for _, path in ipairs(paths) do
     local present, present_trouble = Fs.exists(path)
     if present == nil then
       log:complain(present_trouble)
@@ -167,7 +178,7 @@ function databases.run(argv: {integer:string}): integer
       end
       seen = seen + 1
       tables = tables + counted
-      if name == "o/build.db" then
+      if path == root .. "/o/build.db" then
         local ok, build_trouble = builds(path)
         if not ok then
           log:complain(path .. ": " .. build_trouble)

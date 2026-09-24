@@ -24,6 +24,7 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local importer = require("build.importer")
+local narrow = require("build.narrow")
 local schema = require("build.schema")
 local teal = require("build.teal")
 local work = require("build.work")
@@ -259,7 +260,10 @@ end
 --- program -- this binary's own core with the program's database appended,
 --- which the kernel runs directly, with no launcher, only where this core
 --- runs. Returns the names written, none for a tree with no `cmd/`.
-function embed.tree(root: string, host?: boolean): {string} | nil, string
+--- @param under paths relative to `root` that narrow it to the programs
+---   whose `main.tl` is under one; each must hold one. None, or nil, is
+---   every program
+function embed.tree(root: string, host?: boolean, under?: {string}): {string} | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then return nil, own_trouble end
   if own_tree then
@@ -296,13 +300,25 @@ function embed.tree(root: string, host?: boolean): {string} | nil, string
     return nil, write_trouble
   end
 
+  local paths = under or {}
   local mains: {string} = {}
+  local files: {string} = {}
   for _, m in ipairs(result.modules) do
-    if m.kind == "main" then
+    if m.kind == "main" and narrow.holds(paths, m.file) then
       mains[#mains + 1] = m.path
+      files[#files + 1] = m.file
     end
   end
   table.sort(mains)
+  for _, path in ipairs(paths) do
+    local held = false
+    for _, file in ipairs(files) do
+      if narrow.holds({ path }, file) then held = true end
+    end
+    if not held then
+      return nil, "no cmd/<name>/main.tl under " .. path
+    end
+  end
   if #mains == 0 then
     return {}
   end
@@ -350,18 +366,13 @@ function embed.tree(root: string, host?: boolean): {string} | nil, string
   return names
 end
 
---- `cosmic build [--host]`: the tree in the working directory, and its
---- executables under `o/bin/`. Ends in a verdict line that names what
---- was written, or says why nothing was.
+--- `cosmic build [--host] [path...]`: the tree in the working directory,
+--- and its executables under `o/bin/` -- only those whose `main.tl` is
+--- under one of the paths, when there are any. Ends in a verdict line
+--- that names what was written, or says why nothing was.
 function embed.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--host"] = false })
-  -- TODO: take paths to narrow the build to the cmd/<name> programs under
-  -- them, as doc/design.md's "a verb takes paths to narrow it" promises;
-  -- until then a word here is refused.
-  if parsed ~= nil and #parsed.words > 0 then
-    parsed, parse_trouble = nil, "takes no arguments, not " .. parsed.words[1]
-  end
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
     return 2
@@ -372,7 +383,7 @@ function embed.run(argv: {integer:string}): integer
     log:complain(root_trouble)
     return 1
   end
-  local names, trouble = embed.tree(root, host)
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words))
   if names == nil then
     log:complain(trouble)
     return 1
