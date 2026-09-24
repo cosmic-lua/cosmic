@@ -86,8 +86,7 @@ local function skip(entry: string): boolean
   if not_source[first] then
     return true
   end
-  local name = entry:match("([^/]+)$") or entry
-  return name:sub(1, 1) == "."
+  return Fs.basename(entry):sub(1, 1) == "."
 end
 
 --- Every Teal source under `root`, as paths relative to it. Declaration
@@ -313,8 +312,10 @@ function fix.run(argv: {integer:string}): integer
   local c_files: {string} = {}
   for _, file in ipairs(picked.c_files) do
     local absolute = Fs.absolute(file)
-    if absolute ~= nil and absolute:sub(1, #root + 1) == root .. "/" then
-      c_files[#c_files + 1] = absolute:sub(#root + 2)
+    local rest: string | nil = nil
+    if absolute ~= nil then rest = Fs.relative(absolute, root) end
+    if rest ~= nil and rest ~= "." then
+      c_files[#c_files + 1] = rest
     else
       failures[#failures + 1] = file .. ": C is checked only inside the tree"
     end

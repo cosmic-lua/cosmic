@@ -366,3 +366,66 @@ local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
   assert(Fs.copy_tree(tmp .. "/run", tmp .. "/copy"))
   assert(assert(Fs.stat(tmp .. "/copy")).mode & 0xfff == 0x1ed)
 end
+
+local function test_basename_as_basename_names_it()
+  local cases: {{string}} = {
+    { "a", "a" }, { "a/b", "b" }, { "a/b/", "b" }, { "/a", "a" },
+    { "/", "/" }, { "//", "/" }, { "", "" }, { "a//b//", "b" }, { ".", "." },
+  }
+  for _, case in ipairs(cases) do
+    assert(Fs.basename(case[1]) == case[2],
+      case[1] .. ": " .. Fs.basename(case[1]))
+  end
+end
+
+local function test_dirname_as_dirname_answers()
+  local cases: {{string}} = {
+    { "a", "." }, { "a/b", "a" }, { "a/b/", "a" }, { "/a", "/" },
+    { "/a/", "/" }, { "/", "/" }, { "//", "/" }, { "", "." },
+    { "a//b", "a" }, { "/a/b/c", "/a/b" }, { "a/..", "a" }, { "//a", "/" },
+  }
+  for _, case in ipairs(cases) do
+    assert(Fs.dirname(case[1]) == case[2],
+      case[1] .. ": " .. Fs.dirname(case[1]))
+  end
+end
+
+local function test_within_compares_whole_components()
+  assert(Fs.within("a/b", "a/b"))
+  assert(Fs.within("a/b/c", "a/b"))
+  assert(not Fs.within("a/bc", "a/b"))
+  assert(not Fs.within("a", "a/b"))
+  assert(Fs.within("/x/y", "/"))
+  assert(Fs.within("a/b/c", "a/b/"))
+  assert(Fs.within("a/b", "a/b/"))
+  assert(not Fs.within("a/bc", "a/b/"))
+  assert(not Fs.within("a", ""))
+end
+
+local function test_relative_answers_the_rest_or_why_not()
+  assert(Fs.relative("a/b/c", "a/b") == "c")
+  assert(Fs.relative("a/b/c/d", "a/b") == "c/d")
+  assert(Fs.relative("a/b", "a/b") == ".")
+  assert(Fs.relative("/x/y", "/") == "x/y")
+  assert(Fs.relative("a/b/c", "a/b/") == "c")
+  local rest, why = Fs.relative("a/bc", "a/b")
+  assert(rest == nil and why == "a/bc: not within a/b", why)
+end
+
+local function test_path_edges_the_call_sites_rely_on()
+  assert(Fs.dirname("///a") == "/" and Fs.basename("///a") == "a")
+  assert(Fs.dirname("a/./b") == "a/." and Fs.basename("a/b/.") == ".")
+  assert(Fs.within("a/", "a") and Fs.within("a/b", "a//"))
+  assert(Fs.within("/b", "//") and not Fs.within("b", "/"))
+  assert(Fs.relative("a//b", "a") == "b")
+  assert(Fs.relative("a/b/", "a") == "b")
+  assert(Fs.relative("/", "/") == ".")
+  assert(Fs.relative("a", "") == nil)
+end
+
+local function test_paths_are_linear_in_runs_of_slashes()
+  local slashes = ("/"):rep(200000)
+  assert(Fs.basename(slashes .. "a" .. slashes) == "a")
+  assert(Fs.dirname(slashes .. "a" .. slashes) == "/")
+  assert(Fs.within("a" .. slashes, "a"))
+end
