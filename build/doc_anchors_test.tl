@@ -40,8 +40,8 @@ end
 
 --- Every pair of doc anchors in `db` that share a bare name, as
 --- `<file>:<line>: <module> <symbol> and <module> <symbol>: ...`,
---- sorted.
-local function colliding(db: Sqlite.Handle): {string}
+--- sorted, and every anchor record found, as `<module> <record>`.
+local function colliding(db: Sqlite.Handle): {string}, {string: boolean}
   local rows = assert(Sqlite.text_rows(db,
     "SELECT module, symbol, kind, signature, text, file, line FROM docs WHERE " ..
     symbols.public_only("module", true) .. " ORDER BY module, id"))
@@ -60,6 +60,7 @@ local function colliding(db: Sqlite.Handle): {string}
     end
   end
   local by_name: {string: {Row}} = {}
+  local anchors: {string: boolean} = {}
   for _, owner in ipairs(all) do
     if owner.kind == "record" then
       local prefix = owner.symbol .. "."
@@ -79,6 +80,7 @@ local function colliding(db: Sqlite.Handle): {string}
         if mentions(signature, owner.symbol) then anchor = false end
       end
       if anchor then
+        anchors[owner.module .. " " .. owner.symbol] = true
         for _, r in ipairs(fields) do
           local name = r.symbol:sub(#prefix + 1)
           local list = by_name[name] or {}
@@ -98,7 +100,7 @@ local function colliding(db: Sqlite.Handle): {string}
     end
   end
   table.sort(out)
-  return out
+  return out, anchors
 end
 
 --- Lines as one source file's text.
@@ -154,14 +156,21 @@ end
 
 --- The tree's own anchors, read from the database the build wrote.
 local function test_no_two_doc_anchors_share_a_name()
-  -- SQLite opens the file in C, which a verdict's key does not see;
-  -- opened through `Fs` too, as build/exports_test.tl does, it is
-  -- keyed once build/test.tl's `under_root` keys o/cosmic.db.
+  -- SQLite opens the file in C, which a verdict's key does not see:
+  -- opening it through `Fs` too puts its bytes in the key (build/test.tl
+  -- keys o/cosmic.db, alone of o/), so the test runs again whenever a
+  -- build rewrites it.
   local fd = assert(Fs.open_read("o/cosmic.db"))
   assert(Fs.close(fd))
   local db = assert(Sqlite.open("o/cosmic.db", false))
-  local found = colliding(db)
+  local found, anchors = colliding(db)
   assert(db:close())
+  -- The records the rule is for are found as anchors, so a change to
+  -- what counts as one cannot leave the check vacuous.
+  for _, expected in ipairs({ "cosmic.cli Cli", "cosmic.layout Layout",
+                              "cosmic.entrypoint Entrypoint", "cosmic.errno Errno" }) do
+    assert(anchors[expected], expected .. " is no longer taken for a doc anchor")
+  end
   assert(#found == 0, "doc anchors sharing a name, which `cosmic docs <name>` " ..
     "answers with both -- rename one:\n" .. table.concat(found, "\n"))
 end

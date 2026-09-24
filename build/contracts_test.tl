@@ -584,3 +584,37 @@ local function test_a_modes_exemption_excuses_and_goes_stale()
   assert(#stale == 1 and stale[1]:find("contracts.modes names x.tl:Options.gone, which no longer needs it",
     1, true) ~= nil, table.concat(stale, "\n"))
 end
+
+--- Rule 8 reads nested types, the module's name in any case, and a
+--- module that returns a `local` declared as its record.
+local function test_a_nested_or_recased_repeat_is_flagged()
+  flags("local record Zip\n  record Entry\n    enum ZipKind\n      'a'\n    end\n  end\nend\nreturn Zip",
+    "Zip.Entry.ZipKind: " .. stutters .. ", which every use already says; call it Zip.Entry.Kind")
+  flags("local record Sqlite\n  record SQLiteHandle\n    n: integer\n  end\nend\nreturn Sqlite",
+    "Sqlite.SQLiteHandle: " .. stutters)
+  flags("local record Layout\n  record LayoutRule\n    n: integer\n  end\nend\n" ..
+    "local layout: Layout = {}\nreturn layout", "layout.LayoutRule: " .. stutters)
+end
+
+--- Rule 9 reads a `string | nil` field and a value assigned to a local.
+local function test_an_optional_or_assigned_mode_is_flagged()
+  flags("local record Options\n  links: string | nil\nend\n" ..
+    "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)",
+    "Options.links: a string compared with \"create\", \"skip\" " .. modal)
+  flags("local record Options\n  links: string\nend\n" ..
+    "local function f(o: Options)\n  local m: string\n  m = o.links\n" ..
+    "  if m == 'skip' or m == 'create' then use(1) end\nend\nuse(f)",
+    "Options.links: a string compared with \"create\", \"skip\" " .. modal)
+end
+
+--- A name holds a field only in the function that bound it: another
+--- function's local of the same name, or the name bound again, does
+--- not.
+local function test_a_same_named_local_elsewhere_is_not_the_field()
+  allows("local record Options\n  links: string\nend\n" ..
+    "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\nend\n" ..
+    "local function g(m: string)\n  if m == 'a' or m == 'b' then use(2) end\nend\nuse(f, g)")
+  allows("local record Options\n  links: string\nend\n" ..
+    "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\n" ..
+    "  local m2 = m\n  local m = 'x'\n  if m == 'a' or m == 'b' then use(m2) end\nend\nuse(f)")
+end

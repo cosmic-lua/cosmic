@@ -79,6 +79,14 @@ local function test_a_renamed_type_names_its_replacement()
   assert(chunk == nil)
   assert(trouble:find("unknown type Zip.Nothing", 1, true) ~= nil, trouble)
   assert(trouble:find("was removed", 1, true) == nil, trouble)
+  -- `list` is a removed function, never a type: nothing is offered.
+  chunk, trouble = standalone.compile("fn.tl",
+    'local Zip = require("cosmic.zip")\n' ..
+    'local function f(r: Zip.list): integer\n  return r and 1 or 0\nend\n' ..
+    'return f\n')
+  assert(chunk == nil)
+  assert(trouble:find("unknown type Zip.list", 1, true) ~= nil, trouble)
+  assert(trouble:find("was removed", 1, true) == nil, trouble)
 end
 
 --- A record of the file's own named like a module's alias is not that

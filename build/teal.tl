@@ -361,7 +361,9 @@ function teal.replacement(msg: string, source: string, y: integer, x: integer): 
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
   if key == nil then
-    typename, key = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+    -- A type's name is capitalized, so only a member spelled as one is
+    -- offered for it: a removed function is never a type's answer.
+    typename, key = msg:match("^unknown type ([%a_][%w_]*)%.(%u[%w_]*)$")
     alias = typename
   end
   if key ~= nil then

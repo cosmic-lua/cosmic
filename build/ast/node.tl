@@ -58,6 +58,9 @@ local record TypeNode
   is_va: boolean | nil
   --- A union's alternatives.
   types: {TypeNode} | nil
+  --- A `"nominal"`: the name it refers to, one entry per dotted part
+  --- (`Zip.Reader` is `{"Zip", "Reader"}`).
+  names: {string} | nil
 
   --- A `"typedecl"`: the record, enum, or alias it declares, and whether
   --- it is an alias (`local type X = Y`) rather than a definition.
