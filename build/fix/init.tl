@@ -253,14 +253,16 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   return { files = out, c_files = c_out, refused = refused }
 end
 
---- `cosmic fix [--check] [path...]`.
---- @param argv {integer:string} The command line, the verb at slot 1
---- @return integer The exit code: 0 when nothing is left to fix
 --- `near`'s notes on the exported functions of `files`, each line
 --- prefixed with its file: a test, an example or a declaration file
---- offers nothing to compare. The module a file declares is read off its
---- path under `root`, as the build names it.
-local function duplicate_notes(built: compiler, root: string, files: {string}): {string}
+--- offers nothing to compare, nor does a file outside `root`. The module
+--- a file declares is read off its path under `root`, as the build names
+--- it (`a/b.tl` and `a/b/init.tl` are both `a.b`).
+--- @param built compiler The loaded compiler
+--- @param root string The tree the files are in
+--- @param files {string} The files a fix covered
+--- @return {string} One line per note, `file:line: message`
+function fix.notes(built: compiler, root: string, files: {string}): {string}
   local known, known_trouble = near.known(Store.databases())
   if known == nil then
     return { "comparing with the standard library: " .. known_trouble }
@@ -286,7 +288,7 @@ local function duplicate_notes(built: compiler, root: string, files: {string}): 
       found = analysis
     end
     if found ~= nil and relative ~= nil then
-      local module = relative:gsub("%.tl$", ""):gsub("/", ".")
+      local module = relative:gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
       local candidates: {near.Candidate} = {}
       for _, entry in ipairs(found.docs) do
         if entry.exported and (entry.kind == "function" or entry.kind == "method") and
@@ -303,6 +305,9 @@ local function duplicate_notes(built: compiler, root: string, files: {string}): 
   return out
 end
 
+--- `cosmic fix [--check] [path...]`.
+--- @param argv {integer:string} The command line, the verb at slot 1
+--- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--check"] = false })
@@ -474,7 +479,7 @@ function fix.run(argv: {integer:string}): integer
   end
 
   -- A note is a heuristic's, never a failure: it names what to look at.
-  for _, line in ipairs(duplicate_notes(built, root, files)) do
+  for _, line in ipairs(fix.notes(built, root, files)) do
     log:say("fix: note  " .. line)
   end
   for _, line in ipairs(failures) do

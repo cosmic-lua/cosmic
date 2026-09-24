@@ -50,6 +50,13 @@ local function test_references_and_known_names_are_not_noted()
   assert(#near.notes("tools.paths", {
     { source_symbol = "Paths.which", text = "Proc.find, with a default.", line = 3 },
   }, known) == 0)
+  assert(#near.notes("tools.paths", {
+    { source_symbol = "Paths.which", text = "Like `find`, with a default.", line = 3 },
+  }, known) == 0)
+  -- A bare verb that happens to be the other's name names nothing.
+  assert(#near.notes("tools.paths", {
+    { source_symbol = "Paths.which", text = "Finds the program on the PATH.", line = 3 },
+  }, known) == 1)
   -- A name a public type carries is taken too.
   local sourced: {near.Known} = { known[6], { kind = "function", module = "cosmic.rand",
     symbol = "entropy", source_symbol = "Rand.entropy",
@@ -58,6 +65,27 @@ local function test_references_and_known_names_are_not_noted()
   assert(#near.notes("cosmic.store", {
     { source_symbol = "Store.source", text = "A module's source.", line = 3 },
   }, sourced) == 0)
+end
+
+--- Only a command or C call is taken as what a function stands in for:
+--- documentation backticks keywords, fields and examples as well.
+local function test_only_a_command_is_a_stand_in()
+  local keyworded: {near.Known} = { { kind = "function", module = "cosmic.json",
+    symbol = "decode", source_symbol = "Json.decode",
+    signature = "function Json.decode(text: string): any",
+    text = "Any value; narrow it with `is`, then `finish` the reader." } }
+  assert(#near.notes("tools.m", {
+    { source_symbol = "M.is", text = "Whether.", line = 1 },
+    { source_symbol = "M.finish", text = "Ends.", line = 2 },
+  }, keyworded) == 0)
+  -- cosmic.removed names removed functions as examples, not stand-ins.
+  local removed: {near.Known} = { { kind = "function", module = "cosmic.removed",
+    symbol = "message", source_symbol = "module.message",
+    signature = "function module.message(name: string, field: string): string",
+    text = "What replaced a removed name, as for (`os`, `getenv`)." } }
+  assert(#near.notes("tools.m", {
+    { source_symbol = "M.getenv", text = "A variable.", line = 1 },
+  }, removed) == 0)
 end
 
 --- A name another function backticks as its own parameter is not what
@@ -112,7 +140,8 @@ local function test_the_standard_library_earns_no_note()
       local found = assert(positions.analyze(built, source, file))
       local candidates: {near.Candidate} = {}
       for _, entry in ipairs(found.docs) do
-        if entry.exported and entry.kind == "function" and entry.text ~= "" then
+        if entry.exported and (entry.kind == "function" or entry.kind == "method") and
+            entry.text ~= "" then
           candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
             text = entry.text, line = entry.line }
         end
