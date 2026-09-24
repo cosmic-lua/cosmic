@@ -96,13 +96,14 @@ end
 
 function Fixture.call_with_environment(label: string, argv: {string},
     directory: string, diagnostics: string, environment: {string:string},
-    timeout_ms?: integer, input?: string): Fixture.Outcome
+    timeout_ms?: integer, input?: string,
+    fds?: {integer:integer}): Fixture.Outcome
   Fixture.mkdir(diagnostics)
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
   local outcome = Runner.execute({ argv = argv, cwd = directory,
     env = environment, timeout_ms = timeout_ms or default_child_timeout_ms,
-    input = input, output = out, error = err })
+    input = input, output = out, error = err, fds = fds })
   if not outcome.result then
     error(label .. ": could not start: " .. tostring(outcome.trouble) ..
       "; stdout=" .. out .. "; stderr=" .. err)
@@ -115,6 +116,24 @@ function Fixture.call_with_environment(label: string, argv: {string},
   return { result = finished, out = out, err = err }
 end
 
+--- `call_with_environment` with each file of `paths` open for reading on
+--- the descriptor it is keyed by, in the child only.
+function Fixture.call_with_descriptors(label: string, argv: {string},
+    directory: string, diagnostics: string, environment: {string:string},
+    paths: {integer:string}): Fixture.Outcome
+  local fds: {integer:integer} = {}
+  local called, answer = pcall(function(): Fixture.Outcome
+    for number, path in pairs(paths) do
+      fds[number] = assert(Fs.open_read(path))
+    end
+    return Fixture.call_with_environment(label, argv, directory, diagnostics,
+      environment, nil, nil, fds)
+  end)
+  for _, fd in pairs(fds) do Fs.close(fd) end
+  if not called then error(answer) end
+  return answer as Fixture.Outcome
+end
+
 function Fixture.call(label: string, argv: {string}, directory: string,
     diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
     input?: string): Fixture.Outcome
@@ -122,11 +141,9 @@ function Fixture.call(label: string, argv: {string}, directory: string,
     Fixture.environment(extra), timeout_ms, input)
 end
 
-function Fixture.run(label: string, argv: {string}, directory: string,
-    diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
-    input?: string): Fixture.Capture
-  local outcome = Fixture.call(label, argv, directory, diagnostics, extra,
-    timeout_ms, input)
+--- The streams of a call that succeeded; one that did not raises, naming
+--- how it ended and showing the start of what it wrote.
+function Fixture.succeeded(label: string, outcome: Fixture.Outcome): Fixture.Capture
   local finished = outcome.result
   if not finished.ok then
     error(label .. ": failed code=" .. tostring(finished.code) ..
@@ -136,6 +153,13 @@ function Fixture.run(label: string, argv: {string}, directory: string,
       "; output preview:\n" .. preview(outcome.out) .. preview(outcome.err))
   end
   return { out = outcome.out, err = outcome.err }
+end
+
+function Fixture.run(label: string, argv: {string}, directory: string,
+    diagnostics: string, extra?: {string:string}, timeout_ms?: integer,
+    input?: string): Fixture.Capture
+  return Fixture.succeeded(label, Fixture.call(label, argv, directory,
+    diagnostics, extra, timeout_ms, input))
 end
 
 function Fixture.contains(path: string, expected: string)

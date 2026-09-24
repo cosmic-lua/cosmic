@@ -19,6 +19,9 @@ local record Runner
     input: string | nil
     output: string | nil
     error: string | nil
+    --- More descriptors the child gets, by the number it sees them as
+    --- (Child.Options.fds); the caller keeps and closes them.
+    fds: {integer:integer} | nil
   end
   record Outcome
     result: Child.Result | nil
@@ -58,6 +61,11 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
   if input_fd then options.stdin = input_fd end
   if output_fd then options.stdout = output_fd end
   if error_fd then options.stderr = error_fd end
+  if request.fds then
+    local fds: {integer:integer | string} = {}
+    for number, fd in pairs(request.fds) do fds[number] = fd end
+    options.fds = fds
+  end
   local started = assert(Time.monotonic_ns())
   local called, answer, trouble = pcall(Child.run, request.argv, options)
   local elapsed = assert(Time.monotonic_ns()) - started
@@ -85,12 +93,14 @@ function Runner.execute(request: Runner.Request): Runner.Outcome
   return { result = result, status = status, code = code, elapsed_ns = elapsed }
 end
 
-function Runner.operation(c: Runner.Context, phase: string,
-    request: Runner.Request): Runner.Outcome
+-- Runs `attempt` as one operation named `phase`: a start event, then a
+-- complete event with its outcome, which a failure also names on stderr.
+local function recorded(c: Runner.Context, phase: string,
+    attempt: function(): Runner.Outcome): Runner.Outcome
   local database = State.external_path(c.database, c.candidate)
   local started = assert(Time.monotonic_ns())
   local id = State.start(database, c.worker, c.run, c.attempt, phase, started)
-  local called, answer = pcall(Runner.execute, request)
+  local called, answer = pcall(attempt)
   local outcome: Runner.Outcome
   if called then
     outcome = answer as Runner.Outcome
@@ -119,6 +129,28 @@ function Runner.operation(c: Runner.Context, phase: string,
       tostring(outcome.code) .. ")" .. why .. "\n")
   end
   return outcome
+end
+
+function Runner.operation(c: Runner.Context, phase: string,
+    request: Runner.Request): Runner.Outcome
+  return recorded(c, phase, function(): Runner.Outcome
+    return Runner.execute(request)
+  end)
+end
+
+--- Records `work`, done in this process, as one operation named `phase`,
+--- as `operation` records a command: "success" when it returns true, and
+--- "error" with its message when it returns false or raises.
+function Runner.step(c: Runner.Context, phase: string,
+    work: function(): boolean, string): Runner.Outcome
+  return recorded(c, phase, function(): Runner.Outcome
+    local started = assert(Time.monotonic_ns())
+    local ok, trouble = work()
+    local elapsed = assert(Time.monotonic_ns()) - started
+    if ok then return { status = "success", code = 0, elapsed_ns = elapsed } end
+    return { status = "error", code = 1, elapsed_ns = elapsed,
+      trouble = limited((trouble or "") ~= "" and trouble or "failed") }
+  end)
 end
 
 return Runner
