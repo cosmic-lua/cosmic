@@ -61,7 +61,8 @@ end
 
 local help_suffix = [[
 Lua's `io`, `os`, and `debug` are not present; code that reaches for
-one is told its replacement by name, the moment it does. `io` is
+one is told the replacement for the very field it used -- by the
+compiler, or at run time by a chunk `load` was handed. `io` is
 `cosmic.fs`: `Fs.stdout`, `.stderr`, `.stdin` are descriptors, written
 and read with `Fs.put`/`Fs.take`. `os` is `cosmic.time`, `cosmic.env`,
 and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still

@@ -293,4 +293,42 @@ function teal.environment_for(built: compiler, handle: work.Handle): compiler.En
   return env
 end
 
+--- Line `y` of `source`, without its newline: nil past the last one.
+local function line_at(source: string, y: integer): string | nil
+  local start = 1
+  for _ = 2, y do
+    local newline = source:find("\n", start, true)
+    if newline == nil then
+      return nil
+    end
+    start = newline + 1
+  end
+  local stop = source:find("\n", start, true)
+  return source:sub(start, stop ~= nil and stop - 1 or #source)
+end
+
+--- What to write instead, when `msg` is the checker refusing a name
+--- `environment_for` stripped: `unknown variable: os` at line `y`,
+--- column `x` of `source`, read together with the field that follows
+--- it there (`os.getenv` names `Env.get`), or `module not found: 'io'`
+--- for a `require`. `cosmic.removed`'s `message` says it, the same
+--- words `core/surface.c` raises with when a running program reaches
+--- for the name. Nil for every other message.
+function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
+  local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
+  local field: string | nil = nil
+  if name ~= nil then
+    local line = line_at(source, y)
+    if line ~= nil and line:sub(x, x + #name - 1) == name then
+      field = line:sub(x + #name):match("^%s*[%.:]%s*([%a_][%w_]*)")
+    end
+  else
+    name = msg:match("^module not found: '(.-)'$")
+  end
+  if name == nil or Removed.names[name] == nil then
+    return nil
+  end
+  return Removed.message(name, field)
+end
+
 return teal
