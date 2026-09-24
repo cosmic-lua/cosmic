@@ -6,6 +6,7 @@
 local Sqlite = require("cosmic.sqlite")
 local ast = require("build.ast")
 local type compiler = require("build.compiler")
+local bind = require("build.bind")
 
 local type Node = ast.Node
 
@@ -108,9 +109,7 @@ function lines.executable(built: compiler, source: string,
   return out, ""
 end
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 --- `lines.executable`'s answer for `source`, read back from `db`'s
 --- `executable` table when a row for `source_hash` already stands
