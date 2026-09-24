@@ -1,6 +1,7 @@
 --- Filesystem queries whose answers may affect a test verdict.
 
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
@@ -57,12 +58,40 @@ function observations.key_part(kind: string, path: string, answer: string): stri
   return kind .. " " .. Codec.hex(path) .. " " .. Codec.hex(answer)
 end
 
---- A versioned, line-safe representation. Paths may themselves contain newlines.
+--- What an absolute path resolves to, links and all, when it is read:
+--- `realpath` of the path, or, when it is not there (a stat or an open
+--- of a missing file is a read too), of its nearest existing ancestor
+--- with the missing names after it. "" when that cannot be said: a
+--- relative path, or one spelled with "." or "..", whose missing part
+--- could not be taken lexically. Nothing is remembered between calls,
+--- since a link can be retargeted between two reads.
+function observations.resolution(path: string): string
+  if path:sub(1, 1) ~= "/" or ("/" .. path .. "/"):find("/%.%.?/") then return "" end
+  local missing: {string} = {}
+  local at = path
+  while true do
+    local real, _ = sys.realpath(at)
+    if real ~= nil then
+      for i = #missing, 1, -1 do
+        real = (real == "/" and "" or real) .. "/" .. missing[i]
+      end
+      return real
+    end
+    local parent = Fs.dirname(at)
+    if parent == at then return "" end
+    missing[#missing + 1] = Fs.basename(at)
+    at = parent
+  end
+end
+
+--- A versioned, line-safe representation. Paths may themselves contain
+--- newlines. Version 2 added "r", what a path outside the tree resolved
+--- to when it was read.
 function observations.encode(found: {observations.Observation}): string
-  local lines: {string} = { "filesystem-observations-v1" }
+  local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
-    if kind == "o" or kind == "s" or kind == "d" or kind == "e" then
+    if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     end
   end
@@ -75,15 +104,16 @@ function observations.encode_unstable(): string
   return "filesystem-observations-unstable"
 end
 
---- Old rows described opens only, so they cannot safely produce a verdict.
+--- Old rows described opens only, or no resolutions, so they cannot
+--- safely produce a verdict.
 function observations.decode(encoded: string): {observations.Observation} | nil
-  if encoded:match("^[^\n]*") ~= "filesystem-observations-v1" then
+  if encoded:match("^[^\n]*") ~= "filesystem-observations-v2" then
     return nil
   end
   local found: {observations.Observation} = {}
   for line in encoded:gmatch("[^\n]+") do
-    if line ~= "filesystem-observations-v1" then
-      local kind, encoded_path = line:match("^([osde]) ([0-9a-f]*)$")
+    if line ~= "filesystem-observations-v2" then
+      local kind, encoded_path = line:match("^([osder]) ([0-9a-f]*)$")
       local path: string = nil
       if encoded_path ~= nil then
         local decoded, _ = Codec.unhex(encoded_path)
@@ -161,12 +191,18 @@ end
 --- request over the network, or a change of working directory, after
 --- which a relative path no longer names a file in the tree) makes the
 --- run's verdict one that never stands.
+---
+--- Given `inside`, an absolute path an open, a stat or a listing names
+--- outside every directory in it is noted a second time, as an "r" whose answer
+--- is `observations.resolution` of it then: a file of the tree may be
+--- named through a link outside it, and what the link led to when the
+--- test read it is what its verdict describes.
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
 -- `cosmic.sys` and `cosmic.http` here: lstat, readlink, realpath and
 -- getcwd are not observed, so a test whose answer turns on one of them
 -- outside the tree can still stand.
-local function start(): {observations.Observation}, function()
+local function start(inside: {string} | nil): {observations.Observation}, function()
   local found: {observations.Observation} = {}
   local open = sys.open
   local stat = sys.stat
@@ -185,6 +221,17 @@ local function start(): {observations.Observation}, function()
   local function note(kind: string, path: string, answer: string)
     if type(path as any) == "string" then
       found[#found + 1] = { kind = kind, path = path, answer = answer }
+      if inside ~= nil and (kind == "o" or kind == "s" or kind == "d") and
+          path:sub(1, 1) == "/" then
+        for _, directory in ipairs(inside) do
+          if Fs.within(path, directory) then return end
+        end
+        -- TODO: resolve by the call itself, not beside it (the path an
+        -- opened descriptor names, once cosmic.sys carries one): another
+        -- process retargeting a link between the two goes unseen.
+        found[#found + 1] = { kind = "r", path = path,
+          answer = observations.resolution(path) }
+      end
     end
   end
   sys.open = function(path: string, flags: integer,
@@ -263,9 +310,11 @@ end
 
 --- Calls a function and restores every wrapper even when it raises. The value
 --- is left intact so callers such as `require` can consume a produced table.
-function observations.capture(fn: function(any...): (any...)):
+--- Given `inside`, a path read outside every directory in it is also
+--- resolved as it is read; see `start`.
+function observations.capture(fn: function(any...): (any...), inside?: {string}):
                               boolean, any, {observations.Observation}
-  local found, restore = start()
+  local found, restore = start(inside)
   local ok, produced = pcall(fn)
   restore()
   return ok, produced, found
@@ -273,10 +322,11 @@ end
 
 --- Calls one test body and presents its failure as text to the runner,
 --- beside what the body read whether it passed or not.
-function observations.call(fn: function(any...): (any...), argument: any): observations.Run
+function observations.call(fn: function(any...): (any...), argument: any,
+                           inside?: {string}): observations.Run
   local ok, produced, found = observations.capture(function(): any
     return fn(argument)
-  end)
+  end, inside)
   return { passed = ok, message = ok and "" or tostring(produced), reads = found }
 end
 

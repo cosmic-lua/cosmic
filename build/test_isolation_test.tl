@@ -191,6 +191,49 @@ end
   end
 end
 
+--- A verdict over a file read through a link outside the tree is over
+--- the file the link led to when the test read it: a test that reads
+--- through the link and then points it elsewhere does not stand, and
+--- fails once the file it read changes.
+local function test_a_link_retargeted_by_the_test_does_not_stand(tmp: string)
+  local root = tmp .. "/proj"
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/a"))
+  assert(Fs.mkdirs(root .. "/b"))
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(root .. "/a/f", "good\n"))
+  assert(Fs.write(root .. "/b/f", "other\n"))
+  assert(Fs.write(root .. "/suite/link_test.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function test_link()
+  local proj, link = assert(Env.get("PROJ")), assert(Env.get("OUTSIDE")) .. "/L"
+  assert(Fs.remove(link))
+  assert(Fs.symlink(proj .. "/a", link))
+  assert(Fs.read(link .. "/f") == "good\n")
+  assert(Fs.remove(link))
+  assert(Fs.symlink(proj .. "/b", link))
+end
+]]))
+  local env = Env.all()
+  env.TMPDIR = tmp .. "/temp"
+  env.PROJ = root
+  env.OUTSIDE = outside
+  assert(Fs.mkdirs(env.TMPDIR))
+  local output = tmp .. "/link.out"
+  local texts: {string} = {}
+  for run = 1, 3 do
+    if run == 3 then assert(Fs.write(root .. "/a/f", "bad\n")) end
+    local result = invoke(root, output, { "suite/link_test.tl" }, env)
+    texts[run] = assert(Fs.read(output))
+    assert(result.ok == (run < 3), texts[run])
+  end
+  assert(texts[1]:find("1 ran, 0 stood", 1, true), texts[1])
+  assert(texts[2]:find("1 ran, 0 stood", 1, true), texts[2])
+  assert(texts[3]:find("suite.link_test test_link:", 1, true), texts[3])
+end
+
 --- A fixture runtime's startup hooks pause one startup for a handshake;
 --- a worker inheriting them would pause too, with nobody to release it.
 local function test_workers_start_without_the_startup_hooks(tmp: string)

@@ -207,9 +207,14 @@ function worker.run(argv: {integer:string}): integer
   local children = made and children_path or nil
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
+  -- A read outside the tree and the test's own directory is resolved
+  -- as it is read, in case it names a file of the tree through a link.
+  local inside: {string} = { root, tmp }
+  local resolved_tmp, _ = Fs.absolute(tmp)
+  if resolved_tmp ~= nil then inside[#inside + 1] = resolved_tmp end
   local loaded, produced, load_reads = observations.capture(function(): any
     return require(module_path)
-  end)
+  end, inside)
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
@@ -225,7 +230,7 @@ function worker.run(argv: {integer:string}): integer
     else
       local test_session, _ = Coverage.start()
       local started = Time.monotonic_ns()
-      local run = observations.call(fn as function(any...): (any...), tmp)
+      local run = observations.call(fn as function(any...): (any...), tmp, inside)
       local finished = Time.monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
