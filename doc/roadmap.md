@@ -78,10 +78,37 @@ Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `shape`: design.md's principle 4 has untrusted data enter through a
-  declared shape. `cosmic.json` decodes to `any`, and there is no validator
-  yet to turn that into a record; `decode_object`, `decode_array` and `is`
-  are the interim.
+- `shape` in use. `cosmic.shape` and `cosmic.json` both exist, and nothing in
+  the tree calls `Shape.into` yet. Convert the sites that read fields off a
+  decoded value through `as` casts, starting with those under `build/` and
+  `ci/`; their call shapes decide whether the inference limit in shape.tl's
+  module comment needs a helper, and whether `decode_into` (a TODO in
+  shape.tl) earns its place.
+- a spec that agrees with its record. Nothing checks that a `Shape.record`
+  names the fields of the Teal record its answer is annotated as, so a field
+  added to the record and not to the spec is never set. Have `cosmic fix`
+  compare a `Shape.record` literal with the record its `into` flows into, and
+  hold the tree to it; generating a spec from the record is the alternative.
+- read clang's JSON syntax tree in `build/c/tree.tl`. It reads the text form
+  of `-Xclang -ast-dump`, and `rules.tl` digs about sixteen facts out of a
+  node's text line (an operator, a cast's kind, a type, `static`, a literal's
+  value). `-ast-dump=json` names each of those as a field, and clang keeps it
+  stable where the text is meant for people. Read it with `cosmic.json` and
+  give each node a `Shape.record`, the first real caller of both. Measured on
+  `core/json.c`: 76 MB of JSON against 3.9 MB of text, 0.27 s to emit
+  against 0.22 s, and 0.4 s for `Json.decode` to read it with `max_depth` at
+  1000 (clang nests past the default 64), holding about 60 MB of Lua heap
+  after. A `loc` in the JSON form also names its file only when it changes,
+  so the running position `tree.tl` keeps is still needed, and the system
+  headers are still most of the dump.
+- the lint design.md's teal section plans: refuse `v is R` for a record `R`
+  on an `any`, which compiles to a table check, and point at `cosmic.shape`.
+- record `shape`'s decisions in design.md: the answer is a copy, a null
+  stand-in and a list's hole are missing values, and `integer` is the one
+  conversion. old's D28, which chose the opposite on the copy, is not on this
+  tree.
+- measure `into`'s copy on a large payload (a big NDJSON file) against
+  `Json.decode` on the same text once the benchmark harness exists.
 - `flags`, `log`, `string`, `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under
