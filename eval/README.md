@@ -67,8 +67,10 @@ of the solver's project. The prompt varies only in arena paths.
   `grade.log` outside `project/`. A timeout is distinct from an assertion
   failure. The notes grader requires recorded tests and examples (including
   guide doctests), checks formatting, builds exactly `o/bin/notes`, then
-  exercises it without supporting files or environment. Python 3 is a
-  grader dependency, not a solver dependency.
+  exercises it without supporting files or environment. The grader runs
+  on the pinned bootstrap cosmic, which is no solver dependency either;
+  run `bin/cosmic-bootstrap` once beforehand, so its first download is
+  not counted against the grader's 30 seconds.
 - **Evidence.** Preserve the project and journal. Any path a tool call
   named outside the arena is a boundary breach to record. Preserve a full transcript
   where the runner supplies one; a journal is not a replacement transcript.
