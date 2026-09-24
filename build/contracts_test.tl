@@ -3,39 +3,16 @@
 local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")
-local Store = require("cosmic.store")
 local teal = require("build.teal")
 
 local built = teal.lazy()
-
---- What the checker gets for a module it asks for: the source, then a
---- close.
-local record Served
-  text: string
-  read: function(Served, what: string): string
-  close: function(Served): boolean
-end
-
---- Answers `cosmic.*` from this binary's own sources, so a case can
---- require the real `cosmic.sys`.
-local function serve_cosmic(name: string, _search_all: boolean): string | nil, any
-  if name:sub(1, 7) ~= "cosmic." then return nil end
-  local source, _ = Store.source(name)
-  if source == nil then return nil end
-  local answer: Served = {
-    text = source,
-    read = function(self: Served, _what: string): string return self.text end,
-    close = function(_self: Served): boolean return true end,
-  }
-  return name:gsub("%.", "/") .. ".tl", answer
-end
 
 --- What `contracts.check` says of `source`, a module the checker takes
 --- as it is, with a fallible value `get`, a fallible effect `put`, and
 --- two calls that are not fallible in front of it.
 local function problems_in(source: string): {string}
-  built.path = ""
-  built.search_module = serve_cosmic
+  -- A case may require the real `cosmic.sys`.
+  teal.serve_standard(built)
   local env = assert(built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   }))
@@ -78,7 +55,8 @@ local function problems_in(source: string): {string}
   assert(code ~= nil and #result.type_errors == 0 and #result.syntax_errors == 0,
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
   local checked = result.ast as ast.Node -- cast: tl's checked AST
-  return contracts.check("x.tl", checked, state, contracts.quiet_records(env))
+  return contracts.check("x.tl", checked, state, contracts.quiet_records(env),
+    receivers.record_named(env, "cosmic.sys", ""))
 end
 
 local function flags(source: string, wanted: string)
@@ -262,6 +240,17 @@ local function test_a_fallible_function_declares_exactly_two_results()
     "  return true, '', {}\nend\nuse(f)", third)
   flags("local t = {}\nt.f = function(): integer | nil, string, integer\n" ..
     "  return nil, 'no', 2\nend\nuse(t)", third)
+  -- A variadic tail is as many slots as a caller binds.
+  flags("local function f(): integer | nil, string...\n" ..
+    "  return nil, 'no', 'more'\nend\nuse(f)", third)
+  -- A record's function and a method are held the same.
+  flags("local record R end\nfunction R.f(): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(R)", third)
+  flags("local record R end\nfunction R:f(): boolean, string, integer\n" ..
+    "  use(self)\n  return false, 'no', 2\nend\nuse(R)", third)
+  -- `any` admits nil, so it is a value that can fail.
+  flags("local function f(): any, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(f)", third)
   allows("local function f(): integer | nil, string\n  return get()\nend\nuse(f)")
   -- Three results that are not a failure's are no failure's shape.
   allows("local function f(): integer, integer, string\n" ..
@@ -275,6 +264,17 @@ local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
   local stat = "local stat = sys.stat\n"
   allows(sys .. stat .. "sys.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
     "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend")
+  -- A stand-in is still held to the rules its binding keeps: a
+  -- failure of its own answers nil beside the reason.
+  flags(sys .. "local mkdir = sys.mkdir\n" ..
+    "sys.mkdir = function(path: string, mode?: integer): boolean, string, integer\n" ..
+    "  if path == '' then return true, 'empty' end\n  return mkdir(path, mode)\nend",
+    "beside its reason")
+  -- A local named `sys` that is another table is no stand-in's owner.
+  flags("local record Other\n  stat: function(string): integer | nil, string, integer\nend\n" ..
+    "local sys: Other = {}\n" ..
+    "sys.stat = function(_: string): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend", "nothing in a third")
   -- The same function stored anywhere else is held to the rules.
   flags(sys .. stat .. "local t = {}\n" ..
     "t.stat = function(path: string): sys.Stat | nil, string, integer\n" ..

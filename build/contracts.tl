@@ -1,8 +1,9 @@
 --- The error-slot discipline of doc/design.md's third principle,
 --- checked against the types tl's checker gave each node of a module it
 --- has just compiled. A fallible function is one declared to return a
---- value that admits nil, or a boolean, and then a `string`: `T | nil,
---- string` for a value, `boolean, string` for an effect.
+--- value that admits nil (`any` does), or a boolean, and then a
+--- `string`: `T | nil, string` for a value, `boolean, string` for an
+--- effect.
 ---
 --- 1. A call to a fallible function keeps its error slot: it is bound
 ---    to at least two names (`local v, err = f()`, or an assignment),
@@ -31,13 +32,14 @@
 ---    string` whose every return is a value that cannot be nil and `""`
 ---    returns the value alone.
 --- 5. Two slots, and nothing in a third: a fallible function declares
----    exactly two results. What else a failure means goes in its
+---    exactly two results, and no variadic tail. What else a failure means goes in its
 ---    reason, or in a structured error record standing as the value.
 ---    The one exception is `cosmic.sys`, whose C bindings answer
 ---    `nil | false, error, errno`: a function a module stores into one
 ---    of its fields (`sys.stat = function(...) ... end`, a stand-in for
----    a binding) keeps the binding's shape, and no return rule reads
----    it. A caller that needs the errno calls the binding itself.
+---    a binding) keeps the binding's shape: this rule does not read it,
+---    nor does rule 2 read a return that hands on the binding's whole
+---    answer. A caller that needs the errno calls the binding itself.
 ---
 --- The callee's type is the one the checker stored at the callee's own
 --- position (`build.receivers` installs the reporter that keeps it). A
@@ -158,10 +160,15 @@ local function typename(t: Type | nil): string
   return r ~= nil and r.typename or ""
 end
 
+--- Whether a value of type `t` can be nil: a union with nil, or `any`.
+local function admits_nil(t: Type | nil): boolean
+  return holds(t, "nil") or holds(t, "any")
+end
+
 --- Whether results declared as `members` make a fallible function.
 local function fallible_results(members: {Type}): boolean
   if #members < 2 or typename(members[2]) ~= "string" then return false end
-  return typename(members[1]) == "boolean" or holds(members[1], "nil")
+  return typename(members[1]) == "boolean" or admits_nil(members[1])
 end
 
 --- Whether a callee's type is a fallible function's.
@@ -301,15 +308,18 @@ local function returns_of(fn: Node): {Node}
   return out
 end
 
---- Rules 2 to 5, over one function's declared results and returns.
+--- Rules 2 to 5, over one function's declared results and returns. A
+--- stand-in for a `cosmic.sys` binding keeps the binding's third slot,
+--- so rule 5 does not read it, nor does rule 2 read a return that
+--- hands the binding's whole answer on, errno and all.
 local function check_function(file: string, fn: Node, types: {integer: Type},
-                              problems: {string})
+                              problems: {string}, stand_in: boolean)
   local rets = fn.rets
   local tuple = rets ~= nil and rets.tuple or nil
-  if tuple == nil or #tuple < 2 then return end
+  if rets == nil or tuple == nil or #tuple < 2 then return end
   local declared = tuple as {Type} -- cast: a declared type is the checker's own type object
   local effect = typename(declared[1]) == "boolean"
-  local value = holds(declared[1], "nil")
+  local value = admits_nil(declared[1])
   if not effect and not value then return end
   local name = function_name(fn)
   if contracts.exempt[file .. ":" .. name] ~= nil then return end
@@ -325,7 +335,9 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
     end
     return
   end
-  if #declared > 2 then
+  -- A variadic tail (`T | nil, string...`) is as many slots as a
+  -- caller cares to bind.
+  if (#declared > 2 or rets.is_va) and not stand_in then
     problems[#problems + 1] = string.format(
       "%s:%d: %s: a fallible function answers two results and nothing in a third; "
         .. "fold it into the reason or a structured error record (only cosmic.sys "
@@ -337,7 +349,9 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
   local all_values = #returns > 0
   for _, r in ipairs(returns) do
     local exps = list_of(r.exps)
-    if #exps >= 2 and not is_empty_string(exps[2]) and not is_failure(exps[1], effect) then
+    local handed_on = stand_in and #exps == 3
+    if #exps >= 2 and not handed_on and not is_empty_string(exps[2])
+        and not is_failure(exps[1], effect) then
       problems[#problems + 1] = string.format(
         "%s:%d: %s: a failure answers %s beside its reason, never a value; "
           .. "a success's reason is \"\"",
@@ -417,41 +431,26 @@ local function standing(root: Node): {Node: boolean}
   return out
 end
 
---- The names a module binds to `require("cosmic.sys")`, where the
---- declaration is plain: `local sys = require("cosmic.sys")`.
-local function sys_names(root: Node): {string: boolean}
-  local names: {string: boolean} = {}
-  ast.walk(root, function(n: Node)
-    if n.kind ~= "local_declaration" then return end
-    local vars = list_of(n.vars)
-    for i, e in ipairs(list_of(n.exps)) do
-      local callee, var = e.e1, vars[i]
-      local argument = list_of(e.e2)[1]
-      if is_call(e) and callee ~= nil and callee.kind == "variable"
-          and callee.tk == "require" and argument ~= nil
-          and argument.conststr == "cosmic.sys" and var ~= nil and var.tk ~= nil then
-        names[var.tk] = true
-      end
-    end
-  end)
-  return names
-end
-
 --- Every function literal a module stores into a field of `cosmic.sys`:
 --- a stand-in for a binding, which answers in the binding's own shape.
-local function sys_stand_ins(root: Node): {Node: boolean}
-  local names = sys_names(root)
+--- The table is known by the type the checker gave the field's owner,
+--- the record `cosmic.sys` declares, whatever the owner is called.
+local function sys_stand_ins(root: Node, records: {integer: Type},
+                             sys: Type | nil): {Node: boolean}
   local out: {Node: boolean} = {}
-  if next(names) == nil then return out end
+  local wanted = resolved(sys)
+  if wanted == nil or wanted.typeid == nil then return out end
   ast.walk(root, function(n: Node)
     if n.kind ~= "assignment" then return end
     local exps = list_of(n.exps)
     for i, var in ipairs(list_of(n.vars)) do
       local op, owner, stored = var.op, var.e1, exps[i]
       if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil
-          and owner.kind == "variable" and owner.tk ~= nil and names[owner.tk]
           and stored ~= nil and stored.kind == "function" then
-        out[stored] = true
+        local record_type = records[position(owner.y, owner.x)]
+        if record_type ~= nil and record_type.typeid == wanted.typeid then
+          out[stored] = true
+        end
       end
     end
   end)
@@ -468,8 +467,11 @@ end
 --- @param root the checked AST
 --- @param typed the checker's types, as `build.receivers` kept them
 --- @param quiet `quiet_records`' answer, when the caller has an environment
+--- @param sys the record `cosmic.sys` declares, as the checker holds it
+--- (`receivers.record_named(env, "cosmic.sys", "")`), when the caller
+--- has an environment that has loaded it
 function contracts.check(file: string, root: Node, typed: receivers.State,
-                         quiet?: {integer: {string: boolean}}): {string}
+                         quiet?: {integer: {string: boolean}}, sys?: Type): {string}
   local problems: {string} = {}
   local types, callees = typed.every, typed.callees
   local records = typed.types
@@ -485,7 +487,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
     return methods ~= nil and methods[member.tk] == true
   end
   local kept, statements = keeping(root, callees), standing(root)
-  local stand_ins = sys_stand_ins(root)
+  local stand_ins = sys_stand_ins(root, records, sys)
   ast.walk(root, function(n: Node)
     local e1 = n.e1
     if is_call(n) and not kept[n] and e1 ~= nil
@@ -503,8 +505,8 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
             .. "in assert(...), or return it whole",
           file, n.y, spelled(e1))
       end
-    elseif is_function(n) and not stand_ins[n] then
-      check_function(file, n, types, problems)
+    elseif is_function(n) then
+      check_function(file, n, types, problems, stand_ins[n] or false)
     end
   end)
   table.sort(problems, function(a: string, b: string): boolean

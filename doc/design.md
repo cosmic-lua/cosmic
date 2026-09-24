@@ -48,8 +48,10 @@ these argues with the principle, not with the reviewer.
    string` for an effect, two slots and nothing in a third, a
    structured error record when the failure has shape. the one
    exception is the raw binding table `cosmic.sys`, whose C calls
-   add the errno in a third slot; every Teal function over it folds
-   its answer back to two. a throw or exit carries a trailing reason
+   add the errno in a third slot, and a stand-in a module stores
+   into that table in a binding's place, which answers as the
+   binding does; every other Teal function over it folds its answer
+   back to two. a throw or exit carries a trailing reason
    and is exceptional by construction.
 4. **no escape hatch in the type layer.** casts are foreclosed;
    `any` lives only where untrusted data enters and a shape validator
@@ -193,9 +195,9 @@ values, the convention the fork already uses at over a hundred sites.
 that errno in a third slot is `cosmic.sys`'s alone, the one
 exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
-itself. the build refuses a fallible Teal function that declares a
-third, save a stand-in stored into the table itself, which answers
-as the binding it replaces. one trace point at the table's dispatch gives a
+itself. in cosmic's own modules the build refuses a fallible Teal
+function that declares a third, save a stand-in stored into the
+table itself, which answers as the binding it replaces. one trace point at the table's dispatch gives a
 syscall log for every call uniformly when asked.
 
 `posix` is a reserved name of a different kind: not privacy, but
