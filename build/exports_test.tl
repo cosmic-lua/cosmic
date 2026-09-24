@@ -66,11 +66,15 @@ allowed["build.contracts.quiet"] = "waits on #2086, which edits build/contracts.
 --- What earns one: a use from another module that is not a `*_test.tl`;
 --- for a module only tests import (`build/docs_fixture.tl`, test
 --- support), a use from a test other than the module's own; and for a
---- program -- a module whose record exports `main` or `run`, which
---- fetches, execs or reads the working tree and prints -- a use from
---- its own tests, which drive each step directly on a fixture. A
---- module's own tests are `<module>_test`, `<module>_<topic>_test`,
---- and the tests in its directory when it is one (`build/fix/`).
+--- program in `build/`, `cmd/` or `eval/` -- a module whose record
+--- exports `main` or `run`, which fetches, execs or reads the working
+--- tree and prints -- a use from its own tests, which drive each step
+--- directly on a fixture. A module's own tests are `<module>_test`,
+--- `<module>_<topic>_test` and the tests in its directory when it is
+--- one (`build/fix/`), except the test of another module: `<x>_test`
+--- where `<x>` is itself a module (`build.test_worker_test` is not
+--- `build.test`'s). A public `cosmic/` module is never a program here:
+--- what its tests call still needs a caller or an example.
 -- TODO: the check is not transitive: an export used only by another
 -- export that is itself allowed, or itself unused, counts as earned.
 -- Walk the uses from what is earned outright once a use records the
@@ -102,7 +106,12 @@ local function unearned(db: Sqlite.Handle): {string}
     "AND (u.from_file NOT GLOB '*_test.tl' " ..
     "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
     "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
-    "OR ((u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
+    "OR (d.file NOT GLOB 'cosmic/*' " ..
+    "AND (u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
+    "AND (substr(u.from_module, 1, length(u.from_module) - 5) = d.module " ..
+    "OR NOT EXISTS (SELECT 1 FROM imports j " ..
+    "WHERE j.path = substr(u.from_module, 1, length(u.from_module) - 5) " ..
+    "OR j.requires = substr(u.from_module, 1, length(u.from_module) - 5))) " ..
     "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
     "AND p.symbol IN ('main', 'run'))))) " ..
     "ORDER BY d.file, d.line"))
@@ -264,6 +273,61 @@ local function test_a_program_exports_steps_its_own_tests_call(dir: string)
   })
   local refused = judged(db, {})
   assert(table.concat(refused, "\n") == "build/prog.tl:5: build.prog.other",
+    table.concat(refused, "\n"))
+end
+
+--- A program's topic test is its own, but a sibling module's test is
+--- not, though its name starts the same way.
+local function test_a_sibling_module_test_is_not_a_program_topic(dir: string)
+  local db = fixture.database(dir, {
+    ["build/prog.tl"] = source(
+      "local record prog",
+      "end",
+      "function prog.step() end",
+      "function prog.run() end",
+      "return prog"),
+    ["build/prog_worker.tl"] = source(
+      "local prog = require(\"build.prog\")",
+      "prog.run()",
+      "return {}"),
+    ["build/prog_worker_test.tl"] = source(
+      "local prog = require(\"build.prog\")",
+      "local worker = require(\"build.prog_worker\")",
+      "local function test_it()",
+      "  prog.step()",
+      "  local _ = worker",
+      "end"),
+  })
+  local refused = judged(db, {})
+  assert(table.concat(refused, "\n") == "build/prog.tl:3: build.prog.step",
+    table.concat(refused, "\n"))
+end
+
+--- A public module with `run` is no program: what only its own test
+--- calls still needs a caller or a worked example.
+local function test_a_public_module_with_run_still_needs_an_example(dir: string)
+  local db = fixture.database(dir, {
+    ["cosmic/thing.tl"] = source(
+      "local record Thing",
+      "end",
+      "function Thing.step() end",
+      "function Thing.run() end",
+      "return Thing"),
+    ["cosmic/thing_example.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "local Example = {}",
+      "function Example.run()",
+      "  Thing.run()",
+      "end",
+      "return Example"),
+    ["cosmic/thing_test.tl"] = source(
+      "local Thing = require(\"cosmic.thing\")",
+      "local function test_it()",
+      "  Thing.step()",
+      "end"),
+  })
+  local refused = judged(db, {})
+  assert(table.concat(refused, "\n") == "cosmic/thing.tl:3: cosmic.thing.step",
     table.concat(refused, "\n"))
 end
 

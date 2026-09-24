@@ -331,7 +331,11 @@ end
 --- first bound to, whatever alias reads it now) and `cosmic.removed`'s
 --- `members` names `cosmic.hash.hex`, what to write instead of that
 --- member. A record of the program's own, or a type bound to more than
---- one module, has no answer. Nil for every other message.
+--- one module, has no answer; nor does a module bound among several
+--- names (`local A, Hash = ...`) or by a line that does not start with
+--- its `local` (`do local Hash = ...`). Scope is not read: a `require`
+--- in a nested block counts as if it were the file's own. Nil for every
+--- other message.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
