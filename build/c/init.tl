@@ -130,7 +130,9 @@ end
 --- Whether `files` are every C file under `cwd` that compiles on its
 --- own: only then is what refers to a function across files all known.
 local function whole(cwd: string, files: {string}): boolean
-  local all = c.sources(cwd)
+  -- A tree that cannot be walked is not known to be whole: sharing goes
+  -- unjudged, and every file named is still checked on its own.
+  local all, _ = c.sources(cwd)
   if all == nil then return false end
   local named: {string: boolean} = {}
   for _, file in ipairs(files) do
