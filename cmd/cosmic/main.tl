@@ -308,24 +308,6 @@ local function run(file: string, argv: {integer:string}): integer
   return 0
 end
 
---- The exit code to return at once when the tool is older than the tree
---- it runs in -- after a rebuild that failed, or a refused boot, having
---- said why -- or nil to go on. When the tool can rebuild itself it does,
---- and runs this command line again rather than returning.
-local function stale_code(argv: {integer:string}): integer | nil
-  local reboot = require("build.reboot")
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
-    complain("cosmic: " .. root_trouble)
-    return 1
-  end
-  local code, trouble = reboot.ensure(root, argv)
-  if code ~= nil and trouble ~= "" then
-    complain("cosmic: " .. trouble)
-  end
-  return code
-end
-
 --- `cosmic help [verb]`: the whole discovery surface, and a verdict line.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
@@ -335,13 +317,21 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   -- compare) when the tool is already fresh, so this keeps help
   -- fast in the ordinary case, and only rebuilds when an edit to
   -- build.docs itself would otherwise go unseen.
-  local code = stale_code(argv)
+  local code = require("build.reboot").stale_exit(argv)
   if code ~= nil then
     return code
   end
   local words: {string} = { asked }
   if asked == nil then
-    local parsed, parse_trouble = Flags.parse(argv, 2, {})
+    local line = argv
+    if argv[2] == "--standalone" then
+      -- `standalone` is the verb spelled as an option (`cosmic
+      -- --standalone <file>`), and asked about by either spelling.
+      line = {}
+      for slot, word in pairs(argv) do line[slot] = word end
+      line[2] = "standalone"
+    end
+    local parsed, parse_trouble = Flags.parse(line, 2, {})
     if parsed == nil then
       complain("cosmic: help: " .. parse_trouble)
       log:verdict("help", false, parse_trouble)
@@ -450,7 +440,13 @@ local function main(argv: {integer:string}): integer
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
       -- tool refuses: it rebuilds and runs the line again here instead.
-      local stale = stale_code(argv)
+      -- TODO: hold the stale tool's usage complaint until this check has
+      -- run: a line the rebuilt tool refuses too is complained about
+      -- twice, once by each tool, and one it takes still shows the stale
+      -- tool's refusal above the rebuild. Each verb would check
+      -- staleness before reading its command line, or complain through
+      -- a logger that holds usage lines back until main flushes them.
+      local stale = require("build.reboot").stale_exit(argv)
       if stale ~= nil then
         code = stale
       end

@@ -88,25 +88,6 @@ local record docs
   end
 end
 
---- Rebuilds and re-enters `argv` first when this binary embeds a
---- stale copy of `build.docs` itself -- see `build.reboot.ensure`.
---- Returns an exit code to return immediately, or `nil` to proceed.
-local function stale_exit(argv: {integer:string}): integer | nil
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
-    log:complain(root_trouble)
-    return 1
-  end
-  local code, trouble = reboot.ensure(root, argv)
-  if code ~= nil then
-    if trouble ~= "" then
-      log:complain(trouble)
-    end
-    return code
-  end
-  return nil
-end
-
 local function text(value: string): Sqlite.Value
   return { text = value }
 end
@@ -845,7 +826,7 @@ function docs.run(argv: {integer:string}): integer
     log:complain("docs: " .. parse_trouble)
     return 2
   end
-  local exit = stale_exit(argv)
+  local exit = reboot.stale_exit(argv)
   if exit ~= nil then
     return exit
   end
@@ -919,7 +900,7 @@ function docs.run_uses(argv: {integer:string}): integer
     log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
     return 2
   end
-  local exit = stale_exit(argv)
+  local exit = reboot.stale_exit(argv)
   if exit ~= nil then
     return exit
   end

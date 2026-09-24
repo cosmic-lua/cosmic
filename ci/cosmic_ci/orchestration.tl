@@ -103,6 +103,9 @@ local product_test_timeout_ms <const> = 60000
 local format_test_timeout_ms <const> = 300000
 local launcher_test_timeout_ms <const> = 180000
 local self_rebuild_test_timeout_ms <const> = 180000
+-- Each self-rebuild test rebuilds the tool (about 20 s, several at once),
+-- past the runner's default 30 s per test on a loaded machine.
+local self_rebuild_per_test_timeout_s <const> = "120"
 local runtime_test_timeout_ms <const> = 180000
 local identity_test_timeout_ms <const> = 120000
 -- The sanitized cosmic's first, cold compile of the test tree, run
@@ -532,14 +535,11 @@ local function phase_fixtures(p: PlatformContext): integer
   local product = p.product
   local contract = p.contract
   local runtime = p.runtime
-  -- TODO: give this fixture's tests a COSMIC_TEST_TIMEOUT of their own:
-  -- each rebuilds the tool (about 20 s here, several at once), under the
-  -- runner's default 30 s per test, and a loaded run-local timed out the
-  -- rename and unlink cases once.
   local s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
     self_rebuild_test_timeout_ms, {
     COSMIC_FIXTURE_ROOT = root,
     COSMIC_FIXTURE_RUNTIME = runtime,
+    COSMIC_TEST_TIMEOUT = self_rebuild_per_test_timeout_s,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
     runtime_test_timeout_ms, {

@@ -177,6 +177,7 @@ local function test_help_takes_a_verb(tmp: string)
   local _ = expect(tmp, "help", { "help", "test" }, 0)
   local _ = expect(tmp, "help", { "test", "--help" }, 0)
   local _ = expect(tmp, "help", { "db", "-h" }, 0)
+  local _ = expect(tmp, "help", { "help", "--standalone" }, 0)
   local refused = expect(tmp, "help", { "help", "tset" }, 2)
   local out = refused.stdout or ""
   assert(out:find("help: FAIL (no such verb: tset)", 1, true), out)
