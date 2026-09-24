@@ -527,13 +527,13 @@ end
 --- A name spelled from a module's record down is a use of the member
 --- it ends in, and of nothing else with the same last name: a use is
 --- recorded without the module's own record (`write`, `Writer.write`).
---- Written by hand: `ZipWriter.add_file` is a use through a typed
+--- Written by hand: `Writer.add_file` is a use through a typed
 --- value, which only a compile finds (see `build.docs_fixture`).
 local function test_a_qualified_name_lists_only_its_own_uses()
   local db = database({}, {
     { "cosmic.fs", "write", "build.boot", "build/boot.tl", "10" },
     { "cosmic.stream", "Writer.write", "build.test", "build/test.tl", "20" },
-    { "cosmic.zip", "ZipWriter.add_file", "build.boot", "build/boot.tl", "30" },
+    { "cosmic.zip", "Writer.add_file", "build.boot", "build/boot.tl", "30" },
   })
   local writer = assert(docs.uses(view({ db }), "Stream.Writer.write"))
   assert(#writer == 1 and writer[1].module == "cosmic.stream", tostring(#writer))
@@ -545,8 +545,8 @@ local function test_a_qualified_name_lists_only_its_own_uses()
   -- `Writer` may be a module's own record, as `Fs` is: the uses table
   -- keeps no record names to tell.
   assert(#assert(docs.uses(view({ db }), "Writer.write")) == 2)
-  assert(#assert(docs.uses(view({ db }), "Zip.ZipWriter.add_file")) == 1)
-  assert(#assert(docs.uses(view({ db }), "cosmic.Zip.ZipWriter.add_file")) == 0,
+  assert(#assert(docs.uses(view({ db }), "Zip.Writer.add_file")) == 1)
+  assert(#assert(docs.uses(view({ db }), "cosmic.Zip.Writer.add_file")) == 0,
     "one name past the record, and no more")
 end
 

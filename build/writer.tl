@@ -97,7 +97,7 @@ local insert_uses =
 
 --- The record-field uses `build.receivers` found while each planned
 --- module was compiled, kept under the compile's key: `w:add_file(...)`
---- on a `Zip.ZipWriter` is a use of `ZipWriter.add_file` in `cosmic.zip`.
+--- on a `Zip.Writer` is a use of `Writer.add_file` in `cosmic.zip`.
 local insert_typed_uses =
   "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
   "from_file, line) " ..

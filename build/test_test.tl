@@ -192,6 +192,32 @@ local function test_a_read_under_root_o_is_keyable(tmp: string)
   assert(test.keyable(tmp, scratch, reads))
 end
 
+--- The shipped database is the one file under o/ a verdict is keyed
+--- on: a whole-tree check reads it, so a build that rewrites it must
+--- let that verdict fall. Any other file under o/ enters no key.
+local function test_the_shipped_database_enters_the_key(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/o"))
+  local db = tmp .. "/o/cosmic.db"
+  local other = tmp .. "/o/build.db"
+  assert(Fs.write(db, "first"))
+  assert(Fs.write(other, "first"))
+  local function key_over(path: string): string, boolean
+    local k = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime",
+      { { kind = "o", path = path, answer = Hash.hex_sha256("first") } }, {})
+    return k.key, k.stable
+  end
+  local unread = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", {}, {}).key
+  local keyed, stable = key_over(db)
+  assert(stable and keyed ~= unread, "o/cosmic.db did not enter the key")
+  assert(Fs.write(db, "second"))
+  local _, still = key_over(db)
+  assert(not still, "a rewritten o/cosmic.db let the verdict stand")
+  assert(Fs.write(other, "second"))
+  local elsewhere, other_stable = key_over(other)
+  assert(other_stable and elsewhere == unread,
+    "a file under o/ but the shipped database entered the key")
+end
+
 local function test_a_relative_path_is_keyable(tmp: string)
   local reads: {observations.Observation} =
     { { kind = "o", path = "cosmic/fs.tl", answer = "" } }

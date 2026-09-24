@@ -47,7 +47,9 @@ local record Module
   names: {string:string}
   --- What to write instead of a member a `cosmic.*` module no longer
   --- has, by the module's name and the member's (`cosmic.hash.hex`):
-  --- `build.teal` says it after the checker's `invalid key` for it.
+  --- `build.teal` says it after the checker's `invalid key` for it, or,
+  --- for a type the module no longer declares (`cosmic.zip.ZipReader`),
+  --- after its `unknown type`.
   -- TODO: this is said only at compile time; a running program that
   -- reaches a removed member (a chunk handed to `load`) gets "attempt to
   -- call a nil value". Say it there too, as `core/surface.c` does for a
@@ -66,6 +68,7 @@ local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
 local archive <const> = 'local Archive = require("cosmic.archive")'
 local zip <const> = 'local Zip = require("cosmic.zip")'
+local tar <const> = 'local Tar = require("cosmic.tar")'
 
 local module: Module = {
   fields = {
@@ -133,6 +136,12 @@ local module: Module = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
     ["cosmic.zip.list"] = "use Archive.list(path) (" .. archive .. "), or " ..
       "Zip.open(path) and then reader:entries() (" .. zip .. ")",
+    ["cosmic.zip.ZipReader"] = "use Zip.Reader, the same record renamed (" .. zip .. ")",
+    ["cosmic.zip.ZipWriter"] = "use Zip.Writer, the same record renamed (" .. zip .. ")",
+    ["cosmic.tar.TarReader"] = "use Tar.Reader, the same record renamed (" .. tar .. ")",
+    ["cosmic.tar.TarWriter"] = "use Tar.Writer, the same record renamed (" .. tar .. ")",
+    ["cosmic.archive.ArchiveReader"] = "use Archive.Reader, the same record renamed (" ..
+      archive .. ")",
   },
 }
 

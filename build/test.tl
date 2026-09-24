@@ -271,14 +271,20 @@ local function climbs(path: string): boolean
   return ("/" .. path .. "/"):find("/%.%./") ~= nil
 end
 
+--- The tree's shipped database, the one file of the build's output a
+--- test may read as an input: a whole-tree check (build/exports_test.tl)
+--- asks it what the build found, so its verdict must fall when a build
+--- rewrites it. Only an open of it is keyed, by its bytes' hash.
+local shipped <const> = "o/cosmic.db"
+
 --- A recorded read as a path under the root, or nil when it is not
 --- one: a test's own scratch directory, or anything else outside the
---- tree, is not an input to it, and nor is the build's own output. An
---- absolute path outside the root as written, or that climbs with "..",
---- is under it when what it resolved to -- `resolutions`, by path, from
---- its "r" or "t" observation -- is, and is keyed by that resolved name,
---- so the file's own line is the same for every spelling of it; with no
---- resolution it is outside.
+--- tree, is not an input to it, and nor is the build's own output but
+--- `shipped`. An absolute path outside the root as written, or that
+--- climbs with "..", is under it when what it resolved to --
+--- `resolutions`, by path, from its "r" or "t" observation -- is, and
+--- is keyed by that resolved name, so the file's own line is the same
+--- for every spelling of it; with no resolution it is outside.
 -- TODO: a path under the root as written is keyed by its name there,
 -- though it may cross a link in the tree that leads out (proj/x to
 -- /out/L to proj/a/f): a test that retargets /out/L after reading
@@ -298,6 +304,9 @@ local function under_root(root: string, path: string,
     local resolved, _ = Fs.relative(real, root)
     if resolved == nil then return nil end
     relative = resolved
+  end
+  if relative == shipped then
+    return relative
   end
   if relative == "o" or relative:sub(1, 2) == "o/" then
     return nil
@@ -369,6 +378,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       end
     elseif kind == "o" or kind == "s" or kind == "d" then
       local relative = under_root(root, observation.path, resolutions)
+      if relative == shipped and kind ~= "o" then relative = nil end
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
         seen[identified] = true

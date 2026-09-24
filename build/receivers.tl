@@ -1,6 +1,6 @@
 --- Uses of a record's own fields, found through the type the checker
 --- gave the value they are read from: `w:add_file(...)` or `w.add_file`
---- where `w` is a `Zip.ZipWriter` is a use of `ZipWriter.add_file` in
+--- where `w` is a `Zip.Writer` is a use of `Writer.add_file` in
 --- `cosmic.zip`, whatever `w` is called and however it was made.
 ---
 --- `build.positions.references_of` answers the other half from syntax
@@ -18,7 +18,7 @@
 --- them the way tl's own reporter does. A
 --- receiver resolves to a symbol only when its record is one some
 --- module's type declares, nested under the module's own record
---- (`Zip.ZipWriter`, `Stream.Reader`): a record a file keeps to
+--- (`Zip.Writer`, `Stream.Reader`): a record a file keeps to
 --- itself has no row in `docs` to be a use of, and the module's own
 --- record is the syntactic half's to answer.
 
@@ -27,7 +27,7 @@ local type compiler = require("build.compiler")
 
 local record receivers
   --- One use of a record's field: `member` is the field's canonical
-  --- path within `module` (`"ZipWriter.add_file"`), the same shape
+  --- path within `module` (`"Writer.add_file"`), the same shape
   --- `build.positions.Reference` gives a module member.
   record Reference
     module: string

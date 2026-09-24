@@ -14,7 +14,7 @@ local record compiler
   -- (Node) and build.receivers (Type) declare, moved here, so the casts
   -- build/contracts.tl's casts table lets build.ast.node,
   -- build.receivers and build.contracts (the module's own answer, for
-  -- rules 8 and 9) make at this boundary go, and build.importer's `is`
+  -- rules 10 and 11) make at this boundary go, and build.importer's `is`
   -- check of the tree; the records would first have to stop requiring
   -- this declaration themselves.
   record Result

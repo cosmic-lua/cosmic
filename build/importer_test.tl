@@ -892,7 +892,7 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
---- `build.contracts` holds a module's exports to rule 8 as it compiles,
+--- `build.contracts` holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
