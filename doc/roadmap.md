@@ -88,6 +88,17 @@ promises lean on come first:
   added to the record and not to the spec is never set. Have `cosmic fix`
   compare a `Shape.record` literal with the record its `into` flows into, and
   hold the tree to it; generating a spec from the record is the alternative.
+- read clang's JSON syntax tree in `build/c/tree.tl`. It reads the text form
+  of `-Xclang -ast-dump`, and `rules.tl` digs about sixteen facts out of a
+  node's text line (an operator, a cast's kind, a type, `static`, a literal's
+  value). `-ast-dump=json` names each of those as a field, and clang keeps it
+  stable where the text is meant for people. Read it with `cosmic.json` and
+  give each node a `Shape.record`, the first real caller of both. Measured on
+  `core/json.c`: 76 MB of JSON against 3.9 MB of text, 0.27 s to emit
+  against 0.22 s, and 0.4 s for `Json.decode` to read it. A `loc` in the JSON
+  form also names its file only when it changes, so the running position
+  `tree.tl` keeps is still needed, and the system headers are still most of
+  the dump.
 - the lint design.md's teal section plans: refuse `v is R` for a record `R`
   on an `any`, which compiles to a table check, and point at `cosmic.shape`.
 - record `shape`'s decisions in design.md: the answer is a copy, a null

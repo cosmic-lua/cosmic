@@ -31,10 +31,11 @@
 --- (see `own`): a translation unit's system and vendored headers are most
 --- of its dump and none of them is checked here.
 ---
---- TODO: read `-Xclang -ast-dump=json` instead once cosmic carries a JSON
---- decoder. The JSON form names every field rather than leaving it to
---- this module to read a line's text, and clang keeps it stable where the
---- text form is only meant for people to read.
+--- TODO: read `-Xclang -ast-dump=json` through `cosmic.json` and
+--- `cosmic.shape` instead (see doc/roadmap.md). The JSON form names every
+--- field rather than leaving it to this module to read a line's text, and
+--- clang keeps it stable where the text form is only meant for people to
+--- read.
 
 local record tree
   --- One node of the dump.
