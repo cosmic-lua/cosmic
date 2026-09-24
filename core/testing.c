@@ -9,7 +9,9 @@
 
 #include "lauxlib.h"
 
-/* The instruments core/testing_checked.c registers. */
+/* The instruments core/testing_checked.c registers, by name: edit the
+ * two lists together. core/declarations_test.tl fails the run of
+ * whichever core misses one cosmic/internal/testing.d.tl declares. */
 static const char *const instruments[] = {
   "fail_allocations", "allow_allocations", "open_statements",
   "c_heap",           "fail_at",           "live_transfers",

@@ -9,10 +9,11 @@
 --- the other's run; a checked-only instrument is registered by every
 --- core instead, raising outside the checked one (core/testing.c).
 
--- TODO: hold each function's result count, and the records the C
--- builds as tables (store.Core, debug.Function), to their declarations
--- too; this compares names and whether each is a function, nothing of a
--- function's signature.
+-- TODO: hold each function's result count, the records the C builds
+-- as tables (store.Core, debug.Function), and json.null's metatable to
+-- their declarations too; this compares names and whether each is a
+-- function, nothing of a function's signature, and never looks inside
+-- a declared value such as json.null.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -24,7 +25,7 @@ local testing = require("cosmic.internal.testing")
 local built = assert(teal.load())
 
 local type Searcher = function(string): any, any
-local type Call = function(...: any): any, any
+local type Call = function(...: any): any...
 
 --- A value of the core's, read by name.
 local function members(value: any): {string: any}
@@ -34,7 +35,7 @@ local function members(value: any): {string: any}
 end
 
 --- Calls a function of the core's, whatever its declared signature.
-local function call(f: any, ...: any): any, any
+local function call(f: any, ...: any): any...
   assert(type(f) == "function", "not a function: " .. type(f))
   return (f as Call)(...) -- cast: checked above to be callable
 end
@@ -134,11 +135,32 @@ local function disagreements(module: string, source: string, raw: any,
       problems[#problems + 1] = where .. " is userdata this test makes none of"
     else
       local mt = members(getmetatable(instance))
-      local methods = mt.__index
-      compare(where .. ":", nested.fields, methods ~= nil and members(methods) or {}, problems)
+      local index = mt.__index
+      local methods: {string: any} = {}
       local metamethods: {string: any} = {}
-      for key, value in pairs(mt) do
-        if not undeclared_metamethods[key] then metamethods[key] = value end
+      if index == mt then
+        -- One table for both, as `mt.__index = mt` makes it: a name
+        -- with a leading `__` is a metamethod, any other a method.
+        for key, value in pairs(mt) do
+          if key:sub(1, 2) ~= "__" then
+            methods[key] = value
+          elseif not undeclared_metamethods[key] then
+            metamethods[key] = value
+          end
+        end
+      else
+        if type(index) == "function" then
+          problems[#problems + 1] = where .. "'s __index is a function, whose methods " ..
+            "this test cannot list"
+        elseif index ~= nil then
+          methods = members(index)
+        end
+        for key, value in pairs(mt) do
+          if not undeclared_metamethods[key] then metamethods[key] = value end
+        end
+      end
+      if type(index) ~= "function" then
+        compare(where .. ":", nested.fields, methods, problems)
       end
       compare(where .. ".", nested.metamethods, metamethods, problems)
     end
@@ -198,9 +220,10 @@ local makers: {string: function(raw: {string: any}): Made} = {
   end,
 }
 
---- Every wrapper the store hands a raw module to (core/store.c's
---- `raw_modules`), and the name of the raw module's declaration. The
---- preloaded ones have no wrapper.
+--- Every wrapper the store hands a raw module to, and the name of the
+--- raw module's declaration. The preloaded ones have no wrapper. Edit
+--- it together with core/store.c's `raw_modules`, which it repeats:
+--- `test_every_raw_module_has_a_declaration` fails when the two part.
 local wrappers <const>: {string: string} = {
   ["build.artifact"] = "store",
   ["build.fuzz"] = "budget",
@@ -280,6 +303,27 @@ local function test_every_raw_module_has_a_declaration()
   end
 end
 
+--- Every raw module the core preloads, but the syscall table, which
+--- core/syscalls.h declares (build/gen_syscalls.tl), has a declaration
+--- here, so a preloaded module cannot go undeclared.
+local function test_every_preloaded_raw_module_has_a_declaration()
+  local found = 0
+  for key in pairs(package.preload) do
+    local name = key:match("^cosmic%.internal%.(.+)$")
+    if name ~= nil then
+      found = found + 1
+      assert(preloaded[name], key .. " is preloaded but this test does not reach it")
+      assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl"),
+        key .. " is preloaded but cosmic/internal/" .. name .. ".d.tl does not declare it")
+    end
+  end
+  for name in pairs(preloaded) do
+    assert(package.preload["cosmic.internal." .. name] ~= nil,
+      "cosmic.internal." .. name .. " is not preloaded")
+  end
+  assert(found > 0, "no cosmic.internal module is preloaded")
+end
+
 local declaration <const> = [[
 local record m
   record Thing
@@ -341,6 +385,32 @@ local function test_a_missing_method_or_metamethod_is_named()
   assert(#problems == 2, table.concat(problems, "\n"))
   assert(problems[1] == "m.Thing.__close is declared but not registered", problems[1])
   assert(problems[2] == "m.Thing:poke is declared but not registered", problems[2])
+end
+
+local function test_a_metatable_that_is_its_own_index_is_split_by_name()
+  local mt: {string: any} = { __name = "thing", __close = nothing, poke = nothing }
+  mt.__index = mt
+  local stand_in: any = {}
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" },
+    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
+  assert(#problems == 0, table.concat(problems, "\n"))
+  mt.poke = nil
+  mt.prod = nothing
+  problems = disagreements("m", declaration, { open = nothing, version = "1" },
+    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
+  assert(#problems == 2, table.concat(problems, "\n"))
+  assert(problems[1] == "m.Thing:poke is declared but not registered", problems[1])
+  assert(problems[2] == "m.Thing:prod is registered but not declared", problems[2])
+end
+
+local function test_a_function_index_is_named_rather_than_listed()
+  local mt: {string: any} = { __index = function(): any return nil end, __close = nothing }
+  local stand_in: any = {}
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" },
+    { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata
+  assert(#problems == 1 and problems[1] ==
+    "m.Thing's __index is a function, whose methods this test cannot list",
+    table.concat(problems, "\n"))
 end
 
 local function test_userdata_the_test_makes_none_of_is_named()
