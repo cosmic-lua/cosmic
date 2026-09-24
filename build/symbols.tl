@@ -54,6 +54,11 @@ end
 --- its last name alone, `?1` may spell it from the module's record
 --- down (`Fs.exists`, `Zip.ZipWriter.add_file`): one name more, and
 --- only one, so `Stream.Writer.write` is not a use of every `write`.
+-- TODO: the one name past the path is not checked against the module's
+-- own record, which no table keeps, so `Writer.write` is also a use of
+-- every bare `write` (`Fs.write`'s among them). Keep each module's
+-- record name (`Fs`, `Stream`) where `build.positions` canonicalizes a
+-- symbol, and match that name here rather than any single name.
 function symbols.used_where(alias: string): string
   local symbol = alias .. ".symbol"
   local record = "substr(?1, 1, length(?1) - length(" .. symbol .. ") - 1)"
