@@ -75,6 +75,7 @@ local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
 local log = require("build.verdict").log
+local bind = require("build.bind")
 
 local record test
   --- What the last run recorded about one test: what it read, which
@@ -140,9 +141,7 @@ function test.matches(selector: string, path: string, file: string): boolean
   return Fs.within(file, selector)
 end
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
@@ -509,11 +508,7 @@ local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
   if not ok then
     return false, trouble
   end
-  local state, failure = statement:step()
-  if state == nil then
-    return false, failure
-  end
-  return statement:reset()
+  return bind.once(statement)
 end
 
 --- How many rows one multi-row INSERT carries before it steps. Modest
