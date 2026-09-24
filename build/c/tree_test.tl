@@ -50,3 +50,18 @@ local function test_a_macro_expansion_is_placed_where_it_was_used()
   local file, line = tree.place(child)
   assert(file == "core/a.c" and line == 3)
 end
+
+--- A function whose type begins with a system header's macro, `bool`,
+--- begins in that header; it is still this tree's own, placed at its
+--- name.
+local function test_a_declaration_beginning_in_a_macro_is_placed_at_its_name()
+  local decls = tree.parse(table.concat({
+    "TranslationUnitDecl 0x1 <<invalid sloc>> <invalid sloc>",
+    "|-FunctionDecl 0x2 <core/a.c:2:1, col:9> col:5 g 'int (void)'",
+    "`-FunctionDecl 0x3 </usr/lib/include/stdbool.h:24:14, core/a.c:9:1> " ..
+      "line:5:6 f 'bool (void)'",
+  }, "\n"))
+  assert(#decls == 2, "kept " .. #decls)
+  assert(decls[2].file == "core/a.c" and decls[2].line == 5 and decls[2].col == 6,
+    tostring(decls[2].file) .. ":" .. tostring(decls[2].line))
+end

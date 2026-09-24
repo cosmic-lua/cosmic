@@ -87,3 +87,27 @@ local function test_each_declaration_names_its_header_line()
     assert(source:find("\n" .. want .. "\n", 1, true), want .. " missing from:\n" .. source)
   end
 end
+
+--- A header declaring one fallible call whose first return is `first`.
+local function fallible(first: string): string
+  return lines({
+    "/*",
+    " * --- Does a thing.",
+    " * ---@return " .. first .. " ok what it made, or the failure's lead",
+    " * ---@return string error what went wrong",
+    " * ---@return integer errno the error number",
+    " */",
+    "COSMIC_SYSCALL(thing, 0);",
+  })
+end
+
+--- A fallible call is an effect, failing with false, or a value,
+--- failing with nil: `boolean|nil` says it is both.
+local function test_a_fallible_call_is_an_effect_or_a_value()
+  local _, trouble = gen_syscalls.read(fallible("boolean|nil"))
+  assert(trouble ~= nil and trouble:find("never boolean|nil", 1, true), trouble)
+  local _, bare = gen_syscalls.read(fallible("string"))
+  assert(bare ~= nil and bare:find("fails with nil", 1, true), bare)
+  assert(gen_syscalls.read(fallible("boolean")) ~= nil)
+  assert(gen_syscalls.read(fallible("string|nil")) ~= nil)
+end

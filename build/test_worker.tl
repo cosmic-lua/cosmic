@@ -220,15 +220,14 @@ function worker.run(argv: {integer:string}): integer
     else
       local test_session, _ = Coverage.start()
       local started = Time.monotonic_ns()
-      local passed, message, test_reads = observations.call(
-        fn as function(any...): (any...), tmp)
+      local run = observations.call(fn as function(any...): (any...), tmp)
       local finished = Time.monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)
         report.test_hits = hits
       end
-      report.passed, report.message = passed, message
-      report.test_reads = test_reads
+      report.passed, report.message = run.passed, run.message
+      report.test_reads = run.reads
       report.elapsed_ns = finished - started
     end
   end

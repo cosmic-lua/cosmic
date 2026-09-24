@@ -11,6 +11,8 @@ local built = teal.lazy()
 --- as it is, with a fallible value `get`, a fallible effect `put`, and
 --- two calls that are not fallible in front of it.
 local function problems_in(source: string): {string}
+  -- A case may require the real `cosmic.sys`.
+  teal.serve_standard(built)
   local env = assert(built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   }))
@@ -53,7 +55,8 @@ local function problems_in(source: string): {string}
   assert(code ~= nil and #result.type_errors == 0 and #result.syntax_errors == 0,
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
   local checked = result.ast as ast.Node -- cast: tl's checked AST
-  return contracts.check("x.tl", checked, state, contracts.quiet_records(env))
+  return contracts.check("x.tl", checked, state, contracts.quiet_records(env),
+    receivers.record_named(env, "cosmic.sys", ""))
 end
 
 local function flags(source: string, wanted: string)
@@ -127,7 +130,7 @@ local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
   -- The reason would land in an optional parameter.
   flags("maybe(get())", dropped)
   -- A binding's errno, in a third result, lands in a third parameter.
-  allows("local function triple(): integer | nil, string, integer return nil, 'no', 2 end\n" ..
+  allows("local triple: function(): integer | nil, string, integer\n" ..
     "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())")
   allows("log:note(get())")
   allows("log.note(log, get())")
@@ -223,4 +226,69 @@ local function test_a_record_named_like_a_quiet_one_is_not_quiet()
     "  return true, '' end }",
     "logger:say('hello')",
   }, "\n"), "its failure is ignored")
+end
+
+--- Rule 5: two slots, and nothing in a third.
+local function test_a_fallible_function_declares_exactly_two_results()
+  local third = "nothing in a third"
+  flags("local function f(): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(f)", third)
+  flags("local function f(): boolean, string, integer\n" ..
+    "  return false, 'no', 2\nend\nuse(f)", third)
+  -- A third slot beside a failure is refused whatever it holds.
+  flags("local function f(): boolean, string, {string}\n" ..
+    "  return true, '', {}\nend\nuse(f)", third)
+  flags("local t = {}\nt.f = function(): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(t)", third)
+  -- A variadic tail is as many slots as a caller binds.
+  flags("local function f(): integer | nil, string...\n" ..
+    "  return nil, 'no', 'more'\nend\nuse(f)", third)
+  -- A record's function and a method are held the same.
+  flags("local record R end\nfunction R.f(): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(R)", third)
+  flags("local record R end\nfunction R:f(): boolean, string, integer\n" ..
+    "  use(self)\n  return false, 'no', 2\nend\nuse(R)", third)
+  -- `any` admits nil, so it is a value that can fail.
+  flags("local function f(): any, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(f)", third)
+  allows("local function f(): integer | nil, string\n  return get()\nend\nuse(f)")
+  -- Three results that are not a failure's are no failure's shape.
+  allows("local function f(): integer, integer, string\n" ..
+    "  return 1, 2, 'x'\nend\nuse(f)")
+end
+
+--- A function stored into a field of `cosmic.sys` stands in for a
+--- binding and keeps the binding's `nil, error, errno`.
+local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
+  local sys = "local sys = require('cosmic.sys')\n"
+  local stat = "local stat = sys.stat\n"
+  allows(sys .. stat .. "sys.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
+    "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend")
+  -- A stand-in is still held to the rules its binding keeps: a
+  -- failure of its own answers nil beside the reason.
+  flags(sys .. "local mkdir = sys.mkdir\n" ..
+    "sys.mkdir = function(path: string, mode?: integer): boolean, string, integer\n" ..
+    "  if path == '' then return true, 'empty' end\n  return mkdir(path, mode)\nend",
+    "beside its reason")
+  -- A local named `sys` that is another table is no stand-in's owner.
+  flags("local real = require('cosmic.sys')\n" ..
+    "local record Other\n  stat: function(string): integer | nil, string, integer\nend\n" ..
+    "local sys: Other = {}\n" ..
+    "sys.stat = function(_: string): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(real)", "nothing in a third")
+  -- Only an answer handed on as the names it was bound to keeps its
+  -- errno; a value made up beside a reason is still refused.
+  flags(sys .. "sys.mkdtemp = function(_: string): string | nil, string, integer\n" ..
+    "  return 'v', 'oops', 1\nend", "beside its reason")
+  -- The same function stored anywhere else is held to the rules.
+  flags(sys .. stat .. "local t = {}\n" ..
+    "t.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
+    "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend\nuse(t)",
+    "nothing in a third")
+  -- A caller that needs the errno reads it from the binding itself.
+  allows(sys .. "local function missing(path: string): boolean | nil, string\n" ..
+    "  local st, trouble, errno = sys.stat(path)\n" ..
+    "  if st ~= nil then return false, '' end\n" ..
+    "  if errno == sys.ENOENT then return true, '' end\n" ..
+    "  return nil, trouble\nend\nuse(missing)")
 end

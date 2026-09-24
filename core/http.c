@@ -726,8 +726,7 @@ static int handle_sent (lua_State *L) {
 static int handle_close (lua_State *L) {
   struct transfer *t = luaL_checkudata(L, 1, HANDLE_TYPE);
   transfer_release(t);
-  lua_pushboolean(L, 1);
-  return 1;
+  return 0;
 }
 
 /* Both __gc and __close: a handle closed either way, even one a

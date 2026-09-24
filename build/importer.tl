@@ -1087,7 +1087,8 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   env.modules[m.path] = result.type
   if own_tree and contracts.applies(m.kind, m.generated) then
     local checked = result.ast as ast.Node -- cast: tl's checked AST
-    local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env))
+    local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
+      receivers.record_named(env, "cosmic.sys", ""))
     if #problems > 0 then
       return nil, table.concat(problems, "\n")
     end
