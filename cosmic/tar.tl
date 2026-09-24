@@ -291,7 +291,7 @@ local record Buffered is Stream.Reader
 end
 
 local Buffered_methods: {string:any} = {}
-local buffered_mt: metatable<Buffered> = { __index = Buffered_methods as Buffered }
+local buffered_mt: metatable<Buffered> = { __index = Buffered_methods }
 
 Buffered_methods.read = function(self: Buffered, max: integer): string | nil, string
   local buf, at = self.buf, self.at
@@ -326,7 +326,7 @@ Buffered_methods.close = function(self: Buffered): boolean, string
 end
 
 local function buffered(raw: Stream.Reader): Buffered
-  return setmetatable({ raw = raw, buf = "", at = 1 } as Buffered, buffered_mt)
+  return setmetatable({ raw = raw, buf = "", at = 1 }, buffered_mt)
 end
 
 --- What a reader shares with the bodies it hands out: an entry's body
@@ -355,7 +355,7 @@ local record Body is Stream.Reader
 end
 
 local Body_methods: {string:any} = {}
-local body_mt: metatable<Body> = { __index = Body_methods as Body }
+local body_mt: metatable<Body> = { __index = Body_methods }
 
 Body_methods.read = function(self: Body, max: integer): string | nil, string
   if self.failed then return nil, self.failed end
@@ -413,10 +413,10 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
         state.opened = true
         local body: Body = setmetatable({
           state = state, generation = state.generation, left = state.size, closed = false,
-        } as Body, body_mt)
+        }, body_mt)
         return body, ""
       end,
-    } as Tar.Entry,
+    },
   }
 
   tr.next = function(_self: Tar.TarReader): Tar.Entry | nil, string

@@ -141,6 +141,7 @@ function embed.database(project: string, main: string): string | nil, string
   if runtime_basis == nil or runtime_basis == "" then
     return nil, "the running binary names no runtime basis"
   end
+  local basis: string = runtime_basis
   local building = project .. ".embed"
   local _, _ = Fs.remove(building)
   local _, _ = Fs.remove(building .. ".vacuumed")
@@ -222,7 +223,7 @@ function embed.database(project: string, main: string): string | nil, string
     end
     local meta: {{string}} = {
       { "compiler", Store.meta("compiler") or "" },
-      { "runtime_basis", runtime_basis as string },
+      { "runtime_basis", basis },
       { "main", main },
     }
     for _, pair in ipairs(meta) do

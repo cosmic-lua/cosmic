@@ -402,3 +402,34 @@ local function test_a_parsing_exempt_function_is_not_held_to_rule_6()
   contracts.parsing["x.tl:f"] = nil
   assert(#found == 0, table.concat(found, "\n"))
 end
+
+local cast = "a cast tells the checker what it could not prove"
+
+--- Rule 7: a cast is flagged wherever it stands, named by the function
+--- it stands in, or as the top level.
+local function test_a_cast_is_flagged()
+  flags("local function f(v: any): integer return v as integer end\nuse(f)", "f: " .. cast)
+  flags("local t: {any} = {}\nuse(t[1] as string)", "the top level: " .. cast)
+  flags("local f = function(v: any): integer return v as integer end\nuse(f)", "f: " .. cast)
+  flags("local r: {string: function(any): integer} = {}\n" ..
+    "r.g = function(v: any): integer return v as integer end", "r.g: " .. cast)
+end
+
+--- A narrowing is no cast.
+local function test_a_narrowing_is_not_a_cast()
+  allows("local t: {any} = {}\nlocal v = t[1]\nif v is string then use(v) end")
+end
+
+--- A function `contracts.casts` names may cast; one it does not may not,
+--- even beside it.
+local function test_a_cast_exempt_function_may_cast()
+  local source = "local function f(v: any): integer return v as integer end\n" ..
+    "local g = function(v: any): string return v as string end\nuse(f, g)"
+  contracts.casts["x.tl:f"] = "a test's own exemption"
+  local one = problems_in(source)
+  contracts.casts["x.tl:g"] = "a test's own exemption"
+  local none = problems_in(source)
+  contracts.casts["x.tl:f"], contracts.casts["x.tl:g"] = nil, nil
+  assert(#one == 1 and one[1]:find("g: " .. cast, 1, true) ~= nil, table.concat(one, "\n"))
+  assert(#none == 0, table.concat(none, "\n"))
+end

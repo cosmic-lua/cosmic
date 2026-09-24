@@ -137,7 +137,8 @@ function lines.executable_cached(db: Sqlite.Handle, built: compiler,
   if #cached > 0 then
     local out: {integer: boolean} = {}
     for piece in cached[1][1]:gmatch("%d+") do
-      out[math.tointeger(tonumber(piece)) as integer] = true
+      local line = math.tointeger(tonumber(piece))
+      if line ~= nil then out[line] = true end
     end
     return out, ""
   end

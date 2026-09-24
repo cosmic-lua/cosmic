@@ -1085,15 +1085,15 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
+  local checked = result.ast as ast.Node -- cast: tl's checked AST
   if own_tree and contracts.applies(m.kind, m.generated) then
-    local checked = result.ast as ast.Node -- cast: tl's checked AST
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
       receivers.record_named(env, "cosmic.sys", ""))
     if #problems > 0 then
       return nil, table.concat(problems, "\n")
     end
   end
-  local references = receivers.references(typed, env, result.ast)
+  local references = receivers.references(typed, env, checked)
   if m.kind == "test" then
     code = with_test_tail(code, m.tests)
   end

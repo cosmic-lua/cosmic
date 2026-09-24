@@ -614,7 +614,7 @@ local function expression(ctx: Context, node: Node, state: State)
         end
         if id ~= nil then
           local _, line = tree.place(n)
-          state.held[id] = { name = var or "a resource", from = name as string, line = line or 0 }
+          state.held[id] = { name = var or "a resource", from = name, line = line or 0 }
         end
       end
     elseif n.kind == "DeclRefExpr" then
@@ -760,7 +760,7 @@ statement = function(ctx: Context, node: Node, state: State): boolean
       expression(ctx, child, state)
       after(child, function(n: Node)
         local id = n.kind == "DeclRefExpr" and referenced(n)
-        if id then state.held[id as string] = nil end
+        if id then state.held[id] = nil end
       end)
     end
     return true
@@ -854,7 +854,7 @@ local function releasing(fns: {Function}): {string: {integer: boolean}}
     for i, param in ipairs(fn.params) do index[param.id] = i end
     after(fn.body, function(n: Node)
       local name = n.kind == "CallExpr" and tree.callee(n)
-      if name and releases[name as string] then
+      if name and releases[name] then
         for _, argument in ipairs(arguments(n)) do
           local i = index[referenced(argument) or ""]
           if i ~= nil then

@@ -176,17 +176,19 @@ local function rest_capture_name(node: any): string | nil
   if not (node is {any: any}) then
     return nil
   end
-  if node["kind"] == "variable" and is_rest_capture(node["tk"]) then
-    return node["tk"] as string -- cast: narrowed to string by is_rest_capture's own check
+  local tk = node["tk"]
+  if node["kind"] == "variable" and tk is string and is_rest_capture(tk) then
+    return tk
   end
   if node["kind"] == "op" then
     local op = node["op"]
     local e1 = node["e1"]
+    local args = node["e2"]
+    local name = e1 is {any: any} and e1["tk"] or nil
     if op is {any: any} and e1 is {any: any} and op["op"] == "@funcall"
-    and e1["kind"] == "variable" and is_rest_capture(e1["tk"])
-    -- cast: generic view of a call's args node
-    and #arr(node["e2"] as {any: any}) == 0 then
-      return e1["tk"] as string -- cast: narrowed to string by is_rest_capture's own check
+    and e1["kind"] == "variable" and name is string and is_rest_capture(name)
+    and args is {any: any} and #arr(args) == 0 then
+      return name
     end
   end
   return nil
@@ -294,19 +296,19 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
     if not (nv is {any: any}) then
       return false
     end
-    -- cast: capture leaf is a node from the compiled pattern's own tree
-    local pnode = pv as Node
-    local pred = capture_predicates[pnode]
+    local pred = capture_predicates[pv]
     local nv_tk = nv["tk"]
     if pred and not (nv_tk is string and nv_tk:match(pred) ~= nil) then
       return false
     end
-    local name = pv["tk"] as string -- cast: narrowed to string by is_capture's own check
+    local name = pv["tk"]
+    if not (name is string) then
+      return false
+    end
     local prev = caps[name]
     if prev then
       -- linear pattern: a repeated $X must bind the same subtree twice
-      local pt = prev as {any: any} -- cast: generic ast node view of a prior binding
-      return pt["kind"] == nv["kind"] and pt["tk"] == nv["tk"]
+      return prev.kind == nv["kind"] and prev.tk == nv["tk"]
     end
     caps[name] = nv as Node -- cast: a matched candidate node is a real Node
     return true
@@ -342,8 +344,7 @@ match_value = function(pv: any, nv: any, caps: {string: Node},
     -- A record's fields map can also contain `typeid`, whose TYPE value
     -- is source-authored and must still be compared recursively.
     local is_typeid = k == "typeid" and sub_pv is integer and typename is string
-    -- cast: non-integer key is a field name
-    if not (k is integer) and not IGNORE_KEYS[k as string] and not is_typeid then
+    if k is string and not IGNORE_KEYS[k] and not is_typeid then
       if not match_value(sub_pv, nv[k], caps, seen) then
         return false
       end

@@ -266,7 +266,7 @@ end
 --- module in `env` declares, as that record's field; an assignment's
 --- own target is a definition, not a use. In source order, once each.
 function receivers.references(state: receivers.State, env: compiler.Env,
-                              node: any): {receivers.Reference}
+                              node: ast.Node | nil): {receivers.Reference}
   for name, t in pairs(env.modules) do
     if not state.walked[name] then
       state.walked[name] = true
@@ -291,29 +291,13 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     state.types = {}
     return out
   end
+  local back_up: {string: boolean} = {
+    if_parent = true, fn_owner = true, expected = true, known = true,
+  }
   local targets: {ast.Node: boolean} = {}
   local seen: {string: boolean} = {}
   local visited: {ast.Node: boolean} = {}
   local visit: function(n: ast.Node)
-
-  -- Every node below `value` when it is a node or a bare array of
-  -- them; a checker's type or fact carries no `kind` and is passed by.
-  local function descend(value: {any: any})
-    local kind = value["kind"]
-    if kind is string then
-      visit(value as ast.Node) -- cast: a node of tl's checked AST
-      return
-    end
-    for _, child in ipairs(value as {any}) do -- cast: a bare array of nodes
-      if child is {any: any} then
-        local map = child as {any: any} -- cast: an element of that array
-        local child_kind = map["kind"]
-        if child_kind is string then
-          visit(child as ast.Node) -- cast: a node of tl's checked AST
-        end
-      end
-    end
-  end
 
   local function consider(n: ast.Node)
     if n.kind == "assignment" and n.vars ~= nil then
@@ -366,15 +350,12 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     end
     visited[n] = true
     consider(n)
-    for key, value in pairs(n as {any: any}) do -- cast: every field of the node
-      if value is {any: any} and key ~= "if_parent" and key ~= "fn_owner"
-         and key ~= "expected" and key ~= "known" then
-        descend(value as {any: any}) -- cast: narrowed just above
-      end
+    for _, child in ipairs(ast.children(n, back_up)) do
+      visit(child)
     end
   end
 
-  visit(node as ast.Node) -- cast: tl's checked AST
+  visit(node)
   table.sort(out, function(p: receivers.Reference, q: receivers.Reference): boolean
     if p.line ~= q.line then
       return p.line < q.line

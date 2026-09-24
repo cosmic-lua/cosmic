@@ -442,8 +442,11 @@ end
 --- and every one required, when it does not (`cosmic.sys`).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
-  local rows, _ = Sqlite.text_rows(db, sql, { { text = query } })
-  if rows == nil then
+  local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
+  local rows: {{string}} = {}
+  if first ~= nil then
+    rows = first
+  else
     local words = quoted_words(query)
     if words == "" then
       return {}
@@ -455,8 +458,9 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
     rows = retried
   end
   local out: {integer:integer} = {}
-  for index, row in ipairs(rows as {{string}}) do
-    out[math.tointeger(tonumber(row[1])) as integer] = index
+  for index, row in ipairs(rows) do
+    local id = math.tointeger(tonumber(row[1]))
+    if id ~= nil then out[id] = index end
   end
   return out
 end

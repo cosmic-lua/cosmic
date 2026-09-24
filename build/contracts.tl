@@ -53,6 +53,14 @@
 ---    deadline passed), a count or a field the caller reads, or a
 ---    structured record standing where the value would. A reason
 ---    reached any other way (`select(2, f())`) drops the slot, rule 1.
+--- 7. No escape hatch in the type layer, doc/design.md's fourth
+---    principle: a cast (`e as T`) tells the checker what it could not
+---    prove, so none is written but in a function `contracts.casts`
+---    names, with the reason no declaration, narrowing (`if e is T`), or
+---    typed helper can stand in its place. A function literal bound at
+---    the top level (`f = function`) is named for what it is bound to;
+---    a cast outside any named function counts as the module's top
+---    level, `"file:"`.
 ---
 --- The callee's type is the one the checker stored at the callee's own
 --- position (`build.receivers` installs the reporter that keeps it). A
@@ -60,8 +68,9 @@
 --- 5 read a function's declared results.
 ---
 --- `contracts.exempt` names the functions rules 2 to 5 cannot yet hold,
---- and `contracts.parsing` the functions rule 6 cannot, each with its
---- reason; the TODO for each is where its fix goes.
+--- `contracts.parsing` the functions rule 6 cannot, and `contracts.casts`
+--- the functions rule 7 lets cast, each with its reason; the TODO for
+--- each is where its fix goes.
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
@@ -76,6 +85,9 @@ local record contracts
   --- `"file:function"` to the reason rule 6 does not hold it: the
   --- innermost named function the read stands in.
   parsing: {string: string}
+  --- `"file:function"` to the reason rule 7 lets it cast: the innermost
+  --- named function the cast stands in.
+  casts: {string: string}
   --- Methods of one record whose failure a statement may ignore.
   record Quiet
     reason: string
@@ -97,6 +109,95 @@ contracts.parsing = {
   ["build/zig.tl:attempt"] =
     "bin/zig runs on the release ci/cosmic-driver.pin names, whose " ..
     "Http.download names the URL in one failure's reason and no other",
+}
+
+contracts.casts = {
+  ["build/artifact.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["build/ast/match.tl:arr"] =
+    "tl's AST reached by reflection: a node's own array part, " ..
+    "whose elements' shape depends on their kind",
+  ["build/ast/match.tl:attach_predicates"] =
+    "a cast node's casttype is a parsed type no Node field names",
+  ["build/ast/match.tl:match_value"] =
+    "a pattern matched field by field, by reflection: a candidate " ..
+    "found under any field is bound as the Node it is",
+  ["build/ast/match.tl:rest_value"] =
+    "a rest-capture's value is a bare list built here, shaped as " ..
+    "tl's own lists are, from a marker reached by reflection",
+  ["build/ast/match_cast.tl:match"] =
+    "a candidate cast node, reached by reflection, bound as the Node it is",
+  ["build/ast/match_cast.tl:type_array"] =
+    "a parsed type's fields, which no Node field names, by reflection",
+  ["build/ast/match_cast.tl:type_view"] =
+    "a parsed type's fields, which no Node field names, by reflection",
+  ["build/ast/node.tl:parse"] =
+    "vendored tl hands its checked AST and type objects as any " ..
+    "(build/compiler.d.tl)",
+  ["build/ast/walk.tl:classify"] =
+    "the one place a table tl's parser built becomes a Node: once " ..
+    "its kind is seen to be a string",
+  ["build/ast/walk.tl:map_of"] =
+    "a node's fields read by reflection: which it has depends on its kind",
+  ["build/contracts.tl:check_function"] =
+    "build.ast declares tl's type objects as TypeNode and " ..
+    "build.receivers as Type: two declarations of one thing",
+  ["build/fuzz/init.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["build/importer.tl:generate"] =
+    "vendored tl hands its checked AST and type objects as any " ..
+    "(build/compiler.d.tl)",
+  ["build/receivers.tl:receivers.record_named"] =
+    "vendored tl hands its checked AST and type objects as any " ..
+    "(build/compiler.d.tl)",
+  ["build/receivers.tl:receivers.references"] =
+    "vendored tl hands its checked AST and type objects as any " ..
+    "(build/compiler.d.tl)",
+  ["build/receivers.tl:reporter_for"] =
+    "vendored tl hands its checked AST and type objects as any " ..
+    "(build/compiler.d.tl)",
+  ["build/teal.tl:real"] =
+    "the loaded compiler, indexed by whatever key the capsule is asked for",
+  ["build/teal.tl:teal.lazy"] =
+    "a capsule standing for the compiler until it loads",
+  ["build/teal.tl:teal.load"] =
+    "the one boundary where the vendored compiler's untyped chunk " ..
+    "becomes its declared surface (build/compiler.d.tl)",
+  ["cosmic/archive.tl:wrap_tar"] =
+    "Tar.Entry has every field Archive.Entry has, but the two are " ..
+    "unrelated records",
+  ["cosmic/archive.tl:wrap_zip"] =
+    "Zip.Entry has every field Archive.Entry has, but the two are " ..
+    "unrelated records",
+  ["cosmic/compress.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["cosmic/coverage.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["cosmic/hash.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["cosmic/http.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["cosmic/json.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["cosmic/shape.tl:Shape.into"] =
+    "the one cast from any, to the caller's annotation, of a value " ..
+    "walk has just built to the spec",
+  ["cosmic/sqlite.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
+  ["cosmic/sqlite.tl:bind"] =
+    "a caller's parameter table is checked for keys its " ..
+    "declaration does not name, which only a map view of it lists",
+  ["cosmic/store.tl:"] =
+    "the core hands this module its raw table as the chunk's second " ..
+    "argument (core/store.c raw_modules), which Teal types as any",
 }
 
 --- The methods whose failures a statement may ignore without saying
@@ -211,26 +312,7 @@ local skipped: {string: boolean} = {
 
 --- Calls `visit` on every child node of `n`.
 local function each_child(n: Node, visit: function(Node))
-  for key, value in pairs(n as {any: any}) do -- cast: every field of the node
-    local back = key is string and skipped[key] or false
-    if not back and value is {any: any} then
-      local map = value as {any: any} -- cast: narrowed just above
-      local kind = map["kind"]
-      if kind is string then
-        visit(map as Node) -- cast: a node of tl's AST
-      else
-        for _, child in ipairs(map as {any}) do -- cast: a bare array of nodes
-          if child is {any: any} then
-            local child_map = child as {any: any} -- cast: an element of that array
-            local child_kind = child_map["kind"]
-            if child_kind is string then
-              visit(child as Node) -- cast: a node of tl's AST
-            end
-          end
-        end
-      end
-    end
-  end
+  for _, child in ipairs(ast.children(n, skipped)) do visit(child) end
 end
 
 local function is_call(n: Node): boolean
@@ -246,7 +328,7 @@ end
 --- An expression list's, or a block's, own nodes.
 local function list_of(n: Node | nil): {Node}
   if n == nil then return {} end
-  return n as {Node} -- cast: an expression list's own array part
+  return n
 end
 
 --- How a callee or a function's owner reads in a message: `Fs.read`,
@@ -340,6 +422,8 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
   local rets = fn.rets
   local tuple = rets ~= nil and rets.tuple or nil
   if rets == nil or tuple == nil or #tuple < 2 then return end
+  -- TODO: read `tuple` uncast once build.ast.node's TypeNode and
+  -- build.receivers' Type are one declaration of tl's type objects.
   local declared = tuple as {Type} -- cast: a declared type is the checker's own type object
   local effect = typename(declared[1]) == "boolean"
   local value = admits_nil(declared[1])
@@ -729,6 +813,42 @@ local function check_inspections(file: string, root: Node, callees: {integer: Ty
   end
 end
 
+--- Rule 7: every cast in a function `contracts.casts` does not name. A
+--- function literal a top-level statement binds to a name (`match =
+--- function`, `sys.stat = function`) goes by that name; one inside a
+--- named function goes by that function's.
+local function check_casts(file: string, root: Node, problems: {string})
+  local bound: {Node: string} = {}
+  local seen: {Node: boolean} = {}
+  local function go(n: Node, within: string)
+    if seen[n] then return end
+    seen[n] = true
+    if is_function(n) and n.name ~= nil then
+      within = function_name(n)
+    elseif bound[n] ~= nil then
+      within = bound[n]
+    end
+    if within == "" and (n.kind == "assignment" or n.kind == "local_declaration") then
+      local exps = list_of(n.exps)
+      for i, var in ipairs(list_of(n.vars)) do
+        local value = exps[i]
+        if value ~= nil and value.kind == "function" then bound[value] = spelled(var) end
+      end
+    end
+    local op = n.op
+    if n.kind == "op" and op ~= nil and op.op == "as"
+        and contracts.casts[file .. ":" .. within] == nil then
+      problems[#problems + 1] = string.format(
+        "%s:%d: %s: a cast tells the checker what it could not prove; "
+          .. "tighten the declaration, narrow with `is`, or name the "
+          .. "function in contracts.casts with the reason",
+        file, n.y, within == "" and "the top level" or within)
+    end
+    each_child(n, function(child: Node) go(child, within) end)
+  end
+  go(root, "")
+end
+
 local function line_of(problem: string): integer
   return math.tointeger(tonumber(problem:match("^[^:]*:(%d+):"))) or 0
 end
@@ -782,6 +902,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
     end
   end)
   check_inspections(file, root, callees, problems)
+  check_casts(file, root, problems)
   table.sort(problems, function(a: string, b: string): boolean
     local la, lb = line_of(a), line_of(b)
     if la ~= lb then return la < lb end

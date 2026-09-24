@@ -732,6 +732,9 @@ end
 --- reassignment in any possibly-executed branch invalidates the outer alias.
 --- This is deliberately bounded: indirect aliases and unknown receiver types
 --- produce no edge rather than one guessed from spelling.
+--- The field that points back up the tree, never followed.
+local back_up: {string: boolean} = { if_parent = true }
+
 local function references_of(built: compiler, parsed: ast.Parsed): {positions.Reference}, string
   local aliases, trouble = aliases_of(built, parsed)
   if trouble ~= "" then
@@ -761,25 +764,8 @@ local function references_of(built: compiler, parsed: ast.Parsed): {positions.Re
         end
       end
     end
-    local raw = n as {any: any}
-    for key, value in pairs(raw) do
-      if key ~= "if_parent" and value is {any: any} then
-        local map = value as {any: any}
-        local kind = map["kind"]
-        if kind is string then
-          walk_expression(map as ast.Node)
-        else
-          for _, child in ipairs(map as {any}) do
-            if child is {any: any} then
-              local child_map = child as {any: any}
-              local child_kind = child_map["kind"]
-              if child_kind is string then
-                walk_expression(child as ast.Node)
-              end
-            end
-          end
-        end
-      end
+    for _, child in ipairs(ast.children(n, back_up)) do
+      walk_expression(child)
     end
   end
 

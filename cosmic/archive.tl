@@ -95,6 +95,11 @@ end
 --- the tar end is reached, whatever follows it is read through to the
 --- decompressor's own end, so its errors (a truncated stream, a bad
 --- checksum) surface instead of vanishing with the unread tail.
+-- TODO: declare the entry once, as an interface Tar.Entry and Zip.Entry
+-- are (`record Entry is ...`), with one Kind enum, so wrap_tar and
+-- wrap_zip hand an entry on uncast; it waits on a module both
+-- cosmic.tar and cosmic.zip require that can hold it, since
+-- cosmic.archive requires them both.
 local function wrap_tar(tr: Tar.TarReader, source: Stream.Reader | nil): Archive.ArchiveReader
   local finished = false
   local ar: Archive.ArchiveReader = {}
@@ -252,12 +257,13 @@ local function apply_strip(path: string, strip: string | integer | nil): string 
     if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
     return (rest:gsub("^/+", ""))
   end
-  local n = strip as integer
   local rest = path
-  for _ = 1, n do
-    local slash = rest:find("/", 1, true)
-    if slash == nil then return nil end
-    rest = rest:sub(slash + 1)
+  if strip is integer then
+    for _ = 1, strip do
+      local slash = rest:find("/", 1, true)
+      if slash == nil then return nil end
+      rest = rest:sub(slash + 1)
+    end
   end
   return rest
 end

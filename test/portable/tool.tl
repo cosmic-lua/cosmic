@@ -219,9 +219,10 @@ local function verify_ranges(path: string, from: fixture.Artifact,
     assert(from.bytes:sub(found.offset + 1, found.offset + found.length) == core,
       path .. ": manifest core range differs from raw core")
     local first, last = from.bytes:find(core, 1, true)
-    assert(first == found.offset + 1 and last == found.offset + found.length,
+    assert(first ~= nil and first == found.offset + 1
+      and last == found.offset + found.length,
       path .. ": raw core occurs outside its manifest range")
-    assert(from.bytes:find(core, (first as integer) + 1, true) == nil,
+    assert(from.bytes:find(core, first + 1, true) == nil,
       path .. ": raw core occurs more than once")
   end
 end

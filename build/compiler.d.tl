@@ -9,6 +9,12 @@ local record compiler
     msg: string
   end
 
+  -- TODO: declare `ast`, `type`, `Env.modules`, the reporter's
+  -- collector and `parse_program`'s answer as the records build.ast
+  -- (Node) and build.receivers (Type) declare, moved here, so the casts
+  -- contracts.casts lets build.importer, build.ast.node and
+  -- build.receivers make at this boundary go; the records would first
+  -- have to stop requiring this declaration themselves.
   record Result
     ast: any
     type: any

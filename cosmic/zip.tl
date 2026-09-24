@@ -260,7 +260,7 @@ local record Span is Stream.Reader
 end
 
 local Span_methods: {string:any} = {}
-local span_mt: metatable<Span> = { __index = Span_methods as Span }
+local span_mt: metatable<Span> = { __index = Span_methods }
 
 Span_methods.read = function(self: Span, max: integer): string | nil, string
   if self.failed then return nil, self.failed end
@@ -313,7 +313,7 @@ local record Checked is Stream.Reader
 end
 
 local Checked_methods: {string:any} = {}
-local checked_mt: metatable<Checked> = { __index = Checked_methods as Checked }
+local checked_mt: metatable<Checked> = { __index = Checked_methods }
 
 Checked_methods.read = function(self: Checked, max: integer): string | nil, string
   if self.failed then return nil, self.failed end
@@ -373,7 +373,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
   end
   local raw: Span = setmetatable({
     pread = pread, pos = e.offset + skip, left = csize, held = held,
-  } as Span, span_mt)
+  }, span_mt)
   local body: Stream.Reader
   local method = e.method
   if method == 0 then
@@ -387,7 +387,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader | nil, stri
   end
   local checked: Checked = setmetatable({
     inner = body, crc = e.crc32, size = e.size, seen = 0,
-  } as Checked, checked_mt)
+  }, checked_mt)
   return checked, ""
 end
 
@@ -494,7 +494,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
     mtime = dos_to_unix(mdate_dos, mtime_dos),
     linkpath = "",
     offset = local_offset,
-  } as Zip.Entry, mt)
+  }, mt)
   return entry, ""
 end
 
@@ -562,7 +562,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
       open = function(e: Zip.Entry): Stream.Reader | nil, string
         return open_entry(pread, e)
       end,
-    } as Zip.Entry,
+    },
   }
 
   -- One pass over the whole directory up front, keeping no entry, so

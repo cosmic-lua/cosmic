@@ -44,7 +44,7 @@ local type Node = node_mod.Node
 --- @param node Node
 --- @return {any} The same table, viewed as an array
 local function array_of(node: Node): {any}
-  return node as {any} -- cast: map view of a declared value
+  return node
 end
 
 --- `node`'s own table, viewed generically for `pairs` -- named fields
@@ -86,6 +86,40 @@ local function each_child(node: Node, consider: function(any))
       consider(v)
     end
   end
+end
+
+--- Every node `node` holds directly: a field that is a node, and each
+--- node of a field that is a bare array of them -- its array part's
+--- included. A field `skipped` names (one pointing back up the tree,
+--- such as `if_parent`) is passed by.
+--- @param node Node
+--- @param skipped? {string: boolean} Field names not followed
+--- @return {Node} The children, in no promised order
+local function children(node: Node, skipped?: {string: boolean}): {Node}
+  local out: {Node} = {}
+  for _, v in ipairs(array_of(node)) do
+    local child = classify(v)
+    if child then
+      out[#out + 1] = child
+    end
+  end
+  for k, v in pairs(map_of(node)) do
+    local passed = k is integer or (k is string and skipped ~= nil and skipped[k] == true)
+    if not passed then
+      local child, rest = classify(v)
+      if child then
+        out[#out + 1] = child
+      elseif rest then
+        for _, e in ipairs(rest) do
+          local grandchild = classify(e)
+          if grandchild then
+            out[#out + 1] = grandchild
+          end
+        end
+      end
+    end
+  end
+  return out
 end
 
 --- Walk `node`'s subtree in depth-first order, calling `visit` once on
@@ -257,12 +291,14 @@ end
 
 local record WalkModule
   walk: function(node: Node, visit: function(Node))
+  children: function(node: Node, skipped?: {string: boolean}): {Node}
   span_start: function(node: Node): integer, integer
   span_end: function(node: Node, tokens: {compiler.Token}): integer, integer
 end
 
 local M: WalkModule = {
   walk = walk,
+  children = children,
   span_start = span_start,
   span_end = span_end,
 }

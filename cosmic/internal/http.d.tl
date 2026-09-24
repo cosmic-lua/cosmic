@@ -30,7 +30,9 @@ local record http
     close: function(Handle)
   end
 
-  record Options
+  -- An interface, so `cosmic.http`'s own Options, which adds what only
+  -- Teal reads, is one of these.
+  interface Options
     method: string
     headers: {string:string}
     body: string
