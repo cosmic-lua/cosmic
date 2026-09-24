@@ -264,15 +264,20 @@ local function climbs(path: string): boolean
   return ("/" .. path .. "/"):find("/%.%./") ~= nil
 end
 
+--- The tree's shipped database, the one file of the build's output a
+--- test may read as an input: a whole-tree check (build/exports_test.tl)
+--- asks it what the build found, so its verdict must fall when a build
+--- rewrites it. Only an open of it is keyed, by its bytes' hash.
+local shipped <const> = "o/cosmic.db"
+
 --- A recorded read as a path under the root, or nil when it is not
 --- one: a test's own scratch directory, or anything else outside the
 --- tree, is not an input to it, and nor is the build's own output but
---- `shipped`. An
---- absolute path outside the root as written, or that climbs with "..",
---- is under it when what it resolved to -- `resolutions`, by path, from
---- its "r" or "t" observation -- is, and is keyed by that resolved name,
---- so the file's own line is the same for every spelling of it; with no
---- resolution it is outside.
+--- `shipped`. An absolute path outside the root as written, or that
+--- climbs with "..", is under it when what it resolved to --
+--- `resolutions`, by path, from its "r" or "t" observation -- is, and
+--- is keyed by that resolved name, so the file's own line is the same
+--- for every spelling of it; with no resolution it is outside.
 -- TODO: a path under the root as written is keyed by its name there,
 -- though it may cross a link in the tree that leads out (proj/x to
 -- /out/L to proj/a/f): a test that retargets /out/L after reading
@@ -280,12 +285,6 @@ end
 -- read whose path crosses a link as it is read, noting an "r" for it
 -- as for one outside the tree, once that costs less than a realpath
 -- per in-tree read (a set of the tree's links, from the stage).
---- The tree's shipped database, the one file of the build's output a
---- test may read as an input: a whole-tree check (build/exports_test.tl)
---- asks it what the build found, so its verdict must fall when a build
---- rewrites it. Only an open of it is keyed, by its bytes' hash.
-local shipped <const> = "o/cosmic.db"
-
 local function under_root(root: string, path: string,
                           resolutions: {string:string}): string | nil
   local relative = path
