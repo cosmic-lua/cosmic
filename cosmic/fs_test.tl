@@ -301,3 +301,68 @@ local function test_write_resumes_a_short_write(tmp: string)
   assert(ok, trouble)
   assert(Fs.read(path) == "abcdefghij")
 end
+
+local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
+  local from = tmp .. "/from"
+  assert(Fs.mkdirs(from .. "/sub/empty"))
+  local big = ("0123456789abcdef"):rep(200000)
+  assert(Fs.write(from .. "/big", big))
+  assert(Fs.write(from .. "/sub/run", "#!/bin/sh\n", 0x1ed))
+  assert(sys.chmod(from .. "/sub/run", 0x1e8))
+  assert(Fs.write(from .. "/sub/secret", "s", 0x180))
+  assert(Fs.symlink("../big", from .. "/sub/link"))
+  assert(Fs.symlink("nowhere", from .. "/dangling"))
+  assert(Fs.set_mtime(from .. "/big", 1000000000, 1000000000))
+  assert(sys.chmod(from .. "/sub", 0x16d))
+  local to = tmp .. "/to"
+  local copied, trouble = Fs.copy_tree(from, to)
+  assert(copied, trouble)
+  assert(assert(Fs.read(to .. "/big")) == big)
+  assert(assert(Fs.stat(to .. "/big")).mtime == 1000000000)
+  assert(assert(Fs.stat(to .. "/sub/run")).mode & 0xfff == 0x1e8)
+  assert(assert(Fs.stat(to .. "/sub/secret")).mode & 0xfff == 0x180)
+  assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
+  assert(assert(Fs.is_dir(to .. "/sub/empty")))
+  assert(assert(Fs.readlink(to .. "/sub/link")) == "../big")
+  assert(assert(Fs.readlink(to .. "/dangling")) == "nowhere")
+  assert(sys.chmod(from .. "/sub", 0x1ed) and sys.chmod(to .. "/sub", 0x1ed))
+end
+
+local function test_copy_tree_refuses_an_existing_target(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/from") and Fs.mkdirs(tmp .. "/to"))
+  local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
+  assert(not copied and trouble == tmp .. "/to: already exists", trouble)
+  local missing, why = Fs.copy_tree(tmp .. "/absent", tmp .. "/new")
+  assert(not missing and why:find("absent", 1, true), why)
+end
+
+local function test_copy_tree_copies_a_single_file(tmp: string)
+  assert(Fs.write(tmp .. "/one", "1", 0x1c0))
+  assert(Fs.copy_tree(tmp .. "/one", tmp .. "/two"))
+  assert(assert(Fs.read(tmp .. "/two")) == "1")
+  assert(assert(Fs.stat(tmp .. "/two")).mode & 0xfff == 0x1c0)
+end
+
+local function test_copy_tree_into_itself_copies_once(tmp: string)
+  local from = tmp .. "/a"
+  assert(Fs.mkdirs(from .. "/x"))
+  assert(Fs.write(from .. "/x/f", "f"))
+  local copied, trouble = Fs.copy_tree(from, from .. "/b")
+  assert(copied, trouble)
+  assert(assert(Fs.read(from .. "/b/x/f")) == "f")
+  assert(Fs.exists(from .. "/b/b") == false, "the copy was copied again")
+end
+
+local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
+  assert(Fs.write(tmp .. "/file", "f"))
+  local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")
+  assert(not copied and not trouble:find("already exists", 1, true) and
+    trouble:find(tmp .. "/file/x", 1, true), trouble)
+end
+
+local function test_copy_tree_drops_setuid_and_setgid(tmp: string)
+  assert(Fs.write(tmp .. "/run", "#!/bin/sh\n", 0x1ed))
+  assert(sys.chmod(tmp .. "/run", 0x9ed))
+  assert(Fs.copy_tree(tmp .. "/run", tmp .. "/copy"))
+  assert(assert(Fs.stat(tmp .. "/copy")).mode & 0xfff == 0x1ed)
+end
