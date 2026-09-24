@@ -501,3 +501,29 @@ local function test_readdir_leaves_no_descriptor_open(tmp: string)
   sys.close(after)
   assert(after == before, "descriptor " .. after .. " opened where " .. before .. " was free")
 end
+
+local function test_umask_withholds_bits_and_answers_the_last(tmp: string)
+  local before = sys.umask(0x3f)
+  local ok, failure = pcall(function(): boolean
+    local fd = assert(sys.open(tmp .. "/made", sys.O_WRONLY | sys.O_CREAT, 0x1ff))
+    assert(sys.close(fd))
+    assert(assert(sys.stat(tmp .. "/made")).mode & 0x1ff == 0x1c0)
+    return sys.umask(0x12) == 0x3f
+  end)
+  sys.umask(before)
+  if not ok then error(failure) end
+  assert(failure, "umask did not answer the mask it replaced")
+  assert(not pcall(sys.umask, -1))
+  assert(not pcall(sys.umask, 0x200))
+end
+
+local function test_entropy_and_ftruncate_answer_their_contracts(tmp: string)
+  local bytes, trouble = sys.entropy(16)
+  assert(bytes ~= nil and #bytes == 16, trouble)
+  local fd = assert(sys.open(tmp .. "/f", sys.O_WRONLY | sys.O_CREAT, 0x1a4))
+  assert(sys.ftruncate(fd, 7))
+  assert(sys.close(fd))
+  assert(assert(sys.stat(tmp .. "/f")).size == 7)
+  local ok, why, errno = sys.ftruncate(fd, 0)
+  assert(not ok and why ~= "" and errno == sys.EBADF, why)
+end

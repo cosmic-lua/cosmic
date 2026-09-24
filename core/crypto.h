@@ -11,10 +11,17 @@
 /* The longest digest any algorithm here produces, in bytes. */
 #define COSMIC_DIGEST_MAX 64
 
+/* The most bytes one `sys.entropy` call draws. */
+#define COSMIC_ENTROPY_MAX (1 << 20)
+
 /* The PSA algorithm an algorithm name names, or PSA_ALG_NONE when no
  * algorithm has that name. Shared with the streaming hasher, so the
  * name-to-algorithm table lives in exactly one place. */
 psa_algorithm_t cosmic_hash_algorithm (const char *name);
+
+/* Fills `out` with `len` bytes from the operating system's entropy
+ * source: 0 on success, an errno otherwise. */
+int cosmic_entropy (void *out, size_t len);
 
 /* Brings the library up. Once per process, before any other call. */
 int cosmic_crypto_init (void);

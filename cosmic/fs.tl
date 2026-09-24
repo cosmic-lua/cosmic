@@ -451,6 +451,17 @@ function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean
   return true, ""
 end
 
+--- Sets a descriptor's file to exactly `length` bytes, cutting it short
+--- or extending it with zero bytes. The descriptor must be open for
+--- writing; a negative length raises.
+function Fs.truncate(fd: integer, length: integer): boolean, string
+  local ok, trouble = sys.ftruncate(fd, length)
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
 --- Flushes a descriptor's data and metadata to storage.
 function Fs.fsync(fd: integer): boolean, string
   local ok, trouble = sys.fsync(fd)

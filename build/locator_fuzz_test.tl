@@ -10,6 +10,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local embed = require("build.embed")
+local sys = require("cosmic.sys")
 
 local TRAILER <const> = 48
 local MANIFEST <const> = 4096
@@ -95,22 +96,28 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
   assert(embed.tree(tree, true))
   local tail = split((assert(Fs.read(tree .. "/o/bin/ok"))))
   local program = tmp .. "/program"
+  -- The core is written once; each input rewrites only what follows it
+  -- and cuts the file to its own length, since an input can be shorter.
+  assert(Fs.write(program, tail.prefix, 0x1ed))
+  local function rewrite(rest: string)
+    local fd = assert(sys.open(program, sys.O_WRONLY))
+    local called, failure = pcall(function(): boolean
+      assert(sys.lseek(fd, #tail.prefix, sys.SEEK_SET))
+      assert(Fs.put(fd, rest))
+      return (assert(sys.ftruncate(fd, #tail.prefix + #rest)))
+    end)
+    assert(Fs.close(fd))
+    if not called then error(failure) end
+  end
   Fuzz.run({
     name = "host program locator",
-    -- Each input writes a whole host program, core included, and runs it:
-    -- on the checked core in CI's deep run, 2000 of them outlast a test's
-    -- deadline on a slow runner.
-    -- TODO: write the core once and rewrite only the tail (manifest,
-    -- database, trailer) for each input, then drop this cap, once
-    -- cosmic.sys carries ftruncate: an input can make the file shorter.
-    max_iters = 256,
     dir = tmp,
     gen = gen(tail),
     check = function(input: string): boolean, string
       local f = Fuzz.unpack(input)
       local cut = math.tointeger(tonumber(f[3])) or 0
       local database = tail.database:sub(1, #tail.database - cut) .. f[4]
-      assert(Fs.write(program, tail.prefix .. f[1] .. database .. f[2], 0x1ed))
+      rewrite(f[1] .. database .. f[2])
       local r, trouble = Child.run({ program }, { stdout = "capture", stderr = "capture",
         timeout_ms = 10000 })
       if r == nil then return false, "run: " .. trouble end

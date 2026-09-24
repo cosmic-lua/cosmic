@@ -429,3 +429,17 @@ local function test_paths_are_linear_in_runs_of_slashes()
   assert(Fs.dirname(slashes .. "a" .. slashes) == "/")
   assert(Fs.within("a" .. slashes, "a"))
 end
+
+local function test_truncate_cuts_and_extends(tmp: string)
+  local path = tmp .. "/file"
+  assert(Fs.write(path, "abcdef"))
+  local fd = assert(sys.open(path, sys.O_WRONLY))
+  local cut, cut_trouble = Fs.truncate(fd, 2)
+  assert(cut and cut_trouble == "", cut_trouble)
+  assert(Fs.truncate(fd, 4))
+  assert(not pcall(Fs.truncate, fd, -1))
+  assert(Fs.close(fd))
+  assert(assert(Fs.read(path)) == "ab\0\0")
+  local failed, trouble = Fs.truncate(fd, 0)
+  assert(not failed and trouble ~= "", "a closed descriptor was truncated")
+end

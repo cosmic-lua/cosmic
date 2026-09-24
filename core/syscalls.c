@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
 #include <sys/prctl.h>
@@ -184,6 +185,29 @@ COSMIC_SYSCALL(hmac, 3) {
   size_t mac_len = 0;
   int status = cosmic_hmac(name, key, key_len, data, len, mac, &mac_len);
   return hashed(L, status, mac, mac_len);
+}
+
+COSMIC_SYSCALL(entropy, 1) {
+  lua_Integer count = luaL_checkinteger(L, 1);
+  luaL_argcheck(L, count >= 0 && count <= COSMIC_ENTROPY_MAX, 1,
+                "the count is negative or past 1 MiB");
+  luaL_Buffer buffer;
+  char *out = luaL_buffinitsize(L, &buffer, (size_t)count);
+  int number = cosmic_entropy(out, (size_t)count);
+  if (number != 0) {
+    luaL_pushresultsize(&buffer, 0);
+    lua_pop(L, 1);
+    return cosmic_fail(L, number);
+  }
+  luaL_pushresultsize(&buffer, (size_t)count);
+  return 1;
+}
+
+COSMIC_SYSCALL(umask, 1) {
+  int mask = cosmic_checkint(L, 1);
+  luaL_argcheck(L, mask >= 0 && mask <= 0777, 1, "the mask is not permission bits");
+  lua_pushinteger(L, (lua_Integer)umask((mode_t)mask));
+  return 1;
 }
 
 static const char *plain_string (lua_State *L, int index, const char *what) {
@@ -836,7 +860,7 @@ static const luaL_Reg table[] = {
   ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
   ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
   ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
-  ENTRY(getuid),
+  ENTRY(getuid),   ENTRY(umask),         ENTRY(entropy),
   ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
   ENTRY(digest),   ENTRY(hmac),          ENTRY(execve),
   ENTRY(spawn),
@@ -846,6 +870,7 @@ static const luaL_Reg table[] = {
   ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
   ENTRY(relaunch), ENTRY(uname),
   ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
+  ENTRY(ftruncate),
   {NULL, NULL},
 };
 
