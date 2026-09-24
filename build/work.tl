@@ -139,8 +139,10 @@ work.version = "20"
 --- staged file hashes to any more is dropped at the end of the stage.
 --- `blames` is what `git blame` said about one TODO's first line, kept
 --- while the file hashes the same and `HEAD` names the same commit
---- (`head`), which is all blame is a function of; `cosmic todos` fills
---- it, since a build has no business running git.
+--- (`head`), which is all blame is a function of -- or a later one, when
+--- the commits between them leave the file alone, which moves `head`
+--- on. `cosmic todos` fills it, since a build has no business running
+--- git.
 ---
 --- `contracts` is one source that `positions.check_api_contracts` passed,
 --- under one set of fallible syscalls (`fallible`, their names sorted and

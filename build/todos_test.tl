@@ -1,3 +1,4 @@
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local todo_scan = require("build.todo_scan")
@@ -203,6 +204,62 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
   assert(#listed == 0, "found " .. #listed)
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
   assert(rows[1][1] == "0", rows[1][1])
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end
+
+--- Runs git in `root`, for a test that builds a repository of its own.
+local function git_in(root: string, args: {string}): boolean
+  local argv: {string} = { "/usr/bin/env", "git", "-C", root, "-c", "user.name=t",
+    "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false" }
+  for _, each in ipairs(args) do
+    argv[#argv + 1] = each
+  end
+  local result = Child.run(argv, { stdin = "null", stdout = "null", stderr = "null" })
+  return result ~= nil and result.ok
+end
+
+local function test_blame_carries_across_commits_that_leave_a_file_alone()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  if not git_in(root, { "init", "-q" }) then
+    assert(Fs.remove_tree(root))
+    return
+  end
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: first" })))
+  assert(Fs.write(root .. "/b.tl", text({ "-- TODO: second" })))
+  assert(git_in(root, { "add", "." }))
+  assert(git_in(root, { "commit", "-q", "-m", "one" }))
+  local handle = assert(work.open(root))
+  local function listed(): {todos.Todo}, integer
+    assert(work.stage(handle, false))
+    local all, blamed = todos.list(handle.db, root)
+    assert(all ~= nil, blamed)
+    return all, blamed as integer
+  end
+  local all, blamed = listed()
+  assert(blamed == 2, "blamed " .. blamed)
+  assert(all[1].commit ~= "" and all[1].summary == "one", all[1].summary)
+
+  -- A commit that touches neither file blames neither again.
+  assert(Fs.write(root .. "/c.tl", text({ "local c = 3" })))
+  assert(git_in(root, { "add", "c.tl" }))
+  assert(git_in(root, { "commit", "-q", "-m", "two" }))
+  all, blamed = listed()
+  assert(blamed == 0, "blamed " .. blamed)
+  assert(all[2].summary == "one", all[2].summary)
+
+  -- One that touches a file blames that file alone.
+  assert(Fs.write(root .. "/b.tl", text({ "-- TODO: second, reworded" })))
+  assert(git_in(root, { "commit", "-q", "-am", "three" }))
+  all, blamed = listed()
+  assert(blamed == 1, "blamed " .. blamed)
+  assert(all[1].summary == "one" and all[2].summary == "three", all[2].summary)
+
+  -- A rewritten history may have dropped the commits a row names.
+  assert(git_in(root, { "commit", "-q", "--amend", "-m", "three again" }))
+  all, blamed = listed()
+  assert(blamed == 2, "blamed " .. blamed)
+  assert(all[2].summary == "three again", all[2].summary)
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end

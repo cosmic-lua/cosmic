@@ -177,6 +177,56 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   return out
 end
 
+--- Moves the blame recorded at an earlier `HEAD` on to `head`, for
+--- every file the commits between them did not touch: git blames such
+--- a file's lines on the same commits as before. That takes two git
+--- calls per earlier `HEAD`, whatever the number of files. A file they
+--- touched, or every file when the earlier `HEAD` is not an ancestor of
+--- this one -- a rebase or a reset, which may have dropped the commits
+--- the rows name -- is left to be blamed again.
+local function carry_forward(db: Sqlite.Handle, root: string, head: string): boolean, string
+  if head == "" then
+    return true, ""
+  end
+  local heads, trouble = Sqlite.text_rows(db,
+    "SELECT DISTINCT head FROM blames WHERE head != ?1 AND head != ''",
+    { { text = head } })
+  if heads == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(heads) do
+    local old = row[1]
+    local ancestor = git(root, { "merge-base", "--is-ancestor", old, head })
+    local changed: string = nil
+    if ancestor ~= nil then
+      changed = git(root, { "diff", "--name-only", "--no-renames", "--relative",
+        old, head, "--" })
+    end
+    if changed ~= nil then
+      local touched: {string:boolean} = {}
+      for path in changed:gmatch("([^\n]+)") do
+        touched[path] = true
+      end
+      local kept, rows_trouble = Sqlite.text_rows(db,
+        "SELECT DISTINCT path FROM blames WHERE head = ?1", { { text = old } })
+      if kept == nil then
+        return false, rows_trouble
+      end
+      for _, each in ipairs(kept) do
+        if not touched[each[1]] then
+          local ok, move_trouble = Sqlite.run(db,
+            "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
+            { { text = head }, { text = old }, { text = each[1] } })
+          if not ok then
+            return false, move_trouble
+          end
+        end
+      end
+    end
+  end
+  return true, ""
+end
+
 --- Blames every row not yet blamed for `head`, one git call per file,
 --- keeping what it says in `blames`, and drops the rows there no TODO
 --- stands on any more. Returns how many files it blamed.
@@ -239,6 +289,10 @@ end
 --- in file and line order, and how many files had to be blamed.
 function todos.list(db: Sqlite.Handle, root: string): {todos.Todo} | nil, integer | string
   local head = head_of(root)
+  local carried, carry_trouble = carry_forward(db, root, head)
+  if not carried then
+    return nil, carry_trouble
+  end
   local rows, trouble = rows_of(db, head)
   if rows == nil then
     return nil, trouble
