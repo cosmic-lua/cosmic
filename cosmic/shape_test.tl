@@ -1,3 +1,4 @@
+local Json = require("cosmic.json")
 local Shape = require("cosmic.shape")
 
 local record Server
@@ -17,8 +18,8 @@ local function must<T>(v: T | nil, err: string): T
   return v as T
 end
 
-local function fails(value: any, spec: Shape.Spec, want: string, opts?: Shape.Options)
-  local v, err: any, string = Shape.into(value, spec, opts)
+local function fails(value: any, spec: Shape.Spec, want: string)
+  local v, err: any, string = Shape.into(value, spec)
   assert(v == nil, "expected a failure: " .. want)
   assert(err == want, ("wanted %q, got %q"):format(want, err))
 end
@@ -75,12 +76,22 @@ local function test_a_list_is_keyed_from_one()
   fails({ [1.5] = "a" }, Shape.list(Shape.string), "$: expected list, got the float key 1.5")
 end
 
--- A decoded JSON array carries a mark in its metatable so that an empty
--- one encodes back as `[]`; the copy keeps it.
-local function test_a_list_keeps_its_array_mark()
-  local marked: {integer} = setmetatable({}, { __name = "array" })
-  local l: {integer} = must(Shape.into(marked, Shape.list(Shape.integer)))
-  assert(getmetatable(l) == getmetatable(marked))
+-- A list answers a JSON array, so an empty one encodes back as `[]`,
+-- whether it came from JSON or was built in Lua.
+local function test_a_list_answers_a_json_array()
+  local from_json: {integer} = must(Shape.into(must(Json.decode("[]")), Shape.list(Shape.integer)))
+  assert(Json.is_array(from_json))
+  assert(must(Json.encode(from_json)) == "[]")
+  local from_lua: {integer} = must(Shape.into({}, Shape.list(Shape.integer)))
+  assert(must(Json.encode(from_lua)) == "[]")
+end
+
+-- A JSON array is not an object, even an empty one.
+local function test_a_map_or_record_refuses_a_json_array()
+  local empty = must(Json.decode("[]"))
+  fails(empty, Shape.map(Shape.string), "$: expected map, got array")
+  fails(empty, Shape.record({ a = Shape.optional(Shape.string) }), "$: expected record, got array")
+  fails(must(Json.decode('{"a": [1]}')), Shape.record({ a = Shape.string }), "$.a: expected string, got array")
 end
 
 local function test_a_map_refuses_a_key_that_is_not_a_string()
@@ -89,21 +100,48 @@ local function test_a_map_refuses_a_key_that_is_not_a_string()
   fails({ a = 1, [2] = 2 }, Shape.map(Shape.integer), "$: expected map, got the integer key 2")
 end
 
--- A stand-in for null, like `Json.null`, is a missing value: optional
--- admits it and answers nil, and a required field refuses it.
-local function test_the_null_stand_in_is_a_missing_value()
-  local null = {}
-  local opts: Shape.Options = { null = null }
-  local s: Server = must(Shape.into({ host = "h", port = 1, tls = null }, SERVER, opts))
+-- `Json.null` is a missing value: optional admits it and answers nil,
+-- and a required field refuses it by name.
+local function test_json_null_is_a_missing_value()
+  local text = '{"host": "h", "port": 1, "tls": null}'
+  local keep: Json.DecodeOptions = { null_value = Json.null }
+  local s: Server = must(Shape.into(must(Json.decode(text, keep)), SERVER))
   assert(s.tls == nil)
-  fails({ host = null, port = 1 }, SERVER, "$.host: expected string, got nothing", opts)
-  local l: {integer} = must(Shape.into({ 1, null, 3 }, Shape.list(Shape.optional(Shape.integer)), opts))
+  fails(must(Json.decode('{"host": null, "port": 1}', keep)), SERVER, "$.host: expected string, got nothing")
+  fails({ host = "h", port = Json.null }, Shape.record({ port = Shape.integer }),
+    "$.port: expected integer, got nothing")
+  local l: {integer} = must(Shape.into(must(Json.decode("[1, null, 3]", keep)),
+    Shape.list(Shape.optional(Shape.integer))))
   assert(l[1] == 1 and l[2] == nil and l[3] == 3)
+  -- Decoded without a stand-in, the null leaves a hole, which is the
+  -- same missing element.
+  local holed: {integer} = must(Shape.into(must(Json.decode("[1, null, 3]")),
+    Shape.list(Shape.optional(Shape.integer))))
+  assert(holed[3] == 3)
+  fails(must(Json.decode("[1, null, 3]")), Shape.list(Shape.integer), "$[2]: expected integer, got nothing")
   -- A sparse list of optional elements is walked by its keys, never by
   -- counting up to the highest one.
   local far: {integer} = must(Shape.into({ [1 << 40] = 7 }, Shape.list(Shape.optional(Shape.integer))))
   assert(far[1 << 40] == 7)
-  fails({ host = "h", port = 1, tls = null }, SERVER, "$.tls: expected boolean, got table")
+  -- An answer re-encodes, its nulls written for its holes when asked.
+  assert(must(Json.encode(l, { sparse_as_null = true })) == "[1,null,3]")
+end
+
+-- A whole number another encoder wrote as a float reads as an integer,
+-- and a number too big for one, kept as its digits, is refused by name.
+local function test_json_numbers_meet_integer()
+  local port: integer = must(Shape.into(must(Json.decode("8080.0")), Shape.integer))
+  assert(math.type(port) == "integer" and port == 8080)
+  local big = must(Json.decode("18446744073709551615", { big_numbers_as_strings = true }))
+  fails(big, Shape.integer, "$: expected integer, got string")
+end
+
+-- Decode, check, re-encode: the answer holds only what the spec names,
+-- so a field the payload grew does not reach the output.
+local function test_a_checked_payload_re_encodes_without_its_extras()
+  local text = '{"port": 8080, "host": "h", "debug": {"x": 1}}'
+  local s: Server = must(Shape.into(must(Json.decode(text)), SERVER))
+  assert(must(Json.encode(s)) == '{"host":"h","port":8080}')
 end
 
 local function test_one_of_admits_only_its_values()
