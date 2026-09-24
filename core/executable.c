@@ -24,8 +24,11 @@ bool cosmic_executable_path (char *into, size_t room) {
   memcpy(into, resolved, len + 1);
   return true;
 #else
-  ssize_t len = readlink("/proc/self/exe", into, room - 1);
-  if (len < 0) return false;
+  /* readlink truncates silently and writes no NUL: a result that fills
+   * the whole room may have been cut short, and leaves none for the NUL
+   * either way. */
+  ssize_t len = readlink("/proc/self/exe", into, room);
+  if (len < 0 || (size_t)len >= room) return false;
   into[len] = '\0';
   return true;
 #endif

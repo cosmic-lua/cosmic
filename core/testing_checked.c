@@ -28,6 +28,7 @@
 #include <string.h>
 
 #include "fault.h"
+#include "executable.h"
 #include "http.h"
 #include "lauxlib.h"
 #include "memory.h"
@@ -213,6 +214,22 @@ static int testing_live_transfers (lua_State *L) {
   return 1;
 }
 
+/* executable_path(room): the running executable's path, as
+ * cosmic_executable_path writes it into a buffer of `room` bytes, or
+ * nil when it reports that the path does not fit. */
+static int testing_executable_path (lua_State *L) {
+  char path[4096];
+  lua_Integer room = luaL_checkinteger(L, 1);
+  luaL_argcheck(L, room >= 1 && room <= (lua_Integer)sizeof path, 1,
+                "a room is from 1 to 4096 bytes");
+  if (!cosmic_executable_path(path, (size_t)room)) {
+    lua_pushnil(L);
+  } else {
+    lua_pushstring(L, path);
+  }
+  return 1;
+}
+
 /* Every other core registers these names as stand-ins that raise
  * (core/testing.c): edit the two lists together. */
 static const luaL_Reg instruments[] = {
@@ -222,6 +239,7 @@ static const luaL_Reg instruments[] = {
   {"c_heap", testing_c_heap},
   {"fail_at", testing_fail_at},
   {"live_transfers", testing_live_transfers},
+  {"executable_path", testing_executable_path},
   {NULL, NULL},
 };
 

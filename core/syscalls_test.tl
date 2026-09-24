@@ -9,6 +9,7 @@
 --- one binding with no test here: it ends the process the test runs in.
 
 local sys = require("cosmic.sys")
+local testing = require("cosmic.internal.testing")
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
 --- `false` first, a non-empty message, then a positive errno. The call
@@ -369,6 +370,20 @@ local function test_executable_is_a_file()
   local path = assert(sys.executable())
   assert(path:sub(1, 1) == "/", "the executable's path is absolute")
   assert(assert(sys.stat(path)).kind == "file")
+end
+
+--- The core's own lookup of its path refuses a buffer the path does not
+--- fit in, NUL included, rather than answering it cut short. Only the
+--- checked core can hand it a buffer that small.
+local function test_executable_path_refuses_a_room_it_does_not_fit()
+  if testing.configuration ~= "sanitized" then return end
+  local path = assert(testing.executable_path(4096))
+  assert(path:sub(1, 1) == "/", "the executable's path is absolute")
+  assert(testing.executable_path(#path + 1) == path)
+  local short = testing.executable_path(#path)
+  assert(short == nil, "a path with no room for its NUL came back as " ..
+    tostring(short))
+  assert(testing.executable_path(1) == nil)
 end
 
 local function test_environ_agrees_with_getenv()
