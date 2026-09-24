@@ -149,7 +149,7 @@ end
 local function test_network_and_chdir_are_unkeyable_observations(tmp: string)
   local here = assert(sys.getcwd())
   local chdir, open = sys.chdir, Http.open
-  local ok, trouble, found = observations.call(function()
+  local run = observations.call(function()
     assert(sys.chdir(tmp))
     assert(sys.chdir(here))
     -- An unsupported scheme fails before any connection, and is noted
@@ -159,9 +159,9 @@ local function test_network_and_chdir_are_unkeyable_observations(tmp: string)
       { script = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" } }))
     assert(scripted.status == 200)
   end, nil)
-  assert(ok, trouble)
+  assert(run.passed, run.message)
   local unkeyable: {string} = {}
-  for _, observation in ipairs(found) do
+  for _, observation in ipairs(run.reads) do
     if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
   end
   assert(#unkeyable == 3 and unkeyable[1] == tmp and unkeyable[2] == here and
