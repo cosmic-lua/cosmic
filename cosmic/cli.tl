@@ -62,9 +62,15 @@ local record Cli
   --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against o/cosmic.db, or the binary's own database when there is
-  --- none; `--build` names o/build.db, `--store` the binary's own and
-  --- `--db` any file. Each row is one line of tab-separated cells, NULL
-  --- as \N; the verdict line goes to stderr. Nothing is built or staged
+  --- none; `--build` names o/build.db, `--store` the binary's own (which
+  --- refuses every PRAGMA but data_version) and `--db` any file. o/ is
+  --- looked for in the working directory only, never above it. Each row
+  --- is one line of tab-separated cells: NULL as \N, a blob as X'<hex>',
+  --- and in text a backslash, tab, newline or return as \\, \t, \n or
+  --- \r and any other control byte as \xHH. The verdict line goes to
+  --- stderr. Exits 0 when the statement ran, rows or none; 1 when the
+  --- database or the statement failed, a write among them; 2 for a
+  --- command line it cannot read. Nothing is built or staged.
   sql: string
   --- `cosmic docs <q>`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs), or words to search the

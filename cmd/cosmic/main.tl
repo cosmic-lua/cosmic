@@ -344,6 +344,10 @@ local function main(argv: {integer:string}): integer
   if verb == "sql" then
     -- Never stale-checked, unlike `db`: a staleness check stages the
     -- tree, and this verb reads o/ and nothing else under it.
+    -- TODO: test that this dispatch neither stale-checks nor scans the
+    -- working directory -- run `cosmic sql` in a directory whose tree
+    -- would fail to stage -- once a test can spawn the built binary
+    -- (a process-spawning fixture); build/sql_test.tl calls sql.run.
     local sql = require("build.sql")
     return sql.run(argv)
   end

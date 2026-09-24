@@ -9,26 +9,41 @@ local function project(): string
   assert(Fs.mkdirs(root .. "/o"))
   local db = assert(Sqlite.open(root .. "/o/cosmic.db", true))
   assert(Sqlite.exec(db, "CREATE TABLE t (a, b); INSERT INTO t VALUES " ..
-    "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, '')"))
+    "(1, 'one'), (NULL, x'00ff'), (1.5, 'tab' || char(9) || 'and\\'), (2.0, ''), " ..
+    "(3, char(27) || '[31m' || char(127) || '\\N')"))
   assert(db:close())
   return root
 end
 
-local function parse(words: {string}): Flags.Parsed
-  local argv: {integer:string} = { [1] = "sql" }
-  for index, word in ipairs(words) do
-    argv[index + 1] = word
-  end
-  return (assert(Flags.parse(argv, 2, { ["--db"] = true, ["--build"] = false,
-    ["--store"] = false })))
-end
-
-local function run(root: string, words: {string}): integer
+local function argv_of(words: {string}): {integer:string}
   local argv: {integer:string} = { [0] = "cosmic", [1] = "sql" }
   for index, word in ipairs(words) do
     argv[index + 1] = word
   end
-  return sql.run(argv, root)
+  return argv
+end
+
+--- The database `sql.source` picks for a command line, or nil and why.
+local function source(root: string, words: {string}): sql.Source | nil, string
+  local argv = argv_of(words)
+  local parsed = assert(Flags.parse(argv, 2, { ["--db"] = true, ["--build"] = false,
+    ["--store"] = false }))
+  return sql.source(root, parsed, sql.options_given(argv))
+end
+
+--- What one run wrote, stream by stream.
+local record Written
+  out: {string}
+  err: {string}
+end
+
+local function run(root: string, words: {string}): integer, Written
+  local written: Written = { out = {}, err = {} }
+  local code = sql.run(argv_of(words), root, {
+    out = function(line: string) written.out[#written.out + 1] = line end,
+    err = function(line: string) written.err[#written.err + 1] = line end,
+  })
+  return code, written
 end
 
 local function query(path: string, statement: string): {string} | nil, string
@@ -42,15 +57,26 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   local root = project()
   local path = root .. "/o/cosmic.db"
   local lines = assert(query(path, "SELECT a, b FROM t ORDER BY rowid"))
-  assert(#lines == 4, #lines)
+  assert(#lines == 5, #lines)
   assert(lines[1] == "1\tone", lines[1])
   assert(lines[2] == "\\N\tX'00FF'", lines[2])
   assert(lines[3] == "1.5\ttab\\tand\\\\", lines[3])
   assert(lines[4] == "2.0\t", lines[4])
+  -- No stored control byte reaches the terminal, and the text "\N" is
+  -- told apart from NULL.
+  assert(lines[5] == "3\t\\x1B[31m\\x7F\\\\N", lines[5])
   local none = assert(query(path, "SELECT a FROM t WHERE 0"))
   assert(#none == 0)
-  assert(run(root, { "SELECT count(*) FROM t" }) == 0)
-  assert(run(root, { "SELECT a FROM t WHERE 0" }) == 0)
+  -- Rows go to stdout and nothing else does; the verdict goes to stderr.
+  local code, written = run(root, { "SELECT a FROM t WHERE a > 1 AND a < 3 ORDER BY a" })
+  assert(code == 0)
+  assert(#written.out == 2 and written.out[1] == "1.5" and written.out[2] == "2.0",
+    table.concat(written.out, "|"))
+  assert(#written.err == 1 and written.err[1]:find("^sql: PASS %(2 rows from o/cosmic.db, ")
+    ~= nil, written.err[1])
+  code, written = run(root, { "SELECT a FROM t WHERE 0" })
+  assert(code == 0 and #written.out == 0)
+  assert(written.err[1]:find("^sql: PASS %(0 rows") ~= nil, written.err[1])
   assert(Fs.remove_tree(root))
 end
 
@@ -98,13 +124,26 @@ local function test_a_missing_database_and_bad_sql_fail()
   local root = project()
   local missing = root .. "/o/nothing.db"
   local opened, trouble = sql.open({ name = missing, path = missing })
-  assert(opened == nil and trouble == "no such database", trouble)
+  assert(opened == nil and trouble == "no such database: " .. missing, trouble)
   assert(run(root, { "--db", missing, "SELECT 1" }) == 1)
-  assert(run(root, { "--build", "SELECT 1" }) == 1)
+  -- A missing o/build.db is named in full, with where o/ was looked for.
+  local code, written = run(root, { "--build", "SELECT 1" })
+  assert(code == 1 and #written.out == 0)
+  assert(written.err[1] == "cosmic: sql: o/build.db: no such database: " .. root ..
+    "/o/build.db; o/ is looked for only in the working directory, never above it",
+    written.err[1])
+  assert(written.err[2]:find("^sql: FAIL %(o/build.db, ") ~= nil, written.err[2])
   assert(Fs.exists(missing) == false, "opening made the file")
   local lines, why = query(root .. "/o/cosmic.db", "SELEC 1")
   assert(lines == nil and why:find("syntax error", 1, true) ~= nil, why)
   assert(run(root, { "SELECT nope FROM t" }) == 1)
+  -- Anything but a regular file is refused before SQLite opens it: a
+  -- FIFO would block the open forever. A link to a database is followed.
+  local dir, why_dir = sql.open({ name = "o", path = root .. "/o" })
+  assert(dir == nil and why_dir == "not a regular file (its kind is dir), so not a database", why_dir)
+  assert(run(root, { "--db", root .. "/o", "SELECT 1" }) == 1)
+  assert(Fs.symlink(root .. "/o/cosmic.db", root .. "/link.db"))
+  assert(run(root, { "--db", root .. "/link.db", "SELECT count(*) FROM t" }) == 0)
   assert(Fs.remove_tree(root))
 end
 
@@ -115,24 +154,35 @@ local function test_a_command_line_it_cannot_read_is_a_usage_error()
   assert(run(root, { "--nope", "SELECT 1" }) == 2)
   assert(run(root, { "--build", "--store", "SELECT 1" }) == 2)
   assert(run(root, { "--db" }) == 2)
+  assert(run(root, { "--db", "", "SELECT 1" }) == 2)
+  assert(run(root, { "--db=", "SELECT 1" }) == 2)
+  -- A repeated option is refused, not read as its last.
+  assert(run(root, { "--db", "a.db", "--db", "b.db", "SELECT 1" }) == 2)
+  assert(run(root, { "--db=a.db", "--db", "b.db", "SELECT 1" }) == 2)
+  local code, written = run(root, { "--build", "--build", "SELECT 1" })
+  assert(code == 2 and #written.out == 0)
+  assert(written.err[1]:find("name one database, not --build and --build", 1, true) ~= nil,
+    written.err[1])
+  -- After "--" a word is the statement, even one that looks like an option.
+  assert(run(root, { "--", "--build" }) == 1)
   assert(Fs.remove_tree(root))
 end
 
 local function test_the_default_is_the_project_database_else_the_binarys_own()
   local root = project()
-  local chosen = assert(sql.source(root, parse({})))
+  local chosen = assert(source(root, {}))
   assert(chosen.path == root .. "/o/cosmic.db", chosen.name)
-  chosen = assert(sql.source(root, parse({ "--build" })))
+  chosen = assert(source(root, { "--build" }))
   assert(chosen.path == root .. "/o/build.db")
-  chosen = assert(sql.source(root, parse({ "--store" })))
+  chosen = assert(source(root, { "--store" }))
   assert(chosen.path == nil)
-  chosen = assert(sql.source(root, parse({ "--db", root .. "/x.db" })))
+  chosen = assert(source(root, { "--db", root .. "/x.db" }))
   assert(chosen.path == root .. "/x.db")
-  local refused, why = sql.source(root, parse({ "--db", "x.db", "--store" }))
+  local refused, why = source(root, { "--db", "x.db", "--store" })
   assert(refused == nil and why == "name one database, not --db and --store", why)
 
   assert(Fs.remove(root .. "/o/cosmic.db"))
-  chosen = assert(sql.source(root, parse({})))
+  chosen = assert(source(root, {}))
   assert(chosen.path == nil, chosen.name)
   -- The binary's own database answers, and still refuses a write.
   local opened = assert(sql.open(chosen))
