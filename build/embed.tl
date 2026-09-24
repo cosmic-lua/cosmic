@@ -15,6 +15,7 @@
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
 --- builds the tool.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
@@ -355,18 +356,16 @@ end
 --- was written, or says why nothing was.
 function embed.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
-  local host = false
-  local slot = 2
-  while argv[slot] ~= nil do
-    if argv[slot] == "--host" then
-      host = true
-    else
-      log:complain("build: no such option: " .. argv[slot])
-      log:verdict("build", false)
-      return 2
-    end
-    slot = slot + 1
+  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--host"] = false })
+  if parsed ~= nil and #parsed.words > 0 then
+    parsed, parse_trouble = nil, "no such option: " .. parsed.words[1]
   end
+  if parsed == nil then
+    log:complain("build: " .. parse_trouble)
+    log:verdict("build", false)
+    return 2
+  end
+  local host = parsed.set["--host"] == true
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)

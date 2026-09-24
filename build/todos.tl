@@ -13,6 +13,7 @@
 --- with no commit.
 
 local Child = require("cosmic.child")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
@@ -490,28 +491,23 @@ function todos.run(argv: {integer:string}): integer
     end
     return code
   end
-  local oldest = false
+  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--oldest"] = false })
+  if parsed == nil then
+    log:complain("todos: " .. parse_trouble)
+    return 2
+  end
+  local oldest = parsed.set["--oldest"] == true
   local paths: {string} = {}
   local words: {string} = {}
-  local slot = 2
-  while argv[slot] ~= nil do
-    local option = argv[slot]
-    if option == "--oldest" then
-      oldest = true
-    elseif option:sub(1, 1) == "-" then
-      log:complain("todos: no such option: " .. option)
-      return 2
+  for _, word in ipairs(parsed.words) do
+    -- A path when it names one, and words to search for when not, as
+    -- `cosmic docs` takes a symbol first and words after.
+    local path = (word:gsub("^%./", ""):gsub("/+$", ""))
+    if path ~= "" and Fs.exists(root .. "/" .. path) then
+      paths[#paths + 1] = path
     else
-      -- A path when it names one, and words to search for when not, as
-      -- `cosmic docs` takes a symbol first and words after.
-      local path = (option:gsub("^%./", ""):gsub("/+$", ""))
-      if path ~= "" and Fs.exists(root .. "/" .. path) then
-        paths[#paths + 1] = path
-      else
-        words[#words + 1] = option
-      end
+      words[#words + 1] = word
     end
-    slot = slot + 1
   end
   local query = table.concat(words, " ")
 
