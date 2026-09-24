@@ -470,6 +470,16 @@ COSMIC_SYSCALL(utimens, 3) {
   return cosmic_ok(L);
 }
 
+COSMIC_SYSCALL(ftruncate, 2) {
+  int fd = cosmic_checkint(L, 1);
+  lua_Integer length = luaL_checkinteger(L, 2);
+  luaL_argcheck(L, length >= 0, 2, "the length is negative");
+  if (ftruncate(fd, (off_t)length) != 0) {
+    return cosmic_fail_effect(L, errno);
+  }
+  return cosmic_ok(L);
+}
+
 COSMIC_SYSCALL(fsync, 1) {
   int fd = cosmic_checkint(L, 1);
   if (fsync(fd) != 0) {

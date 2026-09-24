@@ -16,26 +16,34 @@
 
 #include "psa/crypto.h"
 
+int cosmic_entropy (void *out, size_t len) {
+  unsigned char *bytes = out;
+  size_t got = 0;
+  while (got < len) {
+    size_t want = len - got;
+    if (want > 256) {
+      want = 256; /* getentropy's own ceiling */
+    }
+    if (getentropy(bytes + got, want) != 0) {
+      /* Fails closed: a failure that set no errno is still one. */
+      return errno != 0 ? errno : EIO;
+    }
+    got += want;
+  }
+  return 0;
+}
+
 /* The library is built with an external random generator, which keeps
- * its entropy and DRBG modules out of the core. Nothing here draws
- * randomness today; this is what will, over the same two OS calls both
- * targets have. */
+ * its entropy and DRBG modules out of the core; it draws from the same
+ * source `sys.entropy` does. */
 psa_status_t mbedtls_psa_external_get_random (
     mbedtls_psa_external_random_context_t *context, uint8_t *output,
     size_t output_size, size_t *output_length) {
   (void)context;
-  size_t got = 0;
-  while (got < output_size) {
-    size_t want = output_size - got;
-    if (want > 256) {
-      want = 256; /* getentropy's own ceiling */
-    }
-    if (getentropy(output + got, want) != 0) {
-      return PSA_ERROR_INSUFFICIENT_ENTROPY;
-    }
-    got += want;
+  if (cosmic_entropy(output, output_size) != 0) {
+    return PSA_ERROR_INSUFFICIENT_ENTROPY;
   }
-  *output_length = got;
+  *output_length = output_size;
   return PSA_SUCCESS;
 }
 
