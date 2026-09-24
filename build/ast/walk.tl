@@ -87,34 +87,49 @@ local function each_child(node: Node, consider: function(any))
   end
 end
 
+--- Adds `v` to `into`: itself when it is a node, its nodes when it is
+--- a bare array of them.
+local function add(into: {Node}, v: any)
+  local child, rest = classify(v)
+  if child then
+    into[#into + 1] = child
+  elseif rest then
+    for _, e in ipairs(rest) do
+      local grandchild = classify(e)
+      if grandchild then
+        into[#into + 1] = grandchild
+      end
+    end
+  end
+end
+
 --- Every node `node` holds directly: a field that is a node, and each
 --- node of a field that is a bare array of them -- its array part's
 --- included. A field `skipped` names (one pointing back up the tree,
---- such as `if_parent`) is passed by.
+--- such as `if_parent`) is passed by. When `passed` is given, what
+--- `walk` would reach from `node` that this does not is added to it:
+--- the nodes of a field `skipped` names, and of a bare array in the
+--- array part, so the two lists together are `walk`'s step.
 --- @param node Node
 --- @param skipped? {string: boolean} Field names not followed
+--- @param passed? {Node} Filled with the nodes passed by
 --- @return {Node} The children, in no promised order
-local function children(node: Node, skipped?: {string: boolean}): {Node}
+local function children(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
   local out: {Node} = {}
   for _, v in ipairs(array_of(node)) do
-    local child = classify(v)
+    local child, rest = classify(v)
     if child then
       out[#out + 1] = child
+    elseif rest and passed ~= nil then
+      add(passed, v)
     end
   end
   for k, v in pairs(map_of(node)) do
-    local passed = k is integer or (k is string and skipped ~= nil and skipped[k] == true)
-    if not passed then
-      local child, rest = classify(v)
-      if child then
-        out[#out + 1] = child
-      elseif rest then
-        for _, e in ipairs(rest) do
-          local grandchild = classify(e)
-          if grandchild then
-            out[#out + 1] = grandchild
-          end
-        end
+    if not (k is integer) then
+      if k is string and skipped ~= nil and skipped[k] == true then
+        if passed ~= nil then add(passed, v) end
+      else
+        add(out, v)
       end
     end
   end
@@ -290,7 +305,7 @@ end
 
 local record WalkModule
   walk: function(node: Node, visit: function(Node))
-  children: function(node: Node, skipped?: {string: boolean}): {Node}
+  children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
   span_start: function(node: Node): integer, integer
   span_end: function(node: Node, tokens: {compiler.Token}): integer, integer
 end
