@@ -524,3 +524,23 @@ local function test_ascii_escapes_every_character_past_ascii()
   assert(Json.encode(s) == '"' .. s .. '"', "without ascii the text is as it was")
   assert(Json.encode_lines({ "é" }, { ascii = true }) == '"\\u00e9"\n', "encode_lines passes it on")
 end
+
+--- `lone_surrogates` reads a lone surrogate escape as U+FFFD -- a high
+--- half with no low half after it, a high half before another escape,
+--- or a low half alone, in keys as in values -- and leaves a pair, and
+--- an escaped backslash before `u`, as they are. Without it, one is
+--- refused.
+local function test_lone_surrogates_read_as_the_replacement_character()
+  local opts: Json.DecodeOptions = { lone_surrogates = true }
+  local text = '{"\\ud83d": ["a\\ud83d", "\\ude00", "\\ud83d\\u0041", "\\ud83d\\ude00", "\\\\ud83d"]}'
+  local value = assert(Json.decode(text, opts)) as {string: {string}}
+  local list = value["\u{FFFD}"]
+  assert(list ~= nil, "the key's lone surrogate")
+  assert(list[1] == "a\u{FFFD}" and list[2] == "\u{FFFD}" and list[3] == "\u{FFFD}A",
+    table.concat(list, "|"))
+  assert(list[4] == "\u{1F600}" and list[5] == "\\ud83d", table.concat(list, "|"))
+  local refused = decode_failure('["a\\ud83d"]')
+  assert(refused:find("surrogate", 1, true), refused)
+  local still = decode_failure('["a\\ud83d", tru]', opts)
+  assert(still:find("invalid literal", 1, true), still)
+end

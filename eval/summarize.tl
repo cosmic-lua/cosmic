@@ -171,9 +171,9 @@ end
 --- after it, or a low half alone) written as U+FFFD, which cosmic.json
 --- would otherwise refuse the whole line for. Claude Code writes one
 --- when it cuts a tool's output in the middle of an emoji.
--- TODO: decode with an option that takes a lone surrogate as it
--- stands, once cosmic.json carries one (yyjson reads with
--- YYJSON_READ_ALLOW_INVALID_UNICODE), rather than rewriting the escape.
+-- TODO: decode with Json.decode's `lone_surrogates`, which does this,
+-- once ci/cosmic-driver.pin names a cosmic carrying it: this runs
+-- standalone on the pinned release.
 function Summarize.without_lone_surrogates(line: string): string
   local out: {string} = {}
   local from = 1

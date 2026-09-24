@@ -387,6 +387,8 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
     assert(assert(Json.encode(wide, { pretty = true })):sub(1, 1) == "{")
     assert(Json.encode(wide, { sorted = false }) ~= nil)
+    local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string}
+    assert(lone[1] == "\u{FFFD}")
   end)
   assert(ended > 0, "decoding and encoding allocate")
   assert_c_heap(bytes, blocks, "JSON under refusal")

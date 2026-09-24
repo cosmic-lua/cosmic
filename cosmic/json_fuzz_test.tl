@@ -15,6 +15,7 @@ local Json = require("cosmic.json")
 --- Well-formed and nearly well-formed texts to mutate: every shape the
 --- walk builds, the number and string corners, and JSON5's forms.
 local SAMPLES <const> = {
+  '{"\\udbff": ["\\ud83d", "x\\ude00", "\\ud83d\\ude00"]}',
   '{"a": [1, 2.5, "x", true, false, null], "b": {"c": {}, "d": []}}',
   '[0, -0, 1e308, 5e-324, 1E+2, 0.1e-5, -9223372036854775808, 9223372036854775807]',
   '[18446744073709551615, 18446744073709551616, 123456789012345678901234567890, 1e400]',
@@ -31,7 +32,8 @@ local SAMPLES <const> = {
 --- Bytes JSON singles out, drawn more often than chance would.
 local TOKENS <const> = { "{", "}", "[", "]", ":", ",", '"', "\\", "\\u", "d8", "dc", "0", "1",
   "-", "+", ".", "e", "E", "x", "true", "false", "null", "NaN", "Infinity", "/", "*", "'",
-  " ", "\n", "\r", "\t", "\0", "\xc3", "\xa9", "\xed", "\xa0", "\x80", "\xff", "\xef\xbb\xbf" }
+  " ", "\n", "\r", "\t", "\0", "\xc3", "\xa9", "\xed", "\xa0", "\x80", "\xff", "\xef\xbb\xbf",
+  "\\ud83d", "\\ude00", "\\uDBFF" }
 
 local function gen_text(src: Fuzz.Source): string
   if src:int(0, 2) == 0 then
@@ -93,6 +95,18 @@ local function decode_holds(input: string): boolean, string
       -- Without a stand-in, a null is a hole: still total.
       local plain_ok, _, plain_err = decode_once(input, { json5 = json5 }, where .. " without null_value")
       if not plain_ok then return false, plain_err end
+      -- lone_surrogates is total too, and changes only what failed.
+      local lone_ok, lone_value, lone_err = decode_once(input, { null_value = Json.null, json5 = json5,
+        big_numbers_as_strings = big, lone_surrogates = true }, where .. " lone_surrogates")
+      if not lone_ok then return false, lone_err end
+      if err == "" then
+        if lone_err ~= "" then return false, where .. ": lone_surrogates refused what read: " .. lone_err end
+        local a, b = canonical(value, where), canonical(lone_value, where)
+        if a ~= b then return false, where .. ": lone_surrogates read it differently" end
+      elseif lone_err == "" then
+        local text, why = canonical(lone_value, where .. " lone_surrogates")
+        if text == nil then return false, why end
+      end
     end
   end
   return true, ""

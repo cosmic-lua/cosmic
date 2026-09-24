@@ -254,7 +254,58 @@ static int read_failure (lua_State *L, const char *text, size_t len,
   return 2;
 }
 
-/* decode(text, null?, max_depth?, json5?, big_as_string?): the value
+/* The value of the four hex digits at `s`, or -1 when they are not. */
+static long hex4 (const char *s) {
+  long v = 0;
+  for (int k = 0; k < 4; k++) {
+    char c = s[k];
+    int digit = c >= '0' && c <= '9'   ? c - '0'
+                : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                       : -1;
+    if (digit < 0) return -1;
+    v = v * 16 + digit;
+  }
+  return v;
+}
+
+/* Writes each lone surrogate escape in `s` -- a \uD800-\uDBFF with no
+ * \uDC00-\uDFFF after it, or a \uDC00-\uDFFF alone -- over with
+ * \ufffd, the same length, in place; a pair and every other escape
+ * are left as they are. How many it wrote. */
+static size_t repair_surrogates (char *s, size_t n) {
+  size_t count = 0;
+  size_t i = 0;
+  while (i < n) {
+    if (s[i] != '\\' || i + 1 >= n) {
+      i++;
+      continue;
+    }
+    if (s[i + 1] != 'u' || i + 6 > n) {
+      i += 2;
+      continue;
+    }
+    long unit = hex4(s + i + 2);
+    if (unit < 0xd800 || unit > 0xdfff) {
+      i += 2;
+      continue;
+    }
+    if (unit <= 0xdbff && i + 12 <= n && s[i + 6] == '\\' && s[i + 7] == 'u') {
+      long low = hex4(s + i + 8);
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        i += 12;
+        continue;
+      }
+    }
+    memcpy(s + i + 2, "fffd", 4);
+    count++;
+    i += 6;
+  }
+  return count;
+}
+
+/* decode(text, null?, max_depth?, json5?, big_as_string?,
+ * lone_surrogates?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true -- or nests past
  * `max_depth` (64 by default). JSON `null` is `null` when given, and
@@ -271,13 +322,26 @@ static int json_decode (lua_State *L) {
                                                : YYJSON_READ_NOFLAG;
   d.big_as_string = lua_toboolean(L, 5);
   if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
-  lua_settop(L, 5);
+  int lone_surrogates = lua_toboolean(L, 6);
+  lua_settop(L, 6);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
   yyjson_read_err err;
   yyjson_doc *doc =
       yyjson_read_opts((char *)text, len, flags, &allocator, &err);
+  if (doc == NULL && lone_surrogates && err.msg != NULL &&
+      strstr(err.msg, "surrogate") != NULL) {
+    /* yyjson refuses a lone surrogate escape whatever it is told, so
+     * read a copy with each one written over as \ufffd. The copy is a
+     * userdata on the stack, above the guard, and outlives the read. */
+    char *copy = lua_newuserdatauv(L, len, 0);
+    memcpy(copy, text, len);
+    if (repair_surrogates(copy, len) > 0) {
+      text = copy;
+      doc = yyjson_read_opts(copy, len, flags, &allocator, &err);
+    }
+  }
   if (doc == NULL) return read_failure(L, text, len, &err);
   guard->resource = doc;
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
