@@ -392,3 +392,13 @@ local function test_a_local_reads_its_own_name_from_before_it()
   allows("local err = name()\ndo local v, err = get() use(v, err) end\n" ..
     "local e = err:find('x')\nuse(e)")
 end
+
+--- A function `contracts.parsing` names is not held to rule 6.
+local function test_a_parsing_exempt_function_is_not_held_to_rule_6()
+  local source = "local function f()\n  local v, err = get()\n  use(v, err:find('x'))\nend\nuse(f)"
+  flags(source, "a failure's reason is read for what it says")
+  contracts.parsing["x.tl:f"] = "a test's own exemption"
+  local found = problems_in(source)
+  contracts.parsing["x.tl:f"] = nil
+  assert(#found == 0, table.concat(found, "\n"))
+end

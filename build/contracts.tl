@@ -60,7 +60,8 @@
 --- 5 read a function's declared results.
 ---
 --- `contracts.exempt` names the functions rules 2 to 5 cannot yet hold,
---- each with its reason; the TODO for each is where its fix goes.
+--- and `contracts.parsing` the functions rule 6 cannot, each with its
+--- reason; the TODO for each is where its fix goes.
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
@@ -72,6 +73,9 @@ local type Type = receivers.Type
 local record contracts
   --- `"file:function"` to the reason rules 2 to 5 do not hold it.
   exempt: {string: string}
+  --- `"file:function"` to the reason rule 6 does not hold it: the
+  --- innermost named function the read stands in.
+  parsing: {string: string}
   --- Methods of one record whose failure a statement may ignore.
   record Quiet
     reason: string
@@ -87,6 +91,12 @@ contracts.exempt = {
   ["cosmic/child.tl:Child.wait_any"] =
     "a finished handle comes back with its group's lingering-member " ..
     "trouble, which a caller reports beside the handle's result",
+}
+
+contracts.parsing = {
+  ["build/zig.tl:attempt"] =
+    "bin/zig runs on the release ci/cosmic-driver.pin names, whose " ..
+    "Http.download names the URL in one failure's reason and no other",
 }
 
 --- The methods whose failures a statement may ignore without saying
@@ -648,11 +658,12 @@ local function check_inspections(file: string, root: Node, callees: {integer: Ty
     }
   end
   local seen: {Node: boolean} = {}
-  local function go(n: Node, ends: integer)
+  local function go(n: Node, ends: integer, within: string)
     if seen[n] then return end
     seen[n] = true
     local kind = n.kind
     if kind == "statements" then ends = block_end(n) end
+    if is_function(n) and n.name ~= nil then within = function_name(n) end
     if kind == "local_declaration" or kind == "assignment" then
       local slot = reason_slot(n, callees)
       local exps = list_of(n.exps)
@@ -676,10 +687,12 @@ local function check_inspections(file: string, root: Node, callees: {integer: Ty
         bind(param, position(param.y, param.x), block_end(n.body), true, false)
       end
     end
-    for _, read in ipairs(inspected(n)) do reads[#reads + 1] = { read, n } end
-    each_child(n, function(child: Node) go(child, ends) end)
+    if contracts.parsing[file .. ":" .. within] == nil then
+      for _, read in ipairs(inspected(n)) do reads[#reads + 1] = { read, n } end
+    end
+    each_child(n, function(child: Node) go(child, ends, within) end)
   end
-  go(root, math.maxinteger)
+  go(root, math.maxinteger, "")
   for _, list in pairs(bindings) do
     table.sort(list, function(a: Binding, b: Binding): boolean return a.at < b.at end)
   end
