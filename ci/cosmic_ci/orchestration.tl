@@ -49,6 +49,11 @@ local function operation(c: Context, phase: string, command: {string},
   if not child_environment.COSMIC_ZIG_CACHE then
     child_environment.COSMIC_ZIG_CACHE = c.root .. "/o/zig-cache"
   end
+  -- The driver boots the candidate itself; a tool that finds its core
+  -- stale is a fault to report, not one to boot past (build/reboot.tl).
+  if not child_environment.COSMIC_AUTO_BOOT then
+    child_environment.COSMIC_AUTO_BOOT = "0"
+  end
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ms = timeout,
     output = output, error = error_output }).code

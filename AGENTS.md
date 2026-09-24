@@ -25,10 +25,13 @@
    path is written back in Lua's own layout (`build/c/layout.tl`) and
    checked against the rules in `build/c/rules.tl` (see C, below).
 3. A tool older than the tree rebuilds itself and re-enters the command the
-   moment it notices, so an edit to Teal needs no boot: `o/bin/cosmic test`
-   after the edit is enough. A change under `core/`, to `build.zig` or
-   `build/launcher.tl`, or to a vendored library's pin or patches still needs
-   `bin/zig build boot`, and the tool says so by name.
+   moment it notices, so `o/bin/cosmic test` after an edit is enough. An
+   edit to Teal rebuilds its database; a change to the core's C under
+   `core/`, to `build.zig` or `build/launcher.tl`, or to a vendored library's
+   pin or patches runs `bin/zig build boot` first, its output on stderr.
+   `COSMIC_AUTO_BOOT=0` makes the tool refuse instead, exiting 3 (CI's
+   driver sets it). A boot that fails stops the command: check its exit
+   status rather than piping it away.
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key, same contents for every file opened, and same stat and directory
    read answers under the root -- is not run again, so a run after a small edit

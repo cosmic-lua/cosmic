@@ -267,6 +267,33 @@ local function boot_hash_of(root: string): string
   return fingerprint.boot
 end
 
+--- The tool's hash over what its C core is built from.
+local function image_hash_of(root: string): string
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local fingerprint = assert(work.fingerprint(handle))
+  work.close(handle)
+  return fingerprint.image
+end
+
+--- A Teal test beside the core's C is not a core input: an edit to one
+--- rebuilds the tool's database, never the core.
+local function test_image_hash_leaves_out_teal_under_core()
+  local root = assert(Fs.mkdtemp("cosmic-importer-test-image-hash-"))
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "bin" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  assert(Fs.write(root .. "/core/main.c", "original"))
+  assert(Fs.write(root .. "/core/main_test.tl", "original"))
+  local image = image_hash_of(root)
+  local boot = boot_hash_of(root)
+  assert(Fs.write(root .. "/core/main_test.tl", "changed"))
+  assert(image_hash_of(root) == image, "a Teal test moved the core's hash")
+  assert(boot_hash_of(root) ~= boot, "a Teal test did not move the tool's hash")
+  assert(Fs.write(root .. "/core/main.c", "changed"))
+  assert(image_hash_of(root) ~= image, "the core's C did not move its hash")
+end
+
 --- The compiler identity is what turns source into bytecode: the Teal
 --- compiler's and Lua's pins and patches, and the build's own modules
 --- in the importer's closure. The standard library the importer runs on

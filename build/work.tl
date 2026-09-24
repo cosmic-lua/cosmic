@@ -850,7 +850,8 @@ local function hash_over(db: Sqlite.Handle, where: string): string | nil, string
 end
 
 --- The tool's fingerprints, over `tool`: `boot` over every row, and
---- `image` over what the C core is built from -- `core/`, the zig
+--- `image` over what the C core is built from -- `core/` but the Teal
+--- tests beside its C, which no core is built from, the zig
 --- build and wrapper, and every vendored tree's pin and patches,
 --- the Teal compiler's included: only `bin/zig build boot` applies a
 --- patch record to a pin, so a change under `vendor/tl/PIN` or
@@ -867,7 +868,8 @@ function work.fingerprint(handle: work.Handle): work.Fingerprint | nil, string
     return nil, boot_trouble
   end
   local image, image_trouble = hash_over(db,
-    "path GLOB 'core/*' OR path IN ('build.zig', 'build.zig.zon', " ..
+    "(path GLOB 'core/*' AND NOT path GLOB 'core/*.tl') OR " ..
+    "path IN ('build.zig', 'build.zig.zon', " ..
     "'bin/zig', 'bin/zig.pin', 'build/launcher.tl') OR " ..
     "path GLOB 'vendor/*/PIN' OR " ..
     "path GLOB 'patch/*'")
