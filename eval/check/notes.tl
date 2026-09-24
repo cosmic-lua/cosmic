@@ -39,6 +39,22 @@ function Notes.failed_in_cosmic(err: string): boolean
   return err:find("^cosmic") ~= nil or err:find("\ncosmic") ~= nil
 end
 
+--- Whether `cosmic build`'s output names o/bin/notes among the
+--- executables it wrote: `build: PASS (o/bin/notes, 433 ms)`.
+function Notes.built_notes(output: string): boolean
+  for line in output:gmatch("[^\n]+") do
+    local wrote = line:match("^build: PASS %((.*)%)$")
+    if wrote ~= nil then
+      for name in wrote:gmatch("[^,]+") do
+        if name:match("^%s*(.-)%s*$") == "o/bin/notes" then
+          return true
+        end
+      end
+    end
+  end
+  return false
+end
+
 local function first_line(text: string): string
   return text:match("^[^\n]*")
 end
@@ -113,21 +129,21 @@ end
 --- Runs one step, its output kept in the arena as check-<n>.out and
 --- shown beneath the step when it fails. A step is a command, or a
 --- function standing for one under `label`, answering whether it
---- passed and what it printed.
-local function step(g: Grade, label: string, work: function(out: integer): boolean)
+--- passed and what it printed. Answers whether it passed.
+local function step(g: Grade, label: string, work: function(out: integer): boolean): boolean
   g.steps = g.steps + 1
   local log = g.dir .. "/check-" .. g.steps .. ".out"
   local out, trouble = Fs.open_write(log)
   if out == nil then
     say("FAIL " .. label .. ": " .. trouble)
     g.failed = true
-    return
+    return false
   end
   local passed = work(out)
   Fs.close(out)
   if passed then
     say("ok   " .. label)
-    return
+    return true
   end
   say("FAIL " .. label)
   local text = Fs.read(log) or ""
@@ -138,10 +154,11 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
     Fs.put(Fs.stdout, "check:   " .. line .. "\n")
   end
   g.failed = true
+  return false
 end
 
-local function command_step(g: Grade, argv: {string}, cwd: string)
-  step(g, table.concat(argv, " "), function(out: integer): boolean
+local function command_step(g: Grade, argv: {string}, cwd: string): boolean
+  return step(g, table.concat(argv, " "), function(out: integer): boolean
     local result, trouble = Child.run(argv, { cwd = cwd, stdout = out, stderr = "stdout" })
     if result == nil then
       Fs.put(out, trouble .. "\n")
@@ -293,13 +310,17 @@ function Notes.grade(dir: string): integer
     return tests > 0 and examples > 0
   end)
   command_step(g, { cosmic, "fix", "--check" }, project)
-  command_step(g, { cosmic, "build" }, project)
-  -- TODO: when `cosmic build` fails, an o/bin/notes an earlier build left
-  -- is still run below, and its lines read ok under the FAIL above.
-  -- Grade the executable only when the build step passed, or say it
-  -- is stale, rather than deleting the solver's deliverable.
+  local built = command_step(g, { cosmic, "build" }, project)
   local exe = project .. "/o/bin/notes"
-  if not is_executable(exe) then
+  -- Only a build that passed and names o/bin/notes among what it wrote
+  -- vouches for the file: after a failed build, or one that no longer
+  -- builds notes (cmd/notes renamed away), an o/bin/notes still there
+  -- is an earlier build's. It stays in place -- it is the solver's
+  -- deliverable, not the grader's to delete -- but it is not run.
+  local log = Fs.read(g.dir .. "/check-" .. g.steps .. ".out") or ""
+  if not built then
+    say("skip o/bin/notes: cosmic build failed; not running an earlier build's binary")
+  elseif not Notes.built_notes(log) or not is_executable(exe) then
     say("FAIL cosmic build did not produce o/bin/notes; a binary is cmd/<name>/main.tl")
     g.failed = true
   else

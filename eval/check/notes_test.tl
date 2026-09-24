@@ -72,3 +72,35 @@ local function test_a_signal_is_a_status_as_a_shell_reports_it()
   assert(Notes.status({ code = 3, ok = false, timed_out = false, captured = {}, truncated = false }) == 3)
   assert(Notes.status({ signal = 11, ok = false, timed_out = false, captured = {}, truncated = false }) == 139)
 end
+
+--- A build that fails leaves an earlier o/bin/notes where it was, and
+--- the grader must not run that one as if it were this project's.
+local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
+  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
+  assert(Fs.write(dir .. "/bin/cosmic",
+    '#!/bin/sh\nif [ "$1" = build ]; then echo "build: FAIL" >&2; exit 1; fi\nexit 0\n', 0x1ed))
+  assert(Fs.write(dir .. "/project/o/bin/notes", "#!/bin/sh\necho 1\n", 0x1ed))
+  Notes.grade(dir)
+  assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
+  assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
+end
+
+--- A build that passes but no longer writes notes (cmd/notes renamed
+--- away) vouches for nothing: the earlier o/bin/notes is not run, and
+--- the grade fails for want of one.
+local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one(dir: string)
+  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
+  assert(Fs.write(dir .. "/bin/cosmic",
+    '#!/bin/sh\nif [ "$1" = build ]; then echo "build: PASS (no executable: no cmd/<name>/main.tl)"; fi\nexit 0\n', 0x1ed))
+  assert(Fs.write(dir .. "/project/o/bin/notes", "#!/bin/sh\necho 1\n", 0x1ed))
+  assert(Notes.grade(dir) == 1)
+  assert(not Fs.exists(dir .. "/empty"), "the earlier binary was run")
+end
+
+local function test_built_notes_reads_the_build_line()
+  assert(Notes.built_notes("build: 4 modules\nbuild: PASS (o/bin/notes, 433 ms)\n"))
+  assert(Notes.built_notes("build: PASS (o/bin/hello, o/bin/notes, 12 ms)\n"))
+  assert(not Notes.built_notes("build: PASS (o/bin/notes2, 12 ms)\n"))
+  assert(not Notes.built_notes("build: PASS (no executable: no cmd/<name>/main.tl)\n"))
+  assert(not Notes.built_notes("build: FAIL\n"))
+end
