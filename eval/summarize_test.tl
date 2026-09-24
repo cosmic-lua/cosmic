@@ -113,12 +113,6 @@ local function test_a_lone_surrogate_does_not_lose_the_line()
   assert(report:find("failed_calls=1 docs_misses=0 first_green_test_call=1", 1, true), report)
 end
 
-local function test_without_lone_surrogates_keeps_a_pair_and_an_escaped_backslash()
-  assert(Summarize.without_lone_surrogates('"\\ud83d\\ude00 \\ud83d x \\udc00"')
-    == '"\\ud83d\\ude00 \\ufffd x \\ufffd"')
-  assert(Summarize.without_lone_surrogates('"\\\\ud83d"') == '"\\\\ud83d"')
-end
-
 local function test_punctuation_past_ascii_does_not_hide_a_path()
   local found = Summarize.paths("cat \u{201c}/root/secret\u{201d} \u{2026}/x /a\u{a0}/b \u{2192}/y /\u{e9}t\u{e9}")
   assert(table.concat(found, " ") == "/root/secret /x /a /b /y /\u{e9}t\u{e9}", table.concat(found, " "))

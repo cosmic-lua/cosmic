@@ -66,6 +66,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
@@ -272,25 +273,17 @@ end
 --- first executable file of that name on `path` (an empty entry is the
 --- working directory). The second result is the exit status a shell
 --- would give when nothing runnable was found: 127 for none at all,
---- 126 for one that is there but not executable.
--- TODO: call Proc.find, which does this, once ci/cosmic-driver.pin names
--- a cosmic carrying it: this runs standalone on the pinned release.
+--- 126 for one that is there but not executable. Proc.find does the
+--- search; this gives its answer the shell's status.
+-- TODO: tell none from not executable by something other than
+-- Proc.find's message, once it reports which case it hit apart from
+-- the text.
 function Zig.resolve(name: string, path: string): string | nil, integer
-  if name:find("/", 1, true) ~= nil then
-    return name, 0
+  local found, trouble = Proc.find(name, path)
+  if found ~= nil then
+    return found, 0
   end
-  local status = 127
-  for dir in (path .. ":"):gmatch("([^:]*):") do
-    local candidate = (dir == "" and "." or dir) .. "/" .. name
-    local st = sys.stat(candidate)
-    if st ~= nil and st.kind == "file" then
-      if st.mode & 0x49 ~= 0 then
-        return candidate, 0
-      end
-      status = 126
-    end
-  end
-  return nil, status
+  return nil, String.ends_with(trouble, ": not executable") and 126 or 127
 end
 
 --- The zig to run and its first trouble: `COSMIC_ZIG` when set,
@@ -406,12 +399,9 @@ function Zig.watches(path: string): boolean
   if watched_files[path] then
     return true
   end
-  -- TODO: String.ends_with in place of `sub(-3)` here once
-  -- ci/cosmic-driver.pin names a cosmic carrying cosmic.string: bin/zig runs
-  -- this file on the pinned bootstrap.
   local first = path:match("^([^/]+)/")
   if first == nil then
-    return path:sub(-3) == ".tl"
+    return String.ends_with(path, ".tl")
   end
   if watched_trees[first] then
     return true
@@ -420,7 +410,7 @@ function Zig.watches(path: string): boolean
       path:match("^doc/guides/[^/]+%.md$") ~= nil then
     return true
   end
-  return first ~= "bin" and first ~= "doc" and path:sub(-3) == ".tl"
+  return first ~= "bin" and first ~= "doc" and String.ends_with(path, ".tl")
 end
 
 --- What a build reads under `root`, by relative path, each as its
