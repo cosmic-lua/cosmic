@@ -39,7 +39,11 @@ local function write(fields: {string}): string | nil
   local out = Stream.collect()
   local zw = Zip.writer(out, { deterministic = true })
   for i = 1, #fields, 4 do
-    local kind, path, method, body = fields[i], fields[i + 1], fields[i + 2], fields[i + 3]
+    local kind, path, name, body = fields[i], fields[i + 1], fields[i + 2], fields[i + 3]
+    -- A shrunk input may name no method at all, which the writer
+    -- would refuse.
+    if kind == "file" and name ~= "store" and name ~= "deflate" then return nil end
+    local method: Zip.Method = name == "store" and "store" or "deflate"
     local ok: boolean
     if kind == "file" then
       ok = zw:add_file(path, body, { method = method })

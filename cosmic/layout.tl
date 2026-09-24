@@ -2,7 +2,9 @@
 --- as more than plain library code -- a name `build/positions.tl`
 --- compares literally, or a file suffix `build/work.tl` matches, not
 --- a symbol any one function's doc comment could state on its own.
---- `cosmic docs <word>` finds each field below directly.
+--- `cosmic docs <word>` finds each field below directly. A field is
+--- named for the file it shapes (`tests`), not for a verb: `cosmic docs
+--- test` is `cosmic.cli`'s, the verb.
 local record Layout
   --- a worked example: a `<name>_example.tl` file must return a
   --- record literally named `Example`, one field per example --
@@ -18,7 +20,7 @@ local record Layout
   --- verdict line's "N ran, M stood" is `test.Tally`: ran counts
   --- tests actually executed this time, stood the ones answered from
   --- an unchanged prior verdict instead
-  test: string
+  tests: string
   --- a project's own module is named by its path from the project's
   --- root, the working directory: `notes.tl` is `require("notes")`,
   --- `store/db.tl` is `require("store.db")`, and `store/init.tl` is
@@ -38,7 +40,7 @@ local record Layout
 end
 
 local layout: Layout = {
-  Example = "Example", test = "test", require = "require",
+  Example = "Example", tests = "tests", require = "require",
 }
 
 return layout

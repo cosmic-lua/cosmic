@@ -49,7 +49,7 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- - a record, enum or type the module declares, and a field naming
 ---   one (`Module: Module`, a type's CamelCase name): a type is a
 ---   shape its members' uses already account for;
---- - a nested record's own fields (`ZipWriter.add_file`): the shape of
+--- - a nested record's own fields (`Writer.add_file`): the shape of
 ---   a value the module hands out, which its caller reads or fills in
 ---   through that value;
 --- - `main`, which `cosmic <file>` and `cosmic --standalone` call on a
@@ -362,8 +362,9 @@ end
 --- allowance still excuses something.
 local function test_every_export_in_the_tree_earns_its_place()
   -- SQLite opens the file in C, which a verdict's key does not see:
-  -- opening it through `Fs` too puts its bytes in the key, so the test
-  -- runs again whenever a build rewrites it.
+  -- opening it through `Fs` too puts its bytes in the key (build/test.tl
+  -- keys o/cosmic.db, alone of o/), so the test runs again whenever a
+  -- build rewrites it.
   local fd = assert(Fs.open_read("o/cosmic.db"))
   assert(Fs.close(fd))
   local db = assert(Sqlite.open("o/cosmic.db", false))

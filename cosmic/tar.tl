@@ -36,25 +36,25 @@ local record Tar
     --- The header's typeflag byte, for telling apart what `kind`
     --- lumps together as "other".
     typeflag: string
-    --- This entry's body, as a Reader bounded to its size. Valid only
-    --- until the next `TarReader.next` call; reading it afterwards
+    --- This entry's body, as a Stream.Reader bounded to its size. Valid only
+    --- until the next `Reader.next` call; reading it afterwards
     --- fails, and so does opening it twice.
     open: function(Entry): Stream.Reader | nil, string
   end
 
-  record TarReader
+  record Reader
     --- The next entry, or nil and `""` once the archive's two zero
     --- blocks are reached (or the stream simply ends there). An error
     --- is sticky: every later call returns it again.
-    next: function(TarReader): Entry | nil, string
-    --- Closes the Reader this one reads from.
-    close: function(TarReader): boolean, string
+    next: function(Reader): Entry | nil, string
+    --- Closes the Stream.Reader this one reads from.
+    close: function(Reader): boolean, string
   end
 
   record EntryOptions
     mode: integer
     mtime: integer
-    --- Required when the body passed to `add_file` is a Reader rather
+    --- Required when the body passed to `add_file` is a Stream.Reader rather
     --- than a string, since a tar header states a size before its body.
     size: integer
   end
@@ -66,16 +66,16 @@ local record Tar
     deterministic: boolean
   end
 
-  --- Once any call fails, the underlying Writer is aborted and every
+  --- Once any call fails, the underlying Stream.Writer is aborted and every
   --- later call, `close` included, returns that failure: a half-written
   --- archive is never committed. A call after `close` fails too.
-  record TarWriter
-    add_file: function(TarWriter, string, string | Stream.Reader, opts?: EntryOptions): boolean, string
-    add_dir: function(TarWriter, string, opts?: EntryOptions): boolean, string
-    add_symlink: function(TarWriter, string, string, opts?: EntryOptions): boolean, string
-    close: function(TarWriter): boolean, string
-    --- Abandons the archive: aborts the underlying Writer.
-    abort: function(TarWriter): boolean, string
+  record Writer
+    add_file: function(Writer, string, string | Stream.Reader, opts?: EntryOptions): boolean, string
+    add_dir: function(Writer, string, opts?: EntryOptions): boolean, string
+    add_symlink: function(Writer, string, string, opts?: EntryOptions): boolean, string
+    close: function(Writer): boolean, string
+    --- Abandons the archive: aborts the underlying Stream.Writer.
+    abort: function(Writer): boolean, string
   end
 end
 
@@ -383,7 +383,7 @@ Body_methods.close = function(self: Body): boolean, string
 end
 
 --- A streaming reader over `raw`'s tar bytes. Closing it closes `raw`.
-function Tar.reader(raw: Stream.Reader): Tar.TarReader
+function Tar.reader(raw: Stream.Reader): Tar.Reader
   local ended = false
   local failed: string
   local closed = false
@@ -392,7 +392,7 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
   local state: ReaderState = {
     raw = src, pending_skip = 0, generation = 0, opened = false, size = 0,
   }
-  local tr: Tar.TarReader = {}
+  local tr: Tar.Reader = {}
 
   local function fail(trouble: string): nil, string
     failed = trouble ~= "" and trouble or "tar: read failed"
@@ -418,7 +418,7 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
     },
   }
 
-  tr.next = function(_self: Tar.TarReader): Tar.Entry | nil, string
+  tr.next = function(_self: Tar.Reader): Tar.Entry | nil, string
     if failed then return nil, failed end
     if closed then return nil, "tar: reader is closed" end
     if ended then return nil, "" end
@@ -513,7 +513,7 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
     end
   end
 
-  tr.close = function(_self: Tar.TarReader): boolean, string
+  tr.close = function(_self: Tar.Reader): boolean, string
     if closed then return true, "" end
     closed = true
     state.generation = state.generation + 1
@@ -601,12 +601,12 @@ local function pax_header(real_name: string, records: string): string
 end
 
 --- A streaming writer over `w`.
-function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
+function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false
   local closed = false
   local failed: string
-  local tw: Tar.TarWriter = {}
+  local tw: Tar.Writer = {}
 
   local function fail(trouble: string): boolean, string
     if failed == nil then
@@ -659,7 +659,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     return put(header)
   end
 
-  tw.add_file = function(_self: Tar.TarWriter, path: string, data: string | Stream.Reader,
+  tw.add_file = function(_self: Tar.Writer, path: string, data: string | Stream.Reader,
       fopts?: Tar.EntryOptions): boolean, string
     fopts = fopts or {}
     local size = fopts.size
@@ -698,7 +698,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     return put(pad_bytes(size))
   end
 
-  tw.add_dir = function(_self: Tar.TarWriter, path: string, fopts?: Tar.EntryOptions): boolean, string
+  tw.add_dir = function(_self: Tar.Writer, path: string, fopts?: Tar.EntryOptions): boolean, string
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
@@ -706,7 +706,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     return put_entry(dirpath, "5", 0, mode, mtime, "")
   end
 
-  tw.add_symlink = function(_self: Tar.TarWriter, path: string, target: string,
+  tw.add_symlink = function(_self: Tar.Writer, path: string, target: string,
       fopts?: Tar.EntryOptions): boolean, string
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ff
@@ -714,7 +714,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     return put_entry(path, "2", 0, mode, mtime, target)
   end
 
-  tw.close = function(_self: Tar.TarWriter): boolean, string
+  tw.close = function(_self: Tar.Writer): boolean, string
     if failed then return false, failed end
     if closed then return true, "" end
     local ok, trouble = put(string.rep("\0", 2 * BLOCK))
@@ -728,7 +728,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     return true, ""
   end
 
-  tw.abort = function(_self: Tar.TarWriter): boolean, string
+  tw.abort = function(_self: Tar.Writer): boolean, string
     if closed or failed then return true, "" end
     closed = true
     return w:abort()

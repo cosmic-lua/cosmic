@@ -44,6 +44,9 @@ local record TypeNode
   x: integer
   yend: integer | nil
   xend: integer | nil
+  --- The id tl's parser gave the type, which the checker keeps: a
+  --- record's is the one its checked values' types carry.
+  typeid: integer | nil
   --- The type's own shape, e.g. `"integer"`, `"map"`, `"function"`,
   --- `"nominal"`, `"record"`, `"tuple"`.
   typename: string
@@ -55,6 +58,9 @@ local record TypeNode
   is_va: boolean | nil
   --- A union's alternatives.
   types: {TypeNode} | nil
+  --- A `"nominal"`: the name it refers to, one entry per dotted part
+  --- (`Zip.Reader` is `{"Zip", "Reader"}`).
+  names: {string} | nil
 
   --- A `"typedecl"`: the record, enum, or alias it declares, and whether
   --- it is an alias (`local type X = Y`) rather than a definition.

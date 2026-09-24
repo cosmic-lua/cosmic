@@ -49,6 +49,14 @@ local function test_deterministic_mode_uses_the_1980_epoch()
   assert(entry.mtime == 315532800, tostring(entry.mtime))
 end
 
+--- A method outside Zip.Method reaches add_file only past the checker
+--- (a cast, or plain Lua); the writer refuses it rather than guessing.
+local function test_an_unknown_method_is_refused()
+  local w = Zip.writer(Stream.collect(), { deterministic = true })
+  local ok, trouble = w:add_file("f", "x", { method = "zstd" as Zip.Method })
+  assert(not ok and trouble == "zip: unknown method 'zstd'", trouble)
+end
+
 local function test_mode_bits_round_trip_through_external_attributes()
   local c = Stream.collect()
   local w = Zip.writer(c)
