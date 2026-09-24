@@ -184,3 +184,26 @@ chmod 755 o/bin/cosmic
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
 end
+
+--- cache-save copies the candidate's project cache back over the seed's:
+--- the earlier save is gone, the new one sits at seed/zig-cache itself,
+--- not nested inside it, and it keeps its files' bytes and modes.
+local function test_cache_save_replaces_the_seeds_project_cache(tmp: string)
+  local base, project = command(tmp)
+  local fake, seed = tmp .. "/fake", tmp .. "/seed"
+  assert(Fs.mkdirs(fake .. "/o/zig-cache/o/abc") and Fs.mkdirs(seed .. "/zig-cache"))
+  assert(Fs.write(fake .. "/o/zig-cache/o/abc/tool", "compiled", 0x1ed))
+  assert(Fs.write(seed .. "/zig-cache/stale", "old"))
+  assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
+  local runner_temp = tmp .. "/runner-temp"
+  assert(Fs.mkdirs(runner_temp))
+  local outcome = Fixture.call("cache-save", append(base, { "platform", "cache-save" }),
+    project, tmp .. "/logs", context(fake, runner_temp, {
+      TARGET = "x86_64-linux-musl", COSMIC_ZIG_CACHE_SEED = seed,
+    }))
+  assert(outcome.result.ok, "cache-save failed: " .. Fixture.read(outcome.err))
+  assert(Fs.read(seed .. "/zig-cache/o/abc/tool") == "compiled")
+  assert(assert(Fs.stat(seed .. "/zig-cache/o/abc/tool")).mode & 0x1ff == 0x1ed)
+  assert(Fs.exists(seed .. "/zig-cache/stale") == false, "the earlier save was kept")
+  assert(Fs.exists(seed .. "/zig-cache/zig-cache") == false, "the save was nested")
+end
