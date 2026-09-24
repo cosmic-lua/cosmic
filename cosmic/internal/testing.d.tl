@@ -42,6 +42,11 @@ local record testing
   --- How many HTTP transfers hold curl state: made by an open, and not
   --- yet released by a close, a failure or the collector.
   live_transfers: function(): integer
+
+  --- The running executable's path, as the core finds it for itself
+  --- when given a buffer of `room` bytes (1 to 4096), or nil when it
+  --- says the path does not fit.
+  executable_path: function(room: integer): string | nil
 end
 
 return testing
