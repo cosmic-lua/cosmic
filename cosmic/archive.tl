@@ -454,6 +454,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
       if etrouble ~= "" then return bail(etrouble) end
       break
     end
+    -- TODO: use `got` itself once #2011 merges: its break narrows it.
     local entry: Archive.Entry = got
     if not safe_relative(entry.path) then
       return bail("archive: refusing an unsafe entry path: " .. entry.path)

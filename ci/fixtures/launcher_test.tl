@@ -152,6 +152,8 @@ local function finish(running: Running, timeout?: integer): Child.Result
     error("launcher child wait failed: " .. trouble)
   end
   close_descriptors(running)
+  -- TODO: drop the cast once ci/cosmic-driver.pin names a cosmic carrying
+  -- patch/tl/24 and 25, which let the error() above narrow `result`.
   return result as Child.Result
 end
 
