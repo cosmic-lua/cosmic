@@ -292,6 +292,11 @@ local function under_root(root: string, path: string,
     if resolved == nil then return nil end
     relative = resolved
   end
+  -- TODO: a read of o/cosmic.db enters no key here, so a test that
+  -- reads the tree's shipped database (build/exports_test.tl,
+  -- build/doc_anchors_test.tl, which open it through Fs to be keyed on
+  -- it) stands across a build that rewrites it. Key that one file by
+  -- its hash, as a staged file is, while leaving the rest of o/ out.
   if relative == "o" or relative:sub(1, 2) == "o/" then
     return nil
   end

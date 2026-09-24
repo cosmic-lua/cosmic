@@ -62,9 +62,9 @@ end
 --- Exemptions naming `keys` in the table `which` alone, in place of
 --- build.contracts' own.
 local function exempting(which: string, keys: {string}): contracts.Exemptions
-  local out: contracts.Exemptions = { exempt = {}, parsing = {}, casts = {} }
+  local out: contracts.Exemptions = { exempt = {}, parsing = {}, casts = {}, modes = {} }
   local named: {string: string} = which == "exempt" and out.exempt
-    or which == "parsing" and out.parsing or out.casts
+    or which == "parsing" and out.parsing or which == "modes" and out.modes or out.casts
   for _, key in ipairs(keys) do named[key] = "a test's own exemption" end
   return out
 end
@@ -497,7 +497,7 @@ end
 --- and the stub uses no exemption: an entry naming one of its functions
 --- is refused whatever module is checked (see `stale`).
 local function test_no_exemption_may_name_a_function_of_the_importer()
-  for _, which in ipairs({ "exempt", "parsing", "casts" }) do
+  for _, which in ipairs({ "exempt", "parsing", "casts", "modes" }) do
     local found = problems_in("use(1)", exempting(which, { "build/importer.tl:generate" }))
     assert(#found == 1 and found[1]:find("names build/importer.tl:generate", 1, true),
       which .. ": " .. table.concat(found, "\n"))
@@ -512,4 +512,75 @@ local function test_an_exempt_function_is_keyed_by_its_scope()
   flags(source, "a failure answers nil beside its reason")
   local found = problems_in(source, exempting("exempt", { "x.tl:f.g" }))
   assert(#found == 0, table.concat(found, "\n"))
+end
+
+local stutters = "a type repeats its module's name"
+
+--- Rule 8: a type the returned record declares is refused when its name
+--- is the module's, or starts with it and then a capital.
+local function test_a_type_repeating_its_module_is_flagged()
+  flags("local record Zip\n  record ZipReader\n    n: integer\n  end\nend\nreturn Zip",
+    "Zip.ZipReader: " .. stutters .. ", which every use already says; call it Zip.Reader")
+  flags("local record Zip\n  enum Zip\n    \"a\"\n  end\nend\nreturn Zip",
+    "Zip.Zip: " .. stutters)
+  flags("local record zip\n  type ZipKind = string\nend\nreturn zip",
+    "zip.ZipKind: " .. stutters)
+end
+
+--- A name that only starts with the module's letters (`Logger` in
+--- `Log`), a plain field, and a type of a record the chunk does not
+--- return are allowed.
+local function test_a_type_of_its_own_name_is_allowed()
+  allows("local record Log\n  record Logger\n    n: integer\n  end\n" ..
+    "  record Reader\n    n: integer\n  end\n  LogLevel: integer\nend\nreturn Log")
+  allows("local record Zip\n  record ZipReader\n    n: integer\n  end\nend\n" ..
+    "local record Other\nend\nuse(Zip)\nreturn Other")
+end
+
+local modal = "is a closed set of modes"
+
+--- Rule 9: an option record's string field compared with two literals is
+--- flagged, followed through a local, a default after `or`, and a local
+--- function's parameter.
+local function test_a_string_mode_is_flagged()
+  local record_source = "local record Options\n  links: string\nend\n"
+  flags(record_source .. "local function f(o: Options)\n" ..
+    "  if o.links == 'skip' then use(1) elseif o.links ~= 'create' then use(2) end\nend\nuse(f)",
+    "Options.links: a string compared with \"create\", \"skip\" " .. modal)
+  flags(record_source .. "local function f(o: Options)\n" ..
+    "  local mode = o.links or 'skip'\n  if mode == 'create' then use(1) end\nend\nuse(f)",
+    "Options.links: a string compared with \"create\", \"skip\" " .. modal)
+  flags("local record R\n  record WriterOptions\n    method: string\n  end\nend\n" ..
+    "local function g(name: string)\n  if name == 'store' then use(1) elseif name == 'deflate' then use(2) end\nend\n" ..
+    "local function f(o: R.WriterOptions)\n  g(o.method)\nend\nuse(f)",
+    "R.WriterOptions.method: a string compared with \"deflate\", \"store\" " .. modal)
+end
+
+--- One literal, `""`, an enum, an open string never compared, a record
+--- that is not an option record, and a field of the same name on
+--- another record are allowed.
+local function test_a_string_that_is_no_mode_is_allowed()
+  allows("local record Options\n  links: string\nend\n" ..
+    "local function f(o: Options)\n  if o.links == 'create' or o.links == '' then use(1) end\nend\nuse(f)")
+  allows("local enum Links\n  'skip'\n  'create'\nend\nlocal record Options\n  links: Links\nend\n" ..
+    "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)")
+  allows("local record Options\n  path: string\nend\n" ..
+    "local function f(o: Options)\n  use(o.path .. '/x')\nend\nuse(f)")
+  allows("local record Entry\n  kind: string\nend\n" ..
+    "local function f(e: Entry)\n  if e.kind == 'a' or e.kind == 'b' then use(1) end\nend\nuse(f)")
+  allows("local record Options\n  kind: string\nend\nlocal record Other\n  kind: string\nend\n" ..
+    "local function f(o: Options, e: Other)\n" ..
+    "  if e.kind == 'a' or e.kind == 'b' then use(o.kind) end\nend\nuse(f)")
+end
+
+--- A field `modes` names may be compared with literals; an entry no
+--- field needs is stale.
+local function test_a_modes_exemption_excuses_and_goes_stale()
+  local source = "local record Options\n  links: string\nend\n" ..
+    "local function f(o: Options)\n  if o.links == 'skip' or o.links == 'create' then use(1) end\nend\nuse(f)"
+  local found = problems_in(source, exempting("modes", { "x.tl:Options.links" }))
+  assert(#found == 0, table.concat(found, "\n"))
+  local stale = problems_in("use(1)", exempting("modes", { "x.tl:Options.gone" }))
+  assert(#stale == 1 and stale[1]:find("contracts.modes names x.tl:Options.gone, which no longer needs it",
+    1, true) ~= nil, table.concat(stale, "\n"))
 end

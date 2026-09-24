@@ -318,6 +318,25 @@ local function line_at(source: string, y: integer): string | nil
   return source:sub(start, stop ~= nil and stop - 1 or #source)
 end
 
+--- The `cosmic.*` module `source` binds to the local `name` by a line
+--- of its own (`local Hash <const> = require("cosmic.hash")`): nil when
+--- no line does, or when lines bind it to more than one module.
+local function module_bound(source: string, name: string): string | nil
+  local module: string | nil = nil
+  local head = "^%s*local%s+" .. name
+  local tail = "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)"
+  for line in source:gmatch("[^\n]+") do
+    local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail)
+    if named ~= nil then
+      if module ~= nil and module ~= named then
+        return nil
+      end
+      module = named
+    end
+  end
+  return module
+end
+
 --- What to write instead, when `msg` is the checker refusing a name
 --- `environment_for` stripped: `unknown variable: os` at line `y`,
 --- column `x` of `source`, read together with the field that follows
@@ -330,8 +349,10 @@ end
 --- checker names a module's record after the local its `require` was
 --- first bound to, whatever alias reads it now) and `cosmic.removed`'s
 --- `members` names `cosmic.hash.hex`, what to write instead of that
---- member. A record of the program's own, or a type bound to more than
---- one module, has no answer; nor does a module bound among several
+--- member; the same for a type the module no longer declares,
+--- `unknown type Zip.ZipReader` (`cosmic.zip.ZipReader`). A record of
+--- the program's own, or a type bound to more than one module, has no
+--- answer; nor does a module bound among several
 --- names (`local A, Hash = ...`) or by a line that does not start with
 --- its `local` (`do local Hash = ...`). Scope is not read: a `require`
 --- in a nested block counts as if it were the file's own. Nil for every
@@ -339,19 +360,12 @@ end
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
   local key, alias, typename = msg:match(
     "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
+  if key == nil then
+    typename, key = msg:match("^unknown type ([%a_][%w_]*)%.([%a_][%w_]*)$")
+    alias = typename
+  end
   if key ~= nil then
-    local module: string | nil = nil
-    local head = "^%s*local%s+" .. typename
-    local tail = "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)"
-    for line in source:gmatch("[^\n]+") do
-      local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail)
-      if named ~= nil then
-        if module ~= nil and module ~= named then
-          return nil
-        end
-        module = named
-      end
-    end
+    local module = module_bound(source, typename)
     local instead = module ~= nil and Removed.members[module .. "." .. key] or nil
     if instead == nil then
       return nil

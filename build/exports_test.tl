@@ -49,7 +49,7 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 --- - a record, enum or type the module declares, and a field naming
 ---   one (`Module: Module`, a type's CamelCase name): a type is a
 ---   shape its members' uses already account for;
---- - a nested record's own fields (`ZipWriter.add_file`): the shape of
+--- - a nested record's own fields (`Writer.add_file`): the shape of
 ---   a value the module hands out, which its caller reads or fills in
 ---   through that value;
 --- - `main`, which `cosmic <file>` and `cosmic --standalone` call on a

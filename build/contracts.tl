@@ -61,6 +61,27 @@
 ---    makes without one is of the raw module the core hands the chunk
 ---    as its second argument (`local extra: any = select(2, ...)`),
 ---    which Teal can give no type.
+--- 8. A type does not repeat its module's name: a record, interface,
+---    enum or alias the module's returned record declares is read
+---    through that record (`Zip.Reader`), so `Zip.ZipReader` says
+---    `Zip` twice. The module's name is its returned record's; a type
+---    named after it outright (`Zip.Zip`), or starting with it and then
+---    a capital (`ZipReader`), is refused. `Log.Logger` is not: `Log`
+---    is followed by a lower-case letter there, a word of its own.
+--- 9. A mode is an enum, not a string (doc/design.md's fourth
+---    principle: the checker proves what a comparison could only
+---    hope). A `string` field of an option record the module declares
+---    (one named `Options` or `...Options`, which a caller fills in),
+---    whose value the module compares (`==`, `~=`) with two or more
+---    string literals other than `""`, is a closed set of modes written
+---    where the checker cannot see it: declare an `enum`, and a
+---    caller's misspelt mode is a compile error rather than a runtime
+---    surprise. A record the module fills in itself is left to it. The value is
+---    followed from the field (`opts.links`, through a type the checker
+---    gave the receiver) into a `local` bound to it, a default after
+---    `or` (whose literal counts), and the parameter of a local
+---    function it is passed to -- by name, not by scope. A string that
+---    is genuinely open-ended is named in `modes` with the reason.
 ---
 --- The exemption tables key a function as `"file:function"`: a named
 --- function by its name (`f`, `R.f`, `R:f`), under the named function
@@ -78,7 +99,8 @@
 --- `exempt` names the functions rules 2 to 5 cannot yet hold,
 --- `parsing` the functions rule 6 cannot, and `casts`
 --- the functions rule 7 lets cast, each with its reason; the TODO for
---- each is where its fix goes.
+--- each is where its fix goes. `modes` names, as `"file:Record.field"`,
+--- the string fields rule 9 lets be compared with literals.
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
@@ -98,6 +120,9 @@ local record contracts
     parsing: {string: string}
     --- The functions rule 7 lets cast.
     casts: {string: string}
+    --- The string fields rule 9 lets be compared with literals, by
+    --- `"file:Record.field"`.
+    modes: {string: string}
   end
   --- Methods of one record whose failure a statement may ignore.
   record Quiet
@@ -174,7 +199,13 @@ local casts: {string: string} = {
 }
 
 --- This module's own exemptions, which `check` holds a module to.
-local own_exemptions: contracts.Exemptions = { exempt = exempt, parsing = parsing, casts = casts }
+--- The string fields rule 9 lets be compared with literals, each
+--- with the reason its values are not a closed set.
+local modes: {string: string} = {}
+
+local own_exemptions: contracts.Exemptions = {
+  exempt = exempt, parsing = parsing, casts = casts, modes = modes,
+}
 
 --- The methods whose failures a statement may ignore without saying
 --- so, by record, with the reason: a diagnostic written to a stream has
@@ -344,6 +375,7 @@ local record Used
   exempt: {string: boolean}
   parsing: {string: boolean}
   casts: {string: boolean}
+  modes: {string: boolean}
 end
 
 --- Every function literal a top-level statement binds, by what it is
@@ -929,6 +961,188 @@ local function check_casts(file: string, root: Node, bound: {Node: string},
   go(root, "")
 end
 
+--- A type declaration's definition, with a generic's type arguments
+--- looked through.
+local function definition_of(typedecl: ast.TypeNode | nil): ast.TypeNode | nil
+  local def = typedecl ~= nil and typedecl.def or nil
+  if def ~= nil and def.typename == "generic" and def.t ~= nil then
+    return def.t
+  end
+  return def
+end
+
+--- The record a top-level `local record` (or `local type`) declares,
+--- by the name it binds.
+local function top_records(root: Node): {string: ast.TypeNode}
+  local out: {string: ast.TypeNode} = {}
+  for _, stmt in ipairs(list_of(root)) do
+    local var, value = stmt.var, stmt.value
+    if stmt.kind == "local_type" and var ~= nil and var.tk ~= nil
+        and value ~= nil and value.kind == "newtype" then
+      local def = definition_of(value.newtype)
+      if def ~= nil then out[var.tk] = def end
+    end
+  end
+  return out
+end
+
+--- The name the chunk's last statement returns (`return Zip`), when
+--- it returns one name.
+local function returned_name(root: Node): string | nil
+  local statements = list_of(root)
+  local last = statements[#statements]
+  if last == nil or last.kind ~= "return" then return nil end
+  local first = list_of(last.exps)[1]
+  if first == nil or first.kind ~= "variable" then return nil end
+  return first.tk
+end
+
+--- Rule 8: a type the returned record declares whose name repeats the
+--- module's: the record's own name, capitalized, outright or followed
+--- by a capital.
+local function check_stutter(file: string, root: Node, problems: {string})
+  local name = returned_name(root)
+  local def = name ~= nil and top_records(root)[name] or nil
+  local order, fields = def ~= nil and def.field_order or nil, def ~= nil and def.fields or nil
+  if name == nil or order == nil or fields == nil then return end
+  local module = name:sub(1, 1):upper() .. name:sub(2)
+  for _, field in ipairs(order) do
+    local t = fields[field]
+    local rest = field:sub(#module + 1)
+    if t ~= nil and t.typename == "typedecl" and field:sub(1, #module) == module
+        and (rest == "" or rest:match("^%u") ~= nil) then
+      problems[#problems + 1] = string.format(
+        "%s:%d: %s.%s: a type repeats its module's name, which every use " ..
+          "already says; call it %s",
+        file, t.y, name, field, rest ~= "" and name .. "." .. rest or "by what it is")
+    end
+  end
+end
+
+--- A string field of a record the chunk declares: where, and how its
+--- declaration reads (`Record.field`).
+local record Declared
+  path: string
+  y: integer
+end
+
+--- Every `string` field of every option record (`Options`,
+--- `...Options`) the chunk declares at its top level, nested ones
+--- included, by the record's type id and then the field's name.
+local function string_fields(root: Node): {integer: {string: Declared}}
+  local out: {integer: {string: Declared}} = {}
+  local function visit(path: string, def: ast.TypeNode)
+    local order, fields, id = def.field_order, def.fields, def.typeid
+    if order == nil or fields == nil or id == nil then return end
+    for _, name in ipairs(order) do
+      local t = fields[name]
+      if t ~= nil and t.typename == "string" and path:match("Options$") ~= nil then
+        local own = out[id] or {}
+        own[name] = { path = path .. "." .. name, y = t.y }
+        out[id] = own
+      elseif t ~= nil and t.typename == "typedecl" then
+        local nested = definition_of(t)
+        if nested ~= nil then visit(path .. "." .. name, nested) end
+      end
+    end
+  end
+  for name, def in pairs(top_records(root)) do visit(name, def) end
+  return out
+end
+
+--- Rule 9: a string field of the module's own option records that the
+--- module compares with two or more literals other than `""`.
+local function check_modes(file: string, root: Node, records: {integer: Type},
+                           exemptions: contracts.Exemptions, used: Used, problems: {string})
+  local declared = string_fields(root)
+  if next(declared) == nil then return end
+  -- The parameters of every local function, by its name.
+  local params: {string: {string}} = {}
+  ast.walk(root, function(n: Node)
+    local name = n.name
+    if n.kind == "local_function" and name ~= nil and name.tk ~= nil then
+      local list: {string} = {}
+      for _, param in ipairs(list_of(n.args)) do list[#list + 1] = param.tk or "" end
+      params[name.tk] = list
+    end
+  end)
+  -- Locals and parameters holding a field's value, by name.
+  local holding: {string: Declared} = {}
+  local literals: {Declared: {string: boolean}} = {}
+  local function note(field: Declared, literal: Node | nil)
+    if literal ~= nil and literal.kind == "string" and literal.conststr ~= nil
+        and literal.conststr ~= "" then
+      local set = literals[field] or {}
+      set[literal.conststr] = true
+      literals[field] = set
+    end
+  end
+  --- The field whose value `e` is, if any.
+  local function field_of(e: Node | nil): Declared | nil
+    while e ~= nil and e.kind == "paren" do e = e.e1 end
+    if e == nil then return nil end
+    local op = e.op
+    if e.kind == "variable" and e.tk ~= nil then
+      return holding[e.tk]
+    elseif e.kind == "op" and op ~= nil and op.op == "." then
+      local receiver, member = e.e1, e.e2
+      local name = member ~= nil and member.tk or nil
+      local owner = receiver ~= nil and records[position(receiver.y, receiver.x)] or nil
+      local own = owner ~= nil and declared[owner.typeid] or nil
+      return own ~= nil and name ~= nil and own[name] or nil
+    elseif e.kind == "op" and op ~= nil and op.op == "or" then
+      local field = field_of(e.e1)
+      if field ~= nil then note(field, e.e2) end
+      return field
+    end
+    return nil
+  end
+  -- Twice, so a value passed to a function declared before the call
+  -- that passes it is followed as one declared after.
+  for _ = 1, 2 do
+    ast.walk(root, function(n: Node)
+      local op = n.op
+      if n.kind == "local_declaration" then
+        local exps = list_of(n.exps)
+        for i, var in ipairs(list_of(n.vars)) do
+          local field = field_of(exps[i])
+          if field ~= nil and var.tk ~= nil then holding[var.tk] = field end
+        end
+      elseif is_call(n) then
+        local callee = n.e1
+        local names = callee ~= nil and callee.kind == "variable" and callee.tk ~= nil
+          and params[callee.tk] or nil
+        if names ~= nil then
+          for i, argument in ipairs(list_of(n.e2)) do
+            local field = field_of(argument)
+            if field ~= nil and names[i] ~= nil then holding[names[i]] = field end
+          end
+        end
+      elseif n.kind == "op" and op ~= nil and (op.op == "==" or op.op == "~=") then
+        local left, right = field_of(n.e1), field_of(n.e2)
+        if left ~= nil then note(left, n.e2) end
+        if right ~= nil then note(right, n.e1) end
+      end
+    end)
+  end
+  for field, set in pairs(literals) do
+    local spelled_set: {string} = {}
+    for literal in pairs(set) do spelled_set[#spelled_set + 1] = string.format("%q", literal) end
+    table.sort(spelled_set)
+    local key = file .. ":" .. field.path
+    if #spelled_set >= 2 then
+      if exemptions.modes[key] ~= nil then
+        used.modes[key] = true
+      else
+        problems[#problems + 1] = string.format(
+          "%s:%d: %s: a string compared with %s is a closed set of modes; " ..
+            "declare an enum, or name it in build/contracts.tl's modes with why",
+          file, field.y, field.path, table.concat(spelled_set, ", "))
+      end
+    end
+  end
+end
+
 --- An exemption `file`'s check never needed: its function is gone, or
 --- no longer does what the table excuses. No table may name a function
 --- of build/importer.tl, whatever module is checked: a test's tree
@@ -985,7 +1199,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
     local methods = owner ~= nil and quiet[owner.typeid] or nil
     return methods ~= nil and methods[member.tk] == true
   end
-  local used: Used = { exempt = {}, parsing = {}, casts = {} }
+  local used: Used = { exempt = {}, parsing = {}, casts = {}, modes = {} }
   local bound = bound_names(root)
   local scopes = scope_names(root, bound)
   local kept, statements = keeping(root, callees), standing(root)
@@ -1014,9 +1228,12 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   end)
   check_inspections(file, root, callees, bound, exemptions, used, problems)
   check_casts(file, root, bound, exemptions, used, problems)
+  check_stutter(file, root, problems)
+  check_modes(file, root, records, exemptions, used, problems)
   stale(file, "exempt", exemptions.exempt, used.exempt, problems)
   stale(file, "parsing", exemptions.parsing, used.parsing, problems)
   stale(file, "casts", exemptions.casts, used.casts, problems)
+  stale(file, "modes", exemptions.modes, used.modes, problems)
   table.sort(problems, function(a: string, b: string): boolean
     local la, lb = line_of(a), line_of(b)
     if la ~= lb then return la < lb end

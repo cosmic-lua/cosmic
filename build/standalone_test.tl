@@ -61,6 +61,26 @@ local function test_a_removed_member_is_named_through_const_and_alias()
     "-- Z.list was removed: use Archive.list(path)", 1, true) ~= nil, trouble)
 end
 
+--- A type a `cosmic.*` module no longer declares is told its new name,
+--- under the alias the file gave the module; a type the module never
+--- declared is told nothing more.
+local function test_a_renamed_type_names_its_replacement()
+  local chunk, trouble = standalone.compile("old.tl",
+    'local Z <const> = require("cosmic.zip")\n' ..
+    'local function f(r: Z.ZipReader): integer\n  return r and 1 or 0\nend\n' ..
+    'return f\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:21: unknown type Z.ZipReader " ..
+    "-- Z.ZipReader was removed: use Zip.Reader", 1, true) ~= nil, trouble)
+  chunk, trouble = standalone.compile("new.tl",
+    'local Zip = require("cosmic.zip")\n' ..
+    'local function f(r: Zip.Nothing): integer\n  return r and 1 or 0\nend\n' ..
+    'return f\n')
+  assert(chunk == nil)
+  assert(trouble:find("unknown type Zip.Nothing", 1, true) ~= nil, trouble)
+  assert(trouble:find("was removed", 1, true) == nil, trouble)
+end
+
 --- A record of the file's own named like a module's alias is not that
 --- module: no replacement is offered for its missing field.
 local function test_a_shadowing_record_is_not_told_a_replacement()

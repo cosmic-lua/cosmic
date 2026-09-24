@@ -29,6 +29,11 @@ local record Zip
     size: integer
     compressed_size: integer
     --- 0 for stored, 8 for deflated; nothing else is understood.
+    -- TODO: EntryOptions.method is a Zip.Method name and this is zip's
+    -- number, so a reader cannot hand an entry's method back to
+    -- add_file. Answer a Zip.Method here too once the enum can say
+    -- "a method this reader cannot open" (listing such an entry works
+    -- today; only opening it fails), keeping the number beside it.
     method: integer
     crc32: integer
     --- The permission bits from the entry's external attributes, when
@@ -42,20 +47,27 @@ local record Zip
     --- This entry's uncompressed body. Verifies the CRC32 as it reads
     --- the last byte, failing there on a mismatch, and fails as soon
     --- as the body runs past its recorded size. Fails once the
-    --- ZipReader it came from is closed.
+    --- Reader it came from is closed.
     open: function(Entry): Stream.Reader | nil, string
   end
 
-  record ZipReader
+  record Reader
     --- Every entry, in central directory order: built on the first
     --- call, which must come before `close`, and kept for later ones.
-    entries: function(ZipReader): {Entry}
+    entries: function(Reader): {Entry}
     --- The next entry in central directory order, read straight off
     --- the directory, so walking an archive of any size holds one
     --- entry at a time; nil and `""` after the last. Independent of
     --- `entries`.
-    next: function(ZipReader): Entry | nil, string
-    close: function(ZipReader): boolean, string
+    next: function(Reader): Entry | nil, string
+    close: function(Reader): boolean, string
+  end
+
+  --- How `add_file` stores an entry's bytes: "deflate" compresses them
+  --- (zip's method 8), "store" keeps them as they are (method 0).
+  enum Method
+    "deflate"
+    "store"
   end
 
   record EntryOptions
@@ -65,7 +77,7 @@ local record Zip
     --- that is clamped to its nearer end.
     mtime: integer
     --- "deflate" (the default) or "store".
-    method: string
+    method: Method
   end
 
   record WriterOptions
@@ -78,16 +90,16 @@ local record Zip
     offset: integer
   end
 
-  --- Once any call fails, the underlying Writer is aborted and every
+  --- Once any call fails, the underlying Stream.Writer is aborted and every
   --- later call, `close` included, returns that failure. A call after
   --- `close` fails too.
-  record ZipWriter
+  record Writer
     --- Refuses a path ending in `/`, which zip reads as a directory.
-    add_file: function(ZipWriter, string, string, opts?: EntryOptions): boolean, string
-    add_dir: function(ZipWriter, string, opts?: EntryOptions): boolean, string
-    close: function(ZipWriter): boolean, string
-    --- Abandons the archive: aborts the underlying Writer.
-    abort: function(ZipWriter): boolean, string
+    add_file: function(Writer, string, string, opts?: EntryOptions): boolean, string
+    add_dir: function(Writer, string, opts?: EntryOptions): boolean, string
+    close: function(Writer): boolean, string
+    --- Abandons the archive: aborts the underlying Stream.Writer.
+    abort: function(Writer): boolean, string
   end
 end
 
@@ -515,7 +527,7 @@ local function read_link(entry: Zip.Entry): string | nil, string
 end
 
 local function open_reader(size: integer, pread: Pread, closer: function(): boolean, string):
-    Zip.ZipReader | nil, string
+    Zip.Reader | nil, string
   local eocd_off, trouble = find_eocd(size, pread)
   if eocd_off == nil then return nil, trouble end
   local fixed, ftrouble = pread(eocd_off, 22)
@@ -595,8 +607,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   local walk = cursor(pread, cd_offset, cd_size)
   local walked = 0
   local listed: {Zip.Entry}
-  local zr: Zip.ZipReader = {}
-  zr.next = function(_self: Zip.ZipReader): Zip.Entry | nil, string
+  local zr: Zip.Reader = {}
+  zr.next = function(_self: Zip.Reader): Zip.Entry | nil, string
     if closed then return nil, "zip: reader is closed" end
     local entry, etrouble = next_record(walk, entry_mt)
     if entry == nil then return nil, etrouble end
@@ -605,7 +617,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     if target ~= nil then entry.linkpath = target end
     return entry, ""
   end
-  zr.entries = function(_self: Zip.ZipReader): {Zip.Entry}
+  zr.entries = function(_self: Zip.Reader): {Zip.Entry}
     if listed ~= nil then return listed end
     local all: {Zip.Entry} = {}
     local c = cursor(pread, cd_offset, cd_size)
@@ -624,7 +636,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     if #all == count then listed = all end
     return all
   end
-  zr.close = function(_self: Zip.ZipReader): boolean, string
+  zr.close = function(_self: Zip.Reader): boolean, string
     if closed then return true, "" end
     closed = true
     return closer()
@@ -634,7 +646,7 @@ end
 
 --- A reader over the zip file at `path`, walked with positional reads
 --- rather than loaded whole into memory.
-function Zip.open(path: string): Zip.ZipReader | nil, string
+function Zip.open(path: string): Zip.Reader | nil, string
   local st, strouble = Fs.stat(path)
   if st == nil then return nil, strouble end
   local fd, trouble = Fs.open_read(path)
@@ -660,7 +672,7 @@ function Zip.open(path: string): Zip.ZipReader | nil, string
 end
 
 --- A reader over a zip already in memory as `data`.
-function Zip.open_string(data: string): Zip.ZipReader | nil, string
+function Zip.open_string(data: string): Zip.Reader | nil, string
   local closed = false
   local pread: Pread = function(offset: integer, count: integer): string | nil, string
     if closed then return nil, "zip: reader is closed" end
@@ -728,7 +740,7 @@ end
 --- states each entry's size before its data, same as tar, but does not
 --- offer tar's Reader-with-known-size escape hatch), so add_file takes
 --- a plain string.
-function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
+function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.Writer
   opts = opts or {}
   local deterministic = opts.deterministic or false
   local offset = opts.offset or 0
@@ -736,7 +748,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
   local count = 0
   local closed = false
   local failed: string
-  local zw: Zip.ZipWriter = {}
+  local zw: Zip.Writer = {}
 
   local function fail(trouble: string): boolean, string
     if failed == nil then
@@ -753,7 +765,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     return true, ""
   end
 
-  local function write_entry(path: string, data: string, method_name: string,
+  local function write_entry(path: string, data: string, method_name: Zip.Method,
       mode: integer, mtime: integer, is_dir: boolean): boolean, string
     if failed then return false, failed end
     if closed then return false, "zip: writer is closed" end
@@ -798,7 +810,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     return true, ""
   end
 
-  zw.add_file = function(_self: Zip.ZipWriter, path: string, data: string,
+  zw.add_file = function(_self: Zip.Writer, path: string, data: string,
       fopts?: Zip.EntryOptions): boolean, string
     -- A trailing `/` is what marks a directory: a file of that name
     -- would read back as one.
@@ -810,7 +822,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     return write_entry(path, data, method_name, mode, mtime, false)
   end
 
-  zw.add_dir = function(_self: Zip.ZipWriter, path: string, fopts?: Zip.EntryOptions): boolean, string
+  zw.add_dir = function(_self: Zip.Writer, path: string, fopts?: Zip.EntryOptions): boolean, string
     fopts = fopts or {}
     local mode = fopts.mode or 0x1ed
     local mtime = fopts.mtime or 0
@@ -818,7 +830,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     return write_entry(dirpath, "", "store", mode, mtime, true)
   end
 
-  zw.close = function(_self: Zip.ZipWriter): boolean, string
+  zw.close = function(_self: Zip.Writer): boolean, string
     if failed then return false, failed end
     if closed then return true, "" end
     closed = true
@@ -853,7 +865,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     return true, ""
   end
 
-  zw.abort = function(_self: Zip.ZipWriter): boolean, string
+  zw.abort = function(_self: Zip.Writer): boolean, string
     if closed or failed then return true, "" end
     closed = true
     return w:abort()
