@@ -10,7 +10,8 @@ and is excluded from module and test discovery. Its working database lands
 at `ci/o/build.db` (gitignored).
 
 `bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
-digest under `$XDG_CACHE_HOME/cosmic/bootstrap`; CI sets
+digest under `$XDG_CACHE_HOME/cosmic/bootstrap`, and tries a failed download
+again up to `COSMIC_BOOTSTRAP_ATTEMPTS` times (1 to 20, default 5); CI sets
 `COSMIC_BOOTSTRAP_VERIFY` so a cache actions/cache restored is checked against
 the pin again, and links the result to a runner path
 (`$RUNNER_TEMP/bin/cosmic-driver`, which CI then puts on `PATH` via
