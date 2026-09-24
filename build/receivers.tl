@@ -266,7 +266,7 @@ end
 --- module in `env` declares, as that record's field; an assignment's
 --- own target is a definition, not a use. In source order, once each.
 function receivers.references(state: receivers.State, env: compiler.Env,
-                              node: ast.Node | nil): {receivers.Reference}
+                              node: ast.Node): {receivers.Reference}
   for name, t in pairs(env.modules) do
     if not state.walked[name] then
       state.walked[name] = true
@@ -274,9 +274,6 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     end
   end
   local out: {receivers.Reference} = {}
-  if node == nil then
-    return out
-  end
   local types, owners = state.types, state.owners
   -- A chunk that holds no value of a known record has nothing to walk
   -- for.

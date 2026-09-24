@@ -727,14 +727,14 @@ local function invalidate(scopes: Scopes, name: string)
   end
 end
 
+--- The field that points back up the tree, never followed.
+local back_up: {string: boolean} = { if_parent = true }
+
 --- Every `alias.member` whose `alias` still resolves to a lexical direct
 --- require binding. Parameters, locals and loop variables shadow bindings;
 --- reassignment in any possibly-executed branch invalidates the outer alias.
 --- This is deliberately bounded: indirect aliases and unknown receiver types
 --- produce no edge rather than one guessed from spelling.
---- The field that points back up the tree, never followed.
-local back_up: {string: boolean} = { if_parent = true }
-
 local function references_of(built: compiler, parsed: ast.Parsed): {positions.Reference}, string
   local aliases, trouble = aliases_of(built, parsed)
   if trouble ~= "" then

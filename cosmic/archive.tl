@@ -257,13 +257,13 @@ local function apply_strip(path: string, strip: string | integer | nil): string 
     if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
     return (rest:gsub("^/+", ""))
   end
+  -- A float that is a whole number (2.0) counts as one; extract has
+  -- refused any other.
   local rest = path
-  if strip is integer then
-    for _ = 1, strip do
-      local slash = rest:find("/", 1, true)
-      if slash == nil then return nil end
-      rest = rest:sub(slash + 1)
-    end
+  for _ = 1, math.tointeger(strip) or 0 do
+    local slash = rest:find("/", 1, true)
+    if slash == nil then return nil end
+    rest = rest:sub(slash + 1)
   end
   return rest
 end
@@ -322,6 +322,10 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   opts = opts or {}
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
     error("archive: max_bytes is negative", 2)
+  end
+  local strip = opts.strip
+  if strip ~= nil and not (strip is string) and math.tointeger(strip) == nil then
+    error("archive: strip is neither a path prefix nor a whole number of components", 2)
   end
   local links_mode = opts.links or "skip"
   local skip_unsupported = opts.unsupported == "skip"

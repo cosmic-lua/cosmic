@@ -61,15 +61,14 @@ end
 --- @return Node|nil The value itself, when it is a real node (its own `kind` is a string)
 --- @return {any}|nil Its elements, when it is a bare array of nodes instead
 local function classify(value: any): Node | nil, {any} | nil
-  if not (value is {any: any}) then
+  if not (value is Node) then
     return nil, nil
   end
-  local vt = value as {any: any} -- cast: map view of a declared value
-  local vkind = vt["kind"]
-  if vkind is string then
-    return vt as Node, nil -- cast: map view of a declared value
+  local kind = value.kind
+  if kind is string then
+    return value, nil
   end
-  return nil, vt
+  return nil, value
 end
 
 --- Call `consider` once for every child value reachable from `node`'s

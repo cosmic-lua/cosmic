@@ -433,3 +433,71 @@ local function test_a_cast_exempt_function_may_cast()
   assert(#one == 1 and one[1]:find("g: " .. cast, 1, true) ~= nil, table.concat(one, "\n"))
   assert(#none == 0, table.concat(none, "\n"))
 end
+
+--- The raw module the core hands a chunk may be cast at the top level,
+--- and only there; no other top-level cast may.
+local function test_the_handed_raw_module_may_be_cast_at_the_top_level()
+  local handed = "local extra: any = select(2, ...)\n"
+  allows(handed .. "use(extra as {string})")
+  allows(handed .. "if extra is {string} then use(1) else use((extra) as {string}) end")
+  flags(handed .. "local function f(): {string} return extra as {string} end\nuse(f)",
+    "f: " .. cast)
+  flags("local other: any = select(1, ...)\nuse(other as {string})", "the top level: " .. cast)
+  flags("use({} as {string})", "the top level: " .. cast)
+end
+
+--- An exemption key names a record's function as it is written, a
+--- nested function under the one around it, and a top-level table's
+--- function field under the table.
+local function test_an_exemption_key_names_the_function_as_written()
+  flags("local record R end\nfunction R.m(v: any): integer return v as integer end",
+    "R.m: " .. cast)
+  flags("local record R end\nfunction R:m(v: any): integer return v as integer end",
+    "R:m: " .. cast)
+  flags("local t = { g = function(v: any): integer return v as integer end }\nuse(t)",
+    "t.g: " .. cast)
+  local nested = "local function f()\n" ..
+    "  local function g(v: any): integer return v as integer end\n  use(g)\nend\nuse(f)"
+  flags(nested, "f.g: " .. cast)
+  -- A top-level function of the same name excuses nothing nested.
+  contracts.casts["x.tl:g"] = "a test's own exemption"
+  local inherited = problems_in(nested)
+  contracts.casts["x.tl:g"] = nil
+  local joined = table.concat(inherited, "\n")
+  assert(#inherited == 2 and joined:find("f.g: " .. cast, 1, true) ~= nil
+    and joined:find("contracts.casts names x.tl:g,", 1, true) ~= nil, joined)
+  contracts.casts["x.tl:f.g"] = "a test's own exemption"
+  local exempt = problems_in(nested)
+  contracts.casts["x.tl:f.g"] = nil
+  assert(#exempt == 0, table.concat(exempt, "\n"))
+end
+
+--- Rule 6 keys a nested function the same way.
+local function test_a_parsing_exemption_names_a_nested_function()
+  local source = "local function f()\n  local function g()\n" ..
+    "    local v, err = get()\n    use(v, err:find('x'))\n  end\n  use(g)\nend\nuse(f)"
+  contracts.parsing["x.tl:f.g"] = "a test's own exemption"
+  local found = problems_in(source)
+  contracts.parsing["x.tl:f.g"] = nil
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- An exemption its file's check finds no use for is refused.
+local function test_a_stale_exemption_is_refused()
+  local unused = "which no longer needs it"
+  contracts.casts["x.tl:gone"] = "a test's own exemption"
+  local casts = problems_in("use(1)")
+  contracts.casts["x.tl:gone"] = nil
+  assert(#casts == 1 and casts[1]:find("contracts.casts names x.tl:gone, " .. unused, 1, true),
+    table.concat(casts, "\n"))
+  contracts.parsing["x.tl:f"] = "a test's own exemption"
+  local parsing = problems_in("local function f() local v, err = get() use(v, err) end\nuse(f)")
+  contracts.parsing["x.tl:f"] = nil
+  assert(#parsing == 1 and parsing[1]:find("contracts.parsing names x.tl:f, " .. unused, 1, true),
+    table.concat(parsing, "\n"))
+  contracts.exempt["x.tl:gone"] = "a test's own exemption"
+  local exempt = problems_in("use(1)")
+  contracts.exempt["x.tl:gone"] = nil
+  assert(#exempt == 1 and exempt[1]:find("contracts.exempt names x.tl:gone, " .. unused, 1, true),
+    table.concat(exempt, "\n"))
+end

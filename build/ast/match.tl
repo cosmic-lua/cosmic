@@ -206,16 +206,18 @@ end
 --- @param elements {any} The matched trailing elements, in order
 --- @return Node A bare-list node wrapping `elements`
 local function rest_value(marker: any, elements: {any}): Node
-  local mt = marker as {any: any} -- cast: generic ast node view
-  local out: {any: any} = { kind = "rest_capture", f = mt["f"], y = mt["y"], x = mt["x"] }
+  local out: Node = { kind = "rest_capture" }
+  if marker is Node then
+    out.f, out.y, out.x = marker.f, marker.y, marker.x
+  end
   for i, e in ipairs(elements) do
-    out[i] = e
+    if e is Node then out[i] = e end
   end
   local first = elements[1]
-  if first is {any: any} and first["y"] ~= nil then
-    out["y"], out["x"] = first["y"], first["x"]
+  if first is Node and first.y ~= nil then
+    out.y, out.x = first.y, first.x
   end
-  return out as Node -- cast: synthetic bare-list node for a rest-capture's value
+  return out
 end
 
 local match_value: function(pv: any, nv: any, caps: {string: Node},

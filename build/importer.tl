@@ -936,21 +936,27 @@ end
 local record Cache
   run: integer
   tool: string
+  --- Whether this run holds its modules to `build.contracts`; a compile
+  --- made without is kept only for this run's own database (see
+  --- `importer.compile`'s `unjudged`).
+  judged: boolean
   look: Sqlite.Statement
   put: Sqlite.Statement
   plan: Sqlite.Statement
 end
 
-local function prepare_cache(handle: work.Handle,
-                             tool: string): Cache | nil, string
+local function prepare_cache(handle: work.Handle, tool: string,
+                             judged: boolean): Cache | nil, string
   local db = handle.db
+  -- An unjudged compile is marked seen -1 and never reused: the next
+  -- run compiles and judges the module again.
   local look, look_trouble = db:prepare(
-    "UPDATE compiled SET seen = ?2 WHERE key = ?1 RETURNING lua")
+    "UPDATE compiled SET seen = ?2 WHERE key = ?1 AND seen >= 0 RETURNING lua")
   if look == nil then
     return nil, look_trouble
   end
   local put, put_trouble = db:prepare(
-    "INSERT INTO compiled (key, tool, lua, bytecode, seen) " ..
+    "INSERT OR REPLACE INTO compiled (key, tool, lua, bytecode, seen) " ..
     "VALUES (?1, ?2, ?3, ?4, ?5)")
   if put == nil then
     look:finalize()
@@ -963,7 +969,7 @@ local function prepare_cache(handle: work.Handle,
     put:finalize()
     return nil, plan_trouble
   end
-  return { run = handle.run, tool = tool, look = look, put = put,
+  return { run = handle.run, tool = tool, judged = judged, look = look, put = put,
            plan = plan }
 end
 
@@ -1037,7 +1043,7 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
     if bound then bound, bind_trouble = put:bind_text(2, cache.tool) end
     if bound then bound, bind_trouble = put:bind_text(3, lua) end
     if bound then bound, bind_trouble = put:bind_blob(4, bytecode) end
-    if bound then bound, bind_trouble = put:bind_integer(5, cache.run) end
+    if bound then bound, bind_trouble = put:bind_integer(5, cache.judged and cache.run or -1) end
     if not bound then
       return false, bind_trouble
     end
@@ -1067,7 +1073,7 @@ local record Generated
 end
 
 local function generate(m: Module, built: compiler, env: compiler.Env,
-                        typed: receivers.State, own_tree: boolean,
+                        typed: receivers.State, judged: boolean,
                         databases: {Sqlite.Handle},
                         public: {boolean}): Generated | nil, string
   local code, result = built.gen(m.source, env, nil, "tl")
@@ -1085,8 +1091,11 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
-  local checked = result.ast as ast.Node -- cast: tl's checked AST
-  if own_tree and contracts.applies(m.kind, m.generated) then
+  local checked = result.ast
+  if not (checked is ast.Node) then
+    return nil, m.file .. ": the compiler answered no syntax tree"
+  end
+  if judged and contracts.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
       receivers.record_named(env, "cosmic.sys", ""))
     if #problems > 0 then
@@ -1173,8 +1182,14 @@ end
 --- @param built the compiler, loaded and ready
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
+--- @param unjudged whether to skip `build.contracts`' judgment of
+---   cosmic's own modules: a stale tool rebuilding itself (`build.reboot`)
+---   would judge the tree by its own, older rules and exemptions, so it
+---   leaves that to the tool it builds, which re-enters the command. A
+---   compile made so is kept only for this run's database, never
+---   reused, so the next run compiles and judges the module again.
 function importer.compile(handle: work.Handle, built: compiler,
-                          tool: string): importer.Result | nil, string
+                          tool: string, unjudged?: boolean): importer.Result | nil, string
   local own_tree, own_trouble = importer.is_own_tree(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local modules, trouble = collect(handle, own_tree, built)
@@ -1250,7 +1265,8 @@ function importer.compile(handle: work.Handle, built: compiler,
     if not forgotten then
       return false, forget_trouble
     end
-    local cache, prepare_trouble = prepare_cache(handle, tool)
+    local judged = not unjudged
+    local cache, prepare_trouble = prepare_cache(handle, tool, judged)
     if cache == nil then
       return false, prepare_trouble
     end
@@ -1293,7 +1309,8 @@ function importer.compile(handle: work.Handle, built: compiler,
             typed = receivers.install(made_env)
           end
           local generated, generate_trouble =
-            generate(m, built, env, assert(typed), own_tree, hint_databases, hint_public)
+            generate(m, built, env, assert(typed), own_tree and judged, hint_databases,
+              hint_public)
           if generated == nil then
             failure = generate_trouble
             break
@@ -1332,7 +1349,8 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
     finish_cache(cache)
     local pruned, prune_trouble = Sqlite.run(db,
-      "DELETE FROM compiled WHERE tool <> ?1 OR seen < ?2",
+      "DELETE FROM compiled WHERE tool <> ?1 OR (seen >= 0 AND seen < ?2)" ..
+        (judged and " OR seen < 0" or ""),
       { text(tool), { integer = handle.run - kept_runs } })
     if not pruned then
       return false, prune_trouble
