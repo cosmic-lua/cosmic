@@ -425,7 +425,7 @@ pub fn build(b: *std.Build) void {
     const applier = b.addExecutable(.{
         .name = "patch",
         .root_module = b.createModule(.{
-            .target = b.graph.host,
+            .target = baselineHostTarget(b),
             .optimize = .ReleaseSafe,
             .link_libc = true,
         }),
@@ -505,7 +505,7 @@ pub fn build(b: *std.Build) void {
     const native_format_decoder = formatDecoder(
         b,
         "format-test-native",
-        b.graph.host,
+        baselineHostTarget(b),
         .Debug,
         null,
     );
@@ -583,7 +583,7 @@ pub fn build(b: *std.Build) void {
     const strnlen_check = b.addExecutable(.{
         .name = "strnlen-check",
         .root_module = b.createModule(.{
-            .target = b.graph.host,
+            .target = baselineHostTarget(b),
             .optimize = .ReleaseFast,
             .link_libc = true,
         }),
@@ -599,7 +599,7 @@ pub fn build(b: *std.Build) void {
     const environment_check = b.addExecutable(.{
         .name = "environment-check",
         .root_module = b.createModule(.{
-            .target = b.graph.host,
+            .target = baselineHostTarget(b),
             .optimize = .ReleaseSafe,
             .link_libc = true,
         }),
@@ -618,7 +618,7 @@ pub fn build(b: *std.Build) void {
         .name = "coverage-map",
         .root_module = b.createModule(.{
             .root_source_file = b.path("core/coverage_map.zig"),
-            .target = b.graph.host,
+            .target = baselineHostTarget(b),
             .optimize = .ReleaseSafe,
         }),
     });
@@ -1363,10 +1363,16 @@ fn hostName(b: *std.Build) []const u8 {
     return hostTarget(b).name;
 }
 
-/// Keeps the sanitizer's native OS, ABI, and version while making its CPU
+/// Keeps the host's native OS, ABI, and version while making its CPU
 /// instruction set safe to transport between different machines of that
 /// architecture. `b.graph.host` includes features detected on the build
 /// machine, which an exported checked core cannot assume on its runner.
+///
+/// Every tool the build runs on the host is built for this target too, not
+/// `b.graph.host`: a tool's bytes are part of the cache key of every step
+/// that runs it, and the patch applier's output directory is the path every
+/// vendored C file compiles from. Built for the detected CPU, a restored
+/// cache from a runner on other hardware missed on every vendored object.
 fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
     var query = b.graph.host.query;
     query.cpu_model = .baseline;
