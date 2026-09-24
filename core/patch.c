@@ -1,11 +1,16 @@
 /*
  * The patch applier.
  *
- *   patch <vendor dir> <patch dir> <out dir>
+ *   patch <root>/vendor/<name>/PIN <out dir>
  *
- * It writes a whole patched copy of the vendor tree into the output
- * directory, then applies every record in the patch directory to that
- * copy. The output directory is replaced, never merged into a pristine
+ * It writes a whole patched copy of the vendor tree <root>/vendor/<name>
+ * into the output directory, then applies every record in the patch
+ * directory <root>/patch/<name> to that copy. The tree is named by its PIN
+ * file rather than by its directory because the build hashes a file
+ * argument by its path under the build root, and a directory argument by
+ * its absolute path: named this way, the patched copy lands at the same
+ * place in the zig cache from every checkout, and so does everything
+ * compiled from it. The output directory is replaced, never merged into a pristine
  * tree beside it, because a quoted #include finds its neighbour first
  * and a half-applied patch would build green.
  *
@@ -333,18 +338,55 @@ static void apply_record (const char *record, const char *out_dir) {
   free(text);
 }
 
+/* TODO: no test enters the applier; every build runs it, but only on the
+ * trees and records the tree holds. A test beside it (build/patch_test.tl)
+ * should run it on a scratch <root>/vendor/<name>/PIN tree: the records
+ * directory found from the PIN path, a missing one leaving the copy
+ * pristine, a find matching zero or two times refused by name, a fence
+ * header, and a path not shaped <root>/vendor/<name>/PIN refused. It waits
+ * on build.zig installing the applier somewhere a test can run it, as it
+ * installs the cores under o/core/. */
+
+/* Everything before the last slash of `path`, which must have one. */
+static char *parent (const char *path) {
+  const char *slash = strrchr(path, '/');
+  if (slash == NULL || slash == path) {
+    fail("expected <root>/vendor/<name>/PIN", path);
+  }
+  size_t n = (size_t)(slash - path);
+  char *out = xmalloc(n + 1);
+  memcpy(out, path, n);
+  out[n] = '\0';
+  return out;
+}
+
 int main (int argc, char **argv) {
-  if (argc != 4) {
-    fprintf(stderr, "usage: patch <vendor dir> <patch dir> <out dir>\n");
+  if (argc != 3) {
+    fprintf(stderr, "usage: patch <root>/vendor/<name>/PIN <out dir>\n");
     return 2;
   }
-  const char *vendor = argv[1], *patches = argv[2], *out = argv[3];
+  const char *pin = argv[1], *out = argv[2];
+  char *vendor = parent(pin);
+  char *vendors = parent(vendor);
+  char *root = parent(vendors);
+  const char *name = vendor + strlen(vendors) + 1;
+  if (strcmp(vendors + strlen(root) + 1, "vendor") != 0 ||
+      strcmp(pin + strlen(vendor) + 1, "PIN") != 0) {
+    fail("expected <root>/vendor/<name>/PIN", pin);
+  }
+  char *patch_root = join(root, "patch");
+  char *patches = join(patch_root, name);
+  free(patch_root);
+  free(root);
+  free(vendors);
 
   copy_tree(vendor, out);
+  free(vendor);
 
   struct stat st;
   if (stat(patches, &st) != 0) {
     if (errno == ENOENT) {
+      free(patches);
       return 0;
     }
     fail_errno("cannot stat", patches);
@@ -365,5 +407,6 @@ int main (int argc, char **argv) {
     free(names[i]);
   }
   free(names);
+  free(patches);
   return 0;
 }

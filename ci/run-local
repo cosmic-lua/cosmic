@@ -44,9 +44,11 @@ die() {
   exit 2
 }
 
-# zig's global cache is shared (build/zig.tl): resolve this user's before
-# XDG_CACHE_HOME is pointed at the run's own state below.
+# zig's caches are shared (build/zig.tl): resolve this user's before
+# XDG_CACHE_HOME is pointed at the run's own state below. The project
+# cache seeds the candidate's own, which the driver copies it into.
 zig_global=${COSMIC_ZIG_GLOBAL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig-global}
+seed=${COSMIC_ZIG_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig-project}
 
 uid=$(id -u)
 state=${COSMIC_CI_LOCAL:-${TMPDIR:-/tmp}/cosmic-ci-local-$uid}
@@ -95,8 +97,8 @@ if [ "$mechanism" != none ]; then
   # (which Fs.cache_dir refuses when someone else owns it), and the ci/
   # copy with its o/. So the whole of it belongs to the user, re-owned
   # once when an earlier run as root left it root's. The checkout itself
-  # stays root's and is only read: o/bin/cosmic, and the zig caches under
-  # o/ that COSMIC_ZIG_CACHE_SEED names, which the driver copies with
+  # stays root's and is only read: o/bin/cosmic, and the project cache
+  # that COSMIC_ZIG_CACHE_FROM names, which the driver copies with
   # `cp -a` into the candidate rather than writing in place.
   # drop_env is split on spaces, and names paths under the state.
   case $state in *[[:space:]]*) die "COSMIC_CI_LOCAL must not contain spaces" ;; esac
@@ -134,9 +136,11 @@ if [ "$mechanism" != none ]; then
   drop test -x "$cosmic" -a -r "$root/ci/cosmic_ci/driver.tl" ||
     die "$user cannot read $root; make the checkout readable by others," \
       "or name another user with COSMIC_CI_LOCAL_USER"
-  seed=$root/o/zig-cache
+  # A cache under root's home is usually out of the user's reach; the
+  # candidate then compiles everything itself.
   if [ -d "$seed" ] && ! drop test -r "$seed" -a -x "$seed"; then
-    die "$user cannot read $seed"
+    echo "run-local: $user cannot read $seed; the candidate builds without it" >&2
+    seed=
   fi
   # zig writes its global cache as it builds, and the user cannot write
   # root's; it gets one of its own in the state, kept across runs.
@@ -196,7 +200,7 @@ for phase in "$@"; do
     drop env GITHUB_WORKSPACE="$candidate" RUNNER_TEMP="$state/runner" \
       GITHUB_RUN_ID=local GITHUB_RUN_ATTEMPT=1 COSMIC_WORKER=local \
       TARGET="$target" XDG_CACHE_HOME="$state/cache" \
-      COSMIC_ZIG_CACHE_SEED="$root/o" COSMIC_ZIG_GLOBAL_CACHE="$zig_global" \
+      COSMIC_ZIG_CACHE_FROM="$seed" COSMIC_ZIG_GLOBAL_CACHE="$zig_global" \
       "$cosmic" cosmic_ci/driver.tl platform "$phase" success
   ) > "$log" 2>&1 || status=$?
   echo "run-local: $phase: status $status, $(( $(date +%s) - started )) s, log $log" >&2

@@ -226,7 +226,8 @@ local function run_rebuild_case(root: string, fixture_dir: string,
     assert(Fixture.hash(program) ~= original_hash,
       action .. ": self-rebuild did not change the artifact")
 
-    -- A core input cannot be represented by a database-only rebuild.
+    -- A core input cannot be represented by a database-only rebuild; with
+    -- COSMIC_AUTO_BOOT=0 the tool refuses rather than running zig.
     local startup_h = tree .. "/core/startup.h"
     Fixture.write(startup_h, Fixture.read(startup_h) ..
       "\n/* step-8 core-change fixture */\n")
@@ -234,6 +235,7 @@ local function run_rebuild_case(root: string, fixture_dir: string,
     local refusal_values = Fixture.environment({
       COSMIC_PORTABLE_CACHE = cache,
       COSMIC_STEP8_REENTRY = "kept with spaces",
+      COSMIC_AUTO_BOOT = "0",
     })
     local refused = Fixture.call_with_environment("core-change-" .. action,
       { program, "test", "build/embed_test.tl", "argument with spaces" }, tree, diagnostics,
@@ -250,8 +252,9 @@ local function run_rebuild_case(root: string, fixture_dir: string,
 end
 
 -- One of the three ways a stale tool (a pinned tl version, an unapplied
--- patch, or an edited launcher generator) is refused outright, without ever
--- reaching `test.run` or touching the artifact.
+-- patch, or an edited launcher generator) is refused outright, when
+-- COSMIC_AUTO_BOOT=0 says not to boot, without ever reaching `test.run` or
+-- touching the artifact.
 local function run_refusal_case(root: string, fixture_dir: string,
     tmp: string, name: string)
   local case_root = tmp .. "/refuse-" .. name
@@ -278,7 +281,8 @@ local function run_refusal_case(root: string, fixture_dir: string,
     error("unknown refusal fixture: " .. name)
   end
 
-  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache,
+    COSMIC_AUTO_BOOT = "0" })
   local outcome = Fixture.call_with_environment(name .. "-refusal",
     { program, "test" }, tree, diagnostics, values)
   assert(outcome.result.code == 3, name .. ": refusal exit status was " ..

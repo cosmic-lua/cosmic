@@ -43,6 +43,17 @@ local function operation(c: Context, phase: string, command: {string},
     run = c.run, attempt = c.attempt, candidate = c.root }
   local child_environment: {string:string}
   if env then child_environment = env else child_environment = environment() end
+  -- bin/zig shares one project cache among checkouts unless told otherwise
+  -- (build/zig.tl); a candidate keeps its own under o/, which the build
+  -- phase seeds and cache-save copies back.
+  if not child_environment.COSMIC_ZIG_CACHE then
+    child_environment.COSMIC_ZIG_CACHE = c.root .. "/o/zig-cache"
+  end
+  -- The driver boots the candidate itself; a tool that finds its core
+  -- stale is a fault to report, not one to boot past (build/reboot.tl).
+  if not child_environment.COSMIC_AUTO_BOOT then
+    child_environment.COSMIC_AUTO_BOOT = "0"
+  end
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ms = timeout,
     output = output, error = error_output }).code
@@ -321,18 +332,23 @@ local function phase_build(p: PlatformContext): integer
   local local_d = p.local_diagnostics
   assert(not exists(root .. "/o"), "build requires fresh checkout without o")
   -- Only the project cache is seeded into o/: zig's global cache is used
-  -- where it was restored (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl).
+  -- where it was restored (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl). It
+  -- comes from the zig-cache under COSMIC_ZIG_CACHE_SEED, as CI restored
+  -- it, or from the project cache COSMIC_ZIG_CACHE_FROM names, as a local
+  -- run finds a developer's shared one.
   local seed = Env.get("COSMIC_ZIG_CACHE_SEED")
-  -- A seed named but absent costs a cold compile of vendor/ and core/
+  local from = Env.get("COSMIC_ZIG_CACHE_FROM")
+  if not from and seed then from = seed .. "/zig-cache" end
+  -- A cache named but absent costs a cold compile of vendor/ and core/
   -- (minutes) and fails nothing, so say so where the log shows it.
-  if seed and not is_dir(seed .. "/zig-cache") then
-    Fs.put(Fs.stderr, "build: no zig-cache under COSMIC_ZIG_CACHE_SEED (" ..
-      seed .. "); compiling from nothing\n")
+  if from and not is_dir(from) then
+    Fs.put(Fs.stderr, "build: no zig-cache at " .. from ..
+      "; compiling from nothing\n")
   end
-  if seed and is_dir(seed .. "/zig-cache") then
+  if from and is_dir(from) then
     mkdir(root .. "/o")
     local copied = checked(c, "restore zig-cache",
-      { "/usr/bin/env", "cp", "-a", seed .. "/zig-cache", root .. "/o/" })
+      { "/usr/bin/env", "cp", "-a", from, root .. "/o/zig-cache" })
     if copied ~= 0 then return copied end
   end
   local s = checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)

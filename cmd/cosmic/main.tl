@@ -203,8 +203,8 @@ local function run(file: string, argv: {integer:string}): integer
   -- it was booted from. Running on would compile the tree with a
   -- checker the tree no longer agrees with and run tests against
   -- old code. When only Teal moved, the tool rebuilds itself and
-  -- re-enters this same command line; when the C core moved, zig
-  -- has to.
+  -- re-enters this same command line; when the C core moved, it has
+  -- zig boot it (`build.reboot`).
   if own_tree then
     local state, state_trouble = reboot.state(handle)
     if state == nil then
@@ -214,7 +214,11 @@ local function run(file: string, argv: {integer:string}): integer
     end
     if state == "core" then
       work.close(handle)
-      complain("cosmic: the tool is stale; run bin/zig build boot")
+      if not reboot.auto_boot() then
+        complain("cosmic: " .. reboot.core_refusal)
+        return 3
+      end
+      complain("cosmic: " .. reboot.boot_into(root, argv))
       return 3
     end
     if state == "teal" then
