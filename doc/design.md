@@ -720,7 +720,7 @@ core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
-build/              the importer, checker driver, embed (Teal, private)
+build/              the importer, checker driver, embed (Teal, private to cmd/ and tests)
 doc/                prose
 o/                  output; o/cosmic.db, o/build.db; never committed
 ```
@@ -743,7 +743,13 @@ already resolves `require("cosmic.fs")` to `cosmic/fs/init.tl`; a
 sibling beside it, `cosmic/fs/walk.tl`, compiles as `cosmic.fs.walk`
 and the checker refuses an import of it from any file outside
 `cosmic/fs/`. the same rule applies everywhere in the tree, not only
-under `cosmic/`. a project tree may hold no `cosmic`-prefixed path
+under `cosmic/`: a nested directory with no `init.tl` has no entry,
+so nothing in it is reachable from outside it, while a top-level
+directory with none, as `cosmic/` and `build/` are, is a namespace
+whose every file is a flat module of its own. `build/` is private
+besides: in cosmic's own tree only `build/` itself, the binary under
+`cmd/`, a test, and test support under `test/` may import `build.*`,
+so the standard library never depends on the tool that builds it. a project tree may hold no `cosmic`-prefixed path
 at all unless it is cosmic's own tree, so a project can never place
 itself as a false sibling to claim another module's private surface.
 entry-point reachability is settled; whether an exported function's own name is

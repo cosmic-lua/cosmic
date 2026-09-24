@@ -13,7 +13,7 @@ local type compiler = require("build.compiler")
 
 local type Module = importer.Module
 
-local record report
+local record coverage
   --- One module's own executable lines, hit (true) or not (false).
   type LineHits = {integer: boolean}
 end
@@ -35,19 +35,19 @@ end
 --- @param hits Coverage.Hits Every line hit, by module import path
 --- @return LineHits | nil Every executable line, hit (true) or not (false)
 --- @return string Error message on a parse failure
-function report.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
-                         hits: Coverage.Hits): report.LineHits | nil, string
+function coverage.lines_of(db: Sqlite.Handle, built: compiler, m: Module,
+                         hits: Coverage.Hits): coverage.LineHits | nil, string
   local executable, trouble =
     lines.executable_cached(db, built, m.source_hash, m.source, m.file)
   if executable == nil then
     return nil, trouble
   end
   local hit_lines = hits[m.path] or {}
-  local out: report.LineHits = {}
+  local out: coverage.LineHits = {}
   for line in pairs(executable) do
     out[line] = hit_lines[line] == true
   end
   return out, ""
 end
 
-return report
+return coverage
