@@ -347,7 +347,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- Generation 4 runs each test in a worker process of its own: its reads
   -- and hits are its module's load and its own call, nothing an earlier
   -- test in the same process loaded, so no earlier verdict describes one.
-  local lines: {string} = { "recording-4", "module-load-reads-v1",
+  -- Generation 5 refuses a run that reached the network or changed its
+  -- working directory, which generation 4 recorded without either.
+  local lines: {string} = { "recording-5", "module-load-reads-v1",
     observations.key_part("i", id, observations.key_part("m", module_key, runtime)) }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
@@ -385,8 +387,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
 end
 
 --- Whether a passing verdict over `reads` is safe to reuse later: false
---- when the run spawned a process -- an input no observation can hash
---- -- or opened, stat'd, or listed a path outside `root`, `scratch`,
+--- when the run spawned a process (an input no observation can hash),
+--- made a request over the network or changed its working directory
+--- (an "x" observation), or opened, stat'd, or listed a path outside `root`, `scratch`,
 --- and every directory an "m" observation anywhere in the same list
 --- shows the test made for itself (not only one earlier in the list:
 --- `Fs.mkdirs` stats a directory to see whether it is already there
@@ -403,7 +406,7 @@ function test.keyable(root: string, scratch: string,
   end
   local made: {string} = {}
   for _, observation in ipairs(reads) do
-    if observation.kind == "p" then
+    if observation.kind == "p" or observation.kind == "x" then
       return false
     elseif observation.kind == "m" then
       made[#made + 1] = observation.path

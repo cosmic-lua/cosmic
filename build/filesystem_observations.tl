@@ -2,6 +2,7 @@
 
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
+local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
 local record observations
@@ -143,6 +144,16 @@ end
 
 --- Installs observers until `restore` is called. The wrappers record failed
 --- queries too: absence and errors are answers a test can depend on.
+---
+--- A "p" (a process started) or an "x" (a query no key can hold: a
+--- request over the network, or a change of working directory, after
+--- which a relative path no longer names a file in the tree) makes the
+--- run's verdict one that never stands.
+-- TODO: observe every call at the syscall table's dispatch, as
+-- design.md's trace point promises, rather than by replacing fields of
+-- `cosmic.sys` and `cosmic.http` here: lstat, readlink, realpath and
+-- getcwd are not observed, so a test whose answer turns on one of them
+-- outside the tree can still stand.
 local function start(): {observations.Observation}, function()
   local found: {observations.Observation} = {}
   local open = sys.open
@@ -153,6 +164,8 @@ local function start(): {observations.Observation}, function()
   local spawn = sys.spawn
   local mkdtemp = sys.mkdtemp
   local mkdir = sys.mkdir
+  local chdir = sys.chdir
+  local http_open = Http.open
   -- A test holding a call to its argument checks may hand it a path
   -- that is no string at all, which the call itself raises for; only a
   -- path is an observation, and encoding anything else into a key would
@@ -209,7 +222,22 @@ local function start(): {observations.Observation}, function()
     end
     return ok, trouble, errno
   end
+  sys.chdir = function(path: string): boolean, string, integer
+    note("x", path, "")
+    return chdir(path)
+  end
+  -- A scripted request answers from the test's own text and connects
+  -- nowhere; any other is the network's answer.
+  Http.open = function(url: string, opts?: Http.Options): Http.Response | nil, string
+    -- An `opts` that is no table is Http.open's own error to raise.
+    if type(opts as any) ~= "table" or opts.script == nil then
+      note("x", url, "")
+    end
+    return http_open(url, opts)
+  end
   return found, function()
+    sys.chdir = chdir
+    Http.open = http_open
     sys.open = open
     sys.stat = stat
     sys.readdir = readdir

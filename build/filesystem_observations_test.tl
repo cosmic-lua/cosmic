@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 
@@ -140,4 +141,29 @@ local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
   assert(kinds.e >= 1)
   assert(kinds.p == 1)
   assert(kinds.m == 1)
+end
+
+--- A request over the network and a change of directory are answers no
+--- key can hold; a scripted request connects nowhere and is not one.
+local function test_network_and_chdir_are_unkeyable_observations(tmp: string)
+  local here = assert(sys.getcwd())
+  local chdir, open = sys.chdir, Http.open
+  local ok, trouble, found = observations.call(function()
+    assert(sys.chdir(tmp))
+    assert(sys.chdir(here))
+    -- An unsupported scheme fails before any connection, and is noted
+    -- all the same: the wrapper cannot tell which requests would connect.
+    Http.open("ftp://example.invalid/")
+    local scripted = assert(Http.get("http://example.invalid/",
+      { script = { "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" } }))
+    assert(scripted.status == 200)
+  end, nil)
+  assert(ok, trouble)
+  local unkeyable: {string} = {}
+  for _, observation in ipairs(found) do
+    if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
+  end
+  assert(#unkeyable == 3 and unkeyable[1] == tmp and unkeyable[2] == here and
+    unkeyable[3] == "ftp://example.invalid/", table.concat(unkeyable, " "))
+  assert(sys.chdir == chdir and Http.open == open, "a wrapper was left installed")
 end
