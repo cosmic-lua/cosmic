@@ -8,6 +8,7 @@
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 
@@ -140,7 +141,7 @@ local function module_of(root: string, file: string): string | nil, string
     return nil, file .. " is not inside " .. root
   end
   local relative = resolved:sub(#root + 2)
-  if relative:sub(-3) ~= ".tl" then
+  if not String.ends_with(relative, ".tl") then
     return nil, file .. " is not a Teal source"
   end
   return (relative:gsub("%.tl$", ""):gsub("/", "."))

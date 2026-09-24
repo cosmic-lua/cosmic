@@ -18,6 +18,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local todo_scan = require("build.todo_scan")
@@ -656,7 +657,7 @@ local function is_input(file: string, own_tree: boolean): boolean
   if not_input[first] or (own_tree and foreign_trees[first]) then
     return false
   end
-  if file:sub(-3) == ".tl" then
+  if String.ends_with(file, ".tl") then
     return true
   end
   if first == "doc" then

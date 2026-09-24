@@ -24,6 +24,7 @@
 local ast = require("build.ast")
 local emit = require("build.fix.emit")
 local typescan = require("build.fix.typescan")
+local String = require("cosmic.string")
 local type compiler = require("build.compiler")
 
 local type Node = ast.Node
@@ -150,7 +151,7 @@ local function reindent(ctx: Ctx, text: string): string
   end
   local out: {string} = {}
   local first = true
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     if first then
       out[#out + 1] = line
       first = false
