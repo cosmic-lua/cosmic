@@ -16,28 +16,19 @@
  * reserves Lua's extraspace for its state-lifetime pointer; new coroutines
  * inherit that pointer. The userdata itself stays rooted in the registry.
  *
- * Pushes a small table {start = <cfunction>, stop = <cfunction>,
- * snapshot = <cfunction>, ...} onto the stack. `start` installs a line
- * hook and begins a fresh, empty collection; `stop` removes the hook and
- * returns every line collected since; `snapshot` reads a copy of every
- * line collected so far without touching the hook or the collection, for
- * a caller that wants to look while collection keeps running. A C
+ * Pushes the collector's table onto the stack. Its members, and what
+ * each answers, are cosmic/internal/debug.d.tl's, which
+ * core/declarations_test.tl holds to what this registers. A C
  * function's lines are how a test is seen to reach it, in a core built
- * with COSMIC_NATIVE_COVERAGE. `stop` and `snapshot` describe hits the
- * same way: {string: {integer: boolean}}, keyed by each chunk's full source
- * name (with an initial @ stripped). In a core built with
- * COSMIC_NATIVE_COVERAGE they also hold the core's own C, by repository
- * path (core/syscalls.c), and `lines` answers every C line that could be
- * hit, in that same form -- empty in any other core. Registered
- * as the raw value behind `cosmic.internal.debug` (core/surface.c),
- * the same trust-gated handoff `cosmic.store` and `cosmic.sqlite` get
- * through core/store.c's `store_searcher`. */
+ * with COSMIC_NATIVE_COVERAGE. Registered as the raw value behind
+ * `cosmic.internal.debug` (core/surface.c), the same trust-gated handoff
+ * `cosmic.store` and `cosmic.sqlite` get through core/store.c's
+ * `store_searcher`. */
 void cosmic_coverage_install (lua_State *L);
 
-/* Pushes {budget = <cfunction>}: `budget(count)` arms a budget of `count`
- * VM instructions on the calling coroutine, raising "instruction budget
- * exceeded" once they are spent, and `budget()` disarms it. It shares the
- * one hook with collection, which stays as it was. The raw value behind
+/* Pushes the instruction budget's table, declared by
+ * cosmic/internal/budget.d.tl. It shares the one hook with collection,
+ * which stays as it was. The raw value behind
  * `build.fuzz` (core/store.c), and nothing else's. */
 int cosmic_open_budget (lua_State *L);
 

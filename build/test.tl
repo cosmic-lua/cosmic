@@ -1032,7 +1032,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
         -- `wait_any` gave beside the handle is the one reported.
         local result, _ = job.handle:wait()
         finish(rec, job, result, trouble, limits)
-      elseif done == nil and trouble ~= "timeout" then
+      elseif done == nil and trouble ~= "" then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = job.handle:close()
         finish(rec, job, nil, trouble, limits)

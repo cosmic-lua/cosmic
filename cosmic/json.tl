@@ -218,12 +218,13 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
       count = count + 1
       local value, err = Json.decode(line, opts)
       if err ~= "" then
-        -- A line is its own text, so what the error says is line 1 is
-        -- this line of the whole.
-        local located = err:gsub(" at line 1, column ", " at line " .. number .. ", column ", 1)
-        if located == err then
-          located = "line " .. number .. ": " .. err
-        end
+        -- A line is its own text, so its error names line 1. Decoded
+        -- again below as many newlines as lines before it -- once, on
+        -- the way out -- the decoder names the line of the whole.
+        local _, located = Json.decode(string.rep("\n", number - 1) .. line, opts)
+        -- A failure with no place in the text ("out of memory") may not
+        -- come again: then the first answer is named by its line.
+        if located == "" then located = "line " .. number .. ": " .. err end
         return nil, located
       end
       values[count] = value
