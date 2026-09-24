@@ -112,7 +112,7 @@ end
 local function closes(c: Ctx, n: Node, word: string)
   local y = n.yend
   if y == nil then
-    expr.refuse(c, "a block with no recorded end")
+    ctx_mod.refuse(c, "a block with no recorded end")
     return
   end
   ctx_mod.lead_to(c, y, n.xend or 1, c.margin, " ")
@@ -128,7 +128,7 @@ end
 local function signature_and_body(c: Ctx, n: Node, name: Node)
   local args, body, rets = n.args, n.body, n.rets
   if args == nil or body == nil or rets == nil then
-    expr.refuse(c, "a function with no signature")
+    ctx_mod.refuse(c, "a function with no signature")
     return
   end
   sig.typeargs(c, typescan.index_at(c.scan, name.y, name.x))
@@ -144,7 +144,7 @@ end
 local function declaration(c: Ctx, n: Node)
   local vars = n.vars
   if vars == nil then
-    expr.refuse(c, "a declaration with no names")
+    ctx_mod.refuse(c, "a declaration with no names")
     return
   end
   emit.text(c.em, "local")
@@ -168,7 +168,7 @@ local function declaration(c: Ctx, n: Node)
   if declared ~= nil and listed ~= nil and #listed > 0 then
     local colon = typescan.index_at(c.scan, declared.y, declared.x)
     if colon == nil or typescan.tk(c.scan, colon) ~= ":" then
-      expr.refuse(c, "a type annotation with no ':' before it")
+      ctx_mod.refuse(c, "a type annotation with no ':' before it")
       return
     end
     local exps = n.exps
@@ -176,7 +176,7 @@ local function declaration(c: Ctx, n: Node)
       and typescan.bounded_end(c.scan, exps.y, exps.x)
       or typescan.rets_end(c.scan, colon + 1)
     if not ctx_mod.annotation(c, colon + 1, last) then
-      expr.refuse(c, "a type annotation with no tokens of its own")
+      ctx_mod.refuse(c, "a type annotation with no tokens of its own")
     end
   end
   local exps = n.exps
@@ -197,7 +197,7 @@ end
 local function type_declaration(c: Ctx, n: Node)
   local value, var = n.value, n.var
   if value == nil or var == nil then
-    expr.refuse(c, "a type declaration with no name or value")
+    ctx_mod.refuse(c, "a type declaration with no name or value")
     return
   end
   local yend, xend = value.yend, value.xend
@@ -217,7 +217,7 @@ local function type_declaration(c: Ctx, n: Node)
   end
   local first = typescan.index_at(c.scan, value.y, value.x)
   if first == nil then
-    expr.refuse(c, "a type alias with no token of its own")
+    ctx_mod.refuse(c, "a type alias with no token of its own")
     return
   end
   emit.put(c.em, " ")
@@ -228,7 +228,7 @@ end
 local function conditional(c: Ctx, n: Node)
   local blocks = n.if_blocks
   if blocks == nil then
-    expr.refuse(c, "an if with no branches")
+    ctx_mod.refuse(c, "an if with no branches")
     return
   end
   for i, b in ipairs(blocks) do
@@ -255,7 +255,7 @@ end
 local function numeric_for(c: Ctx, n: Node)
   local var, from, to = n.var, n.from, n.to
   if var == nil or from == nil or to == nil then
-    expr.refuse(c, "a numeric for with no range")
+    ctx_mod.refuse(c, "a numeric for with no range")
     return
   end
   emit.text(c.em, "for")
@@ -286,7 +286,7 @@ statement = function(c: Ctx, n: Node)
   elseif kind == "local_function" then
     local name = n.name
     if name == nil then
-      expr.refuse(c, "a local function with no name")
+      ctx_mod.refuse(c, "a local function with no name")
       return
     end
     emit.text(c.em, "local function")
@@ -296,7 +296,7 @@ statement = function(c: Ctx, n: Node)
   elseif kind == "record_function" then
     local owner, name = n.fn_owner, n.name
     if owner == nil or name == nil then
-      expr.refuse(c, "a function with no name")
+      ctx_mod.refuse(c, "a function with no name")
       return
     end
     emit.text(c.em, "function")
@@ -309,7 +309,7 @@ statement = function(c: Ctx, n: Node)
   elseif kind == "assignment" then
     local vars, exps = n.vars, n.exps
     if vars == nil or exps == nil then
-      expr.refuse(c, "an assignment with no sides")
+      ctx_mod.refuse(c, "an assignment with no sides")
       return
     end
     expr.items(c, vars, "")
@@ -330,7 +330,7 @@ statement = function(c: Ctx, n: Node)
   elseif kind == "repeat" then
     local body = n.body
     if body == nil then
-      expr.refuse(c, "a repeat with no body")
+      ctx_mod.refuse(c, "a repeat with no body")
       return
     end
     emit.text(c.em, "repeat")
@@ -341,7 +341,7 @@ statement = function(c: Ctx, n: Node)
     closes(c, body, "until")
     local condition = n.exp
     if condition == nil then
-      expr.refuse(c, "a repeat with no condition")
+      ctx_mod.refuse(c, "a repeat with no condition")
       return
     end
     ctx_mod.lead(c, condition, " ")
@@ -356,7 +356,7 @@ statement = function(c: Ctx, n: Node)
   elseif kind == "while" then
     local condition, body = n.exp, n.body
     if condition == nil or body == nil then
-      expr.refuse(c, "a while with no condition or body")
+      ctx_mod.refuse(c, "a while with no condition or body")
       return
     end
     local opens = typescan.index_at(c.scan, n.y, n.x)
@@ -374,7 +374,7 @@ statement = function(c: Ctx, n: Node)
     else
       local vars, exps = n.vars, n.exps
       if vars == nil or exps == nil then
-        expr.refuse(c, "a generic for with no names or values")
+        ctx_mod.refuse(c, "a generic for with no names or values")
         return
       end
       emit.text(c.em, "for")

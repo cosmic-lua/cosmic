@@ -138,10 +138,7 @@ function contracts.applies(kind: string, generated: boolean): boolean
   return (kind == "module" or kind == "main") and not generated
 end
 
---- A position as one integer key, the way `build.receivers` keys them.
-local function position(y: integer, x: integer): integer
-  return (y << 20) | x
-end
+local position = receivers.position
 
 --- The type under a nominal, declaration, or generic.
 local function resolved(t: Type | nil): Type | nil

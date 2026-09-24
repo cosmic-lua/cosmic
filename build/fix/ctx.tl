@@ -213,8 +213,15 @@ local function annotation(ctx: Ctx, first: integer, last: integer): boolean
   return region(ctx, first, last)
 end
 
+--- Note a construct this renderer will not write, rather than writing
+--- something else and calling it the same program.
+local function refuse(ctx: Ctx, what: string)
+  ctx.refused[#ctx.refused + 1] = what
+end
+
 local record CtxModule
   type Ctx = Ctx
+  refuse: function(ctx: Ctx, what: string)
   start_of: function(ctx: Ctx, node: Node): integer, integer
   indent: function(ctx: Ctx, x: integer): string
   lead: function(ctx: Ctx, node: Node, inline: string)
@@ -228,6 +235,7 @@ local record CtxModule
 end
 
 local M: CtxModule = {
+  refuse = refuse,
   start_of = start_of,
   indent = indent,
   lead = lead,

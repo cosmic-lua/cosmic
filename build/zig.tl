@@ -67,6 +67,7 @@ local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -90,11 +91,7 @@ local record Zig
   MIRRORS: {string}
 end
 
--- TODO: Log.new("bin/zig"):complain once ci/cosmic-driver.pin names a cosmic
--- carrying cosmic.log: this file runs on the pinned bootstrap.
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, "bin/zig: " .. line .. "\n")
-end
+local log = Log.new("bin/zig")
 
 --- `bin/zig.pin`'s text: a `version <v>` line, then `<host> <sha256>`
 --- lines. Each line is read as its first two words, so trailing blanks
@@ -727,7 +724,7 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 function Zig.run(argv: {string}): integer
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
-    complain("signal guard: " .. guard_trouble)
+    log:complain("signal guard: " .. guard_trouble)
     return 1
   end
   local function supervise(): Child.Result | nil, string
@@ -765,7 +762,7 @@ function Zig.run(argv: {string}): integer
   local result, trouble = supervise()
   local _, _ = sys.unguard_child_signals()
   if result == nil then
-    complain(argv[1] .. ": " .. trouble)
+    log:complain(argv[1] .. ": " .. trouble)
     return 1
   end
   local signal = result.signal
@@ -794,7 +791,7 @@ function Zig.watched_build(root: string, argv: {string}): integer
   if #moved == 0 then
     return status
   end
-  complain(Zig.race_report(moved))
+  log:complain(Zig.race_report(moved))
   return status ~= 0 and status or 1
 end
 
@@ -803,18 +800,18 @@ end
 function Zig.main(argv: {integer:string}): integer
   local root, root_trouble = Zig.repo_root(argv[0])
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 2
   end
   local zig, ztrouble = Zig.locate(root)
   if zig == nil then
-    complain(ztrouble)
+    log:complain(ztrouble)
     return 1
   end
   local program, unresolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
   if program == nil then
     local status = status_of(unresolved)
-    complain(zig .. ": " .. (status == 127 and "not found" or "permission denied"))
+    log:complain(zig .. ": " .. (status == 127 and "not found" or "permission denied"))
     return status
   end
 
@@ -835,7 +832,7 @@ function Zig.main(argv: {integer:string}): integer
     return Zig.watched_build(root, exec_argv)
   end
   local _, trouble, number = sys.execve(program, exec_argv, Env.all())
-  complain(program .. ": " .. tostring(trouble))
+  log:complain(program .. ": " .. tostring(trouble))
   return Zig.exec_status(math.tointeger(number) or 0)
 end
 

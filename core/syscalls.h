@@ -24,8 +24,9 @@
 
 #include "lua.h"
 
-/* The process's logical, directly executable relaunch path. Main installs it
- * per Lua state after portable startup has adopted the artifact descriptor. */
+/* The process's logical, directly executable relaunch path.
+ * cosmic_surface_open installs it per Lua state, from the path main passes,
+ * after portable startup has adopted the artifact descriptor. */
 #define COSMIC_LOGICAL_EXECUTABLE "cosmic.logical_executable"
 
 /* `arity` is the number of parameters the annotation block just above

@@ -10,10 +10,10 @@ local fifo, await_ready, release = Process.fifo, Process.await_ready, Process.re
 local rebuild_timeout_ms <const> = 30000
 
 -- Compares exactly the first `length` bytes of `program` against `expected`,
--- which must itself be exactly `length` bytes. Mirrors self-rebuild test's
--- shell `compare_prefix`: a length mismatch on either side, or a byte
--- difference within the compared range, is a failure with a message; a
--- program longer than `length` still passes, since only its prefix matters.
+-- which must itself be exactly `length` bytes: a length mismatch on either
+-- side, or a byte difference within the compared range, is a failure with a
+-- message; a program longer than `length` still passes, since only its
+-- prefix matters.
 local function compare_prefix(expected: string, program: string,
     length: integer): boolean, string
   if #expected ~= length then
@@ -120,10 +120,9 @@ local function apply_docs_marker_edit(tree: string)
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
--- Mirrors self-rebuild test's `compare_prefix` length validation
--- (`case $length in ''|*[!0-9]*) ...`), which rejects the whole value if it
--- is anything but digits: a loose `%d+` search would instead silently
--- accept and truncate a malformed value (e.g. extra trailing text).
+-- Rejects the whole value if it is anything but digits: a loose `%d+` search
+-- would instead silently accept and truncate a malformed value (e.g. extra
+-- trailing text).
 local function read_prefix_length(fixture_dir: string): integer
   local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
   local digits = text:match("^(%d+)\n*$")
@@ -306,9 +305,8 @@ local function run_refusal_case(root: string, fixture_dir: string,
     "artifact")
 end
 
--- A pure unit test of `compare_prefix` itself, with the same three synthetic
--- cases self-rebuild test's `exercise_prefix_comparison` checked: an exact
--- match, a program too short to hold the expected prefix, and a mutated
+-- A pure unit test of `compare_prefix` itself, with three synthetic cases: an
+-- exact match, a program too short to hold the expected prefix, and a mutated
 -- byte within the compared range.
 local function test_self_rebuild_prefix_comparison(_tmp: string)
   local expected = "abc"
