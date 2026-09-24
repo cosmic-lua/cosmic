@@ -54,6 +54,30 @@ local function test_cli_selects_one_path_and_runs_it_fresh(tmp: string)
   assert(rows[1][1] ~= "0", "selected run omitted dependency coverage")
 end
 
+local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  for run, expected in ipairs({ "1 ran, 0 stood", "0 ran, 1 stood" }) do
+    local output = tmp .. "/run-" .. tostring(run) .. ".out"
+    local result = invoke(program, root, output, "suite/selected_test.tl")
+    local text = assert(Fs.read(output))
+    assert(result.ok, text)
+    assert(text:find(expected, 1, true), text)
+  end
+  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local by_run = assert(Sqlite.text_rows(db,
+    "SELECT SUM(hit) FROM coverage WHERE path = 'suite.helper' " ..
+    "GROUP BY ran_at_ns ORDER BY ran_at_ns"))
+  local credits = assert(Sqlite.text_rows(db,
+    "SELECT test, hits FROM coverage_by_test"))
+  assert(db:close())
+  assert(#by_run == 2, "expected a coverage snapshot per run")
+  assert(by_run[1][1] ~= "0" and by_run[2][1] == by_run[1][1],
+    "the standing run credited " .. by_run[2][1] .. " lines, not " .. by_run[1][1])
+  assert(#credits == 1, "expected one coverage_by_test row for the one test")
+  assert(credits[1][2]:find("suite.helper\t", 1, true), credits[1][2])
+end
+
 local function test_cli_fails_when_no_module_matches(tmp: string)
   local program = assert(Proc.executable())
   for index, selector in ipairs({ "suite/missing_test.tl", "", "/" }) do

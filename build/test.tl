@@ -430,14 +430,48 @@ function test.keyable(root: string, scratch: string,
   return true
 end
 
+--- One test's hits as `coverage_by_test` holds them: a line per module,
+--- in path order, the path, a tab, then the lines it hit, ascending and
+--- comma-separated. Module paths hold neither tabs nor newlines.
+local function encode_hits(test_hits: Coverage.Hits): string
+  local paths: {string} = {}
+  for path in pairs(test_hits) do
+    paths[#paths + 1] = path
+  end
+  table.sort(paths)
+  local out: {string} = {}
+  for _, path in ipairs(paths) do
+    local lines: {integer} = {}
+    for line in pairs(test_hits[path]) do
+      lines[#lines + 1] = line
+    end
+    table.sort(lines)
+    out[#out + 1] = path .. "\t" .. table.concat(lines, ",") .. "\n"
+  end
+  return table.concat(out)
+end
+
+--- Folds every line `encoded` (as `encode_hits` writes it) names into
+--- `hits`.
+local function decode_hits(encoded: string, hits: Coverage.Hits)
+  for path, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
+    local per_line = hits[path]
+    if per_line == nil then
+      per_line = {}
+      hits[path] = per_line
+    end
+    for line in lines:gmatch("%d+") do
+      per_line[math.tointeger(tonumber(line)) or 0] = true
+    end
+  end
+end
+
 --- Resolves every run `credited` names against `coverage_by_test`,
---- folding the distinct lines its named tests hit into `hits`: only the
---- run-wide union of hit lines per module matters to `write_coverage`,
---- never which test hit which line, so this asks for exactly that
---- instead of loading every row of a credited run (a run's rows number
---- in the hundred thousands) to re-derive it in Lua. One query per run
---- credited, each naming only the tests this run actually still owes
---- it, rather than one per standing verdict.
+--- folding the lines its named tests hit into `hits`: only the run-wide
+--- union of hit lines per module matters to `write_coverage`, never
+--- which test hit which line. One query per run credited, each naming
+--- only the tests this run actually still owes it, rather than one per
+--- standing verdict.
 local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
                            hits: Coverage.Hits): string
   for run_at_ns, tests in pairs(credited) do
@@ -448,25 +482,20 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       args[#args + 1] = text(id)
     end
     local rows, trouble = Sqlite.text_rows(handle,
-      "SELECT DISTINCT path, line FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
+      "SELECT hits FROM coverage_by_test WHERE ran_at_ns = ?1 " ..
       "AND test IN (" .. table.concat(placeholders, ", ") .. ")", args)
     if rows == nil then
       return trouble
     end
     for _, row in ipairs(rows) do
-      local per_line = hits[row[1]]
-      if per_line == nil then
-        per_line = {}
-        hits[row[1]] = per_line
-      end
-      per_line[math.tointeger(tonumber(row[2]) or 0) or 0] = true
+      decode_hits(row[1], hits)
     end
   end
   return ""
 end
 
---- The two coverage tables share their first three fields. Reuse their
---- statements for the many rows in a snapshot, checking every operation.
+--- Reuses `coverage`'s statement for the many rows in a snapshot,
+--- checking every operation.
 local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
                               path: string, line: integer,
                               last: integer | string): boolean, string
@@ -504,7 +533,7 @@ end
 local insert_batch = 100
 
 --- `n` value groups `(<run_at_ns>, ?, ?, ?)`, indexed contiguously from
---- 1, for a batch insert into either coverage table. `ran_at_ns` is the
+--- 1, for a batch insert into `coverage`. `ran_at_ns` is the
 --- same for every row one run writes, so it is a literal rather than a
 --- parameter rebound once per row for nothing.
 local function batch_values(run_at_ns: integer, n: integer): string
@@ -516,11 +545,9 @@ local function batch_values(run_at_ns: integer, n: integer): string
   return table.concat(groups, ", ")
 end
 
---- Rows waiting for one of the coverage tables: a full `insert_batch`
---- of them goes in one step of `whole`, and whatever is left when the
---- caller is done goes through `single`, one row at a time. Both
---- tables share their first three columns; the last is `hit` for
---- `coverage` and `test` for `coverage_by_test`.
+--- Rows waiting for `coverage`: a full `insert_batch` of them goes in
+--- one step of `whole`, and whatever is left when the caller is done
+--- goes through `single`, one row at a time.
 local record Batch
   whole: Sqlite.Statement
   single: Sqlite.Statement
@@ -619,11 +646,10 @@ end
 --- `coverage_by_test`, tagged with that test's own identity (`by_test`,
 --- keyed by "path name" the same way a failure line already identifies
 --- a test elsewhere in this file); a test whose verdict stood is not
---- in `by_test`, since its rows from the run that produced them still
---- stand for it. Two statements, prepared once, since this is a
---- hundred thousand rows a run. Returns the overall hit and
---- executable-line counts, over every module written for this run,
---- for the run's own verdict line.
+--- in `by_test`, since its row from the run that produced it still
+--- stands for it. One row a test, its hits encoded by `encode_hits`.
+--- Returns the overall hit and executable-line counts, over every
+--- module written for this run, for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               hits: Coverage.Hits,
@@ -643,8 +669,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     return 0, 0, prepare_trouble
   end
   local per_test, test_trouble = handle:prepare(
-    "INSERT INTO coverage_by_test (ran_at_ns, path, line, test) " ..
-    "VALUES (?1, ?2, ?3, ?4)")
+    "INSERT INTO coverage_by_test (ran_at_ns, test, hits) VALUES (?1, ?2, ?3)")
   if per_test == nil then
     coverage:finalize()
     return 0, 0, test_trouble
@@ -656,15 +681,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     per_test:finalize()
     return 0, 0, coverage_batch_trouble
   end
-  local per_test_rows, per_test_batch_trouble =
-    batch_for(handle, per_test, run_at_ns, "coverage_by_test", "test")
-  if per_test_rows == nil then
-    coverage:finalize()
-    per_test:finalize()
-    coverage_rows.whole:finalize()
-    return 0, 0, per_test_batch_trouble
-  end
-  -- Both tables are WITHOUT ROWID, keyed (ran_at_ns, path, line[, test]):
+  -- `coverage` is WITHOUT ROWID, keyed (ran_at_ns, path, line):
   -- rows written in key order append at the right edge of the B-tree
   -- instead of splitting pages at random positions, which alone is
   -- most of the cost of writing them in hash order.
@@ -686,31 +703,11 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     end
   end
   table.sort(sorted_paths)
-  -- `by_test` is test-major; `coverage_by_test`'s key is path-major.
-  -- Regrouped once, touching every hit as often as the insert would.
-  local by_path: {string: {integer: {string}}} = {}
-  for test_name, test_hits in pairs(by_test) do
-    for path, per_line in pairs(test_hits) do
-      local lines_here = by_path[path]
-      if lines_here == nil then
-        lines_here = {}
-        by_path[path] = lines_here
-      end
-      for line in pairs(per_line) do
-        local tests_here = lines_here[line]
-        if tests_here == nil then
-          tests_here = {}
-          lines_here[line] = tests_here
-        end
-        tests_here[#tests_here + 1] = test_name
-      end
-    end
+  local test_names: {string} = {}
+  for test_name in pairs(by_test) do
+    test_names[#test_names + 1] = test_name
   end
-  local paths_by_test: {string} = {}
-  for path in pairs(by_path) do
-    paths_by_test[#paths_by_test + 1] = path
-  end
-  table.sort(paths_by_test)
+  table.sort(test_names)
   local write_rows = function(): boolean, string
     for _, path in ipairs(sorted_paths) do
       local m = by_source[path]
@@ -744,20 +741,27 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
     if not drained then
       return false, drain_trouble
     end
-    for _, path in ipairs(paths_by_test) do
-      local lines_here = by_path[path]
-      for _, line in ipairs(sorted_lines(lines_here)) do
-        local tests_here = lines_here[line]
-        table.sort(tests_here)
-        for _, test_name in ipairs(tests_here) do
-          local ok, write_trouble = add(per_test_rows, path, line, test_name)
-          if not ok then
-            return false, write_trouble
-          end
-        end
+    for _, test_name in ipairs(test_names) do
+      local ok, write_trouble = per_test:bind_integer(1, run_at_ns)
+      if ok then
+        ok, write_trouble = per_test:bind_text(2, test_name)
+      end
+      if ok then
+        ok, write_trouble = per_test:bind_text(3, encode_hits(by_test[test_name]))
+      end
+      if not ok then
+        return false, write_trouble
+      end
+      local state, failure = per_test:step()
+      if state == nil then
+        return false, failure
+      end
+      ok, write_trouble = per_test:reset()
+      if not ok then
+        return false, write_trouble
       end
     end
-    return drain(per_test_rows)
+    return true, ""
   end
   -- Keep the prepared statements from escaping when reporting a module's
   -- lines itself throws. Turn that exception into the same infrastructure
@@ -767,7 +771,6 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   coverage:finalize()
   per_test:finalize()
   coverage_rows.whole:finalize()
-  per_test_rows.whole:finalize()
   if not called then
     return 0, 0, tostring(made)
   end
