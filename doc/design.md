@@ -149,8 +149,10 @@ ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
 toolchain and with that caveat stated, is a later addition. a
 `cosmic-debug` asset, the sanitized build published beside the
-release, is added once the fuzzers exist; being unstripped, it takes
-prefix-map flags to keep the build path out of its bytes.
+release, waits for a way to distribute one fat, cross-platform debug
+build; being unstripped and linked to its host's libc, it is then
+built at one fixed path on every runner, so no runner's path is in
+its bytes.
 
 the C layer is POSIX plus a declared platform seam: no signalfd,
 inotify, epoll, or procfs outside modules guarded as Linux-only.
