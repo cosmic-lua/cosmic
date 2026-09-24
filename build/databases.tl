@@ -17,6 +17,11 @@ local log = require("build.verdict").log
 local record databases
 end
 
+--- `name` as an SQL identifier, quoted, with each `"` in it doubled.
+local function quoted(name: string): string
+  return "\"" .. (name:gsub("\"", "\"\"")) .. "\""
+end
+
 --- A number, right-aligned in `width` columns.
 local function column(value: string, width: integer): string
   return string.rep(" ", width - #value) .. value
@@ -56,7 +61,7 @@ local function describe(path: string): integer | nil, string
     local rows = ""
     if is_table[name] then
       local counted, count_trouble = Sqlite.text_rows(db,
-        "SELECT count(*) FROM \"" .. name .. "\"")
+        "SELECT count(*) FROM " .. quoted(name))
       if counted == nil then
         local _, _ = db:close()
         return nil, count_trouble
@@ -128,15 +133,20 @@ end
 
 --- The columns that say which source a row is about, the first a table
 --- has taken: a file's path, or a path that is a file's or a module's.
-local source_columns = { "file", "from_file", "path" }
+--- A table keyed only by a source's hash (`source_hash`, `sha256`) is
+--- about the file with that hash.
+local source_columns = { "file", "from_file", "path", "source_hash", "sha256" }
 
---- Each module's source file, from whichever of the two databases hold
---- one: `o/cosmic.db`'s modules and `o/build.db`'s derived rows.
+--- The source file each module name and each source hash stands for,
+--- from whichever of the two databases hold one: `o/cosmic.db`'s modules
+--- and `o/build.db`'s derived rows and staged files.
 local function module_files(root: string): {string:string} | nil, string
   local files: {string:string} = {}
   for _, source in ipairs({
     { "o/cosmic.db", "SELECT path, file FROM modules" },
     { "o/build.db", "SELECT path, file FROM derived" },
+    { "o/build.db", "SELECT source_hash, file FROM derived" },
+    { "o/build.db", "SELECT sha256, path FROM files" },
   }) do
     local path = root .. "/" .. source[1]
     local present, present_trouble = Fs.exists(path)
@@ -192,7 +202,7 @@ local function describe_under(path: string, about: function(string): boolean): i
     end
     if chosen ~= nil then
       local values, value_trouble = Sqlite.text_rows(db,
-        "SELECT \"" .. chosen .. "\" FROM \"" .. name .. "\"")
+        "SELECT " .. quoted(chosen) .. " FROM " .. quoted(name))
       if values == nil then
         local _, _ = db:close()
         return nil, value_trouble
@@ -214,7 +224,8 @@ end
 --- `cosmic db [path...]`: describes `o/cosmic.db` and `o/build.db` under
 --- the working directory, printing a verdict line and returning the exit
 --- code. Paths narrow it to the rows about the sources under them: each
---- table's count of those rows, and the slowest of those tests.
+--- table's count of those rows, and the slowest of those tests. The
+--- coverage rows counted are every kept run's, not only the latest.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.databases` itself -- see `build.reboot.ensure`
 function databases.run(argv: {integer:string}): integer
@@ -247,7 +258,7 @@ function databases.run(argv: {integer:string}): integer
     files = found
   end
   -- A row is about a source under the paths when its value is that
-  -- source's path, or the name of a module compiled from it.
+  -- source's path, the name of a module compiled from it, or its hash.
   local function about(value: string): boolean
     if narrow.holds(paths, value) then
       return true

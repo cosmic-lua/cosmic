@@ -118,18 +118,20 @@ local function complain(line: string)
   local _, _ = Fs.put(Fs.stderr, line .. "\n")
 end
 
---- The exit code a program's return value asks for: a whole number from
---- 0 to 255, or 0 for anything that is not a number. A number out of
---- that range, or not whole, is complained about as `what`'s, and exits 1.
+--- The exit code a program's return value asks for, as the core decides
+--- it for a built program (`cosmic_tostatus`, build/exit_status_test.tl):
+--- nil is 0, and a whole number from 0 to 255 is itself. Anything else --
+--- a boolean, text, a table, 1.5, -1, 256 -- is complained about as
+--- `what`'s, and exits 2.
 local function exit_status(what: string, value: any): integer
-  if not (value is number) then
+  if value == nil then
     return 0
   end
-  local whole = math.tointeger(value)
+  local whole = value is number and math.tointeger(value) or nil
   if whole == nil or whole < 0 or whole > 255 then
     complain("cosmic: " .. what .. " returned " .. tostring(value) ..
       ", not an exit status 0-255")
-    return 1
+    return 2
   end
   return whole
 end
@@ -186,9 +188,10 @@ end
 --- own name -- but nothing ordinary reaches it, since no length or
 --- loop starts before 1; a caller that wants its own name reads
 --- `argv[0]` directly. A record whose `main` field is a function is
---- called the same way, through that field. A whole number the
---- function returns is the exit code -- see `exit_status` -- and
---- anything else, or no function at all, is 0.
+--- called the same way, through that field. What the function returns
+--- is the exit code as a built program's is -- see `exit_status`: nil
+--- is 0, and anything but a whole number from 0 to 255 exits 2. No
+--- function at all is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
@@ -336,9 +339,8 @@ local as_option: {string:string} = {
 
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
 --- does, against this binary's own standard library, with no tree around
---- it. The words after it are its `...`; a whole number it returns is the
---- exit code, one outside 0-255 is complained about and exits 1, and
---- anything else is 0.
+--- it. The words after it are its `...`; what it returns is the exit
+--- code as a file run's is -- see `exit_status`.
 --- @param argv the whole command line, `cosmic` at slot 0 and `-e` at
 ---   slot 1
 local function evaluate(argv: {integer:string}): integer
