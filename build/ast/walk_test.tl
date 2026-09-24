@@ -178,3 +178,41 @@ local function test_span_start_call_lands_on_its_leftmost_leaf()
   assert(sy == 1 and sx == 1,
     string.format("span_start(call) = %d:%d, want 1:1 (leftmost, at 'os')", sy, sx))
 end
+
+--- `children` with `passed` hands back, beside the children, what a
+--- skipped field leads to: an "if_block"'s `if_parent` is passed by,
+--- not dropped, and the two lists together are the step `walk` takes.
+local function test_children_hands_back_what_a_skipped_field_leads_to()
+  local parsed = parse_ok("if x then return 1 end", "passed.tl")
+  local block: node_mod.Node = nil
+  walk_mod.walk(parsed.node, function(n: node_mod.Node)
+    if n.kind == "if_block" then block = n end
+  end)
+  assert(block ~= nil, "no if_block")
+  local passed: {node_mod.Node} = {}
+  local kept = walk_mod.children(block, { if_parent = true }, passed)
+  assert(#passed == 1 and passed[1] == block.if_parent, "if_parent was not passed by")
+  for _, child in ipairs(kept) do
+    assert(child ~= block.if_parent, "a skipped field's node is among the children")
+  end
+  local all = walk_mod.children(block)
+  assert(#all == #kept + #passed, #all .. " children, " .. #kept .. " kept, " .. #passed .. " passed")
+end
+
+--- A bare array standing in a node's array part is not among its
+--- children, but `walk` descends into it, so `passed` collects its
+--- nodes.
+local function test_children_hands_back_a_bare_array_in_the_array_part()
+  local leaf: node_mod.Node = { kind = "variable", f = "t.tl", y = 1, x = 1, tk = "a" }
+  local direct: node_mod.Node = { kind = "variable", f = "t.tl", y = 1, x = 3, tk = "b" }
+  local bare: {node_mod.Node} = { leaf }
+  local parent: node_mod.Node = { kind = "statements", f = "t.tl", y = 1, x = 1,
+    direct, bare as node_mod.Node }
+  local passed: {node_mod.Node} = {}
+  local kept = walk_mod.children(parent, {}, passed)
+  assert(#kept == 1 and kept[1] == direct, #kept .. " children")
+  assert(#passed == 1 and passed[1] == leaf, #passed .. " passed")
+  local walked: {node_mod.Node: boolean} = {}
+  walk_mod.walk(parent, function(n: node_mod.Node) walked[n] = true end)
+  assert(walked[leaf] and walked[direct], "walk did not reach both")
+end

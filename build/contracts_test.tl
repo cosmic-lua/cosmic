@@ -355,6 +355,20 @@ local function test_a_name_that_holds_no_reason_is_not_followed()
   flags("use(select(2, get()) == 'none')", "its error slot is dropped")
 end
 
+--- A reason assigned in an inner block is still the name's after the
+--- block closes, and so is one bound before it that the block may not
+--- have replaced; a store into a local of the closed block is not.
+local function test_a_reason_assigned_in_an_inner_block_is_followed_past_it()
+  local read = "a failure's reason is read for what it says"
+  flags("local v, err = get()\nif v == nil then\n  v, err = get()\nend\nuse(v, err:find('x'))", read)
+  flags("local v: integer\nlocal err = ''\nif name() == 'a' then\n  v, err = get()\nend\n" ..
+    "use(v, err:match('x'))", read)
+  flags("local v, err = get()\nif v == nil then\n  err = name()\nend\nuse(v, err:find('x'))", read)
+  allows("local err = name()\ndo\n  local v, err2 = get()\n  do\n    local err: string\n" ..
+    "    v, err = get()\n    use(err2)\n  end\n  use(v)\nend\nuse(err:find('x'))")
+  allows("local err = name()\nif name() == 'a' then\n  err = name()\nend\nuse(err:find('x'))")
+end
+
 --- A comparison reads a reason whatever it compares it with but `""`
 --- or `nil`: a named constant, a call, an ordering.
 local function test_a_reason_compared_with_anything_but_empty_is_flagged()

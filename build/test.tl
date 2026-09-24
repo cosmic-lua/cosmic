@@ -719,13 +719,14 @@ end
 --- keyed by "path name" the same way a failure line already identifies
 --- a test elsewhere in this file); a test whose verdict stood is not
 --- in `by_test`, since its row from the run that produced it still
---- stands for it. One row a test, its hits encoded by `encode_hits`.
+--- stands for it. One row a test, its hits as `encode_hits` wrote them
+--- when it finished.
 --- Returns the overall hit and executable-line counts, over every
 --- module written for this run, for the run's own verdict line.
 local function write_coverage(handle: Sqlite.Handle, built: compiler,
                               modules: {importer.Module},
                               hits: Coverage.Hits,
-                              by_test: {string: Coverage.Hits},
+                              by_test: {string: string},
                               run_at_ns: integer): integer, integer, string
   local total_hit = 0
   local total_lines = 0
@@ -817,7 +818,7 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
         ok, write_trouble = per_test:bind_text(2, test_name)
       end
       if ok then
-        ok, write_trouble = per_test:bind_text(3, encode_hits(by_test[test_name]))
+        ok, write_trouble = per_test:bind_text(3, by_test[test_name])
       end
       if not ok then
         return false, write_trouble
@@ -896,7 +897,10 @@ local record Recording
   --- What each failing test printed, by its id.
   outputs: {string:string}
   hits: Coverage.Hits
-  by_test: {string: Coverage.Hits}
+  --- Each test's own hits, encoded as it finishes. Kept as tables, every
+  --- test's lines would stay until the run ends: hundreds of megabytes
+  --- that every test process started after would be forked from.
+  by_test: {string: string}
   tally: test.Tally
 end
 
@@ -981,7 +985,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
     merge_hits(rec.hits, hit)
-    rec.by_test[id] = hit
+    rec.by_test[id] = encode_hits(hit)
     if passed and trouble ~= "" then
       -- The test passed, but what it started outlived it.
       passed, message = false, trouble
@@ -1451,7 +1455,7 @@ function test.run(argv: {integer:string}): integer
   -- Every hit line of the run, and each test's own, which is what lets
   -- a later run credit a standing verdict's lines to it by name.
   local hits: Coverage.Hits = {}
-  local by_test: {string: Coverage.Hits} = {}
+  local by_test: {string: string} = {}
   local rec: Recording = {
     records = records, root = root, hashes = hashes, runtime = runtime,
     run_at_ns = run_at_ns, run = handle.run, key_parts = {},
