@@ -86,18 +86,20 @@ if [ ! -x "$cached" ]; then
   trap 'rm -f "$partial"' EXIT
   trap 'rm -f "$partial"; exit 1' HUP INT TERM
   if command -v curl >/dev/null 2>&1; then
-    # One attempt gives up on no connection in 30 s, under 64 KiB/s for
-    # 20 s straight, or no whole ~18 MB binary in 5 minutes.
+    # One attempt gives up on no connection in 30 s, or on a stalled
+    # stream, under 1 KiB/s for 60 s straight. The release is the one
+    # source, and a slow link slows it and nothing else, so there is no
+    # ceiling on a transfer that keeps moving: this catches a dead
+    # stream, not a slow one.
     fetch() {
       curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-        --connect-timeout 30 --speed-limit 65536 --speed-time 20 --max-time 300 \
+        --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
         --output "$partial" "$url"
     }
   elif command -v wget >/dev/null 2>&1; then
-    # wget has no minimum speed: 30 s of silence ends an attempt, and it
-    # makes one try (its default is 20), the loop below the rest.
-    # TODO: bound a whole wget attempt, as curl's --max-time does, once
-    # this script can rely on timeout(1) being there (macOS lacks it).
+    # wget has no minimum speed: 30 s of silence ends an attempt, its
+    # stall guard, and it makes one try (its default is 20), the loop
+    # below the rest.
     fetch() { wget -q --timeout=30 --tries=1 -O "$partial" "$url"; }
   else
     die "need curl or wget to fetch $url"
@@ -110,12 +112,13 @@ if [ ! -x "$cached" ]; then
   attempt=1
   while :; do
     rm -f "$partial"
+    started=$(date +%s)
     if fetch; then
       got=$(sha256_file "$partial")
       [ "$got" = "$digest" ] && break
       why="$url has sha256 $got; the pin says $digest"
     else
-      why="download failed: $url"
+      why="download failed after $(($(date +%s) - started)) s: $url"
     fi
     if [ "$attempt" -ge "$attempts" ]; then
       [ "$attempt" -eq 1 ] && die "$why (after 1 attempt)"

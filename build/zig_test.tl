@@ -206,18 +206,23 @@ local function test_sources_try_a_few_shuffled_mirrors_then_ziglang_org()
 end
 
 --- A stand-in for Http.download that answers `replies[url]` in turn --
---- "ok" writes the file -- and records each call and each pause. Its
---- clock moves only by the pauses and by `per_call_ms` a download.
+--- "ok" writes the file -- and records each call, the options it was
+--- given (in `seen`, when passed) and each pause. Its clock moves only
+--- by the pauses and by `per_call_ms` a download.
 local function scripted(replies: {string:{string}}, calls: {string},
-    sleeps: {integer}, per_call_ms?: integer): Zig.Fetcher
+    sleeps: {integer}, per_call_ms?: integer, seen?: {Http.Options}): Zig.Fetcher
   local served: {string:integer} = {}
   local clock = 0
   return {
     download = function(url: string, path: string, opts: Http.Options): boolean, string
       assert(opts.sha256 == "abc")
-      assert(opts.timeout_ms > 0 and opts.low_speed_bytes > 1, "an attempt has no bound")
+      assert(opts.connect_timeout_ms > 0 and opts.low_speed_bytes >= 1024 and
+        opts.low_speed_seconds > 0, "an attempt has no stall guard")
       assert(Fs.exists(path) == false, "an attempt started over an earlier file")
       calls[#calls + 1] = url
+      if seen ~= nil then
+        seen[#seen + 1] = opts
+      end
       clock = clock + (per_call_ms or 0)
       served[url] = (served[url] or 0) + 1
       local reply = replies[url][served[url]] or replies[url][#replies[url]]
@@ -297,18 +302,35 @@ local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
     table.concat(calls, " "))
 end
 
-local function test_fetch_stops_when_its_time_is_spent(tmp: string)
+--- Mirrors are held to a ceiling cut to what is left of the budget;
+--- the fallback has none, and once the budget is spent it is tried one
+--- last time on its own.
+local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tmp: string)
   local calls: {string} = {}
   local sleeps: {integer} = {}
-  -- Each attempt takes five minutes: the budget holds three.
-  local ok, trouble = Zig.fetch({ "http://one", "http://two" }, tmp .. "/z", "abc",
+  local seen: {Http.Options} = {}
+  -- Each attempt takes five minutes, and the budget is twelve.
+  local ok, trouble = Zig.fetch({ "http://mirror", "http://fallback" }, tmp .. "/z", "abc",
     scripted({
-      ["http://one"] = { "timed out" },
-      ["http://two"] = { "timed out" },
-    }, calls, sleeps, 5 * 60 * 1000))
+      ["http://mirror"] = { "timed out" },
+      ["http://fallback"] = { "stalled" },
+    }, calls, sleeps, 5 * 60 * 1000, seen))
   assert(not ok)
-  assert(#calls == 3, tostring(#calls))
-  assert(trouble:find("out of time after 3 attempts", 1, true) ~= nil, trouble)
+  assert(table.concat(calls, " ") ==
+    "http://mirror http://fallback http://mirror http://fallback http://fallback",
+    table.concat(calls, " "))
+  -- The first mirror attempt gets the whole 3 minutes; the second, 10
+  -- minutes and a 2 s pause in, the 118 s left.
+  assert(seen[1].timeout_ms == 3 * 60 * 1000, tostring(seen[1].timeout_ms))
+  assert(seen[3].timeout_ms == 118 * 1000, tostring(seen[3].timeout_ms))
+  assert(seen[1].low_speed_bytes == 64 * 1024)
+  for _, i in ipairs({ 2, 4, 5 }) do
+    assert(seen[i].timeout_ms == nil, "the fallback has a ceiling")
+    assert(seen[i].low_speed_bytes == 1024 and seen[i].low_speed_seconds == 60)
+  end
+  assert(trouble:find("mirrors out of time; every source failed after 5 attempts", 1, true) ~= nil,
+    trouble)
+  assert(trouble:find("http://mirror: timed out (after 300 s)", 1, true) ~= nil, trouble)
 end
 
 --- The real Http.download, answered by a scripted server with the wrong

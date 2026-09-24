@@ -260,18 +260,29 @@ local ROUNDS <const> = 3
 --- The pause before round `n` is `(n - 1)` times this.
 local BACKOFF_MS <const> = 2000
 
---- What bounds one attempt and all of them. A source that has not
---- connected in 10 s, or that moves under 64 KiB/s for 20 s straight,
---- or that has not finished in 3 minutes (a ~55 MB tarball needs about
---- 300 KiB/s on average), is given up on; a trickling or hostile mirror
---- costs at most one attempt's 3 minutes. No attempt starts once 12
---- minutes have gone, and each one's limit is cut to what is left of
---- those 12, pauses included, so the worst case for a whole install is
---- about 12 minutes, well inside CI's 45-minute job limit.
+--- What bounds the attempts. The limits are there to stop a slow or
+--- hostile mirror, not a slow link, which slows every source alike:
+---
+--- - A mirror attempt gives up on no connection in 10 s, under 64 KiB/s
+---   for 20 s straight, or no whole tarball in 3 minutes (a ~55 MB one
+---   needs about 300 KiB/s on average), so a trickling mirror costs at
+---   most 3 minutes. Mirror attempts and the pauses between rounds share
+---   a 12-minute budget: none starts once it is spent, and each one's
+---   limits are cut to what is left of it, so the mirrors together cost
+---   at most about 12 minutes.
+--- - The fallback, ziglang.org, keeps the 10 s connect limit and only a
+---   stall guard, under 1 KiB/s for 60 s, which catches a dead stream
+---   and nothing slower: no ceiling, and the budget does not cut it, so
+---   a slow link still installs. It is bounded only by that guard, by
+---   design. It is tried once a round, and once more, last, when the
+---   budget runs out partway through the mirrors -- at most `ROUNDS`
+---   times in all.
 local CONNECT_TIMEOUT_MS <const> = 10000
-local LOW_SPEED_BYTES <const> = 64 * 1024
-local LOW_SPEED_SECONDS <const> = 20
-local ATTEMPT_TIMEOUT_MS <const> = 3 * 60 * 1000
+local MIRROR_LOW_SPEED_BYTES <const> = 64 * 1024
+local MIRROR_LOW_SPEED_SECONDS <const> = 20
+local MIRROR_TIMEOUT_MS <const> = 3 * 60 * 1000
+local FALLBACK_LOW_SPEED_BYTES <const> = 1024
+local FALLBACK_LOW_SPEED_SECONDS <const> = 60
 local BUDGET_MS <const> = 12 * 60 * 1000
 
 --- The URLs to fetch `name`, zig `version`'s release tarball, from, in
@@ -308,23 +319,31 @@ local function real_sleep(ms: integer)
 end
 
 local function real_now_ms(): integer
-  -- TODO: drop the `or 0` once ci/cosmic-driver.pin names a cosmic whose
-  -- Time.monotonic_ns answers an integer alone, as Zig.run's does.
-  return (Time.monotonic_ns() or 0) // (1000 * 1000)
+  -- TODO: drop the nil check once ci/cosmic-driver.pin names a cosmic
+  -- whose Time.monotonic_ns answers an integer alone, as the tree's does:
+  -- this runs on that release, whose answers nil and a message.
+  local ns = Time.monotonic_ns()
+  if ns == nil then
+    error("bin/zig: the monotonic clock cannot be read")
+  end
+  return ns // (1000 * 1000)
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
 --- of `urls` that serves it, going over them up to `ROUNDS` times with a
---- growing pause between rounds, each attempt and the whole bounded as
---- `BUDGET_MS` says. Each attempt starts from no file at `path`
+--- growing pause between rounds. Every url but the last is a mirror,
+--- held to the mirror limits and the budget; the last is the fallback
+--- (ziglang.org), held only to a stall guard, as `BUDGET_MS` says. Once
+--- the budget is spent the mirrors are skipped and the fallback is tried
+--- one last time. Each attempt starts from no file at `path`
 --- (`Http.download` writes a fresh temporary file and renames it into
 --- place only once the digest matches). A mirror that served the wrong
 --- bytes is not asked again; one that failed any other way is, in the
---- next round. The last of `urls`, the fallback (ziglang.org), is never
---- barred: a transfer cut short without an error reads as a mismatch
---- too, and giving up the one source every list ends with on that would
---- make it fatal. When every attempt fails, the message names each
---- source tried and its last trouble.
+--- next round. The fallback is never barred: a transfer cut short
+--- without an error reads as a mismatch too, and giving up the one
+--- source every list ends with on that would make it fatal. When every
+--- attempt fails, the message names each source, its last trouble and
+--- how long that attempt ran.
 function Zig.fetch(urls: {string}, path: string, sha256: string,
     via?: Zig.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download
@@ -335,49 +354,68 @@ function Zig.fetch(urls: {string}, path: string, sha256: string,
   local wrong: {string:boolean} = {}
   local attempts = 0
   local out_of_time = false
+
+  local function attempt(url: string, opts: Http.Options): boolean
+    attempts = attempts + 1
+    local _, _ = Fs.remove(path)
+    opts.sha256 = sha256
+    local started = now()
+    local ok, trouble = download(url, path, opts)
+    if ok then
+      return true
+    end
+    -- Http.download names the URL itself for some failures; the
+    -- report names each source once.
+    if String.starts_with(trouble, url .. ": ") then
+      trouble = trouble:sub(#url + 3)
+    end
+    last[url] = trouble .. " (after " .. tostring((now() - started) // 1000) .. " s)"
+    return false
+  end
+
+  local fallback = urls[#urls]
   for round = 1, ROUNDS do
-    local asked = false
-    for i, url in ipairs(urls) do
+    if round > 1 then
+      sleep((round - 1) * BACKOFF_MS)
+    end
+    for i = 1, #urls - 1 do
+      local url = urls[i]
       if not wrong[url] and not out_of_time then
-        if not asked and round > 1 then
-          sleep(math.min((round - 1) * BACKOFF_MS, math.max(deadline - now(), 0)))
-        end
         local left = deadline - now()
         if left <= 0 then
           out_of_time = true
         else
-          asked = true
-          attempts = attempts + 1
-          local _, _ = Fs.remove(path)
-          local ok, trouble = download(url, path, {
-            sha256 = sha256,
+          local ok = attempt(url, {
             connect_timeout_ms = math.min(CONNECT_TIMEOUT_MS, left),
-            low_speed_bytes = LOW_SPEED_BYTES,
-            low_speed_seconds = LOW_SPEED_SECONDS,
-            timeout_ms = math.min(ATTEMPT_TIMEOUT_MS, left),
+            low_speed_bytes = MIRROR_LOW_SPEED_BYTES,
+            low_speed_seconds = MIRROR_LOW_SPEED_SECONDS,
+            timeout_ms = math.min(MIRROR_TIMEOUT_MS, left),
           })
           if ok then
             return true, ""
-          end
-          -- Http.download names the URL itself for some failures; the
-          -- report below names each source once.
-          if String.starts_with(trouble, url .. ": ") then
-            last[url] = trouble:sub(#url + 3)
-          else
-            last[url] = trouble
           end
           -- TODO: tell a digest mismatch apart by something other than
           -- Http.download's message text, once ci/cosmic-driver.pin names
           -- a cosmic whose Http.download reports which failure it hit
           -- apart from the text (test_fetch_sees_a_real_mismatch fails if
           -- the text changes first).
-          if i < #urls and trouble:find("sha256 mismatch", 1, true) ~= nil then
+          if last[url]:find("sha256 mismatch", 1, true) ~= nil then
             wrong[url] = true
           end
         end
       end
     end
-    if not asked then
+    if fallback ~= nil then
+      local ok = attempt(fallback, {
+        connect_timeout_ms = CONNECT_TIMEOUT_MS,
+        low_speed_bytes = FALLBACK_LOW_SPEED_BYTES,
+        low_speed_seconds = FALLBACK_LOW_SPEED_SECONDS,
+      })
+      if ok then
+        return true, ""
+      end
+    end
+    if out_of_time then
       break
     end
   end
@@ -385,9 +423,9 @@ function Zig.fetch(urls: {string}, path: string, sha256: string,
   for _, url in ipairs(urls) do
     lines[#lines + 1] = "\n  " .. url .. ": " .. (last[url] or "not tried")
   end
-  local why = out_of_time and "out of time after " or "every source failed after "
-  return false, why .. tostring(attempts) .. " attempts:" ..
-    table.concat(lines)
+  local why = out_of_time and "mirrors out of time; every source failed after " or
+    "every source failed after "
+  return false, why .. tostring(attempts) .. " attempts:" .. table.concat(lines)
 end
 
 --- Downloads, verifies and extracts `pin`'s release for `host` into
