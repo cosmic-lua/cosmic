@@ -6,6 +6,8 @@
 - Keep `vendor/` unedited; express vendor changes as records under `patch/`.
   `bin/vendor` refetches a tree from its PIN, keeping only what the build reads.
   Generated output under `o/` must not be committed.
+- Run `bin/actionlint` (the pinned actionlint, over `.github/workflows/`)
+  before pushing a change under `.github/`.
 
 ## Build, format, test
 

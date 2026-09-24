@@ -15,7 +15,6 @@
 local Child = require("cosmic.child")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
@@ -25,7 +24,7 @@ local importer = require("build.importer")
 local reboot = require("build.reboot")
 local work = require("build.work")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record todos
   --- What blame says about one line.

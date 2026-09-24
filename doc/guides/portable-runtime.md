@@ -356,7 +356,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
-local fixture = require("test.portable.artifact_fixture")
+local fixture = require("test.portable")
 
 local path = assert(Proc.executable())
 local artifact = assert(fixture.read(path))
