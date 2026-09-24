@@ -116,7 +116,7 @@ if [ "$mechanism" != none ]; then
   # run as root left it root's. The checkout itself
   # stays root's and is only read: o/bin/cosmic, and the project cache
   # that COSMIC_ZIG_CACHE_FROM names, which the driver copies with
-  # `cp -a` into the candidate rather than writing in place.
+  # Fs.copy_tree into the candidate rather than writing in place.
   # drop_env is split on spaces, and names paths under the state.
   case $state in *[[:space:]]*) die "COSMIC_CI_LOCAL must not contain spaces" ;; esac
   mkdir -p "$state"
