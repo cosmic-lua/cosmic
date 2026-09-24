@@ -170,11 +170,11 @@ function fix.source(built: compiler, source: string,
 end
 
 local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
+  local _, _ = Fs.put(Fs.stdout, line .. "\n")
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 --- The files one invocation covers: whatever paths were named, or the
@@ -258,7 +258,7 @@ end
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local checking = false
   local paths: {string} = {}
   local i = 2
@@ -316,7 +316,7 @@ function fix.run(argv: {integer:string}): integer
   -- taken relative to it.
   local c_files: {string} = {}
   for _, file in ipairs(picked.c_files) do
-    local absolute = Fs.absolute(file)
+    local absolute, _ = Fs.absolute(file)
     if absolute ~= nil and absolute:sub(1, #root + 1) == root .. "/" then
       c_files[#c_files + 1] = absolute:sub(#root + 2)
     else
@@ -377,7 +377,7 @@ function fix.run(argv: {integer:string}): integer
   -- check reports the files once and a fix repeats until it settles.
   local chosen_files: {string:string} = {}
   for _, file in ipairs(files) do
-    local absolute = Fs.absolute(file)
+    local absolute, _ = Fs.absolute(file)
     if absolute ~= nil then chosen_files[absolute] = file end
   end
   local listed: {string:boolean} = {}

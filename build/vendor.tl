@@ -55,7 +55,7 @@ local record Vendor
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, "vendor: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "vendor: " .. line .. "\n")
 end
 
 --- `vendor/<name>/PIN`'s text, as `key value` lines. A value is the
@@ -117,7 +117,11 @@ function Vendor.all_names(root: string): {string} | nil, string
   end
   local names: {string} = {}
   for _, name in ipairs(entries) do
-    if Fs.exists(root .. "/vendor/" .. name .. "/PIN") then
+    local pinned, pin_trouble = Fs.exists(root .. "/vendor/" .. name .. "/PIN")
+    if pinned == nil then
+      return nil, pin_trouble
+    end
+    if pinned then
       names[#names + 1] = name
     end
   end
@@ -126,7 +130,7 @@ end
 
 --- True when `path` exists and its sha256 is `sha256`.
 function Vendor.matches(path: string, sha256: string): boolean
-  local data = Fs.read(path)
+  local data, _ = Fs.read(path)
   if data == nil then
     return false
   end
@@ -140,7 +144,7 @@ function Vendor.fetch(url: string, path: string, sha256: string): string | nil, 
   if Vendor.matches(path, sha256) then
     return path, ""
   end
-  Fs.remove(path)
+  local _, _ = Fs.remove(path)
   local ok, trouble = Http.download(url, path, { sha256 = sha256 })
   if not ok then
     return nil, trouble
@@ -211,15 +215,15 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
   for name, kind in pairs(entries) do
     local path = under == nil and name or (under .. "/" .. name)
     -- A link to a directory is listed as one; it is removed, not followed.
-    local st = sys.lstat(tree .. "/" .. path)
+    local st, _ = sys.lstat(tree .. "/" .. path)
     if kind == "dir" and st ~= nil and st.kind == "dir" then
       local pruned, why = prune(tree, files, path)
       if not pruned then
         return false, why
       end
-      local left = Fs.list(tree .. "/" .. path)
+      local left, _ = Fs.list(tree .. "/" .. path)
       if left ~= nil and #left == 0 then
-        sys.rmdir(tree .. "/" .. path)
+        local _, _ = sys.rmdir(tree .. "/" .. path)
       end
     elseif path ~= "PIN" and not files[path] then
       local gone, why = Fs.remove(tree .. "/" .. path)
@@ -305,8 +309,13 @@ local function from_archive(tree: string, pin: Vendor.Pin, archive_path: string)
   else
     count, trouble = install(tree, scratch, files)
   end
-  Fs.remove_tree(scratch)
-  return count, trouble
+  -- What is left in the scratch directory is only litter; the
+  -- extraction's or the install's own answer is the one reported.
+  local _, _ = Fs.remove_tree(scratch)
+  if count == nil then
+    return nil, trouble
+  end
+  return count, ""
 end
 
 --- Rewrites `tree` to hold just `download`'s own bytes, as `pin.file`.
@@ -381,7 +390,7 @@ function Vendor.main(argv: {integer:string}): integer
       complain(trouble)
       return 1
     end
-    Fs.put(Fs.stdout, "vendor: " .. tree .. " (" .. count .. " files)\n")
+    local _, _ = Fs.put(Fs.stdout, "vendor: " .. tree .. " (" .. count .. " files)\n")
     return 0
   end
 
@@ -419,7 +428,7 @@ function Vendor.main(argv: {integer:string}): integer
       complain(name .. ": " .. trouble)
       failed = true
     else
-      Fs.put(Fs.stdout, "vendor: vendor/" .. name .. " (" .. count .. " files)\n")
+      local _, _ = Fs.put(Fs.stdout, "vendor: vendor/" .. name .. " (" .. count .. " files)\n")
     end
   end
   return failed and 1 or 0

@@ -265,16 +265,16 @@ function Sqlite.transact(handle: Sqlite.Handle,
   end
   local called, ok, why = pcall(work)
   if not called then
-    handle:exec("ROLLBACK")
+    local _, _ = handle:exec("ROLLBACK")
     error(ok, 0)
   end
   if not ok then
-    handle:exec("ROLLBACK")
+    local _, _ = handle:exec("ROLLBACK")
     return false, why
   end
   local committed, failure = handle:exec("COMMIT")
   if not committed then
-    handle:exec("ROLLBACK")
+    local _, _ = handle:exec("ROLLBACK")
     return false, failure
   end
   return true, ""

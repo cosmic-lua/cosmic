@@ -160,7 +160,7 @@ function reboot.boot_into(root: string, argv: {integer:string},
   if environment[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
-  Fs.put(Fs.stderr, "cosmic: the core is stale; running bin/zig build boot\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: the core is stale; running bin/zig build boot\n")
   local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
     { cwd = root, env = environment, stdout = 2 })
   if result == nil then
@@ -219,44 +219,53 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
 
   local moved, moved_trouble = work.tool_moved(handle)
   if moved == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return 1, moved_trouble
   end
   if not moved then
     local recorded, recorded_trouble = work.recorded_boot_hash(handle)
     if recorded == nil and recorded_trouble ~= "" then
-      work.close(handle)
+      local _, _ = work.close(handle)
       return 1, recorded_trouble
     end
     if recorded ~= nil and recorded == (Store.meta("boot_hash") or "") then
-      work.close(handle)
+      local closed, close_trouble = work.close(handle)
+      if not closed then
+        return 1, close_trouble
+      end
       return nil, ""
     end
   end
 
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return 1, stage_trouble
   end
   local state, state_trouble = reboot.state(handle)
   if state == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return 1, state_trouble
   end
   if state == "fresh" then
-    work.close(handle)
+    local closed, close_trouble = work.close(handle)
+    if not closed then
+      return 1, close_trouble
+    end
     return nil, ""
   end
   if state == "core" then
-    work.close(handle)
+    local closed, close_trouble = work.close(handle)
+    if not closed then
+      return 1, close_trouble
+    end
     if not reboot.auto_boot() then
       return 3, reboot.core_refusal
     end
     return 3, reboot.boot_into(root, argv)
   end
   -- state == "teal"
-  Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
   local built = teal.lazy()
   local reboot_trouble = reboot.into(handle, built, argv)
   return 3, reboot_trouble

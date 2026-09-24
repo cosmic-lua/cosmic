@@ -62,7 +62,7 @@ local function environment(built: compiler): compiler.Env | nil, string
     if name:sub(1, 7) ~= "cosmic." then
       return nil
     end
-    local source = Store.source(name)
+    local source, _ = Store.source(name)
     if source == nil then
       return nil
     end
@@ -94,7 +94,7 @@ end
 --- there is no cache directory `Fs.cache_dir` will vouch for, and so
 --- no cache.
 function standalone.cached_path(source: string): string | nil
-  local dir = Fs.cache_dir("standalone")
+  local dir, _ = Fs.cache_dir("standalone")
   if dir == nil then
     return nil
   end
@@ -149,7 +149,9 @@ function standalone.compile(file: string, source: string): standalone.Main | nil
   local cached = standalone.cached_path(source)
   local code: string
   if cached ~= nil then
-    code = Fs.read(cached)
+    -- A cache that cannot be read is a miss.
+    local read, _ = Fs.read(cached)
+    code = read
   end
   if code == nil then
     local generated, trouble = generate(file, source)
@@ -158,7 +160,7 @@ function standalone.compile(file: string, source: string): standalone.Main | nil
     end
     code = generated
     if cached ~= nil then
-      Fs.write(cached, code, 0x180)
+      local _, _ = Fs.write(cached, code, 0x180)
     end
   end
   return loaded(file, code)
@@ -185,17 +187,17 @@ end
 function standalone.run(argv: {integer:string}): integer
   local file = argv[2]
   if file == nil then
-    Fs.put(Fs.stderr, "cosmic: usage: cosmic --standalone <file.tl> [args...]\n")
+    local _, _ = Fs.put(Fs.stderr, "cosmic: usage: cosmic --standalone <file.tl> [args...]\n")
     return 2
   end
   local source, read_trouble = Fs.read(file)
   if source == nil then
-    Fs.put(Fs.stderr, "cosmic: " .. read_trouble .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. read_trouble .. "\n")
     return 1
   end
   local chunk, trouble = standalone.compile(file, source)
   if chunk == nil then
-    Fs.put(Fs.stderr, trouble .. "\n")
+    local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
     return 1
   end
   local main = standalone.entry(chunk())

@@ -439,21 +439,25 @@ function work.open(root: string): work.Handle | nil, string
   if db == nil then
     return nil, path .. ": " .. open_trouble
   end
-  db:exec("PRAGMA encoding = 'UTF-8'")
+  local encoded, encode_trouble = db:exec("PRAGMA encoding = 'UTF-8'")
+  if not encoded then
+    local _, _ = db:close()
+    return nil, path .. ": " .. encode_trouble
+  end
   local created, create_trouble = create(db)
   if not created then
-    db:close()
+    local _, _ = db:close()
     return nil, path .. ": " .. create_trouble
   end
 
   local versions, version_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'schema'")
   if versions == nil then
-    db:close()
+    local _, _ = db:close()
     return nil, path .. ": " .. version_trouble
   end
   if #versions > 0 and versions[1][1] ~= work.version then
-    db:close()
+    local _, _ = db:close()
     local removed, remove_trouble = Fs.remove(path)
     if not removed then
       return nil, remove_trouble
@@ -466,27 +470,27 @@ function work.open(root: string): work.Handle | nil, string
   -- of both reading and then one failing to upgrade.
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
   if not begun then
-    db:close()
+    local _, _ = db:close()
     return nil, path .. ": " .. begin_trouble
   end
   local stamped, stamp_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
     "ON CONFLICT (key) DO NOTHING", { text(work.version) })
   if not stamped then
-    db:close()
+    local _, _ = db:close()
     return nil, path .. ": " .. stamp_trouble
   end
   local counted, count_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
     "ON CONFLICT (key) DO UPDATE SET value = value + 1")
   if not counted then
-    db:close()
+    local _, _ = db:close()
     return nil, path .. ": " .. count_trouble
   end
   local runs, run_trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'run'")
   if runs == nil then
-    db:close()
+    local _, _ = db:close()
     return nil, path .. ": " .. run_trouble
   end
   return { db = db, root = root, run = integer_of(runs), inside = true }
@@ -503,7 +507,8 @@ function work.commit(handle: work.Handle): boolean, string
     -- A failed COMMIT leaves SQLite's transaction open. Discard it so
     -- close cannot preserve a partial phase and the handle state remains
     -- truthful even when the database reports a deferred error here.
-    local rolled_back = handle.db:exec("ROLLBACK")
+    -- The COMMIT's own trouble is the one reported.
+    local rolled_back, _ = handle.db:exec("ROLLBACK")
     if rolled_back then
       handle.inside = false
     end
@@ -520,10 +525,11 @@ function work.rollback(handle: work.Handle): boolean, string
     return true, ""
   end
   local rolled_back, trouble = handle.db:exec("ROLLBACK")
-  if rolled_back then
-    handle.inside = false
+  if not rolled_back then
+    return false, trouble
   end
-  return rolled_back, trouble
+  handle.inside = false
+  return true, ""
 end
 
 --- Opens another transaction on the run, for a phase that comes after
@@ -742,8 +748,7 @@ local function once(statement: Sqlite.Statement): boolean, string
   if state == nil then
     return false, trouble
   end
-  statement:reset()
-  return true, ""
+  return statement:reset()
 end
 
 --- How long a file's modification time has to be in the past before
@@ -778,7 +783,7 @@ function work.tool_moved(handle: work.Handle): boolean | nil, string
     return nil, trouble
   end
   for path in pairs(known) do
-    local st = Fs.stat(handle.root .. "/" .. path)
+    local st, _ = Fs.stat(handle.root .. "/" .. path)
     if st == nil then
       return true, ""
     end
@@ -795,13 +800,16 @@ end
 local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
                        mtime_ns: integer, settled: boolean,
                        data: string, sha256: string): boolean, string
-  put:bind_text(1, file)
-  put:bind_integer(2, st.size)
-  put:bind_integer(3, settled and mtime_ns or 0)
-  put:bind_integer(4, st.ino)
-  put:bind_integer(5, st.dev)
-  put:bind_blob(6, data)
-  put:bind_text(7, sha256)
+  local bound, trouble = put:bind_text(1, file)
+  if bound then bound, trouble = put:bind_integer(2, st.size) end
+  if bound then bound, trouble = put:bind_integer(3, settled and mtime_ns or 0) end
+  if bound then bound, trouble = put:bind_integer(4, st.ino) end
+  if bound then bound, trouble = put:bind_integer(5, st.dev) end
+  if bound then bound, trouble = put:bind_blob(6, data) end
+  if bound then bound, trouble = put:bind_text(7, sha256) end
+  if not bound then
+    return false, file .. ": " .. trouble
+  end
   return once(put)
 end
 
@@ -821,11 +829,11 @@ local function put_todos(put: Sqlite.Statement, data: string,
     return true, ""
   end
   for _, found in ipairs(todo_scan.scan(data)) do
-    put:bind_text(1, sha256)
-    put:bind_integer(2, found.line)
-    put:bind_integer(3, found.last)
-    put:bind_text(4, found.text)
-    local ok, trouble = once(put)
+    local ok, trouble = put:bind_text(1, sha256)
+    if ok then ok, trouble = put:bind_integer(2, found.line) end
+    if ok then ok, trouble = put:bind_integer(3, found.last) end
+    if ok then ok, trouble = put:bind_text(4, found.text) end
+    if ok then ok, trouble = once(put) end
     if not ok then
       return false, trouble
     end
@@ -887,7 +895,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     end
     put[name] = statement
   end
-  local now = Time.now_ns() or 0
+  local now = Time.now_ns()
   local staged: work.Staged = { files = 0, read = 0 }
 
   for _, file in ipairs(files) do
@@ -1101,7 +1109,7 @@ end
 function work.close(handle: work.Handle): boolean, string
   local committed, trouble = work.commit(handle)
   if not committed then
-    handle.db:close()
+    local _, _ = handle.db:close()
     return false, trouble
   end
   return handle.db:close()
@@ -1115,7 +1123,10 @@ function work.abort(handle: work.Handle): boolean, string
   if not rolled_back then
     return false, trouble
   end
-  return closed, close_trouble
+  if not closed then
+    return false, close_trouble
+  end
+  return true, ""
 end
 
 return work

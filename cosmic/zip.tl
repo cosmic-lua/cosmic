@@ -527,13 +527,13 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   -- follows it.
   local cd_limit = eocd_off
   if eocd_off >= 20 then
-    local loc = pread(eocd_off - 20, 20)
+    local loc, _ = pread(eocd_off - 20, 20)
     if loc ~= nil and #loc == 20 and loc:sub(1, 4) == Z64_LOC_SIG then
       local z64_off = u64(loc, 9)
       if z64_off < 0 or z64_off + 56 > eocd_off - 20 then
         return nil, "zip: zip64 end of central directory lies outside the file"
       end
-      local rec = pread(z64_off, 56)
+      local rec, _ = pread(z64_off, 56)
       if rec == nil or #rec ~= 56 or rec:sub(1, 4) ~= Z64_EOCD_SIG then
         return nil, "zip: bad zip64 end of central directory record"
       end
@@ -608,7 +608,10 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     local all: {Zip.Entry} = {}
     local c = cursor(pread, cd_offset, cd_size)
     while true do
-      local entry = next_record(c, entry_mt)
+      -- TODO: answer `{Zip.Entry} | nil, string` from `entries`, so a
+      -- malformed or closed reader's list is refused rather than cut
+      -- short; a public signature change every caller follows.
+      local entry, _ = next_record(c, entry_mt)
       if entry == nil then break end
       all[#all + 1] = entry
       local target = links[#all]
@@ -648,7 +651,7 @@ function Zip.open(path: string): Zip.ZipReader | nil, string
   end)
   if reader == nil then
     closed = true
-    Fs.close(fd)
+    local _, _ = Fs.close(fd)
     return nil, otrouble
   end
   return reader, ""
@@ -674,7 +677,7 @@ function Zip.list(path: string): {Zip.Entry} | nil, string
   local reader, trouble = Zip.open(path)
   if reader == nil then return nil, trouble end
   local entries = reader:entries()
-  reader:close()
+  local _, _ = reader:close()
   return entries, ""
 end
 
@@ -746,7 +749,7 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
   local function fail(trouble: string): boolean, string
     if failed == nil then
       failed = trouble ~= "" and trouble or "zip: write failed"
-      w:abort()
+      local _, _ = w:abort()
     end
     return false, failed
   end
@@ -851,8 +854,11 @@ function Zip.writer(w: Stream.Writer, opts?: Zip.WriterOptions): Zip.ZipWriter
     ok, trouble = put(eocd)
     if not ok then return false, trouble end
     ok, trouble = w:close()
-    if not ok then failed = trouble end
-    return ok, trouble
+    if not ok then
+      failed = trouble
+      return false, trouble
+    end
+    return true, ""
   end
 
   zw.abort = function(_self: Zip.ZipWriter): boolean, string

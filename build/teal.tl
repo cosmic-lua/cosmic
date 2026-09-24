@@ -77,7 +77,7 @@ local function make_handle(fd: integer): teal.Handle
   end
 
   handle.close = function(self: teal.Handle): boolean
-    local ok = Fs.close(self.fd)
+    local ok, _ = Fs.close(self.fd)
     return ok
   end
 
@@ -244,7 +244,7 @@ local function serve(built: compiler, handle: work.Handle)
   local root = handle.root
   built.path = ""
   built.search_module = function(name: string, _search_all: boolean): string | nil, any
-    local rows = Sqlite.text_rows(db,
+    local rows, _ = Sqlite.text_rows(db,
       "SELECT kind, source FROM inputs WHERE path = ?1 " ..
       "ORDER BY kind = 'decl' DESC LIMIT 1", { { text = name } })
     local stem = name:gsub("%.", "/")
@@ -254,7 +254,7 @@ local function serve(built: compiler, handle: work.Handle)
         served(source)
     end
     if name:sub(1, 7) == "cosmic." then
-      local source = Store.source(name)
+      local source, _ = Store.source(name)
       if source ~= nil then
         return root .. "/" .. stem .. ".tl", served(source)
       end

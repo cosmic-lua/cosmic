@@ -80,11 +80,11 @@ local record docs
 end
 
 local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
+  local _, _ = Fs.put(Fs.stdout, line .. "\n")
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 --- Rebuilds and re-enters `argv` first when this binary embeds a
@@ -311,7 +311,7 @@ end
 --- Whether `db` holds the shipped tables at all: a database built
 --- before they existed answers no query here.
 local function has_docs(db: Sqlite.Handle): boolean
-  local rows = Sqlite.text_rows(db,
+  local rows, _ = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
   return rows ~= nil and #rows > 0
 end
@@ -368,7 +368,7 @@ function docs.databases(): {Sqlite.Handle}, {boolean}
   local own_exists, own_trouble = Fs.exists("o/cosmic.db")
   assert(own_exists ~= nil, own_trouble)
   if own_exists then
-    local own = Sqlite.open("o/cosmic.db", false)
+    local own, _ = Sqlite.open("o/cosmic.db", false)
     if own ~= nil then
       out[#out + 1] = own
       public[#out] = false
@@ -440,7 +440,7 @@ local function count_uses(view: docs.View, module: string, symbol: string): inte
   local total = 0
   for index, db in ipairs(view.databases) do
     if has_docs(db) then
-      local rows = Sqlite.text_rows(db,
+      local rows, _ = Sqlite.text_rows(db,
         "SELECT from_module, from_file, line FROM uses " ..
         "WHERE module = ?1 AND symbol = ?2",
         { text(module), text(symbol) })
@@ -616,7 +616,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
   end
   if entry.symbol == "" then
-    local declared = across(view,
+    local declared, _ = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
         return declared_in(db, public, entry.module)
       end, entry_module)
@@ -640,7 +640,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
         (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
     end
-    local examples = across(view,
+    local examples, _ = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string
         return examples_for(db, public, entry.module, entry.source_symbol)
       end, function(_: docs.Example): string return entry.module end)
@@ -667,7 +667,7 @@ function docs.run(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local query = table.concat({ table.unpack(argv, 2) }, " ")
   if query == "" then
     complain("docs: what to look up? a symbol (Fs.read), a module " ..
@@ -715,7 +715,7 @@ function docs.run_uses(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local query = argv[2] or ""
   if query == "" then
     complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")

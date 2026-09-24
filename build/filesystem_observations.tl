@@ -75,7 +75,11 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v1" then
       local kind, encoded_path = line:match("^([osde]) ([0-9a-f]*)$")
-      local path = encoded_path ~= nil and Codec.unhex(encoded_path) or nil
+      local path: string = nil
+      if encoded_path ~= nil then
+        local decoded, _ = Codec.unhex(encoded_path)
+        path = decoded
+      end
       if kind == nil or path == nil then
         return nil
       end

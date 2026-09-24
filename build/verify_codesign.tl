@@ -29,7 +29,7 @@ VerifyCodesign.codesign = "/usr/bin/codesign"
 --- status the shell script gave.
 function VerifyCodesign.verify(sysname: string, binary: string, codesign?: string): integer
   if sysname ~= "Darwin" then
-    Fs.put(Fs.stdout, "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
+    local _, _ = Fs.put(Fs.stdout, "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
     return 0
   end
   local tool = codesign or VerifyCodesign.codesign
@@ -46,25 +46,25 @@ function VerifyCodesign.verify(sysname: string, binary: string, codesign?: strin
     -- A codesign that cannot be started is 127 whatever the reason, as
     -- for a missing command; the message says which.
     if result == nil then
-      Fs.put(Fs.stderr, "verify-codesign: " .. tool .. ": " .. trouble .. "\n")
+      local _, _ = Fs.put(Fs.stderr, "verify-codesign: " .. tool .. ": " .. trouble .. "\n")
       return 127
     end
     if not result.ok then
       return result.code or 128 + (result.signal or 0)
     end
   end
-  Fs.put(Fs.stdout, "verify-codesign: PASS (" .. binary .. ")\n")
+  local _, _ = Fs.put(Fs.stdout, "verify-codesign: PASS (" .. binary .. ")\n")
   return 0
 end
 
 function VerifyCodesign.main(argv: {integer: string}): integer
   if argv[1] == nil or argv[2] ~= nil then
-    Fs.put(Fs.stderr, "verify-codesign: usage: bin/verify-codesign <path-to-macos-binary>\n")
+    local _, _ = Fs.put(Fs.stderr, "verify-codesign: usage: bin/verify-codesign <path-to-macos-binary>\n")
     return 2
   end
   local names, trouble = sys.uname()
   if names == nil then
-    Fs.put(Fs.stderr, "verify-codesign: uname: " .. trouble .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "verify-codesign: uname: " .. trouble .. "\n")
     return 1
   end
   return VerifyCodesign.verify(names.sysname, argv[1])

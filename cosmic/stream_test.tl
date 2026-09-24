@@ -379,8 +379,8 @@ local function test_tee_feeds_a_hashing_writer_beside_the_real_one()
   assert(w:write("world"))
   assert(w:close())
   assert(c:result() == "hello world")
-  assert(h:digest() == Hash.sha256("hello world"))
-  assert(h:digest() == Hash.sha256("hello world")) -- asking again is fine
+  assert(assert(h:digest()) == Hash.sha256("hello world"))
+  assert(assert(h:digest()) == Hash.sha256("hello world")) -- asking again is fine
   assert(not h:write("more"))
 end
 

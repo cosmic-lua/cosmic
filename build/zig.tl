@@ -77,7 +77,7 @@ local record Zig
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, "bin/zig: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "bin/zig: " .. line .. "\n")
 end
 
 --- `bin/zig.pin`'s text: a `version <v>` line, then `<host> <sha256>`
@@ -191,7 +191,7 @@ end
 --- what an install killed partway left behind. A live process's own
 --- scratch directory is left alone.
 function Zig.sweep(cache: string)
-  local names = Fs.list(cache)
+  local names, _ = Fs.list(cache)
   if names == nil then
     return
   end
@@ -200,7 +200,7 @@ function Zig.sweep(cache: string)
     if pid ~= nil then
       local _, _, number = sys.kill(math.tointeger(pid), 0)
       if pid ~= Proc.pid() and number == sys.ESRCH then
-        Fs.remove_tree(cache .. "/" .. name)
+        local _, _ = Fs.remove_tree(cache .. "/" .. name)
       end
     end
   end
@@ -229,7 +229,11 @@ local function unpack(work: string, pin: Zig.Pin, host: string): string | nil, s
     return nil, archive .. ": " .. xtrouble
   end
   local extracted = work .. "/zig-" .. host .. "-" .. pin.version
-  if not Fs.exists(extracted .. "/zig") then
+  local has_zig, look_trouble = Fs.exists(extracted .. "/zig")
+  if has_zig == nil then
+    return nil, look_trouble
+  end
+  if not has_zig then
     return nil, name .. " holds no zig binary"
   end
   return extracted, ""
@@ -240,7 +244,11 @@ end
 function Zig.ensure_installed(cache: string, install: string, pin: Zig.Pin,
                               host: string): string | nil, string
   local zig = install .. "/zig"
-  if Fs.exists(zig) then
+  local installed, look_trouble = Fs.exists(zig)
+  if installed == nil then
+    return nil, look_trouble
+  end
+  if installed then
     return zig, ""
   end
   local made, mtrouble = Fs.mkdirs(cache)
@@ -249,18 +257,22 @@ function Zig.ensure_installed(cache: string, install: string, pin: Zig.Pin,
   end
   Zig.sweep(cache)
   local work = cache .. "/.work." .. tostring(Proc.pid())
-  Fs.remove_tree(work)
+  local _, _ = Fs.remove_tree(work)
   local extracted, trouble = unpack(work, pin, host)
   if extracted ~= nil then
     -- A concurrent install may have won; its copy is the same bytes,
     -- so a failed rename is fine as long as a zig ends up in place.
-    Fs.rename(extracted, install)
+    local _, _ = Fs.rename(extracted, install)
   end
-  Fs.remove_tree(work)
+  local _, _ = Fs.remove_tree(work)
   if extracted == nil then
     return nil, trouble
   end
-  if not Fs.exists(zig) then
+  installed, look_trouble = Fs.exists(zig)
+  if installed == nil then
+    return nil, look_trouble
+  end
+  if not installed then
     return nil, "could not install zig into " .. install
   end
   return zig, ""
@@ -268,27 +280,32 @@ end
 
 --- Where `name` runs from: itself when it holds a slash, else the
 --- first executable file of that name on `path` (an empty entry is the
---- working directory). The second result is the exit status a shell
---- would give when nothing runnable was found: 127 for none at all,
---- 126 for one that is there but not executable.
+--- working directory). Nothing runnable is nil and why: "not found"
+--- for none at all, "permission denied" for one that is there but not
+--- executable -- a shell's 127 and 126, which `resolve_status` gives.
 -- TODO: call Proc.find, which does this, once ci/cosmic-driver.pin names
 -- a cosmic carrying it: this runs standalone on the pinned release.
-function Zig.resolve(name: string, path: string): string | nil, integer
+function Zig.resolve(name: string, path: string): string | nil, string
   if name:find("/", 1, true) ~= nil then
-    return name, 0
+    return name, ""
   end
-  local status = 127
+  local why = "not found"
   for dir in (path .. ":"):gmatch("([^:]*):") do
     local candidate = (dir == "" and "." or dir) .. "/" .. name
-    local st = sys.stat(candidate)
+    local st, _ = sys.stat(candidate)
     if st ~= nil and st.kind == "file" then
       if st.mode & 0x49 ~= 0 then
-        return candidate, 0
+        return candidate, ""
       end
-      status = 126
+      why = "permission denied"
     end
   end
-  return nil, status
+  return nil, why
+end
+
+--- The exit status a shell gives for what `resolve` could not find.
+function Zig.resolve_status(why: string): integer
+  return why == "permission denied" and 126 or 127
 end
 
 --- The zig to run and its first trouble: `COSMIC_ZIG` when set,
@@ -334,7 +351,7 @@ function Zig.global_cache(root: string, environment?: {string:string}): string
   if given ~= nil and given ~= "" then
     return given
   end
-  local cache = Fs.cache_dir("zig-global", environment)
+  local cache, _ = Fs.cache_dir("zig-global", environment)
   if cache ~= nil then
     return cache
   end
@@ -354,7 +371,7 @@ function Zig.project_cache(root: string, environment?: {string:string}): string
   if given ~= nil and given ~= "" then
     return given
   end
-  local cache = Fs.cache_dir("zig-project", environment)
+  local cache, _ = Fs.cache_dir("zig-project", environment)
   if cache ~= nil then
     return cache
   end
@@ -431,7 +448,7 @@ function Zig.snapshot(root: string): {string:string} | nil, string
   for _, path in ipairs(walked) do
     if Zig.watches(path) then
       -- A file gone between the listing and the stat is simply absent.
-      local st = sys.stat(root .. "/" .. path)
+      local st, _ = sys.stat(root .. "/" .. path)
       if st ~= nil then
         seen[path] = string.format("%d %d.%09d %d", st.size, st.mtime, st.mtime_ns, st.ino)
       end
@@ -515,27 +532,29 @@ function Zig.run(argv: {string}): integer
       if state.finished then
         return state.result, ""
       end
+      -- TODO: drop the `or 0` once ci/cosmic-driver.pin names a cosmic whose
+      -- Time.monotonic_ns answers an integer alone: this runs on that release.
       local now = Time.monotonic_ns() or 0
-      local cancelled = sys.cancelled_child_signal()
+      local cancelled, _ = sys.cancelled_child_signal()
       if pending == 0 and cancelled ~= nil and cancelled ~= 0 then
         pending, pass_on_at = cancelled, now + PASS_ON_NS
       end
       if pending ~= 0 and now >= pass_on_at then
-        h:stop(pending)
+        local _, _ = h:stop(pending)
         pending = 0
       end
-      sys.nanosleep(POLL_NS)
+      local _, _ = sys.nanosleep(POLL_NS)
     end
   end
   local result, trouble = supervise()
-  sys.unguard_child_signals()
+  local _, _ = sys.unguard_child_signals()
   if result == nil then
     complain(argv[1] .. ": " .. trouble)
     return 1
   end
   local signal = result.signal
   if signal == sys.SIGINT or signal == sys.SIGTERM then
-    sys.kill(sys.getpid(), signal)
+    local _, _ = sys.kill(sys.getpid(), signal)
   end
   return Zig.child_status(result)
 end
@@ -544,7 +563,7 @@ end
 --- a source moved while it ran. A snapshot that cannot be taken first
 --- leaves the build unwatched rather than stopped.
 function Zig.watched_build(root: string, argv: {string}): integer
-  local before = Zig.snapshot(root)
+  local before, _ = Zig.snapshot(root)
   local status = Zig.run(argv)
   if before == nil or status > 128 then
     return status
@@ -576,10 +595,10 @@ function Zig.main(argv: {integer:string}): integer
     complain(ztrouble)
     return 1
   end
-  local program, status = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
+  local program, unresolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
   if program == nil then
-    complain(zig .. ": " .. (status == 127 and "not found" or "permission denied"))
-    return status
+    complain(zig .. ": " .. unresolved)
+    return Zig.resolve_status(unresolved)
   end
 
   local given: {string} = {}

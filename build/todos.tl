@@ -53,14 +53,20 @@ local record todos
     summary: string
     boundary: boolean
   end
+
+  --- What `list` found: every TODO, and how many files it had to blame.
+  record Listing
+    todos: {Todo}
+    blamed: integer
+  end
 end
 
 local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
+  local _, _ = Fs.put(Fs.stdout, line .. "\n")
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 --- What `git blame --line-porcelain` said, by final line number.
@@ -98,7 +104,7 @@ local git_timeout_ms = 30 * 1000
 
 --- Runs git in `root`, its output when it succeeds.
 local function git(root: string, args: {string}): string | nil
-  local found = Proc.find("git")
+  local found, _ = Proc.find("git")
   if found == nil then
     return nil
   end
@@ -106,7 +112,7 @@ local function git(root: string, args: {string}): string | nil
   for _, each in ipairs(args) do
     argv[#argv + 1] = each
   end
-  local result = Child.run(argv, {
+  local result, _ = Child.run(argv, {
     stdin = "null", stdout = "capture", stderr = "null", timeout_ms = git_timeout_ms,
   })
   if result == nil or not result.ok or result.stdout == nil then
@@ -146,7 +152,7 @@ local function blame_files(root: string,
   local next_file = 1
   -- SIGINT or SIGTERM ends every git still running, then this process,
   -- as `build.test` does for its workers.
-  local guarded = sys.guard_child_signals()
+  local guarded, _ = sys.guard_child_signals()
   local cancelled = 0
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
@@ -161,35 +167,36 @@ local function blame_files(root: string,
       end
       argv[#argv + 1] = "--"
       argv[#argv + 1] = file
-      local handle = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
+      local handle, _ = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
       if handle ~= nil then
         running[#running + 1] = handle
         file_of[handle] = file
-        deadline_of[handle] = (Time.monotonic_ns() or 0) + git_timeout_ms * 1000000
+        deadline_of[handle] = Time.monotonic_ns() + git_timeout_ms * 1000000
       end
     end
     if #running == 0 then
       break
     end
     if guarded then
-      cancelled = sys.cancelled_child_signal() or 0
+      local signal, _ = sys.cancelled_child_signal()
+      cancelled = signal or 0
       if cancelled ~= 0 then
         break
       end
     end
     local done, trouble = Child.wait_any(running, 100)
-    local now = Time.monotonic_ns() or 0
+    local now = Time.monotonic_ns()
     local still: {Child.Handle} = {}
     for _, handle in ipairs(running) do
       if rawequal(handle, done) then
-        local result = handle:wait()
+        local result, _ = handle:wait()
         if result ~= nil and result.ok and result.stdout ~= nil then
           out[file_of[handle]] = todos.parse_blame(result.stdout)
         end
       elseif (done == nil and trouble ~= "timeout") or now >= deadline_of[handle] then
         -- Supervision failed, or git ran past its time: the file's
         -- TODOs are listed unblamed.
-        handle:close()
+        local _, _ = handle:close()
       else
         still[#still + 1] = handle
       end
@@ -197,16 +204,16 @@ local function blame_files(root: string,
     running = still
   end
   for _, handle in ipairs(running) do
-    handle:close()
+    local _, _ = handle:close()
   end
   if guarded then
-    local late = sys.unguard_child_signals() or 0
+    local late, _ = sys.unguard_child_signals()
     if cancelled == 0 then
-      cancelled = late
+      cancelled = late or 0
     end
   end
   if cancelled ~= 0 then
-    sys.kill(sys.getpid(), cancelled)
+    local _, _ = sys.kill(sys.getpid(), cancelled)
   end
   return out
 end
@@ -374,7 +381,7 @@ end
 
 --- Every TODO in the tree staged into `db`, blamed where git can,
 --- in file and line order, and how many files had to be blamed.
-function todos.list(db: Sqlite.Handle, root: string): {todos.Todo} | nil, integer | string
+function todos.list(db: Sqlite.Handle, root: string): todos.Listing | nil, string
   local head = head_of(root)
   local carried, carry_trouble = carry_forward(db, root, head)
   if not carried then
@@ -392,7 +399,7 @@ function todos.list(db: Sqlite.Handle, root: string): {todos.Todo} | nil, intege
   for _, row in ipairs(rows) do
     out[#out + 1] = row.todo
   end
-  return out, blamed
+  return { todos = out, blamed = blamed }, ""
 end
 
 --- A time in seconds since the epoch as its UTC date, `YYYY-MM-DD`.
@@ -439,7 +446,7 @@ end
 --- and every one required, when it does not (`cosmic.sys`).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
-  local rows = Sqlite.text_rows(db, sql, { { text = query } })
+  local rows, _ = Sqlite.text_rows(db, sql, { { text = query } })
   if rows == nil then
     local words = quoted_words(query)
     if words == "" then
@@ -478,7 +485,7 @@ end
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.todos` itself -- see `build.reboot.ensure`
 function todos.run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     complain(root_trouble)
@@ -510,7 +517,9 @@ function todos.run(argv: {integer:string}): integer
       -- A path when it names one, and words to search for when not, as
       -- `cosmic docs` takes a symbol first and words after.
       local path = (option:gsub("^%./", ""):gsub("/+$", ""))
-      if path ~= "" and Fs.exists(root .. "/" .. path) then
+      -- A path that cannot be looked at is taken for words.
+      local exists, _ = Fs.exists(root .. "/" .. path)
+      if path ~= "" and exists then
         paths[#paths + 1] = path
       else
         words[#words + 1] = option
@@ -532,21 +541,22 @@ function todos.run(argv: {integer:string}): integer
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
-    work.abort(handle)
+    local _, _ = work.abort(handle)
     complain(stage_trouble)
     return 1
   end
-  local all, blamed = todos.list(handle.db, root)
-  if all == nil then
-    work.abort(handle)
-    complain(blamed as string)
+  local listing, list_trouble = todos.list(handle.db, root)
+  if listing == nil then
+    local _, _ = work.abort(handle)
+    complain(list_trouble)
     return 1
   end
+  local all, blamed = listing.todos, listing.blamed
   local ranks: {integer:integer} = nil
   if query ~= "" then
     local found, search_trouble = todos.search(handle.db, query)
     if found == nil then
-      work.abort(handle)
+      local _, _ = work.abort(handle)
       complain("todos: " .. search_trouble)
       return 1
     end

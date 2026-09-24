@@ -169,7 +169,8 @@ local function copy_body(response: Http.Response, fd: integer, hasher: Hash.Hash
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then
-      return trouble == "", trouble
+      if trouble ~= "" then return false, trouble end
+      return true, ""
     end
     if hasher ~= nil then
       hasher:update(chunk)
@@ -236,7 +237,7 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
     ok, trouble = Fs.rename(part, path)
   end
   if not ok then
-    Fs.remove(part)
+    local _, _ = Fs.remove(part)
     return false, trouble
   end
   return true, ""

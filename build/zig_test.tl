@@ -117,18 +117,18 @@ local function test_resolve_searches_path_for_a_bare_name(tmp: string)
   assert(Fs.write(tmp .. "/a/tool", "not executable", 0x1a4))
   assert(Fs.write(tmp .. "/b/tool", "#!/bin/sh\n", 0x1ed))
   local path = tmp .. "/missing:" .. tmp .. "/a:" .. tmp .. "/b"
-  local found, status = Zig.resolve("tool", path)
-  assert(found == tmp .. "/b/tool" and status == 0)
+  local found, why = Zig.resolve("tool", path)
+  assert(found == tmp .. "/b/tool" and why == "")
   -- A name with a slash is used as it is, never searched for.
   assert(Zig.resolve("./tool", path) == "./tool")
 end
 
 local function test_resolve_answers_127_for_nothing_and_126_for_no_permission(tmp: string)
   local none, missing = Zig.resolve("no-such-tool", tmp)
-  assert(none == nil and missing == 127)
+  assert(none == nil and Zig.resolve_status(missing) == 127)
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
   local plain, denied = Zig.resolve("plain", tmp)
-  assert(plain == nil and denied == 126)
+  assert(plain == nil and Zig.resolve_status(denied) == 126)
 end
 
 local function test_exec_status_is_the_shells()
@@ -261,9 +261,9 @@ end
 local function test_run_passes_on_a_signal_sent_to_it_alone()
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local status = Zig.run({ "/bin/sh", "-c",
     "trap 'exit 42' INT; kill -INT $PPID; sleep 10 & wait" })
   assert(status == 42, tostring(status))
-  assert(assert(Time.monotonic_ns()) - started < 5 * 1000 * 1000 * 1000)
+  assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end

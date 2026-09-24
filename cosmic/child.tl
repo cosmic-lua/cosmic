@@ -124,7 +124,7 @@ local reaped: {integer:sys.ChildStatus} = {}
 local adopting: boolean
 
 local function now(): integer
-  return (assert(Time.monotonic_ns()))
+  return Time.monotonic_ns()
 end
 
 local function target(self: Handle): integer
@@ -138,7 +138,7 @@ end
 local function collect()
   if not adopting then return end
   while true do
-    local status = sys.waitpid(-1, true)
+    local status, _ = sys.waitpid(-1, true)
     if status == nil or status.pid == 0 then return end
     if owned[status.pid] then reaped[status.pid] = status end
   end
@@ -165,7 +165,7 @@ local function exited(self: Handle, block?: boolean): sys.ChildStatus | nil, str
 end
 
 local function close_fd(fd: integer)
-  if fd ~= nil then sys.close(fd) end
+  if fd ~= nil then local _, _ = sys.close(fd) end
 end
 
 --- Appends one chunk to a stream, dropping its oldest bytes past the
@@ -194,7 +194,7 @@ end
 local function end_stream(self: Handle, index: integer)
   local stream = self._streams[index]
   if stream.fd ~= nil then
-    sys.close(stream.fd)
+    local _, _ = sys.close(stream.fd)
     stream.fd = nil
   end
 end
@@ -231,10 +231,10 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
     end
   end
   if #fds == 0 then
-    if timeout_ms > 0 then sys.nanosleep(timeout_ms * 1000 * 1000) end
+    if timeout_ms > 0 then local _, _ = sys.nanosleep(timeout_ms * 1000 * 1000) end
     return false
   end
-  local revents = sys.poll(fds, events, timeout_ms)
+  local revents, _ = sys.poll(fds, events, timeout_ms)
   if revents == nil then
     -- A descriptor that went bad under us cannot be serviced; close
     -- every stream rather than spin on it.
@@ -294,10 +294,10 @@ local function clear_group(self: Handle, already_killed: boolean): boolean
   if not already_killed then
     local alive, _, errno = sys.kill(-self.pid, 0)
     if not alive and errno == sys.ESRCH then return true end
-    sys.kill(-self.pid, sys.SIGTERM)
+    local _, _ = sys.kill(-self.pid, sys.SIGTERM)
     if group_gone(self, now() + TERM_GRACE_NS) then return true end
   end
-  sys.kill(-self.pid, sys.SIGKILL)
+  local _, _ = sys.kill(-self.pid, sys.SIGKILL)
   return group_gone(self, now() + KILL_REAP_NS)
 end
 
@@ -374,34 +374,37 @@ local function terminate(self: Handle): Result | nil, string
   local ok, trouble = sys.kill(target(self), sys.SIGTERM)
   if not ok then
     -- The child may have exited between the last poll and this signal.
-    local status = exited(self)
+    local status, _ = exited(self)
     if status ~= nil then return settled(self, true) end
     return nil, trouble
   end
   local deadline = now() + TERM_GRACE_NS
   while now() < deadline do
-    local status = exited(self)
+    local status, _ = exited(self)
     if status ~= nil then return settled(self, true) end
     pump({ self }, POLL_MS)
   end
   -- Even when the direct child honored TERM, a descendant may have ignored
   -- it. The process group remains addressable until its final member exits.
-  sys.kill(target(self), sys.SIGKILL)
+  -- A group already gone refuses the signal; the reap below answers.
+  local _, _ = sys.kill(target(self), sys.SIGKILL)
   local final, reap_trouble = poll_until(self, now() + KILL_REAP_NS, true, true, true)
-  if not final and reap_trouble == "timeout" then
-    return nil, "child did not reap after SIGKILL"
+  if final == nil then
+    if reap_trouble == "timeout" then return nil, "child did not reap after SIGKILL" end
+    return nil, reap_trouble
   end
-  return final, reap_trouble
+  return final, ""
 end
 
 local function emergency_cleanup(self: Handle)
-  sys.kill(target(self), sys.SIGKILL)
+  local _, _ = sys.kill(target(self), sys.SIGKILL)
   for _ = 1, 100 do
-    if exited(self) ~= nil then
+    local status, _ = exited(self)
+    if status ~= nil then
       settle(self, true, true)
       return
     end
-    sys.nanosleep(POLL_NS)
+    local _, _ = sys.nanosleep(POLL_NS)
   end
 end
 
@@ -456,7 +459,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
     if timeout_ms == nil then return poll_until(self) end
     if timeout_ms < 0 then return nil, "timeout is negative" end
     local r, trouble = poll_until(self, now() + timeout_ms * 1000000)
-    if r then return r, trouble end
+    if r then return r, "" end
     if trouble ~= "timeout" then return nil, trouble end
     return terminate(self)
   end
@@ -553,9 +556,9 @@ local record Wiring
 end
 
 local function unwire(wiring: Wiring, keep_ours: boolean)
-  for _, fd in ipairs(wiring.child_ends) do sys.close(fd) end
+  for _, fd in ipairs(wiring.child_ends) do local _, _ = sys.close(fd) end
   if not keep_ours then
-    for _, fd in ipairs(wiring.ours) do sys.close(fd) end
+    for _, fd in ipairs(wiring.ours) do local _, _ = sys.close(fd) end
   end
 end
 
@@ -566,7 +569,7 @@ local function capture(wiring: Wiring, child_fd: integer): integer | nil, string
   if ends == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = ends.writer
   wiring.ours[#wiring.ours + 1] = ends.reader
-  sys.set_nonblocking(ends.reader, true)
+  local _, _ = sys.set_nonblocking(ends.reader, true)
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
   }
@@ -592,8 +595,8 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     wiring.ours[#wiring.ours + 1] = ends.writer
     slots[0] = ends.reader
     if opts.input ~= nil then
-      sys.ignore_sigpipe()
-      sys.set_nonblocking(ends.writer, true)
+      local _, _ = sys.ignore_sigpipe()
+      local _, _ = sys.set_nonblocking(ends.writer, true)
       wiring.input_fd = ends.writer
     else
       wiring.stdin_fd = ends.writer
@@ -658,7 +661,8 @@ function Child.start(argv: {string}, opts?: Options): Handle | nil, string
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
   if grouped and adopting == nil then
-    adopting = sys.subreaper()
+    local subreaper, _ = sys.subreaper()
+    adopting = subreaper
   end
   local wiring: Wiring = { child_ends = {}, ours = {}, streams = {} }
   local slots, wire_trouble = wire(opts, wiring)
@@ -720,15 +724,15 @@ end
 --- per-thread `children` list; nil where there is no such list.
 local function strays(): {integer} | nil
   local path = "/proc/self/task/" .. tostring(sys.getpid()) .. "/children"
-  local fd = sys.open(path, sys.O_RDONLY)
+  local fd, _ = sys.open(path, sys.O_RDONLY)
   if fd == nil then return nil end
   local parts: {string} = {}
   while true do
-    local data = sys.read(fd, CHUNK)
+    local data, _ = sys.read(fd, CHUNK)
     if data == nil or data == "" then break end
     parts[#parts + 1] = data
   end
-  sys.close(fd)
+  local _, _ = sys.close(fd)
   local found: {integer} = {}
   for number in table.concat(parts):gmatch("%d+") do
     local pid = math.tointeger(tonumber(number))
@@ -755,14 +759,14 @@ function Child.end_strays(): integer
     local found = strays()
     if found == nil or #found == 0 or now() >= deadline then return ended end
     for _, pid in ipairs(found) do
-      sys.kill(-pid, sys.SIGKILL)
-      sys.kill(pid, sys.SIGKILL)
+      local _, _ = sys.kill(-pid, sys.SIGKILL)
+      local _, _ = sys.kill(pid, sys.SIGKILL)
       if not seen[pid] then
         seen[pid] = true
         ended = ended + 1
       end
     end
-    sys.nanosleep(POLL_NS // 10)
+    local _, _ = sys.nanosleep(POLL_NS // 10)
   end
 end
 
@@ -811,7 +815,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   cancellation = cancellation or (late_signal ~= 0 and late_signal or nil)
   if cancellation then
     -- Re-deliver after cleanup with the caller's original disposition.
-    sys.kill(sys.getpid(), cancellation)
+    local _, _ = sys.kill(sys.getpid(), cancellation)
     return nil, cleanup_trouble or wait_trouble or "cancelled"
   end
   if not called then error(r, 0) end

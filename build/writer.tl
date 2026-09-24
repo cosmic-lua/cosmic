@@ -29,13 +29,13 @@ end
 --- a file that drifted from that other record is never mistaken for
 --- what it describes.
 local function projected_signature(path: string): string
-  local handle = Sqlite.open(path, false)
+  local handle, _ = Sqlite.open(path, false)
   if handle == nil then
     return ""
   end
-  local rows = Sqlite.text_rows(handle,
+  local rows, _ = Sqlite.text_rows(handle,
     "SELECT value FROM meta WHERE key = 'projected'")
-  handle:close()
+  local _, _ = handle:close()
   if rows == nil or #rows == 0 then
     return ""
   end
@@ -261,7 +261,7 @@ local function project(handle: work.Handle, path: string,
     return false, refused
   end
 
-  Fs.remove(path .. ".building")
+  local _, _ = Fs.remove(path .. ".building")
   return Sqlite.run(db, "VACUUM out INTO ?1", { text(path .. ".building") })
 end
 
@@ -293,7 +293,7 @@ function writer.write_result(handle: work.Handle, out: string,
     return false, attach_trouble
   end
   local projected, trouble = project(handle, out, result)
-  db:exec("DETACH out")
+  local _, _ = db:exec("DETACH out")
   if not projected then
     return false, trouble
   end

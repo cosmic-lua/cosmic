@@ -143,11 +143,11 @@ local function selected(m: importer.Module, selectors: {string}): boolean
 end
 
 local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
+  local _, _ = Fs.put(Fs.stdout, line .. "\n")
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 local function text(value: string): Sqlite.Value
@@ -357,7 +357,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     elseif kind == "o" then
       current = hashes[relative]
       if current == nil then
-        local data = Fs.read(root .. "/" .. relative)
+        local data, _ = Fs.read(root .. "/" .. relative)
         current = data ~= nil and Hash.hex_sha256(data) or "missing"
       end
     elseif kind == "s" then
@@ -853,7 +853,7 @@ local function stand(rec: Recording, credited: test.Credited, m: importer.Module
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns() or 0, reads, key, stood.run_at_ns, stood.elapsed_ns)
+    Time.now_ns(), reads, key, stood.run_at_ns, stood.elapsed_ns)
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -876,7 +876,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
                       trouble: string, limits: test.Limits)
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
-  local wall_ns = (Time.monotonic_ns() or job.started_ns) - job.started_ns
+  local wall_ns = Time.monotonic_ns() - job.started_ns
   local reported: worker.Report
   local message: string
   if result == nil then
@@ -915,7 +915,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   local reached, stable = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
     rec.runtime, reads, rec.key_parts)
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
-    message, Time.now_ns() or 0, reads, reached, rec.run_at_ns, elapsed,
+    message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
     stable and cacheable)
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. save_trouble
@@ -954,7 +954,7 @@ end
 local function worker_start(environment: {string:string}): Proc.Relaunch | nil, string
   local env = test.worker_environment(environment)
   env.COSMIC_COVERAGE_STARTUP = "1"
-  local relaunch = Proc.relaunch()
+  local relaunch, _ = Proc.relaunch()
   if relaunch ~= nil then
     for name, value in pairs(relaunch.env) do env[name] = value end
     return { argv = relaunch.argv, env = env, fds = relaunch.fds }, ""
@@ -974,7 +974,7 @@ local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
     return false
   end
   job.tmp = tmp
-  job.started_ns = Time.monotonic_ns() or 0
+  job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
@@ -1003,7 +1003,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. start_trouble
     return 0
   end
-  local guarded = sys.guard_child_signals()
+  local guarded, _ = sys.guard_child_signals()
   local running: {Job} = {}
   local next_job = 1
   local cancelled = 0
@@ -1017,7 +1017,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     end
     if #running == 0 then break end
     if guarded then
-      cancelled = sys.cancelled_child_signal() or 0
+      local signal, _ = sys.cancelled_child_signal()
+      cancelled = signal or 0
       if cancelled ~= 0 then break end
     end
     local earliest = running[1].deadline_ns
@@ -1026,17 +1027,20 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
       handles[i] = job.handle
       if job.deadline_ns < earliest then earliest = job.deadline_ns end
     end
-    local left_ms = (earliest - (Time.monotonic_ns() or 0)) // (1000 * 1000)
+    local left_ms = (earliest - Time.monotonic_ns()) // (1000 * 1000)
     local done, trouble = Child.wait_any(handles, math.max(0, math.min(100, left_ms)))
     local still: {Job} = {}
     for _, job in ipairs(running) do
       if job.handle == done then
-        finish(rec, job, (job.handle:wait()), trouble, limits)
+        -- Settled already, so this answers at once; the trouble
+        -- `wait_any` gave beside the handle is the one reported.
+        local result, _ = job.handle:wait()
+        finish(rec, job, result, trouble, limits)
       elseif done == nil and trouble ~= "timeout" then
         -- Supervision itself failed; end this worker and say why.
-        job.handle:close()
+        local _, _ = job.handle:close()
         finish(rec, job, nil, trouble, limits)
-      elseif (Time.monotonic_ns() or 0) >= job.deadline_ns then
+      elseif Time.monotonic_ns() >= job.deadline_ns then
         local result, stop_trouble = job.handle:wait(0)
         finish(rec, job, result, stop_trouble, limits)
       else
@@ -1051,11 +1055,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     end
     running = still
   end
-  for _, job in ipairs(running) do job.handle:close() end
+  for _, job in ipairs(running) do local _, _ = job.handle:close() end
   Child.end_strays()
   if guarded then
-    local late = sys.unguard_child_signals() or 0
-    if cancelled == 0 then cancelled = late end
+    local late, _ = sys.unguard_child_signals()
+    if cancelled == 0 then cancelled = late or 0 end
   end
   return cancelled
 end
@@ -1107,7 +1111,7 @@ function test.run(argv: {integer:string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
-  local run_at_ns = Time.now_ns() or 0
+  local run_at_ns = Time.now_ns()
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
@@ -1127,7 +1131,7 @@ function test.run(argv: {integer:string}): integer
   local slot = 2
   while command[slot] ~= nil do
     local selector = normalized(command[slot])
-    local absolute = Fs.absolute(selector)
+    local absolute, _ = Fs.absolute(selector)
     if absolute == root then
       selector = "."
     elseif absolute ~= nil then
@@ -1143,7 +1147,7 @@ function test.run(argv: {integer:string}): integer
     selectors[#selectors + 1] = selector
     slot = slot + 1
   end
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
     complain(own_trouble)
@@ -1156,7 +1160,7 @@ function test.run(argv: {integer:string}): integer
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     complain(stage_trouble)
     return 1
   end
@@ -1172,12 +1176,12 @@ function test.run(argv: {integer:string}): integer
   if own_tree then
     local state, state_trouble = reboot.state(handle)
     if state == nil then
-      work.close(handle)
+      local _, _ = work.close(handle)
       complain(state_trouble)
       return 1
     end
     if state == "core" then
-      work.close(handle)
+      local _, _ = work.close(handle)
       if not reboot.auto_boot() then
         complain(reboot.core_refusal)
         return 3
@@ -1199,7 +1203,7 @@ function test.run(argv: {integer:string}): integer
   local tool = Store.meta("compiler") or ""
   local runtime = Store.meta("runtime")
   if runtime == nil or runtime == "" then
-    work.close(handle)
+    local _, _ = work.close(handle)
     complain("the running binary names no runtime identity")
     return 1
   end
@@ -1207,17 +1211,17 @@ function test.run(argv: {integer:string}): integer
 
   local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
-    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    work.close(handle)
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local _, _ = work.close(handle)
     complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(handle, database, result)
-  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
+  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then
-    work.close(handle)
+    local _, _ = work.close(handle)
     complain(write_trouble)
     return 1
   end
@@ -1234,7 +1238,7 @@ function test.run(argv: {integer:string}): integer
     end
   end
   if #selectors > 0 and #selected_modules == 0 then
-    work.close(handle)
+    local _, _ = work.close(handle)
     complain("no test module matches: " .. table.concat(selectors, ", "))
     return 1
   end
@@ -1242,7 +1246,7 @@ function test.run(argv: {integer:string}): integer
   -- Every verdict and every coverage row of this run lands together.
   local begun, begin_trouble = work.begin(handle)
   if not begun then
-    work.close(handle)
+    local _, _ = work.close(handle)
     complain(begin_trouble)
     return 1
   end
@@ -1250,22 +1254,22 @@ function test.run(argv: {integer:string}): integer
   local records = handle.db
   local previous, previous_trouble = previous_runs(records)
   if previous == nil then
-    work.rollback(handle)
-    work.close(handle)
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
     complain(records_path .. ": " .. previous_trouble)
     return 1
   end
   local hashes, hashes_trouble = staged_hashes(records)
   if hashes == nil then
-    work.rollback(handle)
-    work.close(handle)
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
     complain(records_path .. ": " .. hashes_trouble)
     return 1
   end
   local verdicts, verdicts_trouble = known_verdicts(records)
   if verdicts == nil then
-    work.rollback(handle)
-    work.close(handle)
+    local _, _ = work.rollback(handle)
+    local _, _ = work.close(handle)
     complain(records_path .. ": " .. verdicts_trouble)
     return 1
   end
@@ -1299,9 +1303,9 @@ function test.run(argv: {integer:string}): integer
   end
   local cancelled = run_jobs(rec, jobs, limits)
   if cancelled ~= 0 then
-    work.abort(handle)
+    local _, _ = work.abort(handle)
     complain("test: cancelled; every running test was ended")
-    sys.kill(sys.getpid(), cancelled)
+    local _, _ = sys.kill(sys.getpid(), cancelled)
     return 130
   end
   local total = tally.ran + tally.cached

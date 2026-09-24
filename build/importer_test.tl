@@ -921,6 +921,39 @@ local function test_compile_rejects_a_bad_public_fallible_signature()
   assert(trouble:find("exactly (value, string)", 1, true), trouble)
 end
 
+--- The error-slot discipline (`build.contracts`) is checked beside the
+--- checker as cosmic's own modules compile: a dropped reason refuses
+--- the module, whatever the compiled cache holds.
+local function test_compile_rejects_a_dropped_error_slot()
+  local root = assert(write_fixture("error-slot", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["core/syscalls.h"] = table.concat({
+      "/**",
+      " * --- Reads bytes.",
+      " * ---@param fd integer descriptor",
+      " * ---@return string|nil data bytes",
+      " * ---@return string error failure",
+      " * ---@return integer errno number",
+      " */",
+      "COSMIC_SYSCALL(read, 1);",
+    }, "\n") .. "\n",
+    ["cosmic/dropped.tl"] = table.concat({
+      "local record Dropped end",
+      "local function get(): integer | nil, string return nil, 'none' end",
+      "function Dropped.value(): integer",
+      "  return get() or 0",
+      "end",
+      "return Dropped",
+    }, "\n") .. "\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local result, trouble = importer.compile(handle, built, "error-slot-test")
+  work.close(handle)
+  assert(result == nil)
+  assert(trouble:find("cosmic/dropped.tl:4: get: its error slot is dropped", 1, true), trouble)
+end
+
 --- `cosmic.sys`'s documentation points into the header it is generated
 --- from, not into the generated source: each row's line is its
 --- declaration's own line in core/syscalls.h, through the build and

@@ -81,7 +81,7 @@ function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
   local seen: {string: boolean} = {}
   local out: {string} = {}
   for index, db in ipairs(databases) do
-    local rows = Sqlite.text_rows(db,
+    local rows, _ = Sqlite.text_rows(db,
       "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
       symbols.named_where("d") .. " AND " ..
       symbols.public_only("d.module", public[index] == true) ..
@@ -110,7 +110,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
                                    name: string): boolean
   local owners: {string: integer} = {}
   for index, db in ipairs(databases) do
-    local modules = Sqlite.text_rows(db, "SELECT path FROM modules")
+    local modules, _ = Sqlite.text_rows(db, "SELECT path FROM modules")
     if modules ~= nil then
       for _, row in ipairs(modules) do
         if owners[row[1]] == nil then owners[row[1]] = index end
@@ -128,7 +128,7 @@ function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean}
           "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
           symbols.public_only("e.module", public[index] == true), phrase },
     }) do
-      local rows = Sqlite.text_rows(db, lookup[1], { { text = lookup[2] } })
+      local rows, _ = Sqlite.text_rows(db, lookup[1], { { text = lookup[2] } })
       if rows ~= nil then
         for _, row in ipairs(rows) do
           if owners[row[1]] == index then return true end

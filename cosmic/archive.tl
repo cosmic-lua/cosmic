@@ -147,7 +147,7 @@ function Archive.open(path: string): Archive.ArchiveReader | nil, string
   local fd, trouble = Fs.open_read(path)
   if fd == nil then return nil, trouble end
   local head, htrouble = Fs.take(fd, 262)
-  Fs.close(fd)
+  local _, _ = Fs.close(fd)
   if head == nil then return nil, htrouble end
   local kind = detect(head)
   if kind == "zip" then
@@ -193,7 +193,7 @@ function Archive.list(path: string): {Archive.Entry} | nil, string
   while true do
     local entry, etrouble = reader:next()
     if entry == nil then
-      reader:close()
+      local _, _ = reader:close()
       if etrouble ~= "" then return nil, etrouble end
       return out, ""
     end
@@ -324,7 +324,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   local reader: Archive.ArchiveReader = opened
   local dest_made, dest_trouble = Fs.mkdirs(dest)
   if not dest_made then
-    reader:close()
+    local _, _ = reader:close()
     return nil, dest_trouble
   end
 
@@ -341,7 +341,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   local dir_times: {{string, integer}} = {}
 
   local function bail(message: string): nil, string
-    reader:close()
+    local _, _ = reader:close()
     return nil, message
   end
 
@@ -361,7 +361,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
           if errno ~= sys.ENOENT then return false, full .. ": " .. why end
           local made, mtrouble, merr = sys.mkdir(full, 0x1ed)
           if not made and merr ~= sys.EEXIST then return false, full .. ": " .. mtrouble end
-          st = sys.lstat(full)
+          st, why, errno = sys.lstat(full)
         end
         if st == nil or st.kind ~= "dir" then
           if st ~= nil and st.kind == "link" then
@@ -384,7 +384,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     if w == nil then return false, ctrouble end
     local copied, rtrouble = Stream.copy(body, w, bytes_left)
     if copied == nil then
-      w:abort()
+      local _, _ = w:abort()
       if bytes_left ~= nil and rtrouble:find("more than", 1, true) ~= nil then
         return false, "archive: more than " .. tostring(opts.max_bytes) ..
           " bytes to extract, at " .. entry.path
@@ -394,7 +394,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     if bytes_left ~= nil then bytes_left = bytes_left - copied end
     local ok, wtrouble = w:close()
     if not ok then return false, wtrouble end
-    if restore_mtimes then Fs.set_mtime(dest_path, entry.mtime, entry.mtime) end
+    if restore_mtimes then local _, _ = Fs.set_mtime(dest_path, entry.mtime, entry.mtime) end
     return true, ""
   end
 
@@ -418,7 +418,7 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
         at[#at + 1] = seg
         local rel = table.concat(at, "/")
         if pending[rel] ~= nil then return true end
-        local st = sys.lstat(dest .. "/" .. rel)
+        local st, _ = sys.lstat(dest .. "/" .. rel)
         if st == nil or st.kind ~= "dir" then return true end
       end
     end
@@ -437,14 +437,14 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
         link.rel
     end
     local full = dest .. "/" .. link.rel
-    local st = sys.lstat(full)
+    local st, _ = sys.lstat(full)
     if st ~= nil then
       if st.kind == "dir" then return false, "archive: " .. full .. " is a directory" end
-      sys.unlink(full)
+      local _, _ = sys.unlink(full)
     end
     ok, why = Fs.symlink(link.target, full)
     if not ok then return false, why end
-    if restore_mtimes then Fs.set_mtime(full, link.mtime, link.mtime) end
+    if restore_mtimes then local _, _ = Fs.set_mtime(full, link.mtime, link.mtime) end
     return true, ""
   end
 
@@ -543,10 +543,10 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     -- undone by then touching something inside it.
     for i = #dir_times, 1, -1 do
       local d = dir_times[i]
-      Fs.set_mtime(d[1], d[2], d[2])
+      local _, _ = Fs.set_mtime(d[1], d[2], d[2])
     end
   end
-  reader:close()
+  local _, _ = reader:close()
   return written, ""
 end
 

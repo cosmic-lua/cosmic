@@ -113,7 +113,7 @@ function c_functions.sources(root: string, functions: {Coverage.Function}): {str
   local sources: {string: {string}} = {}
   for _, fn in ipairs(functions) do
     if sources[fn.path] == nil and fn.path:match("%.c$") ~= nil then
-      local text = Fs.read(root .. "/" .. fn.path)
+      local text, _ = Fs.read(root .. "/" .. fn.path)
       if text ~= nil then
         local lines: {string} = {}
         for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end

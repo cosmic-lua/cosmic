@@ -93,11 +93,11 @@ Every verb ends in a verdict line and an exit code.
 ]]
 
 local function say(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
+  local _, _ = Fs.put(Fs.stdout, line .. "\n")
 end
 
 local function complain(line: string)
-  Fs.put(Fs.stderr, line .. "\n")
+  local _, _ = Fs.put(Fs.stderr, line .. "\n")
 end
 
 --- The directory a path sits in, absolute.
@@ -123,7 +123,7 @@ local function root_of(file: string): string | nil, string
   if resolved == nil then
     return nil, file .. ": " .. trouble
   end
-  local here = Fs.absolute(".")
+  local here, _ = Fs.absolute(".")
   if here ~= nil and (here == "/" or resolved:sub(1, #here + 1) == here .. "/") then
     return here
   end
@@ -179,7 +179,7 @@ local function run(file: string, argv: {integer:string}): integer
     return 1
   end
 
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
     complain("cosmic: " .. own_trouble)
@@ -192,7 +192,7 @@ local function run(file: string, argv: {integer:string}): integer
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     complain("cosmic: " .. stage_trouble)
     return 1
   end
@@ -208,12 +208,12 @@ local function run(file: string, argv: {integer:string}): integer
   if own_tree then
     local state, state_trouble = reboot.state(handle)
     if state == nil then
-      work.close(handle)
+      local _, _ = work.close(handle)
       complain("cosmic: " .. state_trouble)
       return 1
     end
     if state == "core" then
-      work.close(handle)
+      local _, _ = work.close(handle)
       if not reboot.auto_boot() then
         complain("cosmic: " .. reboot.core_refusal)
         return 3
@@ -238,16 +238,16 @@ local function run(file: string, argv: {integer:string}): integer
 
   local result, compile_trouble = importer.compile(handle, built, tool)
   if result == nil then
-    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    work.close(handle)
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local _, _ = work.close(handle)
     complain("cosmic: " .. compile_trouble)
     return 1
   end
   local written, write_trouble =
     writer.write_result(handle, database, result)
-  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
+  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
-  work.close(handle)
+  local _, _ = work.close(handle)
   if not written then
     complain("cosmic: " .. write_trouble)
     return 1

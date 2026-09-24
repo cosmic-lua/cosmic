@@ -12,9 +12,10 @@
 ---
 --- The checker's own type reporter is the hook: with `report_types` on,
 --- tl calls `store_type(y, x, type)` for every node it checks. The
---- reporter installed here keeps only the types that resolve to a
---- record or interface, by position, and throws the rest away rather
---- than serializing every type the way tl's own reporter does. A
+--- reporter installed here keeps, by position, the types that resolve
+--- to a record or interface for this module's own questions, and every
+--- type as tl gave it for `build.contracts`, rather than serializing
+--- them the way tl's own reporter does. A
 --- receiver resolves to a symbol only when its record is one some
 --- module's type declares, nested under the module's own record
 --- (`Zip.ZipWriter`, `Stream.Reader`): a record a file keeps to
@@ -39,6 +40,10 @@ local record receivers
   --- which module, filled in as the run's environment learns modules.
   record State
     types: {integer: Type}
+    --- Every type the checker stored for the module it is checking
+    --- now, by position: `build.contracts` reads callees' and values'
+    --- types from it.
+    every: {integer: Type}
     owners: {integer: Owner}
     walked: {string: boolean}
   end
@@ -63,6 +68,10 @@ local record receivers
     --- A record's or interface's interfaces, every one it inherits
     --- from included, once the checker has expanded them.
     interface_list: {Type} | nil
+    --- A function's results, a tuple.
+    rets: Type | nil
+    --- A union's alternatives.
+    types: {Type} | nil
   end
 
   record Owner
@@ -152,7 +161,14 @@ local function reporter_for(state: receivers.State): any
       if y == nil or x == nil or typ == nil then
         return
       end
-      local found = record_of(typ as receivers.Type) -- cast: tl's type object
+      local t = typ as receivers.Type -- cast: tl's type object
+      -- A list of expressions starts where its first one does and is
+      -- checked after it: its tuple does not hide that one's type.
+      local at = position(y, x)
+      if t.typename ~= "tuple" or state.every[at] == nil then
+        state.every[at] = t
+      end
+      local found = record_of(t)
       if found ~= nil then
         state.types[position(y, x)] = found
       end
@@ -167,6 +183,7 @@ local function reporter_for(state: receivers.State): any
     get_collector = function(_self: any, filename: string): any
       if filename == "" then
         state.types = {}
+        state.every = {}
         return keeping
       end
       return ignoring
@@ -180,7 +197,7 @@ end
 --- Turns the checker's type reporting on for `env`, answering into a
 --- fresh state that `references` then reads.
 function receivers.install(env: compiler.Env): receivers.State
-  local state: receivers.State = { types = {}, owners = {}, walked = {} }
+  local state: receivers.State = { types = {}, every = {}, owners = {}, walked = {} }
   env.report_types = true
   env.reporter = reporter_for(state)
   return state
