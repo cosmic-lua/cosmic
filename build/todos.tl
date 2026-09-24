@@ -480,7 +480,7 @@ end
 --- lists them one per line, in file order or, with `--oldest`, oldest
 --- commit first, then a verdict line.
 --- @param argv the command line, re-entered if this binary embeds a
----   stale copy of `build.todos` itself -- see `build.reboot.ensure`
+---   stale copy of `build.todos` itself -- see `build.reboot.stale_exit`
 function todos.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
@@ -489,7 +489,7 @@ function todos.run(argv: {integer:string}): integer
     return 1
   end
   -- TODO: list TODOs when only the core is stale, since nothing here
-  -- runs it: after a C edit reboot.ensure boots before any verb goes on
+  -- runs it: after a C edit build.reboot's ensure boots before any verb goes on
   -- (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go
   -- on once the Teal side is fresh, which reboot.state would have to
   -- tell apart from both.

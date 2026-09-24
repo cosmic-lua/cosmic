@@ -763,7 +763,7 @@ end
 --- own stat -- and a row whose file is gone entirely fails its stat,
 --- which this treats the same as moved rather than trying to tell the
 --- two apart. Lets a caller that never edits the tree itself (`build.
---- reboot.ensure`, for a read-only verb) ask "did the tool's own
+--- reboot.stale_exit`, for a read-only verb) ask "did the tool's own
 --- inputs change since the last stage?" for a handful of stats
 --- instead of `work.stage`'s directory walk over everything.
 function work.tool_moved(handle: work.Handle): boolean | nil, string

@@ -227,7 +227,7 @@ end
 --- table's count of those rows, and the slowest of those tests. The
 --- coverage rows counted are every kept run's, not only the latest.
 --- @param argv the command line, re-entered if this binary embeds a
----   stale copy of `build.databases` itself -- see `build.reboot.ensure`
+---   stale copy of `build.databases` itself -- see `build.reboot.stale_exit`
 function databases.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})

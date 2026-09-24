@@ -258,7 +258,7 @@ end
 -- callers are reworked around it: nil means "proceed" here, not a
 -- failure, so this pair is not a value and its reason, and
 -- build.contracts exempts it from the error-slot rules until then.
-function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
+local function ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     return 1, own_trouble
@@ -344,7 +344,7 @@ function reboot.stale_exit(argv: {integer:string}): integer | nil
     log:complain(root_trouble)
     return 1
   end
-  local code, trouble = reboot.ensure(root, argv)
+  local code, trouble = ensure(root, argv)
   if code ~= nil and trouble ~= "" then
     log:complain(trouble)
   end

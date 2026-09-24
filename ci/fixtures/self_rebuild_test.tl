@@ -341,7 +341,7 @@ local function test_self_rebuild_refusals(tmp: string)
 end
 
 -- `cosmic docs` never compiles the tree itself, unlike `test`, so it relies
--- entirely on `build.reboot.ensure` to notice a stale embedded copy of
+-- entirely on `build.reboot.stale_exit` to notice a stale embedded copy of
 -- `build.docs` and rebuild before running -- the case `AGENTS.md`'s "an
 -- edit to Teal needs no boot" promise depends on for a verb other than
 -- `test`. A first call against an edited tree rebuilds once and shows the
@@ -432,7 +432,7 @@ end
 -- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
 -- release, the bootstrap cache's or one on PATH is -- refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets it in `build.reboot.ensure`, `test` in its own check,
+-- file. `docs` meets it in `build.reboot.stale_exit`, `test` in its own check,
 -- and `db` with an option it lacks in the check cmd/cosmic/main.tl makes
 -- before it calls a refused command line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
