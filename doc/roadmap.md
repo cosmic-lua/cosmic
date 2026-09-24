@@ -3,12 +3,15 @@
 this file records remaining work and open decisions only. [design.md](design.md)
 defines the target; once something ships, it leaves this file.
 
+"old" below is the previous tree, kept on the `old` branch (at `96da34e7`):
+`git show origin/old:<path>` reads a file it names.
+
 ## language and self-check
 
 - implement the cast policy in design.md. a cast is legal only from `any`, from
   a userdata record declared in `.d.tl`, or from the enclosing generic's type
   variable. none of `patch/tl` enforces it yet, and the tree's own Teal holds
-  about seventy `as` casts to migrate or justify first. main's
+  about seventy `as` casts to migrate or justify first. old's
   `3p/tl/tl_patch/cast.tl` and `docs/design/cast-legality.md` are useful
   implementation and migration evidence.
 - add earned lint rules and their fixes to `build/fix/rule.tl`'s rule list.
@@ -22,11 +25,11 @@ defines the target; once something ships, it leaves this file.
   and a run already fails for any C function no test enters
   (`build/c_functions.tl`); the floor is what catches lines going untested
   inside a function a test does enter. CI states the floor at the call site
-  rather than in a committed ratchet file. main's #1778
+  rather than in a committed ratchet file. old's #1778
   (`_tool/coverage/minimum.tl`, `--make coverage --min PCT --min-file PCT`,
   which replaced the `.cosmic-coverage` ratchet and its `--baseline`) and #1781
   (`pr.yml`'s `--min 76 --min-file 0`) are the model.
-- add a sensitivity record for coverage gates' host-dependent lines. main's
+- add a sensitivity record for coverage gates' host-dependent lines. old's
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI
   measurements and record why root access, a terminal, a free port, or a
   platform feature changes it.
@@ -43,13 +46,11 @@ than fuzzing them here.
   program's trailer and manifest, which share `decode_blocks` with a portable
   artifact, but not the launcher's own reading of the shell header or the core
   a portable start adopts from the cache.
-- publish `cosmic-debug`, the sanitized build, beside the release. the
-  unstripped core still carries build paths: the checkout's in `.rodata`,
-  where the undefined-behavior checks keep their source locations, and in its
-  line tables, and zig's library directory in the line tables of the musl and
-  compiler-rt it compiles, which no flag of ours reaches. decide between
-  `-ffile-prefix-map` plus debug info without those paths, and no debug info,
-  before the asset is added to `prerelease.yml`.
+- publish `cosmic-debug`, the sanitized build, once there is a way to
+  distribute one fat, cross-platform debug build. until then the checked core
+  is built and run only in CI, where its build paths do not matter. the core
+  links its host's libc and carries build paths in `.rodata` and its line
+  tables, so a published one would be built at a fixed path on every runner.
 
 ## process isolation and containment
 
@@ -64,7 +65,7 @@ degraded or skipped enforcement reported on hosts that cannot provide a section.
 network section matter sooner.
 
 Per-host egress policy is a separate Linux extension. Landlock can restrict a
-port but not a remote address. main's `cosmic/quicksand/` is a reference for a
+port but not a remote address. old's `cosmic/quicksand/` is a reference for a
 network namespace, guarded proxy, and declarative child runner; it should not
 be folded into the portable sandbox contract.
 
@@ -98,7 +99,7 @@ symbol.
   `http`, `archive` (with `tar`, `zip` and `stream`), compression, and
   coverage.
 - add mention search for prose references that `cosmic uses` cannot see.
-  main's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
+  old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - decide whether README's runnable-looking shell example moves into
   `doc/guides/`, where the doctest extractor enforces it, or remains an
   explicit manual exception.
@@ -117,18 +118,18 @@ four-producer provenance join.
   partial, and fail fixtures. `notes` is still the only task. The next should
   exercise a different part of the library (child processes, the store,
   compression, or now `http` and archives) so one task's friction is not
-  mistaken for the whole product's. main's `_eval/` is a reference for keeping
+  mistaken for the whole product's. old's `_eval/` is a reference for keeping
   briefs, graders, their registry, and golden run directories consistent.
 - add a performance gate once stable comparison targets exist. It should
   re-measure a suspected regression against one baseline, run an A/A noise
-  check, and use a third reading to break a tie. main's `_perf/gate.tl`,
+  check, and use a third reading to break a tie. old's `_perf/gate.tl`,
   `compare.tl`, `reproduce.tl`, and `tiebreak.tl` show this shape. The same
   harness is what design.md says moves a module across the C/Teal line.
 
 ## open decisions
 
 - **host language and toolchain.** Re-evaluate the current C core and pinned Zig
-  build against Rust, Zig as the implementation language, and main's vendored
+  build against Rust, Zig as the implementation language, and old's vendored
   Cosmopolitan approach. Include size, portability, reproducibility, patch
   ownership, and failure consistency. `bin/zig` and `bin/vendor` now run on a
   pinned bootstrap cosmic, so the build driver is already self-hosted while the
