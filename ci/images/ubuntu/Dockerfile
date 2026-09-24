@@ -22,7 +22,7 @@ RUN --mount=type=secret,id=ca,required=true,mode=0444 \
       'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
       > /etc/apt/sources.list.d/ubuntu.sources && \
     set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/run/secrets/ca && \
-    apt-get "$@" update && \
+    apt-get "$@" --error-on=any update && \
     DEBIAN_FRONTEND=noninteractive apt-get "$@" install -y --no-install-recommends \
       ca-certificates curl git xz-utils zstd && \
     rm -rf /var/lib/apt/lists/*

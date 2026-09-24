@@ -22,6 +22,10 @@ env:
   # wrong size) and fail the leg before it builds anything. Moving it is a
   # deliberate edit, as moving the image digest is.
   UBUNTU_SNAPSHOT: 20260924T120000Z
+  # TODO: drop this, the CA mounts and each leg's package install (its
+  # `prepare`) once the Linux legs run in the images ci-images.yml
+  # publishes, named by digest; ci/images/ubuntu/Dockerfile carries the
+  # same snapshot meanwhile, and ci-images.yml names it too.
 
 # A newer push supersedes a branch's run, but every main run finishes: its
 # zig build cache is the one every other branch can restore, and its
