@@ -56,6 +56,11 @@ source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI
 reruns them on the checked core with `FUZZ_ITERS=2000`.
 
+When a change settles for less than the right fix because something is
+missing (an API, a binding, a module), leave a `TODO:` comment where the
+better fix would go, naming what it waits on ("once cosmic.sys carries
+ftruncate"), so the workaround can be found and undone when that lands.
+
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
 fail for the reported bug over assertions that pin incidental implementation.
