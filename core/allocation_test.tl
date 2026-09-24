@@ -64,17 +64,30 @@ local function next_descriptor(tmp: string): integer
   return fd
 end
 
---- Every core says what it is, and only the checked one carries the
---- instruments: no core that ships has an allocator a program can make
---- fail.
-local function test_only_the_checked_core_carries_the_instruments()
+--- Every core says what it is and has every instrument, but only the
+--- checked one's instrument: in any other each raises, so no core that
+--- ships has an allocator a program can make fail.
+local function test_only_the_checked_core_instruments()
   assert(type(testing.configuration) == "string" and testing.configuration ~= "")
-  local instruments = testing as {string: any}
-  for _, name in ipairs({ "fail_allocations", "allow_allocations", "open_statements",
-                          "c_heap", "fail_at", "live_transfers" }) do
-    assert((instruments[name] ~= nil) == checked,
-      name .. " must be present exactly on the checked core, not on " ..
-      testing.configuration)
+  local instruments: {string: function()} = {
+    fail_allocations = function()
+      testing.fail_allocations(1 << 40)
+      testing.allow_allocations()
+    end,
+    allow_allocations = function() testing.allow_allocations() end,
+    open_statements = function() testing.open_statements() end,
+    c_heap = function() testing.c_heap() end,
+    fail_at = function() testing.fail_at() end,
+    live_transfers = function() testing.live_transfers() end,
+  }
+  for name, use in pairs(instruments) do
+    local ok, err: boolean, any = pcall(use)
+    if checked then
+      assert(ok, name .. ": " .. tostring(err))
+    else
+      assert(not ok and tostring(err):find(name .. ": only the checked core", 1, true),
+        name .. " must raise on the " .. testing.configuration .. " core: " .. tostring(err))
+    end
   end
 end
 

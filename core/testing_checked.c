@@ -213,6 +213,8 @@ static int testing_live_transfers (lua_State *L) {
   return 1;
 }
 
+/* Every other core registers these names as stand-ins that raise
+ * (core/testing.c): edit the two lists together. */
 static const luaL_Reg instruments[] = {
   {"fail_allocations", testing_fail_allocations},
   {"allow_allocations", testing_allow_allocations},

@@ -1,6 +1,8 @@
---- Test instruments, as the core provides them (core/testing.h). Only
---- the checked core has the functions; every core has `configuration`,
---- its configuration's name, "sanitized" for the checked one.
+--- Test instruments, as the core provides them (core/testing.h). Every
+--- core has every member, but only the checked core's functions
+--- instrument: in any other, each raises "only the checked core has
+--- test instruments". `configuration` says which core is running,
+--- "sanitized" for the checked one.
 
 local record testing
   --- The running core's configuration: "sanitized" for the checked one.

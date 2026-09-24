@@ -366,6 +366,11 @@ function Zig.fetch(urls: {string}, path: string, sha256: string,
     end
     -- Http.download names the URL itself for some failures; the
     -- report names each source once.
+    -- TODO: keep `trouble` whole, and drop this function's entry in
+    -- build.contracts' `parsing`, once ci/cosmic-driver.pin names a
+    -- cosmic whose Http.download leaves the URL, which its caller
+    -- already holds, out of every reason; today's names it beside an
+    -- HTTP status alone.
     if String.starts_with(trouble, url .. ": ") then
       trouble = trouble:sub(#url + 3)
     end

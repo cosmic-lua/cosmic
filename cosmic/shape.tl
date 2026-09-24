@@ -249,8 +249,20 @@ local function wanted(spec: Spec): string
   return spec.kind
 end
 
-local function mismatch(path: string, spec: Spec, v: any): string
-  return ("%s: expected %s, got %s"):format(path, wanted(spec), kind_of(v))
+--- What did not fit, and where: the path of the value that did not,
+--- kept apart from the message so that `walk_either` can tell a
+--- failure at a value from one inside it.
+local record Miss
+  at: string
+  message: string
+end
+
+local function miss(at: string, what: string): Miss
+  return { at = at, message = at .. ": " .. what }
+end
+
+local function mismatch(path: string, spec: Spec, v: any): Miss
+  return miss(path, ("expected %s, got %s"):format(wanted(spec), kind_of(v)))
 end
 
 --- `t`'s keys in ascending order when every one is a positive
@@ -265,52 +277,50 @@ local function indices(t: {any: any}): {integer}, any
   return keys, nil
 end
 
-local walk: function(v: any, spec: Spec, path: string): any, string
+local walk: function(v: any, spec: Spec, path: string): any, Miss
 
-local function walk_either(v: any, spec: Spec, path: string): any, string
-  local deepest = ""
+local function walk_either(v: any, spec: Spec, path: string): any, Miss
+  local deepest: Miss = nil
   for _, c in ipairs(spec.choices) do
-    local out, err = walk(v, c, path)
-    if err == "" then return out, "" end
+    local out, failed = walk(v, c, path)
+    if failed == nil then return out, nil end
     -- A choice that got past this value's own type and failed inside
     -- it says more than "expected A or B": keep the first such one.
-    if deepest == "" and err:sub(1, #path + 1) ~= path .. ":" then
-      deepest = err
-    end
+    if deepest == nil and failed.at ~= path then deepest = failed end
   end
-  if deepest ~= "" then return nil, deepest end
+  if deepest ~= nil then return nil, deepest end
   return nil, mismatch(path, spec, v)
 end
 
---- `v` checked against `spec`: the copy to answer and "", or nil and
+--- `v` checked against `spec`: the copy to answer and nil, or nil and
 --- what did not fit.
-walk = function(v: any, spec: Spec, path: string): any, string
+walk = function(v: any, spec: Spec, path: string): any, Miss
   if v == nil or rawequal(v, Json.null) then
-    if spec.optional then return nil, "" end
+    if spec.optional then return nil, nil end
     return nil, mismatch(path, spec, nil)
   end
   local kind = spec.kind
   if kind == "string" then
-    if v is string then return v, "" end
+    if v is string then return v, nil end
   elseif kind == "number" then
-    if v is number then return v, "" end
+    if v is number then return v, nil end
   elseif kind == "integer" then
-    if v is integer then return v, "" end
+    if v is integer then return v, nil end
     if v is number then
       local i = math.tointeger(v)
-      if i ~= nil then return i, "" end
-      return nil, ("%s: expected integer, got %s"):format(path, shown(v))
+      if i ~= nil then return i, nil end
+      return nil, miss(path, ("expected integer, got %s"):format(shown(v)))
     end
   elseif kind == "boolean" then
-    if v is boolean then return v, "" end
+    if v is boolean then return v, nil end
   elseif kind == "any" then
-    return v, ""
+    return v, nil
   elseif kind == "one_of" then
     for _, want in ipairs(spec.values) do
-      if v == want then return v, "" end
+      if v == want then return v, nil end
     end
     if v is string or v is number or v is boolean then
-      return nil, ("%s: expected %s, got %s"):format(path, wanted(spec), shown(v))
+      return nil, miss(path, ("expected %s, got %s"):format(wanted(spec), shown(v)))
     end
   elseif kind == "either" then
     return walk_either(v, spec, path)
@@ -322,15 +332,15 @@ walk = function(v: any, spec: Spec, path: string): any, string
     if kind == "record" then
       local out: {string: any} = {}
       for _, name in ipairs(spec.names) do
-        local got, err = walk(rawget(t, name), spec.fields[name], field_path(path, name))
-        if err ~= "" then return nil, err end
+        local got, failed = walk(rawget(t, name), spec.fields[name], field_path(path, name))
+        if failed ~= nil then return nil, failed end
         out[name] = got
       end
-      return out, ""
+      return out, nil
     elseif kind == "list" then
       local keys, bad = indices(t)
       if keys == nil then
-        return nil, ("%s: expected list, got the %s key %s"):format(path, kind_of(bad), shown(bad))
+        return nil, miss(path, ("expected list, got the %s key %s"):format(kind_of(bad), shown(bad)))
       end
       -- A hole is a missing element: the first one fails a list whose
       -- elements are not optional, as a missing field fails a record.
@@ -341,22 +351,22 @@ walk = function(v: any, spec: Spec, path: string): any, string
       end
       local out: {any} = {}
       for _, i in ipairs(keys) do
-        local got, err = walk(rawget(t, i), spec.of, ("%s[%d]"):format(path, i))
-        if err ~= "" then return nil, err end
+        local got, failed = walk(rawget(t, i), spec.of, ("%s[%d]"):format(path, i))
+        if failed ~= nil then return nil, failed end
         out[i] = got
       end
-      return Json.array(out), ""
+      return Json.array(out), nil
     elseif kind == "map" then
       local out: {string: any} = {}
       for k, e in next, t do
         if not (k is string) then
-          return nil, ("%s: expected map, got the %s key %s"):format(path, kind_of(k), shown(k))
+          return nil, miss(path, ("expected map, got the %s key %s"):format(kind_of(k), shown(k)))
         end
-        local got, err = walk(e, spec.of, field_path(path, k))
-        if err ~= "" then return nil, err end
+        local got, failed = walk(e, spec.of, field_path(path, k))
+        if failed ~= nil then return nil, failed end
         out[k] = got
       end
-      return out, ""
+      return out, nil
     end
   end
   if not KINDS[kind] then
@@ -380,8 +390,8 @@ end
 -- one call, if the tree's call sites all turn out to pair the two.
 function Shape.into<T>(value: any, spec: Spec): T | nil, string
   need_spec(spec, "into's shape")
-  local out, err = walk(value, spec, "$")
-  if err ~= "" then return nil, err end
+  local out, failed = walk(value, spec, "$")
+  if failed ~= nil then return nil, failed.message end
   -- cast: the one from `any`, which walk has just built to `spec`
   return out as T, ""
 end

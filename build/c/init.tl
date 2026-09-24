@@ -179,6 +179,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
     if #running > 0 then
       local done, trouble = Child.wait_any(running, 120000)
       if done == nil then
+        if trouble == "" then trouble = "clang gave no answer in 120 seconds" end
         for _, handle in ipairs(running) do
           local _, _ = handle:close()
           outcomes[which[handle]] = { file = files[which[handle]], trouble = trouble }
