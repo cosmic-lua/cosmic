@@ -1,0 +1,100 @@
+name: ci-images
+
+# Builds the images ci.yml's Linux legs run in (ci/images/*/Dockerfile),
+# so a CI run installs nothing from a package mirror. A branch push only
+# builds them, to show the Dockerfiles still work; a push to main, or a
+# manual run on main, also publishes them to GHCR as
+# ghcr.io/<repo>-ci-<image>:<commit> and writes each index's digest to the
+# run's summary. ci.yml names an image by that digest, so publishing a new
+# one changes nothing until an edit to ci.yml moves the digest.
+on:
+  push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
+    paths:
+      - 'ci/images/**'
+      - '.github/workflows/ci-images.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The snapshot of the Ubuntu archive the ubuntu image installs from; see
+  # ci/images/ubuntu/Dockerfile. Moving it is a deliberate edit.
+  UBUNTU_SNAPSHOT: 20260924T120000Z
+  PUBLISH: ${{ github.ref == 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: build ${{ matrix.image }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: ubuntu, arch: amd64, runner: ubuntu-24.04 }
+          - { image: ubuntu, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: alpine, arch: amd64, runner: ubuntu-24.04 }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: build, and on main push, the image for this architecture
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # GHCR names are lowercase; the repository's may not be.
+          name=$(printf 'ghcr.io/%s-ci-%s' "$GITHUB_REPOSITORY" "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          set -- --platform "linux/$ARCH" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --build-arg "UBUNTU_SNAPSHOT=$UBUNTU_SNAPSHOT" \
+            --secret id=ca,src=/etc/ssl/certs/ca-certificates.crt \
+            --tag "$name:$GITHUB_SHA-$ARCH"
+          if [ "$PUBLISH" = true ]; then
+            printf '%s\n' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            set -- "$@" --push
+          fi
+          docker buildx build "$@" "ci/images/$IMAGE"
+
+  publish:
+    name: publish ${{ matrix.image }}
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - { image: ubuntu, arches: 'amd64 arm64' }
+          - { image: alpine, arches: 'amd64' }
+    steps:
+      - name: join the architectures under one tag and report its digest
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCHES: ${{ matrix.arches }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          name=$(printf 'ghcr.io/%s-ci-%s' "$GITHUB_REPOSITORY" "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          printf '%s\n' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          set --
+          for arch in $ARCHES; do
+            set -- "$@" "$name:$GITHUB_SHA-$arch"
+          done
+          docker buildx imagetools create --tag "$name:$GITHUB_SHA" "$@"
+          digest=$(docker buildx imagetools inspect "$name:$GITHUB_SHA" |
+            awk '$1 == "Digest:" { print $2; exit }')
+          case $digest in sha256:*) ;; *) echo "no digest for $name:$GITHUB_SHA" >&2; exit 1 ;; esac
+          echo "$name@$digest"
+          printf '%s: `%s@%s`\n' "$IMAGE" "$name" "$digest" >> "$GITHUB_STEP_SUMMARY"
