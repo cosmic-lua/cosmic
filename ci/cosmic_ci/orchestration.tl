@@ -99,13 +99,28 @@ local suite_timeout_ms <const> = 120000
 local suite_test_timeout_s <const> = "10"
 
 -- The fuzz properties again on the checked core, over many more inputs
--- than a suite run's 64 (build/fuzz/init.tl). FUZZ_ITERS is part of each
--- fuzz test's key, so a whole run re-runs exactly those, and the tests
--- that start processes, which never stand; every other verdict the
--- checked suite just reached stands.
+-- than a suite run's 64 (build/fuzz/init.tl). Only the `*_fuzz_test.tl`
+-- modules are named: a whole run would also re-run every test that
+-- starts a process, since those never stand, though the checked suite
+-- ran each of them a moment before -- a third of the rerun's time.
 local deep_fuzz_iters <const> = "2000"
 local deep_fuzz_timeout_ms <const> = 900000
 local deep_fuzz_test_timeout_s <const> = "300"
+
+--- Every `*_fuzz_test.tl` under root, relative to it, sorted; o/, vendor/
+--- and ci/ hold none of the tree's own.
+local function fuzz_tests(root: string): {string}
+  local skipped: {string:boolean} = { o = true, vendor = true, ci = true }
+  local files = assert(Fs.walk(root, function(path: string, name: string): boolean
+    return path == name and skipped[name] or name:sub(1, 1) == "."
+  end))
+  local found: {string} = {}
+  for _, path in ipairs(files) do
+    if path:match("_fuzz_test%.tl$") then found[#found + 1] = path end
+  end
+  assert(#found > 0, "no *_fuzz_test.tl under " .. root)
+  return found
+end
 
 local function parent(path: string): string
   return (assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory"))
@@ -212,7 +227,9 @@ local function checked_suite(c: Context, target: string, work: string): integer
     90000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   if s ~= 0 then return s end
-  s = logged(c, "checked deep fuzz", { cosmic, "test" },
+  local deep = { cosmic, "test" }
+  for _, path in ipairs(fuzz_tests(c.root)) do deep[#deep + 1] = path end
+  s = logged(c, "checked deep fuzz", deep,
     diagnostics .. "/checked-fuzz.out", diagnostics .. "/checked-fuzz.err",
     deep_fuzz_timeout_ms, c.root, environment({ FUZZ_ITERS = deep_fuzz_iters,
       COSMIC_TEST_TIMEOUT = deep_fuzz_test_timeout_s }))
@@ -327,6 +344,12 @@ local function phase_build(p: PlatformContext): integer
   local seed = Env.get("COSMIC_ZIG_CACHE_SEED")
   local from = Env.get("COSMIC_ZIG_CACHE_FROM")
   if not from and seed then from = seed .. "/zig-cache" end
+  -- A cache named but absent costs a cold compile of vendor/ and core/
+  -- (minutes) and fails nothing, so say so where the log shows it.
+  if from and not is_dir(from) then
+    Fs.put(Fs.stderr, "build: no zig-cache at " .. from ..
+      "; compiling from nothing\n")
+  end
   if from and is_dir(from) then
     mkdir(root .. "/o")
     local copied = checked(c, "restore zig-cache",
