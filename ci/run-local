@@ -31,6 +31,10 @@ case $(uname -sm) in
   *) echo "run-local: unsupported host: $(uname -sm)" >&2; exit 2 ;;
 esac
 
+# zig's global cache is shared (build/zig.tl): resolve this user's before
+# XDG_CACHE_HOME is pointed at the run's own state below.
+zig_global=${COSMIC_ZIG_GLOBAL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig-global}
+
 uid=$(id -u)
 state=${COSMIC_CI_LOCAL:-${TMPDIR:-/tmp}/cosmic-ci-local-$uid}
 case $state in /*) ;; *) echo "run-local: COSMIC_CI_LOCAL must be absolute" >&2; exit 2 ;; esac
@@ -76,7 +80,7 @@ for phase in "$@"; do
     GITHUB_WORKSPACE=$candidate RUNNER_TEMP=$state/runner \
     GITHUB_RUN_ID=local GITHUB_RUN_ATTEMPT=1 COSMIC_WORKER=local \
     TARGET=$target XDG_CACHE_HOME=$state/cache \
-    COSMIC_ZIG_CACHE_SEED=$root/o \
+    COSMIC_ZIG_CACHE_SEED=$root/o COSMIC_ZIG_GLOBAL_CACHE=$zig_global \
       exec "$cosmic" cosmic_ci/driver.tl platform "$phase" success
   ) > "$log" 2>&1 || status=$?
   echo "run-local: $phase: status $status, $(( $(date +%s) - started )) s, log $log" >&2

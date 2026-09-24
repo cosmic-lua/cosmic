@@ -1,10 +1,7 @@
+local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 
-local function hex(s: string): string
-  return (s:gsub(".", function(c: string): string
-    return ("%02x"):format(c:byte())
-  end))
-end
+local hex = Codec.hex
 
 -- xoshiro256** seeded by splitmix64, the reference generators' own
 -- outputs: a seed names the same sequence everywhere.

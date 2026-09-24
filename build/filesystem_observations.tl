@@ -1,5 +1,6 @@
 --- Filesystem queries whose answers may affect a test verdict.
 
+local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
@@ -42,30 +43,9 @@ function observations.join(first: {observations.Observation},
   return joined
 end
 
---- Every byte's two-digit lowercase hex, built once: `gsub` accepts this
---- table directly as its replacement, so encoding a string costs one
---- table lookup per byte instead of one closure call.
-local hex_byte: {string:string} = {}
-for byte = 0, 255 do
-  hex_byte[string.char(byte)] = string.format("%02x", byte)
-end
-
-local function hex(data: string): string
-  return (data:gsub(".", hex_byte))
-end
-
 --- One framed contribution to a verdict key.
 function observations.key_part(kind: string, path: string, answer: string): string
-  return kind .. " " .. hex(path) .. " " .. hex(answer)
-end
-
-local function unhex(data: string): string | nil
-  if #data % 2 ~= 0 or data:find("[^0-9a-f]") ~= nil then
-    return nil
-  end
-  return (data:gsub("..", function(byte: string): string
-    return string.char(tonumber(byte, 16) or 0)
-  end))
+  return kind .. " " .. Codec.hex(path) .. " " .. Codec.hex(answer)
 end
 
 --- A versioned, line-safe representation. Paths may themselves contain newlines.
@@ -74,7 +54,7 @@ function observations.encode(found: {observations.Observation}): string
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" then
-      lines[#lines + 1] = kind .. " " .. hex(observation.path)
+      lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
     end
   end
   return table.concat(lines, "\n")
@@ -95,7 +75,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v1" then
       local kind, encoded_path = line:match("^([osde]) ([0-9a-f]*)$")
-      local path = encoded_path ~= nil and unhex(encoded_path) or nil
+      local path = encoded_path ~= nil and Codec.unhex(encoded_path) or nil
       if kind == nil or path == nil then
         return nil
       end
@@ -136,7 +116,7 @@ local environ_path = "\0environ"
 local function stat_result_answer(st: sys.Stat | nil, trouble: string,
                                   errno: integer): string
   if st == nil then
-    return "error " .. hex(trouble) .. " " .. tostring(errno)
+    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
   end
   return table.concat({ "ok", tostring(st.size), tostring(st.mode), st.kind,
     tostring(st.mtime), tostring(st.mtime_ns), tostring(st.ino), tostring(st.dev),
@@ -149,7 +129,7 @@ local function directory_result_answer(entries: {string:string} | nil,
                                        trouble: string,
                                        errno: integer): string
   if entries == nil then
-    return "error " .. hex(trouble) .. " " .. tostring(errno)
+    return "error " .. Codec.hex(trouble) .. " " .. tostring(errno)
   end
   local names: {string} = {}
   for name in pairs(entries) do names[#names + 1] = name end

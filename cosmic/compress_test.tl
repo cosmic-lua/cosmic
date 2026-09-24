@@ -2,6 +2,7 @@
 --- and refuse corrupt or truncated input rather than answering with
 --- something wrong.
 
+local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
@@ -237,14 +238,8 @@ end
 -- Everything below exercises the bounded-output contract and the
 -- member and trailer rules the three multi-member decoders share.
 
-local function unhex(h: string): string
-  return (h:gsub("..", function(pair: string): string
-    return string.char(math.tointeger(tonumber(pair, 16)))
-  end))
-end
-
 -- 8 MiB of NUL bytes as `xz -0 --check=crc32` writes it: 1352 bytes.
-local xz_bomb = unhex(
+local xz_bomb = assert(Codec.unhex(
   "fd377a585a0000016922de36020021010c0000008f98419cffff11016c5d00006ffdffffa3b7ff473e481572396151b8" ..
   "9228e6a38607f9eee41e82d32fc53a3c014bb17ec98a8a4d2fa30dd97fa6e38c231153e05918c5758ae277f8b6947f0c" ..
   "6ac0de744964e2e95c53b204d8f7440cab5f0d6d46e9e5c37688b79657acb64de1691d6ffb4b88106c42cb883f5c008f" ..
@@ -273,10 +268,10 @@ local xz_bomb = unhex(
   "9111aaad601dbaceb127185c5986e9665258bee976ac59e4e55b0508f9c7daadfcfb522b74cd1e5b2042f9dd533df829" ..
   "64093b80cb2a6cdfb53bf0c4bd2e5faa0f3e4b664290130eff1093f8717859f80bcdff9528460fa9fc7cdefb9a302e56" ..
   "c08f85f38381c065c425510f3fb28003ba0005007b61f7ef0000000045bcd21a0001a20a80808004708db3ed3e300d8b" ..
-  "020000000001595a")
+  "020000000001595a"))
 
 -- The same 8 MiB of NULs as `bzip2 -9` writes it: 48 bytes.
-local bz2_bomb = unhex("425a6839314159265359a23d4b580040404080c00000040008200030cc0529a60100d8808078bb9229c2848511ea5ac0")
+local bz2_bomb = assert(Codec.unhex("425a6839314159265359a23d4b580040404080c00000040008200030cc0529a60100d8808078bb9229c2848511ea5ac0"))
 
 local hello_gz = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
 local hello_bz2 = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"

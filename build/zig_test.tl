@@ -56,18 +56,27 @@ local function test_host_agrees_with_the_running_host()
 end
 
 local function test_build_args_adds_cache_flags_only_for_build()
-  local got = Zig.build_args("/repo", { "build", "-Doptimize=ReleaseFast" })
+  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "-Doptimize=ReleaseFast" })
   assert(#got == 8)
   assert(got[1] == "build")
   assert(got[2] == "--cache-dir" and got[3] == "/repo/o/zig-cache")
-  assert(got[4] == "--global-cache-dir" and got[5] == "/repo/o/zig-global")
+  assert(got[4] == "--global-cache-dir" and got[5] == "/cache/zig-global")
   assert(got[6] == "--prefix" and got[7] == "/repo/o")
   assert(got[8] == "-Doptimize=ReleaseFast")
 end
 
 local function test_build_args_passes_other_subcommands_through()
-  local got = Zig.build_args("/repo", { "version" })
+  local got = Zig.build_args("/repo", "/cache/zig-global", { "version" })
   assert(#got == 1 and got[1] == "version")
+end
+
+-- The global cache is shared: named outright, else in this user's cache
+-- directory, and in the checkout only when there is no cache directory.
+local function test_global_cache_is_named_then_shared_then_local(tmp: string)
+  assert(Zig.global_cache("/repo", { COSMIC_ZIG_GLOBAL_CACHE = "/ci/zig-global",
+    XDG_CACHE_HOME = tmp }) == "/ci/zig-global")
+  assert(Zig.global_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-global")
+  assert(Zig.global_cache("/repo", {}) == "/repo/o/zig-global")
 end
 
 local function test_repo_root_from_the_scripts_own_path(tmp: string)
