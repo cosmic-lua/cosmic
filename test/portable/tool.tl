@@ -1,5 +1,5 @@
 --- Consolidated portable-fixture helper. Each local function below replaces
---- one former single-purpose script; artifact_fixture.tl remains the shared
+--- one former single-purpose script; init.tl (`test.portable`) remains the shared
 --- v1 reader/writer-input library. Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
@@ -11,7 +11,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local artifact = require("build.artifact")
-local fixture = require("test.portable.artifact_fixture")
+local fixture = require("test.portable")
 local sys = require("cosmic.sys")
 
 local record Target

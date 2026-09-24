@@ -1009,15 +1009,23 @@ end
 
 --- What a source parses to is decided by `importer.analyzer_modules` and
 --- nothing else in the tool, so an edit anywhere else reparses only what
---- it edited. That holds only while the list is closed: every module of
---- the tree's that one of them requires is on it too. The importer's own
---- requires are the exception -- it is on the list for its derive and
---- parse, not for the rest of the build it also runs. A declaration of a
---- C binding (`cosmic.internal.*`) is types over the core, not analysis.
+--- it edited. That holds only while the set is closed: every module of
+--- the tree's that one of them requires, as a parse of its source finds
+--- it, is in it too -- including a module only reached through another
+--- (`build.ast.match`), and never one the importer alone reaches
+--- (`build.test`). The importer's own requires are the exception -- it
+--- is in the set for its derive and parse, not for the rest of the build
+--- it also runs. A declaration of a C binding (`cosmic.internal.*`) is
+--- types over the core, not analysis.
 local function test_the_analyzer_modules_are_closed_under_require()
   local ast = require("build.ast")
+  local analyzer = assert(importer.analyzer_modules())
   local listed: {string:boolean} = {}
-  for _, name in ipairs(importer.analyzer_modules) do listed[name] = true end
+  for _, name in ipairs(analyzer) do listed[name] = true end
+  assert(listed["build.importer"] and listed["build.ast.match"] and
+    listed["cosmic.fs"], table.concat(analyzer, ", "))
+  assert(not listed["build.test"] and not listed["build.receivers"],
+    table.concat(analyzer, ", "))
   local function file_of(name: string): string
     local base = name:gsub("%.", "/")
     for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
@@ -1026,7 +1034,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     return nil
   end
   local missing: {string} = {}
-  for _, name in ipairs(importer.analyzer_modules) do
+  for _, name in ipairs(analyzer) do
     local file = file_of(name)
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
     assert(Store.source(name) ~= nil, name .. " has no source in the running binary, " ..

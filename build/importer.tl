@@ -53,23 +53,45 @@ local record importer
     cached: integer
   end
 
-  --- The modules whose code decides what the analysis tables record:
-  --- the importer's own derive and parse, and every module of the tree's
-  --- that the extractors, generators and parser it calls reach. What a
-  --- source parses to is a function of these and of the compiler, and
-  --- of nothing else in the tool; `build/importer_test.tl` holds the
-  --- list closed under `require`.
-  analyzer_modules: {string}
 end
 
-importer.analyzer_modules = {
-  "build.importer",
-  "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
-  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.compiler",
-  "build.doctest", "build.doctest.generate", "build.doctest.markdown",
-  "build.gen_syscalls", "build.positions",
-  "cosmic.env", "cosmic.fs", "cosmic.string",
+--- The extractors, generators and parser the importer's own derive and
+--- parse call: with the importer itself, the roots of
+--- `importer.analyzer_modules`.
+local analyzer_roots: {string} = {
+  "build.ast", "build.compiler", "build.doctest", "build.gen_syscalls",
+  "build.positions",
 }
+
+--- The modules whose code decides what the analysis tables record: the
+--- importer's own derive and parse, and every module that the
+--- extractors, generators and parser it calls reach through `require`,
+--- as the running binary's own `imports` table records it. What a
+--- source parses to is a function of these and of the compiler, and of
+--- nothing else in the tool. The importer's own requires are not
+--- followed: it is here for its derive and parse, not for the rest of
+--- the build it also runs.
+function importer.analyzer_modules(): {string} | nil, string
+  local databases = Store.databases()
+  local own = databases[#databases]
+  if own == nil then return nil, "the binary carries no module database" end
+  local seeds: {string} = {}
+  local values: {Sqlite.Value} = {}
+  for i, name in ipairs(analyzer_roots) do
+    seeds[#seeds + 1] = "(?" .. i .. ")"
+    values[#values + 1] = { text = name }
+  end
+  local rows, trouble = Sqlite.text_rows(own,
+    "WITH RECURSIVE reached(path) AS (VALUES " .. table.concat(seeds, ", ") ..
+    " UNION SELECT i.requires FROM imports i JOIN reached r ON i.path = r.path) " ..
+    "SELECT path FROM reached WHERE path IN " ..
+    "(SELECT path FROM modules UNION SELECT path FROM decls) " ..
+    "AND path <> 'build.importer' ORDER BY path", values)
+  if rows == nil then return nil, trouble end
+  local names: {string} = { "build.importer" }
+  for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+  return names, ""
+end
 
 --- The bytecode header every target must agree on. One column of
 --- bytecode serves all three because they are all little-endian and
@@ -304,10 +326,15 @@ local analysis_tables: {string} = {
 --- source of every one of `importer.analyzer_modules` as the running
 --- binary carries it -- the code actually deriving, which in a stale
 --- tool rebuilding itself is older than the tree's. A binary that
---- carries no source for one of them can only be named whole.
+--- carries no source for one of them, or no record of what they import,
+--- can only be named whole.
 local function analyzer_identity(): string
   local parts: {string} = { Store.meta("compiler") or "" }
-  for _, name in ipairs(importer.analyzer_modules) do
+  local analyzer, _ = importer.analyzer_modules()
+  if analyzer == nil then
+    return "binary " .. (Store.meta("boot_hash") or "")
+  end
+  for _, name in ipairs(analyzer) do
     local source, _ = Store.source(name)
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or "")
@@ -1167,7 +1194,7 @@ function importer.compile(handle: work.Handle, built: compiler,
   if modules == nil then
     return nil, trouble
   end
-  local positioned, position_trouble = positions.check(modules)
+  local positioned, position_trouble = positions.check(modules, own_tree)
   if not positioned then
     return nil, position_trouble
   end

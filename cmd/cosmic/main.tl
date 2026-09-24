@@ -6,14 +6,19 @@
 --- and building a project are one path.
 
 local Cli = require("cosmic.cli")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local verdict = require("build.verdict")
+
+local log = verdict.log
 
 -- Require build modules lazily inside the verb that needs them, so `help`
--- remains fast and loads only `build.docs` and `build.reboot`.
+-- remains fast and loads only `build.docs`, `build.reboot` and
+-- `build.verdict`.
 
 local help_prefix = "cosmic -- a runtime for self-contained command-line software\n"
 
@@ -90,7 +95,12 @@ copied out as the bytes it was read from. Lining those up is a
 judgement about a whole line, which is the author's here, not the
 tool's.
 
-Every verb ends in a verdict line and an exit code.
+Every verb ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
+(...)` -- and an exit code: 0 when it passed; 1 when it failed; 2 when
+its command line was refused -- an option, an argument or a verb it
+does not know; 3 when the tool is older than the tree and did not
+rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file
+run exits with what its program returns.
 ]]
 
 local function say(line: string)
@@ -299,66 +309,120 @@ local function run(file: string, argv: {integer:string}): integer
   return 0
 end
 
+--- `cosmic help [verb]`: the whole discovery surface, and a verdict line.
+--- @param asked the verb `cosmic <verb> --help` asked about, or nil to
+---   read the words after `help` itself
+local function help(argv: {integer:string}, asked: string | nil): integer
+  local started = Time.monotonic_ns()
+  -- Same staleness guard `test` applies: cheap (a fingerprint
+  -- compare) when the tool is already fresh, so this keeps help
+  -- fast in the ordinary case, and only rebuilds when an edit to
+  -- build.docs itself would otherwise go unseen.
+  local code = require("build.reboot").stale_exit(argv)
+  if code ~= nil then
+    return code
+  end
+  local words: {string} = { asked }
+  if asked == nil then
+    local line = argv
+    if argv[2] == "--standalone" then
+      -- `standalone` is the verb spelled as an option (`cosmic
+      -- --standalone <file>`), and asked about by either spelling.
+      line = {}
+      for slot, word in pairs(argv) do line[slot] = word end
+      line[2] = "standalone"
+    end
+    local parsed, parse_trouble = Flags.parse(line, 2, {})
+    if parsed == nil then
+      complain("cosmic: help: " .. parse_trouble)
+      log:verdict("help", false, parse_trouble)
+      return 2
+    end
+    words = parsed.words
+  end
+  if #words > 1 then
+    complain("cosmic: help: one verb at a time, not " .. #words)
+    log:verdict("help", false, "one verb at a time")
+    return 2
+  end
+  if #words == 1 then
+    local known = false
+    for _, verb in ipairs(Cli.order) do
+      if verb == words[1] then known = true end
+    end
+    if not known then
+      complain("cosmic: help: no such verb: " .. words[1])
+      log:verdict("help", false, "no such verb: " .. words[1])
+      return 2
+    end
+  end
+  -- TODO: print only the asked verb's line for `cosmic help <verb>`, as
+  -- doc/design.md promises; until then a verb gets the whole surface.
+  say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
+  log:verdict("help", true, #Cli.order .. " verbs, " .. clock.elapsed_ms(started) .. " ms")
+  return 0
+end
+
+--- Each verb that ends in a verdict line, by the word that names it.
+local verbs: {string: function({integer:string}): integer} = {
+  help = function(argv: {integer:string}): integer
+    return help(argv, nil)
+  end,
+  test = function(argv: {integer:string}): integer
+    return require("build.test").run(argv)
+  end,
+  fix = function(argv: {integer:string}): integer
+    return require("build.fix").run(argv)
+  end,
+  db = function(argv: {integer:string}): integer
+    return require("build.databases").run(argv)
+  end,
+  build = function(argv: {integer:string}): integer
+    return require("build.embed").run(argv)
+  end,
+  docs = function(argv: {integer:string}): integer
+    return require("build.docs").run(argv)
+  end,
+  uses = function(argv: {integer:string}): integer
+    return require("build.docs").run_uses(argv)
+  end,
+  todos = function(argv: {integer:string}): integer
+    return require("build.todos").run(argv)
+  end,
+  -- Never stale-checked, unlike `db`: a staleness check stages the tree,
+  -- and this verb reads o/ and nothing else under it. It gives its own
+  -- verdict on every exit, a usage error included, so the check main
+  -- runs after a verdictless exit 2 never runs for it.
+  -- TODO: test that this dispatch neither stale-checks nor scans the
+  -- working directory -- run `cosmic sql` in a directory whose tree
+  -- would fail to stage -- beside build/verbs_test.tl, which already
+  -- spawns the built binary; build/sql_test.tl calls sql.run.
+  sql = function(argv: {integer:string}): integer
+    return require("build.sql").run(argv)
+  end,
+}
+
+--- What a verdict line a verb did not give itself says of its exit code.
+local function detail_of(code: integer): string
+  if code == 2 then
+    return "usage: see `cosmic help`"
+  elseif code == 3 then
+    return "the tool is stale"
+  end
+  return ""
+end
+
 --- @param argv the command line, with the program's own name at slot 0
 local function main(argv: {integer:string}): integer
-  local verb = argv[1]
-  if verb == nil or verb == "help" or verb == "-h" or verb == "--help" then
-    -- Same staleness guard `test` applies: cheap (a fingerprint
-    -- compare) when the tool is already fresh, so this keeps help
-    -- fast in the ordinary case, and only rebuilds when an edit to
-    -- build.docs itself would otherwise go unseen.
-    local reboot = require("build.reboot")
-    local root, root_trouble = Fs.absolute(".")
-    if root == nil then
-      complain("cosmic: " .. root_trouble)
-      return 1
-    end
-    local code, trouble = reboot.ensure(root, argv)
-    if code ~= nil then
-      if trouble ~= "" then
-        complain("cosmic: " .. trouble)
-      end
-      return code
-    end
-    say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
-    return 0
-  end
-  if verb == "test" and argv[2] == "--worker" then
+  local word = argv[1]
+  if word == "test" and argv[2] == "--worker" then
     -- One test in a process of its own, started by `cosmic test`: see
     -- build.test_worker. Never stale-checked or rebuilt, since the run
     -- that started it already was.
     local worker = require("build.test_worker")
     return worker.run(argv)
   end
-  if verb == "test" then
-    local test = require("build.test")
-    return test.run(argv)
-  end
-  if verb == "fix" then
-    local fix = require("build.fix")
-    return fix.run(argv)
-  end
-  if verb == "db" then
-    local databases = require("build.databases")
-    return databases.run(argv)
-  end
-  if verb == "build" then
-    local embed = require("build.embed")
-    return embed.run(argv)
-  end
-  if verb == "docs" then
-    local docs = require("build.docs")
-    return docs.run(argv)
-  end
-  if verb == "uses" then
-    local docs = require("build.docs")
-    return docs.run_uses(argv)
-  end
-  if verb == "todos" then
-    local todos = require("build.todos")
-    return todos.run(argv)
-  end
-  if verb == "--standalone" then
+  if word == "--standalone" then
     -- One file against this binary's own standard library: no tree is
     -- staged or built and no staleness is checked -- see
     -- build.standalone. What bin/zig and bin/vendor run, so a stale
@@ -366,10 +430,59 @@ local function main(argv: {integer:string}): integer
     local standalone = require("build.standalone")
     return standalone.run(argv)
   end
+  local verb = word
+  if word == nil or word == "-h" or word == "--help" then
+    verb = "help"
+  end
+  local chosen = verbs[verb]
+  if chosen ~= nil and verb ~= "help" and (argv[2] == "-h" or argv[2] == "--help") then
+    -- `cosmic <verb> --help` is `cosmic help <verb>`.
+    local asked = verb
+    verb = "help"
+    chosen = function(line: {integer:string}): integer
+      return help(line, asked)
+    end
+  end
+  if chosen ~= nil then
+    -- A verb gives its own verdict wherever it has one to give; an exit
+    -- it left without one -- its command line refused, a setup failure,
+    -- a stale tool -- still ends in one here.
+    local code = chosen(argv)
+    if code == 2 and not verdict.given then
+      -- A verb may read its command line before it checks the tool is
+      -- as new as the tree, and an option the tree added is one a stale
+      -- tool refuses: it rebuilds and runs the line again here instead.
+      -- TODO: hold the stale tool's usage complaint until this check has
+      -- run: a line the rebuilt tool refuses too is complained about
+      -- twice, once by each tool, and one it takes still shows the stale
+      -- tool's refusal above the rebuild. Each verb would check
+      -- staleness before reading its command line, or complain through
+      -- a logger that holds usage lines back until main flushes them.
+      local stale = require("build.reboot").stale_exit(argv)
+      if stale ~= nil then
+        code = stale
+      end
+    end
+    if not verdict.given then
+      log:verdict(verb, code == 0, detail_of(code))
+    end
+    return code
+  end
   if verb:sub(1, 1) == "-" then
+    -- TODO: take `-e <chunk>` here and run it, as doc/design.md's
+    -- command-line section promises; the PR on those promises adds it.
     complain("cosmic: no such option: " .. verb)
     complain("cosmic: `cosmic help` is the whole discovery surface")
     return 2
+  end
+  -- A word that could not be a file to run is a mistyped verb, told as
+  -- one rather than as a file that is not there.
+  if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
+    local exists, _ = Fs.exists(verb)
+    if not exists then
+      complain("cosmic: no such verb or file: " .. verb .. "; see `cosmic help`")
+      return 2
+    end
   end
   return run(verb, argv)
 end

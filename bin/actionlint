@@ -1,0 +1,28 @@
+#!/bin/sh
+# Fetch, verify and run the one pinned actionlint over the repository's
+# workflows: `bin/actionlint [args...]`. Run it before pushing a change
+# under .github/; CI's `actionlint` job runs it too.
+#
+# The pin is bin/actionlint.pin: a version line, then one line per host
+# naming the sha256 of that host's release tarball, as the release's own
+# actionlint_<version>_checksums.txt gives it. The binary is cached
+# outside the tree, under $XDG_CACHE_HOME/cosmic/actionlint (default
+# ~/.cache/cosmic/actionlint).
+#
+# The logic is build/actionlint.tl, run with `cosmic --standalone` on
+# the same cosmic bin/zig runs on: $COSMIC_BOOTSTRAP when set (it must
+# be an executable file), else the pinned release bin/cosmic-bootstrap
+# fetches.
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+script=$root/build/actionlint.tl
+
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    printf 'bin/actionlint: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
+    exit 1
+  fi
+  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
+fi
+exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"

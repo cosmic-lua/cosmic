@@ -24,6 +24,15 @@ local record Layout
   --- `store/db.tl` is `require("store.db")`, and `store/init.tl` is
   --- `require("store")`. No registration and no search path; tests,
   --- examples and cmd/<name>/main.tl require them the same way.
+  --- Where a file sits decides who may require it. A file at the root,
+  --- or in a top-level directory with no `init.tl` (`store/db.tl`
+  --- beside no `store/init.tl`), is public. Any other directory is
+  --- closed: from outside it only its own `init.tl` may be required
+  --- (`store/sql/init.tl` is `require("store.sql")`, while
+  --- `store/sql/query.tl` is for files inside `store/sql/` alone), a
+  --- top-level directory that has an `init.tl` is closed the same way,
+  --- and a nested directory with no `init.tl` cannot be reached from
+  --- outside at all. The build refuses a require that breaks this.
   --- `cosmic.*` is the standard library's, never a project's
   require: string
 end

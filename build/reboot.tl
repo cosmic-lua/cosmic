@@ -19,6 +19,7 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
+local log = require("build.verdict").log
 local type compiler = require("build.compiler")
 
 local record reboot
@@ -327,6 +328,23 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
   local built = teal.lazy()
   local reboot_trouble = reboot.into(handle, built, argv)
   return 3, reboot_trouble
+end
+
+--- The exit code a verb returns at once when the tool is older than the
+--- tree in the working directory -- after a rebuild that failed, or a
+--- refused boot, having said why -- or nil to go on. When the tool can
+--- rebuild itself it does, and runs `argv` again rather than returning.
+function reboot.stale_exit(argv: {integer:string}): integer | nil
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    log:complain(root_trouble)
+    return 1
+  end
+  local code, trouble = reboot.ensure(root, argv)
+  if code ~= nil and trouble ~= "" then
+    log:complain(trouble)
+  end
+  return code
 end
 
 return reboot

@@ -52,8 +52,8 @@
 local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -62,7 +62,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local sys = require("cosmic.sys")
-local coverage_report = require("build.coverage.report")
+local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
@@ -74,7 +74,7 @@ local observations = require("build.filesystem_observations")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record test
   --- What the last run recorded about one test: what it read, which
@@ -138,14 +138,6 @@ function test.matches(selector: string, path: string, file: string): boolean
   if selector == "." then return true end
   if selector == path or selector == file then return true end
   return Fs.within(file, selector)
-end
-
-local function selected(m: importer.Module, selectors: {string}): boolean
-  if #selectors == 0 then return true end
-  for _, selector in ipairs(selectors) do
-    if test.matches(selector, m.path, m.file) then return true end
-  end
-  return false
 end
 
 local function text(value: string): Sqlite.Value
@@ -635,7 +627,7 @@ local function sorted_lines(set: {integer: any}): {integer}
   return out
 end
 
---- Every line `build.coverage.report` found for every non-vendor module
+--- Every line `build.coverage` found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`: rows here
 --- are never replaced, only later pruned by `prune_history`, so a
 --- file's coverage trend over the kept window of runs is a plain
@@ -1060,44 +1052,47 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
   return cancelled
 end
 
--- TODO: read these with Flags.parse, refusing an unknown option: today
--- `cosmic test --bogus` takes "--bogus" as a selector and answers that no
--- test module matches it. Selectors are the other words, so test.run
--- would take them from the parse rather than from what is left of argv.
 --- The run's bounds: `--timeout SECONDS` and `--jobs N` from the
---- command line, which also drop out of it; the deadline's default
---- from `COSMIC_TEST_TIMEOUT`. Nil and why for a value that is not a
+--- command line's options; the deadline's default from
+--- `COSMIC_TEST_TIMEOUT`. Nil and why for a value that is not a
 --- positive whole number.
-local function limits_of(argv: {integer:string}): test.Limits | nil, string
+local function limits_of(values: {string:string}): test.Limits | nil, string
   local limits: test.Limits = {
     timeout_ms = default_timeout_s * 1000,
     jobs = Proc.cpu_count(),
   }
   local function positive(value: string, what: string): integer | nil, string
-    local number = value ~= nil and math.tointeger(tonumber(value)) or nil
+    local number = math.tointeger(tonumber(value))
     if number == nil or number < 1 then
-      return nil, what .. " must be a positive whole number, not " .. tostring(value)
+      return nil, what .. " must be a positive whole number, not " .. value
     end
     return number, ""
   end
+  -- A deadline is kept in milliseconds, so seconds past this would wrap.
+  local most_seconds = math.maxinteger // 1000
+  local function seconds_of(value: string, what: string): integer | nil, string
+    local seconds, trouble = positive(value, what)
+    if seconds == nil then return nil, trouble end
+    if seconds > most_seconds then
+      return nil, what .. " must be at most " .. most_seconds .. " seconds, not " .. value
+    end
+    return seconds, ""
+  end
   local from_env = Env.get(timeout_variable)
   if from_env ~= nil and from_env ~= "" then
-    local seconds, trouble = positive(from_env, timeout_variable)
+    local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
     limits.timeout_ms = seconds * 1000
   end
-  local slot = 2
-  while argv[slot] ~= nil do
-    local flag = argv[slot]
-    if flag == "--timeout" or flag == "--jobs" then
-      local number, trouble = positive(argv[slot + 1], flag)
-      if number == nil then return nil, trouble end
-      if flag == "--timeout" then limits.timeout_ms = number * 1000 else limits.jobs = number end
-      table.remove(argv, slot)
-      table.remove(argv, slot)
-    else
-      slot = slot + 1
-    end
+  if values["--timeout"] ~= nil then
+    local seconds, trouble = seconds_of(values["--timeout"], "--timeout")
+    if seconds == nil then return nil, trouble end
+    limits.timeout_ms = seconds * 1000
+  end
+  if values["--jobs"] ~= nil then
+    local jobs, trouble = positive(values["--jobs"], "--jobs")
+    if jobs == nil then return nil, trouble end
+    limits.jobs = jobs
   end
   return limits, ""
 end
@@ -1118,19 +1113,19 @@ function test.run(argv: {integer:string}): integer
     log:complain(root_trouble)
     return 1
   end
-  -- The re-entry after a rebuild gets the whole command line back, so the
-  -- flags are read from a copy.
-  local command: {integer:string} = {}
-  for slot, value in pairs(argv) do command[slot] = value end
-  local limits, limits_trouble = limits_of(command)
+  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--timeout"] = true, ["--jobs"] = true })
+  if parsed == nil then
+    log:complain("test: " .. parse_trouble)
+    return 2
+  end
+  local limits, limits_trouble = limits_of(parsed.values)
   if limits == nil then
-    log:complain(limits_trouble)
+    log:complain("test: " .. limits_trouble)
     return 2
   end
   local selectors: {string} = {}
-  local slot = 2
-  while command[slot] ~= nil do
-    local selector = normalized(command[slot])
+  for _, word in ipairs(parsed.words) do
+    local selector = normalized(word)
     local absolute, _ = Fs.absolute(selector)
     if absolute == root then
       selector = "."
@@ -1142,7 +1137,6 @@ function test.run(argv: {integer:string}): integer
       selector = rest
     end
     selectors[#selectors + 1] = selector
-    slot = slot + 1
   end
   local started = Time.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
@@ -1241,16 +1235,33 @@ function test.run(argv: {integer:string}): integer
     " files staged, " .. staged.read .. " read) in " ..
     clock.elapsed_ms(started) .. " ms")
 
+  -- Each selector must match a test module on its own: one mistyped
+  -- among good ones would otherwise narrow the run without a word.
   local selected_modules: {importer.Module} = {}
+  local matched: {string:boolean} = {}
   for _, m in ipairs(result.modules) do
-    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 and
-       selected(m, selectors) then
-      selected_modules[#selected_modules + 1] = m
+    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
+      local chosen = #selectors == 0
+      for _, selector in ipairs(selectors) do
+        if test.matches(selector, m.path, m.file) then
+          matched[selector] = true
+          chosen = true
+        end
+      end
+      if chosen then
+        selected_modules[#selected_modules + 1] = m
+      end
     end
   end
-  if #selectors > 0 and #selected_modules == 0 then
+  local unmatched: {string} = {}
+  for _, selector in ipairs(selectors) do
+    if not matched[selector] then
+      unmatched[#unmatched + 1] = selector
+    end
+  end
+  if #unmatched > 0 then
     local _, _ = work.close(handle)
-    log:complain("no test module matches: " .. table.concat(selectors, ", "))
+    log:complain("no test module matches: " .. table.concat(unmatched, ", "))
     return 1
   end
 
@@ -1387,10 +1398,10 @@ function test.run(argv: {integer:string}): integer
         "test_*` of a *_test.tl file, or a function of the `Example` " ..
         "record a *_example.tl file returns")
     end
-    log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
-      tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms")
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
+    log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
+      tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms")
     return 0
   end
   table.sort(failures)
@@ -1410,13 +1421,13 @@ function test.run(argv: {integer:string}): integer
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. records_path .. ": " .. line)
   end
-  log:verdict("test", false, #failures .. " of " ..
-    (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
-    clock.elapsed_ms(started) .. " ms")
   if #errors == 0 then
     log:say(cov_line)
     for _, function_line in ipairs(function_lines) do log:say(function_line) end
   end
+  log:verdict("test", false, #failures .. " of " ..
+    (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
+    clock.elapsed_ms(started) .. " ms")
   return 1
 end
 

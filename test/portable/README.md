@@ -4,7 +4,7 @@
 
 `tool.tl` provides subcommands for writing fixture artifacts, extracting
 manifest entries, corrupting core ranges, and related operations. Run it as
-`cosmic test/portable/tool.tl SUBCOMMAND ARGS...`. `artifact_fixture.tl` is
+`cosmic test/portable/tool.tl SUBCOMMAND ARGS...`. `init.tl` (`test.portable`) is
 the reusable v1 artifact reader and writer-input helper used by `tool.tl` and
 the `build/artifact.tl` fixtures.
 

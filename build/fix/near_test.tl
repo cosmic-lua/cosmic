@@ -4,32 +4,92 @@ local positions = require("build.positions")
 local teal = require("build.teal")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local fixture = require("build.docs_fixture")
 
-local known: {near.Known} = {
-  { kind = "function", module = "cosmic.proc", symbol = "find", source_symbol = "Proc.find",
-    signature = "function Proc.find(name: string): string",
-    text = "Where a program would run from, as `which` or `command -v` finds it." },
-  { kind = "function", module = "cosmic.fs", symbol = "mkdirs", source_symbol = "Fs.mkdirs",
-    signature = "function Fs.mkdirs(path: string): boolean", text = "Creates a directory and every missing directory above it, as\n`mkdir -p` does." },
-  { kind = "function", module = "cosmic.json", symbol = "decode", source_symbol = "Json.decode",
-    signature = "function Json.decode(text: string): any", text = "Any JSON value; see `decode_object` or `decode_array`." },
-  { kind = "function", module = "cosmic.stream", symbol = "close", source_symbol = "Stream.close",
-    signature = "function Stream.close(s: Stream)", text = "Ends the stream; the writer's `close` flushes first." },
-  { kind = "function", module = "cosmic.sys", symbol = "mkdir", source_symbol = "syscalls.mkdir",
-    signature = "mkdir: function(path: string, mode: integer): boolean", text = "mkdir(2)." },
-  { kind = "record", module = "cosmic.rand", symbol = "Source", source_symbol = "Source",
-    signature = "record Source", text = "" },
-  { kind = "function", module = "cosmic.fs", symbol = "close", source_symbol = "Fs.close",
-    signature = "function Fs.close(fd: integer)", text = "Closes a descriptor." },
-}
+--- Lines as one source file's text.
+local function joined(...: string): string
+  return table.concat({ ... }, "\n") .. "\n"
+end
+
+--- What `near.known` offers from the database the tree `files` builds
+--- to, as `build.docs_fixture` makes it with the build's own code, and
+--- each entry by the name it was written as, which must all be there.
+local function known_of(dir: string, files: {string: string},
+                        wanted: {string}): {near.Known}, {string: near.Known}
+  local found = assert(near.known({ fixture.database(dir, files) }))
+  local by_source: {string: near.Known} = {}
+  for _, entry in ipairs(found) do by_source[entry.source_symbol] = entry end
+  for _, name in ipairs(wanted) do
+    assert(by_source[name] ~= nil, name .. " is not among what the build offers")
+  end
+  return found, by_source
+end
+
+--- A few of the standard library's own functions, and a raw binding.
+local function standard(dir: string): {near.Known}
+  return (known_of(dir, {
+    ["cosmic/proc.tl"] = joined(
+      "local record Proc",
+      "end",
+      "",
+      "--- Where a program would run from, as `which` or `command -v` finds it.",
+      "function Proc.find(name: string): string",
+      "  return name",
+      "end",
+      "",
+      "return Proc"),
+    ["cosmic/fs.tl"] = joined(
+      "local record Fs",
+      "end",
+      "",
+      "--- Creates a directory and every missing directory above it, as",
+      "--- `mkdir -p` does.",
+      "function Fs.mkdirs(path: string): boolean",
+      "  return path ~= \"\"",
+      "end",
+      "",
+      "--- Closes a descriptor.",
+      "function Fs.close(fd: integer)",
+      "end",
+      "",
+      "return Fs"),
+    ["cosmic/json.tl"] = joined(
+      "local record Json",
+      "end",
+      "",
+      "--- Any JSON value; see `decode_object` or `decode_array`.",
+      "function Json.decode(text: string): any",
+      "  return text",
+      "end",
+      "",
+      "return Json"),
+    ["cosmic/stream.tl"] = joined(
+      "local record Stream",
+      "end",
+      "",
+      "--- Ends the stream; the writer's `close` flushes first.",
+      "function Stream.close(s: Stream)",
+      "end",
+      "",
+      "return Stream"),
+    ["cosmic/sys.d.tl"] = joined(
+      "local record syscalls",
+      "  --- mkdir(2).",
+      "  mkdir: function(path: string, mode: integer): boolean",
+      "end",
+      "",
+      "return syscalls"),
+  }, { "Proc.find", "Fs.mkdirs", "Fs.close", "Json.decode", "Stream.close",
+       "syscalls.mkdir" }))
+end
 
 --- A function named for what another module's function stands in for
 --- earns a note naming that function.
-local function test_a_name_another_module_stands_in_for_is_noted()
+local function test_a_name_another_module_stands_in_for_is_noted(dir: string)
   local notes = near.notes("tools.paths", {
     { source_symbol = "Paths.which", text = "Finds a program.", line = 7 },
     { source_symbol = "Paths.mkdir", text = "Makes a directory.", line = 9 },
-  }, known)
+  }, standard(dir))
   assert(#notes == 2, tostring(#notes))
   assert(notes[1]:find("^7: Paths.which: Proc.find %(cosmic.proc%) stands in for `which`"),
     notes[1])
@@ -41,7 +101,8 @@ end
 --- a command; a name another public symbol already carries means that
 --- symbol; and a function whose own documentation names the other knows
 --- of it already. None is noted.
-local function test_references_and_known_names_are_not_noted()
+local function test_references_and_known_names_are_not_noted(dir: string)
+  local known = standard(dir)
   assert(#near.notes("cosmic.json", {
     { source_symbol = "Json.decode_object", text = "An object.", line = 3 },
   }, known) == 0)
@@ -59,10 +120,18 @@ local function test_references_and_known_names_are_not_noted()
     { source_symbol = "Paths.which", text = "Finds the program on the PATH.", line = 3 },
   }, known) == 1)
   -- A name a public type carries is taken too.
-  local sourced: {near.Known} = { known[6], { kind = "function", module = "cosmic.rand",
-    symbol = "entropy", source_symbol = "Rand.entropy",
-    signature = "function Rand.entropy(count: integer): string",
-    text = "Bytes from the system, unlike a `Source`." } }
+  local sourced = known_of(dir, { ["cosmic/rand.tl"] = joined(
+    "local record Rand",
+    "  record Source",
+    "  end",
+    "end",
+    "",
+    "--- Bytes from the system, unlike a `Source`.",
+    "function Rand.entropy(count: integer): string",
+    "  return tostring(count)",
+    "end",
+    "",
+    "return Rand") }, { "Rand.Source", "Rand.entropy" })
   assert(#near.notes("cosmic.store", {
     { source_symbol = "Store.source", text = "A module's source.", line = 3 },
   }, sourced) == 0)
@@ -70,44 +139,69 @@ end
 
 --- Only a command or C call is taken as what a function stands in for:
 --- documentation backticks keywords, fields and examples as well.
-local function test_only_a_command_is_a_stand_in()
-  local keyworded: {near.Known} = { { kind = "function", module = "cosmic.json",
-    symbol = "decode", source_symbol = "Json.decode",
-    signature = "function Json.decode(text: string): any",
-    text = "Any value; narrow it with `is`, then `finish` the reader." } }
+local function test_only_a_command_is_a_stand_in(dir: string)
+  local keyworded = known_of(dir, { ["cosmic/json.tl"] = joined(
+    "local record Json",
+    "end",
+    "",
+    "--- Any value; narrow it with `is`, then `finish` the reader.",
+    "function Json.decode(text: string): any",
+    "  return text",
+    "end",
+    "",
+    "return Json") }, { "Json.decode" })
   assert(#near.notes("tools.m", {
     { source_symbol = "M.is", text = "Whether.", line = 1 },
     { source_symbol = "M.finish", text = "Ends.", line = 2 },
   }, keyworded) == 0)
   -- cosmic.removed names removed functions as examples, not stand-ins.
-  local removed: {near.Known} = { { kind = "function", module = "cosmic.removed",
-    symbol = "message", source_symbol = "module.message",
-    signature = "function module.message(name: string, field: string): string",
-    text = "What replaced a removed name, as for (`os`, `getenv`)." } }
+  local removed = known_of(dir, { ["cosmic/removed.tl"] = joined(
+    "local record module",
+    "end",
+    "",
+    "--- What replaced a removed name, as for (`os`, `getenv`).",
+    "function module.message(name: string, field: string): string",
+    "  return name .. field",
+    "end",
+    "",
+    "return module") }, { "module.message" })
   assert(#near.notes("tools.m", {
     { source_symbol = "M.getenv", text = "A variable.", line = 1 },
   }, removed) == 0)
 end
 
 --- A name another function backticks as its own parameter is not what
---- it stands in for.
-local function test_a_parameter_is_not_a_stand_in()
+--- it stands in for, even a command's name.
+local function test_a_parameter_is_not_a_stand_in(dir: string)
+  local list = known_of(dir, { ["cosmic/fs.tl"] = joined(
+    "local record Fs",
+    "end",
+    "",
+    "--- Every entry of a directory; `sort` orders them by name.",
+    "function Fs.list(path: string, sort?: boolean): {string}",
+    "  return {}",
+    "end",
+    "",
+    "return Fs") }, { "Fs.list" })
   assert(#near.notes("cosmic.stream", {
-    { source_symbol = "Stream.skip", text = "Skips bytes.", line = 3 },
-  }, { { kind = "function", module = "cosmic.fs", symbol = "walk", source_symbol = "Fs.walk",
-    signature = "function Fs.walk(root: string, skip?: function(string): boolean)",
-    text = "Every file under a root; `skip` may refuse a directory." } }) == 0)
+    { source_symbol = "Stream.sort", text = "Sorts lines.", line = 3 },
+  }, list) == 0)
 end
 
 --- Two doc comments in nearly the same words are noted; short ones
 --- are not compared, and a function is never compared with itself.
-local function test_nearly_the_same_words_are_noted()
-  local long: {near.Known} = {
-    { kind = "function", module = "cosmic.proc", symbol = "find", source_symbol = "Proc.find",
-      signature = "function Proc.find(name: string): string",
-      text = "Where the program name would run from, searched along the PATH " ..
-        "directories in order, first executable file wins." },
-  }
+local function test_nearly_the_same_words_are_noted(dir: string)
+  local long = known_of(dir, { ["cosmic/proc.tl"] = joined(
+    "local record Proc",
+    "end",
+    "",
+    "--- Where the program name would run from, searched along the PATH",
+    "--- directories in order, first executable file wins.",
+    "function Proc.find(name: string): string",
+    "  return name",
+    "end",
+    "",
+    "return Proc") }, { "Proc.find" })
   local notes = near.notes("cosmic.proc", {
     { source_symbol = "Proc.locate", line = 12,
       text = "Where the program name would run from: searched along PATH " ..
@@ -119,10 +213,19 @@ local function test_nearly_the_same_words_are_noted()
   assert(#notes == 1, tostring(#notes))
   assert(notes[1]:find("^12: Proc.locate: Proc.find %(cosmic.proc%) is documented in nearly"),
     notes[1])
+  local short = known_of(dir, { ["cosmic/proc.tl"] = joined(
+    "local record Proc",
+    "end",
+    "",
+    "--- Where it runs.",
+    "function Proc.find(name: string): string",
+    "  return name",
+    "end",
+    "",
+    "return Proc") }, { "Proc.find" })
   assert(#near.notes("tools.x", {
     { source_symbol = "X.find", text = "Where it runs.", line = 1 },
-  }, { { kind = "function", module = "cosmic.proc", symbol = "find", source_symbol = "Proc.find",
-    signature = "function Proc.find(name: string): string", text = "Where it runs." } }) == 0)
+  }, short) == 0)
 end
 
 --- The standard library as it stands earns no note against itself, so a

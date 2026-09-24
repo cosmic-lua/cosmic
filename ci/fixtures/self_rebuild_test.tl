@@ -101,6 +101,11 @@ local function apply_step8_edit(tree: string)
       "  assert(step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") == \"kept with spaces\")",
     })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
+  -- The spaced argument is a selector too, and `cosmic test` fails on a
+  -- selector that matches no test module, so it names one.
+  Fixture.mkdir(tree .. "/argument with spaces")
+  Fixture.write(tree .. "/argument with spaces/step8_test.tl",
+    "local function test_selected()\n  assert(true)\nend\n")
 end
 
 -- Marks `build/docs.tl`'s verdict with an extra line, distinguishable from
@@ -247,6 +252,15 @@ local function run_rebuild_case(root: string, fixture_dir: string,
       action .. ": core-change refusal touched the artifact")
     assert(cache_entries(cache) == entries_before,
       action .. ": core-change refusal changed the cache entry count")
+    -- An option the tree may have added is not refused by a stale tool
+    -- as a usage error: the staleness is found first.
+    local optioned = Fixture.call_with_environment("core-change-option-" .. action,
+      { program, "db", "--an-option-this-tool-lacks" }, tree, diagnostics,
+      refusal_values)
+    assert(optioned.result.code == 3,
+      action .. ": a stale tool refused an unknown option with exit status " ..
+      tostring(optioned.result.code) .. ", want 3")
+    Fixture.contains(optioned.err, "the tool is stale; run bin/zig build boot")
   end)
 end
 
@@ -418,7 +432,9 @@ end
 -- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
 -- release, the bootstrap cache's or one on PATH is -- refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets it in `build.reboot.ensure`, `test` in its own check.
+-- file. `docs` meets it in `build.reboot.ensure`, `test` in its own check,
+-- and `db` with an option it lacks in the check cmd/cosmic/main.tl makes
+-- before it calls a refused command line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
@@ -438,6 +454,8 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   for _, verb in ipairs({
     { "docs", "cosmic.child" },
     { "test", "build/embed_test.tl" },
+    -- An option the tree may have added is not refused as a usage error.
+    { "db", "--an-option-this-tool-lacks" },
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
