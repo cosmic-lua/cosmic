@@ -31,6 +31,16 @@ local function test_a_type_error_is_reported_with_its_place()
   assert(trouble:find("bad.tl:1:", 1, true) ~= nil, trouble)
 end
 
+--- A standalone file reaching for a removed library is told, for the
+--- field it used, what to write instead.
+local function test_a_removed_field_names_its_replacement()
+  local chunk, trouble = standalone.compile("old.tl",
+    'return function(): integer\n  io.stderr:write("x")\n  return 0\nend\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:3: unknown variable: io -- io.stderr is not available: " ..
+    "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
+end
+
 local function test_a_record_with_main_is_an_entry_point()
   local function main(): integer
     return 7

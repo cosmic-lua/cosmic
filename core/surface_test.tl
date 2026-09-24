@@ -2,6 +2,7 @@
 --- table, a traceback where `debug` used to be, and a name the surface
 --- removed saying what took its place.
 
+local Removed = require("cosmic.removed")
 local errors = require("cosmic.internal.errors")
 
 --- One line longer than a `luaL_Buffer` holds inline (1 KB on a 64-bit
@@ -28,15 +29,49 @@ local function test_trace_names_the_message_and_the_stack()
   assert(errors.trace():find("stack traceback:", 1, true) == 1)
 end
 
-local function test_a_removed_name_says_what_replaced_it()
-  local globals = _G as {string: any}
-  for name, replacement in pairs({ io = "cosmic.fs", os = "cosmic.time",
-                                   debug = "cosmic.errors.trace",
-                                   dofile = "require",
-                                   loadfile = "require" }) do
-    local ok, message = pcall(function(): any return globals[name] end)
-    assert(not ok, name .. " must not be reachable")
-    assert(tostring(message):find(replacement, 1, true) ~= nil,
+--- The error a chunk of plain Lua raises, compiled past the checker by
+--- `load` the way any Lua a program is handed would be.
+local function raised(code: string): string
+  local chunk = assert(load(code, "=plain.lua", "t"))
+  local ok, trouble = pcall(chunk)
+  assert(not ok, "expected " .. code .. " to raise")
+  return tostring(trouble)
+end
+
+--- A removed library's field says what replaced that very field, at the
+--- line that reached for it, in the words a refused compile uses too
+--- (`cosmic.removed`'s `message`).
+local function test_a_removed_field_says_what_replaced_it()
+  local trouble = raised('return os.getenv("HOME")')
+  assert(trouble == "plain.lua:1: " .. Removed.message("os", "getenv"), trouble)
+  assert(trouble:find('use Env.get(name) (local Env = require("cosmic.env"))', 1, true) ~= nil,
+    trouble)
+  trouble = raised('io.stderr:write("x")')
+  assert(trouble:find("Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
+  trouble = raised("return debug.traceback()")
+  assert(trouble:find("Errors.trace(message, level)", 1, true) ~= nil, trouble)
+  trouble = raised("return os.frobnicate")
+  assert(trouble:find("os.frobnicate is not available: time is cosmic.time", 1, true) ~= nil,
+    trouble)
+end
+
+local function test_writing_or_calling_a_removed_library_says_what_replaced_it()
+  local trouble = raised("os.exit = nil")
+  assert(trouble:find("os.exit is not available: use Proc.exit(status)", 1, true) ~= nil,
+    trouble)
+  trouble = raised("io()")
+  assert(trouble == "plain.lua:1: " .. Removed.message("io"), trouble)
+  trouble = raised("return io[1]")
+  assert(trouble == "plain.lua:1: " .. Removed.message("io"), trouble)
+end
+
+--- A removed function raises the moment it is read; nothing is left to
+--- call it with.
+local function test_a_removed_function_says_what_replaced_it()
+  for name, replacement in pairs({ dofile = "require", loadfile = "require" }) do
+    local trouble = raised("return " .. name)
+    assert(trouble == "plain.lua:1: " .. Removed.message(name), trouble)
+    assert(trouble:find(replacement, 1, true) ~= nil,
       name .. "'s refusal must name " .. replacement)
   end
 end

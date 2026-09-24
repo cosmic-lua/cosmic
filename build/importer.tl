@@ -867,14 +867,21 @@ local function with_hint(msg: string, databases: {Sqlite.Handle},
     with_docs_hint(with_unused_hint(msg), databases, public), databases, public)
 end
 
-local function complain(file: string, result: compiler.Result,
+--- `file`'s own complaints, one line each. A removed name's replacement
+--- (`teal.replacement`) comes straight after the checker's own words,
+--- ahead of any pointer at the docs: it is the answer, they are more.
+local function complain(file: string, source: string, result: compiler.Result,
                         databases: {Sqlite.Handle}, public: {boolean}): string
   local lines: {string} = {}
   for _, group in ipairs({ result.syntax_errors, result.type_errors, result.warnings }) do
     for _, e in ipairs(group or {}) do
       local where = e.filename ~= "" and e.filename or file
-      lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " ..
-        with_hint(e.msg, databases, public)
+      local said = with_hint(e.msg, databases, public)
+      local instead = where == file and teal.replacement(e.msg, source, e.y, e.x) or nil
+      if instead ~= nil then
+        said = e.msg .. " -- " .. instead .. said:sub(#e.msg + 1)
+      end
+      lines[#lines + 1] = where .. ":" .. e.y .. ":" .. e.x .. ": " .. said
     end
   end
   return table.concat(lines, "\n")
@@ -1010,7 +1017,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   if m.generated and result ~= nil then
     result = discount_doctest_shadow_warnings(result)
   end
-  local complaint = result ~= nil and complain(m.file, result, databases, public) or ""
+  local complaint = result ~= nil and complain(m.file, m.source, result, databases, public) or ""
   if code == nil or complaint ~= "" then
     return nil, m.file .. ": the compiler refused it\n" .. complaint
   end
