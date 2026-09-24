@@ -4,9 +4,10 @@
 //!     bin/zig build cores     the core for all three targets
 //!     bin/zig build boot      the host core, then the boot bridge
 //!
-//! Everything lands under `o/`, which is the only thing to delete. Run it
-//! through `bin/zig`, which pins the compiler and points both zig caches
-//! at `o/` as well.
+//! Everything lands under `o/`. Run it through `bin/zig`, which pins the
+//! compiler and names zig's two caches, which every checkout shares
+//! (build/zig.tl): everything vendored compiles from copies in the
+//! project cache, so a fresh worktree compiles only the core's own C.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -428,6 +429,24 @@ const core_sources = [_][]const u8{
 };
 
 pub fn build(b: *std.Build) void {
+    // Everything the vendored libraries are compiled from sits in the zig
+    // cache, where its path is the same from every checkout of the tree:
+    // zig keys a C object by its source's path and its flags' bytes, and a
+    // path into the tree is an absolute one. The patched trees are the
+    // applier's output, so the applier itself compiles from a copy of its
+    // source (a binary carries its source's path, and a step running it is
+    // keyed by its bytes), and the configuration headers the libraries read
+    // from core/ are copied beside it. A checkout sharing another's zig
+    // cache then compiles none of vendor/ again.
+    const copies = b.addWriteFiles();
+    const applier_source = copies.addCopyFile(b.path("core/patch.c"), "patch/patch.c");
+    _ = copies.addCopyFile(b.path("core/ares_config.h"), "include/ares_config.h");
+    _ = copies.addCopyFile(b.path("core/curl_config.h"), "include/curl_config.h");
+    _ = copies.addCopyFile(b.path("core/mbedtls_cosmic_config.h"), "include/mbedtls_cosmic_config.h");
+    _ = copies.addCopyFile(b.path("core/xz_config/config.h"), "xz_config/config.h");
+    _ = copies.addCopyDirectory(b.path("core/darwin-compat"), "darwin-compat", .{});
+    const vendor_config = copies.getDirectory();
+
     // The applier is a host tool, built before anything it feeds.
     const applier = b.addExecutable(.{
         .name = "patch",
@@ -438,7 +457,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     applier.root_module.addCSourceFile(.{
-        .file = b.path("core/patch.c"),
+        .file = applier_source,
         .flags = &own_c,
     });
 
@@ -632,7 +651,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson };
+    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .config = vendor_config };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -808,9 +827,12 @@ fn patched(
     const vendor = b.fmt("vendor/{s}", .{name});
     const patch_dir = b.fmt("patch/{s}", .{name});
 
+    // The tree is named by its PIN file (see core/patch.c): a file argument
+    // is hashed by its path under the build root, a directory argument by
+    // its absolute path, which would give each checkout its own patched
+    // copy and so its own compile of every vendored file.
     const run = b.addRunArtifact(applier);
-    run.addDirectoryArg(b.path(vendor));
-    run.addDirectoryArg(b.path(patch_dir));
+    run.addFileArg(b.path(b.fmt("{s}/PIN", .{vendor})));
 
     // A directory argument names a place, not its contents. Every file
     // under both trees is added as an input in its own right, so editing
@@ -905,6 +927,9 @@ const Sources = struct {
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
+    /// The configuration headers the libraries read from core/, copied
+    /// into the zig cache (see the head of `build`).
+    config: std.Build.LazyPath,
 };
 
 /// A core that observes its own C: linked first with an empty block table
@@ -957,9 +982,9 @@ fn vendorLibrary(
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
     vendorIncludes(b, mod, target_record, sources);
-    // Last, as in the core's own module: mbedtls and curl read their
-    // configuration (`mbedtls_config`) from core/.
-    mod.addIncludePath(b.path("core"));
+    // Last, as core/ is in the core's own module: c-ares, curl and mbedtls
+    // read their configuration headers from there.
+    mod.addIncludePath(sources.config.path(b, "include"));
     const lua = sources.lua;
     const sqlite = sources.sqlite;
     const miniz = sources.miniz;
@@ -1273,7 +1298,7 @@ fn vendorIncludes(
     mod.addIncludePath(sources.bzip2);
     // xz's own config.h stands in for autoconf's; see `vendorLibrary`.
     const xz_src = sources.xz.path(b, "src");
-    mod.addIncludePath(b.path("core/xz_config"));
+    mod.addIncludePath(sources.config.path(b, "xz_config"));
     mod.addIncludePath(sources.xz.path(b, "src/common"));
     mod.addIncludePath(xz_src.path(b, "liblzma/api"));
     mod.addIncludePath(xz_src.path(b, "liblzma/common"));
@@ -1293,7 +1318,7 @@ fn vendorIncludes(
     mod.addIncludePath(sources.cares.path(b, "src/lib"));
     mod.addIncludePath(sources.cares.path(b, "src/lib/include"));
     if (target_record.query.os_tag == .macos) {
-        mod.addIncludePath(b.path("core/darwin-compat"));
+        mod.addIncludePath(sources.config.path(b, "darwin-compat"));
     }
     mod.addIncludePath(sources.curl.path(b, "lib"));
     mod.addIncludePath(sources.curl.path(b, "include"));

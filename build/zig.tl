@@ -29,17 +29,20 @@
 --- removed on every path out, and one a dead process left behind is
 --- removed by the next install.
 ---
---- `build` gets cache-directory and prefix flags under the repository's
---- `o/` (the root is found from this script's own path), and a
---- global-cache-directory flag naming zig's global cache: what it builds
---- of its own -- libc, compiler-rt, the standard library -- keyed by
---- content and not by where a checkout sits, so every worktree and
---- session shares one. It is `COSMIC_ZIG_GLOBAL_CACHE` when set, else
---- `zig-global` beside the installed zig, else (no cache directory at
---- all) `o/zig-global`. The project's own cache stays in `o/`: zig keys
---- a C object by its source's absolute path, so another checkout would
---- never hit it. Every other subcommand passes through unchanged. zig
---- runs in the caller's own working directory.
+--- `build` gets a prefix flag naming the repository's `o/` (the root is
+--- found from this script's own path) and flags naming zig's two caches.
+--- The global cache holds what zig builds of its own -- libc,
+--- compiler-rt, the standard library; the project cache holds what this
+--- build compiles. Both are keyed by content, and every checkout shares
+--- them: `COSMIC_ZIG_GLOBAL_CACHE` and `COSMIC_ZIG_CACHE` when set, else
+--- `zig-global` and `zig-project` in this user's cosmic cache directory,
+--- else (no cache directory at all) `o/zig-global` and `o/zig-cache`.
+--- zig keys a C object by its source's path, and a file in a checkout
+--- has an absolute path of its own; build.zig compiles everything under
+--- vendor/ from copies in the project cache, so a fresh worktree compiles
+--- none of it again, only the core's own C. Every other subcommand
+--- passes through unchanged. zig runs in the caller's own working
+--- directory.
 ---
 --- Every other subcommand replaces this process with zig. `build` runs
 --- zig as a child instead, between two snapshots of what the build
@@ -150,17 +153,17 @@ function Zig.build_jobs(cpus: integer): integer
 end
 
 --- `argv` as zig gets it: `build` gains its flags ahead of the caller's
---- own arguments, keeping zig's project cache and install prefix under
---- `root/o` and its global cache at `shared`, and running `build_jobs`
+--- own arguments, installing under `root/o`, with zig's project cache at
+--- `project` and its global cache at `shared`, and running `build_jobs`
 --- steps at once for `cpus` processors unless the caller passes `-j`;
 --- anything else passes through unchanged.
-function Zig.build_args(root: string, shared: string, argv: {string},
-    cpus: integer): {string}
+function Zig.build_args(root: string, project: string, shared: string,
+    argv: {string}, cpus: integer): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
-      "--cache-dir", root .. "/o/zig-cache",
+      "--cache-dir", project,
       "--global-cache-dir", shared,
       "--prefix", root .. "/o",
     }
@@ -334,6 +337,26 @@ function Zig.global_cache(root: string, environment?: {string:string}): string
     return cache
   end
   return root .. "/o/zig-global"
+end
+
+--- Where zig keeps this build's own cache: `COSMIC_ZIG_CACHE` when set,
+--- else `zig-project` in this user's cosmic cache directory, shared by
+--- every checkout, else `root/o/zig-cache`.
+function Zig.project_cache(root: string, environment?: {string:string}): string
+  local given: string
+  if environment ~= nil then
+    given = environment.COSMIC_ZIG_CACHE
+  else
+    given = Env.get("COSMIC_ZIG_CACHE")
+  end
+  if given ~= nil and given ~= "" then
+    return given
+  end
+  local cache = Fs.cache_dir("zig-project", environment)
+  if cache ~= nil then
+    return cache
+  end
+  return root .. "/o/zig-cache"
 end
 
 --- The exit status a failed exec means, as a shell reports it.
@@ -564,7 +587,8 @@ function Zig.main(argv: {integer:string}): integer
     at = at + 1
   end
   local exec_argv: {string} = { zig }
-  for _, a in ipairs(Zig.build_args(root, Zig.global_cache(root), given,
+  for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
+      Zig.global_cache(root), given,
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
   end

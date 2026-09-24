@@ -56,10 +56,10 @@ local function test_host_agrees_with_the_running_host()
 end
 
 local function test_build_args_adds_cache_flags_only_for_build()
-  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "-Doptimize=ReleaseFast" }, 4)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "build", "-Doptimize=ReleaseFast" }, 4)
   assert(#got == 9)
   assert(got[1] == "build")
-  assert(got[2] == "--cache-dir" and got[3] == "/repo/o/zig-cache")
+  assert(got[2] == "--cache-dir" and got[3] == "/cache/zig-project")
   assert(got[4] == "--global-cache-dir" and got[5] == "/cache/zig-global")
   assert(got[6] == "--prefix" and got[7] == "/repo/o")
   assert(got[8] == "-j8")
@@ -71,18 +71,18 @@ local function test_build_args_run_steps_past_the_processor_count()
   assert(Zig.build_jobs(1) == 8)
   assert(Zig.build_jobs(4) == 8)
   assert(Zig.build_jobs(16) == 32)
-  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "boot" }, 16)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "build", "boot" }, 16)
   assert(got[8] == "-j32" and got[9] == "boot")
 end
 
 local function test_build_args_keep_the_callers_jobs()
-  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "-j2", "boot" }, 16)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "build", "-j2", "boot" }, 16)
   assert(#got == 9)
   assert(got[8] == "-j2" and got[9] == "boot")
 end
 
 local function test_build_args_passes_other_subcommands_through()
-  local got = Zig.build_args("/repo", "/cache/zig-global", { "version" }, 4)
+  local got = Zig.build_args("/repo", "/cache/zig-project", "/cache/zig-global", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")
 end
 
@@ -93,6 +93,15 @@ local function test_global_cache_is_named_then_shared_then_local(tmp: string)
     XDG_CACHE_HOME = tmp }) == "/ci/zig-global")
   assert(Zig.global_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-global")
   assert(Zig.global_cache("/repo", {}) == "/repo/o/zig-global")
+end
+
+-- The project cache is shared as the global one is: a fresh worktree then
+-- compiles nothing under vendor/ that another checkout already has.
+local function test_project_cache_is_named_then_shared_then_local(tmp: string)
+  assert(Zig.project_cache("/repo", { COSMIC_ZIG_CACHE = "/ci/zig-cache",
+    XDG_CACHE_HOME = tmp }) == "/ci/zig-cache")
+  assert(Zig.project_cache("/repo", { XDG_CACHE_HOME = tmp }) == tmp .. "/cosmic/zig-project")
+  assert(Zig.project_cache("/repo", {}) == "/repo/o/zig-cache")
 end
 
 local function test_repo_root_from_the_scripts_own_path(tmp: string)
