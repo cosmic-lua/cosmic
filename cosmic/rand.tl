@@ -117,7 +117,8 @@ function Rand.new(seed: integer): Rand.Source
   return source
 end
 
---- `count` bytes from the operating system's entropy source, fit for a
+--- `count` bytes from the operating system's entropy source (`getrandom`,
+--- `/dev/urandom`), fit for a
 --- key, token or nonce: unlike a `Source`, never the same twice and never
 --- replayable. Raises when `count` is negative or past 1 MiB.
 --- @param count integer How many bytes

@@ -182,14 +182,14 @@ local function copy_body(response: Http.Response, fd: integer, hasher: Hash.Hash
   end
 end
 
---- Downloads `url` to `path`, streaming to a fresh temporary file
---- beside it -- created exclusively, so two downloads never share one
---- and a planted symlink is never followed -- and renaming into place
---- only once the transfer is complete, synced to disk and, when
---- `opts.sha256` is given, verified -- a reader never sees a partial
---- file at the final name. Fails on a non-2xx status (a redirect
---- `opts.follow` already took does not count) or a checksum mismatch,
---- and removes the temporary file on every failure.
+--- Downloads `url` to `path`, as `curl -o` or `wget -O` would, streaming
+--- to a fresh temporary file beside it -- created exclusively, so two
+--- downloads never share one and a planted symlink is never followed --
+--- and renaming into place only once the transfer is complete, synced to
+--- disk and, when `opts.sha256` is given, verified -- a reader never sees
+--- a partial file at the final name. Fails on a non-2xx status (a
+--- redirect `opts.follow` already took does not count) or a checksum
+--- mismatch, and removes the temporary file on every failure.
 function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
   local want = opts ~= nil and opts.sha256 or ""
   local hasher: Hash.Hasher = nil

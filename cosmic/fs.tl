@@ -143,7 +143,8 @@ function Fs.is_dir(path: string): boolean | nil, string
   return nil, path .. ": " .. trouble
 end
 
---- Creates a directory and every missing directory above it.
+--- Creates a directory and every missing directory above it, as
+--- `mkdir -p` does.
 function Fs.mkdirs(path: string): boolean, string
   path = path:gsub("(.)/+$", "%1")
   if path == "" or path == "/" then
@@ -180,8 +181,8 @@ function Fs.mkdirs(path: string): boolean, string
 end
 
 --- A fresh, empty directory under the system temp directory, named with
---- `prefix` and a random suffix. `TMPDIR` picks the temp directory when
---- it is set, and `/tmp` otherwise.
+--- `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the temp
+--- directory when it is set, and `/tmp` otherwise.
 function Fs.mkdtemp(prefix: string): string | nil, string
   local base = Env.get_or("TMPDIR", "/tmp")
   local template = base .. "/" .. prefix .. "XXXXXX"
@@ -262,8 +263,8 @@ function Fs.cache_dir(tool: string, environment?: {string:string}): string | nil
   return dir .. "/" .. tool, ""
 end
 
---- Removes a name: the path operation corresponding to os.remove. A name that
---- is already gone is not a failure.
+--- Removes a name: the path operation corresponding to os.remove, or
+--- `unlink`. A name that is already gone is not a failure.
 function Fs.remove(path: string): boolean, string
   local gone, trouble, number = sys.unlink(path)
   if gone or number == sys.ENOENT or number == sys.ENOTDIR then
@@ -314,7 +315,8 @@ local function sorted_names(entries: {string:string}): {string}
   return names
 end
 
---- The entries of a directory, sorted, without `.` and `..`.
+--- The entries of a directory, sorted, without `.` and `..`: `ls -a`, or
+--- `readdir`.
 function Fs.list(path: string): {string} | nil, string
   local entries, trouble = sys.readdir(path)
   if entries == nil then
@@ -323,7 +325,8 @@ function Fs.list(path: string): {string} | nil, string
   return sorted_names(entries), ""
 end
 
---- Every file under a root, sorted, as paths relative to that root.
+--- Every file under a root, sorted, as paths relative to that root, as
+--- `find root -type f` lists them.
 --- `skip` is asked about each entry's relative path, and its bare name
 --- second, and may refuse a whole directory. The listing says what
 --- each entry is, so nothing here is stat'd.
@@ -354,7 +357,7 @@ function Fs.walk(root: string,
   return found, ""
 end
 
---- A path with no link and no `..` left in it.
+--- A path with no link and no `..` left in it: `realpath`.
 function Fs.absolute(path: string): string | nil, string
   local resolved, trouble = sys.realpath(path)
   if resolved == nil then
@@ -364,7 +367,7 @@ function Fs.absolute(path: string): string | nil, string
 end
 
 --- Moves a name, replacing the destination if it is there; this corresponds
---- to os.rename.
+--- to os.rename, or `mv` within one file system.
 function Fs.rename(from: string, to: string): boolean, string
   local moved, trouble = sys.rename(from, to)
   if not moved then
@@ -423,7 +426,7 @@ function Fs.put(fd: integer, data: string): boolean, string
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is
---- stored verbatim and never resolved.
+--- stored verbatim and never resolved: `ln -s target path`.
 function Fs.symlink(target: string, path: string): boolean, string
   local made, trouble = sys.symlink(target, path)
   if not made then
@@ -442,7 +445,7 @@ function Fs.readlink(path: string): string | nil, string
 end
 
 --- Sets a path's access and modification times, in whole seconds since
---- the epoch. Changes the link itself, not its target.
+--- the epoch, as `touch -d` does. Changes the link itself, not its target.
 function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean, string
   local set, trouble = sys.utimens(path, atime_s, mtime_s)
   if not set then
@@ -509,15 +512,16 @@ local function copy_bytes(from: string, to: string): boolean, string
   return true, ""
 end
 
---- Copies the tree at `from` to `to`: each regular file's bytes, each
---- directory, and each symbolic link as a link to the same target, never
---- followed. Every permission bit is kept, the umask not applied, except
---- setuid and setgid: the copy belongs to whoever makes it, so they are
---- dropped. Each modification time is kept to the second. `to` must not
---- exist yet; each listing is read before its copy is made, so a tree
---- copied into itself is not copied again. Anything else in the tree (a
---- device, a socket, a named pipe) stops the copy with its path, and a
---- copy that stops leaves what it made so far in place.
+--- Copies the tree at `from` to `to`, as `cp -R` does: each regular
+--- file's bytes, each directory, and each symbolic link as a link to the
+--- same target, never followed. Every permission bit is kept, the umask
+--- not applied, except setuid and setgid: the copy belongs to whoever
+--- makes it, so they are dropped. Each modification time is kept to the
+--- second. `to` must not exist yet; each listing is read before its copy
+--- is made, so a tree copied into itself is not copied again. Anything
+--- else in the tree (a device, a socket, a named pipe) stops the copy
+--- with its path, and a copy that stops leaves what it made so far in
+--- place.
 -- TODO: keep what `cp -a` also keeps -- nanosecond times (once
 -- sys.utimens takes them), the access time, hard links as links (Stat has
 -- ino, dev and nlink), and the owner when run as root (once cosmic.sys

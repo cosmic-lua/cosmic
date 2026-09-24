@@ -30,7 +30,8 @@ function Time.monotonic_ns(): integer
   return reading
 end
 
---- Sleeps, resuming the wait when a signal interrupts it.
+--- Sleeps, as `sleep` or `nanosleep` does, resuming the wait when a
+--- signal interrupts it.
 function Time.sleep_ns(nanoseconds: integer): boolean, string
   local ok, trouble = sys.nanosleep(nanoseconds)
   if not ok then

@@ -28,7 +28,7 @@ function Proc.exit(status: integer)
   sys.exit(status) -- exits: a process boundary has no caller to return to
 end
 
---- The process's own identifier.
+--- The process's own identifier: `getpid`, or the shell's `$$`.
 function Proc.pid(): integer
   return sys.getpid()
 end
@@ -43,8 +43,9 @@ function Proc.executable(): string | nil, string
   return path, ""
 end
 
---- How many processors are online, at least one: the natural bound on
---- how many children to run at once for CPU-bound work.
+--- How many processors are online, at least one, as `nproc` counts them:
+--- the natural bound on how many children to run at once for CPU-bound
+--- work.
 function Proc.cpu_count(): integer
   return sys.cpu_count()
 end
@@ -79,7 +80,8 @@ end
 --- The search list `find` uses when PATH is unset, as execvp does.
 local DEFAULT_PATH <const> = "/bin:/usr/bin"
 
---- Where the program `name` would run from, found as a shell finds it:
+--- Where the program `name` would run from, found as a shell (or `which`,
+--- or `command -v`) finds it:
 --- `name` itself when it holds a slash, else the first executable file
 --- of that name in `path` -- a colon-separated list, PATH's value by
 --- default -- where an empty entry is the working directory. A relative
@@ -115,7 +117,7 @@ function Proc.find(name: string, path?: string): string | nil, string
   return nil, name .. ": not found"
 end
 
---- Whether a stream is a terminal.
+--- Whether a stream is a terminal: `isatty`, or the shell's `test -t`.
 function Proc.is_tty(fd: integer): boolean
   return sys.isatty(fd)
 end

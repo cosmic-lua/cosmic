@@ -251,24 +251,100 @@ local function declared_in(db: Sqlite.Handle, public: boolean, module: string): 
   return entries_of(rows)
 end
 
+--- A GLOB matching documentation that spells `word` as code: in
+--- backticks, alone or leading a command line ("which", "mkdir -p").
+--- Documentation that does is saying what it stands in for, so it
+--- outranks documentation that only uses the word.
+local function spelled_as_code(word: string): string
+  return "*`" .. word .. "[` ]*"
+end
+
+--- The first word of `query` a search keeps (see `fts_query`), or "".
+local function lead_word(query: string): string
+  for word in query:gmatch("[%w_]+") do
+    if #word > 1 then
+      return word
+    end
+  end
+  return ""
+end
+
 --- `query`'s words as an FTS5 query every one of them must match, each
---- quoted so it reads as a literal rather than as FTS5 syntax.
+--- quoted so it reads as a literal rather than as FTS5 syntax. A word of
+--- one letter is left out: it is almost always a flag ("cp -r", "rm -f")
+--- that no documentation spells alone, and requiring it would find
+--- nothing.
 local function fts_query(query: string): string
   local words: {string} = {}
   for word in query:gmatch("[%w_]+") do
-    words[#words + 1] = '"' .. word .. '"'
+    if #word > 1 then
+      words[#words + 1] = '"' .. word .. '"'
+    end
   end
   return table.concat(words, " ")
 end
 
+--- The functions outside `cosmic.sys` whose documentation spells
+--- `name` as code: what a reader who looked up a raw binding
+--- ("unlink", "getpid") most likely wanted instead.
+local function stand_ins(db: Sqlite.Handle, public: boolean,
+                         name: string): {docs.Entry} | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.module <> 'cosmic.sys' " ..
+    "AND d.kind IN ('function', 'method') AND d.text GLOB ?1 AND " ..
+    symbols.public_only("d.module", public) .. " ORDER BY d.module, d.id LIMIT 20",
+    { text(spelled_as_code(name)) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
+--- For a qualified name that names nothing (`Proc.which`), what its
+--- qualifier offers: the members whose documentation carries the last
+--- name's words, best match first, or, when none does, every exported
+--- function it declares. A reader who guessed the module right but the
+--- name wrong sees the name they wanted among its neighbours, rather
+--- than whatever elsewhere happens to use the word.
+local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
+                      name: string): {docs.Entry} | nil, string
+  local member = qualifier .. "[.:]*"
+  local fts = fts_query(name)
+  if fts ~= "" then
+    local rows, trouble = Sqlite.text_rows(db,
+      "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+      "WHERE docs_fts MATCH ?1 AND d.symbol GLOB ?2 AND " ..
+      symbols.public_only("d.module", public) ..
+      " ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
+      { text(fts), text(member) })
+    if rows == nil then
+      return nil, trouble
+    end
+    if #rows > 0 then
+      return entries_of(rows)
+    end
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT " .. columns .. " FROM docs d WHERE d.symbol GLOB ?1 " ..
+    "AND d.kind IN ('function', 'method') AND d.exported = 1 AND " ..
+    symbols.public_only("d.module", public) .. " ORDER BY d.module, d.id",
+    { text(member) })
+  if rows == nil then
+    return nil, trouble
+  end
+  return entries_of(rows)
+end
+
 --- The rows whose symbol, signature or documentation carries every
---- word of `query`, best match first.
-local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string): {docs.Entry} | nil, string
+--- word of `query`, best match first: those that spell its first word
+--- as code, then by relevance.
+local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string,
+                             lead: string): {docs.Entry} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
     "WHERE docs_fts MATCH ?1 AND " .. symbols.public_only("d.module", public) ..
-    " ORDER BY bm25(docs_fts), d.module, d.id LIMIT 20",
-    { text(fts) })
+    " ORDER BY d.text GLOB ?2 DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
+    { text(fts), text(spelled_as_code(lead)) })
   if rows == nil then
     return nil, trouble
   end
@@ -319,7 +395,7 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
   if fts == "" then
     return {}
   end
-  local from_docs, docs_trouble = searched_docs(db, public, fts)
+  local from_docs, docs_trouble = searched_docs(db, public, fts, lead_word(query))
   if from_docs == nil then
     return nil, docs_trouble
   end
@@ -522,8 +598,9 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
 end
 
 --- What `query` names, across `databases`: its exact matches when it
---- names a symbol or a module, otherwise the documentation that
---- carries all its words.
+--- names a symbol or a module; for a qualified name that names nothing,
+--- what its qualifier offers (see `scoped`); otherwise the
+--- documentation that carries all its words.
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   local exact, exact_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -533,6 +610,26 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     return nil, exact_trouble
   end
   if #exact > 0 then
+    -- A raw binding's name is also what its wrapper stands in for:
+    -- "unlink" answers with sys.unlink and then Fs.remove.
+    local raw = query:match("^[%w_]+$") ~= nil
+    for _, entry in ipairs(exact) do
+      if entry.module ~= "cosmic.sys" then
+        raw = false
+      end
+    end
+    if raw then
+      local wrapping, wrapping_trouble = across(view,
+        function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+          return stand_ins(db, public, query)
+        end, entry_module)
+      if wrapping == nil then
+        return nil, wrapping_trouble
+      end
+      for _, entry in ipairs(wrapping) do
+        exact[#exact + 1] = entry
+      end
+    end
     local counted, count_trouble = effective_counts(view, exact)
     if not counted then
       return nil, count_trouble
@@ -541,12 +638,27 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     answer.exact = true
     return answer, ""
   end
-  local found, search_trouble = across(view,
-    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
-      return searched(db, public, query)
-    end, entry_module)
-  if found == nil then
-    return nil, search_trouble
+  local found: {docs.Entry} = {}
+  local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
+  if qualifier ~= nil then
+    local near, near_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+        return scoped(db, public, qualifier, name)
+      end, entry_module)
+    if near == nil then
+      return nil, near_trouble
+    end
+    found = near
+  end
+  if #found == 0 then
+    local searched_found, search_trouble = across(view,
+      function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+        return searched(db, public, query)
+      end, entry_module)
+    if searched_found == nil then
+      return nil, search_trouble
+    end
+    found = searched_found
   end
   local counted, count_trouble = effective_counts(view, found)
   if not counted then

@@ -144,6 +144,38 @@ local function test_searches_the_documentation_for_words()
   assert(#none == 0)
 end
 
+--- A qualified name that names nothing answers from its qualifier:
+--- the members whose documentation carries the last name, or every
+--- exported function when none does -- never what another module's
+--- documentation happens to say.
+local function test_a_qualified_miss_answers_from_its_qualifier()
+  local rows: {{string}} = {}
+  for _, row in ipairs(fs_rows) do rows[#rows + 1] = row end
+  rows[#rows + 1] = { "cosmic.proc", "Proc.find", "function",
+    "function Proc.find(name: string): string", "Where a program runs from, as `which` finds it; " ..
+    "every file on the PATH is read.", "cosmic/proc.tl", "9" }
+  local db = database(rows, fs_uses)
+  local near = assert(docs.lookup(view({ db }), "Fs.parent"))
+  assert(not near.exact)
+  assert(#near == 1 and near[1].symbol == "Fs.write", tostring(#near))
+  local all = assert(docs.lookup(view({ db }), "Fs.slurp"))
+  assert(#all == 2 and all[1].symbol == "Fs.read" and all[2].symbol == "Fs.write",
+    tostring(#all))
+  local which = assert(docs.lookup(view({ db }), "Proc.which"))
+  assert(#which == 1 and which[1].symbol == "Proc.find", tostring(#which))
+  -- "file" is in Fs's documentation too; Proc's qualifier keeps it out.
+  local file = assert(docs.lookup(view({ db }), "Proc.file"))
+  assert(#file == 1 and file[1].symbol == "Proc.find", tostring(#file))
+end
+
+--- A one-letter word is a flag no documentation spells alone, so a
+--- search leaves it out rather than finding nothing.
+local function test_a_search_leaves_out_one_letter_words()
+  local db = database(fs_rows, fs_uses)
+  local found = assert(docs.lookup(view({ db }), "parent directory -p"))
+  assert(#found == 1 and found[1].symbol == "Fs.write", tostring(#found))
+end
+
 --- A symbol renders as where it is, its signature, its documentation
 --- line by line, and how it is used.
 local function test_renders_a_symbol()
@@ -350,7 +382,9 @@ local function test_an_earlier_database_hides_a_module_in_a_later_one()
   local read = assert(docs.lookup(view({ project, binary }), "read"))
   assert(#read == 1 and read[1].text == "The project's own.", tostring(#read))
   local write = assert(docs.lookup(view({ project, binary }), "Fs.write"))
-  assert(#write == 0, "a removed symbol reappeared from the older module")
+  for _, entry in ipairs(write) do
+    assert(entry.symbol ~= "Fs.write", "a removed symbol reappeared from the older module")
+  end
 end
 
 --- Membership owns a module even when it produced no documentation.
@@ -498,4 +532,61 @@ local function test_an_unreadable_own_database_is_left_out(dir: string)
   local looked = assert(docs.view(handles, public))
   local found = assert(docs.lookup(looked, "Fs.read"))
   assert(#found > 0 and found.exact)
+end
+
+--- What a newcomer types first is the command or call they would have
+--- used elsewhere. Each of these, looked up the way a project sees the
+--- standard library, answers with the function that stands in for it
+--- first, after any raw `cosmic.sys` binding of that name -- so a doc
+--- comment that stops naming its command is caught here, not by the
+--- next person who writes the function again.
+local function test_a_familiar_command_finds_its_stand_in()
+  local handles = docs.databases()
+  local public: {boolean} = {}
+  for index = 1, #handles do public[index] = true end
+  local looked = assert(docs.view(handles, public))
+  local stand_ins: {{string}} = {
+    { "which", "Proc.find" },
+    { "command -v", "Proc.find" },
+    { "Proc.which", "Proc.find" },
+    { "cp -R", "Fs.copy_tree" },
+    { "mkdir -p", "Fs.mkdirs" },
+    { "rm -rf", "Fs.remove_tree" },
+    { "unlink", "Fs.remove" },
+    { "ls", "Fs.list" },
+    { "find type", "Fs.walk" },
+    { "mktemp", "Fs.mkdtemp" },
+    { "realpath", "Fs.absolute" },
+    { "mv", "Fs.rename" },
+    { "ln -s", "Fs.symlink" },
+    { "touch", "Fs.set_mtime" },
+    { "nproc", "Proc.cpu_count" },
+    { "isatty", "Proc.is_tty" },
+    { "getpid", "Proc.pid" },
+    { "curl", "Http.download" },
+    { "wget", "Http.download" },
+    { "tar -x", "Archive.extract" },
+    { "unzip", "Archive.extract" },
+    { "sha256sum", "Hash.hex_sha256" },
+    { "sleep", "Time.sleep_ns" },
+    { "getrandom", "Rand.entropy" },
+    { "urandom", "Rand.entropy" },
+  }
+  local wrong: {string} = {}
+  for _, case in ipairs(stand_ins) do
+    -- A raw binding of the same name may come first; what stands in
+    -- for it must come right after.
+    local found = assert(docs.lookup(looked, case[1]))
+    local first = "nothing"
+    for _, entry in ipairs(found) do
+      if entry.module ~= "cosmic.sys" then
+        first = entry.source_symbol
+        break
+      end
+    end
+    if first ~= case[2] then
+      wrong[#wrong + 1] = case[1] .. " -> " .. first .. ", not " .. case[2]
+    end
+  end
+  assert(#wrong == 0, table.concat(wrong, "; "))
 end
