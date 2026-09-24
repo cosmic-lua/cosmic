@@ -305,10 +305,11 @@ end
 
 --- Whether `db` holds the shipped tables at all: a database built
 --- before they existed answers no query here.
-local function has_docs(db: Sqlite.Handle): boolean
-  local rows = Sqlite.text_rows(db,
+local function has_docs(db: Sqlite.Handle): boolean | nil, string
+  local rows, trouble = Sqlite.text_rows(db,
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
-  return rows ~= nil and #rows > 0
+  if rows == nil then return nil, trouble end
+  return #rows > 0, ""
 end
 
 --- `searched_docs` and `searched_examples` together. Each example is kept once
@@ -363,10 +364,19 @@ function docs.databases(): {Sqlite.Handle}, {boolean}
   local own_exists, own_trouble = Fs.exists("o/cosmic.db")
   assert(own_exists ~= nil, own_trouble)
   if own_exists then
-    local own = Sqlite.open("o/cosmic.db", false)
+    -- The project's own build is best effort: one that cannot be opened
+    -- or read (a directory, a file that is not a database, one a build
+    -- is rewriting) is left out, so help and docs still answer from the
+    -- binary's own databases rather than failing on a stale output.
+    local own, _ = Sqlite.open("o/cosmic.db", false)
     if own ~= nil then
-      out[#out + 1] = own
-      public[#out] = false
+      local readable, _ = has_docs(own)
+      if readable == nil then
+        local _, _ = own:close()
+      else
+        out[#out + 1] = own
+        public[#out] = false
+      end
     end
   end
   -- Outside cosmic's own tree the store's databases are public sources:
@@ -392,7 +402,11 @@ local function across<T>(view: docs.View,
                          module_of: function(T): string): {T} | nil, string
   local out: {T} = {}
   for index, db in ipairs(view.databases) do
-    if has_docs(db) then
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
       local found, trouble = look(db, view.public[index] == true)
       if found == nil then
         return nil, trouble
@@ -425,45 +439,56 @@ end
 --- public modules, and only when that database owns the calling module; see
 --- `across`. Each pair is computed once and cached on `view`, since both a
 --- module listing and symbol rendering can request it in one command.
-local function count_uses(view: docs.View, module: string, symbol: string): integer
+local function count_uses(view: docs.View, module: string,
+                          symbol: string): integer | nil, string
   local key = use_key(module, symbol)
   local cached = view.use_counts[key]
   if cached ~= nil then
-    return cached
+    return cached, ""
   end
   local seen: {string: boolean} = {}
   local total = 0
   for index, db in ipairs(view.databases) do
-    if has_docs(db) then
-      local rows = Sqlite.text_rows(db,
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db,
         "SELECT from_module, from_file, line FROM uses " ..
         "WHERE module = ?1 AND symbol = ?2",
         { text(module), text(symbol) })
-      if rows ~= nil then
-        for _, row in ipairs(rows) do
-          local from_module = row[1]
-          local counted = not view.public[index] or
-            (symbols.is_public_module(module) and symbols.is_public_module(from_module))
-          if counted and view.owners[from_module] == index then
-            local position = module .. "\n" .. symbol .. "\n" .. from_module ..
-              "\n" .. row[2] .. "\n" .. row[3]
-            if not seen[position] then
-              seen[position] = true
-              total = total + 1
-            end
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, row in ipairs(rows) do
+        local from_module = row[1]
+        local counted = not view.public[index] or
+          (symbols.is_public_module(module) and symbols.is_public_module(from_module))
+        if counted and view.owners[from_module] == index then
+          local position = module .. "\n" .. symbol .. "\n" .. from_module ..
+            "\n" .. row[2] .. "\n" .. row[3]
+          if not seen[position] then
+            seen[position] = true
+            total = total + 1
           end
         end
       end
     end
   end
   view.use_counts[key] = total
-  return total
+  return total, ""
 end
 
-local function effective_counts(view: docs.View, entries: {docs.Entry})
+local function effective_counts(view: docs.View, entries: {docs.Entry}): boolean, string
   for _, entry in ipairs(entries) do
-    entry.uses = count_uses(view, entry.module, entry.symbol)
+    local uses, trouble = count_uses(view, entry.module, entry.symbol)
+    if uses == nil then
+      return false, trouble
+    end
+    entry.uses = uses
   end
+  return true, ""
 end
 
 --- Resolves module ownership once for a docs command or direct caller.
@@ -508,7 +533,10 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     return nil, exact_trouble
   end
   if #exact > 0 then
-    effective_counts(view, exact)
+    local counted, count_trouble = effective_counts(view, exact)
+    if not counted then
+      return nil, count_trouble
+    end
     local answer = exact as docs.Lookup
     answer.exact = true
     return answer, ""
@@ -520,7 +548,10 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   if found == nil then
     return nil, search_trouble
   end
-  effective_counts(view, found)
+  local counted, count_trouble = effective_counts(view, found)
+  if not counted then
+    return nil, count_trouble
+  end
   local answer = found as docs.Lookup
   answer.exact = false
   return answer, ""
@@ -543,8 +574,11 @@ function docs.named_all(view: docs.View, names: {string}): {docs.Entry} | nil, s
   if found == nil then
     return nil, trouble
   end
-  effective_counts(view, found)
-  return found
+  local counted, count_trouble = effective_counts(view, found)
+  if not counted then
+    return nil, count_trouble
+  end
+  return found, ""
 end
 
 --- Every place across `databases` that refers to what `query` names.
@@ -572,7 +606,8 @@ end
 --- One entry, as `cosmic docs` prints it: where it is, its signature,
 --- its documentation indented under that, and how many places use it.
 --- A module's row lists the symbols it declares instead of a signature.
-function docs.render(view: docs.View, entry: docs.Entry): {string}
+--- Nil and why when a database cannot be read.
+function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   local lines: {string} = {}
   if entry.kind == "example" then
     local ex = entry.related[1]
@@ -584,7 +619,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
     for line in (ex.source .. "\n"):gmatch("(.-)\n") do
       lines[#lines + 1] = #line > 0 and "    " .. line or ""
     end
-    return lines
+    return lines, ""
   end
   if entry.symbol == "" then
     lines[#lines + 1] = entry.module .. " (" .. entry.file .. ")"
@@ -611,48 +646,53 @@ function docs.render(view: docs.View, entry: docs.Entry): {string}
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
   end
   if entry.symbol == "" then
-    local declared = across(view,
+    local declared, declared_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
         return declared_in(db, public, entry.module)
       end, entry_module)
-    if declared ~= nil then
-      effective_counts(view, declared)
-      for _, item in ipairs(declared) do
-        local marks: {string} = {}
-        if item.uses > 0 then
-          marks[#marks + 1] = item.uses .. " uses"
-        end
-        if item.examples > 0 then
-          marks[#marks + 1] = item.examples .. " example" ..
-            (item.examples == 1 and "" or "s")
-        end
-        lines[#lines + 1] = "  " .. item.kind .. " " .. item.source_symbol ..
-          (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
+    if declared == nil then
+      return nil, declared_trouble
+    end
+    local counted, count_trouble = effective_counts(view, declared)
+    if not counted then
+      return nil, count_trouble
+    end
+    for _, item in ipairs(declared) do
+      local marks: {string} = {}
+      if item.uses > 0 then
+        marks[#marks + 1] = item.uses .. " uses"
       end
+      if item.examples > 0 then
+        marks[#marks + 1] = item.examples .. " example" ..
+          (item.examples == 1 and "" or "s")
+      end
+      lines[#lines + 1] = "  " .. item.kind .. " " .. item.source_symbol ..
+        (#marks > 0 and " (" .. table.concat(marks, ", ") .. ")" or "")
     end
   else
     if entry.uses > 0 then
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
         (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
     end
-    local examples = across(view,
+    local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string
         return examples_for(db, public, entry.module, entry.source_symbol)
       end, function(_: docs.Example): string return entry.module end)
-    if examples ~= nil then
-      for _, ex in ipairs(examples) do
-        lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
-          ex.line .. "):"
-        for line in (ex.text .. "\n"):gmatch("(.-)\n") do
-          lines[#lines + 1] = #line > 0 and "  " .. line or ""
-        end
-        for line in (ex.source .. "\n"):gmatch("(.-)\n") do
-          lines[#lines + 1] = #line > 0 and "    " .. line or ""
-        end
+    if examples == nil then
+      return nil, examples_trouble
+    end
+    for _, ex in ipairs(examples) do
+      lines[#lines + 1] = "  example " .. ex.name .. " (" .. ex.file .. ":" ..
+        ex.line .. "):"
+      for line in (ex.text .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = #line > 0 and "  " .. line or ""
+      end
+      for line in (ex.source .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = #line > 0 and "    " .. line or ""
       end
     end
   end
-  return lines
+  return lines, ""
 end
 
 --- `cosmic docs <query>`: prints what the query names and ends in a
@@ -662,7 +702,7 @@ function docs.run(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local query = table.concat({ table.unpack(argv, 2) }, " ")
   if query == "" then
     log:complain("docs: what to look up? a symbol (Fs.read), a module " ..
@@ -693,7 +733,12 @@ function docs.run(argv: {integer:string}): integer
     if index > 1 then
       log:say("")
     end
-    for _, line in ipairs(docs.render(view, entry)) do
+    local lines, render_trouble = docs.render(view, entry)
+    if lines == nil then
+      log:complain("docs: " .. render_trouble)
+      return 1
+    end
+    for _, line in ipairs(lines) do
       log:say(line)
     end
   end
@@ -710,7 +755,7 @@ function docs.run_uses(argv: {integer:string}): integer
   if exit ~= nil then
     return exit
   end
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local query = argv[2] or ""
   if query == "" then
     log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")

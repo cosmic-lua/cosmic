@@ -28,6 +28,7 @@ local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
 local receivers = require("build.receivers")
+local contracts = require("build.contracts")
 local symbols = require("build.symbols")
 local teal = require("build.teal")
 local tree = require("build.tree")
@@ -317,7 +318,7 @@ local analysis_tables: {string} = {
 local function analyzer_identity(): string
   local parts: {string} = { Store.meta("compiler") or "" }
   for _, name in ipairs(importer.analyzer_modules) do
-    local source = Store.source(name)
+    local source, _ = Store.source(name)
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or "")
     end
@@ -362,16 +363,21 @@ local function forget_stale_analysis(db: Sqlite.Handle): boolean, string
     { text(analyzer) })
 end
 
---- The identity of the code that finds `typed_refs`: `build.receivers`
---- as the running binary carries it, or the binary whole when it
+--- The identity of the code that finds `typed_refs` and checks the
+--- error-slot discipline beside the compiler: `build.receivers` and
+--- `build.contracts` as the running binary carries them, or the binary whole when it
 --- carries none. Named apart from `analyzer_identity` because its rows
 --- ride on compiles, which only a change to this code must redo.
 local function receivers_identity(): string
-  local source = Store.source("build.receivers")
-  if source == nil then
-    return "binary " .. (Store.meta("boot_hash") or "")
+  local parts: {string} = {}
+  for _, name in ipairs({ "build.receivers", "build.contracts" }) do
+    local source, _ = Store.source(name)
+    if source == nil then
+      return "binary " .. (Store.meta("boot_hash") or "")
+    end
+    parts[#parts + 1] = source
   end
-  return Hash.hex_sha256(source)
+  return Hash.hex_sha256(table.concat(parts, "\n\0\n"))
 end
 
 --- Forgets every compile, and the record-field uses found with it,
@@ -575,7 +581,8 @@ local function dependency_keys(db: Sqlite.Handle, modules: {Module},
       end
       local dependency, resolve_trouble = resolve(slot, display)
       if dependency == nil then
-        return resolve_trouble == "", resolve_trouble
+        if resolve_trouble ~= "" then return false, resolve_trouble end
+        return true, ""
       end
       seen[slot] = true
       graph[#graph + 1] = slot .. "\n" .. dependency.kind .. "\n" ..
@@ -977,16 +984,18 @@ local function once(statement: Sqlite.Statement): boolean, string
   if state == nil then
     return false, trouble
   end
-  statement:reset()
-  return true, ""
+  return statement:reset()
 end
 
 --- The cached Lua under `key`, marked as used by this run, or nil
 --- when nothing is cached there.
 local function cached_lua(cache: Cache, key: string): string | nil, string
   local look = cache.look
-  look:bind_text(1, key)
-  look:bind_integer(2, cache.run)
+  local bound, bind_trouble = look:bind_text(1, key)
+  if bound then bound, bind_trouble = look:bind_integer(2, cache.run) end
+  if not bound then
+    return nil, bind_trouble
+  end
   local state, trouble = look:step()
   if state == nil then
     return nil, trouble
@@ -995,7 +1004,10 @@ local function cached_lua(cache: Cache, key: string): string | nil, string
   if state == "row" then
     lua = look:bytes(0)
   end
-  look:reset()
+  local reset, reset_trouble = look:reset()
+  if not reset then
+    return nil, reset_trouble
+  end
   return lua, ""
 end
 
@@ -1021,20 +1033,26 @@ local function remember(cache: Cache, path: string, key: string, ordinal: intege
                         lua: string | nil, bytecode: string | nil): boolean, string
   if lua ~= nil and bytecode ~= nil then
     local put = cache.put
-    put:bind_text(1, key)
-    put:bind_text(2, cache.tool)
-    put:bind_text(3, lua)
-    put:bind_blob(4, bytecode)
-    put:bind_integer(5, cache.run)
+    local bound, bind_trouble = put:bind_text(1, key)
+    if bound then bound, bind_trouble = put:bind_text(2, cache.tool) end
+    if bound then bound, bind_trouble = put:bind_text(3, lua) end
+    if bound then bound, bind_trouble = put:bind_blob(4, bytecode) end
+    if bound then bound, bind_trouble = put:bind_integer(5, cache.run) end
+    if not bound then
+      return false, bind_trouble
+    end
     local kept, put_trouble = once(put)
     if not kept then
       return false, put_trouble
     end
   end
   local plan = cache.plan
-  plan:bind_text(1, path)
-  plan:bind_text(2, key)
-  plan:bind_integer(3, ordinal)
+  local bound, bind_trouble = plan:bind_text(1, path)
+  if bound then bound, bind_trouble = plan:bind_text(2, key) end
+  if bound then bound, bind_trouble = plan:bind_integer(3, ordinal) end
+  if not bound then
+    return false, bind_trouble
+  end
   return once(plan)
 end
 
@@ -1049,7 +1067,7 @@ local record Generated
 end
 
 local function generate(m: Module, built: compiler, env: compiler.Env,
-                        typed: receivers.State,
+                        typed: receivers.State, own_tree: boolean,
                         databases: {Sqlite.Handle},
                         public: {boolean}): Generated | nil, string
   local code, result = built.gen(m.source, env, nil, "tl")
@@ -1067,6 +1085,13 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
+  if own_tree and contracts.applies(m.kind, m.generated) then
+    local checked = result.ast as ast.Node -- cast: tl's checked AST
+    local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env))
+    if #problems > 0 then
+      return nil, table.concat(problems, "\n")
+    end
+  end
   local references = receivers.references(typed, env, result.ast)
   if m.kind == "test" then
     code = with_test_tail(code, m.tests)
@@ -1267,7 +1292,7 @@ function importer.compile(handle: work.Handle, built: compiler,
             typed = receivers.install(made_env)
           end
           local generated, generate_trouble =
-            generate(m, built, env, assert(typed), hint_databases, hint_public)
+            generate(m, built, env, assert(typed), own_tree, hint_databases, hint_public)
           if generated == nil then
             failure = generate_trouble
             break

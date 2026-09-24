@@ -96,9 +96,9 @@ end
 --- nothing when there is no such header to read.
 local function declared_in(root: string): {string: rules.Declared}
   local out: {string: rules.Declared} = {}
-  local header = Fs.read(root .. "/core/syscalls.h")
+  local header, _ = Fs.read(root .. "/core/syscalls.h")
   if header == nil then return out end
-  local found = gen_syscalls.read(header)
+  local found, _ = gen_syscalls.read(header)
   if found == nil then return out end
   for _, call in ipairs(found.calls) do
     out[call.name] = { count = #call.results, fallible = #call.results == 3,
@@ -178,7 +178,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
       local done, trouble = Child.wait_any(running, 120000)
       if done == nil then
         for _, handle in ipairs(running) do
-          handle:close()
+          local _, _ = handle:close()
           outcomes[which[handle]] = { file = files[which[handle]], trouble = trouble }
         end
         running = {}

@@ -61,11 +61,11 @@ end
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   local root, pidfile = project(tmp)
   local output = tmp .. "/run.out"
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" })
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
-  assert(assert(Time.monotonic_ns()) - started < 30 * 1000 * 1000 * 1000, text)
+  assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)
   assert(text:find("suite.hang_test test_hangs: timed out after 1 s", 1, true), text)
   assert(text:find("suite.exits_test test_exits: the test process exited with status 0 " ..
     "before it reported", 1, true), text)

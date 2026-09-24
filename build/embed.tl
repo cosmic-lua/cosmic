@@ -142,8 +142,8 @@ function embed.database(project: string, main: string): string | nil, string
     return nil, "the running binary names no runtime basis"
   end
   local building = project .. ".embed"
-  Fs.remove(building)
-  Fs.remove(building .. ".vacuumed")
+  local _, _ = Fs.remove(building)
+  local _, _ = Fs.remove(building .. ".vacuumed")
   local out, open_trouble = Sqlite.open(building, true)
   if out == nil then
     return nil, building .. ": " .. open_trouble
@@ -158,7 +158,7 @@ function embed.database(project: string, main: string): string | nil, string
   for _, statement in ipairs(statements) do
     local ok, failure = out:exec(statement)
     if not ok then
-      out:close()
+      local _, _ = out:close()
       return nil, failure
     end
   end
@@ -236,19 +236,19 @@ function embed.database(project: string, main: string): string | nil, string
     return true, ""
   end)
   if not made then
-    out:close()
+    local _, _ = out:close()
     return nil, trouble
   end
-  out:exec("DETACH DATABASE project")
+  local _, _ = out:exec("DETACH DATABASE project")
   local vacuumed, vacuum_trouble = Sqlite.run(out, "VACUUM INTO ?1",
     { text(building .. ".vacuumed") })
-  out:close()
+  local _, _ = out:close()
   if not vacuumed then
     return nil, vacuum_trouble
   end
   local bytes, read_trouble = Fs.read(building .. ".vacuumed")
-  Fs.remove(building)
-  Fs.remove(building .. ".vacuumed")
+  local _, _ = Fs.remove(building)
+  local _, _ = Fs.remove(building .. ".vacuumed")
   if bytes == nil then
     return nil, read_trouble
   end
@@ -266,33 +266,33 @@ function embed.tree(root: string, host?: boolean): {string} | nil, string
   if own_tree then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
   end
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local handle, open_trouble = work.open(root)
   if handle == nil then
     return nil, open_trouble
   end
   local staged, stage_trouble = work.stage(handle, false)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return nil, stage_trouble
   end
   local built, load_trouble = teal.load()
   if built == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return nil, load_trouble
   end
   local project = root .. "/o/cosmic.db"
   local result, compile_trouble =
     importer.compile(handle, built, Store.meta("compiler") or "")
   if result == nil then
-    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    work.close(handle)
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local _, _ = work.close(handle)
     return nil, compile_trouble
   end
   local written, write_trouble = writer.write_result(handle, project, result)
-  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
+  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
-  work.close(handle)
+  local _, _ = work.close(handle)
   if not written then
     return nil, write_trouble
   end
@@ -355,7 +355,7 @@ end
 --- executables under `o/bin/`. Ends in a verdict line that names what
 --- was written, or says why nothing was.
 function embed.run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--host"] = false })
   if parsed ~= nil and #parsed.words > 0 then
     parsed, parse_trouble = nil, "no such option: " .. parsed.words[1]

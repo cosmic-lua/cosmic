@@ -81,8 +81,8 @@ local function test_timeout_kills_the_process_group_and_reaps_child()
   local h = assert(Child.start({ "/bin/sh", "-c",
     "sleep 30 & printf %s $!; wait" },
     { stdout = fd, stderr = fd }))
-  local deadline = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
-  while assert(Fs.stat(path)).size == 0 and assert(Time.monotonic_ns()) < deadline do
+  local deadline = Time.monotonic_ns() + 1000 * 1000 * 1000
+  while assert(Fs.stat(path)).size == 0 and Time.monotonic_ns() < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
   end
   assert(assert(Fs.stat(path)).size > 0, "child did not report readiness")
@@ -104,8 +104,8 @@ local function test_non_group_timeout_returns_graceful_term_status()
   local h = assert(Child.start({ "/bin/sh", "-c",
     "trap 'exit 19' TERM; printf ready >\"$1\"; while :; do :; done",
     "sh", ready }, { process_group = false }))
-  local deadline = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
-  while not path_exists(ready) and assert(Time.monotonic_ns()) < deadline do
+  local deadline = Time.monotonic_ns() + 1000 * 1000 * 1000
+  while not path_exists(ready) and Time.monotonic_ns() < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
   end
   assert(path_exists(ready), "child did not report readiness")
@@ -162,9 +162,9 @@ end
   -- The driver is a nested cosmic that compiles its fixture before it
   -- spawns anything; on the checked core, on a loaded runner, that has
   -- taken more than 3 s. The wait ends as soon as it is ready.
-  local deadline = assert(Time.monotonic_ns()) + 30 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + 30 * 1000 * 1000 * 1000
   while (not path_exists(ready) or Fs.read(ready) ~= "ready") and
-      assert(Time.monotonic_ns()) < deadline do
+      Time.monotonic_ns() < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
   end
   assert(path_exists(ready) and Fs.read(ready) == "ready",
@@ -178,8 +178,8 @@ end
     (Fs.read(diagnostic) or "<none>"))
   local descendant = assert(math.tointeger((assert(tonumber(
     assert(Fs.read(descendant_path)):match("%d+"))))))
-  local gone_by = assert(Time.monotonic_ns()) + 1000 * 1000 * 1000
-  while sys.kill(descendant, 0) and assert(Time.monotonic_ns()) < gone_by do
+  local gone_by = Time.monotonic_ns() + 1000 * 1000 * 1000
+  while sys.kill(descendant, 0) and Time.monotonic_ns() < gone_by do
     Time.sleep_ns(10 * 1000 * 1000)
   end
   assert(not sys.kill(descendant, 0))
@@ -292,9 +292,9 @@ local function test_try_wait_services_a_chatty_child()
   local h = assert(Child.start({ "/bin/sh", "-c",
     "i=0; while [ $i -lt 20000 ]; do printf 0123456789; i=$((i+1)); done" },
     { stdout = "capture" }))
-  local deadline = assert(Time.monotonic_ns()) + 10 * 1000 * 1000 * 1000
+  local deadline = Time.monotonic_ns() + 10 * 1000 * 1000 * 1000
   local polled = assert(h:try_wait())
-  while not polled.finished and assert(Time.monotonic_ns()) < deadline do
+  while not polled.finished and Time.monotonic_ns() < deadline do
     Time.sleep_ns(1000 * 1000)
     polled = assert(h:try_wait())
   end
@@ -323,12 +323,12 @@ end
 --- Completion is the leader's exit: a descendant that left the group
 --- while holding the captured pipe cannot hold the wait open.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local r = assert(Child.run({ "/bin/sh", "-c",
     "if command -v setsid >/dev/null; then setsid sleep 3 & fi; printf done" },
     { stdout = "capture", timeout_ms = 10000 }))
   assert(r.ok and assert(r.stdout):sub(1, 4) == "done")
-  assert(assert(Time.monotonic_ns()) - started < 2 * 1000 * 1000 * 1000)
+  assert(Time.monotonic_ns() - started < 2 * 1000 * 1000 * 1000)
 end
 
 local function test_wait_any_returns_the_first_to_finish()

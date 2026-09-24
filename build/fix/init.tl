@@ -254,7 +254,7 @@ end
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--check"] = false })
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
@@ -304,9 +304,14 @@ function fix.run(argv: {integer:string}): integer
   -- taken relative to it.
   local c_files: {string} = {}
   for _, file in ipairs(picked.c_files) do
-    local absolute = Fs.absolute(file)
+    -- A path that cannot be resolved, or lies outside the root, is
+    -- refused below either way; the failure line says why.
+    local absolute, _ = Fs.absolute(file)
     local rest: string | nil = nil
-    if absolute ~= nil then rest = Fs.relative(absolute, root) end
+    if absolute ~= nil then
+      local relative, _ = Fs.relative(absolute, root)
+      rest = relative
+    end
     if rest ~= nil and rest ~= "." then
       c_files[#c_files + 1] = rest
     else
@@ -367,7 +372,7 @@ function fix.run(argv: {integer:string}): integer
   -- check reports the files once and a fix repeats until it settles.
   local chosen_files: {string:string} = {}
   for _, file in ipairs(files) do
-    local absolute = Fs.absolute(file)
+    local absolute, _ = Fs.absolute(file)
     if absolute ~= nil then chosen_files[absolute] = file end
   end
   local listed: {string:boolean} = {}

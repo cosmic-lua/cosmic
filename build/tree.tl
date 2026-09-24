@@ -14,11 +14,14 @@ end
 --- one tree; nothing else may claim it, by directory or by import path.
 function tree.is_own(root: string): boolean | nil, string
   local core, trouble = Fs.is_dir(root .. "/core")
-  if core == nil or not core then return core, trouble end
+  if core == nil then return nil, trouble end
+  if not core then return false, "" end
   local build, build_trouble = Fs.is_dir(root .. "/build")
-  if build == nil or not build then return build, build_trouble end
+  if build == nil then return nil, build_trouble end
+  if not build then return false, "" end
   local importer, importer_trouble = Fs.exists(root .. "/build/importer.tl")
-  if importer == nil or not importer then return importer, importer_trouble end
+  if importer == nil then return nil, importer_trouble end
+  if not importer then return false, "" end
   local importer_dir, directory_trouble = Fs.is_dir(root .. "/build/importer.tl")
   if importer_dir == nil then return nil, directory_trouble end
   return not importer_dir, ""
