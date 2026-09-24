@@ -492,6 +492,57 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   work.close(handle)
 end
 
+--- A field a record inherits is a use of the interface that declares
+--- it, through an interface that extends another too; the record's own
+--- field stays the record's.
+local function test_uses_of_an_inherited_field_name_its_interface()
+  local root = assert(write_fixture("inherited-field-uses", {
+    ["io.tl"] = table.concat({
+      "local record Io",
+      "  interface Closer",
+      "    close: function(Closer)",
+      "  end",
+      "  interface Writer is Closer",
+      "    write: function(Writer, string)",
+      "  end",
+      "  record Collector is Writer",
+      "    result: function(Collector): string",
+      "  end",
+      "end",
+      "return Io",
+      "",
+    }, "\n"),
+    ["main.tl"] = table.concat({
+      'local type Io = require("io")',
+      "local record Main",
+      "end",
+      "function Main.run(c: Io.Collector): string",
+      "  c:write(\"x\")",
+      "  c:close()",
+      "  return c:result()",
+      "end",
+      "return Main",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "importer-test"))
+  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local rows = assert(Sqlite.text_rows(shipped,
+    "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
+    "ORDER BY line, module, symbol"))
+  local got: {string} = {}
+  for _, row in ipairs(rows) do
+    got[#got + 1] = row[3] .. " " .. row[1] .. " " .. row[2]
+  end
+  local want = "5 io Writer.write, 6 io Closer.close, 7 io Collector.result"
+  assert(table.concat(got, ", ") == want, table.concat(got, ", "))
+  assert(shipped:close())
+  work.close(handle)
+end
+
 --- The compiler identity closes over what `build.importer` requires, so
 --- it is the same whether the working database is fresh or has parsed
 --- the tree before -- a boot on an empty `o/` must key its modules
