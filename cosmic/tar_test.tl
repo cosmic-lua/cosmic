@@ -18,7 +18,7 @@ local PAX_TAR_B64 <const> =
 
 --- Every entry a reader visits, draining its body when `read_bodies`,
 --- in a stable summary a test can assert on directly.
-local function summary(r: Tar.TarReader, read_bodies: boolean): {string} | nil, string
+local function summary(r: Tar.Reader, read_bodies: boolean): {string} | nil, string
   local lines: {string} = {}
   while true do
     local entry, trouble = r:next()

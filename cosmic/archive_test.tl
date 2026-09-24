@@ -254,7 +254,7 @@ local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: strin
 end
 
 --- A tar at `path` built by `build`, for the extraction cases below.
-local function tar_of(path: string, build: function(Tar.TarWriter))
+local function tar_of(path: string, build: function(Tar.Writer))
   local tw = Tar.writer((assert(Stream.create(path))))
   build(tw)
   assert(tw:close())
@@ -265,7 +265,7 @@ local function test_extract_refuses_a_symlink_chain_that_climbs_out(tmp: string)
   -- really is dest/.. once `a` is a link, so a/a2/pwned would land
   -- beside dest
   local archive = tmp .. "/chain.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_symlink("a", "."))
     assert(tw:add_symlink("a/a2", ".."))
     assert(tw:add_file("a/a2/pwned", "escaped\n"))
@@ -281,7 +281,7 @@ local function test_extract_refuses_a_symlink_placed_inside_another_symlink(tmp:
   -- the same chain without the file: making a/a2 would need writing
   -- inside the link `a`
   local archive = tmp .. "/chain.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_symlink("a", "."))
     assert(tw:add_symlink("a/a2", ".."))
   end)
@@ -293,7 +293,7 @@ end
 
 local function test_extract_refuses_a_directory_entry_later_replaced_by_a_symlink(tmp: string)
   local archive = tmp .. "/swap.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_dir("d"))
     assert(tw:add_symlink("d", "."))
     assert(tw:add_file("d/pwned", "escaped\n"))
@@ -306,7 +306,7 @@ end
 
 local function test_extract_lets_a_later_entry_replace_a_pending_symlink(tmp: string)
   local archive = tmp .. "/dup.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_symlink("x", "."))
     assert(tw:add_file("x", "a regular file after all"))
   end)
@@ -320,7 +320,7 @@ local function test_extract_refuses_a_link_target_that_walks_through_another_lin
   -- l -> . is fine; m -> l/.. reads as "inside" lexically, but `l` is
   -- a link to dest itself, so l/.. is dest's parent
   local archive = tmp .. "/through.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_symlink("l", "."))
     assert(tw:add_symlink("m", "l/.."))
   end)
@@ -333,7 +333,7 @@ local function test_extract_refuses_a_link_target_through_a_missing_directory(tm
   -- x -> b/.. with no `b`: on a case-insensitive filesystem the link
   -- B -> . answers for `b`, and x becomes dest's parent
   local archive = tmp .. "/case.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_symlink("x", "b/.."))
     assert(tw:add_symlink("B", "."))
   end)
@@ -345,7 +345,7 @@ end
 
 local function test_extract_creates_links_through_real_directories(tmp: string)
   local archive = tmp .. "/libs.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_file("lib/libfoo.so.1", "elf"))
     assert(tw:add_symlink("lib/libfoo.so", "libfoo.so.1"))
     assert(tw:add_file("lib/x", "tool"))
@@ -361,7 +361,7 @@ end
 
 local function test_extract_refuses_to_write_through_a_symlink_already_in_dest(tmp: string)
   local archive = tmp .. "/a.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_file("sub/f", "x"))
   end)
   local dest = tmp .. "/out"
@@ -479,7 +479,7 @@ end
 
 local function test_extract_restores_mtimes_unless_told_not_to(tmp: string)
   local archive = tmp .. "/t.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_dir("d", { mtime = 1000000000 }))
     assert(tw:add_file("d/f", "x", { mtime = 1200000000 }))
   end)
@@ -494,7 +494,7 @@ end
 
 local function test_extract_stops_at_max_bytes_and_max_entries(tmp: string)
   local archive = tmp .. "/t.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_file("a", string.rep("a", 600)))
     assert(tw:add_file("b", string.rep("b", 600)))
   end)
@@ -513,7 +513,7 @@ end
 
 local function test_extract_strip_matches_whole_components_only(tmp: string)
   local archive = tmp .. "/t.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_file("a/x", "in a"))
     assert(tw:add_file("abc/x", "in abc"))
   end)
@@ -557,7 +557,7 @@ end
 local function test_extract_refuses_a_write_under_a_checked_directory_once_a_symlink_replaces_it(
     tmp: string)
   local archive = tmp .. "/swap2.tar"
-  tar_of(archive, function(tw: Tar.TarWriter)
+  tar_of(archive, function(tw: Tar.Writer)
     assert(tw:add_dir("d"))
     assert(tw:add_file("d/first", "fine\n"))
     assert(tw:add_symlink("d", "."))

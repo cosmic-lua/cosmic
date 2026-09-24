@@ -132,7 +132,10 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       assert(Fs.write(file, archive))
       local strip: string | integer = nil
       if fields[3] == "1" then strip = 1 elseif fields[3] == "a" then strip = "a" end
-      local written = Archive.extract(file, dest, { links = fields[2], strip = strip, mtimes = false })
+      -- A shrunk input may hold any string here; extract treats every
+      -- mode but "create" as "skip".
+      local mode: Archive.Links = fields[2] == "create" and "create" or "skip"
+      local written = Archive.extract(file, dest, { links = mode, strip = strip, mtimes = false })
       for _, rel in ipairs(written or {}) do
         if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
           return false, "reported writing " .. rel
