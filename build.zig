@@ -621,12 +621,15 @@ pub fn build(b: *std.Build) void {
 
     // Every core but the test fixtures observes its own C: a table from
     // each core's first link, carried by its second (`observedCore`).
+    // Debug, which keeps every safety check ReleaseSafe does: it reads a
+    // core in tens of milliseconds either way, and compiles in a fifth of
+    // the time, at the head of every cold build.
     const mapper = b.addExecutable(.{
         .name = "coverage-map",
         .root_module = b.createModule(.{
             .root_source_file = b.path("core/coverage_map.zig"),
             .target = baselineHostTarget(b),
-            .optimize = .ReleaseSafe,
+            .optimize = .Debug,
         }),
     });
     const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson };
