@@ -46,37 +46,10 @@ local record standalone
   type Main = function(...: any): any
 end
 
---- What the checker gets when it asks for a module: a whole source,
---- then a close.
-local record Served
-  text: string
-  read: function(Served, what: string): string
-  close: function(Served): boolean
-end
-
 --- A checker environment that answers `cosmic.*` from this binary's own
 --- sources and nothing else: no path is searched.
 local function environment(built: compiler): compiler.Env | nil, string
-  built.path = ""
-  built.search_module = function(name: string, _search_all: boolean): string | nil, any
-    if name:sub(1, 7) ~= "cosmic." then
-      return nil
-    end
-    local source, _ = Store.source(name)
-    if source == nil then
-      return nil
-    end
-    local served: Served = {
-      text = source,
-      read = function(self: Served, _what: string): string
-        return self.text
-      end,
-      close = function(_self: Served): boolean
-        return true
-      end,
-    }
-    return name:gsub("%.", "/") .. ".tl", served
-  end
+  teal.serve_standard(built)
   local env, trouble = built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   })

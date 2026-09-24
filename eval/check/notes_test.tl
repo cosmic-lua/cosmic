@@ -34,16 +34,17 @@ local function test_evidence_counts_passing_tests_and_examples_apart(dir: string
     { "a_test.tl", "1" }, { "a_test.tl", "1" }, { "b_test.tl", "0" },
     { "a_example.tl", "1" }, { "guide.md", "1" },
   })
-  local tests, examples = Notes.evidence(path)
-  assert(tests == 2 and examples == 2, tostring(tests) .. " " .. tostring(examples))
+  local evidence = assert(Notes.evidence(path))
+  assert(evidence.tests == 2 and evidence.examples == 2,
+    tostring(evidence.tests) .. " " .. tostring(evidence.examples))
 end
 
 local function test_reset_clears_the_runs_and_keeps_the_rest(dir: string)
   local path = dir .. "/build.db"
   database(path, { { "a_test.tl", "test", "file" } }, { { "a_test.tl", "1" } })
   assert(Notes.reset_evidence(path))
-  local tests, examples = Notes.evidence(path)
-  assert(tests == 0 and examples == 0)
+  local evidence = assert(Notes.evidence(path))
+  assert(evidence.tests == 0 and evidence.examples == 0)
   local db = assert(Sqlite.open(path))
   local rows = assert(Sqlite.text_rows(db, "select count(*) from inputs", {}))
   Sqlite.close(db)
@@ -54,8 +55,8 @@ local function test_a_missing_database_resets_but_is_no_evidence(dir: string)
   local path = dir .. "/o/build.db"
   assert(Notes.reset_evidence(path))
   assert(not Fs.exists(path))
-  local tests, _, trouble = Notes.evidence(path)
-  assert(tests == nil and trouble:find("no build database", 1, true), trouble)
+  local evidence, trouble = Notes.evidence(path)
+  assert(evidence == nil and trouble:find("no build database", 1, true), trouble)
 end
 
 local function test_an_arena_without_a_project_fails(dir: string)
