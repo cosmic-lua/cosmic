@@ -509,3 +509,18 @@ local function test_a_depth_failure_says_where()
     assert(failure == ("JSON nests deeper than 1 levels at line 1, column %d"):format(6 + #eol), failure)
   end
 end
+
+--- `ascii` writes every character past ASCII as a \u escape -- U+2028
+--- and U+2029 among them -- a surrogate pair past U+FFFF, in keys as in
+--- values, and the text reads back to the same string.
+local function test_ascii_escapes_every_character_past_ascii()
+  local s = "é\u{2028}x\u{2029}\u{1F600}\u{FFFF}\u{80}\u{7FF}\u{800}\u{10FFFF}"
+  local text = assert(Json.encode({ [s] = s }, { ascii = true }))
+  local escaped = '"\\u00e9\\u2028x\\u2029\\ud83d\\ude00\\uffff\\u0080\\u07ff\\u0800\\udbff\\udfff"'
+  assert(text == "{" .. escaped .. ":" .. escaped .. "}", text)
+  assert(not text:find("[\128-\255]"), "a byte past ASCII was written")
+  local back = assert(Json.decode(text)) as {string: string}
+  assert(back[s] == s, "it does not read back")
+  assert(Json.encode(s) == '"' .. s .. '"', "without ascii the text is as it was")
+  assert(Json.encode_lines({ "é" }, { ascii = true }) == '"\\u00e9"\n', "encode_lines passes it on")
+end

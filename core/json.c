@@ -310,6 +310,8 @@ struct encoding {
   int sorted;
   int nan_as_null;
   int sparse_as_null;
+  /* Write every character past ASCII as a \u escape. */
+  int ascii;
   int max_depth;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
@@ -456,18 +458,54 @@ static int is_utf8 (const unsigned char *s, size_t n) {
   return 1;
 }
 
-/* TODO: an option to write every non-ASCII character, and U+2028 and
- * U+2029 in particular, as \u escapes (surrogate pairs past U+FFFF), for
- * JSON embedded in HTML or JavaScript or read by ASCII-only tools. */
+static const char hex[] = "0123456789abcdef";
+
+/* `cp` as \uXXXX, or as a surrogate pair of them past U+FFFF. */
+static int put_unicode_escape (struct encoding *e, uint32_t cp) {
+  char out[12];
+  size_t length = 0;
+  uint32_t units[2];
+  size_t count = 1;
+  units[0] = cp;
+  if (cp > 0xffff) {
+    cp -= 0x10000;
+    units[0] = 0xd800 | (cp >> 10);
+    units[1] = 0xdc00 | (cp & 0x3ff);
+    count = 2;
+  }
+  for (size_t u = 0; u < count; u++) {
+    out[length++] = '\\';
+    out[length++] = 'u';
+    out[length++] = hex[(units[u] >> 12) & 0xf];
+    out[length++] = hex[(units[u] >> 8) & 0xf];
+    out[length++] = hex[(units[u] >> 4) & 0xf];
+    out[length++] = hex[units[u] & 0xf];
+  }
+  return put(e, out, length);
+}
+
 static int put_string (struct encoding *e, const char *s, size_t n) {
   if (!is_utf8((const unsigned char *)s, n)) {
     return refuse(e, "cannot encode a string that is not UTF-8");
   }
-  static const char hex[] = "0123456789abcdef";
   if (PUT_LITERAL(e, "\"") < 0) return -1;
   size_t start = 0;
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
+    if (c >= 0x80 && e->ascii) {
+      if (put(e, s + start, i - start) < 0) return -1;
+      /* The string is valid UTF-8, so the lead byte says how many
+       * continuation bytes follow, and they are there. */
+      size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
+      uint32_t cp = c & (0x3f >> extra);
+      for (size_t k = 1; k <= extra; k++) {
+        cp = (cp << 6) | ((unsigned char)s[i + k] & 0x3f);
+      }
+      if (put_unicode_escape(e, cp) < 0) return -1;
+      i += extra;
+      start = i + 1;
+      continue;
+    }
     if (c >= 0x20 && c != '"' && c != '\\') continue;
     if (put(e, s + start, i - start) < 0) return -1;
     start = i + 1;
@@ -746,7 +784,7 @@ static int is_blank (const char *s, size_t n) {
 }
 
 /* encode(value, pretty?, indent?, sorted?, max_depth?, nan_as_null?,
- * sparse_as_null?): `value` as JSON text, and "". nil and a message
+ * sparse_as_null?, ascii?): `value` as JSON text, and "". nil and a message
  * when it holds something JSON cannot say. */
 static int json_encode (lua_State *L) {
   luaL_checkany(L, 1);
@@ -762,7 +800,8 @@ static int json_encode (lua_State *L) {
   e.max_depth = checked_depth(L, 5);
   e.nan_as_null = lua_toboolean(L, 6);
   e.sparse_as_null = lua_toboolean(L, 7);
-  lua_settop(L, 7);
+  e.ascii = lua_toboolean(L, 8);
+  lua_settop(L, 8);
   lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
   e.null_index = lua_gettop(L);
   e.guard = cosmic_guard_push(L, cosmic_free);

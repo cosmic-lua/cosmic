@@ -194,6 +194,7 @@ local function recipe_options(r: Recipe): Json.EncodeOptions
     sorted = bits & 2 == 0,
     nan_as_null = bits & 4 ~= 0,
     sparse_as_null = bits & 8 ~= 0,
+    ascii = bits & 64 ~= 0,
   }
   if bits & 16 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
   if opts.pretty and bits & 32 ~= 0 then opts.indent = "\t" end
@@ -214,6 +215,9 @@ local function encode_holds(input: string): boolean, string
     return true, ""
   end
   if err ~= "" then return false, "a success with a message: " .. err end
+  if opts.ascii and text:find("[\128-\255]") then
+    return false, "ascii wrote a byte past ASCII: " .. text
+  end
   local same: Json.EncodeOptions = { nan_as_null = opts.nan_as_null,
     sparse_as_null = opts.sparse_as_null, max_depth = opts.max_depth }
   local expected, eerr = Json.encode(value, same)
