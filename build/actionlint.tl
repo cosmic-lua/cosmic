@@ -20,15 +20,20 @@
 --- `Http.download`'s own `sha256` check into a scratch `.work.<pid>`
 --- directory under the cache, extracted with `cosmic.archive`, and its
 --- `actionlint` renamed into place, tolerating a concurrent winner. The
---- scratch directory is removed on every path out.
+--- scratch directory is removed on every path out. A cached file that is
+--- empty or not executable -- what a killed copy or a bad cache restore
+--- leaves -- is removed and installed afresh, once; an exec that still
+--- fails names the directory to remove.
 ---
 --- actionlint runs with its shellcheck and pyflakes integrations off
 --- (`Actionlint.args`): it runs whichever of them it finds on `PATH`, so
 --- a verdict would depend on the host and on what it happens to have
 --- installed. A caller's own `-shellcheck=<path>` comes after, and wins.
---- With no arguments at all it runs from the repository root, so it
---- finds `.github/workflows/` from any working directory; with any, it
---- runs in the caller's own, and the arguments pass through unchanged.
+--- Unless an argument names what to check -- a file, or `-` for
+--- standard input (`Actionlint.names_files`) -- it runs from the
+--- repository root, so it finds `.github/workflows/` from any working
+--- directory; one that does runs in the caller's own. The arguments
+--- pass through unchanged either way.
 ---
 --- Exit codes are actionlint's own (0 clean, 1 findings, 2 bad
 --- arguments, 3 a failure of its own), else the shell's: 127 when it
@@ -43,6 +48,12 @@
 -- TODO: pin shellcheck (koalaman/shellcheck publishes linux x86_64 and
 -- aarch64 and darwin aarch64 tarballs) and pass -shellcheck=<its path>,
 -- so `run:` scripts are checked too, the same on every host.
+
+-- TODO: record the verified tarball's sha256 beside the install and
+-- check it against bin/actionlint.pin on every run, so a cache CI
+-- restores (or a binary swapped after install) is held to the pin too,
+-- not only an empty or non-executable one; it waits on nothing but the
+-- cost of hashing the ~5 MB binary each run (Hash.sha256 over Fs.read).
 
 -- TODO: actionlint 1.7.12 accepts `${{ github.token }}` in a
 -- strategy.matrix value (the github context is available there), but a
@@ -153,6 +164,28 @@ function Actionlint.args(argv: {string}): {string}
   return out
 end
 
+--- Whether `argv` names what actionlint is to check -- a file, or `-`
+--- for standard input -- rather than leaving it to find
+--- `.github/workflows/` from its working directory. A flag is `-x` or
+--- `-x=v`; actionlint's flags that take a separate value (`-format`,
+--- `-config-file`, ...) are always spelled with `=` here, since a bare
+--- word after one would read as a file.
+function Actionlint.names_files(argv: {string}): boolean
+  for _, a in ipairs(argv) do
+    if a == "-" or a:sub(1, 1) ~= "-" then
+      return true
+    end
+  end
+  return false
+end
+
+--- Whether the file at `path` can be the cached binary: there, not
+--- empty, and executable by someone.
+local function usable(path: string): boolean
+  local st, _ = sys.stat(path)
+  return st ~= nil and st.size > 0 and st.mode & 0x49 ~= 0
+end
+
 --- The repository root, from this script's own path, `argv[0]`.
 function Actionlint.repo_root(script_path: string): string | nil, string
   if script_path == nil then
@@ -239,7 +272,14 @@ function Actionlint.ensure_installed(cache: string, install: string, pin: Action
     return nil, look_trouble
   end
   if installed then
-    return binary, ""
+    if usable(binary) then
+      return binary, ""
+    end
+    complain(binary .. " is empty or not executable; installing it again")
+    local removed, rtrouble = Fs.remove_tree(install)
+    if not removed then
+      return nil, install .. ": " .. tostring(rtrouble) .. "; remove it and run again"
+    end
   end
   local made, mtrouble = Fs.mkdirs(install)
   if not made then
@@ -321,7 +361,7 @@ function Actionlint.main(argv: {integer:string}): integer
     given[#given + 1] = argv[at]
     at = at + 1
   end
-  if #given == 0 then
+  if not Actionlint.names_files(given) then
     local moved, ctrouble = sys.chdir(root)
     if not moved then
       complain(root .. ": " .. tostring(ctrouble))
@@ -333,7 +373,9 @@ function Actionlint.main(argv: {integer:string}): integer
     exec_argv[#exec_argv + 1] = a
   end
   local _, etrouble, number = sys.execve(binary, exec_argv, Env.all())
-  complain(binary .. ": " .. tostring(etrouble))
+  local install = binary:match("^(.*)/[^/]+$") or binary
+  complain(binary .. ": " .. tostring(etrouble) .. "; if the cached copy is broken, remove " ..
+    install .. " and run again")
   return Actionlint.exec_status(math.tointeger(number) or 0)
 end
 

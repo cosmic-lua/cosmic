@@ -49,7 +49,10 @@ jobs:
 
       - name: check the workflows
         run: |
-          # A restored bootstrap cache is checked against the pin first;
-          # bin/actionlint itself verifies what it downloads.
+          # A restored bootstrap cache is checked against the pin first.
+          # bin/actionlint holds what it downloads to the pin, but a
+          # restored actionlint cache only to being a non-empty
+          # executable (see the TODO in build/actionlint.tl); the cache
+          # key is the pin's hash, and only this workflow writes it.
           COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" sh bin/cosmic-bootstrap >/dev/null
           XDG_CACHE_HOME="$RUNNER_TEMP/cache" sh bin/actionlint
