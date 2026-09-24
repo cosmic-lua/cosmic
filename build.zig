@@ -1455,21 +1455,27 @@ fn hostName(b: *std.Build) []const u8 {
     return hostTarget(b).name;
 }
 
-/// Keeps the host's native OS, ABI, and version while making its CPU
-/// instruction set safe to transport between different machines of that
-/// architecture. `b.graph.host` includes features detected on the build
-/// machine, which an exported checked core cannot assume on its runner.
+/// The host's architecture, OS and ABI, with the baseline CPU and the
+/// OS's and libc's default versions: nothing detected on the build machine.
+/// `b.graph.host` includes CPU features detected there, which an exported
+/// checked core cannot assume on its runner.
 ///
 /// Every tool the build runs on the host is built for this target too, not
 /// `b.graph.host`: a tool's bytes are part of the cache key of every step
 /// that runs it, and the patch applier's output directory is the path every
 /// vendored C file compiles from. Built for the detected CPU, a restored
-/// cache from a runner on other hardware missed on every vendored object.
+/// cache from a runner on other hardware missed on every vendored object;
+/// built for the detected kernel and glibc versions, it missed after every
+/// runner image update (linux-aarch64 compiled for over a minute a run once
+/// its image moved from 20260907 to 20260920).
 fn baselineHostTarget(b: *std.Build) std.Build.ResolvedTarget {
-    var query = b.graph.host.query;
-    query.cpu_model = .baseline;
-    query.cpu_features_add = .empty;
-    query.cpu_features_sub = .empty;
+    const host = b.graph.host.result;
+    const query: std.Target.Query = .{
+        .cpu_arch = host.cpu.arch,
+        .cpu_model = .baseline,
+        .os_tag = host.os.tag,
+        .abi = host.abi,
+    };
     const resolved = b.resolveTargetQuery(query);
     const expected = std.Target.Cpu.Model.baseline(
         resolved.result.cpu.arch,
