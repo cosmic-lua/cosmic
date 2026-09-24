@@ -209,8 +209,8 @@ static void stamp_line (const struct stat *core_stat, char *line, size_t room) {
 }
 
 /* The stamp's path and its directory, when the executing core is the cache
- * entry the launcher names for this manifest entry; 0 for a core run from
- * anywhere else, which is always hashed and never stamped. */
+ * entry the launcher names for this manifest entry; false for a core run
+ * from anywhere else, which is always hashed and never stamped. */
 static bool stamp_path (const struct cosmic_portable_entry *entry,
                         const struct stat *core_stat, char *path, size_t room,
                         char *directory, size_t directory_room) {

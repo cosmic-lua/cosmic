@@ -74,9 +74,8 @@ COSMIC_SYSCALL(open, 3) {
   int mode = cosmic_optint(L, 3, 0644);
   int fd;
   do {
-    /* Every descriptor this table opens is close-on-exec: there is no
-     * spawn in M1, but a child process is never handed a file it was
-     * not given on purpose. */
+    /* Every descriptor this table opens is close-on-exec: a child
+     * process is never handed a file it was not given on purpose. */
     fd = open(path, flags | O_CLOEXEC, (mode_t)mode);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {

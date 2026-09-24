@@ -37,8 +37,8 @@ defines the target; once something ships, it leaves this file.
 ## untrusted input
 
 design.md promises that the parsers facing untrusted input are fuzzed.
-`build.fuzz` runs the tar, zip and archive properties and the host-program
-locator's on every `cosmic test`, and CI reruns them deep on the checked core.
+`build.fuzz` runs the tar, zip, archive, codec and shape properties and the
+host-program locator's on every `cosmic test`, and CI reruns them deep on the checked core.
 curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. `core/json.c`'s own walk into Lua values and
 its encoder are fuzzed here, in `cosmic/json_fuzz_test.tl`.
@@ -122,7 +122,7 @@ behind `cosmic docs` and `cosmic uses`; API guidance goes in the indexed doc
 comment beside the source, and a guide is only for a task larger than one
 symbol.
 
-- add focused `*_example.tl` files beside `sys`, `hash`, `sqlite` and `removed`'s:
+- add focused `*_example.tl` files beside the ones `cosmic/` already has:
   filesystem, environment, process, time, errors, and store first, then
   `http`, `archive` (with `tar`, `zip` and `stream`), compression, and
   coverage.

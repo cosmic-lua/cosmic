@@ -119,12 +119,13 @@ work.version = "22"
 --- `parsed`, `requires` and `tests` are one parse of one source, keyed
 --- by its content hash rather than its path: what a parse finds is a
 --- function of the bytes alone, so a rename costs nothing and a row
---- can never be stale.
+--- can never be wrong. A row whose source no longer hashes among the
+--- inputs is pruned, and every row goes when the analyzer changes.
 ---
 --- `executable` is `build.coverage.lines.executable`'s answer for one
 --- source, keyed by content hash the same way as `parsed`: which lines
 --- could ever be hit is a pure function of the bytes alone, so a row
---- can never be stale and, like `parsed`, is never pruned. `lines` is
+--- can never be wrong and, unlike `parsed`, is never pruned. `lines` is
 --- every executable line number in ascending order, joined by single
 --- spaces (e.g. "1 3 4 9"), rather than one row per line, since a
 --- caller always wants the whole set back at once. A row is a

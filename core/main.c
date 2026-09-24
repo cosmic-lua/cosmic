@@ -246,7 +246,7 @@ static void print_guidance (const char *head, const char *text) {
 
 /* The best-matching `catalog` row for `message` in `db`, printed as
  * guidance: true when one was, false when `db` carries no catalog (a
- * build/bridge run with no database attached), nothing in it shares
+ * boot run, with no database attached), nothing in it shares
  * two or more significant words with `message` (see
  * `count_shared_words`), or the FTS5 query itself carried no
  * significant word at all. A row's own text is the hand-authored

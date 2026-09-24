@@ -27,11 +27,7 @@ local type Ctx = ctx_mod.Ctx
 
 local expression: function(Ctx, Node)
 
---- Note a construct this renderer will not write, rather than writing
---- something else and calling it the same program.
-local function refuse(c: Ctx, what: string)
-  c.refused[#c.refused + 1] = what
-end
+local refuse = ctx_mod.refuse
 
 --- What follows an `as` or an `is`, as original bytes. `anchor` is the
 --- operator's own token when there is one: the type begins right after
@@ -278,13 +274,11 @@ end
 local record ExprModule
   expression: function(c: Ctx, n: Node)
   items: function(c: Ctx, list: Node, first_inline: string)
-  refuse: function(c: Ctx, what: string)
 end
 
 local M: ExprModule = {
   expression = expression,
   items = items,
-  refuse = refuse,
 }
 
 return M

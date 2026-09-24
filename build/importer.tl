@@ -95,14 +95,6 @@ function importer.analyzer_modules(): {string} | nil, string
   return names, ""
 end
 
---- Whether `root` is cosmic's own tree, structurally. Exposed so a
---- caller can gate other cosmic's-own-tree behavior on the same test
---- the importer itself uses; see `build.tree`, which holds the real
---- check so answering it never costs loading the rest of `build`.
-function importer.is_own_tree(root: string): boolean | nil, string
-  return tree.is_own(root)
-end
-
 --- The bytecode header every target must agree on. One column of
 --- bytecode serves all three because they are all little-endian and
 --- 64-bit; this is what says so out loud, so a target whose sizes or
@@ -471,35 +463,32 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     return false, forget_trouble
   end
 
-  local derive_rows = function(): boolean, string
-    local swept, sweep_trouble = db:exec(
-      "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
-      "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
-      "AND f.sha256 = derived.from_hash)")
-    if not swept then
-      return false, sweep_trouble
-    end
-    local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
-    for _, step in ipairs(steps) do
-      local ok, trouble = step(db)
-      if not ok then
-        return false, trouble
-      end
-    end
-    local parsed, parse_trouble = parse_new(db, built)
-    if not parsed then
-      return false, parse_trouble
-    end
-    for _, table_name in ipairs(analysis_tables) do
-      local ok, trouble = db:exec("DELETE FROM " .. table_name ..
-        " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
-      if not ok then
-        return false, trouble
-      end
-    end
-    return true, ""
+  local swept, sweep_trouble = db:exec(
+    "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
+    "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
+    "AND f.sha256 = derived.from_hash)")
+  if not swept then
+    return false, sweep_trouble
   end
-  return derive_rows()
+  local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
+  for _, step in ipairs(steps) do
+    local ok, trouble = step(db)
+    if not ok then
+      return false, trouble
+    end
+  end
+  local parsed, parse_trouble = parse_new(db, built)
+  if not parsed then
+    return false, parse_trouble
+  end
+  for _, table_name in ipairs(analysis_tables) do
+    local ok, trouble = db:exec("DELETE FROM " .. table_name ..
+      " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
+    if not ok then
+      return false, trouble
+    end
+  end
+  return true, ""
 end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
@@ -857,15 +846,14 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
---- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"`
---- check) already treats a name starting with `_` as intentionally
---- unused and never warns about it -- but says so nowhere in the
---- warning it raises for every other name, and every warning is a
---- refused compile on cosmic's paths (see `complain`'s own doc
---- comment), so a fresh agent hits this as a hard build failure with
---- no hint of the one-character fix. Appended once, at the one place
---- every message is rendered, rather than patching the vendored
---- checker's own text.
+--- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"` check)
+--- already treats a name starting with `_` as intentionally unused and
+--- never warns about it -- but says so nowhere in the warning it raises
+--- for every other name, and every warning is a refused compile on
+--- cosmic's paths (see `generate`), so a fresh agent hits this as a
+--- hard build failure with no hint of the one-character fix. Appended
+--- once, at the one place every message is rendered, rather than
+--- patching the vendored checker's own text.
 local function with_unused_hint(msg: string): string
   if msg:match("^unused variable ") or msg:match("^unused argument ") then
     return msg .. " -- name it _ or _<name> to mark it intentionally unused"
@@ -1202,7 +1190,7 @@ end
 ---   every key carries
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string): importer.Result | nil, string
-  local own_tree, own_trouble = importer.is_own_tree(handle.root)
+  local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local modules, trouble = collect(handle, own_tree, built)
   if modules == nil then
@@ -1329,7 +1317,7 @@ function importer.compile(handle: work.Handle, built: compiler,
           bytecode = generated.bytecode
           result.compiled = result.compiled + 1
           local kept_refs, refs_trouble = keep_references(db, m.key,
-            assert(generated).references)
+            generated.references)
           if not kept_refs then
             finish_cache(cache)
             return false, m.file .. ": " .. refs_trouble
@@ -1366,9 +1354,9 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
     return db:exec("DELETE FROM typed_refs WHERE key NOT IN (SELECT key FROM compiled)")
   end
-  local made, transact_trouble = compile_all()
+  local made, compile_trouble = compile_all()
   if not made then
-    return nil, transact_trouble
+    return nil, compile_trouble
   end
   if failure ~= "" then
     return nil, failure
