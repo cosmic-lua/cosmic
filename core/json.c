@@ -178,6 +178,62 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
   }
 }
 
+/* The line and column of byte `pos` of `text`, both counted from 1,
+ * the column in bytes. */
+/* TODO: count a JSON5 line ended by a lone \r, U+2028 or U+2029 as a
+ * line too, as yyjson reads one; only \n ends a line here, for syntax
+ * errors and depth failures alike. */
+static void position (const char *text, size_t pos, size_t *line,
+                      size_t *column) {
+  *line = 1;
+  *column = 1;
+  for (size_t i = 0; i < pos; i++) {
+    if (text[i] == '\n') {
+      (*line)++;
+      *column = 1;
+    } else {
+      (*column)++;
+    }
+  }
+}
+
+/* The offset of the first array or object in `text` that opens with
+ * `max_depth` others already open around it: the one decode refuses.
+ * yyjson keeps no offsets in its document, so this counts brackets in
+ * the text, which read cleanly, skipping strings -- single-quoted ones
+ * too, and comments, as JSON5 has them. */
+static size_t deep_offset (const char *text, size_t len, int max_depth) {
+  int open = 0;
+  for (size_t i = 0; i < len; i++) {
+    char c = text[i];
+    if (c == '"' || c == '\'') {
+      for (i++; i < len && text[i] != c; i++) {
+        if (text[i] == '\\') i++;
+      }
+    } else if (c == '/' && i + 1 < len && text[i + 1] == '/') {
+      /* JSON5 ends a line comment at any line terminator: \n, \r,
+       * U+2028 or U+2029 (E2 80 A8, E2 80 A9). */
+      while (i < len && text[i] != '\n' && text[i] != '\r' &&
+             !(i + 2 < len && (unsigned char)text[i] == 0xe2 &&
+               (unsigned char)text[i + 1] == 0x80 &&
+               ((unsigned char)text[i + 2] == 0xa8 ||
+                (unsigned char)text[i + 2] == 0xa9))) {
+        i++;
+      }
+    } else if (c == '/' && i + 1 < len && text[i + 1] == '*') {
+      for (i += 2; i + 1 < len && !(text[i] == '*' && text[i + 1] == '/'); i++) {
+      }
+      i++;
+    } else if (c == '[' || c == '{') {
+      if (open >= max_depth) return i;
+      open++;
+    } else if (c == ']' || c == '}') {
+      open--;
+    }
+  }
+  return len;
+}
+
 /* nil and where `text` stopped being JSON, as a line and a column of
  * bytes, both counted from 1. */
 static int read_failure (lua_State *L, const char *text, size_t len,
@@ -191,17 +247,8 @@ static int read_failure (lua_State *L, const char *text, size_t len,
     lua_pushliteral(L, "invalid JSON: the text is empty");
     return 2;
   }
-  size_t pos = err->pos < len ? err->pos : len;
-  size_t line = 1;
-  size_t column = 1;
-  for (size_t i = 0; i < pos; i++) {
-    if (text[i] == '\n') {
-      line++;
-      column = 1;
-    } else {
-      column++;
-    }
-  }
+  size_t line, column;
+  position(text, err->pos < len ? err->pos : len, &line, &column);
   lua_pushfstring(L, "invalid JSON at line %I, column %I: %s",
                   (lua_Integer)line, (lua_Integer)column, err->msg);
   return 2;
@@ -235,10 +282,10 @@ static int json_decode (lua_State *L) {
   guard->resource = doc;
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
     lua_pushnil(L);
-    /* TODO: say where, as a syntax error does. yyjson keeps no offsets
-     * in its document, so find the line and column by counting brackets
-     * outside strings in `text` up to the limit. */
-    lua_pushfstring(L, "JSON nests deeper than %d levels", d.max_depth);
+    size_t line, column;
+    position(text, deep_offset(text, len, d.max_depth), &line, &column);
+    lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I",
+                    d.max_depth, (lua_Integer)line, (lua_Integer)column);
     return 2;
   }
   lua_pushliteral(L, "");

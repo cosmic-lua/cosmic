@@ -98,6 +98,16 @@ local function decode_holds(input: string): boolean, string
   return true, ""
 end
 
+--- The column of the `n`th `[` or `{` in `opens`, which holds nothing
+--- else that brackets: the one a depth limit of n - 1 refuses.
+local function deepest(opens: string, n: integer): integer
+  local at = 0
+  for _ = 1, n do
+    at = assert(opens:find("[%[{]", at + 1))
+  end
+  return at
+end
+
 local function test_decode_is_total_on_mutated_json(tmp: string)
   Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds })
 end
@@ -247,7 +257,8 @@ local function test_the_depth_limits_are_exact(tmp: string)
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
         if err ~= "" then return false, ("%d levels under a limit of %d: %s"):format(n, limit, err) end
-      elseif value ~= nil or err ~= ("JSON nests deeper than %d levels"):format(limit) then
+      elseif value ~= nil or err ~= ("JSON nests deeper than %d levels at line 1, column %d"):
+           format(limit, deepest(opens, limit + 1)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then

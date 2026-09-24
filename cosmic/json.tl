@@ -205,7 +205,9 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
       count = count + 1
       local value, err = Json.decode(line, opts)
       if err ~= "" then
-        local located = err:gsub("^invalid JSON at line 1,", "invalid JSON at line " .. number .. ",")
+        -- A line is its own text, so what the error says is line 1 is
+        -- this line of the whole.
+        local located = err:gsub(" at line 1, column ", " at line " .. number .. ", column ", 1)
         if located == err then
           located = "line " .. number .. ": " .. err
         end
