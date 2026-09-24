@@ -689,11 +689,12 @@ local record Binding
   --- Where the name's scope ends: its block's end for a `local`, a
   --- loop variable, or a parameter; an assignment's own block's end,
   --- after which rule 6 no longer follows the name.
-  -- TODO: follow a reason assigned in an inner block (`local ok, err`
-  -- then `ok, err = f()` inside an `if`) to the end of the name's own
-  -- scope, not of the assignment's block, once build.receivers keeps
-  -- the declaration each variable node resolves to; tl's checker finds
-  -- it but stores it nowhere this can read.
+  -- TODO: a reason assigned in an inner block (`local ok, err` then
+  -- `ok, err = f()` inside an `if`) is followed past the block by
+  -- `holds_reason` guessing which local it stored into from where the
+  -- declarations before it end; resolve it exactly once build.receivers
+  -- keeps the declaration each variable node resolves to; tl's checker
+  -- finds it but stores it nowhere this can read.
   ends: integer
   --- Whether the name is declared here (it shadows until `ends`) rather
   --- than assigned (it replaces whatever was there).
@@ -905,6 +906,18 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
   end
   --- Whether `name`, read at `at`, holds a reason. An alias is always
   --- bound after the name it copies is read, so this only looks back.
+  --- Whether the assignment `list[i]`, in a block closed before `at`,
+  --- stored into a local declared in a block that has closed too: one
+  --- declared before it whose scope holds the assignment's block and
+  --- ends before `at`. Such a store is not what `at` reads.
+  local function into_closed(list: {Binding}, i: integer, at: integer): boolean
+    local b = list[i]
+    for j = i - 1, 1, -1 do
+      local d = list[j]
+      if d.declared and d.ends >= b.ends and d.ends < at then return true end
+    end
+    return false
+  end
   local function holds_reason(name: string, at: integer): boolean
     local list = bindings[name] or {}
     for i = #list, 1, -1 do
@@ -912,12 +925,18 @@ local function check_inspections(file: string, index: Index, callees: {integer: 
       -- A declaration whose scope has closed stood in an inner block:
       -- the one before it is what this reads.
       if b.at <= at and (not b.declared or b.ends >= at) then
-        if b.ends < at then return false end
-        if b.reason then return true end
-        local alias = b.alias
-        if alias == nil or alias.tk == nil then return false end
-        local from = position(alias.y, alias.x)
-        return from < b.at and holds_reason(alias.tk, from)
+        -- An assignment in an inner block that has closed may not have
+        -- run: what it stored is read only when it stored a reason into
+        -- a name still in scope, and what came before may be read too.
+        if b.ends < at then
+          if b.reason and not into_closed(list, i, at) then return true end
+        else
+          if b.reason then return true end
+          local alias = b.alias
+          if alias == nil or alias.tk == nil then return false end
+          local from = position(alias.y, alias.x)
+          return from < b.at and holds_reason(alias.tk, from)
+        end
       end
     end
     return false
