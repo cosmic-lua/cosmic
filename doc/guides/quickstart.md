@@ -101,3 +101,22 @@ print("exit " .. tostring(finished.code))
 hello, cosmic
 exit 0
 ```
+
+`Child.start` hands back a running child instead, and `Child.wait_any`
+waits for the first of several to finish. When its timeout passes first it
+answers `nil` and `""`: nothing finished, and nothing failed. A reason other
+than `""` is a failure to report, never a message to read for its meaning.
+
+```teal
+local Child = require("cosmic.child")
+
+local sleeper = assert(Child.start({ "/bin/sh", "-c", "sleep 5" }))
+local done, trouble = Child.wait_any({ sleeper }, 10)
+if done == nil and trouble ~= "" then error(trouble) end
+print(done == nil and "still running" or "finished")
+assert(sleeper:close())
+```
+
+```output
+still running
+```

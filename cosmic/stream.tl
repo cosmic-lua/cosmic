@@ -331,11 +331,11 @@ function Stream.read_all(reader: Stream.Reader): string | nil, string
 end
 
 --- Copies `reader` to `writer` until `reader`'s end of file, and
---- returns how many bytes went across. With `max`, fails as soon as
---- more than `max` bytes arrive, without writing the chunk that
---- crossed it. Closes neither side: on failure the caller decides
---- whether to `abort` `writer` or `close` it.
-function Stream.copy(reader: Stream.Reader, writer: Stream.Writer, max?: integer): integer | nil, string
+--- returns how many bytes went across. Closes neither side: on failure
+--- the caller decides whether to `abort` `writer` or `close` it. To
+--- cap a copy, copy `Stream.limit(reader, max + 1)` and compare the
+--- count with `max`: a count is a caller's to read, a reason is not.
+function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer | nil, string
   local total = 0
   while true do
     local chunk, trouble = reader:read(chunk_size)
@@ -344,9 +344,6 @@ function Stream.copy(reader: Stream.Reader, writer: Stream.Writer, max?: integer
       return total, ""
     end
     total = total + #chunk
-    if max ~= nil and total > max then
-      return nil, "stream: more than " .. tostring(max) .. " bytes"
-    end
     local ok, wtrouble = writer:write(chunk)
     if not ok then return nil, wtrouble end
   end

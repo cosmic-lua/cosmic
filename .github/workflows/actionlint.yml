@@ -1,0 +1,58 @@
+name: actionlint
+
+# Checks the workflows with the pinned actionlint (bin/actionlint), so a
+# mistake it can see -- a context named where it is not available, an
+# expression of the wrong type, an unknown input to a well-known action --
+# fails here in seconds rather than at "Set up job" on every leg. It runs
+# only when the workflows or the tool change, and is not a required
+# check: path filters do not apply to merge_group, and a required check
+# that never runs would hold the queue. Run bin/actionlint locally before
+# pushing a workflow change.
+on:
+  push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
+    paths:
+      - '.github/**'
+      - 'bin/actionlint'
+      - 'bin/actionlint.pin'
+      - 'bin/cosmic-bootstrap'
+      - 'build/actionlint.tl'
+      - 'ci/cosmic-driver.pin'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: cache the pinned bootstrap cosmic
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/cache/cosmic/bootstrap
+          key: cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}
+
+      - name: cache the pinned actionlint
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/cache/cosmic/actionlint
+          key: actionlint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/actionlint.pin') }}
+
+      - name: check the workflows
+        run: |
+          # A restored bootstrap cache is checked against the pin first.
+          # bin/actionlint holds what it downloads to the pin, but a
+          # restored actionlint cache only to being a non-empty
+          # executable (see the TODO in build/actionlint.tl); the cache
+          # key is the pin's hash, and only this workflow writes it.
+          COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" sh bin/cosmic-bootstrap >/dev/null
+          XDG_CACHE_HOME="$RUNNER_TEMP/cache" sh bin/actionlint
