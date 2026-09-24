@@ -260,6 +260,11 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     if owner == nil then
       return
     end
+    -- TODO: a field the record inherits from an interface is recorded
+    -- under the record (`Collector.write`), which has no docs row, rather
+    -- than under the interface that declares it (`Writer.write`), so
+    -- `cosmic uses Stream.Writer.write` misses `c:write(...)` on a
+    -- Collector. Walk the record's `interface_list` for the declaring one.
     local member = owner.path .. "." .. e2.tk
     local id = owner.module .. "\n" .. member .. "\n" .. e2.y
     if not seen[id] then
