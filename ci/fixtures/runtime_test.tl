@@ -135,8 +135,8 @@ end
 
 -- The selectable fixture TU owns every diagnostic phase, including the one
 -- after the retained artifact has closed; production cores carry none of
--- it. `cmp` in the shell is an exact whole-file comparison, so this checks
--- the full captured stderr for exact equality rather than a substring.
+-- it. This checks the full captured stderr for exact equality rather than
+-- a substring.
 local function test_runtime_startup_phases(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local work = tmp
@@ -230,9 +230,7 @@ end
 -- keeps the public cache setting, and leaves ordinary variables alone.
 -- tool.tl's `environment_clean` reads the cache value as its own first
 -- positional argument and checks it against `COSMIC_PORTABLE_CACHE` in the
--- real environment -- both are set to the same string here, matching the
--- shell's own double plumbing (`COSMIC_PORTABLE_CACHE=$cache ... "$cache"
--- $names`).
+-- real environment -- both are set to the same string here.
 local function test_runtime_environment_scrubbing(tmp: string)
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
@@ -261,8 +259,8 @@ local function test_runtime_environment_scrubbing(tmp: string)
     root .. "/test/portable/tool.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
-  -- tool.tl's own require("build.artifact")/require("test.portable.
-  -- artifact_fixture") resolve relative to the process cwd, so this (like
+  -- tool.tl's own require("build.artifact")/require("test.portable")
+  -- resolve relative to the process cwd, so this (like
   -- every other tool.tl invocation here) must run from `root`, not `work`.
   local outcome = Fixture.run("environment-clean", argv, root, diagnostics,
     values)
@@ -336,10 +334,9 @@ local function test_runtime_private_contract(tmp: string)
 
   -- A different build of the same target/configuration is the executing
   -- inode and FD9, but differs from the manifest's exact core bytes and is
-  -- rejected. The shell checks this with `grep -Eq
-  -- 'executing core (length|digest) differs from manifest'`; Fixture.contains
-  -- is a plain substring match, so this uses a direct Lua pattern instead to
-  -- keep the same length-or-digest alternation.
+  -- rejected, as "executing core length differs from manifest" or the same
+  -- for its digest; Fixture.contains is a plain substring match, so this
+  -- uses a Lua pattern for the alternation.
   local wrong_core_run = run_with_descriptors("wrong-core",
     fixture_dir .. "/runtime.release", wrong_core,
     { wrong_core, "--artifact", fixture_dir .. "/runtime.release", "help" },
@@ -597,7 +594,7 @@ local function test_runtime_mismatch_after_select(tmp: string)
       "mismatch-after-select: expected failure message not found")
     -- A hard bug (startup falling all the way back to treating this as no
     -- tree to boot at all) rather than the expected rejection; surfaced
-    -- loudly, matching the shell's own `if grep ...; then exit 1; fi`.
+    -- loudly.
     assert(err:find("no tree to boot", 1, true) == nil,
       "mismatch-after-select: startup fell back to \"no tree to boot\" " ..
       "instead of rejecting the mismatched replacement")

@@ -31,7 +31,6 @@
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
-local Log = require("cosmic.log")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
@@ -48,7 +47,7 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local type compiler = require("build.compiler")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record fix
   --- What one file's pipeline produced, and whether it differs from
@@ -498,8 +497,8 @@ function fix.run(argv: {integer:string}): integer
     return 1
   end
   if checking and #changed > 0 then
-    log:say("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
-      clock.elapsed_ms(started) .. " ms); `cosmic fix` rewrites them in place")
+    log:verdict("fix", false, #changed .. " of " .. counted .. " files to fix, " ..
+      clock.elapsed_ms(started) .. " ms; `cosmic fix` rewrites them in place")
     return 1
   end
   log:verdict("fix", true, counted .. " files, " .. #changed ..

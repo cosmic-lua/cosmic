@@ -16,8 +16,10 @@ local sys = require("cosmic.sys")
 local artifact = require("build.artifact")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
+local log = require("build.verdict").log
 local type compiler = require("build.compiler")
 
 local record reboot
@@ -222,8 +224,8 @@ end
 --- `help` -- that never compiles the tree itself but still runs
 --- `build.*` Teal that this binary embedded at its own boot. Inside
 --- cosmic's own tree, an edit to that Teal is otherwise invisible
---- until `bin/zig build boot`, the way `AGENTS.md`'s claim that "an
---- edit to Teal needs no boot" promises it should not be.
+--- until `bin/zig build boot`, where `AGENTS.md` (step 3) promises an
+--- edit to Teal rebuilds on its own.
 ---
 --- The fresh case -- overwhelmingly the common one for a read-only
 --- verb run again and again while nothing changed -- never walks the
@@ -253,7 +255,7 @@ end
 -- failure, so this pair is not a value and its reason, and
 -- build.contracts exempts it from the error-slot rules until then.
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
-  local own_tree, own_trouble = importer.is_own_tree(root)
+  local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     return 1, own_trouble
   end
@@ -326,6 +328,23 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
   local built = teal.lazy()
   local reboot_trouble = reboot.into(handle, built, argv)
   return 3, reboot_trouble
+end
+
+--- The exit code a verb returns at once when the tool is older than the
+--- tree in the working directory -- after a rebuild that failed, or a
+--- refused boot, having said why -- or nil to go on. When the tool can
+--- rebuild itself it does, and runs `argv` again rather than returning.
+function reboot.stale_exit(argv: {integer:string}): integer | nil
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    log:complain(root_trouble)
+    return 1
+  end
+  local code, trouble = reboot.ensure(root, argv)
+  if code ~= nil and trouble ~= "" then
+    log:complain(trouble)
+  end
+  return code
 end
 
 return reboot

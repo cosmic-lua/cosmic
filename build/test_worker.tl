@@ -85,8 +85,6 @@ local function encode_hits(lines: {string}, tag: string, hits: Coverage.Hits)
   end
 end
 
---- The report as text: a header, one line per fact, and a closing line
---- whose absence says the worker never finished writing it.
 --- Folds into `into` every line the processes the test started wrote
 --- into `directory` (see `Coverage.children`), removing each file and
 --- then the directory. A file cut short by a process killed mid-write
@@ -113,6 +111,8 @@ local function child_hits(directory: string, into: Coverage.Hits)
   local _, _ = sys.rmdir(directory)
 end
 
+--- The report as text: a header, one line per fact, and a closing line
+--- whose absence says the worker never finished writing it.
 function worker.encode(report: worker.Report): string
   local lines: {string} = { HEADER,
     "loaded " .. (report.loaded and "1" or "0"),

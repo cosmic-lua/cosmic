@@ -150,8 +150,9 @@ content-derived Mach-O UUID follows it. the Linux lane builds a
 fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
 bare trap. `bin/zig build sanitized` boots with that core and embeds
-it in `o/sanitized/bin/cosmic`; CI verifies the embedded core bytes
-and runs the whole test suite under `timeout 90` on every push, with
+it in `o/sanitized/bin/cosmic`; every full CI run (merge queue, main,
+or a manual run) verifies the embedded core bytes and, on the Linux
+x86-64 leg, runs the whole test suite under a 90-second limit, with
 full undefined-behavior checking and coverage collection enabled. zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
@@ -429,8 +430,8 @@ tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
 vendored tree's `PIN`, `build.zig` and the zig wrapper. a vendored
 tree is a function of its pin and its patch records and is never
 edited in place, so those are its inputs and the tree is not walked.
-on a mismatch the tool refuses with `the tool is stale; run bin/zig build
-boot` and exit 3. raw cores remain build outputs under `o/core`; the working
+on a mismatch the tool rebuilds itself, as below, or refuses with exit 3
+when it cannot. raw cores remain build outputs under `o/core`; the working
 database carries the compiler source needed for a later database-only rebuild.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
@@ -466,9 +467,10 @@ by name. rename and unlink remain supported because retained descriptors carry
 the running artifact. an externally copied tool is therefore rewritten at
 that copied logical path; a read-only logical path fails rather than silently
 redirecting the rebuild into the tree;
-when the C core's inputs differ, only zig can build it, and the tool
-says so. the binary also carries two identities: the compiler it is,
-over the build's own modules in the importer's closure and the Teal
+when the C core's inputs differ, only zig can build it, so the tool
+runs `bin/zig build boot` and re-enters the command, or, under
+`COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries
+two identities: the compiler it is, over the build's own modules in the importer's closure and the Teal
 compiler's and Lua's pins and patches, which every module key
 carries; and the runtime it is, over its host image and the same
 pins, which every test verdict carries. the standard library the
@@ -477,7 +479,12 @@ imports it and nothing more. a row compiled by another compiler is
 never mistaken for this one's.
 
 the C stage is hermetic and checked. `build.zig` runs with both of
-zig's caches under `o/`, and `o/` is the only thing to delete. the
+zig's caches, keyed by content, in the user's cosmic cache directory
+(`zig-project` and `zig-global` under `~/.cache/cosmic` by default) and
+shared by every checkout (`COSMIC_ZIG_CACHE` and
+`COSMIC_ZIG_GLOBAL_CACHE` move them, and with no cache directory at all
+they fall back to `o/`); `o/` and those caches are the only things to
+delete. the
 applier's output replaces the vendor directory the core compiles
 from, whole, never one file beside a pristine tree, because a quoted
 `#include` finds the neighbor first and a half-applied patch builds
@@ -553,7 +560,7 @@ files -- no `curl`, `tar` or `unzip`, and from any directory, since a
 standalone run reads nothing of the tree but the one file.
 `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
-it exists. a ~200-line C applier that zig builds first writes the
+it exists. a ~400-line C applier that zig builds first writes the
 patched copy to `o/vendor/<name>`; a record whose anchor no longer
 matches fails the build by name.
 
@@ -686,12 +693,22 @@ a claim.
 
 verbs, with a bare path meaning run: `cosmic build`, `cosmic test`,
 `cosmic fix`, `cosmic docs`; `cosmic file.tl` runs a
-file; `-e` stays as Lua's one-liner idiom. `build` builds the tree and
+file; `-e` stays as Lua's one-liner idiom: `cosmic -e '<chunk>'` runs
+a chunk of Lua against the standard library, with no tree, and the
+words after it are its `...`. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
-takes paths to narrow it, ends in a verdict line and an exit code,
-and `cosmic help <verb>` is the whole discovery surface. no other
+takes paths to narrow it (`uses` after its symbol), except `docs`,
+which takes words to search for; `sql`, which takes one statement
+and names its database by option, since a statement already says
+which rows it reads; and `help`, which takes a verb. every verb ends
+in a verdict line
+and an exit code; a file run, `--standalone` and `-e` are programs,
+not verbs, and print only what they print and exit with what they
+return. `cosmic help <verb>` prints that verb's line, and `cosmic
+help` all of them: the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
+[the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code
 and for the public standard library, `cosmic.*` less `internal` and
@@ -720,7 +737,7 @@ core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
-build/              the importer, checker driver, embed (Teal, private)
+build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
 doc/                prose
 o/                  output; o/cosmic.db, o/build.db; never committed
 ```
@@ -743,8 +760,18 @@ already resolves `require("cosmic.fs")` to `cosmic/fs/init.tl`; a
 sibling beside it, `cosmic/fs/walk.tl`, compiles as `cosmic.fs.walk`
 and the checker refuses an import of it from any file outside
 `cosmic/fs/`. the same rule applies everywhere in the tree, not only
-under `cosmic/`. a project tree may hold no `cosmic`-prefixed path
-at all unless it is cosmic's own tree, so a project can never place
+under `cosmic/`: a nested directory with no `init.tl` has no entry,
+so nothing in it is reachable from outside it, while a top-level
+directory with none, as `cosmic/` and `build/` are, is a namespace
+whose every file is a flat module of its own. `build/` is private
+besides: in cosmic's own tree only `build/` itself, the binary under
+`cmd/`, a test, and test support under `test/` may import `build.*`,
+so the standard library never depends on the tool that builds it.
+that is the position rule again rather than a list to maintain: it
+names places, the binary the tool is and the tests that check it,
+never modules, so a new file under `build/` or a new test needs no
+entry anywhere. a project tree may hold no `cosmic`-prefixed path at
+all unless it is cosmic's own tree, so a project can never place
 itself as a false sibling to claim another module's private surface.
 entry-point reachability is settled; whether an exported function's own name is
 capitalized by convention, `fs.Read` rather than `fs.read`, is a

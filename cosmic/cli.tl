@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
---- and the rest -- one field per verb, so `cosmic docs test` (or
---- build, fix, db, docs, uses, todos, help, run, standalone) answers
+--- and the rest -- one field per verb, so `cosmic docs test` (or build,
+--- fix, db, sql, docs, uses, todos, help, run, standalone, eval) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
@@ -29,6 +29,14 @@ local record Cli
   --- one -- see argv -- with a record's `main` field standing for a
   --- returned function
   standalone: string
+  --- `cosmic -e '<chunk>' [args...]`: runs the chunk as Lua, the way
+  --- `lua -e` does, against this binary's own standard library, with no
+  --- tree around it -- nothing staged or built, nothing under o/
+  --- written, and no staleness check. The words after the chunk are its
+  --- `...`; it prints only what it prints. What it returns is the exit
+  --- code, as a built program's is: nothing is 0, a whole number from 0
+  --- to 255 is itself, and anything else is complained about and exits 2
+  eval: string
   --- `cosmic test`: builds the tree in the working directory, then
   --- runs every test it defines -- see test, Example -- which
   --- `cosmic docs` also shows under every symbol an example calls.
@@ -48,23 +56,44 @@ local record Cli
   --- passes on more values than its place can take -- `(assert(...))`
   --- keeps only the first
   fix: string
-  --- `cosmic build`: builds the tree in the working directory, then
-  --- writes one executable under o/bin/ for each cmd/<name>/main.tl
-  --- it holds -- o/bin/<name>, which runs on its own, with nothing
-  --- beside it -- see cmd. It runs on every supported system. With
+  --- `cosmic build [path...]`: builds the tree in the working
+  --- directory, then writes one executable under o/bin/ for each
+  --- cmd/<name>/main.tl it holds -- or only those under the paths --
+  --- o/bin/<name>, which runs on its own, with nothing beside it -- see
+  --- cmd. It runs on every supported system. With
   --- `--host` it is instead this system's native executable with the
   --- program inside, which starts faster, with no launcher, but runs
   --- only on a system like this one
   build: string
-  --- `cosmic db`: what the two databases under o/ hold, table by
-  --- table -- rows, pages, bytes -- and how the last few builds went
+  --- `cosmic db [path...]`: what the two databases under o/ hold,
+  --- table by table -- rows, pages, bytes -- how the last few builds
+  --- went, and the slowest tests. Paths narrow it to the rows about the
+  --- sources under them -- a row whose file, module or source hash is
+  --- one under a path -- counted per table (coverage counting every run
+  --- kept, not only the latest), and the slowest of those tests. Pages,
+  --- bytes and builds are not per source, so a narrowed report leaves
+  --- them out
   db: string
+  --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
+  --- one SQL statement read-only -- SQLite itself refuses a write --
+  --- against o/cosmic.db, or the binary's own database when there is
+  --- none; `--build` names o/build.db, `--store` the binary's own (which
+  --- refuses every PRAGMA but data_version) and `--db` any file. o/ is
+  --- looked for in the working directory only, never above it. Each row
+  --- is one line of tab-separated cells: NULL as \N, a blob as X'<hex>',
+  --- and in text a backslash, tab, newline or return as \\, \t, \n or
+  --- \r and any other control byte as \xHH. The verdict line comes
+  --- after the rows, as every verb's last line. Exits 0 when the
+  --- statement ran, rows or none; 1 when the
+  --- database or the statement failed, a write among them; 2 for a
+  --- command line it cannot read. Nothing is built or staged.
+  sql: string
   --- `cosmic docs <q>`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs), or words to search the
   --- documentation for
   docs: string
-  --- `cosmic uses <sym>`: every place that refers to a symbol, as
-  --- file:line
+  --- `cosmic uses <sym> [path...]`: every place that refers to a
+  --- symbol, as file:line -- only those under the paths, when given
   uses: string
   --- `cosmic todos [--oldest] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
@@ -74,8 +103,8 @@ local record Cli
   --- search the TODOs' text for, best match first, in FTS5's own syntax
   --- ("a phrase", OR, prefix*) when they parse as that
   todos: string
-  --- `cosmic help`: prints the whole discovery surface -- every verb,
-  --- one line of prose each
+  --- `cosmic help [verb]`: prints the whole discovery surface -- every
+  --- verb, one line of prose each -- or, given a verb, only its line
   help: string
 end
 
@@ -89,10 +118,11 @@ end
 
 local module: Module = {
   fields = {
-    run = "run", standalone = "standalone", test = "test", fix = "fix", build = "build",
-    db = "db", docs = "docs", uses = "uses", todos = "todos", help = "help",
+    run = "run", standalone = "standalone", eval = "eval", test = "test", fix = "fix", build = "build",
+    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", help = "help",
   },
-  order = { "run", "standalone", "test", "fix", "build", "db", "docs", "uses", "todos", "help" },
+  order = { "run", "standalone", "eval", "test", "fix", "build", "db", "sql", "docs", "uses", "todos",
+    "help" },
 }
 
 return module

@@ -31,8 +31,8 @@ void cosmic_store_install (lua_State *L, sqlite3 *binary,
  * `raw_modules` table names every raw module there is. */
 void cosmic_store_set_raw (lua_State *L, const char *name);
 
-/* Opens and registers every raw module core C builds on its own --
- * the sqlite, hash, compress and http bindings. */
+/* Opens and registers every raw module core C builds on its own: each
+ * `raw_modules` entry in store.c with an `open` function. */
 void cosmic_store_open_raw (lua_State *L);
 
 /* Puts every registered raw value into package.preload under its own
@@ -51,10 +51,10 @@ bool cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size);
  * are, and the connection at 1-based `index` (NULL past the end). The
  * last one is always the binary's own. */
 int cosmic_store_count (lua_State *L);
+sqlite3 *cosmic_store_database (lua_State *L, int index);
 
 /* The validated portable artifact this process was started from, or NULL
  * for a native start. It stays owned by the entry. */
 const struct cosmic_artifact *cosmic_store_artifact (lua_State *L);
-sqlite3 *cosmic_store_database (lua_State *L, int index);
 
 #endif

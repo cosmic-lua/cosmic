@@ -17,7 +17,6 @@
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -25,12 +24,14 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local importer = require("build.importer")
+local narrow = require("build.narrow")
 local schema = require("build.schema")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record embed
 end
@@ -63,22 +64,10 @@ end
 --- read as. `columns` names the destination columns in `sql`'s order.
 local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
                          table_name: string, columns: {string},
-                         sql: string, values?: {Sqlite.Value}): boolean, string
+                         sql: string): boolean, string
   local statement, trouble = from:prepare(sql)
   if statement == nil then
     return false, table_name .. ": " .. trouble
-  end
-  for index, value in ipairs(values or {}) do
-    local bound, bind_trouble: boolean, string
-    if value.text ~= nil then
-      bound, bind_trouble = statement:bind_text(index, value.text)
-    else
-      bound, bind_trouble = statement:bind_null(index)
-    end
-    if not bound then
-      statement:finalize()
-      return false, table_name .. ": " .. bind_trouble
-    end
   end
   local slots: {string} = {}
   for index = 1, #columns do
@@ -260,8 +249,11 @@ end
 --- program -- this binary's own core with the program's database appended,
 --- which the kernel runs directly, with no launcher, only where this core
 --- runs. Returns the names written, none for a tree with no `cmd/`.
-function embed.tree(root: string, host?: boolean): {string} | nil, string
-  local own_tree, own_trouble = importer.is_own_tree(root)
+--- @param under paths relative to `root` that narrow it to the programs
+---   whose `main.tl` is under one; each must hold one. None, or nil, is
+---   every program
+function embed.tree(root: string, host?: boolean, under?: {string}): {string} | nil, string
+  local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return nil, own_trouble end
   if own_tree then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"
@@ -297,13 +289,25 @@ function embed.tree(root: string, host?: boolean): {string} | nil, string
     return nil, write_trouble
   end
 
+  local paths = under or {}
   local mains: {string} = {}
+  local files: {string} = {}
   for _, m in ipairs(result.modules) do
-    if m.kind == "main" then
+    if m.kind == "main" and narrow.holds(paths, m.file) then
       mains[#mains + 1] = m.path
+      files[#files + 1] = m.file
     end
   end
   table.sort(mains)
+  for _, path in ipairs(paths) do
+    local held = false
+    for _, file in ipairs(files) do
+      if narrow.holds({ path }, file) then held = true end
+    end
+    if not held then
+      return nil, "no cmd/<name>/main.tl under " .. path
+    end
+  end
   if #mains == 0 then
     return {}
   end
@@ -351,31 +355,26 @@ function embed.tree(root: string, host?: boolean): {string} | nil, string
   return names
 end
 
---- `cosmic build [--host]`: the tree in the working directory, and its
---- executables under `o/bin/`. Ends in a verdict line that names what
---- was written, or says why nothing was.
+--- `cosmic build [--host] [path...]`: the tree in the working directory,
+--- and its executables under `o/bin/` -- only those whose `main.tl` is
+--- under one of the paths, when there are any. Ends in a verdict line
+--- that names what was written, or says why nothing was.
 function embed.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--host"] = false })
-  if parsed ~= nil and #parsed.words > 0 then
-    parsed, parse_trouble = nil, "no such option: " .. parsed.words[1]
-  end
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
-    log:verdict("build", false)
     return 2
   end
   local host = parsed.set["--host"] == true
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
-    log:verdict("build", false)
     return 1
   end
-  local names, trouble = embed.tree(root, host)
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words))
   if names == nil then
     log:complain(trouble)
-    log:verdict("build", false)
     return 1
   end
   local outputs: {string} = {}

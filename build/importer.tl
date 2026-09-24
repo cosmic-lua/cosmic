@@ -55,30 +55,44 @@ local record importer
     cached: integer
   end
 
-  --- The modules whose code decides what the analysis tables record:
-  --- the importer's own derive and parse, and every module of the tree's
-  --- that the extractors, generators and parser it calls reach. What a
-  --- source parses to is a function of these and of the compiler, and
-  --- of nothing else in the tool; `build/importer_test.tl` holds the
-  --- list closed under `require`.
-  analyzer_modules: {string}
 end
 
-importer.analyzer_modules = {
-  "build.importer",
-  "build.ast", "build.ast.match", "build.ast.match_cast", "build.ast.node",
-  "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.compiler",
-  "build.doctest", "build.doctest.generate", "build.doctest.markdown",
-  "build.gen_syscalls", "build.positions",
-  "cosmic.env", "cosmic.fs", "cosmic.string",
+--- The extractors, generators and parser the importer's own derive and
+--- parse call: with the importer itself, the roots of
+--- `importer.analyzer_modules`.
+local analyzer_roots: {string} = {
+  "build.ast", "build.compiler", "build.doctest", "build.gen_syscalls",
+  "build.positions",
 }
 
---- Whether `root` is cosmic's own tree, structurally. Exposed so a
---- caller can gate other cosmic's-own-tree behavior on the same test
---- the importer itself uses; see `build.tree`, which holds the real
---- check so answering it never costs loading the rest of `build`.
-function importer.is_own_tree(root: string): boolean | nil, string
-  return tree.is_own(root)
+--- The modules whose code decides what the analysis tables record: the
+--- importer's own derive and parse, and every module that the
+--- extractors, generators and parser it calls reach through `require`,
+--- as the running binary's own `imports` table records it. What a
+--- source parses to is a function of these and of the compiler, and of
+--- nothing else in the tool. The importer's own requires are not
+--- followed: it is here for its derive and parse, not for the rest of
+--- the build it also runs.
+function importer.analyzer_modules(): {string} | nil, string
+  local databases = Store.databases()
+  local own = databases[#databases]
+  if own == nil then return nil, "the binary carries no module database" end
+  local seeds: {string} = {}
+  local values: {Sqlite.Value} = {}
+  for i, name in ipairs(analyzer_roots) do
+    seeds[#seeds + 1] = "(?" .. i .. ")"
+    values[#values + 1] = { text = name }
+  end
+  local rows, trouble = Sqlite.text_rows(own,
+    "WITH RECURSIVE reached(path) AS (VALUES " .. table.concat(seeds, ", ") ..
+    " UNION SELECT i.requires FROM imports i JOIN reached r ON i.path = r.path) " ..
+    "SELECT path FROM reached WHERE path IN " ..
+    "(SELECT path FROM modules UNION SELECT path FROM decls) " ..
+    "AND path <> 'build.importer' ORDER BY path", values)
+  if rows == nil then return nil, trouble end
+  local names: {string} = { "build.importer" }
+  for _, row in ipairs(rows) do names[#names + 1] = row[1] end
+  return names, ""
 end
 
 --- The bytecode header every target must agree on. One column of
@@ -314,10 +328,15 @@ local analysis_tables: {string} = {
 --- source of every one of `importer.analyzer_modules` as the running
 --- binary carries it -- the code actually deriving, which in a stale
 --- tool rebuilding itself is older than the tree's. A binary that
---- carries no source for one of them can only be named whole.
+--- carries no source for one of them, or no record of what they import,
+--- can only be named whole.
 local function analyzer_identity(): string
   local parts: {string} = { Store.meta("compiler") or "" }
-  for _, name in ipairs(importer.analyzer_modules) do
+  local analyzer, _ = importer.analyzer_modules()
+  if analyzer == nil then
+    return "binary " .. (Store.meta("boot_hash") or "")
+  end
+  for _, name in ipairs(analyzer) do
     local source, _ = Store.source(name)
     if source == nil then
       return "binary " .. (Store.meta("boot_hash") or "")
@@ -444,35 +463,32 @@ function importer.derive(handle: work.Handle, self_tree: boolean,
     return false, forget_trouble
   end
 
-  local derive_rows = function(): boolean, string
-    local swept, sweep_trouble = db:exec(
-      "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
-      "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
-      "AND f.sha256 = derived.from_hash)")
-    if not swept then
-      return false, sweep_trouble
-    end
-    local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
-    for _, step in ipairs(steps) do
-      local ok, trouble = step(db)
-      if not ok then
-        return false, trouble
-      end
-    end
-    local parsed, parse_trouble = parse_new(db, built)
-    if not parsed then
-      return false, parse_trouble
-    end
-    for _, table_name in ipairs(analysis_tables) do
-      local ok, trouble = db:exec("DELETE FROM " .. table_name ..
-        " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
-      if not ok then
-        return false, trouble
-      end
-    end
-    return true, ""
+  local swept, sweep_trouble = db:exec(
+    "DELETE FROM derived WHERE origin <> 'vendor' AND NOT EXISTS " ..
+    "(SELECT 1 FROM files f WHERE f.path = derived.file " ..
+    "AND f.sha256 = derived.from_hash)")
+  if not swept then
+    return false, sweep_trouble
   end
-  return derive_rows()
+  local steps = { derive_doc_guides, derive_syscalls, duplicate_import_paths }
+  for _, step in ipairs(steps) do
+    local ok, trouble = step(db)
+    if not ok then
+      return false, trouble
+    end
+  end
+  local parsed, parse_trouble = parse_new(db, built)
+  if not parsed then
+    return false, parse_trouble
+  end
+  for _, table_name in ipairs(analysis_tables) do
+    local ok, trouble = db:exec("DELETE FROM " .. table_name ..
+      " WHERE source_hash NOT IN (SELECT source_hash FROM inputs)")
+    if not ok then
+      return false, trouble
+    end
+  end
+  return true, ""
 end
 
 --- Every name a table keyed by source hash lists, in order, by hash.
@@ -830,15 +846,14 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
---- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"`
---- check) already treats a name starting with `_` as intentionally
---- unused and never warns about it -- but says so nowhere in the
---- warning it raises for every other name, and every warning is a
---- refused compile on cosmic's paths (see `complain`'s own doc
---- comment), so a fresh agent hits this as a hard build failure with
---- no hint of the one-character fix. Appended once, at the one place
---- every message is rendered, rather than patching the vendored
---- checker's own text.
+--- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"` check)
+--- already treats a name starting with `_` as intentionally unused and
+--- never warns about it -- but says so nowhere in the warning it raises
+--- for every other name, and every warning is a refused compile on
+--- cosmic's paths (see `generate`), so a fresh agent hits this as a
+--- hard build failure with no hint of the one-character fix. Appended
+--- once, at the one place every message is rendered, rather than
+--- patching the vendored checker's own text.
 local function with_unused_hint(msg: string): string
   if msg:match("^unused variable ") or msg:match("^unused argument ") then
     return msg .. " -- name it _ or _<name> to mark it intentionally unused"
@@ -1175,13 +1190,13 @@ end
 ---   every key carries
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string): importer.Result | nil, string
-  local own_tree, own_trouble = importer.is_own_tree(handle.root)
+  local own_tree, own_trouble = tree.is_own(handle.root)
   if own_tree == nil then return nil, own_trouble end
   local modules, trouble = collect(handle, own_tree, built)
   if modules == nil then
     return nil, trouble
   end
-  local positioned, position_trouble = positions.check(modules)
+  local positioned, position_trouble = positions.check(modules, own_tree)
   if not positioned then
     return nil, position_trouble
   end
@@ -1302,7 +1317,7 @@ function importer.compile(handle: work.Handle, built: compiler,
           bytecode = generated.bytecode
           result.compiled = result.compiled + 1
           local kept_refs, refs_trouble = keep_references(db, m.key,
-            assert(generated).references)
+            generated.references)
           if not kept_refs then
             finish_cache(cache)
             return false, m.file .. ": " .. refs_trouble
@@ -1339,9 +1354,9 @@ function importer.compile(handle: work.Handle, built: compiler,
     end
     return db:exec("DELETE FROM typed_refs WHERE key NOT IN (SELECT key FROM compiled)")
   end
-  local made, transact_trouble = compile_all()
+  local made, compile_trouble = compile_all()
   if not made then
-    return nil, transact_trouble
+    return nil, compile_trouble
   end
   if failure ~= "" then
     return nil, failure

@@ -240,12 +240,12 @@ host programs only.
 
 ## rebuild without replacing cores
 
-Two own-tree paths compare fingerprints through
-[`build.reboot`](../../build/reboot.tl): `cosmic test` and direct execution of a
-Teal source file. A Teal-only change can reuse the validated prefix. The
-rebuild projects a new database, combines it with that prefix, atomically
-replaces the logical artifact, and re-executes the original arguments and
-environment once.
+Running a Teal file, `cosmic test`, and the verbs `fix`, `docs`, `uses`, `db`,
+`todos` and `help` compare fingerprints in cosmic's own tree through
+[`build.reboot`](../../build/reboot.tl) before going on. A Teal-only change can
+reuse the validated prefix. The rebuild projects a new database, combines it
+with that prefix, atomically replaces the logical artifact, and re-executes the
+original arguments and environment once.
 
 The logical artifact is the path returned by `Proc.executable()`. Running a
 copy outside the checkout rewrites that copy; it does not redirect the rebuild
@@ -253,7 +253,8 @@ to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
 remain supported because the running process reads the retained descriptor.
 
 A marker rejects a second rebuild loop. A core-input change cannot reuse the
-prefix and exits with the instruction to run `bin/zig build boot`. This keeps a
+prefix, so the tool runs `bin/zig build boot` itself and re-enters the command
+(or, under `COSMIC_AUTO_BOOT=0`, exits 3 with the instruction to). This keeps a
 database-only rebuild fast without claiming old native code matches new C,
 Zig, or vendor inputs. Retained-descriptor access also lets a database-only
 rebuild finish after the starting artifact is renamed or unlinked.
@@ -288,13 +289,14 @@ divide the runtime contract into observable boundaries:
   disposable copies, so inspection cannot recover or alter captured bytes.
 
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
-the release product independently on Linux x86-64, Linux ARM64, macOS ARM64,
-and Alpine x86-64 -- the last running as a job container on an Ubuntu runner,
-building and testing natively on musl/BusyBox like every other leg. Every
-matrix leg runs the checked core, runtime fixtures, identity proof, and
-delayed database boundaries. Each producer records the product hash before
-and after execution; the provenance join requires all four uploaded `cosmic`
-files to match those attestations and each other.
+the release product independently on Linux x86-64, Linux ARM64, macOS ARM64, and
+Alpine x86-64 -- the last running as a job container on an Ubuntu runner,
+building and testing natively on musl/BusyBox like every other leg. In a full
+run (merge queue, main, or a manual run) every matrix leg runs the runtime
+fixtures, identity proof, and delayed database boundaries; the Linux x86-64 leg
+also runs the checked core's suite. Each producer records the product hash
+before and after execution; the provenance join requires all four uploaded
+`cosmic` files to match those attestations and each other.
 
 These lanes express the support rule: a target exists only when Zig builds it,
 its native runner executes the suite, and the portable boundary tests pass.
@@ -356,7 +358,7 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
-local fixture = require("test.portable.artifact_fixture")
+local fixture = require("test.portable")
 
 local path = assert(Proc.executable())
 local artifact = assert(fixture.read(path))

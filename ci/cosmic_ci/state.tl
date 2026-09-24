@@ -21,19 +21,6 @@ CREATE TABLE IF NOT EXISTS operation_events (
 CREATE INDEX IF NOT EXISTS operation_completion ON operation_events(start_id);
 ]]
 
--- TODO: Fs.dirname, Fs.within and Fs.basename in place of `parent`,
--- `inside` and the leaf match in `external_path` once ci/cosmic-driver.pin
--- names a cosmic carrying them.
-local function parent(path: string): string
-  local directory = path:match("^(.*)/[^/]+$")
-  if directory == "" then return "/" end
-  return directory or "."
-end
-
-local function inside(path: string, directory: string): boolean
-  return path == directory or path:sub(1, #directory + 1) == directory .. "/"
-end
-
 function State.canonical_directory(path: string): string
   local absolute = assert(Fs.absolute(path))
   local directory = Predicate.is_dir(absolute)
@@ -42,8 +29,8 @@ function State.canonical_directory(path: string): string
 end
 
 function State.external_path(path: string, candidate: string): string
-  local directory = State.canonical_directory(parent(path))
-  local leaf = path:match("([^/]+)$") or path
+  local directory = State.canonical_directory(Fs.dirname(path))
+  local leaf = Fs.basename(path)
   local unresolved = directory == "/" and "/" .. leaf or directory .. "/" .. leaf
   local absolute, trouble = Fs.absolute(unresolved)
   if not absolute then
@@ -53,7 +40,7 @@ function State.external_path(path: string, candidate: string): string
     absolute = unresolved
   end
   local candidate_absolute = State.canonical_directory(candidate)
-  assert(not inside(absolute, candidate_absolute),
+  assert(not Fs.within(absolute, candidate_absolute),
     "path must be outside candidate checkout: " .. absolute)
   return absolute
 end

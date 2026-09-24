@@ -9,17 +9,18 @@
 --- its qualifier offers, and a search ranks first the functions whose
 --- documentation names its first word as what they stand in for.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local narrow = require("build.narrow")
 local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record docs
   --- One ordered database view and the owner of every module in it.
@@ -88,25 +89,6 @@ local record docs
   end
 end
 
---- Rebuilds and re-enters `argv` first when this binary embeds a
---- stale copy of `build.docs` itself -- see `build.reboot.ensure`.
---- Returns an exit code to return immediately, or `nil` to proceed.
-local function stale_exit(argv: {integer:string}): integer | nil
-  local root, root_trouble = Fs.absolute(".")
-  if root == nil then
-    log:complain(root_trouble)
-    return 1
-  end
-  local code, trouble = reboot.ensure(root, argv)
-  if code ~= nil then
-    if trouble ~= "" then
-      log:complain(trouble)
-    end
-    return code
-  end
-  return nil
-end
-
 local function text(value: string): Sqlite.Value
   return { text = value }
 end
@@ -120,8 +102,8 @@ end
 --- happens to share.
 ---
 --- On its own this over-matches: FTS5's tokenizer splits on `_`, so
---- `Fs.hex` and `Fs.hex_sha256` share the same first two tokens, and
---- `"Fs hex"` matches an example that only ever calls the second one.
+--- `Hash.hex` and `Hash.hex_sha256` share the same first two tokens, and
+--- `"Hash hex"` matches an example that only ever calls the second one.
 --- `example_boundary` is the other half of every query this builds --
 --- a phrase match narrows to candidates cheaply, the boundary check
 --- on those few rows says whether the symbol is really there, whole.
@@ -130,8 +112,8 @@ local function example_phrase(symbol: string): string
 end
 
 --- A GLOB pattern matching `symbol` followed by a character that could
---- not continue the same identifier -- so `Fs.hex` matches `Fs.hex(`
---- but not `Fs.hex_sha256`. Checked against an example's own text and
+--- not continue the same identifier -- so `Hash.hex` matches `Hash.hex(`
+--- but not `Hash.hex_sha256`. Checked against an example's own text and
 --- source, space-joined so a match flush against the end of either
 --- still has a boundary to land on.
 local function example_boundary(symbol: string): string
@@ -814,7 +796,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   else
     if entry.uses > 0 then
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
-        (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
+        (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.source_symbol
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string
@@ -840,12 +822,17 @@ end
 --- `cosmic docs <query>`: prints what the query names and ends in a
 --- verdict line; fails when nothing matches.
 function docs.run(argv: {integer:string}): integer
-  local exit = stale_exit(argv)
+  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  if parsed == nil then
+    log:complain("docs: " .. parse_trouble)
+    return 2
+  end
+  local exit = reboot.stale_exit(argv)
   if exit ~= nil then
     return exit
   end
   local started = Time.monotonic_ns()
-  local query = table.concat({ table.unpack(argv, 2) }, " ")
+  local query = table.concat(parsed.words, " ")
   if query == "" then
     log:complain("docs: what to look up? a symbol (Fs.read), a module " ..
       "(cosmic.fs), or words to search for")
@@ -894,19 +881,25 @@ function docs.run(argv: {integer:string}): integer
   return 0
 end
 
---- `cosmic uses <symbol>`: every place that refers to the symbol, one
---- `file:line` per line, and a verdict line.
+--- `cosmic uses <symbol> [path...]`: every place that refers to the
+--- symbol, one `file:line` per line -- only those in a file under one
+--- of the paths, when there are any -- and a verdict line.
 function docs.run_uses(argv: {integer:string}): integer
-  local exit = stale_exit(argv)
-  if exit ~= nil then
-    return exit
+  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  if parsed == nil then
+    log:complain("uses: " .. parse_trouble)
+    return 2
   end
-  local started = Time.monotonic_ns()
-  local query = argv[2] or ""
+  local query = parsed.words[1] or ""
   if query == "" then
     log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
     return 2
   end
+  local exit = reboot.stale_exit(argv)
+  if exit ~= nil then
+    return exit
+  end
+  local started = Time.monotonic_ns()
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
   if view == nil then
@@ -918,15 +911,28 @@ function docs.run_uses(argv: {integer:string}): integer
     log:complain("uses: " .. trouble)
     return 1
   end
-  for _, use in ipairs(found) do
-    log:say(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
+  local words: {string} = {}
+  for slot = 2, #parsed.words do words[#words + 1] = parsed.words[slot] end
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    log:complain("uses: " .. root_trouble)
+    return 1
   end
-  if #found == 0 then
-    log:verdict("uses", false, "nothing refers to '" .. query .. "', " ..
+  local paths = narrow.paths(root, words)
+  local shown = 0
+  for _, use in ipairs(found) do
+    if narrow.holds(paths, use.from_file) then
+      log:say(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
+      shown = shown + 1
+    end
+  end
+  if shown == 0 then
+    local where = #paths > 0 and " under " .. table.concat(paths, ", ") or ""
+    log:verdict("uses", false, "nothing" .. where .. " refers to '" .. query .. "', " ..
       clock.elapsed_ms(started) .. " ms")
     return 1
   end
-  log:verdict("uses", true, #found .. " places, " .. clock.elapsed_ms(started) .. " ms")
+  log:verdict("uses", true, shown .. " places, " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 

@@ -74,9 +74,8 @@ COSMIC_SYSCALL(open, 3) {
   int mode = cosmic_optint(L, 3, 0644);
   int fd;
   do {
-    /* Every descriptor this table opens is close-on-exec: there is no
-     * spawn in M1, but a child process is never handed a file it was
-     * not given on purpose. */
+    /* Every descriptor this table opens is close-on-exec: a child
+     * process is never handed a file it was not given on purpose. */
     fd = open(path, flags | O_CLOEXEC, (mode_t)mode);
   } while (fd < 0 && errno == EINTR);
   if (fd < 0) {
@@ -450,6 +449,10 @@ COSMIC_SYSCALL(readlink, 1) {
   if (got < 0) {
     return cosmic_fail(L, errno);
   }
+  /* readlink truncates silently: a target that fills the whole room may
+   * have been cut short. Neither Linux nor macOS stores one that long,
+   * so no test can reach this. */
+  if ((size_t)got >= sizeof room) return cosmic_fail(L, ENAMETOOLONG);
   lua_pushlstring(L, room, (size_t)got);
   return 1;
 }
