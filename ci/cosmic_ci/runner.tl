@@ -110,6 +110,14 @@ function Runner.operation(c: Runner.Context, phase: string,
   State.complete(database, id, c.worker, c.run, c.attempt, phase,
     started + outcome.elapsed_ns, outcome.elapsed_ns, outcome.status,
     exit_code, signal, timed_out, outcome.trouble)
+  -- The database keeps the outcome for the summary; the log says it too,
+  -- so an operation that fails without output of its own (a timeout, a
+  -- command that never started) is named where the failure is read.
+  if outcome.status ~= "success" then
+    local why = outcome.trouble and (": " .. outcome.trouble) or ""
+    Fs.put(Fs.stderr, phase .. ": " .. outcome.status .. " (status " ..
+      tostring(outcome.code) .. ")" .. why .. "\n")
+  end
   return outcome
 end
 

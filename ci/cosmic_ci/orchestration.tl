@@ -177,7 +177,8 @@ local function checked_suite(c: Context, target: string, work: string): integer
     read(entry):match("^(%d+)[ \t]+(%d+)[ \t]+([0-9a-f]+)\n$")
   local offset = math.tointeger(assert(tonumber(offset_text)))
   local length = math.tointeger(assert(tonumber(length_text)))
-  assert(offset and length and digest and offset % 16384 == 0)
+  assert(offset and length and digest and offset % 16384 == 0,
+    "checked manifest entry is malformed or unaligned: " .. read(entry))
   local artifact = read(cosmic); local raw = read(core)
   assert(length == #raw and #digest == 64, "checked core length/digest invalid")
   local extracted = artifact:sub(offset + 1, offset + length)
@@ -268,14 +269,16 @@ name .. " suite: failed (status " .. status .. ")\n") end
 end
 
 local function archive(c: Context, destination: string): integer
-  assert(not exists(destination)); mkdir(destination)
+  assert(not exists(destination), "archive destination already exists: " .. destination)
+  mkdir(destination)
   local tar = destination .. ".tar"
   local status = checked(c, "tracked source archive",
     { "/usr/bin/env", "git", "-C", c.root, "archive", "--output", tar, "HEAD" })
   if status ~= 0 then return status end
   status = checked(c, "tracked source extract",
     { "/usr/bin/env", "tar", "-xf", tar, "-C", destination })
-  assert(not exists(destination .. "/o")); return status
+  assert(not exists(destination .. "/o"), "tracked source archive holds o/")
+  return status
 end
 
 local targets: {string:boolean} = {
@@ -335,7 +338,8 @@ local function phase_assemble(p: PlatformContext): integer
   local local_d = p.local_diagnostics
   local portable_d = p.portable_diagnostics
   local fresh = p.fresh
-  assert(exists(local_d .. "/local-boundary/hashes.sha256"))
+  assert(exists(local_d .. "/local-boundary/hashes.sha256"),
+    "no local-boundary snapshot; run the local-boundary phase first")
   local s = checked(c, "format check",
     { root .. "/o/bin/cosmic", "fix", "--check", "." })
   if s ~= 0 then return s end

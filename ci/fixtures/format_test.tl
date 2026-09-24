@@ -11,7 +11,8 @@ local function test_decoder_inspection_records_are_exact(tmp: string)
   local valid = tmp .. "/valid"
   Fixture.write(valid, prefix .. entry)
   local parsed = Fixture.inspection(valid)
-  assert(parsed.entry_count == 1 and Fixture.entry(parsed, 1, 1))
+  assert(parsed.entry_count == 1 and Fixture.entry(parsed, 1, 1),
+    "valid inspection did not parse to its one entry")
   for name, contents in pairs({
       suffix = prefix .. entry:sub(1, -2) .. " trailing\n",
       duplicate = prefix .. entry .. entry,
