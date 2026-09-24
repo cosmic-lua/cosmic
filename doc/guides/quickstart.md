@@ -119,3 +119,21 @@ assert(sleeper:close())
 ```output
 still running
 ```
+
+## ending early
+
+A program's entry returns its exit status. Where returning is awkward,
+`Proc.exit` ends the process at once with a status: it runs no finalizers
+and never returns. This example declares no output, so it compiles and does
+not run: running it would end the test that runs this guide.
+
+```teal
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+
+local config, trouble = Fs.read(tmp .. "/app.conf")
+if config == nil then
+  local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+  Proc.exit(2)
+end
+```

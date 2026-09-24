@@ -94,18 +94,6 @@ local function test_open_reads_a_zip_from_a_path(tmp: string)
   assert(r:close())
 end
 
-local function test_list_reads_entries_without_keeping_the_file_open(tmp: string)
-  local c = Stream.collect()
-  local w = Zip.writer(c)
-  assert(w:add_file("a", "1", { method = "store" }))
-  assert(w:add_file("b", "2", { method = "store" }))
-  assert(w:close())
-  local path = tmp .. "/archive.zip"
-  assert(Fs.write(path, c:result()))
-  local entries = assert(Zip.list(path))
-  assert(#entries == 2)
-end
-
 local function test_writer_and_reader_roundtrip_a_deflated_file()
   local c = Stream.collect()
   local w = Zip.writer(c)
@@ -304,7 +292,9 @@ local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
   assert(w:add_file("f", "body", { method = "store" }))
   assert(w:close())
   assert(Fs.write(path, c:result()))
-  local entries = assert(Zip.list(path))
+  local r = assert(Zip.open(path))
+  local entries = r:entries()
+  assert(r:close())
   local body, trouble = entries[1]:open()
   assert(body == nil and trouble:find("closed", 1, true) ~= nil, trouble)
 end

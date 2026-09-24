@@ -343,7 +343,7 @@ local function as_single_file(tree: string, pin: Vendor.Pin, download: string): 
 end
 
 --- Rewrites `tree` from the download at `path`, as its PIN says.
-function Vendor.rewrite(tree: string, path: string): integer | nil, string
+local function rewrite(tree: string, path: string): integer | nil, string
   local text, pin_trouble = Fs.read(tree .. "/PIN")
   if text == nil then
     return nil, pin_trouble
@@ -378,13 +378,13 @@ local function fetch_and_rewrite(root: string, cache: string, name: string): int
   if fetched == nil then
     return nil, ftrouble
   end
-  return Vendor.rewrite(tree, fetched)
+  return rewrite(tree, fetched)
 end
 
 function Vendor.main(argv: {integer:string}): integer
   if Vendor.is_direct_rewrite(argv) then
     local tree = (argv[1]):gsub("/+$", "")
-    local count, trouble = Vendor.rewrite(tree, argv[2])
+    local count, trouble = rewrite(tree, argv[2])
     if count == nil then
       log:complain(trouble)
       return 1

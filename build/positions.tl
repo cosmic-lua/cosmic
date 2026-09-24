@@ -733,8 +733,22 @@ local function invalidate(scopes: Scopes, name: string)
   end
 end
 
+--- The module `call` names when it is `require("<module>")`, a call
+--- of `require` on one string literal; nil for any other expression.
+local function required_name(call: ast.Node): string | nil
+  if call.kind ~= "op" or call.op == nil or call.op.op ~= "@funcall" then
+    return nil
+  end
+  local callee, args = call.e1, call.e2
+  if callee == nil or callee.kind ~= "variable" or callee.tk ~= "require"
+     or args == nil or #args ~= 1 or args[1].kind ~= "string" then
+    return nil
+  end
+  return args[1].conststr
+end
+
 --- Every `alias.member` whose `alias` still resolves to a lexical direct
---- require binding. Parameters, locals and loop variables shadow bindings;
+--- require binding, and every `require("module").member`. Parameters, locals and loop variables shadow bindings;
 --- reassignment in any possibly-executed branch invalidates the outer alias.
 --- This is deliberately bounded: indirect aliases and unknown receiver types
 --- produce no edge rather than one guessed from spelling.
@@ -756,9 +770,15 @@ local function references_of(built: compiler, parsed: ast.Parsed): {positions.Re
       return
     end
     if n.kind == "op" and n.op ~= nil and n.op.op == "." and n.e1 ~= nil
-       and n.e2 ~= nil and n.e1.kind == "variable" and n.e1.tk ~= nil
-       and n.e2.tk ~= nil then
-      local module = binding(scopes, n.e1.tk)
+       and n.e2 ~= nil and n.e2.tk ~= nil then
+      -- `alias.member`, or a member read straight off the module a
+      -- literal `require` names: `require("build.test").run`.
+      local module: string | nil = nil
+      if n.e1.kind == "variable" and n.e1.tk ~= nil then
+        module = binding(scopes, n.e1.tk)
+      else
+        module = required_name(n.e1)
+      end
       if module ~= nil then
         local id = module .. "\n" .. n.e2.tk .. "\n" .. n.e1.y
         if not seen[id] then

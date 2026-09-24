@@ -354,6 +354,7 @@ entry carrying that digest is the selected one, and hashing its range
 back out of the artifact file gives the same answer:
 
 ```teal
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
@@ -365,7 +366,7 @@ local artifact = assert(fixture.read(path))
 local running = assert(Store.meta("host_image"))
 local selected: fixture.Entry = nil
 for _, entry in ipairs(artifact.entries) do
-  if Hash.hex(entry.digest) == running then
+  if Codec.hex(entry.digest) == running then
     assert(selected == nil, "two manifest entries carry the running digest")
     selected = entry
   end

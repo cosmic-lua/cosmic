@@ -9,6 +9,7 @@
 --- Neither function writes a path; callers publish the returned bytes through
 --- the repository's existing atomic file writer.
 
+local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local launcher_template = require("build.launcher")
 local type raw_store = require("cosmic.internal.store")
@@ -121,7 +122,7 @@ local function parse(records: string, cores: {string:string}): {Target} | nil, s
 end
 
 local function hex(bytes: string): string
-  return Hash.hex(bytes)
+  return Codec.hex(bytes)
 end
 
 local function launcher(targets: {Target}, test_hooks: boolean,
@@ -214,8 +215,7 @@ end
 
 --- Fixture-only constructor with deterministic FIFO synchronization points.
 --- The ordinary `prefix` output contains no hook code or hook field names.
-function artifact.test_prefix(records: string, cores: {string:string},
-                              selected_configuration?: integer): string | nil, string
+function artifact.test_prefix(records: string, cores: {string:string}): string | nil, string
   local targets, trouble = parse(records, cores)
   if targets == nil then return nil, trouble end
   local at = shell_length
@@ -223,9 +223,9 @@ function artifact.test_prefix(records: string, cores: {string:string},
     target.offset = at
     at = align(at + target.length, core_alignment)
   end
-  local shell, shell_trouble = launcher(targets, true, selected_configuration)
+  local shell, shell_trouble = launcher(targets, true)
   if shell == nil then return nil, shell_trouble end
-  local release = assert(artifact.prefix(records, cores, selected_configuration))
+  local release = assert(artifact.prefix(records, cores))
   return shell .. release:sub(shell_length + 1), ""
 end
 

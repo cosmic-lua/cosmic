@@ -18,3 +18,15 @@ local function test_a_field_with_no_replacement_names_where_to_look()
     "debug.getinfo is not available: " .. Removed.names.debug)
   assert(Removed.message("print") == "print is not available")
 end
+
+--- Every removed member names a `cosmic.*` module that loads and no
+--- longer has that member, so its replacement is never said for a
+--- member that still works.
+local function test_every_removed_member_is_gone_from_its_module()
+  for dotted in pairs(Removed.members) do
+    local module, member = dotted:match("^(cosmic%.[%w_]+)%.([%w_]+)$")
+    assert(module ~= nil, dotted)
+    local loaded: any = require(module)
+    assert(loaded is {string: any} and loaded[member] == nil, dotted)
+  end
+end

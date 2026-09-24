@@ -813,7 +813,6 @@ local function test_a_familiar_command_finds_its_stand_in()
     { "ln -s", "Fs.symlink" },
     { "touch", "Fs.set_mtime" },
     { "nproc", "Proc.cpu_count" },
-    { "isatty", "Proc.is_tty" },
     { "getpid", "Proc.pid" },
     { "curl", "Http.download" },
     { "wget", "Http.download" },

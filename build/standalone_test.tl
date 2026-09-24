@@ -41,6 +41,16 @@ local function test_a_removed_field_names_its_replacement()
     "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
 end
 
+--- A member a `cosmic.*` module no longer has is told, under the alias
+--- the file gave the module, what to write instead.
+local function test_a_removed_member_names_its_replacement()
+  local chunk, trouble = standalone.compile("old.tl",
+    'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
+    "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
+end
+
 local function test_a_record_with_main_is_an_entry_point()
   local function main(): integer
     return 7

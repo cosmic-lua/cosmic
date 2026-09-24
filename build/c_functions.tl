@@ -15,12 +15,9 @@ local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 
 local record c_functions
-  --- The C functions no test can enter, by `key`, and why.
-  exempt: {string: string}
-
   --- How a run's hits measure up against every C function.
   record Tally
-    --- The functions no test entered and none exempts, by `key`, sorted.
+    --- The functions no test entered and none exempts, by `key_of`, sorted.
     unentered: {string}
     --- How many were entered.
     entered: integer
@@ -28,7 +25,7 @@ local record c_functions
     exempted: integer
     --- How many functions there are.
     total: integer
-    --- The exempt functions a test entered after all, by `key`, sorted:
+    --- The exempt functions a test entered after all, by `key_of`, sorted:
     --- this core no longer needs their exemption, though another may.
     stale: {string}
   end
@@ -38,7 +35,8 @@ local read_only <const> = "the store's VFS is read-only: SQLite never writes, sy
 local before_exec <const> = "runs in a forked child before exec, which reports nothing"
 local forwarded <const> = "passes to the base VFS a call SQLite never makes on the store's read-only database"
 
-c_functions.exempt = {
+--- The C functions no test can enter, by `key_of`, and why.
+local exempt: {string: string} = {
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
   ["core/vfs.c:file_sync"] = read_only,
@@ -62,7 +60,7 @@ c_functions.exempt = {
 }
 
 --- How `function` is named in `exempt` and in a failure.
-function c_functions.key(fn: Coverage.Function): string
+local function key_of(fn: Coverage.Function): string
   return fn.path .. ":" .. fn.name
 end
 
@@ -153,7 +151,7 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   local entered: {string: boolean} = {}
   for _, fn in ipairs(functions) do
     if fn.path:match("%.c$") ~= nil then
-      local key = c_functions.key(fn)
+      local key = key_of(fn)
       local here = hits[fn.path]
       local source = sources ~= nil and sources[fn.path] or nil
       local first = fn.line
@@ -183,10 +181,10 @@ function c_functions.tally(functions: {Coverage.Function}, hits: Coverage.Hits,
   for _, key in ipairs(keys) do
     if entered[key] then
       tally.entered = tally.entered + 1
-      if c_functions.exempt[key] ~= nil then
+      if exempt[key] ~= nil then
         tally.stale[#tally.stale + 1] = key
       end
-    elseif c_functions.exempt[key] ~= nil then
+    elseif exempt[key] ~= nil then
       tally.exempted = tally.exempted + 1
     else
       tally.unentered[#tally.unentered + 1] = key

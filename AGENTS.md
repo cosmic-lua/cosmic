@@ -104,8 +104,8 @@ calls the core makes take const-dropping casts by design. `bin/zig build
 analyze` runs the static analyzer `bin/zig cc` carries over the same files, and
 `bin/zig build sanitized` runs it too, so CI fails on a finding. `cosmic fix`
 compiles each C file to clang's syntax tree and holds it to the items marked
-(checked) below; a case a rule cannot see past goes in `rules.exempt`
-with its reason. When reviewing C, check for:
+(checked) below; a case a rule cannot see past goes in `exempt` in
+`build/c/rules.tl` with its reason. When reviewing C, check for:
 
 - A value pushed above an open `luaL_Buffer`: only `luaL_addvalue` may find
   one there. Every other buffer call needs the buffer's own slot on top.

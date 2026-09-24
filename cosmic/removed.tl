@@ -7,7 +7,8 @@
 --- run time. Both say the same thing, `message`'s own text, naming the
 --- replacement for the very field used (`os.getenv` is `Env.get`), so
 --- the two can never drift apart. `cosmic docs os` (or any field below)
---- answers the same thing directly, any time.
+--- answers the same thing directly, any time. `members` does the same
+--- at compile time for a member a `cosmic.*` module no longer has.
 --- Language-library help remains in the checked examples returned by ordinary
 --- documentation search; this record inventories removed globals only.
 local record Removed
@@ -44,6 +45,10 @@ local record Module
   --- Where to look for a removed name, or a field of it `replacements`
   --- has no entry for.
   names: {string:string}
+  --- What to write instead of a member a `cosmic.*` module no longer
+  --- has, by the module's name and the member's (`cosmic.hash.hex`):
+  --- `build.teal` says it after the checker's `invalid key` for it.
+  members: {string:string}
   message: function(name: string, field?: string): string
 end
 
@@ -54,6 +59,9 @@ local proc <const> = 'local Proc = require("cosmic.proc")'
 local time <const> = 'local Time = require("cosmic.time")'
 local child <const> = 'local Child = require("cosmic.child")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
+local codec <const> = 'local Codec = require("cosmic.codec")'
+local sys <const> = 'local sys = require("cosmic.sys")'
+local archive <const> = 'local Archive = require("cosmic.archive")'
 
 local module: Module = {
   fields = {
@@ -116,6 +124,12 @@ local module: Module = {
       "file's bytes are Fs.read(path) (" .. fs .. ")",
     loadfile = "Teal code is loaded by require(\"dotted.name\"), and a " ..
       "file's bytes are Fs.read(path) (" .. fs .. ")",
+  },
+  members = {
+    ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
+    ["cosmic.proc.is_tty"] = "use sys.isatty(fd) (" .. sys .. ")",
+    ["cosmic.zip.list"] = "use Archive.list(path) (" .. archive .. "), or " ..
+      "Zip.open(path) and its reader's entries()",
   },
 }
 

@@ -81,10 +81,6 @@ local record rules
     message: string
   end
 
-  --- The findings a rule cannot see past, and why each is not one, by
-  --- `"<file> <function> <rule>"`.
-  exempt: {string: string}
-
   --- What one translation unit defines that a header declares, and
   --- every function it refers to: what "single-file" is read from, once
   --- every unit of the tree has been.
@@ -114,7 +110,9 @@ local checked_only <const> = "every file refers to it through a macro of its hea
   "that names it only in the checked core (COSMIC_CHECKED); the check compiles " ..
   "the others as a release core does, where the macro names libc's or nothing"
 
-rules.exempt = {
+--- The findings a rule cannot see past, and why each is not one, by
+--- `"<file> <function> <rule>"`.
+local exempt: {string: string} = {
   ["core/boot.c slurp held-across-raise"] =
     "boot runs outside any protected call: a raise there ends the process, " ..
     "which releases everything",
@@ -1179,7 +1177,7 @@ function rules.single_file(units: {rules.Unit}): {rules.Finding}
       end
       local file, line = tree.place(prototype)
       file = file or u.file
-      if not elsewhere and rules.exempt[file .. " " .. name .. " single-file"] == nil then
+      if not elsewhere and exempt[file .. " " .. name .. " single-file"] == nil then
         out[#out + 1] = {
           file = file, line = line or 0, rule = "single-file", within = name,
           message = name .. " is used only by " .. u.file .. ", which defines it: " ..
@@ -1199,7 +1197,7 @@ end
 --- `exempt` does not excuse, sorted by place. `declared` is what
 --- core/syscalls.h declares each binding returns, by the binding's name.
 function rules.check(decls: {Node}, file: string,
-                     declared?: {string: rules.Declared}): {rules.Finding}
+                     declared: {string: rules.Declared}): {rules.Finding}
   local fns = functions(decls)
   local findings: {rules.Finding} = {}
   local ctx: Context = { file = file, within = "", findings = findings,
@@ -1209,7 +1207,7 @@ function rules.check(decls: {Node}, file: string,
     ctx.within = fn.name
     narrowed(ctx, fn.body)
     above_buffer(ctx, fn.body, fn.params)
-    returned_shape(ctx, fn.name, fn.body, declared or {})
+    returned_shape(ctx, fn.name, fn.body, declared)
     returned_constant(ctx, fn)
     true_alone(ctx, fn)
     local state: State = { held = {}, locals = {}, reported = {}, status = {}, strings = {} }
@@ -1217,7 +1215,7 @@ function rules.check(decls: {Node}, file: string,
   end
   local out: {rules.Finding} = {}
   for _, f in ipairs(findings) do
-    if rules.exempt[f.file .. " " .. f.within .. " " .. f.rule] == nil then
+    if exempt[f.file .. " " .. f.within .. " " .. f.rule] == nil then
       out[#out + 1] = f
     end
   end

@@ -71,4 +71,27 @@ function Example.encode_failure()
   assert(why == "cannot encode a function at $.users[2].name")
 end
 
+--- Read a list from outside: `decode_array` checks the outermost shape.
+function Example.decode_array()
+  local tags, err = Json.decode_array('["lua", "teal"]')
+  assert(tags ~= nil, err)
+  print(#tags, tags[1])
+  assert(#tags == 2 and tags[1] == "lua")
+  local _, why = Json.decode_array('{"tags": []}')
+  print(why)
+  assert(why == "expected a JSON array, got object", why)
+end
+
+--- Nesting is bounded: `max_depth` is `Json.default_depth` unless
+--- given, and may be raised as far as `Json.depth_limit`.
+function Example.max_depth()
+  local deep = string.rep("[", 100) .. string.rep("]", 100)
+  local refused, why = Json.decode(deep)
+  print(Json.default_depth, why)
+  assert(refused == nil and why ~= "")
+  local value, err = Json.decode(deep, { max_depth = Json.depth_limit })
+  assert(value ~= nil, err)
+  print(Json.depth_limit)
+end
+
 return Example

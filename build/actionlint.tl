@@ -311,7 +311,7 @@ end
 
 --- The actionlint to run: the pinned release for this host, fetched if
 --- need be.
-function Actionlint.locate(root: string): string | nil, string
+local function locate(root: string): string | nil, string
   local text, ptrouble = Fs.read(root .. "/bin/actionlint.pin")
   if text == nil then
     return nil, ptrouble
@@ -351,7 +351,7 @@ function Actionlint.main(argv: {integer:string}): integer
     complain(root_trouble)
     return 2
   end
-  local binary, trouble = Actionlint.locate(root)
+  local binary, trouble = locate(root)
   if binary == nil then
     complain(trouble)
     return 1

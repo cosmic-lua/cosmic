@@ -19,6 +19,7 @@
 --- CI runs this suite on it; any other core has no instrument to
 --- refuse one with, which these tests say rather than pass unseen.
 
+local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -379,7 +380,7 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
     hasher:update("hello, ")
     hasher:update("cosmic!")
     local digest = assert(hasher:digest())
-    assert(Hash.hex(digest) == Hash.hex_sha256(hello))
+    assert(Codec.hex(digest) == Hash.hex_sha256(hello))
   end)
   assert(ended > 0, "a hasher is an allocation")
   assert_c_heap(bytes, blocks, "hashing under refusal")

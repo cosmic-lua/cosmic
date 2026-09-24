@@ -33,7 +33,7 @@ local verdicts = require("build.verdict")
 local log = verdicts.log
 
 --- The `cosmic sql` verb: `run` is what `cmd/cosmic/main.tl` calls;
---- `source`, `open`, `query` and `cell` are its steps, each testable
+--- `source`, `open`, `query` and `cell_text` are its steps, each testable
 --- on its own.
 local record sql
   --- Where a statement runs.
@@ -201,7 +201,7 @@ local function escape(byte: string): string
 end
 
 --- One cell as the text a row line carries.
-function sql.cell(cell: Sqlite.Cell): string
+local function cell_text(cell: Sqlite.Cell): string
   if cell.kind == "integer" then
     return string.format("%d", cell.integer)
   elseif cell.kind == "number" then
@@ -234,7 +234,7 @@ function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
   for _, row in ipairs(rows) do
     local cells: {string} = {}
     for index, cell in ipairs(row) do
-      cells[index] = sql.cell(cell)
+      cells[index] = cell_text(cell)
     end
     lines[#lines + 1] = table.concat(cells, "\t")
   end

@@ -324,8 +324,20 @@ end
 --- it there (`os.getenv` names `Env.get`), or `module not found: 'io'`
 --- for a `require`. `cosmic.removed`'s `message` says it, the same
 --- words `core/surface.c` raises with when a running program reaches
---- for the name. Nil for every other message.
+--- for the name. For `invalid key 'hex' in record 'Hash'`, where
+--- `source` binds `Hash` to `require("cosmic.hash")` and
+--- `cosmic.removed`'s `members` names `cosmic.hash.hex`, what to write
+--- instead of that member. Nil for every other message.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
+  local key, alias = msg:match("^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)'")
+  if key ~= nil then
+    local module = source:match("local%s+" .. alias .. "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)")
+    local instead = module ~= nil and Removed.members[module .. "." .. key] or nil
+    if instead == nil then
+      return nil
+    end
+    return alias .. "." .. key .. " was removed: " .. instead
+  end
   local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
   local field: string | nil = nil
   if name ~= nil then
