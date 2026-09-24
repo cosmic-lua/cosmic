@@ -1,14 +1,16 @@
 ---
 name: ship
-description: Take a change from implementation to a pull request in cosmic -- tested, adversarially reviewed by a separate agent, its TODOs listed -- optionally set to auto-merge. Use when asked to implement and ship a change, or a list of changes as a sequence of PRs.
-argument-hint: "[automerge] <what to change>"
+description: Take a change from implementation to a pull request in cosmic -- tested, adversarially reviewed by a separate agent, its TODOs listed -- and set to auto-merge unless told not to. Use when asked to implement and ship a change, or a list of changes as a sequence of PRs.
+argument-hint: "[no-automerge] <what to change>"
 ---
 
 # Ship a change
 
-When the skill's arguments start with `automerge`, or the user asked
-for auto-merge, step 6 enables it; otherwise the PR is left for a person
-to merge.
+Step 6 enables auto-merge by default. When the skill's arguments start
+with `no-automerge`, or the user asks in any words not to merge
+automatically (leave it for review, just open the PR), it leaves the PR
+for a person instead. A leading `automerge` asks for the default and is
+dropped from what to change.
 
 ## 1. Plan
 
@@ -77,13 +79,14 @@ this branch. The ones it resolved are the removed lines in
 
 ## 6. Merge
 
-- Without `automerge`, stop here once CI is green: the PR waits for a
+- By default, enable auto-merge. main takes changes only through the
+  merge queue, which runs CI again on the queued merge commit; watch
+  both the branch's run and the queue's, and start a next PR that
+  depends on this one only once it has merged.
+- With `no-automerge`, stop here once CI is green: the PR waits for a
   person. A next PR that does not depend on it starts from main now;
   once only dependent ones remain, stop and report which PRs remain and
   what each waits on.
-- With `automerge`, enable auto-merge. main takes changes only through
-  the merge queue, which runs CI again on the queued merge commit; watch
-  both the branch's run and the queue's.
 - On a failure, find the cause, fix it in the worktree, re-run step 2's
   checks, and push. Never skip or disable a test to get green.
 - Once it has merged, `git worktree remove <path>` and
