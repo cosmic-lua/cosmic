@@ -508,11 +508,7 @@ local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
   if not ok then
     return false, trouble
   end
-  local state, failure = statement:step()
-  if state == nil then
-    return false, failure
-  end
-  return statement:reset()
+  return bind.once(statement)
 end
 
 --- How many rows one multi-row INSERT carries before it steps. Modest

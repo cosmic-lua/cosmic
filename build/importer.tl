@@ -62,8 +62,8 @@ end
 --- parse call: with the importer itself, the roots of
 --- `importer.analyzer_modules`.
 local analyzer_roots: {string} = {
-  "build.ast", "build.compiler", "build.doctest", "build.gen_syscalls",
-  "build.positions",
+  "build.ast", "build.bind", "build.compiler", "build.doctest",
+  "build.gen_syscalls", "build.positions",
 }
 
 --- The modules whose code decides what the analysis tables record: the
