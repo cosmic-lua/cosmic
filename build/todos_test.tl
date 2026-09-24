@@ -263,3 +263,56 @@ local function test_blame_carries_across_commits_that_leave_a_file_alone()
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
+
+local function test_search_takes_fts5_syntax_and_falls_back_to_words()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  assert(Fs.write(root .. "/a.tl", text({
+    "-- TODO: drop this cap once cosmic.sys carries ftruncate",
+    "local a = 1",
+    "-- TODO: read the JSON form once cosmic carries a decoder",
+  })))
+  assert(Fs.write(root .. "/b.sh", text({ "# TODO: replace with a Teal script" })))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local all = assert(todos.list(handle.db, root))
+  local line_of: {integer:string} = {}
+  for _, todo in ipairs(all) do
+    line_of[todo.id] = todo.file .. ":" .. todo.line
+  end
+  local function found(query: string): {string}
+    local ranks = assert(todos.search(handle.db, query))
+    local out: {string} = {}
+    for id, rank in pairs(ranks) do
+      out[rank] = line_of[id]
+    end
+    return out
+  end
+  local hits = found("ftruncate")
+  assert(#hits == 1 and hits[1] == "a.tl:1", table.concat(hits, " "))
+  hits = found("ftrunc*")
+  assert(#hits == 1 and hits[1] == "a.tl:1", table.concat(hits, " "))
+  hits = found("\"cosmic carries\"")
+  assert(#hits == 1 and hits[1] == "a.tl:3", table.concat(hits, " "))
+  hits = found("decoder OR teal")
+  assert(#hits == 2, table.concat(hits, " "))
+  -- Not FTS5 syntax: its words, every one required.
+  hits = found("cosmic.sys")
+  assert(#hits == 1 and hits[1] == "a.tl:1", table.concat(hits, " "))
+  assert(#found("nowhere") == 0)
+
+  -- The index follows the rows it is built over.
+  assert(Fs.write(root .. "/a.tl", text({ "-- TODO: something else" })))
+  assert(work.stage(handle, false))
+  local function count(query: string): integer
+    local n = 0
+    for _ in pairs((assert(todos.search(handle.db, query)))) do
+      n = n + 1
+    end
+    return n
+  end
+  assert(count("ftruncate") == 0)
+  assert(count("else") == 1)
+  assert(handle.db:exec("INSERT INTO todos_fts (todos_fts) VALUES ('integrity-check')"))
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end

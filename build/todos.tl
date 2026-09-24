@@ -39,6 +39,9 @@ local record todos
 
   --- One row of the index.
   record Todo
+    --- Its row in `todos`, shared by every file with the same bytes:
+    --- what `search` answers with.
+    id: integer
     file: string
     line: integer
     last: integer
@@ -50,7 +53,6 @@ local record todos
     summary: string
     boundary: boolean
   end
-
 end
 
 local function report(line: string)
@@ -225,7 +227,7 @@ end
 local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
-    "b.author_time, b.summary, b.boundary FROM " ..
+    "b.author_time, b.summary, b.boundary, t.id FROM " ..
     "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
     "UNION SELECT path, sha256 FROM scanned) f " ..
     "JOIN todos t ON t.sha256 = f.sha256 " ..
@@ -240,6 +242,7 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
     local blamed = row[6].kind ~= "null"
     out[#out + 1] = {
       todo = {
+        id = row[10].integer,
         file = row[1].text,
         line = row[2].integer,
         last = row[3].integer,
@@ -418,6 +421,42 @@ function todos.render(todo: todos.Todo): string
     " " .. todo.text
 end
 
+--- `query`'s words as an FTS5 query every one of them must match, each
+--- quoted so it reads as a literal rather than as FTS5 syntax -- as
+--- `cosmic docs` searches.
+local function quoted_words(query: string): string
+  local words: {string} = {}
+  for word in query:gmatch("[%w_]+") do
+    words[#words + 1] = '"' .. word .. '"'
+  end
+  return table.concat(words, " ")
+end
+
+--- The TODOs whose text matches `query`, as the rank of each by `id`,
+--- best first from 1. The query is FTS5's own syntax -- a "phrase",
+--- OR, a prefix* -- when it parses as that, and its words, each quoted
+--- and every one required, when it does not (`cosmic.sys`).
+function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
+  local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
+  local rows = Sqlite.text_rows(db, sql, { { text = query } })
+  if rows == nil then
+    local words = quoted_words(query)
+    if words == "" then
+      return {}
+    end
+    local retried, trouble = Sqlite.text_rows(db, sql, { { text = words } })
+    if retried == nil then
+      return nil, trouble
+    end
+    rows = retried
+  end
+  local out: {integer:integer} = {}
+  for index, row in ipairs(rows as {{string}}) do
+    out[math.tointeger(tonumber(row[1])) as integer] = index
+  end
+  return out
+end
+
 --- Whether a TODO's file is one of the paths asked for, or under one.
 local function wanted(file: string, paths: {string}): boolean
   if #paths == 0 then
@@ -457,6 +496,7 @@ function todos.run(argv: {integer:string}): integer
   end
   local oldest = false
   local paths: {string} = {}
+  local words: {string} = {}
   local slot = 2
   while argv[slot] ~= nil do
     local option = argv[slot]
@@ -466,10 +506,18 @@ function todos.run(argv: {integer:string}): integer
       complain("todos: no such option: " .. option)
       return 2
     else
-      paths[#paths + 1] = (option:gsub("^%./", ""):gsub("/+$", ""))
+      -- A path when it names one, and words to search for when not, as
+      -- `cosmic docs` takes a symbol first and words after.
+      local path = (option:gsub("^%./", ""):gsub("/+$", ""))
+      if path ~= "" and Fs.exists(root .. "/" .. path) then
+        paths[#paths + 1] = path
+      else
+        words[#words + 1] = option
+      end
     end
     slot = slot + 1
   end
+  local query = table.concat(words, " ")
 
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
@@ -493,6 +541,16 @@ function todos.run(argv: {integer:string}): integer
     complain(blamed as string)
     return 1
   end
+  local ranks: {integer:integer} = nil
+  if query ~= "" then
+    local found, search_trouble = todos.search(handle.db, query)
+    if found == nil then
+      work.abort(handle)
+      complain("todos: " .. search_trouble)
+      return 1
+    end
+    ranks = found
+  end
   local closed, close_trouble = work.close(handle)
   if not closed then
     complain(close_trouble)
@@ -501,9 +559,24 @@ function todos.run(argv: {integer:string}): integer
 
   local listed: {todos.Todo} = {}
   for _, todo in ipairs(all) do
-    if wanted(todo.file, paths) then
+    if wanted(todo.file, paths) and (ranks == nil or ranks[todo.id] ~= nil) then
       listed[#listed + 1] = todo
     end
+  end
+  if ranks ~= nil and not oldest then
+    -- Best match first; a TODO in several files with the same bytes
+    -- shares one rank, so those keep file order among themselves.
+    table.sort(listed, function(a: todos.Todo, b: todos.Todo): boolean
+      if a.id ~= b.id then
+        return ranks[a.id] < ranks[b.id]
+      end
+      return a.file < b.file
+    end)
+  end
+  if ranks ~= nil and #listed == 0 then
+    report("todos: FAIL (no TODO matches '" .. query .. "', " ..
+      clock.elapsed_ms(started) .. " ms)")
+    return 1
   end
   if oldest then
     -- Unblamed rows last: a TODO not committed yet is the newest there is.

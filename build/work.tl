@@ -79,7 +79,7 @@ local record work
   version: string
 end
 
-work.version = "20"
+work.version = "21"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -137,6 +137,10 @@ work.version = "20"
 --- costs nothing, and a row is a function of the bytes and the scan's
 --- rule alone -- a change to the rule bumps `work.version`. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
+--- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
+--- external-content mode over `todos` -- which is why `todos` has a
+--- rowid, `id`, where every other table here is WITHOUT ROWID -- and
+--- three triggers keep it in step with every insert, delete and update.
 --- `blames` is what `git blame` said about one TODO's first line, kept
 --- while the file hashes the same and `HEAD` names the same commit
 --- (`head`), which is all blame is a function of -- or a later one, when
@@ -315,11 +319,24 @@ work.schema = {
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS todos (sha256 TEXT NOT NULL,
+  [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
+                                      sha256 TEXT NOT NULL,
                                       line INTEGER NOT NULL,
                                       last INTEGER NOT NULL,
                                       text TEXT NOT NULL,
-                                      PRIMARY KEY (sha256, line)) WITHOUT ROWID]],
+                                      UNIQUE (sha256, line))]],
+  [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
+      USING fts5(text, content=todos, content_rowid=id)]],
+  [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
+    END]],
+  [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END]],
+  [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
+    END]],
   [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
                                        line INTEGER NOT NULL,
                                        sha256 TEXT NOT NULL,
