@@ -56,17 +56,33 @@ local function test_host_agrees_with_the_running_host()
 end
 
 local function test_build_args_adds_cache_flags_only_for_build()
-  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "-Doptimize=ReleaseFast" })
-  assert(#got == 8)
+  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "-Doptimize=ReleaseFast" }, 4)
+  assert(#got == 9)
   assert(got[1] == "build")
   assert(got[2] == "--cache-dir" and got[3] == "/repo/o/zig-cache")
   assert(got[4] == "--global-cache-dir" and got[5] == "/cache/zig-global")
   assert(got[6] == "--prefix" and got[7] == "/repo/o")
-  assert(got[8] == "-Doptimize=ReleaseFast")
+  assert(got[8] == "-j8")
+  assert(got[9] == "-Doptimize=ReleaseFast")
+end
+
+-- zig's default kept the three targets' vendored compiles one after another.
+local function test_build_args_run_steps_past_the_processor_count()
+  assert(Zig.build_jobs(1) == 8)
+  assert(Zig.build_jobs(4) == 8)
+  assert(Zig.build_jobs(16) == 32)
+  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "boot" }, 16)
+  assert(got[8] == "-j32" and got[9] == "boot")
+end
+
+local function test_build_args_keep_the_callers_jobs()
+  local got = Zig.build_args("/repo", "/cache/zig-global", { "build", "-j2", "boot" }, 16)
+  assert(#got == 9)
+  assert(got[8] == "-j2" and got[9] == "boot")
 end
 
 local function test_build_args_passes_other_subcommands_through()
-  local got = Zig.build_args("/repo", "/cache/zig-global", { "version" })
+  local got = Zig.build_args("/repo", "/cache/zig-global", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")
 end
 

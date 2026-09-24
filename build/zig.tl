@@ -139,11 +139,23 @@ function Zig.repo_root(script_path: string): string | nil, string
   return root, ""
 end
 
---- `argv` as zig gets it: `build` gains three flags, ahead of the
---- caller's own arguments, keeping zig's project cache and install prefix
---- under `root/o` and its global cache at `shared`; anything else passes
---- through unchanged.
-function Zig.build_args(root: string, shared: string, argv: {string}): {string}
+--- How many steps `zig build` runs at once on `cpus` processors, unless
+--- the caller says (`-j<n>`). zig's own default is one fewer than the
+--- processors, which in practice kept about two compiles going: the three
+--- targets' vendored libraries, each bound by one long SQLite compile,
+--- then ran one after another while most processors sat idle. `-j` bounds
+--- steps only; each compile still spreads its files over every processor.
+function Zig.build_jobs(cpus: integer): integer
+  return math.max(8, 2 * cpus)
+end
+
+--- `argv` as zig gets it: `build` gains its flags ahead of the caller's
+--- own arguments, keeping zig's project cache and install prefix under
+--- `root/o` and its global cache at `shared`, and running `build_jobs`
+--- steps at once for `cpus` processors unless the caller passes `-j`;
+--- anything else passes through unchanged.
+function Zig.build_args(root: string, shared: string, argv: {string},
+    cpus: integer): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
@@ -152,6 +164,15 @@ function Zig.build_args(root: string, shared: string, argv: {string}): {string}
       "--global-cache-dir", shared,
       "--prefix", root .. "/o",
     }
+    local jobs_given = false
+    for i = 2, #argv do
+      if argv[i]:match("^%-j") then
+        jobs_given = true
+      end
+    end
+    if not jobs_given then
+      out[#out + 1] = "-j" .. tostring(Zig.build_jobs(cpus))
+    end
     for i = 2, #argv do
       out[#out + 1] = argv[i]
     end
@@ -543,7 +564,8 @@ function Zig.main(argv: {integer:string}): integer
     at = at + 1
   end
   local exec_argv: {string} = { zig }
-  for _, a in ipairs(Zig.build_args(root, Zig.global_cache(root), given)) do
+  for _, a in ipairs(Zig.build_args(root, Zig.global_cache(root), given,
+      Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
   end
   if given[1] == "build" then
