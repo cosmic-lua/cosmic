@@ -313,6 +313,30 @@ local function test_lists_uses()
   assert(#assert(docs.uses(view({ db }), "Fs.write")) == 0)
 end
 
+--- A name spelled from a module's record down is a use of the member
+--- it ends in, and of nothing else with the same last name: a use is
+--- recorded without the module's own record (`write`, `Writer.write`).
+local function test_a_qualified_name_lists_only_its_own_uses()
+  local db = database({}, {
+    { "cosmic.fs", "write", "build.boot", "build/boot.tl", "10" },
+    { "cosmic.stream", "Writer.write", "build.test", "build/test.tl", "20" },
+    { "cosmic.zip", "ZipWriter.add_file", "build.boot", "build/boot.tl", "30" },
+  })
+  local writer = assert(docs.uses(view({ db }), "Stream.Writer.write"))
+  assert(#writer == 1 and writer[1].module == "cosmic.stream", tostring(#writer))
+  local fs = assert(docs.uses(view({ db }), "Fs.write"))
+  assert(#fs == 1 and fs[1].module == "cosmic.fs", tostring(#fs))
+  local method = assert(docs.uses(view({ db }), "Fs:write"))
+  assert(#method == 1 and method[1].module == "cosmic.fs", tostring(#method))
+  assert(#assert(docs.uses(view({ db }), "write")) == 2, "a last name finds both")
+  -- `Writer` may be a module's own record, as `Fs` is: the uses table
+  -- keeps no record names to tell.
+  assert(#assert(docs.uses(view({ db }), "Writer.write")) == 2)
+  assert(#assert(docs.uses(view({ db }), "Zip.ZipWriter.add_file")) == 1)
+  assert(#assert(docs.uses(view({ db }), "cosmic.Zip.ZipWriter.add_file")) == 0,
+    "one name past the record, and no more")
+end
+
 --- An earlier database owns a module as a whole: symbols removed by the
 --- replacement cannot reappear from a later database.
 local function test_an_earlier_database_hides_a_module_in_a_later_one()
