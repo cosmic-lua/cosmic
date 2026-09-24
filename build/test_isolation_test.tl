@@ -264,14 +264,15 @@ end
 end
 
 --- A path that climbs with ".." is not taken as the tree's by its
---- spelling: "<root>/../outside/L" and "../outside/L" through a link
---- the test retargets fail once the file they read changes.
+--- spelling: "<root>/../outside/A" and "../outside/R" through a link
+--- the test retargets fail once the file they read changes. The two run
+--- at once, so each retargets a link of its own.
 local function test_a_path_that_climbs_is_outside(tmp: string)
   local texts = three_runs(tmp, [[
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local function read_through(spelled: string)
-  local proj, link = assert(Env.get("PROJ")), assert(Env.get("OUTSIDE")) .. "/L"
+local function read_through(name: string, spelled: string)
+  local proj, link = assert(Env.get("PROJ")), assert(Env.get("OUTSIDE")) .. "/" .. name
   assert(Fs.remove(link))
   assert(Fs.symlink(proj .. "/a/f", link))
   assert(Fs.read(spelled) == "good\n")
@@ -279,10 +280,10 @@ local function read_through(spelled: string)
   assert(Fs.symlink(proj .. "/b", link))
 end
 local function test_absolute()
-  read_through(assert(Env.get("PROJ")) .. "/../outside/L")
+  read_through("A", assert(Env.get("PROJ")) .. "/../outside/A")
 end
 local function test_relative()
-  read_through("../outside/L")
+  read_through("R", "../outside/R")
 end
 ]])
   assert(texts[1]:find("2 ran, 0 stood", 1, true), texts[1])
