@@ -26,7 +26,7 @@ local function test_native_fallible_calls_return_result_pairs()
 
   local not_closed, busy_why = db:close()
   assert(not not_closed and busy_why ~= "")
-  assert(statement:finalize())
+  statement:finalize()
   local closed, close_why = db:close()
   assert(closed and close_why == "")
   closed, close_why = db:close()
@@ -39,7 +39,7 @@ local function test_native_fallible_calls_return_result_pairs()
   assert(failed_state == nil and failed_step_why ~= "")
   local failed_reset, failed_reset_why = failing_statement:reset()
   assert(not failed_reset and failed_reset_why ~= "")
-  assert(failing_statement:finalize())
+  failing_statement:finalize()
   assert(failing_db:close())
 end
 
@@ -73,7 +73,7 @@ local function test_sqlite_parses_the_statement_tail()
   assert(db:exec("CREATE TABLE source (value); CREATE TABLE log (value)"))
 
   local statement = assert(db:prepare("SELECT ';' /* ; */; -- trailing ;\n /* comment */"))
-  assert(statement:finalize())
+  statement:finalize()
 
   statement = assert(db:prepare([[
     CREATE TRIGGER copy_value AFTER INSERT ON source BEGIN
@@ -82,6 +82,6 @@ local function test_sqlite_parses_the_statement_tail()
     END;
     -- trailing comment
   ]]))
-  assert(statement:finalize())
+  statement:finalize()
   assert(db:close())
 end

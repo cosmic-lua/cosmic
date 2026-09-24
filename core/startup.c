@@ -41,23 +41,23 @@ static const char *const portable_environment[] = {
   COSMIC_PORTABLE_ENV_CORE_SHA256,
 };
 
-static int decimal (const char *text, uint64_t maximum, uint64_t *out) {
-  if (text == NULL || *text == '\0') return 0;
+static bool decimal (const char *text, uint64_t maximum, uint64_t *out) {
+  if (text == NULL || *text == '\0') return false;
   uint64_t value = 0;
   size_t digits = 0;
   for (const unsigned char *p = (const unsigned char *)text; *p != 0; p++) {
-    if (*p < '0' || *p > '9' || ++digits > 20) return 0;
+    if (*p < '0' || *p > '9' || ++digits > 20) return false;
     unsigned digit = *p - '0';
-    if (value > (maximum - digit) / 10) return 0;
+    if (value > (maximum - digit) / 10) return false;
     value = value * 10 + digit;
   }
   *out = value;
-  return 1;
+  return true;
 }
 
-static int hex_digest (const char *text,
-                       unsigned char out[COSMIC_PORTABLE_SHA256_LENGTH]) {
-  if (text == NULL) return 0;
+static bool hex_digest (const char *text,
+                        unsigned char out[COSMIC_PORTABLE_SHA256_LENGTH]) {
+  if (text == NULL) return false;
   for (size_t i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++) {
     unsigned value = 0;
     for (unsigned half = 0; half < 2; half++) {
@@ -66,7 +66,7 @@ static int hex_digest (const char *text,
       if (c >= '0' && c <= '9') digit = c - '0';
       else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
       else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
-      else return 0;
+      else return false;
       value = value * 16 + digit;
     }
     out[i] = (unsigned char)value;
@@ -91,12 +91,12 @@ static void compiled_startup (struct cosmic_startup *startup,
   };
 }
 
-int cosmic_startup_has_private_environment (void) {
+bool cosmic_startup_has_private_environment (void) {
   for (size_t i = 0; i < sizeof portable_environment /
                               sizeof portable_environment[0]; i++) {
-    if (getenv(portable_environment[i]) != NULL) return 1;
+    if (getenv(portable_environment[i]) != NULL) return true;
   }
-  return 0;
+  return false;
 }
 
 void cosmic_startup_native (struct cosmic_startup *startup) {
@@ -113,8 +113,8 @@ void cosmic_startup_host (struct cosmic_startup *startup, int fd,
   startup->artifact_fd = fd;
 }
 
-int cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
-  if (artifact == NULL || artifact->fd < 0) return 0;
+bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
+  if (artifact == NULL || artifact->fd < 0) return false;
   if (artifact->core_checked == 0) {
     const struct cosmic_portable_entry *entry = &artifact->portable.selected;
     unsigned char digest[COSMIC_DIGEST_MAX];
@@ -211,44 +211,44 @@ static void stamp_line (const struct stat *core_stat, char *line, size_t room) {
 /* The stamp's path and its directory, when the executing core is the cache
  * entry the launcher names for this manifest entry; 0 for a core run from
  * anywhere else, which is always hashed and never stamped. */
-static int stamp_path (const struct cosmic_portable_entry *entry,
-                       const struct stat *core_stat, char *path, size_t room,
-                       char *directory, size_t directory_room) {
+static bool stamp_path (const struct cosmic_portable_entry *entry,
+                        const struct stat *core_stat, char *path, size_t room,
+                        char *directory, size_t directory_room) {
   char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
-  if (!cosmic_executable_path(core_path, sizeof core_path)) return 0;
+  if (!cosmic_executable_path(core_path, sizeof core_path)) return false;
   char *slash = strrchr(core_path, '/');
-  if (slash == NULL || slash == core_path) return 0;
+  if (slash == NULL || slash == core_path) return false;
   char key[64 + 2 * COSMIC_PORTABLE_SHA256_LENGTH];
   int used = snprintf(key, sizeof key, "core-%u-%u-%llu-",
                       (unsigned)entry->target_id,
                       (unsigned)entry->configuration_id,
                       (unsigned long long)entry->length);
   if (used < 0 || (size_t)used + 2 * COSMIC_PORTABLE_SHA256_LENGTH >= sizeof key)
-    return 0;
+    return false;
   for (unsigned i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
     snprintf(key + used + 2 * i, 3, "%02x", entry->sha256[i]);
-  if (strcmp(slash + 1, key) != 0) return 0;
+  if (strcmp(slash + 1, key) != 0) return false;
   struct stat path_stat;
   if (lstat(core_path, &path_stat) != 0 ||
       path_stat.st_dev != core_stat->st_dev ||
       path_stat.st_ino != core_stat->st_ino)
-    return 0;
+    return false;
   *slash = '\0';
   used = snprintf(path, room, "%s/.verified-%s", core_path, key);
-  if (used < 0 || (size_t)used >= room) return 0;
+  if (used < 0 || (size_t)used >= room) return false;
   used = snprintf(directory, directory_room, "%s", core_path);
   return used >= 0 && (size_t)used < directory_room;
 }
 
-static int stamp_holds (const char *path, const struct stat *core_stat) {
+static bool stamp_holds (const char *path, const struct stat *core_stat) {
   char expected[96];
   stamp_line(core_stat, expected, sizeof expected);
   int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) return 0;
+  if (fd < 0) return false;
   char found[sizeof expected];
   ssize_t length = read(fd, found, sizeof found - 1);
   close(fd);
-  if (length <= 0) return 0;
+  if (length <= 0) return false;
   found[length] = '\0';
   return strcmp(found, expected) == 0;
 }
@@ -275,22 +275,22 @@ static void stamp_write (const char *path, const char *directory,
   if (!written || rename(temporary, path) != 0) unlink(temporary);
 }
 
-static int fail_adoption (struct cosmic_artifact *artifact, int core_fd,
-                          int physical_fd, const char **error,
-                          const char *why) {
+static bool fail_adoption (struct cosmic_artifact *artifact, int core_fd,
+                           int physical_fd, const char **error,
+                           const char *why) {
   if (physical_fd >= 0) close(physical_fd);
   if (core_fd >= 0) close(core_fd);
   cosmic_artifact_close(artifact);
   if (error != NULL) *error = why;
-  return 0;
+  return false;
 }
 
-int cosmic_startup_adopt (const struct cosmic_startup *startup,
-                          struct cosmic_artifact *artifact,
-                          const char **error) {
+bool cosmic_startup_adopt (const struct cosmic_startup *startup,
+                           struct cosmic_artifact *artifact,
+                           const char **error) {
   cosmic_artifact_init(artifact);
   if (error != NULL) *error = NULL;
-  if (startup->kind == COSMIC_STARTUP_NATIVE) return 1;
+  if (startup->kind == COSMIC_STARTUP_NATIVE) return true;
   if (startup->kind == COSMIC_STARTUP_HOST) {
     /* The kernel executed this very file: there is no launcher's choice to
      * check it against. Its structure is checked here, and its core's digest
@@ -317,7 +317,7 @@ int cosmic_startup_adopt (const struct cosmic_startup *startup,
       return fail_adoption(artifact, -1, -1, error,
                            host_error == NULL ? "host program is invalid" :
                                                 host_error);
-    return 1;
+    return true;
   }
   if (startup->artifact_path[0] != '/')
     return fail_adoption(artifact, startup->core_fd, -1, error,
@@ -378,8 +378,8 @@ int cosmic_startup_adopt (const struct cosmic_startup *startup,
                          "executing core length differs from manifest");
   char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
   char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
-  int stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
-                           stamp_directory, sizeof stamp_directory);
+  bool stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
+                            stamp_directory, sizeof stamp_directory);
   unsigned char digest[COSMIC_DIGEST_MAX];
   size_t digest_length = 0;
   if (stamped && stamp_holds(stamp, &core_stat)) {
@@ -424,5 +424,5 @@ int cosmic_startup_adopt (const struct cosmic_startup *startup,
     return fail_adoption(artifact, -1, -1, error,
                          "cannot mark retained artifact close-on-exec");
   artifact->core_checked = 1;
-  return 1;
+  return true;
 }

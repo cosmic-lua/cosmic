@@ -43,7 +43,7 @@ local record sqlite
     reset: function(Statement): boolean, string
     --- Releases the statement. Finalizing one already finalized does
     --- nothing.
-    finalize: function(Statement): boolean
+    finalize: function(Statement)
   end
 
   --- One database connection. Every call on a closed handle raises.

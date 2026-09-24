@@ -262,7 +262,7 @@ int cosmic_vfs_register (const char *path, int fd, int64_t offset,
 }
 
 /* Percent-encodes what a `file:` URI cannot carry literally. */
-static int append_escaped (char *into, size_t room, size_t *at, const char *s) {
+static bool append_escaped (char *into, size_t room, size_t *at, const char *s) {
   static const char hex[] = "0123456789ABCDEF";
   for (; *s != '\0'; s++) {
     unsigned char c = (unsigned char)*s;
@@ -271,12 +271,12 @@ static int append_escaped (char *into, size_t room, size_t *at, const char *s) {
                 c == '.' || c == '~';
     if (plain) {
       if (*at + 1 >= room) {
-        return 0;
+        return false;
       }
       into[(*at)++] = (char)c;
     } else {
       if (*at + 3 >= room) {
-        return 0;
+        return false;
       }
       into[(*at)++] = '%';
       into[(*at)++] = hex[c >> 4];
@@ -284,28 +284,28 @@ static int append_escaped (char *into, size_t room, size_t *at, const char *s) {
     }
   }
   into[*at] = '\0';
-  return 1;
+  return true;
 }
 
-int cosmic_vfs_uri (char *into, size_t room, const char *path) {
+bool cosmic_vfs_uri (char *into, size_t room, const char *path) {
   size_t at = 0;
   const char *scheme = "file:";
   size_t scheme_len = strlen(scheme);
   if (scheme_len + 1 >= room) {
-    return 0;
+    return false;
   }
   memcpy(into, scheme, scheme_len);
   at = scheme_len;
   if (!append_escaped(into, room, &at, path)) {
-    return 0;
+    return false;
   }
   /* No off= or len=: the VFS never trusts a URI for those. The one triple it
    * honors was registered from the validated retained artifact. */
   static const char tail[] = "?vfs=" COSMIC_VFS_NAME "&mode=ro&immutable=1";
   size_t written = sizeof tail - 1;
   if (at + written + 1 > room) {
-    return 0;
+    return false;
   }
   memcpy(into + at, tail, written + 1);
-  return 1;
+  return true;
 }

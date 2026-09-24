@@ -47,6 +47,7 @@
 #ifndef COSMIC_PORTABLE_H
 #define COSMIC_PORTABLE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -106,29 +107,31 @@ struct cosmic_artifact {
 /*
  * Decodes and validates the file currently held open by fd.  target_id and
  * configuration_id are the running core's compiled fields.  On every error
- * this returns 0, leaves all of *out zero, and optionally names the rejected
- * invariant through *error.  It returns 1 only after every range is safe to
- * use and `selected` matches the compiled fields.
+ * this returns false, leaves all of *out zero, and optionally names the
+ * rejected invariant through *error.  It returns true only after every range
+ * is safe to use and `selected` matches the compiled fields.
  */
-int cosmic_portable_decode (int fd, uint32_t target_id,
-                            uint32_t configuration_id,
-                            struct cosmic_portable *out,
-                            const char **error);
+bool cosmic_portable_decode (int fd, uint32_t target_id,
+                             uint32_t configuration_id,
+                             struct cosmic_portable *out,
+                             const char **error);
 
 /*
  * Decodes and validates a host program held open by fd, the same way: one
  * entry, the compiled one, at offset 0. Its core's digest is not checked
  * here; see cosmic_artifact_core_matches.
  */
-int cosmic_host_decode (int fd, uint32_t target_id, uint32_t configuration_id,
-                        struct cosmic_portable *out, const char **error);
+bool cosmic_host_decode (int fd, uint32_t target_id, uint32_t configuration_id,
+                         struct cosmic_portable *out, const char **error);
 
 /* Whether the file held open by fd ends in a host program trailer. */
-int cosmic_host_trailer (int fd);
+bool cosmic_host_trailer (int fd);
 
 void cosmic_artifact_init (struct cosmic_artifact *artifact);
 void cosmic_artifact_close (struct cosmic_artifact *artifact);
-int cosmic_artifact_read (const struct cosmic_artifact *artifact, void *into,
-                          size_t length, uint64_t offset);
+/* Reads exactly `length` bytes at `offset` of the artifact into `into`:
+ * false when they cannot all be read. */
+bool cosmic_artifact_read (const struct cosmic_artifact *artifact, void *into,
+                           size_t length, uint64_t offset);
 
 #endif
