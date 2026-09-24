@@ -14,13 +14,12 @@ local Store = require("cosmic.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local work = require("build.work")
+local bind = require("build.bind")
 
 local record writer
 end
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 --- The signature already recorded inside the projection at `path`, or
 --- `""` when there is none to trust: no file there, a file that is not

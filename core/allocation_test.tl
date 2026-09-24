@@ -80,6 +80,7 @@ local function test_only_the_checked_core_instruments()
     c_heap = function() testing.c_heap() end,
     fail_at = function() testing.fail_at() end,
     live_transfers = function() testing.live_transfers() end,
+    executable_path = function() testing.executable_path(4096) end,
   }
   for name, use in pairs(instruments) do
     local ok, err: boolean, any = pcall(use)
