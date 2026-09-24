@@ -23,6 +23,10 @@ to merge.
 
 ## 2. Implement
 
+- Before writing new API, look for it: a booted checkout's
+  `o/bin/cosmic docs <words>` searches every doc comment and example by
+  what it does (`cosmic docs find program path` answers `Proc.find`),
+  and open PRs may already carry it.
 - `git fetch origin`, then
   `git worktree add -b <branch> "$(git rev-parse --show-toplevel)/../wt-<name>" origin/main`.
   Run everything after from that worktree's root, by absolute path. Keep
@@ -84,3 +88,17 @@ this branch. The ones it resolved are the removed lines in
   checks, and push. Never skip or disable a test to get green.
 - Once it has merged, `git worktree remove <path>` and
   `git branch -D <branch>` (a squash merge leaves it looking unmerged).
+
+## 7. Bump the driver pin, when it pays
+
+`bin/zig`, `bin/vendor`, `ci/` and the standalone scripts run on the
+release `ci/cosmic-driver.pin` names, not on the tree, so what a change
+adds reaches them only once the pin moves -- and it can only move after
+the change merges and main publishes its `next-<commit>` prerelease.
+When the change adds what a `TODO:` waiting on the pin needs (`grep -rn
+-B2 'cosmic-driver.pin' --include='*.tl' .` finds them; the pin is often
+named on a TODO's second line), or API those scripts would use now, open
+a follow-up once that prerelease exists: move the pin to it (its commit,
+URL and SHA-256, checked against the digest the release records) and
+drop the workarounds, as #2061 did. Otherwise say in the summary that
+the pin was left alone.
