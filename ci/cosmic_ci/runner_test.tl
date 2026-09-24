@@ -64,3 +64,48 @@ local function test_operation_records_retained_open_failure_as_error(tmp: string
   assert(#rows == 1 and rows[1][1] == "error" and rows[1][2] ~= "",
     "retained open failure was left incomplete")
 end
+
+local function test_step_records_work_done_in_process(tmp: string)
+  local candidate, state = tmp .. "/candidate", tmp .. "/state"
+  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  local database = state .. "/operations.db"
+  local context: Runner.Context = { database = database, worker = "worker",
+    run = "run", attempt = "1", candidate = candidate }
+  local done = Runner.step(context, "done", function(): boolean, string
+    return true
+  end)
+  assert(done.status == "success" and done.code == 0)
+  local refused = Runner.step(context, "refused", function(): boolean, string
+    return false, "no such thing"
+  end)
+  assert(refused.status == "error" and refused.code == 1 and
+    refused.trouble == "no such thing")
+  local raised = Runner.step(context, "raised", function(): boolean, string
+    error("broke")
+  end)
+  assert(raised.status == "error" and raised.code == 1 and
+    (raised.trouble or ""):find("broke", 1, true))
+  local db = assert(Sqlite.open(database, false))
+  local rows = assert(Sqlite.text_rows(db, [[
+    SELECT s.phase, c.status, coalesce(c.detail, '')
+      FROM operation_events s JOIN operation_events c ON c.start_id = s.id
+     WHERE c.event = 'complete' ORDER BY s.id
+  ]]))
+  assert(db:close())
+  assert(#rows == 3 and rows[1][1] == "done" and rows[1][2] == "success" and
+    rows[2][2] == "error" and rows[2][3] == "no such thing" and
+    rows[3][1] == "raised" and rows[3][3]:find("broke", 1, true),
+    "a step was not recorded with its outcome")
+end
+
+local function test_execute_passes_more_descriptors(tmp: string)
+  assert(Fs.write(tmp .. "/eight", "on eight"))
+  local fd = assert(Fs.open_read(tmp .. "/eight"))
+  local outcome = Runner.execute({
+    argv = { "/bin/sh", "-c", "cat <&8" }, cwd = tmp,
+    output = tmp .. "/out", fds = { [8] = fd }, timeout_ms = 1000,
+  })
+  assert(Fs.close(fd))
+  assert(outcome.code == 0 and assert(Fs.read(tmp .. "/out")) == "on eight",
+    "the child did not read the descriptor it was given")
+end

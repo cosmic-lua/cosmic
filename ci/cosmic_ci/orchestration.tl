@@ -5,11 +5,13 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
+local Archive = require("cosmic.archive")
 local Proc = require("cosmic.proc")
 local Runner = require("cosmic_ci.runner")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 
 local record Orchestration
 end
@@ -57,6 +59,19 @@ local function operation(c: Context, phase: string, command: {string},
   return Runner.operation(runner, phase, { argv = command, cwd = cwd or c.root,
     env = child_environment, timeout_ms = timeout,
     output = output, error = error_output }).code
+end
+
+-- Work done in this process, recorded as an operation as a command is.
+local function step(c: Context, phase: string,
+    work: function(): boolean, string): integer
+  local runner: Runner.Context = { database = c.db, worker = c.worker,
+    run = c.run, attempt = c.attempt, candidate = c.root }
+  return Runner.step(runner, phase, work).code
+end
+
+local function chmod(path: string, mode: integer): boolean, string
+  local changed, trouble = sys.chmod(path, mode)
+  return changed, trouble
 end
 
 local function checked(c: Context, phase: string, command: {string},
@@ -147,9 +162,7 @@ local function fixture_project(c: Context, work: string): string
   local project = work .. "/fixture-project"
   local driver_namespace = parent(c.driver)
   local fixtures_source = parent(driver_namespace) .. "/fixtures"
-  local removed = Runner.execute({ argv = { "/bin/rm", "-rf", project },
-    cwd = work })
-  assert(removed.code == 0, "could not clear fixture project")
+  assert(Fs.remove_tree(project))
   copy_flat_tl_dir(driver_namespace, project .. "/cosmic_ci")
   copy_flat_tl_dir(fixtures_source, project .. "/fixtures")
   return project
@@ -290,10 +303,10 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       { cosmic, "work_db_integrity.tl", "--recover-copy", "build.db" },
       out .. "/integrity.out", out .. "/integrity.err", 30000, inspect)
   end)
-  local removed = Runner.execute({ argv = { "/bin/rm", "-rf", inspect },
-    cwd = c.root })
-  assert(removed.code == 0 and not exists(inspect),
-    "could not remove disposable integrity directory")
+  local removed, remove_trouble = Fs.remove_tree(inspect)
+  assert(removed and not exists(inspect),
+    "could not remove disposable integrity directory: " ..
+    tostring(remove_trouble))
   if not called then error(answer) end
   return answer
 end
@@ -327,8 +340,11 @@ local function archive(c: Context, destination: string): integer
   local status = checked(c, "tracked source archive",
     { "/usr/bin/env", "git", "-C", c.root, "archive", "--output", tar, "HEAD" })
   if status ~= 0 then return status end
-  status = checked(c, "tracked source extract",
-    { "/usr/bin/env", "tar", "-xf", tar, "-C", destination })
+  status = step(c, "tracked source extract", function(): boolean, string
+    local written, trouble = Archive.extract(tar, destination,
+      { links = "create" })
+    return written ~= nil, trouble
+  end)
   assert(not exists(destination .. "/o"), "tracked source archive holds o/")
   return status
 end
@@ -371,6 +387,8 @@ local function phase_build(p: PlatformContext): integer
   end
   if from and is_dir(from) then
     mkdir(root .. "/o")
+    -- TODO: copy in this process once cosmic.fs carries a recursive copy
+    -- that keeps modes and ci/cosmic-driver.pin names a cosmic with it.
     local copied = checked(c, "restore zig-cache",
       { "/usr/bin/env", "cp", "-a", from, root .. "/o/zig-cache" })
     if copied ~= 0 then return copied end
@@ -446,8 +464,9 @@ local function phase_assemble(p: PlatformContext): integer
   s = checked(c, "selected format mutation", { contract .. "/format/format-test-" .. target, contract .. "/format/program" }); if s ~= 0 then return s end
   s = archive(c, fresh); if s ~= 0 then return s end
   mkdir(portable_d); write(portable_d .. "/cosmic-portable", read(product .. "/cosmic"));
-  s = checked(c, "portable executable mode",
-    { "/usr/bin/env", "chmod", "755", portable_d .. "/cosmic-portable" })
+  s = step(c, "portable executable mode", function(): boolean, string
+    return chmod(portable_d .. "/cosmic-portable", 0x1ed)
+  end)
   if s ~= 0 then return s end
   write(portable_d .. "/portable-artifact.before.sha256", hash(portable_d .. "/cosmic-portable") .. "\n"); return 0
 end
@@ -486,13 +505,13 @@ local function phase_portable_boundary(p: PlatformContext): integer
     assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary")
     local executable = portable_d .. "/cosmic-portable"
     local cache = portable_d .. "/portable-full-suite-cache"
-    local locked = checked(portable_context, "portable cache read-only mode",
-      { "/usr/bin/env", "chmod", "500", cache })
+    local locked = step(portable_context, "portable cache read-only mode",
+      function(): boolean, string return chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end
     local help = checked(portable_context, "read-only cache execution",
       { executable, "help" }, 30000, fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
-    local restored = checked(portable_context, "portable cache restore mode",
-      { "/usr/bin/env", "chmod", "700", cache })
+    local restored = step(portable_context, "portable cache restore mode",
+      function(): boolean, string return chmod(cache, 0x1c0) end)
     if help ~= 0 then return help end
     if restored ~= 0 then return restored end
   end
@@ -555,10 +574,13 @@ local function phase_cache_save(p: PlatformContext): integer
   -- in place, under the seed, and is saved as it stands.
   local seed = assert(Env.get("COSMIC_ZIG_CACHE_SEED"), "cache seed is required")
   mkdir(seed)
-  local removed = checked(c, "remove saved zig-cache",
-    { "/bin/rm", "-rf", seed .. "/zig-cache" })
+  local removed = step(c, "remove saved zig-cache", function(): boolean, string
+    return Fs.remove_tree(seed .. "/zig-cache")
+  end)
   if removed ~= 0 then return removed end
   if is_dir(root .. "/o/zig-cache") then
+    -- TODO: copy in this process once cosmic.fs carries a recursive copy
+    -- that keeps modes and ci/cosmic-driver.pin names a cosmic with it.
     local copied = checked(c, "save zig-cache",
       { "/usr/bin/env", "cp", "-a", root .. "/o/zig-cache", seed .. "/" })
     if copied ~= 0 then return copied end
@@ -593,7 +615,9 @@ local function provenance_impl(c: Context, products: string): integer
       count = count + 1
     end end
   assert(expected and count == expected, "expected " .. tostring(expected) .. " products, found " .. count)
-  return checked(c, "provenance comparison", { "/usr/bin/env", "true" })
+  return step(c, "provenance comparison", function(): boolean, string
+    return true
+  end)
 end
 
 local function logical(c: Context, phase: string,

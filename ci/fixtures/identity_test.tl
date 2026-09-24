@@ -28,7 +28,7 @@ local function read_prefix_length(fixture_dir: string): integer
     "invalid prefix length: " .. text))
 end
 
--- Teal has no recursive-copy primitive, so use the standard POSIX utility.
+-- TODO: copy in this process once cosmic.fs carries a recursive copy.
 local function copy_tree(label: string, from: string, to: string, cwd: string,
     diagnostics: string)
   Fixture.run(label, { "/usr/bin/env", "cp", "-R", from, to }, cwd, diagnostics)
@@ -124,10 +124,7 @@ end
 
 -- Run the raw sanitized core outside its runtime wrapper, with the full private
 -- COSMIC_PORTABLE_* contract supplied by hand and the artifact/core opened
--- on descriptors 8/9. `Child.Options` only redirects stdin/stdout/stderr, so
--- opening arbitrary extra descriptors before exec needs a real shell
--- wrapper -- the same approach launcher_test.tl's
--- `test_launcher_descriptors_exit_and_signal` uses for descriptor-passing.
+-- on descriptors 8/9.
 local function run_sanitized(fixture_dir: string, root: string,
     project: string, counter: string, work: string,
     diagnostics: string): Fixture.Capture
@@ -155,14 +152,10 @@ local function run_sanitized(fixture_dir: string, root: string,
   assert(offset and length and digest, "sanitized entry fields are invalid")
   chmod(core, 0x1ed)
 
-  -- Open the artifact and core on the descriptors named by the private contract.
-  local script = [[
-exec 8< "$1"
-exec 9< "$2"
-exec "$2" --artifact "$1" test
-]]
-  return Fixture.run("sanitized", { "/bin/sh", "-c", script, "sh",
-      artifact, core }, project, diagnostics, {
+  -- The artifact and core open on the descriptors the private contract names.
+  return Fixture.succeeded("sanitized", Fixture.call_with_descriptors("sanitized",
+    { core, "--artifact", artifact, "test" }, project, diagnostics,
+    Fixture.environment({
     COSMIC_FIXTURE_COUNTER = counter,
     COSMIC_PORTABLE_ARTIFACT_FD = "8",
     COSMIC_PORTABLE_CORE_FD = "9",
@@ -171,7 +164,7 @@ exec "$2" --artifact "$1" test
     COSMIC_PORTABLE_CORE_OFFSET = offset,
     COSMIC_PORTABLE_CORE_LENGTH = length,
     COSMIC_PORTABLE_CORE_SHA256 = digest,
-  })
+  }), { [8] = artifact, [9] = core }))
 end
 
 -- Restoring into a new project location invalidates the old verdict: the first

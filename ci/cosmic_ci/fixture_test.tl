@@ -46,3 +46,23 @@ local function test_target_records_are_exact(tmp: string)
       "invalid target records were accepted: " .. name)
   end
 end
+
+local function test_call_with_descriptors_opens_each_path(tmp: string)
+  Fixture.write(tmp .. "/eight", "eight;")
+  Fixture.write(tmp .. "/nine", "nine")
+  local outcome = Fixture.call_with_descriptors("descriptors",
+    { "/bin/sh", "-c", "cat <&8; cat <&9" }, tmp, tmp .. "/logs",
+    Fixture.environment(), { [8] = tmp .. "/eight", [9] = tmp .. "/nine" })
+  assert(outcome.result.ok and Fixture.read(outcome.out) == "eight;nine",
+    "the child did not read the files on its descriptors")
+end
+
+local function test_call_with_descriptors_refuses_a_missing_path(tmp: string)
+  Fixture.write(tmp .. "/eight", "eight")
+  local called, failure = pcall(Fixture.call_with_descriptors, "missing",
+    { "/bin/sh", "-c", "exit 0" }, tmp, tmp .. "/logs", Fixture.environment(),
+    { [8] = tmp .. "/eight", [9] = tmp .. "/absent" })
+  assert(not called and tostring(failure):find("absent", 1, true),
+    tostring(failure))
+  assert(not Fs.stat(tmp .. "/logs/missing.out"), "a child started anyway")
+end

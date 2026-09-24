@@ -14,26 +14,12 @@ local function small_line(path: string): string
   return (assert(Fixture.small(path, 256):match("^(%S+)"), path .. " is empty"))
 end
 
--- Opens fd 8 on $1 and fd 9 on $2, then execs the remaining arguments.
--- `Child.Options` only redirects stdin/stdout/stderr, so opening arbitrary
--- extra descriptors before exec needs a real shell wrapper -- the same
--- approach identity_test.tl's `run_sanitized` and launcher_test.tl's
--- descriptor tests use.
-local descriptor_exec_script <const> = [[
-exec 8< "$1"
-exec 9< "$2"
-shift 2
-exec "$@"
-]]
-
+-- Runs argv with fd 8 open on the artifact and fd 9 on the core.
 local function run_with_descriptors(label: string, artifact_fd_source: string,
     core_fd_source: string, argv: {string}, cwd: string, diagnostics: string,
     values: {string:string}): Fixture.Outcome
-  local full_argv: {string} = { "/bin/sh", "-c", descriptor_exec_script, "sh",
-    artifact_fd_source, core_fd_source }
-  for _, one in ipairs(argv) do full_argv[#full_argv + 1] = one end
-  return Fixture.call_with_environment(label, full_argv, cwd, diagnostics,
-    values)
+  return Fixture.call_with_descriptors(label, argv, cwd, diagnostics, values,
+    { [8] = artifact_fd_source, [9] = core_fd_source })
 end
 
 --------------------------------------------------------------------------
@@ -224,9 +210,7 @@ local function test_runtime_logical_paths(tmp: string)
     diagnostics, { COSMIC_PORTABLE_CACHE = cache,
       PATH = work .. "/bin:" .. Env.get_or("PATH", "") })
 
-  Fixture.run("symlink-alias", { "/usr/bin/env", "ln", "-s",
-    work .. "/bin/cosmic-runtime", work .. "/cosmic-alias" }, work,
-    diagnostics)
+  assert(Fs.symlink(work .. "/bin/cosmic-runtime", work .. "/cosmic-alias"))
   Fixture.run("help-symlink", { work .. "/cosmic-alias", "help" }, work,
     diagnostics, { COSMIC_PORTABLE_CACHE = cache })
 
