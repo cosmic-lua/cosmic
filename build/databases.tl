@@ -33,20 +33,20 @@ local function describe(path: string): integer | nil, string
     "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
     "GROUP BY name ORDER BY sum(pgsize) DESC, name")
   if sizes == nil then
-    db:close()
+    local _, _ = db:close()
     return nil, size_trouble
   end
   local tables, table_trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_master WHERE type = 'table'")
   if tables == nil then
-    db:close()
+    local _, _ = db:close()
     return nil, table_trouble
   end
   local is_table: {string:boolean} = {}
   for _, row in ipairs(tables) do
     is_table[row[1]] = true
   end
-  local st = Fs.stat(path)
+  local st, _ = Fs.stat(path)
   log:say(path .. "  " .. (st ~= nil and st.size or 0) .. " bytes")
   log:say("  " .. column("rows", 8) .. column("pages", 8) ..
     column("bytes", 10) .. column("payload", 10) .. "  name")
@@ -57,7 +57,7 @@ local function describe(path: string): integer | nil, string
       local counted, count_trouble = Sqlite.text_rows(db,
         "SELECT count(*) FROM \"" .. name .. "\"")
       if counted == nil then
-        db:close()
+        local _, _ = db:close()
         return nil, count_trouble
       end
       rows = counted[1][1]
@@ -65,7 +65,7 @@ local function describe(path: string): integer | nil, string
     log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
       column(payload, 10) .. "  " .. name)
   end
-  db:close()
+  local _, _ = db:close()
   return #tables
 end
 
@@ -78,7 +78,7 @@ local function builds(path: string): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
     "ORDER BY run DESC LIMIT 5")
-  db:close()
+  local _, _ = db:close()
   if rows == nil then
     return false, trouble
   end
@@ -105,7 +105,7 @@ local function slowest(path: string): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, test, elapsed_ns FROM runs ORDER BY elapsed_ns DESC LIMIT " ..
     tostring(slowest_kept))
-  db:close()
+  local _, _ = db:close()
   if rows == nil then
     return false, trouble
   end
@@ -126,7 +126,7 @@ end
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.databases` itself -- see `build.reboot.ensure`
 function databases.run(argv: {integer:string}): integer
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)

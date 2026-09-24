@@ -97,7 +97,7 @@ function Proc.find(name: string, path?: string): string | nil, string
   local unrunnable: string = nil
   for dir in (search .. ":"):gmatch("([^:]*):") do
     local candidate = (dir == "" and "." or dir) .. "/" .. name
-    local st = sys.stat(candidate)
+    local st, _ = sys.stat(candidate)
     if st ~= nil and st.kind == "file" then
       -- TODO: ask whether this process may run the file --
       -- faccessat(AT_EACCESS, X_OK) -- once cosmic.sys carries it; an

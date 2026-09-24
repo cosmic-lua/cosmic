@@ -615,7 +615,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
   local function fail(trouble: string): boolean, string
     if failed == nil then
       failed = trouble ~= "" and trouble or "tar: write failed"
-      w:abort()
+      local _, _ = w:abort()
     end
     return false, failed
   end
@@ -725,8 +725,11 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     closed = true
     if not ok then return false, trouble end
     ok, trouble = w:close()
-    if not ok then failed = trouble end
-    return ok, trouble
+    if not ok then
+      failed = trouble
+      return false, trouble
+    end
+    return true, ""
   end
 
   tw.abort = function(_self: Tar.TarWriter): boolean, string

@@ -12,9 +12,10 @@
 ---
 --- The checker's own type reporter is the hook: with `report_types` on,
 --- tl calls `store_type(y, x, type)` for every node it checks. The
---- reporter installed here keeps only the types that resolve to a
---- record or interface, by position, and throws the rest away rather
---- than serializing every type the way tl's own reporter does. A
+--- reporter installed here keeps, by position, the types that resolve
+--- to a record or interface for this module's own questions, and every
+--- type as tl gave it for `build.contracts`, rather than serializing
+--- them the way tl's own reporter does. A
 --- receiver resolves to a symbol only when its record is one some
 --- module's type declares, nested under the module's own record
 --- (`Zip.ZipWriter`, `Stream.Reader`): a record a file keeps to
@@ -39,6 +40,14 @@ local record receivers
   --- which module, filled in as the run's environment learns modules.
   record State
     types: {integer: Type}
+    --- Every type the checker stored for the module it is checking
+    --- now, by position: `build.contracts` reads values' types from it.
+    every: {integer: Type}
+    --- The function types among them, kept apart: a node that starts
+    --- where a callee does and is checked after it (the block a call
+    --- opens, a table item) stores a type of its own there, which must
+    --- not hide the callee's. `build.contracts` reads callees from it.
+    callees: {integer: Type}
     owners: {integer: Owner}
     walked: {string: boolean}
   end
@@ -63,6 +72,15 @@ local record receivers
     --- A record's or interface's interfaces, every one it inherits
     --- from included, once the checker has expanded them.
     interface_list: {Type} | nil
+    --- A function's parameters and results, tuples.
+    args: Type | nil
+    rets: Type | nil
+    --- A tuple whose last member repeats (`...: T`).
+    is_va: boolean | nil
+    --- A function's count of required parameters.
+    min_arity: integer | nil
+    --- A union's alternatives.
+    types: {Type} | nil
   end
 
   record Owner
@@ -152,7 +170,24 @@ local function reporter_for(state: receivers.State): any
       if y == nil or x == nil or typ == nil then
         return
       end
-      local found = record_of(typ as receivers.Type) -- cast: tl's type object
+      local t = typ as receivers.Type -- cast: tl's type object
+      -- A list of expressions starts where its first one does and is
+      -- checked after it: its tuple does not hide that one's type.
+      local at = position(y, x)
+      if t.typename ~= "tuple" or state.every[at] == nil then
+        state.every[at] = t
+      end
+      -- A position holds one callee, the last function type stored
+      -- there. A chained call (`make()()`) does not collide: the outer
+      -- callee is the inner call, at its own `(`, and `make` is at its
+      -- name. Two callees could share a position only if tl stamped two
+      -- call targets on one token, which its parser never does; only a
+      -- position reaches `store_type`, so a node key is not available.
+      local name = t.typename
+      if name == "function" or name == "generic" or name == "poly" then
+        state.callees[at] = t
+      end
+      local found = record_of(t)
       if found ~= nil then
         state.types[position(y, x)] = found
       end
@@ -167,6 +202,8 @@ local function reporter_for(state: receivers.State): any
     get_collector = function(_self: any, filename: string): any
       if filename == "" then
         state.types = {}
+        state.every = {}
+        state.callees = {}
         return keeping
       end
       return ignoring
@@ -177,10 +214,24 @@ local function reporter_for(state: receivers.State): any
   }
 end
 
+--- The record `path` names inside `module`'s own record, as the
+--- checker holds it in `env` (`"cosmic.log"`, `"Logger"`); nil when
+--- `env` has not loaded the module or it declares no such record.
+function receivers.record_named(env: compiler.Env, module: string,
+                                path: string): receivers.Type | nil
+  local at = record_of(env.modules[module] as receivers.Type) -- cast: tl's type object
+  for name in path:gmatch("[^.]+") do
+    local fields = at ~= nil and at.fields or nil
+    if fields == nil then return nil end
+    at = record_of(fields[name])
+  end
+  return at
+end
+
 --- Turns the checker's type reporting on for `env`, answering into a
 --- fresh state that `references` then reads.
 function receivers.install(env: compiler.Env): receivers.State
-  local state: receivers.State = { types = {}, owners = {}, walked = {} }
+  local state: receivers.State = { types = {}, every = {}, callees = {}, owners = {}, walked = {} }
   env.report_types = true
   env.reporter = reporter_for(state)
   return state

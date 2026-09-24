@@ -302,7 +302,7 @@ end
 --- @param pattern Node A compiled pattern (`build.ast.match.compile_pattern`)
 --- @param replacement string A replacement template, `$NAME`/`$$$NAME` surface syntax
 --- @return RewriteResult|nil The spliced result plus any refused hits, or nil on failure
---- @return string Error message on failure, nil on success
+--- @return string Error message on failure, "" on success
 local function rewrite(built: compiler, source: string, name: string, pattern: Node,
     replacement: string, keep?: function(Node): boolean): RewriteResult | nil, string
   local parsed, perr = node_mod.parse(built, source, name)
@@ -350,7 +350,7 @@ local function rewrite(built: compiler, source: string, name: string, pattern: N
       table.insert(edits, 1, h)
     end
   end
-  return { code = out, refused = refused, edits = edits }, nil
+  return { code = out, refused = refused, edits = edits }, ""
 end
 
 local record RewriteModule

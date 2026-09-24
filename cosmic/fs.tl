@@ -38,7 +38,7 @@ function Fs.read(path: string): string | nil, string
   -- A regular file says how big it is, so its bytes come in one read
   -- into one string of that size; chunks follow only for whatever it
   -- holds past that, or for a file that does not say (a pipe, /proc).
-  local st = sys.fstat(fd)
+  local st, _ = sys.fstat(fd)
   local ask = chunk_size
   if st ~= nil and st.kind == "file" and st.size > chunk_size then
     ask = st.size
@@ -47,7 +47,7 @@ function Fs.read(path: string): string | nil, string
   while true do
     local chunk, failure = sys.read(fd, ask)
     if chunk == nil then
-      sys.close(fd)
+      local _, _ = sys.close(fd)
       return nil, path .. ": " .. failure
     end
     if #chunk == 0 then
@@ -56,7 +56,7 @@ function Fs.read(path: string): string | nil, string
     parts[#parts + 1] = chunk
     ask = chunk_size
   end
-  sys.close(fd)
+  local _, _ = sys.close(fd)
   if #parts == 1 then
     return parts[1], ""
   end
@@ -91,18 +91,18 @@ function Fs.write(path: string, data: string, mode?: integer): boolean, string
   end
   local ok, failure = write_all(temporary.fd, data)
   if not ok then
-    sys.close(temporary.fd)
-    sys.unlink(temporary.path)
+    local _, _ = sys.close(temporary.fd)
+    local _, _ = sys.unlink(temporary.path)
     return false, temporary.path .. ": " .. failure
   end
   local closed, close_failure = sys.close(temporary.fd)
   if not closed then
-    sys.unlink(temporary.path)
+    local _, _ = sys.unlink(temporary.path)
     return false, temporary.path .. ": " .. close_failure
   end
   local moved, why = sys.rename(temporary.path, path)
   if not moved then
-    sys.unlink(temporary.path)
+    local _, _ = sys.unlink(temporary.path)
     return false, path .. ": " .. why
   end
   return true, ""
@@ -484,7 +484,7 @@ local function copy_bytes(from: string, to: string): boolean, string
   local output, create_trouble = sys.open(to,
     sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180)
   if output == nil then
-    Fs.close(input)
+    local _, _ = Fs.close(input)
     return false, to .. ": " .. create_trouble
   end
   local ok, trouble = true, ""
@@ -501,10 +501,12 @@ local function copy_bytes(from: string, to: string): boolean, string
       break
     end
   end
-  Fs.close(input)
+  -- A read-only source has nothing to lose in closing.
+  local _, _ = Fs.close(input)
   local closed, close_trouble = Fs.close(output)
-  if ok and not closed then return false, to .. ": " .. close_trouble end
-  return ok, trouble
+  if not ok then return false, trouble end
+  if not closed then return false, to .. ": " .. close_trouble end
+  return true, ""
 end
 
 --- Copies the tree at `from` to `to`: each regular file's bytes, each

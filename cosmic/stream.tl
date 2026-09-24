@@ -45,9 +45,10 @@ local record Stream
 
   --- A Writer that digests everything written to it.
   record Hashing is Writer
-    --- The raw digest of everything written so far; the Writer takes
-    --- no more writes afterward.
-    digest: function(Hashing): string
+    --- The raw digest of everything written so far, or nil and why
+    --- the hasher could not finish; the Writer takes no more writes
+    --- afterward, and asking again answers the same.
+    digest: function(Hashing): string | nil, string
   end
 
   --- The incremental codec `transform` and `transform_writer` drive:
@@ -115,7 +116,7 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
     end
     if #data == 0 then
       ended = true
-      release()
+      local _, _ = release()
       return nil, ""
     end
     return data, ""
@@ -126,7 +127,7 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
     return release()
   end
   -- Only a regular file can seek; a pipe or socket reads and discards.
-  local st = sys.fstat(fd)
+  local st, _ = sys.fstat(fd)
   if st ~= nil and st.kind == "file" then
     local size = st.size
     r.skip = function(_self: Stream.Reader, n: integer): boolean, string
@@ -146,7 +147,7 @@ local function make_fd_reader(fd: integer, owned: boolean): Stream.Reader
       -- skipped bytes the file never had. It is asked for again only
       -- when the one from opening says so, in case the file grew.
       if at > size then
-        local now = sys.fstat(fd)
+        local now, _ = sys.fstat(fd)
         if now ~= nil then size = now.size end
         if at > size then
           failed = "stream: skip past the end of the file"
@@ -385,15 +386,18 @@ FileWriter_methods.write = function(self: FileWriter, data: string): boolean, st
   if self.closed then return false, closed_message end
   if self.failed then return false, self.failed end
   local ok, why = Fs.put(self.temporary.fd, data)
-  if not ok then self.failed = why end
-  return ok, why
+  if not ok then
+    self.failed = why
+    return false, why
+  end
+  return true, ""
 end
 
 FileWriter_methods.abort = function(self: FileWriter): boolean, string
   if self.closed then return true, "" end
   self.closed = true
-  Fs.close(self.temporary.fd)
-  sys.unlink(self.temporary.path)
+  local _, _ = Fs.close(self.temporary.fd)
+  local _, _ = sys.unlink(self.temporary.path)
   return true, ""
 end
 
@@ -405,20 +409,20 @@ FileWriter_methods.close = function(self: FileWriter): boolean, string
   end
   self.closed = true
   if self.failed then
-    Fs.close(temporary.fd)
-    sys.unlink(temporary.path)
+    local _, _ = Fs.close(temporary.fd)
+    local _, _ = sys.unlink(temporary.path)
     return false, temporary.path .. ": " .. self.failed
   end
   local ok, close_trouble = Fs.close(temporary.fd)
   if not ok then
     self.failed = close_trouble
-    sys.unlink(temporary.path)
+    local _, _ = sys.unlink(temporary.path)
     return false, temporary.path .. ": " .. close_trouble
   end
   local moved, why = sys.rename(temporary.path, self.path)
   if not moved then
     self.failed = why
-    sys.unlink(temporary.path)
+    local _, _ = sys.unlink(temporary.path)
     return false, self.path .. ": " .. why
   end
   return true, ""
@@ -476,6 +480,7 @@ function Stream.hashing(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
   if made == nil then return nil, trouble end
   local hasher: Hash.Hasher = made
   local result: string
+  local failure = ""
   local closed = false
   local h: Stream.Hashing = {}
   h.write = function(_self: Stream.Writer, data: string): boolean, string
@@ -488,12 +493,18 @@ function Stream.hashing(algorithm: Hash.Algorithm): Stream.Hashing | nil, string
     return true, ""
   end
   h.abort = h.close
-  h.digest = function(_self: Stream.Hashing): string
-    if result == nil then
+  h.digest = function(_self: Stream.Hashing): string | nil, string
+    if result == nil and failure == "" then
       closed = true
-      result = hasher:digest() or ""
+      local digest, digest_trouble = hasher:digest()
+      if digest == nil then
+        failure = digest_trouble
+        return nil, failure
+      end
+      result = digest
     end
-    return result
+    if result == nil then return nil, failure end
+    return result, ""
   end
   return h, ""
 end
@@ -511,11 +522,12 @@ function Stream.tee(a: Stream.Writer, b: Stream.Writer): Stream.Writer
     local ok, trouble = a:close()
     local ok2, trouble2 = b:close()
     if not ok then return false, trouble end
-    return ok2, trouble2
+    if not ok2 then return false, trouble2 end
+    return true, ""
   end
   w.abort = function(_self: Stream.Writer): boolean, string
-    a:abort()
-    b:abort()
+    local _, _ = a:abort()
+    local _, _ = b:abort()
     return true, ""
   end
   return w
@@ -578,12 +590,15 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Codec): St
       end
     end
     if failed then
-      writer:abort()
+      local _, _ = writer:abort()
       return false, failed
     end
     local ok, why = writer:close()
-    if not ok then failed = why end
-    return ok, why
+    if not ok then
+      failed = why
+      return false, why
+    end
+    return true, ""
   end
   return w
 end
