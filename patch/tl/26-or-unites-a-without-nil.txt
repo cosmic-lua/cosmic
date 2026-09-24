@@ -1,0 +1,7 @@
+file: tl.lua
+note: with a's nil dropped (20), a is the structural form of its one remaining type while b stays as written, so for `x.a or x.b` into a declared `T | nil`, where both fields are `T | nil`, the union branch was handed the record T itself beside b's nominal T and refused "cannot discriminate a union between multiple table types". Unite a's nil-less type as written, not its structural form, so the two T's are one member again
+--- find
+                  local u = unite(node, { ra, rb }, true)
+--- replace
+                  local u = unite(node, { a_sans_nil or ra, rb }, true)
+--- end
