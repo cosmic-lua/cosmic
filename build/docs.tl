@@ -343,6 +343,9 @@ end
 --- module's record down (`Zip.ZipWriter.add_file`) also names the
 --- use whose symbol it ends with (`ZipWriter.add_file`).
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs.Use} | nil, string
+  -- TODO: a qualified query matches every symbol with the same last name
+  -- too (`Stream.Writer.write` lists `cosmic.fs`'s `write`). Fall back to
+  -- the last name only when the query has no `.` or `:` of its own.
   local canonical = query:match("([^%.:]+)$") or query
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line FROM uses " ..

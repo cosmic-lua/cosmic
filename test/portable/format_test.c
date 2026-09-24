@@ -94,6 +94,8 @@ static int mutation (const char *name, const unsigned char *original,
                      const unsigned char *replacement, size_t replace_length) {
   unsigned char *changed = copy_of(original, length);
   if (changed == NULL || offset > length || replace_length > length - offset) {
+    fprintf(stderr, "%s: %s\n", name,
+            changed == NULL ? "out of memory" : "mutation is out of range");
     free(changed);
     return 0;
   }
@@ -105,7 +107,10 @@ static int mutation (const char *name, const unsigned char *original,
 
 static int inspect (const char *path) {
   int fd = open(path, O_RDONLY);
-  if (fd < 0) return 2;
+  if (fd < 0) {
+    perror(path);
+    return 2;
+  }
   struct cosmic_portable decoded;
   const char *error = NULL;
   if (!cosmic_portable_decode(fd, PORTABLE_TEST_TARGET_ID,
@@ -137,14 +142,23 @@ static int inspect (const char *path) {
 static int self_test (const char *path) {
   int fd = open(path, O_RDONLY);
   struct stat st;
-  if (fd < 0 || fstat(fd, &st) != 0 || st.st_size < 1) return 2;
+  if (fd < 0 || fstat(fd, &st) != 0 || st.st_size < 1) {
+    fprintf(stderr, "%s: cannot open, or empty\n", path);
+    return 2;
+  }
   size_t length = (size_t)st.st_size;
   unsigned char *data = malloc(length);
-  if (data == NULL) return 2;
+  if (data == NULL) {
+    fprintf(stderr, "%s: out of memory\n", path);
+    return 2;
+  }
   size_t got = 0;
   while (got < length) {
     ssize_t part = read(fd, data + got, length - got);
-    if (part <= 0) return 2;
+    if (part <= 0) {
+      fprintf(stderr, "%s: short read\n", path);
+      return 2;
+    }
     got += (size_t)part;
   }
   close(fd);
@@ -155,7 +169,9 @@ static int self_test (const char *path) {
                            PORTABLE_TEST_CONFIGURATION_ID, &decoded, &error);
   if (valid != 1 || decoded.entry_count != 3) {
     fprintf(stderr, "valid writer fixture rejected: %s\n",
-            error == NULL ? "unknown" : error);
+            valid < 0 ? "could not make test file"
+            : valid == 1 ? "entry count is not 3"
+            : error == NULL ? "unknown" : error);
     free(data);
     return 1;
   }
@@ -236,6 +252,9 @@ static int self_test (const char *path) {
     ok &= expect_rejected("valid SQLite header at dishonest offset",
                           dishonest, length);
   } else {
+    fprintf(stderr, "valid SQLite header at dishonest offset: %s\n",
+            dishonest == NULL ? "out of memory"
+                              : "no core padding of 16 bytes to place it in");
     ok = 0;
   }
   free(dishonest);

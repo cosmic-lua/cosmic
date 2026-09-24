@@ -577,6 +577,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
       if etrouble ~= "" then return nil, etrouble end
       break
     end
+    -- TODO: use `got` itself once #2011 merges: its break narrows it.
     local entry: Zip.Entry = got
     count = count + 1
     if entry.kind == "symlink" then
@@ -611,6 +612,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     while true do
       local got = next_record(c, entry_mt)
       if got == nil then break end
+      -- TODO: use `got` itself once #2011 merges: its break narrows it.
       local entry: Zip.Entry = got
       all[#all + 1] = entry
       local target = links[#all]

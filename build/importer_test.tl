@@ -668,6 +668,20 @@ local function test_unresolved_removed_global_names_its_own_replacement()
     compile_trouble)
 end
 
+--- A removed name's refusal says what to write instead of the very
+--- field used, not only where the docs are: `os.getenv` is `Env.get`,
+--- and the `require` that brings it in, ahead of the docs pointer.
+local function test_a_removed_field_names_its_replacement_at_compile_time()
+  local root = assert(write_fixture("removed-field-replacement", {
+    ["thing.tl"] = 'return function(): string\n  return os.getenv("HOME") or ""\nend\n',
+  }))
+  local result, compile_trouble = compile_fixture(root)
+  assert(result == nil, "expected `os.getenv` to refuse the compile")
+  assert(compile_trouble:find("thing.tl:2:10: unknown variable: os -- os.getenv is not " ..
+    'available: use Env.get(name) (local Env = require("cosmic.env"))' ..
+    " -- see also in docs: Removed.os", 1, true) ~= nil, compile_trouble)
+end
+
 --- The same hint, for a literal `require` of a removed name: tl
 --- resolves `require("io")` against `env.modules`, which `build.teal`
 --- strips `io` from too, so this fails as an ordinary unresolvable
