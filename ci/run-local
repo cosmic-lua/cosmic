@@ -4,20 +4,28 @@
 # Runs this checkout's CI platform job on this machine, for the host's own
 # target: the same driver phases in the same order, against a fresh
 # candidate snapshot of the working tree, with the environment a workflow
-# job would set. Nothing is written into the checkout except ci/o.
+# job would set. Nothing is written into the checkout.
 #
 #   ci/run-local                run every phase from a fresh snapshot
 #   ci/run-local fixtures       re-run named phases against the last run
 #
 # The candidate is a snapshot: the product is built from the tree as it was
 # when the run started, tracked and untracked files alike, but ignored ones
-# not. The fixture tests themselves are read from this checkout's ci/ at the
-# moment they run, so after one full run, `ci/run-local fixtures` exercises
-# an edited fixture against the same products in about a minute.
+# not. The driver runs from a copy of this checkout's ci/ taken when
+# run-local starts, fixtures included, so after one full run
+# `ci/run-local fixtures` exercises an edited fixture against the same
+# products in about a minute.
 #
 # The driver is this checkout's own o/bin/cosmic (run `bin/zig build boot`
 # first), not the pinned release CI uses. State lives outside the checkout,
 # in $COSMIC_CI_LOCAL (default ${TMPDIR:-/tmp}/cosmic-ci-local-<uid>).
+#
+# CI runs the driver as an unprivileged user, and a fixture may expect a
+# permission to be refused that root would be granted. So when invoked as
+# root, run-local runs the driver, and everything it spawns, as
+# $COSMIC_CI_LOCAL_USER (default: $SUDO_USER when sudo invoked it as someone
+# other than root, else `nobody`), through setpriv or runuser (util-linux).
+# Where neither exists (macOS) it warns and runs as root.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -31,24 +39,128 @@ case $(uname -sm) in
   *) echo "run-local: unsupported host: $(uname -sm)" >&2; exit 2 ;;
 esac
 
+die() {
+  echo "run-local: $*" >&2
+  exit 2
+}
+
 uid=$(id -u)
 state=${COSMIC_CI_LOCAL:-${TMPDIR:-/tmp}/cosmic-ci-local-$uid}
-case $state in /*) ;; *) echo "run-local: COSMIC_CI_LOCAL must be absolute" >&2; exit 2 ;; esac
-case $state/ in "$root"/*) echo "run-local: state must be outside the checkout" >&2; exit 2 ;; esac
+case $state in /*) ;; *) die "COSMIC_CI_LOCAL must be absolute" ;; esac
+case $state/ in "$root"/*) die "state must be outside the checkout" ;; esac
 candidate=$state/candidate
+project=$state/ci
+
+# How the driver is run: `drop` runs its arguments as the unprivileged
+# user when root invoked run-local and a mechanism exists, else as is.
+mechanism=none
 if [ "$uid" = 0 ]; then
-  echo "run-local: running as root; CI runs as an unprivileged user, so a" \
-    "permission a fixture expects to be refused may be granted here" >&2
+  user=${COSMIC_CI_LOCAL_USER:-}
+  if [ -z "$user" ]; then
+    case ${SUDO_USER:-root} in root) user=nobody ;; *) user=$SUDO_USER ;; esac
+  fi
+  if command -v setpriv >/dev/null 2>&1; then mechanism=setpriv
+  elif command -v runuser >/dev/null 2>&1; then mechanism=runuser
+  fi
+  if [ "$mechanism" = none ]; then
+    echo "run-local: running as root, with neither setpriv nor runuser to" \
+      "drop to an unprivileged user; CI runs as one, so a permission a" \
+      "fixture expects to be refused may be granted here" >&2
+  else
+    user_uid=$(id -u "$user") || die "no user $user; set COSMIC_CI_LOCAL_USER"
+    user_gid=$(id -g "$user")
+    [ "$user_uid" != 0 ] || die "COSMIC_CI_LOCAL_USER must not be root"
+  fi
+fi
+
+drop() {
+  case $mechanism in
+    none) "$@" ;;
+    # No supplementary groups: root's would grant what CI's runner lacks.
+    setpriv) setpriv --reuid="$user_uid" --regid="$user_gid" --clear-groups \
+      -- env $drop_env "$@" ;;
+    runuser) runuser -u "$user" -- env $drop_env "$@" ;;
+  esac
+}
+
+if [ "$mechanism" != none ]; then
+  echo "run-local: running as root; the driver runs as $user" \
+    "(uid $user_uid, via $mechanism)" >&2
+  # The state directory is the one place the driver writes: the candidate,
+  # its o/ and the zig caches seeded into it, RUNNER_TEMP, XDG_CACHE_HOME
+  # (which Fs.cache_dir refuses when someone else owns it), and the ci/
+  # copy with its o/. So the whole of it belongs to the user, re-owned
+  # once when an earlier run as root left it root's. The checkout itself
+  # stays root's and is only read: o/bin/cosmic, and the zig caches under
+  # o/ that COSMIC_ZIG_CACHE_SEED names, which the driver copies with
+  # `cp -a` into the candidate rather than writing in place.
+  # drop_env is split on spaces, and names paths under the state.
+  case $state in *[[:space:]]*) die "COSMIC_CI_LOCAL must not contain spaces" ;; esac
+  mkdir -p "$state"
+  if [ "$(ls -ldn "$state" | awk '{ print $3 }')" != "$user_uid" ]; then
+    chown -R "$user_uid:$user_gid" "$state"
+  fi
+  mkdir -p "$state/home" "$state/tmp"
+  chown "$user_uid:$user_gid" "$state/home" "$state/tmp"
+  # The user's own HOME may not exist (nobody's is /nonexistent), and
+  # root's TMPDIR may be private to root; both move under the state.
+  # A CA bundle root names in the environment (a proxy's, say) may sit
+  # somewhere only root reads, as under /root; a copy is made readable.
+  drop_env="HOME=$state/home TMPDIR=$state/tmp"
+  for name in SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+    eval "file=\${$name:-}"
+    if [ -n "$file" ] && [ -f "$file" ] && ! drop test -r "$file"; then
+      mkdir -p "$state/ca"
+      cp "$file" "$state/ca/$name.pem"
+      chmod 644 "$state/ca/$name.pem"
+      drop_env="$drop_env $name=$state/ca/$name.pem"
+    fi
+  done
+  # The candidate is a worktree whose git directory lives in this
+  # checkout's .git, owned by root, so git as the user refuses it as of
+  # dubious ownership; the driver runs `git archive` there. It is marked
+  # safe for the driver's git alone, through GIT_CONFIG_* so no config
+  # file changes; git reads it as command-line configuration.
+  n=${GIT_CONFIG_COUNT:-0}
+  drop_env="$drop_env GIT_CONFIG_COUNT=$((n + 1))"
+  drop_env="$drop_env GIT_CONFIG_KEY_$n=safe.directory"
+  drop_env="$drop_env GIT_CONFIG_VALUE_$n=$candidate"
+  drop test -w "$state" ||
+    die "$user cannot write $state; set COSMIC_CI_LOCAL to a directory it can reach"
+  drop test -x "$cosmic" -a -r "$root/ci/cosmic_ci/driver.tl" ||
+    die "$user cannot read $root; make the checkout readable by others," \
+      "or name another user with COSMIC_CI_LOCAL_USER"
+  for seed in "$root/o/zig-cache" "$root/o/zig-global"; do
+    if [ -d "$seed" ] && ! drop test -r "$seed" -a -x "$seed"; then
+      die "$user cannot read $seed"
+    fi
+  done
+else
+  drop_env=
+  mkdir -p "$state"
 fi
 
 if [ "$#" = 0 ]; then
   set -- build local-boundary assemble portable portable-boundary fixtures
 fi
 
+# The driver runs from a copy of ci/, so that its working database (the
+# copy's o/) is written under the state rather than into the checkout,
+# which the unprivileged user may not write. The copy's o/ is kept across
+# runs; everything else is taken afresh from the checkout each time.
+mkdir -p "$project"
+[ "$mechanism" = none ] || chown "$user_uid:$user_gid" "$project"
+find "$project" -mindepth 1 -maxdepth 1 ! -name o -exec rm -rf {} +
+for entry in "$root"/ci/* "$root"/ci/.[!.]*; do
+  [ -e "$entry" ] || continue
+  [ "$entry" = "$root/ci/o" ] || drop cp -R "$entry" "$project/"
+done
+
 for phase in "$@"; do
   if [ "$phase" = build ]; then
     # A commit of the whole working tree, made through a private index so
-    # the checkout's own index and stash are untouched.
+    # the checkout's own index and stash are untouched. Git runs as the
+    # invoking user here: only it may write the checkout's .git.
     index=$(mktemp "${TMPDIR:-/tmp}/cosmic-ci-local-index.XXXXXX")
     rm -f "$index"
     GIT_INDEX_FILE=$index git -C "$root" add -A
@@ -62,22 +174,24 @@ for phase in "$@"; do
       git -C "$root" worktree prune
     fi
     rm -rf "$state/runner"
-    mkdir -p "$state"
     git -C "$root" worktree add --quiet --detach "$candidate" "$snapshot"
+    # The driver builds in the candidate, so the user owns its files; its
+    # git directory stays in the checkout's .git, root's.
+    [ "$mechanism" = none ] || chown -R "$user_uid:$user_gid" "$candidate"
     echo "run-local: candidate $snapshot at $candidate" >&2
   fi
-  [ -d "$candidate" ] || { echo "run-local: no candidate; run the build phase first" >&2; exit 2; }
-  mkdir -p "$state/runner" "$state/logs"
+  [ -d "$candidate" ] || die "no candidate; run the build phase first"
+  drop mkdir -p "$state/runner" "$state/logs"
   log=$state/logs/$phase.log
   started=$(date +%s)
   status=0
   (
-    cd "$root/ci"
-    GITHUB_WORKSPACE=$candidate RUNNER_TEMP=$state/runner \
-    GITHUB_RUN_ID=local GITHUB_RUN_ATTEMPT=1 COSMIC_WORKER=local \
-    TARGET=$target XDG_CACHE_HOME=$state/cache \
-    COSMIC_ZIG_CACHE_SEED=$root/o \
-      exec "$cosmic" cosmic_ci/driver.tl platform "$phase" success
+    cd "$project"
+    drop env GITHUB_WORKSPACE="$candidate" RUNNER_TEMP="$state/runner" \
+      GITHUB_RUN_ID=local GITHUB_RUN_ATTEMPT=1 COSMIC_WORKER=local \
+      TARGET="$target" XDG_CACHE_HOME="$state/cache" \
+      COSMIC_ZIG_CACHE_SEED="$root/o" \
+      "$cosmic" cosmic_ci/driver.tl platform "$phase" success
   ) > "$log" 2>&1 || status=$?
   echo "run-local: $phase: status $status, $(( $(date +%s) - started )) s, log $log" >&2
   if [ "$status" != 0 ]; then
