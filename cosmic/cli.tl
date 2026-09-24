@@ -1,7 +1,7 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or
---- build, fix, db, docs, uses, help, run, standalone) answers with
---- what that verb does. This is not an argument parser for a
+--- build, fix, db, docs, uses, todos, help, run, standalone) answers
+--- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array and dispatches on them itself -- see
 --- argv.
@@ -66,6 +66,11 @@ local record Cli
   --- `cosmic uses <sym>`: every place that refers to a symbol, as
   --- file:line
   uses: string
+  --- `cosmic todos [--oldest] [path...]`: every `TODO:` comment in the
+  --- tree, as file:line, with the date and commit git blames its first
+  --- line on -- oldest first with `--oldest` -- indexed into o/build.db
+  --- so only a file that moved is blamed again
+  todos: string
   --- `cosmic help`: prints the whole discovery surface -- every verb,
   --- one line of prose each
   help: string
@@ -82,9 +87,9 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", test = "test", fix = "fix", build = "build",
-    db = "db", docs = "docs", uses = "uses", help = "help",
+    db = "db", docs = "docs", uses = "uses", todos = "todos", help = "help",
   },
-  order = { "run", "standalone", "test", "fix", "build", "db", "docs", "uses", "help" },
+  order = { "run", "standalone", "test", "fix", "build", "db", "docs", "uses", "todos", "help" },
 }
 
 return module

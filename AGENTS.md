@@ -69,7 +69,8 @@ something unmet (an open PR, a release the pin does not name yet), name that
 dependency in the comment ("once #2011 merges") rather than holding the
 comment back until it lands. When the work is done, list every `TODO:` it
 added, with its `file:line` and what it waits on, in the summary and the PR
-description.
+description. `o/bin/cosmic todos [--oldest] [path...]` lists every `TODO:` in
+the tree with the date and commit `git blame` gives its first line.
 
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
