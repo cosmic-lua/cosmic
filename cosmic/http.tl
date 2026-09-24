@@ -62,7 +62,7 @@ local record Http
   --- is data, returned as `nil, err`: a method that is no HTTP token,
   --- a header name or value holding CR, LF or NUL (or a name that is
   --- empty or holds ':'), a URL holding NUL or one curl rejects.
-  record Options
+  record Options is raw_http.Options
     method: string
     headers: {string:string}
     body: string
@@ -118,7 +118,7 @@ local response_mt: metatable<Http.Response> = {
 --- returns `nil, ""` for a clean end, or use `Http.get` to read it
 --- all at once.
 function Http.open(url: string, opts?: Http.Options): Http.Response | nil, string
-  local handle, trouble = http.open(url, opts as raw_http.Options)
+  local handle, trouble = http.open(url, opts)
   if handle == nil then
     return nil, trouble
   end

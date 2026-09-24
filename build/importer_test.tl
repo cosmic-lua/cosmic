@@ -1053,3 +1053,72 @@ local function test_the_analyzer_modules_are_closed_under_require()
   end
   assert(#missing == 0, "not in importer.analyzer_modules: " .. table.concat(missing, ", "))
 end
+
+--- A stale tool rebuilding itself compiles without judging the tree by
+--- its own, older build.contracts; the next judged compile judges every
+--- module compiled so, rather than finding it cached.
+local function test_an_unjudged_compile_is_judged_by_the_next()
+  local root = assert(write_fixture("unjudged", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["core/syscalls.h"] = table.concat({
+      "/**",
+      " * --- Reads bytes.",
+      " * ---@param fd integer descriptor",
+      " * ---@return string|nil data bytes",
+      " * ---@return string error failure",
+      " * ---@return integer errno number",
+      " */",
+      "COSMIC_SYSCALL(read, 1);",
+    }, "\n") .. "\n",
+    ["cosmic/casting.tl"] = table.concat({
+      "local record Casting end",
+      "function Casting.value(v: any): integer",
+      "  return v as integer",
+      "end",
+      "return Casting",
+    }, "\n") .. "\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local unjudged, unjudged_trouble = importer.compile(handle, built, "unjudged-test", true)
+  assert(unjudged ~= nil, unjudged_trouble)
+  local result, trouble = importer.compile(handle, built, "unjudged-test")
+  work.close(handle)
+  assert(result == nil)
+  assert(trouble:find("cosmic/casting.tl:3: Casting.value: a cast", 1, true), trouble)
+end
+
+--- A module a stale tool's rebuild compiles and its contracts pass is
+--- cached as any other: the command it re-enters compiles nothing again.
+local function test_a_passing_unjudged_compile_is_cached()
+  local root = assert(write_fixture("unjudged-clean", {
+    ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    ["core/syscalls.h"] = table.concat({
+      "/**",
+      " * --- Reads bytes.",
+      " * ---@param fd integer descriptor",
+      " * ---@return string|nil data bytes",
+      " * ---@return string error failure",
+      " * ---@return integer errno number",
+      " */",
+      "COSMIC_SYSCALL(read, 1);",
+    }, "\n") .. "\n",
+    ["cosmic/clean.tl"] = table.concat({
+      "local record Clean end",
+      "function Clean.value(v: integer): integer",
+      "  return v + 1",
+      "end",
+      "return Clean",
+    }, "\n") .. "\n",
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, true))
+  local unjudged, unjudged_trouble = importer.compile(handle, built, "unjudged-test", true)
+  assert(unjudged ~= nil, unjudged_trouble)
+  assert(unjudged.compiled > 0, "the rebuild compiled nothing")
+  local result, trouble = importer.compile(handle, built, "unjudged-test")
+  work.close(handle)
+  assert(result ~= nil, trouble)
+  assert(result.compiled == 0 and result.cached == unjudged.compiled,
+    result.compiled .. " compiled, " .. result.cached .. " cached")
+end

@@ -377,7 +377,7 @@ local record FileWriter is Stream.Writer
 end
 
 local FileWriter_methods: {string:any} = {}
-local file_writer_mt: metatable<FileWriter> = { __index = FileWriter_methods as FileWriter }
+local file_writer_mt: metatable<FileWriter> = { __index = FileWriter_methods }
 
 FileWriter_methods.write = function(self: FileWriter, data: string): boolean, string
   if self.closed then return false, closed_message end
@@ -435,7 +435,7 @@ function Stream.create(path: string, mode?: integer): Stream.Writer | nil, strin
   if opened == nil then return nil, path .. ": " .. trouble end
   local w: FileWriter = setmetatable({
     path = path, temporary = opened, closed = false,
-  } as FileWriter, file_writer_mt)
+  }, file_writer_mt)
   return w, ""
 end
 

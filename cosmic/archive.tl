@@ -95,6 +95,11 @@ end
 --- the tar end is reached, whatever follows it is read through to the
 --- decompressor's own end, so its errors (a truncated stream, a bad
 --- checksum) surface instead of vanishing with the unread tail.
+-- TODO: declare the entry once, as an interface Tar.Entry and Zip.Entry
+-- are (`record Entry is ...`), with one Kind enum, so wrap_tar and
+-- wrap_zip hand an entry on uncast; it waits on a module both
+-- cosmic.tar and cosmic.zip require that can hold it, since
+-- cosmic.archive requires them both.
 local function wrap_tar(tr: Tar.TarReader, source: Stream.Reader | nil): Archive.ArchiveReader
   local finished = false
   local ar: Archive.ArchiveReader = {}
@@ -252,9 +257,10 @@ local function apply_strip(path: string, strip: string | integer | nil): string 
     if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
     return (rest:gsub("^/+", ""))
   end
-  local n = strip as integer
+  -- A float that is a whole number (2.0) counts as one; extract has
+  -- refused any other.
   local rest = path
-  for _ = 1, n do
+  for _ = 1, math.tointeger(strip) or 0 do
     local slash = rest:find("/", 1, true)
     if slash == nil then return nil end
     rest = rest:sub(slash + 1)
@@ -316,6 +322,10 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
   opts = opts or {}
   if opts.max_bytes ~= nil and opts.max_bytes < 0 then
     error("archive: max_bytes is negative", 2)
+  end
+  local strip = opts.strip
+  if strip ~= nil and not (strip is string) and math.tointeger(strip) == nil then
+    error("archive: strip is neither a path prefix nor a whole number of components", 2)
   end
   local links_mode = opts.links or "skip"
   local skip_unsupported = opts.unsupported == "skip"

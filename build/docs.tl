@@ -605,6 +605,13 @@ function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): docs.View | 
            use_counts = {} }
 end
 
+--- `entries` as a lookup's answer.
+local function lookup(entries: {docs.Entry}, exact: boolean, count: integer): docs.Lookup
+  local out: docs.Lookup = { exact = exact, named = count }
+  for i, entry in ipairs(entries) do out[i] = entry end
+  return out
+end
+
 --- What `query` names, across `databases`: its exact matches when it
 --- names a symbol or a module; for a qualified name that names nothing,
 --- what its qualifier offers (see `scoped`); otherwise the
@@ -643,10 +650,7 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
     if not counted then
       return nil, count_trouble
     end
-    local answer = exact as docs.Lookup
-    answer.exact = true
-    answer.named = named_count
-    return answer, ""
+    return lookup(exact, true, named_count), ""
   end
   local found: {docs.Entry} = {}
   local qualifier, name = query:match("^([%w_]+)[.:]([%w_]+)$")
@@ -674,10 +678,7 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   if not counted then
     return nil, count_trouble
   end
-  local answer = found as docs.Lookup
-  answer.exact = false
-  answer.named = 0
-  return answer, ""
+  return lookup(found, false, 0), ""
 end
 
 --- Every one of `names` that names a symbol exactly, in one query per

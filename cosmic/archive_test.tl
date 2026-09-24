@@ -107,6 +107,20 @@ local function test_extract_strips_leading_path_components(tmp: string)
   assert(Fs.read(dest .. "/tool") == "#!/bin/sh\necho hi\n")
 end
 
+--- A whole number held as a float strips as the integer does; any other
+--- number is refused before anything is written.
+local function test_extract_strips_by_a_whole_float(tmp: string)
+  local archive = tmp .. "/a.tar"
+  make_tar(archive)
+  local float = assert(load("return ...")) as function(number): integer
+  local written = assert(Archive.extract(archive, tmp .. "/out", { strip = float(1.0) }))
+  assert(#written == 2, table.concat(written, ","))
+  assert(Fs.read(tmp .. "/out/tool") == "#!/bin/sh\necho hi\n")
+  local ok, why = pcall(Archive.extract, archive, tmp .. "/half", { strip = float(1.5) })
+  assert(not ok and tostring(why):find("whole number", 1, true) ~= nil, tostring(why))
+  assert(Fs.exists(tmp .. "/half") == false)
+end
+
 local function test_extract_applies_a_filter(tmp: string)
   local archive = tmp .. "/a.tar"
   make_tar(archive)

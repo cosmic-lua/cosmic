@@ -43,7 +43,7 @@ local type compiler = require("build.compiler")
 
 local record standalone
   --- A loaded chunk, or the entry point one returns.
-  type Main = function(...: any): any
+  type Main = function(...: any): (any...)
 end
 
 --- A checker environment that answers `cosmic.*` from this binary's own
@@ -81,7 +81,7 @@ local function loaded(file: string, code: string): standalone.Main | nil, string
   if chunk == nil then
     return nil, file .. ": " .. tostring(chunk_trouble)
   end
-  return chunk as standalone.Main, ""
+  return chunk, ""
 end
 
 --- `file`'s Teal, checked and compiled to Lua: nil and every complaint
@@ -145,8 +145,8 @@ function standalone.entry(produced: any): standalone.Main | nil
   if produced is standalone.Main then
     return produced
   end
-  if produced is table then
-    local main: any = (produced as {string:any}).main
+  if produced is {string: any} then
+    local main: any = produced.main
     if main is standalone.Main then
       return main
     end

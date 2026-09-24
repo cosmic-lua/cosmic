@@ -25,7 +25,9 @@
    shows a symbol's signature, doc comment and use count, and
    `o/bin/cosmic uses <symbol>` lists every `file:line` that refers to it.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-paths>`.
-   `fix` checks syntax and tree equivalence; compilation checks types. A C
+   `fix` checks syntax and tree equivalence; compilation (`cosmic test`, a
+   boot) checks types and `build/contracts.tl`'s rules, which `fix` does
+   not report. A C
    path is written back in Lua's own layout (`build/c/layout.tl`) and
    checked against the rules in `build/c/rules.tl` (see C, below).
 3. A tool older than the tree rebuilds itself and re-enters the command the

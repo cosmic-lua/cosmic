@@ -120,8 +120,7 @@ local function match(pv: {any: any}, nv: {any: any}, caps: {string: Node},
   local prev = caps[cap]
   if prev then
     -- linear pattern: a repeated $T must bind the same subtree twice
-    local pt = prev as {any: any} -- cast: generic ast node view of a prior binding
-    return pt["kind"] == nv["kind"] and pt["tk"] == nv["tk"]
+    return prev.kind == nv["kind"] and prev.tk == nv["tk"]
   end
   caps[cap] = nv as Node -- cast: a matched candidate node is a real Node
   return true

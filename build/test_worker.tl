@@ -102,7 +102,8 @@ local function child_hits(directory: string, into: Coverage.Hits)
             here = {}
             into[path] = here
           end
-          here[math.tointeger(tonumber(line)) as integer] = true
+          local number = math.tointeger(tonumber(line))
+          if number ~= nil then here[number] = true end
         end
       end
       local _, _ = Fs.remove(file)
@@ -231,13 +232,13 @@ function worker.run(argv: {integer:string}): integer
   if not loaded then
     report.message = "the module failed to load: " .. tostring(produced)
   else
-    local fn = (produced as {string:any})[name]
-    if type(fn) ~= "function" then
+    local fn: any = produced is {string: any} and produced[name] or nil
+    if not (fn is function(any...): (any...)) then
       report.message = module_path .. " has no test named " .. name
     else
       local test_session, _ = Coverage.start()
       local started = Time.monotonic_ns()
-      local run = observations.call(fn as function(any...): (any...), tmp, resolving)
+      local run = observations.call(fn, tmp, resolving)
       local finished = Time.monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)

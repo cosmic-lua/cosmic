@@ -649,12 +649,12 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     table.sort(numbers)
     for _, number in ipairs(numbers) do
       local value = opts.fds[number]
-      if value == "capture" then
+      if value is integer then
+        slots[number] = value
+      else
         local fd, trouble = capture(wiring, number)
         if fd == nil then return nil, trouble end
         slots[number] = fd
-      else
-        slots[number] = value as integer
       end
     end
   end

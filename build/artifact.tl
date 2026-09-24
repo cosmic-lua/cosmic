@@ -184,7 +184,7 @@ function artifact.prefix(records: string, cores: {string:string},
     if at < target.offset then
       parts[#parts + 1] = string.rep("\0", target.offset - at)
     end
-    local image = cores[target.target] as string
+    local image = cores[target.target]
     parts[#parts + 1] = image
     at = target.offset + #image
     local next_at = align(at, core_alignment)

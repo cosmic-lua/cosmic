@@ -109,7 +109,9 @@ Shape.any = leaf("any")
 --- Raises unless `spec` is one these functions built: a spec is part of
 --- the program, so a wrong one is the caller's bug, not the data's.
 local function need_spec(spec: any, what: string)
-  if not (spec is table) or not KINDS[(spec as Spec).kind] then
+  local kind: any = nil
+  if spec is {any: any} then kind = spec["kind"] end
+  if not (kind is string) or not KINDS[kind] then
     error(("shape: %s is not a Spec"):format(what), 3)
   end
 end
@@ -324,8 +326,8 @@ walk = function(v: any, spec: Spec, path: string): any, Miss
     end
   elseif kind == "either" then
     return walk_either(v, spec, path)
-  elseif v is table then
-    local t = v as {any: any}
+  elseif v is {any: any} then
+    local t = v
     if kind ~= "list" and Json.is_array(t) then
       return nil, mismatch(path, spec, t)
     end

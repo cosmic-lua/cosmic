@@ -24,6 +24,7 @@ local record AstModule
   type RewriteResult = RewriteResult
   parse: function(built: compiler, source: string, name: string): Parsed | nil, string
   walk: function(node: Node, visit: function(Node))
+  children: function(node: Node, skipped?: {string: boolean}): {Node}
   span_start: function(node: Node): integer, integer
   compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
   find_all: function(ast: Node, pattern: Node): {Hit}
@@ -37,6 +38,7 @@ end
 local M: AstModule = {
   parse = ast_node.parse,
   walk = ast_walk.walk,
+  children = ast_walk.children,
   span_start = ast_walk.span_start,
   compile_pattern = ast_match.compile_pattern,
   find_all = ast_rewrite.find_all,

@@ -106,11 +106,7 @@ local function bind(
 ): boolean, string
   local count = statement:parameters()
   for key in pairs(values as {any: any}) do
-    if type(key) ~= "number" then
-      return false, "unexpected parameter key: " .. tostring(key)
-    end
-    local index = key as number
-    if index % 1 ~= 0 or index < 1 or index > count then
+    if not (key is number) or key % 1 ~= 0 or key < 1 or key > count then
       return false, "unexpected parameter key: " .. tostring(key)
     end
   end

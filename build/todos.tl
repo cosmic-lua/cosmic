@@ -439,8 +439,11 @@ end
 --- and every one required, when it does not (`cosmic.sys`).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
-  local rows, _ = Sqlite.text_rows(db, sql, { { text = query } })
-  if rows == nil then
+  local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
+  local rows: {{string}} = {}
+  if first ~= nil then
+    rows = first
+  else
     local words = quoted_words(query)
     if words == "" then
       return {}
@@ -452,8 +455,9 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
     rows = retried
   end
   local out: {integer:integer} = {}
-  for index, row in ipairs(rows as {{string}}) do
-    out[math.tointeger(tonumber(row[1])) as integer] = index
+  for index, row in ipairs(rows) do
+    local id = math.tointeger(tonumber(row[1]))
+    if id ~= nil then out[id] = index end
   end
   return out
 end
@@ -476,7 +480,7 @@ end
 --- lists them one per line, in file order or, with `--oldest`, oldest
 --- commit first, then a verdict line.
 --- @param argv the command line, re-entered if this binary embeds a
----   stale copy of `build.todos` itself -- see `build.reboot.ensure`
+---   stale copy of `build.todos` itself -- see `build.reboot.stale_exit`
 function todos.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
@@ -485,7 +489,7 @@ function todos.run(argv: {integer:string}): integer
     return 1
   end
   -- TODO: list TODOs when only the core is stale, since nothing here
-  -- runs it: after a C edit reboot.ensure boots before any verb goes on
+  -- runs it: after a C edit build.reboot's ensure boots before any verb goes on
   -- (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go
   -- on once the Teal side is fresh, which reboot.state would have to
   -- tell apart from both.

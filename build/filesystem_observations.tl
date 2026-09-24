@@ -239,8 +239,8 @@ local function start(resolving: observations.Resolving | nil):
   -- that is no string at all, which the call itself raises for; only a
   -- path is an observation, and encoding anything else into a key would
   -- end the worker before the test could report.
-  local function note(kind: string, path: string, answer: string)
-    if type(path as any) == "string" then
+  local function note(kind: string, path: any, answer: string)
+    if path is string then
       found[#found + 1] = { kind = kind, path = path, answer = answer }
       if resolving ~= nil and (kind == "o" or kind == "s" or kind == "d") and
           path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
@@ -320,7 +320,8 @@ local function start(resolving: observations.Resolving | nil):
   -- nowhere; any other is the network's answer.
   Http.open = function(url: string, opts?: Http.Options): Http.Response | nil, string
     -- An `opts` that is no table is Http.open's own error to raise.
-    if type(opts as any) ~= "table" or opts.script == nil then
+    local given: any = opts
+    if type(given) ~= "table" or opts.script == nil then
       note("x", url, "")
     end
     return http_open(url, opts)

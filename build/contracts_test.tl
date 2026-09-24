@@ -10,7 +10,7 @@ local built = teal.lazy()
 --- What `contracts.check` says of `source`, a module the checker takes
 --- as it is, with a fallible value `get`, a fallible effect `put`, and
 --- two calls that are not fallible in front of it.
-local function problems_in(source: string): {string}
+local function problems_in(source: string, exemptions?: contracts.Exemptions): {string}
   -- A case may require the real `cosmic.sys`.
   teal.serve_standard(built)
   local env = assert(built.new_env({
@@ -56,7 +56,17 @@ local function problems_in(source: string): {string}
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
   local checked = result.ast as ast.Node -- cast: tl's checked AST
   return contracts.check("x.tl", checked, state, contracts.quiet_records(env),
-    receivers.record_named(env, "cosmic.sys", ""))
+    receivers.record_named(env, "cosmic.sys", ""), exemptions)
+end
+
+--- Exemptions naming `keys` in the table `which` alone, in place of
+--- build.contracts' own.
+local function exempting(which: string, keys: {string}): contracts.Exemptions
+  local out: contracts.Exemptions = { exempt = {}, parsing = {}, casts = {} }
+  local named: {string: string} = which == "exempt" and out.exempt
+    or which == "parsing" and out.parsing or out.casts
+  for _, key in ipairs(keys) do named[key] = "a test's own exemption" end
+  return out
 end
 
 local function flags(source: string, wanted: string)
@@ -198,9 +208,7 @@ end
 local function test_an_exempt_function_is_not_held_to_the_return_rules()
   local source = "local function f(): integer | nil, string\n  return 1, 'why'\nend\nuse(f)"
   flags(source, "beside its reason")
-  contracts.exempt["x.tl:f"] = "a test's own exemption"
-  local found = problems_in(source)
-  contracts.exempt["x.tl:f"] = nil
+  local found = problems_in(source, exempting("exempt", { "x.tl:f" }))
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -393,12 +401,115 @@ local function test_a_local_reads_its_own_name_from_before_it()
     "local e = err:find('x')\nuse(e)")
 end
 
---- A function `contracts.parsing` names is not held to rule 6.
+--- A function the `parsing` table names is not held to rule 6.
 local function test_a_parsing_exempt_function_is_not_held_to_rule_6()
   local source = "local function f()\n  local v, err = get()\n  use(v, err:find('x'))\nend\nuse(f)"
   flags(source, "a failure's reason is read for what it says")
-  contracts.parsing["x.tl:f"] = "a test's own exemption"
-  local found = problems_in(source)
-  contracts.parsing["x.tl:f"] = nil
+  local found = problems_in(source, exempting("parsing", { "x.tl:f" }))
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+local cast = "a cast tells the checker what it could not prove"
+
+--- Rule 7: a cast is flagged wherever it stands, named by the function
+--- it stands in, or as the top level.
+local function test_a_cast_is_flagged()
+  flags("local function f(v: any): integer return v as integer end\nuse(f)", "f: " .. cast)
+  flags("local t: {any} = {}\nuse(t[1] as string)", "the top level: " .. cast)
+  flags("local f = function(v: any): integer return v as integer end\nuse(f)", "f: " .. cast)
+  flags("local r: {string: function(any): integer} = {}\n" ..
+    "r.g = function(v: any): integer return v as integer end", "r.g: " .. cast)
+end
+
+--- A narrowing is no cast.
+local function test_a_narrowing_is_not_a_cast()
+  allows("local t: {any} = {}\nlocal v = t[1]\nif v is string then use(v) end")
+end
+
+--- A function the `casts` table names may cast; one it does not may not,
+--- even beside it.
+local function test_a_cast_exempt_function_may_cast()
+  local source = "local function f(v: any): integer return v as integer end\n" ..
+    "local g = function(v: any): string return v as string end\nuse(f, g)"
+  local one = problems_in(source, exempting("casts", { "x.tl:f" }))
+  local none = problems_in(source, exempting("casts", { "x.tl:f", "x.tl:g" }))
+  assert(#one == 1 and one[1]:find("g: " .. cast, 1, true) ~= nil, table.concat(one, "\n"))
+  assert(#none == 0, table.concat(none, "\n"))
+end
+
+--- The raw module the core hands a chunk may be cast at the top level,
+--- and only there; no other top-level cast may.
+local function test_the_handed_raw_module_may_be_cast_at_the_top_level()
+  local handed = "local extra: any = select(2, ...)\n"
+  allows(handed .. "use(extra as {string})")
+  allows(handed .. "if extra is {string} then use(1) else use((extra) as {string}) end")
+  flags(handed .. "local function f(): {string} return extra as {string} end\nuse(f)",
+    "f: " .. cast)
+  flags("local other: any = select(1, ...)\nuse(other as {string})", "the top level: " .. cast)
+  flags("use({} as {string})", "the top level: " .. cast)
+end
+
+--- An exemption key names a record's function as it is written, a
+--- nested function under the one around it, and a top-level table's
+--- function field under the table.
+local function test_an_exemption_key_names_the_function_as_written()
+  flags("local record R end\nfunction R.m(v: any): integer return v as integer end",
+    "R.m: " .. cast)
+  flags("local record R end\nfunction R:m(v: any): integer return v as integer end",
+    "R:m: " .. cast)
+  flags("local t = { g = function(v: any): integer return v as integer end }\nuse(t)",
+    "t.g: " .. cast)
+  local nested = "local function f()\n" ..
+    "  local function g(v: any): integer return v as integer end\n  use(g)\nend\nuse(f)"
+  flags(nested, "f.g: " .. cast)
+  -- A top-level function of the same name excuses nothing nested.
+  local inherited = problems_in(nested, exempting("casts", { "x.tl:g" }))
+  local joined = table.concat(inherited, "\n")
+  assert(#inherited == 2 and joined:find("f.g: " .. cast, 1, true) ~= nil
+    and joined:find("contracts.casts names x.tl:g,", 1, true) ~= nil, joined)
+  local exempt = problems_in(nested, exempting("casts", { "x.tl:f.g" }))
+  assert(#exempt == 0, table.concat(exempt, "\n"))
+end
+
+--- Rule 6 keys a nested function the same way.
+local function test_a_parsing_exemption_names_a_nested_function()
+  local source = "local function f()\n  local function g()\n" ..
+    "    local v, err = get()\n    use(v, err:find('x'))\n  end\n  use(g)\nend\nuse(f)"
+  local found = problems_in(source, exempting("parsing", { "x.tl:f.g" }))
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- An exemption its file's check finds no use for is refused.
+local function test_a_stale_exemption_is_refused()
+  local unused = "which no longer needs it"
+  local casts = problems_in("use(1)", exempting("casts", { "x.tl:gone" }))
+  assert(#casts == 1 and casts[1]:find("contracts.casts names x.tl:gone, " .. unused, 1, true),
+    table.concat(casts, "\n"))
+  local parsing = problems_in("local function f() local v, err = get() use(v, err) end\nuse(f)", exempting("parsing", { "x.tl:f" }))
+  assert(#parsing == 1 and parsing[1]:find("contracts.parsing names x.tl:f, " .. unused, 1, true),
+    table.concat(parsing, "\n"))
+  local exempt = problems_in("use(1)", exempting("exempt", { "x.tl:gone" }))
+  assert(#exempt == 1 and exempt[1]:find("contracts.exempt names x.tl:gone, " .. unused, 1, true),
+    table.concat(exempt, "\n"))
+end
+
+--- A test's tree stubs build/importer.tl to be taken for cosmic's own,
+--- and the stub uses no exemption: an entry naming one of its functions
+--- is refused whatever module is checked (see `stale`).
+local function test_no_exemption_may_name_a_function_of_the_importer()
+  for _, which in ipairs({ "exempt", "parsing", "casts" }) do
+    local found = problems_in("use(1)", exempting(which, { "build/importer.tl:generate" }))
+    assert(#found == 1 and found[1]:find("names build/importer.tl:generate", 1, true),
+      which .. ": " .. table.concat(found, "\n"))
+  end
+end
+
+--- Rules 2 to 5 key an exemption as the other tables do: a nested
+--- function under the one around it.
+local function test_an_exempt_function_is_keyed_by_its_scope()
+  local source = "local function f()\n" ..
+    "  local function g(): integer | nil, string return 1, 'x' end\n  use(g)\nend\nuse(f)"
+  flags(source, "a failure answers nil beside its reason")
+  local found = problems_in(source, exempting("exempt", { "x.tl:f.g" }))
   assert(#found == 0, table.concat(found, "\n"))
 end
