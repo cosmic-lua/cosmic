@@ -478,8 +478,11 @@ local function test_json_lines()
   assert(deep == "line 2: JSON nests deeper than 1 levels", deep)
   local kept = Json.decode_lines("null\n1", { null_value = Json.null })
   assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
-  assert(Json.encode_lines({ { b = 1, a = { 1 } }, "x", 3 }, { pretty = true }) ==
+  assert(Json.encode_lines({ { b = 1, a = { 1 } }, "x", 3 }, { pretty = false }) ==
     '{"a":[1],"b":1}\n"x"\n3\n', "one compact value to a line")
+  local laid_out, why_not = pcall(Json.encode_lines, { 1 }, { pretty = true })
+  assert(not laid_out and tostring(why_not):find("each value keeps to its line", 1, true),
+    "asking for layout raises rather than being dropped")
   assert(Json.encode_lines({}) == "", "no values, no text")
   local _, why = Json.encode_lines({ 1, { f = print } })
   assert(why == "value 2: cannot encode a function at $.f", why)

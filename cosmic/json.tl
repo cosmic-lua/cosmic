@@ -208,12 +208,13 @@ end
 --- `values[1]` to `values[#values]` as JSON Lines text: each value's
 --- compact JSON on its own line, every line ending in a newline, and
 --- "". nil and a message naming the value when one cannot be encoded.
---- `pretty` is ignored, since a value must keep to its line.
+--- Raises when `pretty` is true, since a value must keep to its line.
 function Json.encode_lines(values: {any}, opts?: Json.EncodeOptions): string | nil, string
-  -- TODO: raise when `pretty` is set instead of dropping it, so a caller
-  -- who asked for layout learns it cannot have it here.
   local line_opts: Json.EncodeOptions = {}
   if opts ~= nil then
+    if opts.pretty then
+      error("pretty cannot apply to JSON Lines: each value keeps to its line", 2)
+    end
     line_opts = {
       sorted = opts.sorted, max_depth = opts.max_depth,
       nan_as_null = opts.nan_as_null, sparse_as_null = opts.sparse_as_null,
