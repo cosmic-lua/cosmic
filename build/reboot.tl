@@ -54,6 +54,11 @@ reboot.foreign_refusal = "this cosmic is stale against the tree and is not " ..
 --- still judged by where it was, and a link into o/ from elsewhere is
 --- elsewhere, since the rebuild would replace the link, not o/'s tool.
 --- `executable` is the path this process was started as by default.
+-- TODO: refuse a host-built tool whose file was removed while it runs:
+-- with no started-as path, Proc.executable falls back to /proc/self/exe,
+-- which then reads ".../cosmic (deleted)", and a rebuild would write a
+-- file of that name. Once Proc.executable says the file is gone, answer
+-- nil for it here.
 function reboot.own_tool(root: string, executable?: string): boolean | nil, string
   local running = executable
   if running == nil then

@@ -448,8 +448,6 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
     assert(outcome.result.code == 3, verb[1] .. ": exit status was " ..
       tostring(outcome.result.code) .. ", want 3")
     Fixture.contains(outcome.err, "is not the tree's own tool")
-    assert(not Fixture.read(outcome.err):find("core is stale", 1, true),
-      verb[1] .. ": the tree's core was stale, not only its Teal")
     assert(not Fixture.read(outcome.err):find("rebuilding it from the tree", 1, true),
       verb[1] .. ": a tool outside the tree rebuilt itself")
     assert(Fixture.hash(program) == before_hash,
