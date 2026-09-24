@@ -106,14 +106,16 @@ jobs:
           path: ${{ runner.temp }}/cache/cosmic/zig
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
-      # `bin/zig` keeps its compile cache under o/ (see its own comment)
+      # `bin/zig` keeps its project cache under o/ (see its own comment)
       # so a fresh checkout starts cold: every leg recompiles vendor/ and
       # core/ from nothing even when neither changed. This restores that
       # cache from outside the checkout -- the driver build phase requires
       # a checkout with no o/ yet, so COSMIC_ZIG_CACHE_SEED below only
-      # names where it landed; the driver seeds it into o/ itself, once
-      # its own guard has passed -- and saves it back once every native
-      # build this job runs has had a chance to update it. The key
+      # names where it landed; the driver seeds its zig-cache into o/
+      # itself, once its own guard has passed -- and saves it back once
+      # every native build this job runs has had a chance to update it.
+      # Its zig-global is zig's global cache, which bin/zig uses in place
+      # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below). The key
       # includes `matrix.name`, one entry per leg, even though
       # linux-x86_64 and alpine-x86_64 target the same
       # `x86_64-linux-musl` triple: sharing a key between two legs that
@@ -150,6 +152,11 @@ jobs:
             "$RUNNER_TEMP/bin/cosmic-driver"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
+          # zig's global cache -- libc, compiler-rt and its standard library,
+          # keyed by content -- is used where actions/cache restored it,
+          # outside the checkout; the driver seeds and saves only the
+          # project cache, which bin/zig keeps under o/.
+          echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
 
       - name: check the pinned CI driver
         run: cosmic-driver test cosmic_ci
