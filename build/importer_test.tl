@@ -897,6 +897,7 @@ end
 local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    -- A syscall declaration source is part of what makes a tree cosmic's own.
     ["core/syscalls.h"] = table.concat({
       "/**",
       " * --- Reads bytes.",

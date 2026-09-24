@@ -86,7 +86,7 @@ local function tk(s: Scan, i: integer): string
 end
 
 --- The inclusive last column token `i` occupies, on its own line: a
---- token never spans lines.
+--- type's tokens never span lines, as a long string can.
 --- @param s Scan
 --- @param i integer
 --- @return integer The 1-based column

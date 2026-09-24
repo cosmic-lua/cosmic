@@ -533,6 +533,12 @@ local function test_an_exported_tuple_is_flagged()
   flags("local record M\n  f: function(): string, string\nend\n" ..
     "local function f(): string, string return 'a', 'b' end\nM.f = f\nreturn M",
     "M.f: " .. tuple)
+  -- A generic function is held the same as any other.
+  flags("local record M end\nfunction M.twice<T>(x: T): T, T\n" ..
+    "  return x, x\nend\nreturn M", "M.twice: " .. tuple)
+  -- A module that answers a constructor exports its fields by name.
+  flags("local function split(): string, string return 'a', 'b' end\n" ..
+    "return { split = split }", "split: " .. tuple)
 end
 
 local function test_an_exported_single_result_or_failure_pair_is_allowed()
@@ -566,6 +572,15 @@ local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
     "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
     "local record N\n  rm: function(string): boolean\nend\n" ..
     "local n: N = { rm = rm }\nuse(M)\nreturn n", bare)
+  -- A function the record declares, then defines, is the one defined.
+  flags("local sys = require('cosmic.sys')\n" ..
+    "local record M\n  rm: function(string): boolean\nend\n" ..
+    "function M.rm(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
+  -- A literal bound to a local, then stored, is the one stored.
+  flags(sys .. "local rm = function(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
+    "use(M)\nreturn { rm = rm }", "rm: " .. bare)
 end
 
 local function test_a_wrapper_answering_its_failure_is_allowed()

@@ -952,7 +952,8 @@ local record Exported
 end
 
 --- The name of the table a module returns, `M` in `return M`; `""`
---- when its last statement returns something else.
+--- when its last statement returns something else, such as a table
+--- constructor, whose fields are then named alone (`f`).
 local function export_name(root: Node): string
   local statements = list_of(root)
   local last = statements[#statements]
@@ -962,9 +963,25 @@ local function export_name(root: Node): string
   return ""
 end
 
+--- `key` under `path`, as a caller spells it: `M.f`, `M:f`, or `f`
+--- alone at the top of a module that returns a constructor.
+local function joined(path: string, key: string, method: boolean): string
+  if path == "" then return key end
+  return path .. (method and ":" or ".") .. key
+end
+
 --- Every function the record `export` holds, and every record declared
---- inside it (not one another module declares that it only names), by
---- its exported name under `root`.
+--- inside it, by its exported name under `root`.
+-- TODO: follow an alias to a record this module declares at its top
+-- level (`local record Handle ... end` exported as `type Handle =
+-- Handle`, as cosmic/child.tl does), not one another module declares
+-- that it only names; the checker's types say nothing of the file
+-- that declared them, so telling the two apart waits on
+-- build.receivers keeping the declaring module of each record type.
+-- TODO: leave out a function-typed field of a nested record that a
+-- caller fills in (an options record's callback) rather than the
+-- module; nothing in the tree has one yet, and telling it from a
+-- method the module defines wants the same declaring-site knowledge.
 local function exported_functions(export: any, root: string): {Exported}
   local out: {Exported} = {}
   local seen: {Type: boolean} = {}
@@ -978,10 +995,12 @@ local function exported_functions(export: any, root: string): {Exported}
     if fields == nil then return end
     for _, key in ipairs(r.field_order or {}) do
       local field = fields[key]
-      if field ~= nil and field.typename == "function" then
-        out[#out + 1] = { name = path .. (field.is_method and ":" or ".") .. key, type = field }
+      -- A generic function's own type is under its type arguments.
+      local fn = field ~= nil and field.typename == "generic" and field.t or field
+      if fn ~= nil and fn.typename == "function" then
+        out[#out + 1] = { name = joined(path, key, fn.is_method == true), type = fn }
       elseif field ~= nil and field.typename == "typedecl" and not field.is_alias then
-        walk(field, path .. "." .. key)
+        walk(field, joined(path, key, false))
       end
     end
   end
@@ -989,18 +1008,20 @@ local function exported_functions(export: any, root: string): {Exported}
   return out
 end
 
---- The function nodes that define the exported functions: one defined
---- where its exported type was met (`function M.f`), and one a
---- top-level statement stores into an exported field, as a literal or
---- a local function by name (`M.f = f`, `local M: T = { f = f }`).
+--- A name with its method colon read as a dot: `M.R:f` and `M.R.f` are
+--- one field.
+local function dotted(name: string): string
+  return (name:gsub(":", "."))
+end
+
+--- The function nodes that define the exported functions, by name: a
+--- function statement named as one is exported (`function M.f`,
+--- `function M.R:f`), and so is a literal or a local function a
+--- top-level statement stores into an exported field (`M.f = f`,
+--- `local M: T = { f = f }`, `return { f = f }`).
 local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported}
-  local at: {integer: Exported} = {}
   local named: {string: Exported} = {}
-  for _, e in ipairs(exported) do
-    local y, x = e.type.y, e.type.x
-    if y ~= nil and x ~= nil then at[position(y, x)] = e end
-    named[(e.name:gsub(":", "."))] = e
-  end
+  for _, e in ipairs(exported) do named[dotted(e.name)] = e end
   local locals: {string: Node} = {}
   local out: {Node: Exported} = {}
   local function stored(value: Node | nil, name: string)
@@ -1012,29 +1033,38 @@ local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported
       out[locals[value.tk]] = e
     end
   end
+  local function fields_of(constructor: Node, prefix: string)
+    for _, item in ipairs(list_of(constructor)) do
+      local key = item.key
+      if key ~= nil and key.kind == "string" and key.conststr ~= nil then
+        stored(item.value, prefix == "" and key.conststr or prefix .. "." .. key.conststr)
+      end
+    end
+  end
   for _, statement in ipairs(list_of(root)) do
     local name = statement.name
     if statement.kind == "local_function" and name ~= nil and name.tk ~= nil then
       locals[name.tk] = statement
     end
     if is_function(statement) then
-      local e = at[position(statement.y, statement.x)]
+      local e = named[dotted(function_name(statement))]
       if e ~= nil then out[statement] = e end
     elseif statement.kind == "assignment" or statement.kind == "local_declaration" then
       local exps = list_of(statement.exps)
       for i, var in ipairs(list_of(statement.vars)) do
         local value, spelling = exps[i], spelled(var)
         if value ~= nil and value.kind == "literal_table" then
-          for _, item in ipairs(list_of(value)) do
-            local key = item.key
-            if key ~= nil and key.kind == "string" and key.conststr ~= nil then
-              stored(item.value, spelling .. "." .. key.conststr)
-            end
-          end
+          fields_of(value, spelling)
+        elseif statement.kind == "local_declaration" and value ~= nil
+            and value.kind == "function" and var.tk ~= nil then
+          locals[var.tk] = value
         else
           stored(value, spelling)
         end
       end
+    elseif statement.kind == "return" then
+      local first = list_of(statement.exps)[1]
+      if first ~= nil and first.kind == "literal_table" then fields_of(first, "") end
     end
   end
   return out
