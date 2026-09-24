@@ -463,6 +463,9 @@ end
 --- Copies one regular file's bytes a chunk at a time, so a large file
 --- is never held in memory whole.
 local function copy_bytes(from: string, to: string): boolean, string
+  -- TODO: open with O_NOFOLLOW, once cosmic.sys carries it, so a source
+  -- swapped for a link or a FIFO after its lstat is refused rather than
+  -- followed or blocked on.
   local input, open_trouble = Fs.open_read(from)
   if input == nil then return false, open_trouble end
   -- Exclusive: a name that appeared since the target was checked, a
