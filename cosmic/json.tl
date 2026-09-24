@@ -181,6 +181,9 @@ end
 --- JSON. `opts` applies to every line; a `null` line leaves a hole
 --- unless `null_value` is given.
 function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil, string
+  -- TODO: this reads the whole text into memory first. A line iterator
+  -- over a `cosmic.stream` Reader would take logs larger than memory, one
+  -- value at a time.
   local values = raw.array()
   local number = 0
   local count = 0
@@ -207,6 +210,8 @@ end
 --- "". nil and a message naming the value when one cannot be encoded.
 --- `pretty` is ignored, since a value must keep to its line.
 function Json.encode_lines(values: {any}, opts?: Json.EncodeOptions): string | nil, string
+  -- TODO: raise when `pretty` is set instead of dropping it, so a caller
+  -- who asked for layout learns it cannot have it here.
   local line_opts: Json.EncodeOptions = {}
   if opts ~= nil then
     line_opts = {
