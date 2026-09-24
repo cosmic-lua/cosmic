@@ -60,29 +60,30 @@ end
 local function test_captures_answers_when_the_query_occurs(tmp: string)
   local path = tmp .. "/file"
   assert(Fs.write(path, "x"))
-  local ok, _, found = observations.call(function()
+  local run = observations.call(function()
     assert(sys.stat(path))
     assert(Fs.write(path, "xx"))
   end, nil)
-  assert(ok)
-  assert(found[1].answer ~= observations.stat_answer(path))
+  assert(run.passed, run.message)
+  assert(run.reads[1].answer ~= observations.stat_answer(path))
 
-  local ok_directory, _, directory_found = observations.call(function()
+  local directory_run = observations.call(function()
     assert(sys.readdir(tmp))
     assert(Fs.write(tmp .. "/added", ""))
   end, nil)
-  assert(ok_directory)
-  assert(directory_found[1].answer ~= observations.directory_answer(tmp))
+  assert(directory_run.passed, directory_run.message)
+  assert(directory_run.reads[1].answer ~= observations.directory_answer(tmp))
 end
 
 local function test_records_stat_directory_and_open_queries(tmp: string)
   assert(Fs.write(tmp .. "/file", "contents"))
-  local ok, _, found = observations.call(function()
+  local run = observations.call(function()
     assert(Fs.exists(tmp .. "/missing") == false)
     assert(Fs.list(tmp))
     assert(Fs.read(tmp .. "/file"))
   end, nil)
-  assert(ok)
+  assert(run.passed, run.message)
+  local found = run.reads
   assert(found[1].kind == "s" and found[1].path == tmp .. "/missing")
   assert(found[2].kind == "d" and found[2].path == tmp)
   assert(found[3].kind == "o" and found[3].path == tmp .. "/file")
@@ -107,8 +108,8 @@ end
 
 local function test_restores_all_wrappers_after_an_error()
   local open, stat, readdir = sys.open, sys.stat, sys.readdir
-  local ok = observations.call(function() error("deliberate") end, nil)
-  assert(not ok)
+  local run = observations.call(function() error("deliberate") end, nil)
+  assert(not run.passed and run.message:find("deliberate", 1, true) ~= nil, run.message)
   assert(sys.open == open)
   assert(sys.stat == stat)
   assert(sys.readdir == readdir)
@@ -126,14 +127,14 @@ local function test_key_part_matches_known_hex_for_edge_bytes()
 end
 
 local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
-  local ok, trouble, found = observations.call(function()
+  local run = observations.call(function()
     Env.get("HOME")
     assert(Fs.mkdtemp("cosmic-observed-"))
     assert(Child.run({ "/bin/sh", "-c", "true" }))
   end, nil)
-  assert(ok, trouble)
+  assert(run.passed, run.message)
   local kinds: {string:integer} = {}
-  for _, observation in ipairs(found) do
+  for _, observation in ipairs(run.reads) do
     kinds[observation.kind] = (kinds[observation.kind] or 0) + 1
   end
   -- At least the explicit read; `Fs.mkdtemp` and `Child.run` consult

@@ -46,8 +46,11 @@ these argues with the principle, not with the reviewer.
    none to go stale.
 3. **honest returns.** `T | nil, string` for a value, `boolean,
    string` for an effect, two slots and nothing in a third, a
-   structured error record when the failure has shape. a throw or
-   exit carries a trailing reason and is exceptional by construction.
+   structured error record when the failure has shape. the one
+   exception is the raw binding table `cosmic.sys`, whose C calls
+   add the errno in a third slot; every Teal function over it folds
+   its answer back to two. a throw or exit carries a trailing reason
+   and is exceptional by construction.
 4. **no escape hatch in the type layer.** casts are foreclosed;
    `any` lives only where untrusted data enters and a shape validator
    turns it into a record.
@@ -185,8 +188,14 @@ count disagrees with the arity, or whose returns are not one value
 or the fallible three, so a binding cannot exist without its type
 and the C surface cannot grow without a diff in that header.
 argument-shape errors raise; runtime failures return `nil, err,
-errno`, plain values, the convention the fork already uses at over a
-hundred sites. one trace point at the table's dispatch gives a
+errno` for a value and `false, err, errno` for an effect, plain
+values, the convention the fork already uses at over a hundred sites.
+that errno in a third slot is `cosmic.sys`'s alone, the one
+exception to the two slots of honest returns: a Teal function over a
+binding reads the errno where it needs one and answers in two slots
+itself. the build refuses a fallible Teal function that declares a
+third, save a stand-in stored into the table itself, which answers
+as the binding it replaces. one trace point at the table's dispatch gives a
 syscall log for every call uniformly when asked.
 
 `posix` is a reserved name of a different kind: not privacy, but

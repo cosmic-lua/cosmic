@@ -11,6 +11,14 @@ local record observations
     path: string
     answer: string
   end
+
+  --- One test body's run: whether it passed, its failure as text (""
+  --- when it passed), and what it read either way.
+  record Run
+    passed: boolean
+    message: string
+    reads: {Observation}
+  end
 end
 
 --- Returns both lists in observation order, without changing either input.
@@ -263,13 +271,13 @@ function observations.capture(fn: function(any...): (any...)):
   return ok, produced, found
 end
 
---- Calls one test body and presents its failure as text to the runner.
-function observations.call(fn: function(any...): (any...), argument: any):
-                           boolean, string, {observations.Observation}
+--- Calls one test body and presents its failure as text to the runner,
+--- beside what the body read whether it passed or not.
+function observations.call(fn: function(any...): (any...), argument: any): observations.Run
   local ok, produced, found = observations.capture(function(): any
     return fn(argument)
   end)
-  return ok, ok and "" or tostring(produced), found
+  return { passed = ok, message = ok and "" or tostring(produced), reads = found }
 end
 
 --- The current answer to an "e" observation, re-read live rather than

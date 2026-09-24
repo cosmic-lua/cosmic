@@ -3,14 +3,39 @@
 local ast = require("build.ast")
 local contracts = require("build.contracts")
 local receivers = require("build.receivers")
+local Store = require("cosmic.store")
 local teal = require("build.teal")
 
 local built = teal.lazy()
+
+--- What the checker gets for a module it asks for: the source, then a
+--- close.
+local record Served
+  text: string
+  read: function(Served, what: string): string
+  close: function(Served): boolean
+end
+
+--- Answers `cosmic.*` from this binary's own sources, so a case can
+--- require the real `cosmic.sys`.
+local function serve_cosmic(name: string, _search_all: boolean): string | nil, any
+  if name:sub(1, 7) ~= "cosmic." then return nil end
+  local source, _ = Store.source(name)
+  if source == nil then return nil end
+  local answer: Served = {
+    text = source,
+    read = function(self: Served, _what: string): string return self.text end,
+    close = function(_self: Served): boolean return true end,
+  }
+  return name:gsub("%.", "/") .. ".tl", answer
+end
 
 --- What `contracts.check` says of `source`, a module the checker takes
 --- as it is, with a fallible value `get`, a fallible effect `put`, and
 --- two calls that are not fallible in front of it.
 local function problems_in(source: string): {string}
+  built.path = ""
+  built.search_module = serve_cosmic
   local env = assert(built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   }))
@@ -127,7 +152,7 @@ local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
   -- The reason would land in an optional parameter.
   flags("maybe(get())", dropped)
   -- A binding's errno, in a third result, lands in a third parameter.
-  allows("local function triple(): integer | nil, string, integer return nil, 'no', 2 end\n" ..
+  allows("local triple: function(): integer | nil, string, integer\n" ..
     "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())")
   allows("log:note(get())")
   allows("log.note(log, get())")
@@ -223,4 +248,42 @@ local function test_a_record_named_like_a_quiet_one_is_not_quiet()
     "  return true, '' end }",
     "logger:say('hello')",
   }, "\n"), "its failure is ignored")
+end
+
+--- Rule 5: two slots, and nothing in a third.
+local function test_a_fallible_function_declares_exactly_two_results()
+  local third = "nothing in a third"
+  flags("local function f(): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(f)", third)
+  flags("local function f(): boolean, string, integer\n" ..
+    "  return false, 'no', 2\nend\nuse(f)", third)
+  -- A third slot beside a failure is refused whatever it holds.
+  flags("local function f(): boolean, string, {string}\n" ..
+    "  return true, '', {}\nend\nuse(f)", third)
+  flags("local t = {}\nt.f = function(): integer | nil, string, integer\n" ..
+    "  return nil, 'no', 2\nend\nuse(t)", third)
+  allows("local function f(): integer | nil, string\n  return get()\nend\nuse(f)")
+  -- Three results that are not a failure's are no failure's shape.
+  allows("local function f(): integer, integer, string\n" ..
+    "  return 1, 2, 'x'\nend\nuse(f)")
+end
+
+--- A function stored into a field of `cosmic.sys` stands in for a
+--- binding and keeps the binding's `nil, error, errno`.
+local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
+  local sys = "local sys = require('cosmic.sys')\n"
+  local stat = "local stat = sys.stat\n"
+  allows(sys .. stat .. "sys.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
+    "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend")
+  -- The same function stored anywhere else is held to the rules.
+  flags(sys .. stat .. "local t = {}\n" ..
+    "t.stat = function(path: string): sys.Stat | nil, string, integer\n" ..
+    "  local st, trouble, errno = stat(path)\n  return st, trouble, errno\nend\nuse(t)",
+    "nothing in a third")
+  -- A caller that needs the errno reads it from the binding itself.
+  allows(sys .. "local function missing(path: string): boolean | nil, string\n" ..
+    "  local st, trouble, errno = sys.stat(path)\n" ..
+    "  if st ~= nil then return false, '' end\n" ..
+    "  if errno == sys.ENOENT then return true, '' end\n" ..
+    "  return nil, trouble\nend\nuse(missing)")
 end

@@ -2,8 +2,7 @@
 --- checked against the types tl's checker gave each node of a module it
 --- has just compiled. A fallible function is one declared to return a
 --- value that admits nil, or a boolean, and then a `string`: `T | nil,
---- string` for a value, `boolean, string` for an effect (a native
---- binding's errno in a third slot changes nothing here).
+--- string` for a value, `boolean, string` for an effect.
 ---
 --- 1. A call to a fallible function keeps its error slot: it is bound
 ---    to at least two names (`local v, err = f()`, or an assignment),
@@ -31,13 +30,21 @@
 --- 4. A declared failure can happen: a function declared `T | nil,
 ---    string` whose every return is a value that cannot be nil and `""`
 ---    returns the value alone.
+--- 5. Two slots, and nothing in a third: a fallible function declares
+---    exactly two results. What else a failure means goes in its
+---    reason, or in a structured error record standing as the value.
+---    The one exception is `cosmic.sys`, whose C bindings answer
+---    `nil | false, error, errno`: a function a module stores into one
+---    of its fields (`sys.stat = function(...) ... end`, a stand-in for
+---    a binding) keeps the binding's shape, and no return rule reads
+---    it. A caller that needs the errno calls the binding itself.
 ---
 --- The callee's type is the one the checker stored at the callee's own
 --- position (`build.receivers` installs the reporter that keeps it). A
 --- callee the checker gave no function type is not judged. Rules 2 to
---- 4 read the declared results of a function that declares two.
+--- 5 read a function's declared results.
 ---
---- `contracts.exempt` names the functions rules 2 to 4 cannot yet hold,
+--- `contracts.exempt` names the functions rules 2 to 5 cannot yet hold,
 --- each with its reason; the TODO for each is where its fix goes.
 
 local ast = require("build.ast")
@@ -48,7 +55,7 @@ local type Node = ast.Node
 local type Type = receivers.Type
 
 local record contracts
-  --- `"file:function"` to the reason rules 2 to 4 do not hold it.
+  --- `"file:function"` to the reason rules 2 to 5 do not hold it.
   exempt: {string: string}
   --- Methods of one record whose failure a statement may ignore.
   record Quiet
@@ -294,14 +301,12 @@ local function returns_of(fn: Node): {Node}
   return out
 end
 
---- Rules 2 to 4, over one function's declared results and returns.
+--- Rules 2 to 5, over one function's declared results and returns.
 local function check_function(file: string, fn: Node, types: {integer: Type},
                               problems: {string})
   local rets = fn.rets
   local tuple = rets ~= nil and rets.tuple or nil
-  -- A third result is a native binding's errno, mirrored by a wrapper
-  -- that hands the binding's answer on as it came.
-  if tuple == nil or #tuple ~= 2 then return end
+  if tuple == nil or #tuple < 2 then return end
   local declared = tuple as {Type} -- cast: a declared type is the checker's own type object
   local effect = typename(declared[1]) == "boolean"
   local value = holds(declared[1], "nil")
@@ -318,6 +323,14 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
         "%s:%d: %s: a failure's reason is exactly a string; this second result is not",
         file, fn.y, name)
     end
+    return
+  end
+  if #declared > 2 then
+    problems[#problems + 1] = string.format(
+      "%s:%d: %s: a fallible function answers two results and nothing in a third; "
+        .. "fold it into the reason or a structured error record (only cosmic.sys "
+        .. "answers an errno)",
+      file, fn.y, name)
     return
   end
   local returns = returns_of(fn)
@@ -404,6 +417,47 @@ local function standing(root: Node): {Node: boolean}
   return out
 end
 
+--- The names a module binds to `require("cosmic.sys")`, where the
+--- declaration is plain: `local sys = require("cosmic.sys")`.
+local function sys_names(root: Node): {string: boolean}
+  local names: {string: boolean} = {}
+  ast.walk(root, function(n: Node)
+    if n.kind ~= "local_declaration" then return end
+    local vars = list_of(n.vars)
+    for i, e in ipairs(list_of(n.exps)) do
+      local callee, var = e.e1, vars[i]
+      local argument = list_of(e.e2)[1]
+      if is_call(e) and callee ~= nil and callee.kind == "variable"
+          and callee.tk == "require" and argument ~= nil
+          and argument.conststr == "cosmic.sys" and var ~= nil and var.tk ~= nil then
+        names[var.tk] = true
+      end
+    end
+  end)
+  return names
+end
+
+--- Every function literal a module stores into a field of `cosmic.sys`:
+--- a stand-in for a binding, which answers in the binding's own shape.
+local function sys_stand_ins(root: Node): {Node: boolean}
+  local names = sys_names(root)
+  local out: {Node: boolean} = {}
+  if next(names) == nil then return out end
+  ast.walk(root, function(n: Node)
+    if n.kind ~= "assignment" then return end
+    local exps = list_of(n.exps)
+    for i, var in ipairs(list_of(n.vars)) do
+      local op, owner, stored = var.op, var.e1, exps[i]
+      if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil
+          and owner.kind == "variable" and owner.tk ~= nil and names[owner.tk]
+          and stored ~= nil and stored.kind == "function" then
+        out[stored] = true
+      end
+    end
+  end)
+  return out
+end
+
 local function line_of(problem: string): integer
   return math.tointeger(tonumber(problem:match("^[^:]*:(%d+):"))) or 0
 end
@@ -431,6 +485,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
     return methods ~= nil and methods[member.tk] == true
   end
   local kept, statements = keeping(root, callees), standing(root)
+  local stand_ins = sys_stand_ins(root)
   ast.walk(root, function(n: Node)
     local e1 = n.e1
     if is_call(n) and not kept[n] and e1 ~= nil
@@ -448,7 +503,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
             .. "in assert(...), or return it whole",
           file, n.y, spelled(e1))
       end
-    elseif is_function(n) then
+    elseif is_function(n) and not stand_ins[n] then
       check_function(file, n, types, problems)
     end
   end)

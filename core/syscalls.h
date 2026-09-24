@@ -12,8 +12,11 @@
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller
- * meets at runtime returns `nil, error, errno`: the error in slot two,
- * the errno in slot three, nothing else sharing a slot.
+ * meets at runtime returns `nil, error, errno` from a call that answers
+ * a value and `false, error, errno` from an effect (`core/fail.h`): the
+ * error in slot two, the errno in slot three, nothing else sharing a
+ * slot. This table is the one place a third slot is allowed; a Teal
+ * function over it answers in two.
  */
 
 #ifndef COSMIC_SYSCALLS_H
