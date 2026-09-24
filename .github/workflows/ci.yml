@@ -15,18 +15,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # The Ubuntu legs install their packages from this dated snapshot of the
-  # archive, which never changes, rather than from the live mirrors, which
-  # are sometimes caught mid-sync (a 404 for a package, or an index of the
-  # wrong size) and fail the leg before it builds anything. Moving it is a
-  # deliberate edit, as moving the image digest is.
-  UBUNTU_SNAPSHOT: 20260924T120000Z
-  # TODO: drop this, the CA mounts and each leg's package install (its
-  # `prepare`) once the Linux legs run in the images ci-images.yml
-  # publishes, named by digest; ci/images/ubuntu/Dockerfile carries the
-  # same snapshot meanwhile, and ci-images.yml names it too.
-
 # A newer push supersedes a branch's run, but every main run finishes: its
 # zig build cache is the one every other branch can restore, and its
 # prerelease is published only from a completed run. So each main commit
@@ -53,39 +41,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The glibc Linux legs run in a pinned Ubuntu image, as the
-          # alpine leg runs in a pinned Alpine one, so a runner image
-          # update changes only the kernel under them. The digest is the
-          # multi-arch index's, which serves both x86_64 and aarch64.
+          # The Linux legs run in images ci-images.yml builds from
+          # ci/images/ and publishes to GHCR, named here by digest: the
+          # tools the actions and the build need are already installed, so
+          # a run installs nothing from a package mirror, and a runner image
+          # update changes only the kernel under them. The ubuntu digest is
+          # the multi-arch index's, which serves both x86_64 and aarch64;
+          # moving a digest is a deliberate edit, after ci-images.yml
+          # publishes a new one (its run summary gives it). The packages
+          # are private, so the pull logs in with this job's token, which
+          # needs packages: read (see the job's container and permissions).
           # (macOS cannot be containerized; that leg takes the image
           # macos-15 names.) --init and the unprivileged `runner` user are
           # as for alpine-x86_64, below.
           - name: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            container:
-              image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
-              options: --init
-              # snapshot.ubuntu.com is HTTPS-only, and the image holds no
-              # CA bundle until ca-certificates is installed from it, so apt
-              # trusts the host runner's bundle for that first install. apt
-              # verifies the archive's signed indexes whatever the transport.
-              volumes:
-                - /etc/ssl/certs/ca-certificates.crt:/usr/local/share/ci/host-ca.crt:ro
+            image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
             # useradd -o: the image's own `ubuntu` user may hold the uid.
-            prepare: |
-              export DEBIAN_FRONTEND=noninteractive
-              cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
-              Types: deb
-              URIs: https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/
-              Suites: noble noble-updates noble-security
-              Components: main
-              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-              EOF
-              set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/usr/local/share/ci/host-ca.crt
-              apt-get "$@" update
-              apt-get "$@" install -y --no-install-recommends ca-certificates curl git xz-utils zstd
-              useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
+            prepare: useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # setpriv, not su: util-linux su resets PATH, which drops the
             # driver's directory that the bootstrap step adds to GITHUB_PATH;
             # setpriv changes only the user and keeps the environment.
@@ -93,36 +67,13 @@ jobs:
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
-            container:
-              image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
-              options: --init
-              # snapshot.ubuntu.com is HTTPS-only, and the image holds no
-              # CA bundle until ca-certificates is installed from it, so apt
-              # trusts the host runner's bundle for that first install. apt
-              # verifies the archive's signed indexes whatever the transport.
-              volumes:
-                - /etc/ssl/certs/ca-certificates.crt:/usr/local/share/ci/host-ca.crt:ro
-            prepare: |
-              export DEBIAN_FRONTEND=noninteractive
-              cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
-              Types: deb
-              URIs: https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/
-              Suites: noble noble-updates noble-security
-              Components: main
-              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-              EOF
-              set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/usr/local/share/ci/host-ca.crt
-              apt-get "$@" update
-              apt-get "$@" install -y --no-install-recommends ca-certificates curl git xz-utils zstd
-              useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
-            # setpriv, not su: util-linux su resets PATH, which drops the
-            # driver's directory that the bootstrap step adds to GITHUB_PATH;
-            # setpriv changes only the user and keeps the environment.
+            image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
+            prepare: useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
-            container: ''
+            image: ''
             shell: sh
           - name: alpine-x86_64
             runner: ubuntu-24.04
@@ -130,26 +81,30 @@ jobs:
             # --init puts a reaper at PID 1: a process-group kill leaves
             # orphaned descendants, and the suite checks they are gone,
             # not zombies nobody collects.
-            container:
-              image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
-              options: --init
-            prepare: |
-              for attempt in 1 2 3; do
-                apk add --no-cache git tar zstd curl xz && break
-                [ "$attempt" = 3 ] && exit 1
-                sleep 10
-              done
-              adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
+            image: ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72
+            prepare: adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # The container's default user stays root -- the runner never
             # passes --user to docker create/exec, and a default user whose
             # uid differs from the host runner's breaks the checkout
             # action's file commands (GITHUB_ENV, GITHUB_PATH, ... under
             # RUNNER_TEMP, host-owned). Driver steps instead drop to the
             # unprivileged `runner` user created below; only what needs
-            # root (package install, the hand-over) overrides this shell.
+            # root (creating that user, the hand-over) overrides this shell.
             shell: su runner -c "sh -e {0}"
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
+    # An empty image (macOS) runs the job on the host. The login is here,
+    # not in the matrix: a matrix is expanded before the job has a token,
+    # so github.token there is empty, and secrets are not available there.
+    container:
+      image: ${{ matrix.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --init
+    permissions:
+      contents: read
+      # To pull the Linux legs' images from GHCR.
+      packages: read
     timeout-minutes: 45
     env:
       COSMIC_WORKER: ${{ matrix.name }}
@@ -165,12 +120,11 @@ jobs:
       # and verifies the checked core. See orchestration.tl's checked_suite.
       COSMIC_CI_CHECKED_SUITE: ${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}
     steps:
-      - name: install the tools the actions and the build need
-        if: matrix.container
+      - name: create the unprivileged builder
+        if: matrix.image
         working-directory: /
         shell: sh
-        # The package install, and creating the unprivileged builder
-        # below (matrix.prepare), need root,
+        # Creating the unprivileged builder (matrix.prepare) needs root,
         # which is this container's default user. `runner`'s uid is read
         # from the workspace directory the host runner already created
         # (before this step, before checkout), so it matches the owner of
@@ -237,7 +191,7 @@ jobs:
             zig-build-${{ matrix.name }}-
 
       - name: hand the checkout and restored caches over to the unprivileged builder
-        if: matrix.container
+        if: matrix.image
         working-directory: /
         shell: sh
         # The checkout and the three cache restores above ran as root
