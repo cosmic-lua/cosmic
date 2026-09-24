@@ -387,10 +387,9 @@ local function phase_build(p: PlatformContext): integer
   end
   if from and is_dir(from) then
     mkdir(root .. "/o")
-    -- TODO: copy in this process with Fs.copy_tree once
-    -- ci/cosmic-driver.pin names a cosmic carrying it.
-    local copied = checked(c, "restore zig-cache",
-      { "/usr/bin/env", "cp", "-a", from, root .. "/o/zig-cache" })
+    local copied = step(c, "restore zig-cache", function(): boolean, string
+      return Fs.copy_tree(from, root .. "/o/zig-cache")
+    end)
     if copied ~= 0 then return copied end
   end
   local s = checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
@@ -590,10 +589,9 @@ local function phase_cache_save(p: PlatformContext): integer
   end)
   if removed ~= 0 then return removed end
   if is_dir(root .. "/o/zig-cache") then
-    -- TODO: copy in this process with Fs.copy_tree once
-    -- ci/cosmic-driver.pin names a cosmic carrying it.
-    local copied = checked(c, "save zig-cache",
-      { "/usr/bin/env", "cp", "-a", root .. "/o/zig-cache", seed .. "/" })
+    local copied = step(c, "save zig-cache", function(): boolean, string
+      return Fs.copy_tree(root .. "/o/zig-cache", seed .. "/zig-cache")
+    end)
     if copied ~= 0 then return copied end
   end
   return 0

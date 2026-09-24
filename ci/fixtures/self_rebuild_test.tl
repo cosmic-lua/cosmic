@@ -430,3 +430,43 @@ local function test_self_rebuild_fix_verb(tmp: string)
   assert(not Fixture.read(second.err):find("the tool is stale", 1, true),
     "fix: second invocation reported staleness though the tool is fresh")
 end
+
+-- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
+-- release, the bootstrap cache's or one on PATH is -- refuses rather than
+-- rebuild, since the rebuild would write the tree's tool over its own
+-- file. `docs` meets it in `build.reboot.ensure`, `test` in its own check.
+local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
+  local root = Fixture.required("COSMIC_FIXTURE_ROOT")
+  local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
+  local case_root = tmp .. "/case-foreign"
+  local tree = case_root .. "/tree"
+  local cache = case_root .. "/cache"
+  local diagnostics = case_root .. "/logs"
+  Fixture.mkdir(diagnostics)
+  archive_tree(root, tree, diagnostics)
+  local program = case_root .. "/elsewhere/cosmic"
+  Fixture.mkdir(case_root .. "/elsewhere")
+  Fixture.copy(fixture_dir .. "/runtime.old", program, 0x1ed)
+  local before_hash = Fixture.hash(program)
+  apply_docs_marker_edit(tree)
+
+  local values = Fixture.environment({ COSMIC_PORTABLE_CACHE = cache })
+  for _, verb in ipairs({
+    { "docs", "cosmic.child" },
+    { "test", "build/embed_test.tl" },
+  }) do
+    local argv = { program }
+    for _, word in ipairs(verb) do argv[#argv + 1] = word end
+    local outcome = Fixture.call_with_environment("foreign-" .. verb[1],
+      argv, tree, diagnostics, values)
+    assert(outcome.result.code == 3, verb[1] .. ": exit status was " ..
+      tostring(outcome.result.code) .. ", want 3")
+    Fixture.contains(outcome.err, "is not the tree's own tool")
+    assert(not Fixture.read(outcome.err):find("rebuilding it from the tree", 1, true),
+      verb[1] .. ": a tool outside the tree rebuilt itself")
+    assert(Fixture.hash(program) == before_hash,
+      verb[1] .. ": a tool outside the tree was overwritten")
+    assert(Fs.exists(tree .. "/o/bin/cosmic") == false,
+      verb[1] .. ": a tool outside the tree wrote one into it")
+  end
+end
