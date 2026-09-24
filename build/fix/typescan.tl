@@ -194,7 +194,7 @@ end
 --- The index of the last token of a comma-separated list of types
 --- starting at token `i`, or of the parenthesized list it opens with.
 --- A function's return types and a declaration's type list are both
---- this shape.
+--- this shape, and a variadic last one (`: any...`) ends at its `...`.
 --- @param s Scan
 --- @param i integer
 --- @return integer
@@ -205,6 +205,9 @@ rets_end = function(s: Scan, i: integer): integer
   local j = type_end(s, i)
   while tk(s, j + 1) == "," do
     j = type_end(s, j + 2)
+  end
+  if tk(s, j + 1) == "..." then
+    j = j + 1
   end
   return j
 end

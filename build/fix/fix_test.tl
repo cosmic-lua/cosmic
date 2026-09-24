@@ -88,6 +88,22 @@ local function test_fixing_twice_is_the_same_as_fixing_once()
   assert(twice == once, "second pass differs:\n" .. twice .. "\nfirst:\n" .. once)
 end
 
+--- A type alias of a function whose last return is variadic keeps its
+--- `...`: the alias is written from its tokens, and the list of returns
+--- ends at the `...`, not before it.
+local function test_a_variadic_return_in_a_type_alias_is_kept()
+  local source = table.concat({
+    "local type Call = function(...: any): any...",
+    "local type Pair = function(): string, integer...",
+    "local f: Call = nil",
+    "local g: Pair = nil",
+    "return { f = f, g = g }",
+    "",
+  }, "\n")
+  local result = fixed(source, "variadic.tl")
+  assert(result == source, "changed:\n" .. result)
+end
+
 --- Rendering an already-canonical source leaves it byte for byte.
 local function test_a_canonical_source_is_left_alone()
   local once = fixed(fixture, "fixture.tl")
