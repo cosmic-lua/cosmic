@@ -56,10 +56,19 @@ source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI
 reruns them on the checked core with `FUZZ_ITERS=2000`.
 
-When a change settles for less than the right fix because something is
-missing (an API, a binding, a module), leave a `TODO:` comment where the
-better fix would go, naming what it waits on ("once cosmic.sys carries
-ftruncate"), so the workaround can be found and undone when that lands.
+Leave `TODO:` comments as the work goes, the moment one is due, rather than
+recalling them at the end. One is due when a change settles for less than
+the right fix because something is missing (an API, a binding, a module, a
+patch the bootstrap pin lacks): put it where the better fix would go, naming
+what it waits on ("once cosmic.sys carries ftruncate"), so the workaround
+can be found and undone when that lands. One is also due for a gap met along
+the way and left alone: say what is wrong and what the fix would be. A
+`TODO:` whose fix cannot be made yet still goes in now: when it depends on
+something unmet (an open PR, a release the pin does not name yet), name that
+dependency in the comment ("once #2011 merges") rather than holding the
+comment back until it lands. When the work is done, list every `TODO:` it
+added, with its `file:line` and what it waits on, in the summary and the PR
+description.
 
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
