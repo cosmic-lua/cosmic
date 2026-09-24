@@ -692,7 +692,10 @@ words after it are its `...`. `build` builds the tree and
 writes an executable for each `cmd/<name>/` in it, so a library tree
 builds too and a tree with binaries ships from the one verb. every verb
 takes paths to narrow it (`uses` after its symbol), except `docs`,
-which takes words to search for, and `help`, which takes a verb. every verb ends in a verdict line
+which takes words to search for; `sql`, which takes one statement
+and names its database by option, since a statement already says
+which rows it reads; and `help`, which takes a verb. every verb ends
+in a verdict line
 and an exit code; a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they
 return. `cosmic help <verb>` prints that verb's line, and `cosmic

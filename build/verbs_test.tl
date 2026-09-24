@@ -25,10 +25,11 @@ local surplus: {string:{string} | string} = {
   test = "takes any number of selectors",
   fix = "takes any number of paths",
   build = "takes any number of paths",
-  db = "takes any number of database paths",
+  db = "takes any number of paths",
   docs = "takes any number of words to search for",
   uses = "takes a symbol and any number of paths",
   todos = "takes any number of paths and words",
+  sql = { "sql", "SELECT 1", "extra" },
   help = { "help", "test", "fix" },
 }
 
@@ -49,6 +50,7 @@ local cases: {string:Case} = {
   docs = { pass = { "docs", "Fs.read" }, fail = { "docs", "zzqqx_nothing_named" } },
   uses = { pass = { "uses", "Fs.read" }, fail = { "uses", "zzqqx_nothing_named" } },
   todos = { pass = { "todos" }, fail = { "todos", "zzqqx_nothing_named" } },
+  sql = { pass = { "sql", "SELECT 1" }, fail = { "sql", "SELECT * FROM zzqqx_no_table" } },
   help = { pass = { "help" }, fail = "help has nothing to fail on but its command line" },
 }
 
@@ -202,6 +204,13 @@ local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
   local e = expect(tmp, "help", { "help", "-e" }, 0).stdout or ""
   assert(e:find("`cosmic -e", 1, true), e)
   assert(not e:find("`cosmic test`", 1, true), e)
+  -- Every verb's help is one entry, its synopsis first: one paragraph
+  -- before the verdict, where the whole surface is a blank line apart.
+  for _, verb in ipairs(Cli.order) do
+    local out = expect(tmp, "help", { "help", verb }, 0).stdout or ""
+    local body = out:match("^(.-)\n+help: ") or ""
+    assert(body:sub(1, 8) == "`cosmic " and not body:find("\n\n", 1, true), verb .. ": " .. out)
+  end
 end
 
 local function test_e_runs_a_lua_chunk(tmp: string)

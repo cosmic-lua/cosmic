@@ -79,8 +79,8 @@ works, an ordinary global written over the same syscall table
 A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
-sources whose rows to count. `docs` takes words to search for instead, and
-`help` a verb.
+sources whose rows to count. `docs` takes words to search for instead,
+`sql` one statement, and `help` a verb.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
 operator and bracket, the spacing around each, and two columns of
@@ -447,6 +447,17 @@ local verbs: {string: function({integer:string}): integer} = {
   end,
   todos = function(argv: {integer:string}): integer
     return require("build.todos").run(argv)
+  end,
+  -- Never stale-checked, unlike `db`: a staleness check stages the tree,
+  -- and this verb reads o/ and nothing else under it. It gives its own
+  -- verdict on every exit, a usage error included, so the check main
+  -- runs after a verdictless exit 2 never runs for it.
+  -- TODO: test that this dispatch neither stale-checks nor scans the
+  -- working directory -- run `cosmic sql` in a directory whose tree
+  -- would fail to stage -- beside build/verbs_test.tl, which already
+  -- spawns the built binary; build/sql_test.tl calls sql.run.
+  sql = function(argv: {integer:string}): integer
+    return require("build.sql").run(argv)
   end,
 }
 

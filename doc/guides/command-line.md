@@ -100,4 +100,4 @@ hi
 `test`, `fix` and `todos` take paths the same way. `uses` takes paths
 after its symbol, and `db` counts only the rows about the sources under
 them. `docs` takes
-words to search for, and `help` a verb.
+words to search for, `sql` one statement, and `help` a verb.
