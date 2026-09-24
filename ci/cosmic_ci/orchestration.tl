@@ -169,6 +169,11 @@ local function checked_suite(c: Context, target: string, work: string): integer
   local cosmic = sanitized .. "/bin/cosmic"
   local core = sanitized .. "/cosmic-core"
   local entry = work .. "/checked-entry.txt"
+  -- TODO: this bound also covers the sanitized cosmic's first, cold
+  -- compile of the tree tool.tl sits in, 41 s on a 4-core host under
+  -- ci/run-local against under a second warm. Give the compile a bound of
+  -- its own (a warm-up run beside this one), or raise this one, so a
+  -- slower host times out only on the entry itself.
   local s = capture_small(c, "checked manifest entry", { cosmic,
     c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
     entry, 30000)
