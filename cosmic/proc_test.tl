@@ -84,3 +84,42 @@ end
   local mask = math.tointeger(tonumber(ignored, 16)) or 0
   assert(mask & (1 << (sys.SIGPIPE - 1)) == 0, "SIGPIPE arrived ignored: " .. ignored)
 end
+
+--- `Proc.find` searches a path list as a shell does: the first
+--- executable wins, a name with a slash is taken as it is, and what is
+--- missing or not executable says which.
+local function test_find_searches_a_path_as_a_shell_does(dir: string)
+  assert(Fs.mkdirs(dir .. "/a") and Fs.mkdirs(dir .. "/b") and Fs.mkdirs(dir .. "/c"))
+  assert(Fs.write(dir .. "/a/tool", "not executable\n", 0x1a4))
+  assert(Fs.write(dir .. "/b/tool", "#!/bin/sh\n", 0x1ed))
+  assert(Fs.write(dir .. "/c/tool", "#!/bin/sh\n", 0x1ed))
+  assert(Fs.mkdirs(dir .. "/d/tool"))
+  local path = dir .. "/d:" .. dir .. "/a:" .. dir .. "/b:" .. dir .. "/c"
+  local found, trouble = Proc.find("tool", path)
+  assert(found == dir .. "/b/tool" and trouble == "", tostring(found))
+  found, trouble = Proc.find("tool", dir .. "/a")
+  assert(found == nil and trouble == dir .. "/a/tool: not executable", trouble)
+  found, trouble = Proc.find("tool", dir .. "/d:" .. dir .. "/nowhere")
+  assert(found == nil and trouble == "tool: not found", trouble)
+  found, trouble = Proc.find("./anything", "")
+  assert(found == "./anything" and trouble == "")
+end
+
+--- An empty entry in the list -- the whole list empty, or one before,
+--- between or after others -- is the working directory, and a name
+--- found there comes back relative to it.
+local function test_find_takes_an_empty_entry_as_the_working_directory(dir: string)
+  assert(Fs.write(dir .. "/tool", "#!/bin/sh\n", 0x1ed))
+  local before = assert(sys.getcwd())
+  assert(sys.chdir(dir))
+  local answers: {string} = {}
+  for _, path in ipairs({ "", ":", "/nowhere:", "/nowhere::/elsewhere" }) do
+    answers[#answers + 1] = tostring((Proc.find("tool", path)))
+  end
+  assert(sys.chdir(before))
+  assert(table.concat(answers, " ") == "./tool ./tool ./tool ./tool", table.concat(answers, " "))
+end
+
+local function test_find_refuses_an_empty_name()
+  assert(not pcall(Proc.find, ""))
+end

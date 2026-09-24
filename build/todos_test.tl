@@ -1,5 +1,6 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
@@ -210,7 +211,7 @@ end
 
 --- Runs git in `root`, for a test that builds a repository of its own.
 local function git_in(root: string, args: {string}): boolean
-  local argv: {string} = { "/usr/bin/env", "git", "-C", root, "-c", "user.name=t",
+  local argv: {string} = { assert(Proc.find("git")), "-C", root, "-c", "user.name=t",
     "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false" }
   for _, each in ipairs(args) do
     argv[#argv + 1] = each
