@@ -527,14 +527,16 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   -- follows it.
   local cd_limit = eocd_off
   if eocd_off >= 20 then
-    local loc, _ = pread(eocd_off - 20, 20)
-    if loc ~= nil and #loc == 20 and loc:sub(1, 4) == Z64_LOC_SIG then
+    local loc, loc_trouble = pread(eocd_off - 20, 20)
+    if loc == nil then return nil, loc_trouble end
+    if #loc == 20 and loc:sub(1, 4) == Z64_LOC_SIG then
       local z64_off = u64(loc, 9)
       if z64_off < 0 or z64_off + 56 > eocd_off - 20 then
         return nil, "zip: zip64 end of central directory lies outside the file"
       end
-      local rec, _ = pread(z64_off, 56)
-      if rec == nil or #rec ~= 56 or rec:sub(1, 4) ~= Z64_EOCD_SIG then
+      local rec, rec_trouble = pread(z64_off, 56)
+      if rec == nil then return nil, rec_trouble end
+      if #rec ~= 56 or rec:sub(1, 4) ~= Z64_EOCD_SIG then
         return nil, "zip: bad zip64 end of central directory record"
       end
       total = u64(rec, 33)

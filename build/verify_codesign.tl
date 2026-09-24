@@ -29,7 +29,8 @@ VerifyCodesign.codesign = "/usr/bin/codesign"
 --- status the shell script gave.
 function VerifyCodesign.verify(sysname: string, binary: string, codesign?: string): integer
   if sysname ~= "Darwin" then
-    local _, _ = Fs.put(Fs.stdout, "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
+    local _, _ = Fs.put(Fs.stdout,
+      "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
     return 0
   end
   local tool = codesign or VerifyCodesign.codesign
@@ -59,7 +60,8 @@ end
 
 function VerifyCodesign.main(argv: {integer: string}): integer
   if argv[1] == nil or argv[2] ~= nil then
-    local _, _ = Fs.put(Fs.stderr, "verify-codesign: usage: bin/verify-codesign <path-to-macos-binary>\n")
+    local _, _ = Fs.put(Fs.stderr,
+      "verify-codesign: usage: bin/verify-codesign <path-to-macos-binary>\n")
     return 2
   end
   local names, trouble = sys.uname()

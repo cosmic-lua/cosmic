@@ -211,7 +211,10 @@ end
 local function decode(line: string): any
   local value, trouble = Json.decode(line, { max_depth = max_depth })
   if trouble:find("surrogate", 1, true) then
-    value = Json.decode(Summarize.without_lone_surrogates(line), { max_depth = max_depth })
+    -- A line that does not decode either way is nil, and skipped.
+    local retried, _ = Json.decode(Summarize.without_lone_surrogates(line),
+      { max_depth = max_depth })
+    value = retried
   end
   return value
 end
@@ -238,7 +241,9 @@ local function as_text(value: any): string
   elseif value is number or value is boolean then
     return tostring(value)
   end
-  return Json.encode(value, { max_depth = max_depth }) or ""
+  -- A value too deep to encode reads as nothing.
+  local encoded, _ = Json.encode(value, { max_depth = max_depth })
+  return encoded or ""
 end
 
 --- A tool call's id as a key: a number that is a whole one names the
@@ -296,10 +301,12 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
             for _, key in ipairs({ "command", "file_path", "path", "pattern" }) do
               where[#where + 1] = input is {string: any} and as_text(input[key]) or ""
             end
+            -- Input too deep to encode is given as nothing.
+            local given, _ = Json.encode(input, { max_depth = max_depth })
             calls[#calls + 1] = {
               id = id_key(part["id"]),
               name = as_text(part["name"]),
-              given = Json.encode(input, { max_depth = max_depth }) or "",
+              given = given or "",
               where = table.concat(where, " "),
             }
           end
@@ -395,13 +402,13 @@ function Summarize.report(transcript: string, arena: string, repo: string): stri
 end
 
 local function complain(message: string)
-  Fs.put(Fs.stderr, "eval/summarize: " .. message .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "eval/summarize: " .. message .. "\n")
 end
 
 function Summarize.main(argv: {integer: string}): integer
   local transcript = argv[1]
   if transcript == nil or argv[2] ~= nil then
-    Fs.put(Fs.stderr, "usage: eval/summarize <transcript.jsonl>\n")
+    local _, _ = Fs.put(Fs.stderr, "usage: eval/summarize <transcript.jsonl>\n")
     return 2
   end
   local script, strouble = Fs.absolute(argv[0])
@@ -425,7 +432,7 @@ function Summarize.main(argv: {integer: string}): integer
     complain(trouble)
     return 1
   end
-  Fs.put(Fs.stdout, Summarize.report(text, arena, repo))
+  local _, _ = Fs.put(Fs.stdout, Summarize.report(text, arena, repo))
   return 0
 end
 

@@ -204,6 +204,10 @@ end
 --- say the caller may proceed as normal: either the tree is not
 --- cosmic's own, or the tool was found fresh, so no rebuild happened.
 --- @param argv the command line, re-entered after a rebuild
+-- TODO: answer a record (an exit code and its message) or nil, once the
+-- callers are reworked around it: nil means "proceed" here, not a
+-- failure, so this pair is not a value and its reason, and
+-- build.contracts exempts it from the error-slot rules until then.
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then

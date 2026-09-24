@@ -21,11 +21,16 @@ local function problems_in(source: string): {string}
     "local function name(): string return 'x' end",
     "local function pair(): boolean, integer return true, 1 end",
     "local function use(...: any) end",
+    "local function complain(_v: integer | nil, _why: string) end",
+    "local record Log",
+    "  note: function(Log, integer | nil, string)",
+    "end",
+    "local log: Log = { note = function(_: Log, _v: integer | nil, _why: string) end }",
   }, "\n") .. "\n"
   local code, result = built.gen(prelude .. source, env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0 and #result.syntax_errors == 0,
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
-  return contracts.check("x.tl", result.ast as ast.Node, state.every) -- cast: tl's checked AST
+  return contracts.check("x.tl", result.ast as ast.Node, state) -- cast: tl's checked AST
 end
 
 local function flags(source: string, wanted: string)
@@ -57,12 +62,43 @@ local function test_an_ignored_effect_is_flagged_as_a_statement()
   flags("get()", "its failure is ignored")
 end
 
+--- A block's first statement starts where its callee does; the block's
+--- own type stored there after it must not hide the callee's.
+local function test_a_call_that_opens_a_block_is_still_judged()
+  local ignored = "its failure is ignored"
+  flags("do put() end", ignored)
+  flags("local function f() put() end\nuse(f)", ignored)
+  flags("use(function() put() end)", ignored)
+  flags("if 1 > 0 then put() end", ignored)
+  flags("for _ = 1, 2 do put() end", ignored)
+  flags("while 1 < 0 do put() end", ignored)
+end
+
+local function test_a_table_item_drops_the_error_slot()
+  local dropped = "its error slot is dropped"
+  flags("use({get()})", dropped)
+  flags("use({get(), 1})", dropped)
+  flags("use({1, get()})", dropped)
+end
+
+--- Only a call that takes the reason keeps it as a last argument.
+local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
+  local dropped = "its error slot is dropped"
+  flags("use(get())", dropped)
+  flags("print(get())", dropped)
+  flags("use(select(1, get()))", dropped)
+  flags("local t: {string} = {}\ntable.insert(t, get())", dropped)
+  allows("use(assert(get()))")
+  allows("complain(get())")
+  allows("log:note(get())")
+  allows("log.note(log, get())")
+end
+
 local function test_a_kept_error_slot_is_allowed()
   allows("local v, err = get()\nuse(v, err)")
   allows("local v: integer\nlocal err: string\nv, err = get()\nuse(v, err)")
   allows("use(assert(get()))")
   allows("local function f(): integer | nil, string return get() end\nuse(f)")
-  allows("use(1, get())")
   allows("local _, _ = put()")
   allows("local ok, _ = put()\nuse(ok)")
 end
@@ -77,7 +113,8 @@ end
 local function test_a_failure_carries_no_value()
   local beside = "beside its reason"
   flags("local function f(): integer | nil, string\n" ..
-    "  local v, err = get()\n  if v == nil then return 0, err end\n  return v, ''\nend\nuse(f)", beside)
+    "  local v, err = get()\n  if v == nil then return 0, err end\n" ..
+    "  return v, ''\nend\nuse(f)", beside)
   flags("local function f(): boolean, string\n" ..
     "  local ok, why = put()\n  return ok, why\nend\nuse(f)", beside)
   flags("local function f(n: integer): integer | nil, string\n" ..
@@ -85,7 +122,8 @@ local function test_a_failure_carries_no_value()
   allows("local function f(): integer | nil, string\n" ..
     "  local v, err = get()\n  if v == nil then return nil, err end\n  return v, ''\nend\nuse(f)")
   allows("local function f(): boolean, string\n" ..
-    "  local ok, why = put()\n  if not ok then return false, why end\n  return true, ''\nend\nuse(f)")
+    "  local ok, why = put()\n  if not ok then return false, why end\n" ..
+    "  return true, ''\nend\nuse(f)")
 end
 
 local function test_a_function_nested_in_another_answers_for_its_own_returns()
@@ -99,6 +137,7 @@ local function test_a_reason_is_exactly_a_string()
   flags("local function f(): string | nil, integer\n  return nil, 127\nend\nuse(f)", reason)
   flags("local function f(): {string} | nil, integer | string\n  return nil, 'no'\nend\nuse(f)",
     reason)
+  flags("local function f(): string | nil, string | nil\n  return nil, 'no'\nend\nuse(f)", reason)
   allows("local function f(): boolean, integer\n  return true, 1\nend\nuse(f)")
   allows("local function f(): integer | nil, integer | nil\n  return nil, nil\nend\nuse(f)")
 end

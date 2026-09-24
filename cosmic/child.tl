@@ -410,10 +410,10 @@ end
 
 local handle_mt: metatable<Handle> = {
   __close = function(self: Handle)
-    if not self._closed then terminate(self) end
+    if not self._closed then local _, _ = terminate(self) end
   end,
   __gc = function(self: Handle)
-    if not self._closed then terminate(self) end
+    if not self._closed then local _, _ = terminate(self) end
   end,
 }
 
@@ -569,7 +569,8 @@ local function capture(wiring: Wiring, child_fd: integer): integer | nil, string
   if ends == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = ends.writer
   wiring.ours[#wiring.ours + 1] = ends.reader
-  local _, _ = sys.set_nonblocking(ends.reader, true)
+  local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.reader, true)
+  if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
   }
@@ -595,8 +596,10 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
     wiring.ours[#wiring.ours + 1] = ends.writer
     slots[0] = ends.reader
     if opts.input ~= nil then
-      local _, _ = sys.ignore_sigpipe()
-      local _, _ = sys.set_nonblocking(ends.writer, true)
+      local ignored, ignore_trouble = sys.ignore_sigpipe()
+      if not ignored then return nil, ignore_trouble end
+      local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.writer, true)
+      if not nonblocking then return nil, nonblocking_trouble end
       wiring.input_fd = ends.writer
     else
       wiring.stdin_fd = ends.writer
@@ -696,6 +699,10 @@ end
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
 --- at once. Nil and "timeout" when `timeout_ms` passes first; the
 --- handles are left running.
+-- TODO: carry a settled group's lingering members on Child.Result, a
+-- field beside the exit status, and answer the handle with "" here:
+-- build/test.tl reads the trouble beside the handle's result today, and
+-- build.contracts exempts this pair from the error-slot rules until then.
 function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, string
   if #handles == 0 then error("no handles to wait for", 2) end
   if timeout_ms ~= nil and timeout_ms < 0 then return nil, "timeout is negative" end

@@ -20,7 +20,7 @@ local record Notes
 end
 
 local function say(line: string)
-  Fs.put(Fs.stdout, "check: " .. line .. "\n")
+  local _, _ = Fs.put(Fs.stdout, "check: " .. line .. "\n")
 end
 
 --- A child's exit as a shell reports it: its code, or 128 plus the
@@ -80,8 +80,10 @@ function Notes.reset_evidence(path: string): boolean, string
     return false, otrouble
   end
   local ok, etrouble = Sqlite.exec(db, "delete from runs")
-  Sqlite.close(db)
-  return ok, etrouble
+  local closed, close_trouble = Sqlite.close(db)
+  if not ok then return false, etrouble end
+  if not closed then return false, close_trouble end
+  return true, ""
 end
 
 --- How many tests and examples passed in the runs a build database
@@ -101,9 +103,12 @@ function Notes.evidence(path: string): integer | nil, integer, string
     where r.passed = 1
     group by i.kind, i.origin
   ]], {})
-  Sqlite.close(db)
+  local closed, close_trouble = Sqlite.close(db)
   if rows == nil then
     return nil, 0, rtrouble
+  end
+  if not closed then
+    return nil, 0, close_trouble
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do
@@ -140,18 +145,20 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
     return false
   end
   local passed = work(out)
-  Fs.close(out)
+  local _, _ = Fs.close(out)
   if passed then
     say("ok   " .. label)
     return true
   end
   say("FAIL " .. label)
-  local text = Fs.read(log) or ""
+  -- A log that cannot be read shows nothing under the failure.
+  local read, _ = Fs.read(log)
+  local text = read or ""
   if text ~= "" and text:sub(-1) ~= "\n" then
     text = text .. "\n"
   end
   for line in text:gmatch("([^\n]*)\n") do
-    Fs.put(Fs.stdout, "check:   " .. line .. "\n")
+    local _, _ = Fs.put(Fs.stdout, "check:   " .. line .. "\n")
   end
   g.failed = true
   return false
@@ -161,7 +168,7 @@ local function command_step(g: Grade, argv: {string}, cwd: string): boolean
   return step(g, table.concat(argv, " "), function(out: integer): boolean
     local result, trouble = Child.run(argv, { cwd = cwd, stdout = out, stderr = "stdout" })
     if result == nil then
-      Fs.put(out, trouble .. "\n")
+      local _, _ = Fs.put(out, trouble .. "\n")
       return false
     end
     return Notes.status(result) == 0
@@ -201,7 +208,7 @@ local function expect(g: Grade, dir: string, want: string, args: {string}, env?:
 end
 
 local function is_executable(path: string): boolean
-  local st = Fs.stat(path)
+  local st, _ = Fs.stat(path)
   return st ~= nil and st.kind == "file" and st.mode & 0x49 ~= 0
 end
 
@@ -210,10 +217,13 @@ end
 local function run_alone(g: Grade, exe: string)
   local empty = g.dir .. "/empty"
   local err_path = g.dir .. "/check.err"
-  local bytes = Fs.read(exe)
-  if not (Fs.remove_tree(empty) and Fs.mkdirs(empty) and bytes ~= nil and
-      Fs.write(empty .. "/notes", bytes, 0x1ed)) then
-    say("FAIL could not copy " .. exe .. " into " .. empty)
+  local bytes, trouble = Fs.read(exe)
+  local copied = bytes ~= nil
+  if copied then copied, trouble = Fs.remove_tree(empty) end
+  if copied then copied, trouble = Fs.mkdirs(empty) end
+  if copied then copied, trouble = Fs.write(empty .. "/notes", assert(bytes), 0x1ed) end
+  if not copied then
+    say("FAIL could not copy " .. exe .. " into " .. empty .. ": " .. trouble)
     g.failed = true
     return
   end
@@ -225,10 +235,10 @@ local function run_alone(g: Grade, exe: string)
 
   -- The message must be the tool's own: a launcher or runtime failure
   -- also exits non-zero with something on stderr.
-  local result = Child.run({ empty .. "/notes", "rm", "9" }, { cwd = empty, env = {},
+  local result, _ = Child.run({ empty .. "/notes", "rm", "9" }, { cwd = empty, env = {},
     stdout = "null", stderr = "capture" })
   local err = result ~= nil and result.stderr or ""
-  Fs.write(err_path, err)
+  local _, _ = Fs.write(err_path, err)
   if result ~= nil and Notes.status(result) == 0 then
     say("FAIL rm of an unknown id exited 0")
     g.failed = true
@@ -243,9 +253,9 @@ local function run_alone(g: Grade, exe: string)
   end
   expect(g, empty, "2\tsecond note", { "list" })
 
-  Fs.remove(empty .. "/notes.db")
+  local _, _ = Fs.remove(empty .. "/notes.db")
   expect(g, empty, "1", { "add", "elsewhere" }, { NOTES_DB = "other.db" })
-  local st = Fs.stat(empty .. "/other.db")
+  local st, _ = Fs.stat(empty .. "/other.db")
   if st ~= nil and st.kind == "file" then
     say("ok   NOTES_DB names the file")
   else
@@ -253,9 +263,9 @@ local function run_alone(g: Grade, exe: string)
     g.failed = true
   end
 
-  local help = Child.run({ empty .. "/notes", "help" }, { cwd = empty, env = {},
+  local help, _ = Child.run({ empty .. "/notes", "help" }, { cwd = empty, env = {},
     stdout = "capture", stderr = "capture" })
-  Fs.write(err_path, help ~= nil and help.stderr or "")
+  local _, _ = Fs.write(err_path, help ~= nil and help.stderr or "")
   local out = help ~= nil and trimmed(help.stdout or "") or ""
   if help == nil or Notes.status(help) ~= 0 then
     say("FAIL notes help exited " .. (help ~= nil and Notes.status(help) or 127))
@@ -284,18 +294,20 @@ end
 function Notes.grade(dir: string): integer
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
-  if not Fs.is_dir(project) then
-    say("FAIL no project at " .. project)
+  local is_project, project_trouble = Fs.is_dir(project)
+  if not is_project then
+    say("FAIL no project at " .. project ..
+      (project_trouble ~= "" and ": " .. project_trouble or ""))
     say("FAIL")
     return 1
   end
   local g: Grade = { dir = dir, steps = 0, failed = false }
   local db = project .. "/o/build.db"
-  Fs.remove(project .. "/notes.db")
+  local _, _ = Fs.remove(project .. "/notes.db")
   step(g, "evidence reset " .. db, function(out: integer): boolean
     local ok, trouble = Notes.reset_evidence(db)
     if not ok then
-      Fs.put(out, trouble .. "\n")
+      local _, _ = Fs.put(out, trouble .. "\n")
     end
     return ok
   end)
@@ -303,10 +315,10 @@ function Notes.grade(dir: string): integer
   step(g, "evidence check " .. db, function(out: integer): boolean
     local tests, examples, trouble = Notes.evidence(db)
     if tests == nil then
-      Fs.put(out, trouble .. "\n")
+      local _, _ = Fs.put(out, trouble .. "\n")
       return false
     end
-    Fs.put(out, "evidence: " .. tests .. " tests, " .. examples .. " examples\n")
+    local _, _ = Fs.put(out, "evidence: " .. tests .. " tests, " .. examples .. " examples\n")
     return tests > 0 and examples > 0
   end)
   command_step(g, { cosmic, "fix", "--check" }, project)
@@ -317,7 +329,9 @@ function Notes.grade(dir: string): integer
   -- builds notes (cmd/notes renamed away), an o/bin/notes still there
   -- is an earlier build's. It stays in place -- it is the solver's
   -- deliverable, not the grader's to delete -- but it is not run.
-  local log = Fs.read(g.dir .. "/check-" .. g.steps .. ".out") or ""
+  -- A build log that cannot be read names no binary.
+  local read, _ = Fs.read(g.dir .. "/check-" .. g.steps .. ".out")
+  local log = read or ""
   if not built then
     say("skip o/bin/notes: cosmic build failed; not running an earlier build's binary")
   elseif not Notes.built_notes(log) or not is_executable(exe) then
@@ -337,11 +351,11 @@ end
 function Notes.main(argv: {integer: string}): integer
   local dir = argv[1]
   if dir == nil or argv[2] ~= nil then
-    Fs.put(Fs.stderr, "usage: eval/check/notes <dir>\n")
+    local _, _ = Fs.put(Fs.stderr, "usage: eval/check/notes <dir>\n")
     return 2
   end
   -- The steps run in other directories, and name the arena's files.
-  local absolute = Fs.absolute(dir)
+  local absolute, _ = Fs.absolute(dir)
   return Notes.grade(absolute or dir)
 end
 

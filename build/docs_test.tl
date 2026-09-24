@@ -95,7 +95,7 @@ local function test_looks_up_a_module_and_lists_its_symbols()
   local db = database(fs_rows, fs_uses)
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   assert(#found == 1 and found[1].kind == "module", tostring(#found))
-  local lines = docs.render(view({ db }), found[1])
+  local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[1] == "cosmic.fs (cosmic/fs.tl)", lines[1])
   assert(lines[2] == "  Files and directories.", lines[2])
   assert(lines[3] == "  record Fs", lines[3])
@@ -118,7 +118,7 @@ local function test_a_module_listing_leaves_out_private_functions()
   }
   local db = database(rows, {})
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local lines = docs.render(view({ db }), found[1])
+  local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[3] == "  record Stat", lines[3])
   assert(lines[4] == "  record Fs", lines[4])
   assert(lines[5] == "  function Fs.read", lines[5])
@@ -147,14 +147,14 @@ end
 local function test_renders_a_symbol()
   local db = database(fs_rows, fs_uses)
   local found = assert(docs.lookup(view({ db }), "Fs.write"))
-  local lines = docs.render(view({ db }), found[1])
+  local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[1] == "cosmic.fs Fs.write (cosmic/fs.tl:40)", lines[1])
   assert(lines[2] == "  function Fs.write(path: string, data: string): boolean, string", lines[2])
   assert(lines[3] == "  Writes the whole of a file.", lines[3])
   assert(lines[4] == "  Creates no parent directory.", lines[4])
   assert(#lines == 4, tostring(#lines))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local read_lines = docs.render(view({ db }), read[1])
+  local read_lines = assert(docs.render(view({ db }), read[1]))
   assert(read_lines[#read_lines] == "  used in 2 places; cosmic uses Fs.read",
     read_lines[#read_lines])
 end
@@ -170,7 +170,7 @@ local function test_renders_a_symbols_example()
       "3", "function Example.read()\n  print(Fs.read(\"x\"))\nend" },
   })
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local lines = docs.render(view({ db }), read[1])
+  local lines = assert(docs.render(view({ db }), read[1]))
   assert(lines[#lines - 4] == "  example read (cosmic/fs_example.tl:3):",
     lines[#lines - 4])
   assert(lines[#lines - 3] == "  Reads a file back.", lines[#lines - 3])
@@ -179,7 +179,7 @@ local function test_renders_a_symbols_example()
   assert(lines[#lines] == "    end", lines[#lines])
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local module_lines = docs.render(view({ db }), module[1])
+  local module_lines = assert(docs.render(view({ db }), module[1]))
   assert(module_lines[4] == "  function Fs.read (2 uses, 1 example)", module_lines[4])
   assert(module_lines[5] == "  function Fs.write", module_lines[5])
 end
@@ -195,7 +195,7 @@ local function test_many_examples_for_one_symbol()
       "function Example.missing_file()\n  local ok = Fs.read(\"none\")\nend" },
   })
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local lines = docs.render(view({ db }), read[1])
+  local lines = assert(docs.render(view({ db }), read[1]))
   local headers: {string} = {}
   for _, line in ipairs(lines) do
     if line:match("^  example ") then
@@ -207,7 +207,7 @@ local function test_many_examples_for_one_symbol()
   assert(headers[2] == "  example missing_file (cosmic/fs_example.tl:9):", headers[2])
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local module_lines = docs.render(view({ db }), module[1])
+  local module_lines = assert(docs.render(view({ db }), module[1]))
   assert(module_lines[4] == "  function Fs.read (2 uses, 2 examples)", module_lines[4])
 end
 
@@ -231,7 +231,7 @@ local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix()
   })
   local hex = assert(docs.lookup(view({ db }), "Hash.hex"))
   assert(#hex == 1 and hex[1].examples == 0, tostring(hex[1].examples))
-  for _, line in ipairs(docs.render(view({ db }), hex[1])) do
+  for _, line in ipairs((assert(docs.render(view({ db }), hex[1])))) do
     assert(not line:match("^  example "),
       "Hash.hex wrongly matched an example for Hash.hex_sha256: " .. line)
   end
@@ -255,7 +255,7 @@ local function test_searches_finds_a_word_only_in_an_example()
   assert(#found == 1 and found[1].module == "cosmic.fs" and
     found[1].symbol == "Example.read",
     tostring(#found))
-  local lines = docs.render(view({ db }), found[1])
+  local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[1] == "cosmic.fs example read (cosmic/fs_example.tl:3)", lines[1])
   assert(table.concat(lines, "\n"):find("Hash.hex_sha256(Fs.read", 1, true) ~= nil)
 
@@ -267,7 +267,7 @@ local function test_searches_finds_a_word_only_in_an_example()
   assert(#by_text == 1 and by_text[1].module == "cosmic.fs" and
     by_text[1].symbol == "Example.read",
     tostring(#by_text))
-  local text_lines = docs.render(view({ db2 }), by_text[1])
+  local text_lines = assert(docs.render(view({ db2 }), by_text[1]))
   assert(table.concat(text_lines, "\n"):find(
     "Demonstrates reading a config file.", 1, true) ~= nil)
 end
@@ -283,7 +283,7 @@ local function test_search_keeps_docs_and_example_identities()
   local found = assert(docs.lookup(view({ db }), "whole config"))
   assert(#found == 1, "expected one example result")
   assert(found[1].symbol == "Example.read_config", found[1].symbol)
-  local rendered = table.concat(docs.render(view({ db }), found[1]), "\n")
+  local rendered = table.concat(assert(docs.render(view({ db }), found[1])), "\n")
   assert(rendered:find("function Example.read_config()", 1, true) ~= nil, rendered)
 end
 
@@ -300,7 +300,7 @@ local function test_example_search_obeys_module_ownership()
   })
   local current = assert(docs.lookup(view({ project, binary }), "current sentinel"))
   assert(#current == 1)
-  assert(table.concat(docs.render(view({ project, binary }), current[1]), "\n"):
+  assert(table.concat(assert(docs.render(view({ project, binary }), current[1])), "\n"):
     find("Example.new_read", 1, true) ~= nil)
   assert(#assert(docs.lookup(view({ project, binary }), "legacy sentinel")) == 0)
 end
@@ -426,7 +426,7 @@ local function test_a_public_source_answers_only_for_the_standard_library()
   assert(#searched == 1 and searched[1].module == "cosmic.fs", tostring(#searched))
   local referring = assert(docs.uses(public, "Fs.read"))
   assert(#referring == 1 and referring[1].from_module == "cosmic.hash")
-  local listed = docs.render(public, assert(docs.lookup(public, "cosmic.fs"))[1])
+  local listed = assert(docs.render(public, assert(docs.lookup(public, "cosmic.fs"))[1]))
   assert(listed[#listed]:find("Fs.read", 1, true) ~= nil, listed[#listed])
 end
 
@@ -463,7 +463,7 @@ local function test_a_declared_module_is_found_without_a_line()
   assert(db:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
   local found = assert(docs.lookup(view({ db }), "lstat"))
   assert(#found == 1 and found[1].module == "cosmic.sys", tostring(#found))
-  local lines = docs.render(view({ db }), found[1])
+  local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[1] == "cosmic.sys syscalls.lstat (core/syscalls.h)", lines[1])
 end
 

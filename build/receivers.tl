@@ -41,9 +41,13 @@ local record receivers
   record State
     types: {integer: Type}
     --- Every type the checker stored for the module it is checking
-    --- now, by position: `build.contracts` reads callees' and values'
-    --- types from it.
+    --- now, by position: `build.contracts` reads values' types from it.
     every: {integer: Type}
+    --- The function types among them, kept apart: a node that starts
+    --- where a callee does and is checked after it (the block a call
+    --- opens, a table item) stores a type of its own there, which must
+    --- not hide the callee's. `build.contracts` reads callees from it.
+    callees: {integer: Type}
     owners: {integer: Owner}
     walked: {string: boolean}
   end
@@ -68,8 +72,11 @@ local record receivers
     --- A record's or interface's interfaces, every one it inherits
     --- from included, once the checker has expanded them.
     interface_list: {Type} | nil
-    --- A function's results, a tuple.
+    --- A function's parameters and results, tuples.
+    args: Type | nil
     rets: Type | nil
+    --- A tuple whose last member repeats (`...: T`).
+    is_va: boolean | nil
     --- A union's alternatives.
     types: {Type} | nil
   end
@@ -168,6 +175,10 @@ local function reporter_for(state: receivers.State): any
       if t.typename ~= "tuple" or state.every[at] == nil then
         state.every[at] = t
       end
+      local name = t.typename
+      if name == "function" or name == "generic" or name == "poly" then
+        state.callees[at] = t
+      end
       local found = record_of(t)
       if found ~= nil then
         state.types[position(y, x)] = found
@@ -184,6 +195,7 @@ local function reporter_for(state: receivers.State): any
       if filename == "" then
         state.types = {}
         state.every = {}
+        state.callees = {}
         return keeping
       end
       return ignoring
@@ -197,7 +209,7 @@ end
 --- Turns the checker's type reporting on for `env`, answering into a
 --- fresh state that `references` then reads.
 function receivers.install(env: compiler.Env): receivers.State
-  local state: receivers.State = { types = {}, every = {}, owners = {}, walked = {} }
+  local state: receivers.State = { types = {}, every = {}, callees = {}, owners = {}, walked = {} }
   env.report_types = true
   env.reporter = reporter_for(state)
   return state

@@ -7,29 +7,37 @@
 ---
 --- 1. A call to a fallible function keeps its error slot: it is bound
 ---    to at least two names (`local v, err = f()`, or an assignment),
----    passed on whole as a call's last argument (`assert(f())`), or
----    returned whole as a `return`'s last value. Anywhere else -- `f()
----    or x`, `not f()`, `if f() then`, `(f())`, a non-final argument,
----    `local v = f()` -- the reason is dropped. A call standing alone as
----    a statement drops it too; a failure that is to be ignored on
----    purpose (a cleanup on a path that is already failing, a
----    diagnostic written to stderr) says so by binding both slots to
+---    returned whole as a `return`'s last value, or passed whole as the
+---    last argument of `assert` or of a function that declares a
+---    `string` parameter for the reason to land in (`complain(v,
+---    why)`). Anywhere else -- `f() or x`, `not f()`, `if f() then`,
+---    `(f())`, a non-final argument, `local v = f()`, `{f()}`,
+---    `print(f())`, `table.insert(t, f())` -- the reason is dropped. A
+---    call standing alone as a statement drops it too. A failure to be
+---    ignored on purpose (a cleanup on a path that is already failing,
+---    a diagnostic written to stderr) says so by binding both slots to
 ---    `_`: `local _, _ = Fs.remove(path)`.
 --- 2. A failure carries no value: in a fallible function, a `return a,
 ---    b` whose `b` is not the literal `""` has a literal `nil` (`false`,
----    for an effect) as `a`.
+---    for an effect) as `a`. So `local v, err = f(); return v, err` is
+---    refused too: it hands on a value beside a reason whenever `f`
+---    does, and says so nowhere. Return `f()` whole, or split it: `if v
+---    == nil then return nil, err end return v, ""`.
 --- 3. The reason is exactly a `string`: a function whose first slot
----    admits nil or is a boolean answers no union that holds a string
----    in its second, and one whose first admits nil no integer code.
+---    admits nil or is a boolean answers no other type that holds a
+---    string in its second (`string | nil` included), and one whose
+---    first admits nil answers no integer code there.
 --- 4. A declared failure can happen: a function declared `T | nil,
 ---    string` whose every return is a value that cannot be nil and `""`
 ---    returns the value alone.
 ---
 --- The callee's type is the one the checker stored at the callee's own
---- position (`build.receivers` installs the reporter that keeps it); a
+--- position (`build.receivers` installs the reporter that keeps it). A
 --- callee the checker gave no function type is not judged. Rules 2 to
---- 4 read the declared results of a function that declares two. `contracts.exempt` names the
---- functions a rule cannot yet be held to, each with its reason.
+--- 4 read the declared results of a function that declares two.
+---
+--- `contracts.exempt` names the functions rules 2 to 4 cannot yet hold,
+--- each with its reason; the TODO for each is where its fix goes.
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
@@ -43,16 +51,24 @@ local record contracts
 end
 
 contracts.exempt = {
-  -- TODO: answer a record (an exit code and its message) or nil, once
-  -- the callers are reworked around it; nil means "proceed" here, not
-  -- a failure, so the pair is not a value and its reason.
-  ["build/reboot.tl:reboot.ensure"] = "nil means proceed; the integer is an exit code, not a value",
-  -- TODO: carry a settled group's lingering members on Child.Result, a
-  -- field beside the exit status, and answer the handle with "" here;
-  -- build/test.tl reads the trouble beside the handle's result today.
-  ["cosmic/child.tl:Child.wait_any"] = "a finished handle comes back with its group's lingering-member trouble, " ..
-    "which a caller reports beside the handle's result",
+  ["build/reboot.tl:reboot.ensure"] =
+    "nil means proceed; the integer is an exit code, not a value",
+  ["cosmic/child.tl:Child.wait_any"] =
+    "a finished handle comes back with its group's lingering-member " ..
+    "trouble, which a caller reports beside the handle's result",
 }
+
+--- Whether a module is held to the discipline: every module and main
+--- of cosmic's own tree, not its tests, examples, declarations, or
+--- generated doctests.
+-- TODO: hold ci/'s modules to it too. ci/ builds as a tree of its own,
+-- never cosmic's, so the importer never asks; and it runs on the
+-- release ci/cosmic-driver.pin names, so a fix there must suit both.
+--- @param kind the module's kind as the importer staged it
+--- @param generated whether a generator wrote it
+function contracts.applies(kind: string, generated: boolean): boolean
+  return (kind == "module" or kind == "main") and not generated
+end
 
 --- A position as one integer key, the way `build.receivers` keys them.
 local function position(y: integer, x: integer): integer
@@ -261,8 +277,7 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
     -- A boolean beside a count (`boolean, integer`) is two answers,
     -- not a failure; beside a value that admits nil, an integer is an
     -- error code standing where the reason belongs.
-    if (value and typename(second) == "integer")
-        or (holds(second, "string") and not holds(second, "nil")) then
+    if (value and typename(second) == "integer") or holds(second, "string") then
       problems[#problems + 1] = string.format(
         "%s:%d: %s: a failure's reason is exactly a string; this second result is not",
         file, fn.y, name)
@@ -275,7 +290,8 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
     local exps = list_of(r.exps)
     if #exps >= 2 and not is_empty_string(exps[2]) and not is_failure(exps[1], effect) then
       problems[#problems + 1] = string.format(
-        "%s:%d: %s: a failure answers %s beside its reason, never a value; a success's reason is \"\"",
+        "%s:%d: %s: a failure answers %s beside its reason, never a value; "
+          .. "a success's reason is \"\"",
         file, r.y, name, effect and "false" or "nil")
     end
     if #exps ~= 2 or not is_empty_string(exps[2]) or not never_nil(exps[1], types) then
@@ -284,15 +300,36 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
   end
   if value and all_values then
     problems[#problems + 1] = string.format(
-      "%s:%d: %s: every return answers a value, so the declared failure never happens; return the value alone",
+      "%s:%d: %s: every return answers a value, so the declared failure "
+        .. "never happens; return the value alone",
       file, fn.y, name)
   end
 end
 
+--- Whether a call hands its last argument's reason on: `assert`, or a
+--- callee that declares a `string` parameter, not a variadic one, just
+--- past the one the argument's value lands in.
+local function takes_reason(call: Node, count: integer, callees: {integer: Type}): boolean
+  local e1 = call.e1
+  if e1 == nil then return false end
+  if e1.kind == "variable" and e1.tk == "assert" then return true end
+  local f = resolved(callees[position(e1.y, e1.x)])
+  if f == nil or f.typename ~= "function" then return false end
+  local params = f.args
+  if params == nil then return false end
+  local members = params.tuple
+  if members == nil then return false end
+  -- A method call's receiver is the first parameter.
+  local op = e1.op
+  local slot = count + 1 + ((e1.kind == "op" and op ~= nil and op.op == ":") and 1 or 0)
+  if slot > #members or (slot == #members and params.is_va) then return false end
+  return typename(members[slot]) == "string"
+end
+
 --- Every place a call keeps all of its results: the last expression of
---- a list bound to more names than it has expressions, the last
---- argument of a call, and the last value of a return.
-local function keeping(root: Node): {Node: boolean}
+--- a list bound to more names than it has expressions, the last value
+--- of a return, and the last argument of a call that takes a reason.
+local function keeping(root: Node, callees: {integer: Type}): {Node: boolean}
   local kept: {Node: boolean} = {}
   ast.walk(root, function(n: Node)
     if n.kind == "local_declaration" or n.kind == "assignment" then
@@ -303,7 +340,7 @@ local function keeping(root: Node): {Node: boolean}
       if #exps > 0 then kept[exps[#exps]] = true end
     elseif is_call(n) then
       local args = list_of(n.e2)
-      if #args > 0 then kept[args[#args]] = true end
+      if #args > 0 and takes_reason(n, #args, callees) then kept[args[#args]] = true end
     end
   end)
   return kept
@@ -328,21 +365,24 @@ end
 --- has just checked, `file:line: ...` each, in line order.
 --- @param file the module's path in the tree, for messages
 --- @param root the checked AST
---- @param types the checker's type at each position (`receivers.State.every`)
-function contracts.check(file: string, root: Node, types: {integer: Type}): {string}
+--- @param typed the checker's types, as `build.receivers` kept them
+function contracts.check(file: string, root: Node, typed: receivers.State): {string}
   local problems: {string} = {}
-  local kept, statements = keeping(root), standing(root)
+  local types, callees = typed.every, typed.callees
+  local kept, statements = keeping(root, callees), standing(root)
   ast.walk(root, function(n: Node)
     local e1 = n.e1
     if is_call(n) and not kept[n] and e1 ~= nil
-        and fallible_type(types[position(e1.y, e1.x)]) then
+        and fallible_type(callees[position(e1.y, e1.x)]) then
       if statements[n] then
         problems[#problems + 1] = string.format(
-          "%s:%d: %s: its failure is ignored; handle it, or discard both results on purpose: local _, _ = ...",
+          "%s:%d: %s: its failure is ignored; handle it, or discard both "
+            .. "results on purpose: local _, _ = ...",
           file, n.y, spelled(e1))
       else
         problems[#problems + 1] = string.format(
-          "%s:%d: %s: its error slot is dropped; bind both results, wrap it in assert(...), or return it whole",
+          "%s:%d: %s: its error slot is dropped; bind both results, wrap it "
+            .. "in assert(...), or return it whole",
           file, n.y, spelled(e1))
       end
     elseif is_function(n) then

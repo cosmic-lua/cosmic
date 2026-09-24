@@ -282,7 +282,7 @@ end
 --- first executable file of that name on `path` (an empty entry is the
 --- working directory). Nothing runnable is nil and why: "not found"
 --- for none at all, "permission denied" for one that is there but not
---- executable -- a shell's 127 and 126, which `resolve_status` gives.
+--- executable -- a shell's 127 and 126, which `status_of` gives.
 -- TODO: call Proc.find, which does this, once ci/cosmic-driver.pin names
 -- a cosmic carrying it: this runs standalone on the pinned release.
 function Zig.resolve(name: string, path: string): string | nil, string
@@ -304,7 +304,7 @@ function Zig.resolve(name: string, path: string): string | nil, string
 end
 
 --- The exit status a shell gives for what `resolve` could not find.
-function Zig.resolve_status(why: string): integer
+local function status_of(why: string): integer
   return why == "permission denied" and 126 or 127
 end
 
@@ -534,6 +534,9 @@ function Zig.run(argv: {string}): integer
       end
       -- TODO: drop the `or 0` once ci/cosmic-driver.pin names a cosmic whose
       -- Time.monotonic_ns answers an integer alone: this runs on that release.
+      -- The `assert(Time.monotonic_ns())` in ci/, which runs on it too
+      -- (cosmic_ci/orchestration.tl, cosmic_ci/runner.tl,
+      -- cosmic_ci/fixture_test.tl, fixtures/launcher_test.tl), go then.
       local now = Time.monotonic_ns() or 0
       local cancelled, _ = sys.cancelled_child_signal()
       if pending == 0 and cancelled ~= nil and cancelled ~= 0 then
@@ -598,7 +601,7 @@ function Zig.main(argv: {integer:string}): integer
   local program, unresolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
   if program == nil then
     complain(zig .. ": " .. unresolved)
-    return Zig.resolve_status(unresolved)
+    return status_of(unresolved)
   end
 
   local given: {string} = {}

@@ -123,12 +123,12 @@ local function test_resolve_searches_path_for_a_bare_name(tmp: string)
   assert(Zig.resolve("./tool", path) == "./tool")
 end
 
-local function test_resolve_answers_127_for_nothing_and_126_for_no_permission(tmp: string)
+local function test_resolve_tells_a_missing_name_from_an_unrunnable_one(tmp: string)
   local none, missing = Zig.resolve("no-such-tool", tmp)
-  assert(none == nil and Zig.resolve_status(missing) == 127)
+  assert(none == nil and missing == "not found", missing)
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
   local plain, denied = Zig.resolve("plain", tmp)
-  assert(plain == nil and Zig.resolve_status(denied) == 126)
+  assert(plain == nil and denied == "permission denied", denied)
 end
 
 local function test_exec_status_is_the_shells()

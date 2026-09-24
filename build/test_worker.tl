@@ -184,7 +184,8 @@ end
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   if root == nil or module_path == nil or name == nil or tmp == nil then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: test --worker needs a root, a module, a test and a directory\n")
+    local _, _ = Fs.put(Fs.stderr,
+      "cosmic: test --worker needs a root, a module, a test and a directory\n")
     return 2
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")

@@ -356,15 +356,17 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
       end
       if not real_dirs[rel] then
         local full = dest .. "/" .. rel
-        local st, why, errno = sys.lstat(full)
-        if st == nil then
+        local found, why, errno = sys.lstat(full)
+        if found == nil then
           if errno ~= sys.ENOENT then return false, full .. ": " .. why end
           local made, mtrouble, merr = sys.mkdir(full, 0x1ed)
           if not made and merr ~= sys.EEXIST then return false, full .. ": " .. mtrouble end
-          st, why, errno = sys.lstat(full)
+          found, why = sys.lstat(full)
         end
-        if st == nil or st.kind ~= "dir" then
-          if st ~= nil and st.kind == "link" then
+        if found == nil then return false, full .. ": " .. why end
+        local st: sys.Stat = found
+        if st.kind ~= "dir" then
+          if st.kind == "link" then
             return false, "archive: refusing to write through a symlink: " .. entry_path
           end
           return false, "archive: " .. full .. " is not a directory"

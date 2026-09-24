@@ -1066,18 +1066,6 @@ local record Generated
   references: {receivers.Reference}
 end
 
---- Whether a module is held to `build.contracts`' error-slot
---- discipline: the tree's own code, not its tests, examples, or
---- generated doctests.
--- TODO: hold ci/'s modules to it too. ci/ builds as a tree of its own,
--- never cosmic's, so `generate` never checks it; and it runs on the
--- release ci/cosmic-driver.pin names, so a fix there must suit both.
-local function disciplined(m: Module): boolean
-  if m.kind == "test" or m.kind == "example" or m.generated then return false end
-  return m.file:match("^cosmic/") ~= nil or m.file:match("^build/") ~= nil
-    or m.file:match("^cmd/") ~= nil
-end
-
 local function generate(m: Module, built: compiler, env: compiler.Env,
                         typed: receivers.State, own_tree: boolean,
                         databases: {Sqlite.Handle},
@@ -1097,8 +1085,9 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
-  if own_tree and disciplined(m) then
-    local problems = contracts.check(m.file, result.ast as ast.Node, typed.every) -- cast: tl's checked AST
+  if own_tree and contracts.applies(m.kind, m.generated) then
+    local checked = result.ast as ast.Node -- cast: tl's checked AST
+    local problems = contracts.check(m.file, checked, typed)
     if #problems > 0 then
       return nil, table.concat(problems, "\n")
     end
