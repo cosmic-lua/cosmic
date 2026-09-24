@@ -1,6 +1,7 @@
 --- Content hashes and message authentication, over the vendored
 --- mbedtls.
 
+local Codec = require("cosmic.codec")
 local sys = require("cosmic.sys")
 
 --- The raw module behind the streaming hasher lives under the reserved
@@ -57,17 +58,9 @@ function Hash.sha256(data: string): string
   return sys.digest("sha256", data)
 end
 
-local hex = "0123456789abcdef"
-
---- A digest as lowercase hexadecimal characters.
+--- A digest as lowercase hexadecimal characters: `Codec.hex`.
 function Hash.hex(digest: string): string
-  local out: {string} = {}
-  for i = 1, #digest do
-    local byte = digest:byte(i)
-    out[#out + 1] = hex:sub((byte >> 4) + 1, (byte >> 4) + 1)
-    out[#out + 1] = hex:sub((byte & 15) + 1, (byte & 15) + 1)
-  end
-  return table.concat(out)
+  return Codec.hex(digest)
 end
 
 --- The hexadecimal SHA-256 of some bytes, which is the form the build
