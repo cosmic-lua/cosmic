@@ -420,6 +420,25 @@ COSMIC_SYSCALL(relaunch, 2);
 COSMIC_SYSCALL(pipe, 0);
 
 /*
+ * --- A new descriptor for what `fd` names: the lowest one free, closed on exec.
+ * ---@param fd integer the descriptor to copy
+ * ---@return integer|nil copy the new descriptor, or nil on failure
+ * ---@return string error what went wrong, when copy is nil
+ * ---@return integer errno the error number, when copy is nil
+ */
+COSMIC_SYSCALL(dup, 1);
+
+/*
+ * --- Makes `to` name what `fd` names, closing what `to` named first. When `fd` is `to`, nothing changes, its close-on-exec flag included; otherwise `to` is left open across exec, as a process's standard descriptors are.
+ * ---@param fd integer the descriptor to copy
+ * ---@param to integer the descriptor to make a copy of it
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(dup2, 2);
+
+/*
  * --- Turns a descriptor's nonblocking mode on or off.
  * ---@param fd integer the descriptor
  * ---@param on boolean true for nonblocking reads and writes

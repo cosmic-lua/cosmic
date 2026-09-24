@@ -666,6 +666,25 @@ COSMIC_SYSCALL(pipe, 0) {
   return 1;
 }
 
+COSMIC_SYSCALL(dup, 1) {
+  int fd = cosmic_checkint(L, 1);
+  int copy = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+  if (copy < 0) return cosmic_fail(L, errno);
+  /* Nothing between the copy and its push can raise: pushing an integer
+   * allocates nothing, so the copy cannot leak. */
+  lua_pushinteger(L, copy);
+  return 1;
+}
+
+COSMIC_SYSCALL(dup2, 2) {
+  int fd = cosmic_checkint(L, 1);
+  int to = cosmic_checkint(L, 2);
+  int made;
+  do { made = dup2(fd, to); } while (made < 0 && errno == EINTR);
+  if (made < 0) return cosmic_fail_effect(L, errno);
+  return cosmic_ok(L);
+}
+
 COSMIC_SYSCALL(set_nonblocking, 2) {
   int fd = cosmic_checkint(L, 1);
   int on = lua_toboolean(L, 2);
@@ -866,7 +885,8 @@ static const luaL_Reg table[] = {
   ENTRY(spawn),
   ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
   ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
-  ENTRY(pipe),     ENTRY(set_nonblocking),  ENTRY(poll),
+  ENTRY(pipe),     ENTRY(dup),          ENTRY(dup2),
+  ENTRY(set_nonblocking),  ENTRY(poll),
   ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
   ENTRY(relaunch), ENTRY(uname),
   ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
