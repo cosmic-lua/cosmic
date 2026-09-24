@@ -3,8 +3,12 @@
 --- Cosmic builds itself, so the tool is also an artifact of the tree. When
 --- only Teal differs, it projects a new database, combines it with the exact
 --- retained portable prefix, atomically replaces the same logical artifact,
---- and re-enters the original argv once. Core-input changes still require Zig.
+--- and re-enters the original argv once. When a core input differs, only zig
+--- can rebuild it: the tool runs `bin/zig build boot` and re-enters the
+--- original argv on the tool that boot wrote, unless `COSMIC_AUTO_BOOT=0`
+--- says to refuse instead (`reboot.auto_boot`).
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
@@ -17,6 +21,7 @@ local writer = require("build.writer")
 local type compiler = require("build.compiler")
 
 local record reboot
+  core_refusal: string
   --- How the tree stands against the running binary.
   enum State
     "fresh"
@@ -28,6 +33,33 @@ end
 --- Set in the environment of the process a reboot enters, so a tool
 --- still stale after one refuses rather than rebooting again.
 local marker = "COSMIC_REBOOTED"
+
+--- What a tool stale against the core says when it does not boot.
+reboot.core_refusal = "the tool is stale; run bin/zig build boot"
+
+--- Whether a tool stale against the core boots it: unless
+--- `COSMIC_AUTO_BOOT` is "0", which a caller that wants the refusal
+--- (a fixture holding the artifact still, say) sets.
+function reboot.auto_boot(environment?: {string:string}): boolean
+  local value: string | nil
+  if environment ~= nil then
+    value = environment.COSMIC_AUTO_BOOT
+  else
+    value = sys.getenv("COSMIC_AUTO_BOOT")
+  end
+  return value ~= "0"
+end
+
+--- `argv` from slot 0 on, as a list to exec.
+local function reentry(argv: {integer:string}): {string}
+  local arguments: {string} = {}
+  local at = 0
+  while argv[at] ~= nil do
+    arguments[#arguments + 1] = argv[at]
+    at = at + 1
+  end
+  return arguments
+end
 
 --- Compares the tree's fingerprints with the running binary's.
 function reboot.state(handle: work.Handle): reboot.State | nil, string
@@ -110,15 +142,36 @@ function reboot.into(handle: work.Handle, built: compiler,
     return publish_trouble
   end
 
-  local arguments: {string} = {}
-  local at = 0
-  while argv[at] ~= nil do
-    arguments[#arguments + 1] = argv[at]
-    at = at + 1
-  end
   local environment = sys.environ()
   environment[marker] = "1"
-  local _, exec_trouble = Proc.exec(out, arguments, environment)
+  local _, exec_trouble = Proc.exec(out, reentry(argv), environment)
+  return exec_trouble
+end
+
+--- Rebuilds the core with `root/bin/zig build boot`, whose output goes to
+--- stderr so a verb's own stdout stays its own, then replaces this process
+--- with the tool the boot wrote, `root/o/bin/cosmic`, running `argv` again.
+--- The caller has closed its working database, which the boot writes.
+--- `environment` is what both run in, this process's by default.
+--- Returns only when it cannot, saying why.
+function reboot.boot_into(root: string, argv: {integer:string},
+                          environment?: {string:string}): string
+  environment = environment or sys.environ()
+  if environment[marker] ~= nil then
+    return "the tool is still stale after a reboot"
+  end
+  Fs.put(Fs.stderr, "cosmic: the core is stale; running bin/zig build boot\n")
+  local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
+    { cwd = root, env = environment, stdout = 2 })
+  if result == nil then
+    return "bin/zig build boot: " .. trouble
+  end
+  if not result.ok then
+    return "bin/zig build boot failed; fix what it reports and run this again"
+  end
+  environment[marker] = "1"
+  local _, exec_trouble = Proc.exec(root .. "/o/bin/cosmic", reentry(argv),
+    environment)
   return exec_trouble
 end
 
@@ -197,7 +250,10 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
   end
   if state == "core" then
     work.close(handle)
-    return 3, "the tool is stale; run bin/zig build boot"
+    if not reboot.auto_boot() then
+      return 3, reboot.core_refusal
+    end
+    return 3, reboot.boot_into(root, argv)
   end
   -- state == "teal"
   Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
