@@ -41,6 +41,12 @@ allowed["build.writer.signature"] = "tested directly: the test signs a database 
 -- TODO: make build.contracts' `exempt`, `parsing` and `quiet` local once
 -- #2086 merges; this change leaves build/contracts.tl alone so as not to
 -- conflict with it.
+-- TODO: make build.reboot's `ensure` local once #2086 merges: its only
+-- callers are in its own module since #2088, but build/contracts.tl
+-- exempts it by the name `reboot.ensure`, and this change leaves that
+-- file alone.
+allowed["build.reboot.ensure"] = "waits on #2086: build/contracts.tl " ..
+  "exempts it by its exported name"
 allowed["build.contracts.exempt"] = "waits on #2086, which edits build/contracts.tl"
 allowed["build.contracts.parsing"] = "waits on #2086, which edits build/contracts.tl"
 allowed["build.contracts.quiet"] = "waits on #2086, which edits build/contracts.tl"
