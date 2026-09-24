@@ -1,4 +1,3 @@
-local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")

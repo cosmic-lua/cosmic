@@ -44,9 +44,20 @@ function Process.start(label: string, argv: {string}, cwd: string,
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
   local out_fd = assert(Fs.open_write(out))
-  local err_fd = assert(Fs.open_write(err))
+  local err_fd, err_trouble = Fs.open_write(err)
+  if err_fd == nil then
+    Fs.close(out_fd)
+    error(label .. ": " .. err_trouble)
+  end
   local input_fd: integer | nil = nil
-  if input then input_fd = assert(Fs.open_read(input)) end
+  if input then
+    local opened, input_trouble = Fs.open_read(input)
+    if opened == nil then
+      Fs.close(out_fd); Fs.close(err_fd)
+      error(label .. ": " .. input_trouble)
+    end
+    input_fd = opened
+  end
   local options: Child.Options = { cwd = cwd, env = values,
     stdout = out_fd, stderr = err_fd, process_group = false }
   if input_fd then options.stdin = input_fd end
@@ -62,9 +73,16 @@ end
 
 local function close_descriptors(running: Process.Running)
   if not running.closed then
-    if running.input_fd then assert(Fs.close(running.input_fd)) end
-    assert(Fs.close(running.out_fd)); assert(Fs.close(running.err_fd))
     running.closed = true
+    local input_closed, input_trouble = true, ""
+    if running.input_fd then
+      input_closed, input_trouble = Fs.close(running.input_fd)
+    end
+    local out_closed, out_trouble = Fs.close(running.out_fd)
+    local err_closed, err_trouble = Fs.close(running.err_fd)
+    assert(input_closed, input_trouble)
+    assert(out_closed, out_trouble)
+    assert(err_closed, err_trouble)
   end
 end
 
