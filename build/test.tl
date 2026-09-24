@@ -53,6 +53,7 @@ local Child = require("cosmic.child")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -71,6 +72,8 @@ local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
 local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
+
+local log = Log.new("cosmic")
 
 local record test
   --- What the last run recorded about one test: what it read, which
@@ -141,14 +144,6 @@ local function selected(m: importer.Module, selectors: {string}): boolean
     if test.matches(selector, m.path, m.file) then return true end
   end
   return false
-end
-
-local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 local function text(value: string): Sqlite.Value
@@ -1115,7 +1110,7 @@ function test.run(argv: {integer:string}): integer
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 1
   end
   -- The re-entry after a rebuild gets the whole command line back, so the
@@ -1124,7 +1119,7 @@ function test.run(argv: {integer:string}): integer
   for slot, value in pairs(argv) do command[slot] = value end
   local limits, limits_trouble = limits_of(command)
   if limits == nil then
-    complain(limits_trouble)
+    log:complain(limits_trouble)
     return 2
   end
   local selectors: {string} = {}
@@ -1150,18 +1145,18 @@ function test.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
-    complain(own_trouble)
+    log:complain(own_trouble)
     return 1
   end
   local handle, open_trouble = work.open(root)
   if handle == nil then
-    complain(open_trouble)
+    log:complain(open_trouble)
     return 1
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     work.close(handle)
-    complain(stage_trouble)
+    log:complain(stage_trouble)
     return 1
   end
 
@@ -1177,22 +1172,22 @@ function test.run(argv: {integer:string}): integer
     local state, state_trouble = reboot.state(handle)
     if state == nil then
       work.close(handle)
-      complain(state_trouble)
+      log:complain(state_trouble)
       return 1
     end
     if state == "core" then
       work.close(handle)
       if not reboot.auto_boot() then
-        complain(reboot.core_refusal)
+        log:complain(reboot.core_refusal)
         return 3
       end
-      complain(reboot.boot_into(root, argv))
+      log:complain(reboot.boot_into(root, argv))
       return 3
     end
     if state == "teal" then
-      complain("the tool is stale; rebuilding it from the tree")
+      log:complain("the tool is stale; rebuilding it from the tree")
       local reboot_trouble = reboot.into(handle, built, argv)
-      complain(reboot_trouble)
+      log:complain(reboot_trouble)
       return 3
     end
   end
@@ -1204,7 +1199,7 @@ function test.run(argv: {integer:string}): integer
   local runtime = Store.meta("runtime")
   if runtime == nil or runtime == "" then
     work.close(handle)
-    complain("the running binary names no runtime identity")
+    log:complain("the running binary names no runtime identity")
     return 1
   end
   local database = root .. "/o/cosmic.db"
@@ -1213,7 +1208,7 @@ function test.run(argv: {integer:string}): integer
   if result == nil then
     work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     work.close(handle)
-    complain(compile_trouble)
+    log:complain(compile_trouble)
     return 1
   end
   local written, write_trouble =
@@ -1222,10 +1217,10 @@ function test.run(argv: {integer:string}): integer
     result.cached, written and "PASS" or "FAIL")
   if not written then
     work.close(handle)
-    complain(write_trouble)
+    log:complain(write_trouble)
     return 1
   end
-  report("build: " .. #result.modules .. " modules (" .. result.compiled ..
+  log:say("build: " .. #result.modules .. " modules (" .. result.compiled ..
     " compiled, " .. result.cached .. " cached; " .. staged.files ..
     " files staged, " .. staged.read .. " read) in " ..
     clock.elapsed_ms(started) .. " ms")
@@ -1239,7 +1234,7 @@ function test.run(argv: {integer:string}): integer
   end
   if #selectors > 0 and #selected_modules == 0 then
     work.close(handle)
-    complain("no test module matches: " .. table.concat(selectors, ", "))
+    log:complain("no test module matches: " .. table.concat(selectors, ", "))
     return 1
   end
 
@@ -1247,7 +1242,7 @@ function test.run(argv: {integer:string}): integer
   local begun, begin_trouble = work.begin(handle)
   if not begun then
     work.close(handle)
-    complain(begin_trouble)
+    log:complain(begin_trouble)
     return 1
   end
   local records_path = root .. "/o/build.db"
@@ -1256,21 +1251,21 @@ function test.run(argv: {integer:string}): integer
   if previous == nil then
     work.rollback(handle)
     work.close(handle)
-    complain(records_path .. ": " .. previous_trouble)
+    log:complain(records_path .. ": " .. previous_trouble)
     return 1
   end
   local hashes, hashes_trouble = staged_hashes(records)
   if hashes == nil then
     work.rollback(handle)
     work.close(handle)
-    complain(records_path .. ": " .. hashes_trouble)
+    log:complain(records_path .. ": " .. hashes_trouble)
     return 1
   end
   local verdicts, verdicts_trouble = known_verdicts(records)
   if verdicts == nil then
     work.rollback(handle)
     work.close(handle)
-    complain(records_path .. ": " .. verdicts_trouble)
+    log:complain(records_path .. ": " .. verdicts_trouble)
     return 1
   end
   local credited: test.Credited = {}
@@ -1304,7 +1299,7 @@ function test.run(argv: {integer:string}): integer
   local cancelled = run_jobs(rec, jobs, limits)
   if cancelled ~= 0 then
     work.abort(handle)
-    complain("test: cancelled; every running test was ended")
+    log:complain("test: cancelled; every running test was ended")
     sys.kill(sys.getpid(), cancelled)
     return 130
   end
@@ -1372,19 +1367,19 @@ function test.run(argv: {integer:string}): integer
 
   if #failures == 0 and #errors == 0 then
     if total == 0 then
-      report("test: nothing to run: a test is a top-level `local function " ..
+      log:say("test: nothing to run: a test is a top-level `local function " ..
         "test_*` of a *_test.tl file, or a function of the `Example` " ..
         "record a *_example.tl file returns")
     end
-    report("test: PASS (" .. total .. " tests, " .. modules_run .. " modules; " ..
-      tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms)")
-    report(cov_line)
-    for _, function_line in ipairs(function_lines) do report(function_line) end
+    log:verdict("test", true, total .. " tests, " .. modules_run .. " modules; " ..
+      tally.ran .. " ran, " .. tally.cached .. " stood, " .. clock.elapsed_ms(started) .. " ms")
+    log:say(cov_line)
+    for _, function_line in ipairs(function_lines) do log:say(function_line) end
     return 0
   end
   table.sort(failures)
   for _, failure in ipairs(failures) do
-    report("test: FAIL  " .. failure)
+    log:say("test: FAIL  " .. failure)
     local id = failure:match("^(%S+ %S+):")
     local printed = id ~= nil and rec.outputs[id] or nil
     if printed ~= nil then
@@ -1392,19 +1387,19 @@ function test.run(argv: {integer:string}): integer
         printed = "..." .. printed:sub(-4096)
       end
       for printed_line in String.lines((printed:gsub("\n$", ""))) do
-        report("  | " .. printed_line)
+        log:say("  | " .. printed_line)
       end
     end
   end
   for _, line in ipairs(errors) do
-    report("test: ERROR  " .. records_path .. ": " .. line)
+    log:say("test: ERROR  " .. records_path .. ": " .. line)
   end
-  report("test: FAIL (" .. #failures .. " of " ..
+  log:verdict("test", false, #failures .. " of " ..
     (total + #result.refused) .. " failed, " .. #errors .. " infrastructure errors, " ..
-    clock.elapsed_ms(started) .. " ms)")
+    clock.elapsed_ms(started) .. " ms")
   if #errors == 0 then
-    report(cov_line)
-    for _, function_line in ipairs(function_lines) do report(function_line) end
+    log:say(cov_line)
+    for _, function_line in ipairs(function_lines) do log:say(function_line) end
   end
   return 1
 end

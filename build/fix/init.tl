@@ -30,6 +30,7 @@
 
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
+local Log = require("cosmic.log")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
@@ -42,6 +43,8 @@ local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local type compiler = require("build.compiler")
+
+local log = Log.new("cosmic")
 
 local record fix
   --- What one file's pipeline produced, and whether it differs from
@@ -170,14 +173,6 @@ function fix.source(built: compiler, source: string,
   return { source = out, changed = out ~= source }
 end
 
-local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
-end
-
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
@@ -268,7 +263,7 @@ function fix.run(argv: {integer:string}): integer
     if word == "--check" then
       checking = true
     elseif word:sub(1, 1) == "-" then
-      complain("fix: no such option: " .. word)
+      log:complain("fix: no such option: " .. word)
       return 2
     else
       paths[#paths + 1] = word
@@ -278,7 +273,7 @@ function fix.run(argv: {integer:string}): integer
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 1
   end
   -- In cosmic's own tree the rules and the layout are the tree's: a tool
@@ -287,19 +282,19 @@ function fix.run(argv: {integer:string}): integer
   local code, reboot_trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if reboot_trouble ~= "" then
-      complain(reboot_trouble)
+      log:complain(reboot_trouble)
     end
     return code
   end
   local picked, list_trouble = fix.chosen(root, paths)
   if picked == nil then
-    complain(list_trouble)
+    log:complain(list_trouble)
     return 1
   end
 
   local built, load_trouble = teal.load()
   if built == nil then
-    complain(load_trouble)
+    log:complain(load_trouble)
     return 1
   end
 
@@ -430,23 +425,23 @@ function fix.run(argv: {integer:string}): integer
   end
 
   for _, line in ipairs(failures) do
-    report("fix: FAIL  " .. line)
+    log:say("fix: FAIL  " .. line)
   end
   for _, file in ipairs(changed) do
-    report("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
+    log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
   if #failures > 0 then
-    report("fix: FAIL (" .. #failures .. " of " .. counted .. " files refused, " ..
-      clock.elapsed_ms(started) .. " ms)")
+    log:verdict("fix", false, #failures .. " of " .. counted .. " files refused, " ..
+      clock.elapsed_ms(started) .. " ms")
     return 1
   end
   if checking and #changed > 0 then
-    report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
+    log:say("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
       clock.elapsed_ms(started) .. " ms); `cosmic fix` rewrites them in place")
     return 1
   end
-  report("fix: PASS (" .. counted .. " files, " .. #changed ..
-    (checking and " to fix, " or " fixed, ") .. clock.elapsed_ms(started) .. " ms)")
+  log:verdict("fix", true, counted .. " files, " .. #changed ..
+    (checking and " to fix, " or " fixed, ") .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 
