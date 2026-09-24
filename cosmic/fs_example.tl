@@ -3,14 +3,14 @@
 --- test -- see doc/design.md's `examples` table.
 
 local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
+local Proc = require("cosmic.proc")
 
 local Example = {}
 
 --- Standard input is a descriptor like any other: `Fs.take` reads it,
---- and `sys.isatty` says whether a person is typing into it.
+--- and `Proc.is_tty` says whether a person is typing into it.
 function Example.stdin()
-  if sys.isatty(Fs.stdin) then
+  if Proc.is_tty(Fs.stdin) then
     print("standard input is a terminal")
   else
     print("standard input is a pipe, a file or nothing")

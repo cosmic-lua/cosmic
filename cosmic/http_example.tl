@@ -9,7 +9,9 @@ local Http = require("cosmic.http")
 local Example = {}
 
 --- A small body fetched whole. A status that is not 2xx is an answer,
---- not a failure: check `status`.
+--- not a failure: check `status`. `script` is a field for tests only,
+--- standing in for the server here; a real call leaves it out:
+--- `Http.get("https://example.com/status")`.
 function Example.get()
   local reply = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" ..
     "Content-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}"

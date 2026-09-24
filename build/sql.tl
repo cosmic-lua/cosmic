@@ -33,8 +33,8 @@ local verdicts = require("build.verdict")
 local log = verdicts.log
 
 --- The `cosmic sql` verb: `run` is what `cmd/cosmic/main.tl` calls;
---- `source`, `open`, `query` and `cell_text` are its steps, each testable
---- on its own.
+--- `options_given`, `source`, `open` and `query` are its steps, each
+--- testable on its own.
 local record sql
   --- Where a statement runs.
   record Source

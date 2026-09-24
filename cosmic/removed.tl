@@ -48,6 +48,10 @@ local record Module
   --- What to write instead of a member a `cosmic.*` module no longer
   --- has, by the module's name and the member's (`cosmic.hash.hex`):
   --- `build.teal` says it after the checker's `invalid key` for it.
+  -- TODO: this is said only at compile time; a running program that
+  -- reaches a removed member (a chunk handed to `load`) gets "attempt to
+  -- call a nil value". Say it there too, as `core/surface.c` does for a
+  -- removed global, once a module's record can answer a missing field.
   members: {string:string}
   message: function(name: string, field?: string): string
 end
@@ -60,8 +64,8 @@ local time <const> = 'local Time = require("cosmic.time")'
 local child <const> = 'local Child = require("cosmic.child")'
 local errors <const> = 'local Errors = require("cosmic.errors")'
 local codec <const> = 'local Codec = require("cosmic.codec")'
-local sys <const> = 'local sys = require("cosmic.sys")'
 local archive <const> = 'local Archive = require("cosmic.archive")'
+local zip <const> = 'local Zip = require("cosmic.zip")'
 
 local module: Module = {
   fields = {
@@ -127,9 +131,8 @@ local module: Module = {
   },
   members = {
     ["cosmic.hash.hex"] = "use Codec.hex(digest) (" .. codec .. ")",
-    ["cosmic.proc.is_tty"] = "use sys.isatty(fd) (" .. sys .. ")",
     ["cosmic.zip.list"] = "use Archive.list(path) (" .. archive .. "), or " ..
-      "Zip.open(path) and its reader's entries()",
+      "Zip.open(path) and then reader:entries() (" .. zip .. ")",
   },
 }
 

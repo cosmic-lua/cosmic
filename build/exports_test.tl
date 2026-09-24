@@ -22,53 +22,6 @@ local fixture = require("build.docs_fixture")
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: {string: string} = {}
 
---- A script `cosmic --standalone` runs (see its opening comment): its
---- `main` fetches, execs or reads the machine, so its test drives each
---- step directly, offline.
-local script <const> = "tested directly: a standalone script whose main " ..
-  "fetches, execs or reads the machine; the test drives this step offline"
-
-for _, name in ipairs({
-  "build.actionlint.read_pin", "build.actionlint.host", "build.actionlint.asset",
-  "build.actionlint.url", "build.actionlint.args", "build.actionlint.names_files",
-  "build.actionlint.repo_root", "build.actionlint.ensure_installed",
-  "build.actionlint.exec_status",
-  "build.zig.read_pin", "build.zig.host", "build.zig.repo_root", "build.zig.build_jobs",
-  "build.zig.build_args", "build.zig.sweep", "build.zig.sources", "build.zig.fetch",
-  "build.zig.ensure_installed", "build.zig.resolve", "build.zig.global_cache",
-  "build.zig.project_cache", "build.zig.exec_status", "build.zig.snapshot",
-  "build.zig.changed", "build.zig.race_report", "build.zig.child_status", "build.zig.run",
-  "build.vendor.read_pin", "build.vendor.is_direct_rewrite", "build.vendor.repo_root",
-  "build.vendor.all_names", "build.vendor.matches", "build.vendor.fetch",
-  "build.verify_codesign.verify",
-  "eval.arena.prompt", "eval.arena.lay",
-  "eval.check.notes.status", "eval.check.notes.failed_in_cosmic",
-  "eval.check.notes.built_notes", "eval.check.notes.reset_evidence",
-  "eval.check.notes.evidence", "eval.check.notes.grade",
-  "eval.summarize.paths", "eval.summarize.report",
-}) do
-  allowed[name] = script
-end
-
---- A step of a `cosmic <verb>`, whose own entry (`run`) reads the
---- working tree and prints: the test calls the step on a fixture.
-local verb_step <const> = "tested directly: a step of a cosmic verb whose run " ..
-  "reads the working tree and prints; the test calls the step on a fixture"
-
-for _, name in ipairs({
-  "build.docs.lookup", "build.docs.uses", "build.docs.render",
-  "build.embed.database", "build.embed.tree",
-  "build.fix.source", "build.fix.chosen", "build.fix.notes",
-  "build.sql.options_given", "build.sql.source", "build.sql.open", "build.sql.query",
-  "build.standalone.compile",
-  "build.test.matches", "build.test.verdict_key", "build.test.keyable",
-  "build.test.worker_environment",
-  "build.todos.parse_blame", "build.todos.list", "build.todos.date",
-  "build.todos.render", "build.todos.search",
-}) do
-  allowed[name] = verb_step
-end
-
 allowed["build.c.layout.same"] = "tested directly: whether two layouts are one " ..
   "token stream is the rule `cosmic fix` holds a C rewrite to, and the test " ..
   "states it on sources too small to be a file"
@@ -110,9 +63,18 @@ allowed["build.contracts.quiet"] = "waits on #2086, which edits build/contracts.
 --- - a declaration file (`*.d.tl`) and `cosmic.sys`, whose members are
 ---   declared in C (`core/syscalls.h`), not in Teal.
 ---
---- What earns one: a use from another module that is not a `*_test.tl`,
---- or, for a module only tests import (`build/docs_fixture.tl`, test
---- support), a use from a test other than the module's own.
+--- What earns one: a use from another module that is not a `*_test.tl`;
+--- for a module only tests import (`build/docs_fixture.tl`, test
+--- support), a use from a test other than the module's own; and for a
+--- program -- a module whose record exports `main` or `run`, which
+--- fetches, execs or reads the working tree and prints -- a use from
+--- its own tests, which drive each step directly on a fixture. A
+--- module's own tests are `<module>_test`, `<module>_<topic>_test`,
+--- and the tests in its directory when it is one (`build/fix/`).
+-- TODO: the check is not transitive: an export used only by another
+-- export that is itself allowed, or itself unused, counts as earned.
+-- Walk the uses from what is earned outright once a use records the
+-- function it sits in, not only its module and line.
 -- TODO: `cosmic.sys` is left out, so a constant or binding in
 -- core/syscalls.h that nothing uses (`EISDIR`, `SIGUSR1`, `POLLNVAL`)
 -- is never flagged; hold its members to the same rule once the check
@@ -137,9 +99,12 @@ local function unearned(db: Sqlite.Handle): {string}
     "AND NOT EXISTS (SELECT 1 FROM uses u " ..
     "WHERE u.module = d.module AND u.symbol = d.symbol " ..
     "AND u.from_module <> d.module " ..
-    "AND (u.from_file NOT GLOB '*_test.tl' OR (u.from_module <> d.module || '_test' " ..
-    "AND NOT EXISTS (SELECT 1 FROM imports i " ..
-    "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')))) " ..
+    "AND (u.from_file NOT GLOB '*_test.tl' " ..
+    "OR (u.from_module <> d.module || '_test' AND NOT EXISTS (SELECT 1 FROM imports i " ..
+    "WHERE i.requires = d.module AND i.path NOT GLOB '*_test')) " ..
+    "OR ((u.from_module GLOB d.module || '_*' OR u.from_module GLOB d.module || '.*') " ..
+    "AND EXISTS (SELECT 1 FROM docs p WHERE p.module = d.module AND p.exported = 1 " ..
+    "AND p.symbol IN ('main', 'run'))))) " ..
     "ORDER BY d.file, d.line"))
   local out: {string} = {}
   for _, row in ipairs(rows) do
@@ -192,7 +157,6 @@ local function tree(callers: {string: string}): {string: string}
       "function thing.used() end",
       "function thing.tested() end",
       "function thing.alone() end",
-      "function thing.main() end",
       "thing.limit = 3",
       "",
       "return thing"),
@@ -202,7 +166,7 @@ local function tree(callers: {string: string}): {string: string}
 end
 
 --- An export only its own module or a test uses is flagged; one another
---- module calls is not, nor a type, a nested record's field or `main`.
+--- module calls is not, nor a type or a nested record's field.
 local function test_an_export_only_a_test_calls_is_flagged(dir: string)
   local db = fixture.database(dir, tree({
     ["build/user.tl"] = source(
@@ -264,6 +228,45 @@ local function test_a_test_earns_the_exports_of_test_support(dir: string)
     table.concat(refused, "\n"))
 end
 
+--- A program -- a module whose record exports `main` or `run` -- may
+--- export a step its own tests call; another module's test does not
+--- earn one. `main` itself needs no caller: `cosmic <file>` calls it.
+local function test_a_program_exports_steps_its_own_tests_call(dir: string)
+  local db = fixture.database(dir, {
+    ["build/prog.tl"] = source(
+      "local record prog",
+      "end",
+      "function prog.step() end",
+      "function prog.topic() end",
+      "function prog.other() end",
+      "function prog.run() end",
+      "function prog.main() end",
+      "return prog"),
+    ["build/user.tl"] = source(
+      "local prog = require(\"build.prog\")",
+      "prog.run()",
+      "return {}"),
+    ["build/prog_test.tl"] = source(
+      "local prog = require(\"build.prog\")",
+      "local function test_it()",
+      "  prog.step()",
+      "end"),
+    ["build/prog_topic_test.tl"] = source(
+      "local prog = require(\"build.prog\")",
+      "local function test_it()",
+      "  prog.topic()",
+      "end"),
+    ["build/elsewhere_test.tl"] = source(
+      "local prog = require(\"build.prog\")",
+      "local function test_it()",
+      "  prog.other()",
+      "end"),
+  })
+  local refused = judged(db, {})
+  assert(table.concat(refused, "\n") == "build/prog.tl:5: build.prog.other",
+    table.concat(refused, "\n"))
+end
+
 --- A public export is earned by a worked example as by any caller; a
 --- test alone does not earn it.
 local function test_a_worked_example_earns_a_public_export(dir: string)
@@ -303,7 +306,11 @@ local function test_every_export_in_the_tree_earns_its_place()
   local refused, stale = judged(db, allowed)
   assert(db:close())
   assert(#refused == 0, "exports nothing outside their module uses but a test -- " ..
-    "make each local, or name it in build/exports_test.tl's `allowed` with why:\n" ..
+    "make each local, or name it in build/exports_test.tl's `allowed` with why. " ..
+    "A use is `alias.member` through a `local alias = require(...)`, " ..
+    "`require(...).member`, or a field read off a value of the module's " ..
+    "record type; an alias of an alias, a method call on the module, and " ..
+    "the module passed as a value are not seen:\n" ..
     table.concat(refused, "\n"))
   assert(#stale == 0, "allowances for exports now used or gone -- remove them:\n" ..
     table.concat(stale, "\n"))

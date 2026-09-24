@@ -324,14 +324,30 @@ end
 --- it there (`os.getenv` names `Env.get`), or `module not found: 'io'`
 --- for a `require`. `cosmic.removed`'s `message` says it, the same
 --- words `core/surface.c` raises with when a running program reaches
---- for the name. For `invalid key 'hex' in record 'Hash'`, where
---- `source` binds `Hash` to `require("cosmic.hash")` and
---- `cosmic.removed`'s `members` names `cosmic.hash.hex`, what to write
---- instead of that member. Nil for every other message.
+--- for the name. For `invalid key 'hex' in record 'Digest' of type
+--- Hash`, where `source` binds the type's own name, `Hash`, to
+--- `require("cosmic.hash")` (`local Hash <const> = require(...)`: the
+--- checker names a module's record after the local its `require` was
+--- first bound to, whatever alias reads it now) and `cosmic.removed`'s
+--- `members` names `cosmic.hash.hex`, what to write instead of that
+--- member. A record of the program's own, or a type bound to more than
+--- one module, has no answer. Nil for every other message.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
-  local key, alias = msg:match("^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)'")
+  local key, alias, typename = msg:match(
+    "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
   if key ~= nil then
-    local module = source:match("local%s+" .. alias .. "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)")
+    local module: string | nil = nil
+    local head = "^%s*local%s+" .. typename
+    local tail = "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)"
+    for line in source:gmatch("[^\n]+") do
+      local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail)
+      if named ~= nil then
+        if module ~= nil and module ~= named then
+          return nil
+        end
+        module = named
+      end
+    end
     local instead = module ~= nil and Removed.members[module .. "." .. key] or nil
     if instead == nil then
       return nil

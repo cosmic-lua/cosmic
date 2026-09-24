@@ -716,6 +716,16 @@ local function binding(scopes: Scopes, name: string): string | nil
   return nil
 end
 
+--- Whether any scope binds `name`, to an import or to anything else.
+local function bound(scopes: Scopes, name: string): boolean
+  for index = #scopes, 1, -1 do
+    if scopes[index][name] ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
 local function bind(scopes: Scopes, name: string, value: string)
   scopes[#scopes][name] = value
 end
@@ -748,8 +758,10 @@ local function required_name(call: ast.Node): string | nil
 end
 
 --- Every `alias.member` whose `alias` still resolves to a lexical direct
---- require binding, and every `require("module").member`. Parameters, locals and loop variables shadow bindings;
---- reassignment in any possibly-executed branch invalidates the outer alias.
+--- require binding, and every `require("module").member` while `require`
+--- is not shadowed. Parameters, locals and loop variables shadow
+--- bindings; reassignment in any possibly-executed branch invalidates
+--- the outer alias.
 --- This is deliberately bounded: indirect aliases and unknown receiver types
 --- produce no edge rather than one guessed from spelling.
 local function references_of(built: compiler, parsed: ast.Parsed): {positions.Reference}, string
@@ -776,7 +788,7 @@ local function references_of(built: compiler, parsed: ast.Parsed): {positions.Re
       local module: string | nil = nil
       if n.e1.kind == "variable" and n.e1.tk ~= nil then
         module = binding(scopes, n.e1.tk)
-      else
+      elseif not bound(scopes, "require") then
         module = required_name(n.e1)
       end
       if module ~= nil then

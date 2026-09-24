@@ -621,12 +621,16 @@ end
 
 --- A member read straight off a literal `require` is a use of that
 --- module's member, as `cmd/cosmic/main.tl` reaches each verb's `run`;
---- a `require` of a computed name is not, since its target is unknown.
+--- a `require` of a computed name is not, since its target is unknown,
+--- nor a call of a local or parameter that shadows `require`.
 local function test_a_member_of_an_inline_require_is_a_reference()
   local found = assert(positions.analyze(built, lines({
     'local name = "cosmic.fs"',
     'require("build.test").run({})',
     'require(name).read("x")',
+    'local function shadowed(require: function(string): any)',
+    '  require("build.test").run({})',
+    'end',
   }), "fixture.tl"))
   assert(#found.references == 1, tostring(#found.references))
   local reference = found.references[1]

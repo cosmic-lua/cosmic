@@ -117,6 +117,11 @@ function Proc.find(name: string, path?: string): string | nil, string
   return nil, name .. ": not found"
 end
 
+--- Whether a stream is a terminal: `isatty`, or the shell's `test -t`.
+function Proc.is_tty(fd: integer): boolean
+  return sys.isatty(fd)
+end
+
 --- Replaces this process with another program. This is lower-level than
 --- os.execute: it does not invoke a shell, wait for a child, or return command
 --- status. There is no io.popen stream API. On success the process keeps the
