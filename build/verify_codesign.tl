@@ -18,9 +18,10 @@ local record VerifyCodesign
   codesign: string
 end
 
--- TODO: find codesign on PATH, as the sh did, once cosmic.child or
--- cosmic.proc carries a PATH lookup; macOS ships it at this path, which
--- nothing on PATH can shadow in the meantime.
+-- TODO: find codesign on PATH with Proc.find, as the sh did, once
+-- ci/cosmic-driver.pin names a cosmic carrying it: this runs standalone
+-- on the pinned release. macOS ships codesign at this path, which nothing
+-- on PATH can shadow in the meantime.
 VerifyCodesign.codesign = "/usr/bin/codesign"
 
 --- Verifies `binary` on a host whose uname(2) sysname is `sysname`,
