@@ -76,10 +76,13 @@ Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `shape` and `json`: design.md's principle 4 has untrusted data enter through
-  a declared shape, and there is no shape validator or JSON codec to do it.
-  JSON starts in Teal and is measured against a C implementation once the
-  benchmark harness exists.
+- `json`: design.md's principle 4 has untrusted data enter through a declared
+  shape; `cosmic.shape` is that shape, and there is no JSON codec yet to hand
+  it a value. JSON starts in Teal and is measured against a C implementation
+  once the benchmark harness exists.
+- `shape` follow-ups, each waiting on a caller that needs it: a record that
+  refuses keys it does not name, checks on a value beyond its type (a range, a
+  pattern, a length), and a recursive spec for a tree-shaped payload.
 - `flags`, `log`, `string`, `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under
