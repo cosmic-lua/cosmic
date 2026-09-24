@@ -94,12 +94,6 @@ local function lexical(path: string): string
   return "/" .. table.concat(parts, "/")
 end
 
---- `list`, or none when there is none.
-local function sure(list: {string} | nil): {string}
-  if list == nil then return {} end
-  return list
-end
-
 local function inside(path: string, root: string): boolean
   return path == root or path:sub(1, #root + 1) == root .. "/"
 end
@@ -139,18 +133,18 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       local strip: string | integer = nil
       if fields[3] == "1" then strip = 1 elseif fields[3] == "a" then strip = "a" end
       local written = Archive.extract(file, dest, { links = fields[2], strip = strip, mtimes = false })
-      for _, rel in ipairs(sure(written)) do
+      for _, rel in ipairs(written or {}) do
         if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
           return false, "reported writing " .. rel
         end
       end
-      local names = sure((Fs.list(case)))
+      local names = Fs.list(case) or {}
       for _, name in ipairs(names) do
         if name ~= "archive" and name ~= "dest" and name ~= "outside" then
           return false, "wrote " .. case .. "/" .. name .. " beside the destination"
         end
       end
-      local out_names = sure((Fs.list(outside)))
+      local out_names = Fs.list(outside) or {}
       if #out_names ~= 1 or Fs.read(outside .. "/sentinel") ~= "untouched" then
         return false, "wrote into " .. outside .. ": " .. table.concat(out_names, ", ")
       end
