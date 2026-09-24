@@ -304,13 +304,13 @@ local record PendingLink
   mtime: integer
 end
 
---- Unpacks `path` into `dest`. Refuses an absolute entry path, one
---- with a `..` component or a NUL byte, any entry whose path runs
---- through a symlink, and -- when `links` is "create" -- a symlink
---- whose target would land outside `dest`. Returns the
---- destination-relative paths actually written. A failure partway
---- leaves whatever was already written; a file that fails its own
---- checks (a CRC32, a size) is never put in place.
+--- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
+--- absolute entry path, one with a `..` component or a NUL byte, any
+--- entry whose path runs through a symlink, and -- when `links` is
+--- "create" -- a symlink whose target would land outside `dest`. Returns
+--- the destination-relative paths actually written. A failure partway
+--- leaves whatever was already written; a file that fails its own checks
+--- (a CRC32, a size) is never put in place.
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
   opts = opts or {}
