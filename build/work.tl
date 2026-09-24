@@ -16,9 +16,11 @@
 --- not read again.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local todo_scan = require("build.todo_scan")
 
 local record work
   --- An open working database, for one run. A run is one transaction
@@ -77,7 +79,7 @@ local record work
   version: string
 end
 
-work.version = "19"
+work.version = "21"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -95,6 +97,12 @@ work.version = "19"
 --- never edited in place, so the pin and the records are its inputs
 --- and the tree itself is not walked. Its hash is the boot hash, and
 --- a self-tree command refuses a mismatch.
+---
+--- `scanned` is every other file the walk finds -- a script, a README,
+--- in cosmic's own tree everything under `ci/` -- fingerprinted like
+--- `tool`, without the bytes, and read only to find the TODOs it holds
+--- (see `todos`): the build consumes none of it. A file over
+--- `scanned_limit` is left out, as data rather than text.
 ---
 --- `inputs` is every module source the compiler and checker see, as
 --- a view: each staged `.tl` or `.d.tl` as it is, with the import path
@@ -122,6 +130,23 @@ work.version = "19"
 --- function of the bytes and of that module's rule for what counts as
 --- executable, so a change to the rule bumps `work.version`, as a
 --- change to what a parse records does for `parsed`.
+---
+--- `todos` is every `TODO:` comment `build.todo_scan` finds in one
+--- staged file, keyed by the file's content hash like `parsed`: staging
+--- scans a file in the same moment it reads it, so an unchanged file
+--- costs nothing, and a row is a function of the bytes and the scan's
+--- rule alone -- a change to the rule bumps `work.version`. A row no
+--- staged file hashes to any more is dropped at the end of the stage.
+--- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
+--- external-content mode over `todos` -- which is why `todos` has a
+--- rowid, `id`, where every other table here is WITHOUT ROWID -- and
+--- three triggers keep it in step with every insert, delete and update.
+--- `blames` is what `git blame` said about one TODO's first line, kept
+--- while the file hashes the same and `HEAD` names the same commit
+--- (`head`), which is all blame is a function of -- or a later one, when
+--- the commits between them leave the file alone, which moves `head`
+--- on. `cosmic todos` fills it, since a build has no business running
+--- git.
 ---
 --- `contracts` is one source that `positions.check_api_contracts` passed,
 --- under one set of fallible syscalls (`fallible`, their names sorted and
@@ -220,6 +245,12 @@ work.schema = {
                                      ino INTEGER NOT NULL,
                                      dev INTEGER NOT NULL,
                                      sha256 TEXT NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS scanned (path TEXT PRIMARY KEY,
+                                        size INTEGER NOT NULL,
+                                        mtime_ns INTEGER NOT NULL,
+                                        ino INTEGER NOT NULL,
+                                        dev INTEGER NOT NULL,
+                                        sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS derived (file TEXT PRIMARY KEY,
                                         path TEXT NOT NULL,
                                         kind TEXT NOT NULL,
@@ -288,6 +319,33 @@ work.schema = {
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY,
+                                      sha256 TEXT NOT NULL,
+                                      line INTEGER NOT NULL,
+                                      last INTEGER NOT NULL,
+                                      text TEXT NOT NULL,
+                                      UNIQUE (sha256, line))]],
+  [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
+      USING fts5(text, content=todos, content_rowid=id)]],
+  [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
+    END]],
+  [[CREATE TRIGGER IF NOT EXISTS todos_deleted AFTER DELETE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END]],
+  [[CREATE TRIGGER IF NOT EXISTS todos_updated AFTER UPDATE ON todos BEGIN
+      INSERT INTO todos_fts (todos_fts, rowid, text) VALUES ('delete', old.id, old.text);
+      INSERT INTO todos_fts (rowid, text) VALUES (new.id, new.text);
+    END]],
+  [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
+                                       line INTEGER NOT NULL,
+                                       sha256 TEXT NOT NULL,
+                                       head TEXT NOT NULL,
+                                       commit_id TEXT NOT NULL,
+                                       author_time INTEGER NOT NULL,
+                                       summary TEXT NOT NULL,
+                                       boundary INTEGER NOT NULL,
+                                       PRIMARY KEY (path, line)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS contracts (source_hash TEXT NOT NULL,
                                           fallible TEXT NOT NULL,
                                           PRIMARY KEY (source_hash, fallible)) WITHOUT ROWID]],
@@ -511,14 +569,16 @@ local tool_files: {string:boolean} = {
   ["bin/zig"] = true,
   ["bin/zig.pin"] = true,
 }
---- The directory the `bin/` files above sit in, walked for them alone.
+--- The directory the `bin/` files above sit in, walked for them and,
+--- one level deep, for the TODOs its other scripts hold.
 local tool_dirs: {string:boolean} = {
   ["bin"] = true,
 }
 
 --- Trees of their own that sit inside cosmic's: `ci/` is the project
 --- the pinned CI driver runs from, with its own `o/`, so this tree's
---- build never walks it, let alone reads its modules or tests.
+--- build never reads its modules or tests. It walks it, all but that
+--- `o/`, only for the TODOs its files hold -- see `scanned`.
 local foreign_trees: {string:boolean} = {
   ["ci"] = true,
 }
@@ -574,12 +634,17 @@ local function skip_in_own_tree(entry: string, name: string): boolean
   end
   local first = first_of(entry)
   if foreign_trees[first] then
-    return true
+    return entry == first .. "/o"
   end
   if first == "vendor" then
     return not is_vendor_pin(entry)
   end
   if tool_trees[first] or tool_files[entry] or tool_dirs[entry] then
+    return false
+  end
+  -- The rest of `bin/` is walked too, for `scanned`: its scripts carry
+  -- TODOs the build otherwise never reads.
+  if tool_dirs[first] and entry:find("/", #first + 2, true) == nil then
     return false
   end
   return skip_input(entry, name)
@@ -591,7 +656,7 @@ end
 --- from. Never anything under the trees the tool alone is made of.
 local function is_input(file: string, own_tree: boolean): boolean
   local first = first_of(file)
-  if not_input[first] then
+  if not_input[first] or (own_tree and foreign_trees[first]) then
     return false
   end
   if file:sub(-3) == ".tl" then
@@ -655,15 +720,23 @@ local function known_in(db: Sqlite.Handle,
   return out
 end
 
---- `files` keeps the bytes; `tool` keeps only what a stat and a hash
---- say about them. The put for either takes the bytes as its sixth
---- parameter and hashes them in place.
+--- `files` keeps the bytes; `tool` and `scanned` keep only what a stat
+--- and a hash say about them. The put for each takes the bytes as its
+--- sixth parameter and their hash, made once per read, as its seventh;
+--- `todo` is one TODO's row.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
-    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?6)",
+    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
   tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))))",
+    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+  scanned = "INSERT OR REPLACE INTO scanned (path, size, mtime_ns, ino, dev, " ..
+    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
+  todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
+    "VALUES (?1, ?2, ?3, ?4)",
 }
+
+--- The largest file `scanned` reads for TODOs.
+local scanned_limit = 1024 * 1024
 
 --- Runs a statement that yields no rows, once, and readies it to run
 --- again with other parameters.
@@ -721,22 +794,53 @@ function work.tool_moved(handle: work.Handle): boolean | nil, string
 end
 
 --- Writes one file's row: its stat, with the modification time kept
---- only once it has settled, and its bytes, hashed in place.
+--- only once it has settled, its bytes, and their hash.
 local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
                        mtime_ns: integer, settled: boolean,
-                       data: string): boolean, string
+                       data: string, sha256: string): boolean, string
   put:bind_text(1, file)
   put:bind_integer(2, st.size)
   put:bind_integer(3, settled and mtime_ns or 0)
   put:bind_integer(4, st.ino)
   put:bind_integer(5, st.dev)
   put:bind_blob(6, data)
+  put:bind_text(7, sha256)
   return once(put)
 end
 
-local function finish(put_files: Sqlite.Statement, put_tool: Sqlite.Statement)
-  put_files:finalize()
-  put_tool:finalize()
+--- Whether a file's TODOs are the tree's own: a patch record's context
+--- lines and a vendored pin are upstream's.
+local function holds_own_todos(file: string): boolean
+  local first = first_of(file)
+  return first ~= "patch" and first ~= "vendor"
+end
+
+--- Records the TODOs in one file's bytes under their hash, unless a
+--- file with the same bytes already has. Text holding no `TODO:`, or
+--- holding a NUL, is not scanned.
+local function put_todos(put: Sqlite.Statement, data: string,
+                         sha256: string): boolean, string
+  if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
+    return true, ""
+  end
+  for _, found in ipairs(todo_scan.scan(data)) do
+    put:bind_text(1, sha256)
+    put:bind_integer(2, found.line)
+    put:bind_integer(3, found.last)
+    put:bind_text(4, found.text)
+    local ok, trouble = once(put)
+    if not ok then
+      return false, trouble
+    end
+  end
+  return true, ""
+end
+
+--- Finalizes every statement `stage` prepared, by the `puts` key.
+local function finish(put: {string:Sqlite.Statement})
+  for _, statement in pairs(put) do
+    statement:finalize()
+  end
 end
 
 --- Deletes the rows `known` still holds, which the walk did not find.
@@ -753,11 +857,12 @@ local function forget(db: Sqlite.Handle, table_name: string,
 end
 
 --- Reads the tree into `files` and, in cosmic's own tree, fingerprints
---- what the tool is made of into `tool`, in one pass: a file both
---- tables want is stat'd once and read at most once. A file whose stat
---- matches its row is not read; one that differs, or is new, is read,
---- hashed and written; one the walk no longer finds is deleted. Only a
---- change reaches the database.
+--- what the tool is made of into `tool`, and everything else the walk
+--- finds into `scanned`, in one pass: a file is stat'd once and read at
+--- most once, and scanned for TODOs in the same moment. A file whose
+--- stat matches its row is not read; one that differs, or is new, is
+--- read, hashed and written; one the walk no longer finds is deleted.
+--- Only a change reaches the database.
 --- @param own_tree whether `root` is cosmic's own tree
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
   local db = handle.db
@@ -768,22 +873,22 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     return nil, walk_trouble
   end
   local files: {string} = walked
-  local known_files, files_trouble = known_in(db, "files")
-  if known_files == nil then
-    return nil, files_trouble
+  local known: {string:{string:Known}} = {}
+  for _, table_name in ipairs({ "files", "tool", "scanned" }) do
+    local rows, trouble = known_in(db, table_name)
+    if rows == nil then
+      return nil, trouble
+    end
+    known[table_name] = rows
   end
-  local known_tool, tool_trouble = known_in(db, "tool")
-  if known_tool == nil then
-    return nil, tool_trouble
-  end
-  local put_files, put_files_trouble = db:prepare(puts.files)
-  if put_files == nil then
-    return nil, put_files_trouble
-  end
-  local put_tool, put_tool_trouble = db:prepare(puts.tool)
-  if put_tool == nil then
-    put_files:finalize()
-    return nil, put_tool_trouble
+  local put: {string:Sqlite.Statement} = {}
+  for _, name in ipairs({ "files", "tool", "scanned", "todo" }) do
+    local statement, trouble = db:prepare(puts[name])
+    if statement == nil then
+      finish(put)
+      return nil, trouble
+    end
+    put[name] = statement
   end
   local now = Time.now_ns() or 0
   local staged: work.Staged = { files = 0, read = 0 }
@@ -791,49 +896,72 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   for _, file in ipairs(files) do
     local input = is_input(file, own_tree)
     local tool = is_tool(file, own_tree)
-    if input or tool then
-      local st, stat_trouble = Fs.stat(root .. "/" .. file)
-      if st == nil then
-        finish(put_files, put_tool)
-        return nil, stat_trouble
-      end
+    local scan = not input and not tool and holds_own_todos(file)
+    local st, stat_trouble = Fs.stat(root .. "/" .. file)
+    if st == nil then
+      finish(put)
+      return nil, stat_trouble
+    end
+    if scan and st.size > scanned_limit then
+      scan = false
+    end
+    if input or tool or scan then
       local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
       local settled = mtime_ns < now - settle_ns
-      staged.files = staged.files + 1
-      local write_files = input and moved(known_files, file, st, mtime_ns)
-      local write_tool = tool and moved(known_tool, file, st, mtime_ns)
-      if write_files or write_tool then
+      if not scan then
+        staged.files = staged.files + 1
+      end
+      local write_files = input and moved(known.files, file, st, mtime_ns)
+      local write_tool = tool and moved(known.tool, file, st, mtime_ns)
+      local write_scanned = scan and moved(known.scanned, file, st, mtime_ns)
+      if write_files or write_tool or write_scanned then
         local data, read_trouble = Fs.read(root .. "/" .. file)
         if data == nil then
-          finish(put_files, put_tool)
+          finish(put)
           return nil, read_trouble
         end
         staged.read = staged.read + 1
-        if write_files then
-          local ok, why = put_row(put_files, file, st, mtime_ns, settled, data)
+        local sha256 = Hash.hex_sha256(data)
+        if holds_own_todos(file) then
+          local ok, why = put_todos(put["todo"], data, sha256)
           if not ok then
-            finish(put_files, put_tool)
+            finish(put)
             return nil, file .. ": " .. why
           end
         end
-        if write_tool then
-          local ok, why = put_row(put_tool, file, st, mtime_ns, settled, data)
-          if not ok then
-            finish(put_files, put_tool)
-            return nil, file .. ": " .. why
+        local function write(wanted: boolean, statement: Sqlite.Statement): boolean, string
+          if not wanted then
+            return true, ""
           end
+          return put_row(statement, file, st, mtime_ns, settled, data, sha256)
+        end
+        local ok, why = write(write_files, put["files"])
+        if ok then
+          ok, why = write(write_tool, put["tool"])
+        end
+        if ok then
+          ok, why = write(write_scanned, put["scanned"])
+        end
+        if not ok then
+          finish(put)
+          return nil, file .. ": " .. why
         end
       end
     end
   end
-  finish(put_files, put_tool)
-  local forgot, forget_trouble = forget(db, "files", known_files)
-  if not forgot then
-    return nil, forget_trouble
+  finish(put)
+  for _, table_name in ipairs({ "files", "tool", "scanned" }) do
+    local forgot, forget_trouble = forget(db, table_name, known[table_name])
+    if not forgot then
+      return nil, forget_trouble
+    end
   end
-  forgot, forget_trouble = forget(db, "tool", known_tool)
-  if not forgot then
-    return nil, forget_trouble
+  local pruned, prune_trouble = db:exec(
+    "DELETE FROM todos WHERE sha256 NOT IN " ..
+    "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
+    "UNION SELECT sha256 FROM scanned)")
+  if not pruned then
+    return nil, prune_trouble
   end
   return staged
 end

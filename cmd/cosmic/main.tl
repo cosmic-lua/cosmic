@@ -338,6 +338,10 @@ local function main(argv: {integer:string}): integer
     local docs = require("build.docs")
     return docs.run_uses(argv)
   end
+  if verb == "todos" then
+    local todos = require("build.todos")
+    return todos.run(argv)
+  end
   if verb == "--standalone" then
     -- One file against this binary's own standard library: no tree is
     -- staged or built and no staleness is checked -- see

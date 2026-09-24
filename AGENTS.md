@@ -67,9 +67,16 @@ the way and left alone: say what is wrong and what the fix would be. A
 `TODO:` whose fix cannot be made yet still goes in now: when it depends on
 something unmet (an open PR, a release the pin does not name yet), name that
 dependency in the comment ("once #2011 merges") rather than holding the
-comment back until it lands. When the work is done, list every `TODO:` it
-added, with its `file:line` and what it waits on, in the summary and the PR
-description.
+comment back until it lands. A gap named anywhere else -- a reply, a
+summary, a "known limits" line in a PR description -- is a `TODO:` not yet
+written: write it in the code before naming it there.
+
+When the work is done, list every `TODO:` it added, with its `file:line` and
+what it waits on, in the summary and the PR description. Take the list from
+`o/bin/cosmic todos <changed-paths>`, which lists every `TODO:` under them
+with the date and commit `git blame` gives its first line: the work's own are
+the ones with no commit yet or with a commit on this branch. Rather than
+writing "none" from memory, run it.
 
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that
