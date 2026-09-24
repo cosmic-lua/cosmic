@@ -7,14 +7,11 @@ local function chmod(path: string, mode: integer)
   assert(sys.chmod(path, mode))
 end
 
--- Copies a whole directory tree with the standard `cp -R`, matching
--- identity_test.tl's own `copy_tree`.
--- TODO: copy in this process with Fs.copy_tree once ci/cosmic-driver.pin
--- names a cosmic carrying it. Unlike `cp -R` it keeps the source's times
--- and modes with no umask applied, rather than fresh times and the umask's.
-local function copy_tree(label: string, from: string, to: string, cwd: string,
-    diagnostics: string)
-  Fixture.run(label, { "/usr/bin/env", "cp", "-R", from, to }, cwd, diagnostics)
+-- Copies a whole directory tree to `to`, which must not exist yet,
+-- matching identity_test.tl's own `copy_tree`.
+local function copy_tree(label: string, from: string, to: string)
+  local copied, trouble = Fs.copy_tree(from, to)
+  assert(copied, label .. ": " .. trouble)
 end
 
 local function require_file(path: string)
@@ -80,8 +77,7 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   end
 
   Fixture.mkdir(out .. "/hooked-build")
-  copy_tree("copy-hooked-cores", hooked_cores, out .. "/hooked-build/core",
-    root, diagnostics)
+  copy_tree("copy-hooked-cores", hooked_cores, out .. "/hooked-build/core")
   Fixture.copy(targets_path, out .. "/hooked-build/targets.tsv")
   Fixture.mkdir(out .. "/sanitized-build/sanitized")
   Fixture.copy(sanitized_core, out .. "/sanitized-build/sanitized/cosmic-core")
