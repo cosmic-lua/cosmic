@@ -44,8 +44,9 @@
 Its `fixtures/*_test.tl` run only under the CI driver, which builds every
 target: run `ci/run-local` (a few minutes) before pushing a change that
 touches the launcher, startup, the artifact format, or a fixture, and
-`ci/run-local fixtures` to re-run edited fixtures after that. It runs as the
-invoking user; CI's runners are unprivileged, so run it as one. The launcher fixture's core
+`ci/run-local fixtures` to re-run edited fixtures after that. CI's runners are
+unprivileged; invoked as root, run-local runs the driver as an unprivileged
+user (`COSMIC_CI_LOCAL_USER`, default `nobody`). The launcher fixture's core
 is a stand-in payload that checks nothing; a case about what the real core
 does (its digest, its startup errors) belongs in `runtime_test.tl`.
 
@@ -55,6 +56,11 @@ source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 (64 by default) choose the inputs, a failure is shrunk and kept in the test's
 directory, and `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces it. CI
 reruns them on the checked core with `FUZZ_ITERS=2000`.
+
+When a change settles for less than the right fix because something is
+missing (an API, a binding, a module), leave a `TODO:` comment where the
+better fix would go, naming what it waits on ("once cosmic.sys carries
+ftruncate"), so the workaround can be found and undone when that lands.
 
 Tests belong in `*_test.tl` files as top-level `local function test_*` functions.
 Do not add a top-level `return` to test files. Prefer small regression cases that

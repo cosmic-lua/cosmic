@@ -1,6 +1,7 @@
 #include "surface.h"
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -20,25 +21,21 @@
 #include "syscalls.h"
 #include "testing.h"
 
-/* A name that was removed says what took its place, at the site that
- * reached for it, rather than in a document somewhere else. */
-struct replacement {
+/* The names this surface removed. Each says what took its place, at
+ * the site that reached for it, rather than in a document somewhere
+ * else -- and for io, os and debug, what took the place of the very
+ * field used: reading one gives a stand-in table whose every field
+ * raises. The words come from cosmic.removed's `message`, the same
+ * function a compile refused for the same name quotes, so the two
+ * cannot drift apart. */
+struct removed {
   const char *name;
-  const char *hint;
+  bool fields;
 };
 
-static const struct replacement replacements[] = {
-  {"io", "io is not available: files are cosmic.fs, and the standard "
-         "streams are cosmic.fs.stdout, .stderr and .stdin"},
-  {"os", "os is not available: time is cosmic.time, the environment is "
-         "cosmic.env, and processes are cosmic.proc"},
-  {"debug", "debug is not available: a traceback is cosmic.errors.trace"},
-  {"dofile", "dofile is not available: a module comes from require, and "
-             "a file's bytes come from cosmic.fs.read"},
-  {"loadfile", "loadfile is not available: a module comes from require, "
-               "and a file's bytes come from cosmic.fs.read"},
-  {"require", NULL},
-  {NULL, NULL},
+static const struct removed removed_names[] = {
+  {"io", true},        {"os", true},        {"debug", true},
+  {"dofile", false},   {"loadfile", false}, {NULL, false},
 };
 
 /* `print` over the syscall table, so every byte the process writes goes
@@ -93,14 +90,69 @@ static int open_errors (lua_State *L) {
   return 1;
 }
 
-/* Raised when a program reaches for a name this surface removed. */
-static int surface_missing (lua_State *L) {
-  const char *name = lua_tostring(L, 2);
-  lua_getfield(L, lua_upvalueindex(1), name == NULL ? "" : name);
-  if (lua_isstring(L, -1)) {
-    return lua_error(L);
+/* cosmic.removed's `message` for the name at index 1 and the field at
+ * index 2 (nil for the bare name). */
+static int removed_message (lua_State *L) {
+  lua_settop(L, 2);
+  lua_getglobal(L, "require");
+  lua_pushliteral(L, "cosmic.removed");
+  lua_call(L, 1, 1);
+  lua_getfield(L, -1, "message");
+  lua_pushvalue(L, 1);
+  lua_pushvalue(L, 2);
+  lua_call(L, 2, 1);
+  return 1;
+}
+
+/* Raises what to write instead of the removed `name` -- or of its
+ * field `field`, when that is a string -- at the Lua code that reached
+ * for it. When cosmic.removed cannot answer (no module searcher yet,
+ * or no memory), the bare fact is raised instead. */
+static _Noreturn void raise_removed (lua_State *L, int name, int field) {
+  name = lua_absindex(L, name);
+  field = field == 0 ? 0 : lua_absindex(L, field);
+  luaL_where(L, 1);
+  lua_pushcfunction(L, removed_message);
+  lua_pushvalue(L, name);
+  if (field != 0 && lua_type(L, field) == LUA_TSTRING) {
+    lua_pushvalue(L, field);
+  } else {
+    lua_pushnil(L);
   }
-  lua_pop(L, 1);
+  if (lua_pcall(L, 2, 1, 0) != LUA_OK || lua_type(L, -1) != LUA_TSTRING) {
+    lua_pop(L, 1);
+    lua_pushvalue(L, name);
+    lua_pushliteral(L, " is not available");
+    lua_concat(L, 2);
+  }
+  lua_concat(L, 2);
+  lua_error(L);
+  abort(); /* lua_error does not return */
+}
+
+/* A field of a removed library's stand-in, read or written: the
+ * library's name is upvalue 1, the field argument 2. */
+static int removed_field (lua_State *L) {
+  raise_removed(L, lua_upvalueindex(1), 2);
+}
+
+/* The stand-in itself, called. */
+static int removed_call (lua_State *L) {
+  raise_removed(L, lua_upvalueindex(1), 0);
+}
+
+/* Reached when a program reads a global nothing defines: a removed
+ * library's stand-in (upvalue 1 maps each such name to one), a removed
+ * function's replacement raised, or nil for any other name. */
+static int surface_missing (lua_State *L) {
+  lua_pushvalue(L, 2);
+  lua_rawget(L, lua_upvalueindex(1));
+  if (lua_istable(L, -1)) {
+    return 1;
+  }
+  if (lua_toboolean(L, -1)) {
+    raise_removed(L, 2, 0);
+  }
   lua_pushnil(L);
   return 1;
 }
@@ -269,11 +321,24 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_pop(L, 1);
 
   lua_newtable(L);
-  for (const struct replacement *r = replacements; r->name != NULL; r++) {
-    if (r->hint == NULL) {
+  for (const struct removed *r = removed_names; r->name != NULL; r++) {
+    if (!r->fields) {
+      lua_pushboolean(L, 1);
+      lua_setfield(L, -2, r->name);
       continue;
     }
-    lua_pushstring(L, r->hint);
+    lua_newtable(L); /* the stand-in */
+    lua_createtable(L, 0, 3);
+    lua_pushstring(L, r->name);
+    lua_pushcclosure(L, removed_field, 1);
+    lua_setfield(L, -2, "__index");
+    lua_pushstring(L, r->name);
+    lua_pushcclosure(L, removed_field, 1);
+    lua_setfield(L, -2, "__newindex");
+    lua_pushstring(L, r->name);
+    lua_pushcclosure(L, removed_call, 1);
+    lua_setfield(L, -2, "__call");
+    lua_setmetatable(L, -2);
     lua_setfield(L, -2, r->name);
   }
   lua_pushglobaltable(L);
