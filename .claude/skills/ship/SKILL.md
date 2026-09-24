@@ -6,22 +6,28 @@ argument-hint: "[automerge] <what to change>"
 
 # Ship a change
 
-When `$ARGUMENTS` starts with `automerge`, or the user asked for
-auto-merge, step 6 enables it; otherwise the PR is left for a person to
-merge.
+When the skill's arguments start with `automerge`, or the user asked
+for auto-merge, step 6 enables it; otherwise the PR is left for a person
+to merge.
 
 ## 1. Plan
 
 - Split the work into PRs that each stand alone and pass CI. Changes that
-  would conflict go in one PR, or in a stack: each branch built on the one
-  before, its PR description saying which PR it includes.
+  would conflict go in one PR, or in PRs landed one after another, each
+  started from main once the one before has merged.
+- Do not stack branches. main squash-merges through the queue, and a
+  stacked child carries its parent's own commits, which duplicate or
+  conflict with the parent's squash (or land it first, leaving the
+  parent nothing to merge).
 - Work them in sequence, one through step 6 before the next.
 
 ## 2. Implement
 
 - `git fetch origin`, then
   `git worktree add -b <branch> "$(git rev-parse --show-toplevel)/../wt-<name>" origin/main`.
-  Run everything after from that worktree's root, by absolute path.
+  Run everything after from that worktree's root, by absolute path. Keep
+  `<branch>` the PR's branch name throughout, so `git push -u origin
+  <branch>` pushes this worktree's commits and not another ref.
 - Follow AGENTS.md there: `bin/zig build boot`; the change with a test
   that fails without it; each `TODO:` written the moment it is due;
   `o/bin/cosmic fix <changed-paths>`; `timeout 30 o/bin/cosmic test`; and
@@ -54,6 +60,10 @@ this branch. The ones it resolved are the removed lines in
 
 ## 5. Open the PR
 
+- If main has moved since the branch started, `git fetch origin`,
+  `git merge origin/main`, re-run step 2's checks and step 4, and review
+  again if the merge conflicted: CI on a branch cut from an old main can
+  fail on what main has since fixed.
 - `git push -u origin <branch>`.
 - Open a PR against main, titled in the repo's `area: summary` style. Its
   description says what changed and why, how it was verified, what the
@@ -64,7 +74,9 @@ this branch. The ones it resolved are the removed lines in
 ## 6. Merge
 
 - Without `automerge`, stop here once CI is green: the PR waits for a
-  person. Start the next PR from main, or stack it on this branch.
+  person. A next PR that does not depend on it starts from main now;
+  once only dependent ones remain, stop and report which PRs remain and
+  what each waits on.
 - With `automerge`, enable auto-merge. main takes changes only through
   the merge queue, which runs CI again on the queued merge commit; watch
   both the branch's run and the queue's.
@@ -72,6 +84,3 @@ this branch. The ones it resolved are the removed lines in
   checks, and push. Never skip or disable a test to get green.
 - Once it has merged, `git worktree remove <path>` and
   `git branch -D <branch>` (a squash merge leaves it looking unmerged).
-  A branch stacked on it moves onto the new main with
-  `git rebase --onto origin/main <old-parent-tip> <branch>` and
-  `git push --force-with-lease`; its PR's base must be main.
