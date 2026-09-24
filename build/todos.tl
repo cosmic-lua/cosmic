@@ -14,12 +14,12 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
-local todo_scan = require("build.todo_scan")
 local work = require("build.work")
 
 local record todos
@@ -113,20 +113,60 @@ end
 
 --- Blame for the first line of each TODO in one file; empty when git
 --- has nothing to say about the file.
-local function blame(root: string, file: string,
-                     found: {todo_scan.Found}): {integer:todos.Blame}
-  local args: {string} = { "blame", "--line-porcelain" }
-  for _, todo in ipairs(found) do
-    args[#args + 1] = "-L"
-    args[#args + 1] = todo.line .. "," .. todo.line
+--- How many `git blame` calls run at once: one per processor, up to a
+--- few, since each is a short process mostly waiting on the disk.
+local function blame_jobs(): integer
+  return math.max(1, math.min(8, Proc.cpu_count()))
+end
+
+--- Blame for the first line of each TODO in several files, by file,
+--- running the calls `blame_jobs` at a time; a file git has nothing to
+--- say about maps to an empty table.
+local function blame_files(root: string,
+                           lines: {string:{integer}},
+                           order: {string}): {string:{integer:todos.Blame}}
+  local out: {string:{integer:todos.Blame}} = {}
+  local limit = blame_jobs()
+  local running: {Child.Handle} = {}
+  local file_of: {Child.Handle:string} = {}
+  local next_file = 1
+  while next_file <= #order or #running > 0 do
+    while #running < limit and next_file <= #order do
+      local file = order[next_file]
+      next_file = next_file + 1
+      out[file] = {}
+      local argv: {string} = { "/usr/bin/env", "git", "-C", root, "blame",
+        "--line-porcelain" }
+      for _, line in ipairs(lines[file]) do
+        argv[#argv + 1] = "-L"
+        argv[#argv + 1] = line .. "," .. line
+      end
+      argv[#argv + 1] = "--"
+      argv[#argv + 1] = file
+      local handle = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
+      if handle ~= nil then
+        running[#running + 1] = handle
+        file_of[handle] = file
+      end
+    end
+    if #running == 0 then
+      break
+    end
+    local done = Child.wait_any(running)
+    local still: {Child.Handle} = {}
+    for _, handle in ipairs(running) do
+      if handle == done or done == nil then
+        local result = handle:wait()
+        if result ~= nil and result.ok and result.stdout ~= nil then
+          out[file_of[handle]] = todos.parse_blame(result.stdout)
+        end
+      else
+        still[#still + 1] = handle
+      end
+    end
+    running = still
   end
-  args[#args + 1] = "--"
-  args[#args + 1] = file
-  local out = git(root, args)
-  if out == nil then
-    return {}
-  end
-  return todos.parse_blame(out)
+  return out
 end
 
 --- Whether a commit hash is the one blame gives a line not committed.
@@ -257,12 +297,16 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       table.insert(pending[file], row)
     end
   end
+  local lines: {string:{integer}} = {}
   for _, file in ipairs(order) do
-    local found: {todo_scan.Found} = {}
+    lines[file] = {}
     for _, row in ipairs(pending[file]) do
-      found[#found + 1] = { line = row.todo.line, last = row.todo.last, text = row.todo.text }
+      table.insert(lines[file], row.todo.line)
     end
-    local said = blame(root, file, found)
+  end
+  local blamed = blame_files(root, lines, order)
+  for _, file in ipairs(order) do
+    local said = blamed[file]
     for _, row in ipairs(pending[file]) do
       local line = said[row.todo.line]
       local known = line ~= nil and not uncommitted(line.commit)

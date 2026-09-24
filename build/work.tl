@@ -705,14 +705,15 @@ end
 
 --- `files` keeps the bytes; `tool` and `scanned` keep only what a stat
 --- and a hash say about them. The put for each takes the bytes as its
---- sixth parameter and hashes them in place; `todo` is one TODO's row.
+--- sixth parameter and their hash, made once per read, as its seventh;
+--- `todo` is one TODO's row.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
-    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))), ?6)",
+    "sha256, data) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
   tool = "INSERT OR REPLACE INTO tool (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))))",
+    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
   scanned = "INSERT OR REPLACE INTO scanned (path, size, mtime_ns, ino, dev, " ..
-    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, lower(hex(sha256(?6))))",
+    "sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?7)",
   todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
     "VALUES (?1, ?2, ?3, ?4)",
 }
@@ -776,16 +777,17 @@ function work.tool_moved(handle: work.Handle): boolean | nil, string
 end
 
 --- Writes one file's row: its stat, with the modification time kept
---- only once it has settled, and its bytes, hashed in place.
+--- only once it has settled, its bytes, and their hash.
 local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
                        mtime_ns: integer, settled: boolean,
-                       data: string): boolean, string
+                       data: string, sha256: string): boolean, string
   put:bind_text(1, file)
   put:bind_integer(2, st.size)
   put:bind_integer(3, settled and mtime_ns or 0)
   put:bind_integer(4, st.ino)
   put:bind_integer(5, st.dev)
   put:bind_blob(6, data)
+  put:bind_text(7, sha256)
   return once(put)
 end
 
@@ -799,11 +801,11 @@ end
 --- Records the TODOs in one file's bytes under their hash, unless a
 --- file with the same bytes already has. Text holding no `TODO:`, or
 --- holding a NUL, is not scanned.
-local function put_todos(put: Sqlite.Statement, data: string): boolean, string
+local function put_todos(put: Sqlite.Statement, data: string,
+                         sha256: string): boolean, string
   if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  local sha256 = Hash.hex_sha256(data)
   for _, found in ipairs(todo_scan.scan(data)) do
     put:bind_text(1, sha256)
     put:bind_integer(2, found.line)
@@ -902,8 +904,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
           return nil, read_trouble
         end
         staged.read = staged.read + 1
+        local sha256 = Hash.hex_sha256(data)
         if holds_own_todos(file) then
-          local ok, why = put_todos(put["todo"], data)
+          local ok, why = put_todos(put["todo"], data, sha256)
           if not ok then
             finish(put)
             return nil, file .. ": " .. why
@@ -913,7 +916,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
           if not wanted then
             return true, ""
           end
-          return put_row(statement, file, st, mtime_ns, settled, data)
+          return put_row(statement, file, st, mtime_ns, settled, data, sha256)
         end
         local ok, why = write(write_files, put["files"])
         if ok then
