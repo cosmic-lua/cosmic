@@ -96,10 +96,11 @@ promises lean on come first:
   stable where the text is meant for people. Read it with `cosmic.json` and
   give each node a `Shape.record`, the first real caller of both. Measured on
   `core/json.c`: 76 MB of JSON against 3.9 MB of text, 0.27 s to emit
-  against 0.22 s, and 0.4 s for `Json.decode` to read it. A `loc` in the JSON
-  form also names its file only when it changes, so the running position
-  `tree.tl` keeps is still needed, and the system headers are still most of
-  the dump.
+  against 0.22 s, and 0.4 s for `Json.decode` to read it with `max_depth` at
+  1000 (clang nests past the default 64), holding about 60 MB of Lua heap
+  after. A `loc` in the JSON form also names its file only when it changes,
+  so the running position `tree.tl` keeps is still needed, and the system
+  headers are still most of the dump.
 - the lint design.md's teal section plans: refuse `v is R` for a record `R`
   on an `any`, which compiles to a table check, and point at `cosmic.shape`.
 - record `shape`'s decisions in design.md: the answer is a copy, a null

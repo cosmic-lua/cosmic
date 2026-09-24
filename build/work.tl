@@ -142,6 +142,11 @@ work.version = "19"
 --- last hundred goes too, so an edit undone is still free and the
 --- cache stays bounded.
 ---
+--- `typed_refs` is what one compile's checker found a record's field
+--- used through (`build.receivers`): keyed by the compile's own key,
+--- since a value's type depends on everything its module imports, and
+--- dropped with the compile it rode on.
+---
 --- `builds` is one row per run: what was staged, what was read, what
 --- was compiled and what came from the cache, and how the run ended.
 ---
@@ -291,6 +296,12 @@ work.schema = {
                                          lua TEXT NOT NULL,
                                          bytecode BLOB NOT NULL,
                                          seen INTEGER NOT NULL) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS typed_refs (key TEXT NOT NULL,
+                                           ordinal INTEGER NOT NULL,
+                                           module TEXT NOT NULL,
+                                           member TEXT NOT NULL,
+                                           line INTEGER NOT NULL,
+                                           PRIMARY KEY (key, ordinal)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS plan (path TEXT PRIMARY KEY,
                                      key TEXT NOT NULL,
                                      ordinal INTEGER NOT NULL) WITHOUT ROWID]],

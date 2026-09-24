@@ -355,13 +355,11 @@ local function test_next_walks_a_central_directory_many_windows_long()
   assert(#listed == n)
   local count = 0
   while true do
-    local got, trouble = r:next()
-    if got == nil then
+    local e, trouble = r:next()
+    if e == nil then
       assert(trouble == "", trouble)
       break
     end
-    -- TODO: use `got` itself once #2011 merges: its break narrows it.
-    local e: Zip.Entry = got
     count = count + 1
     assert(e.path == prefix .. tostring(count), e.path)
     assert(e.path == listed[count].path)
@@ -405,10 +403,8 @@ local function test_next_reports_a_symlink_target()
   local r = assert(Zip.open_string((assert(Codec.unbase64(ZIP_B64)))))
   local found = false
   while true do
-    local got = r:next()
-    if got == nil then break end
-    -- TODO: use `got` itself once #2011 merges: its break narrows it.
-    local e: Zip.Entry = got
+    local e = r:next()
+    if e == nil then break end
     if e.path == "src/adir/alink" then
       assert(e.kind == "symlink" and e.linkpath == "short.txt", e.linkpath)
       found = true

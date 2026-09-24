@@ -28,6 +28,9 @@
  * level, on the C stack. */
 #define DEFAULT_DEPTH 64
 #define MAX_DEPTH 1000
+/* TODO: cosmic/json.tl's docs spell this range out again ("1 to 1000");
+ * put MAX_DEPTH and DEFAULT_DEPTH in the raw module's table so the Teal
+ * side reads them rather than repeating them. */
 
 /* An array with holes whose highest index is past this and past twice
  * its count of values is refused even with `sparse_as_null`: a table
@@ -129,6 +132,9 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
       break;
     }
     return 1;
+    /* TODO: a big number read this way encodes back as a JSON string.
+     * A marker the encoder writes verbatim (Json.number(text), checked
+     * to be a JSON number) would let it round-trip as a number. */
     case YYJSON_TYPE_RAW: /* only a big number, and only when asked */
     lua_pushlstring(L, yyjson_get_raw(val), yyjson_get_len(val));
     return 1;
@@ -232,6 +238,9 @@ static int json_decode (lua_State *L) {
   guard->resource = doc;
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
     lua_pushnil(L);
+    /* TODO: say where, as a syntax error does. yyjson keeps no offsets
+     * in its document, so find the line and column by counting brackets
+     * outside strings in `text` up to the limit. */
     lua_pushfstring(L, "JSON nests deeper than %d levels", d.max_depth);
     return 2;
   }
@@ -403,6 +412,9 @@ static int is_utf8 (const unsigned char *s, size_t n) {
   return 1;
 }
 
+/* TODO: an option to write every non-ASCII character, and U+2028 and
+ * U+2029 in particular, as \u escapes (surrogate pairs past U+FFFF), for
+ * JSON embedded in HTML or JavaScript or read by ASCII-only tools. */
 static int put_string (struct encoding *e, const char *s, size_t n) {
   if (!is_utf8((const unsigned char *)s, n)) {
     return refuse(e, "cannot encode a string that is not UTF-8");
@@ -551,6 +563,9 @@ static int put_object (struct encoding *e, int idx, lua_Integer count,
     }
     qsort(keys, (size_t)n, sizeof *keys, compare_sorted);
     for (lua_Integer i = 0; i < n; i++) {
+      /* TODO: each member pushes its key again to find its value, which
+       * interns a long key a second time. Collect the members into a
+       * Lua table in the first pass and sort that; measure first. */
       lua_pushlstring(L, keys[i].s, keys[i].n);
       lua_pushvalue(L, -1);
       lua_rawget(L, idx);

@@ -275,6 +275,23 @@ print(count(list("x") or {}))
     "so it fills a one-argument call, but: " .. tostring(trouble))
 end
 
+-- Both sides one record type, into a declared union: `a`'s nil-less
+-- type must unite with `b`'s as the same type, not as two tables.
+local function test_or_of_two_fields_of_one_record_type(tmp: string)
+  local ok, trouble = try_build(tmp, "or-same-record", [[
+local record Node
+   left: Node | nil
+   right: Node | nil
+end
+local function pick(n: Node): Node | nil
+   local at: Node | nil = n.left or n.right
+   return at
+end
+print(pick({}))
+]])
+  assert(ok, "`n.left or n.right` into a `Node | nil` is one Node, but: " .. tostring(trouble))
+end
+
 local function test_or_nil_keeps_the_nil(tmp: string)
   local ok, trouble = try_build(tmp, "or-nil-keeps", entry_prelude .. [[
 local e = next_entry() or nil

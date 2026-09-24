@@ -12,8 +12,9 @@ local record json
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
-  -- JSON cannot say, naming where: `... at $.users[3].name`. Raises when `indent` is not spaces and tabs, or
-  -- `max_depth` is outside 1 to 1000.
+  -- JSON cannot say, naming where: `... at $.users[3].name`. Raises
+  -- when `indent` is not spaces and tabs, or `max_depth` is outside 1
+  -- to 1000.
   encode: function(value: any, pretty?: boolean, indent?: string, sorted?: boolean,
                    max_depth?: integer, nan_as_null?: boolean,
                    sparse_as_null?: boolean): string | nil, string

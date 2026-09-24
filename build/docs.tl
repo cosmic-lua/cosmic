@@ -338,7 +338,10 @@ local function searched(db: Sqlite.Handle, public: boolean, query: string): {doc
 end
 
 --- The places that refer to `symbol` as declared, or to any symbol
---- whose last name is `symbol`.
+--- whose last name is `symbol`. A use is recorded under its canonical
+--- path, without the module's own name, so a query spelled from the
+--- module's record down (`Zip.ZipWriter.add_file`) also names the
+--- use whose symbol it ends with (`ZipWriter.add_file`).
 local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs.Use} | nil, string
   -- TODO: a qualified query matches every symbol with the same last name
   -- too (`Stream.Writer.write` lists `cosmic.fs`'s `write`). Fall back to
@@ -347,7 +350,8 @@ local function uses_of(db: Sqlite.Handle, public: boolean, query: string): {docs
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT module, symbol, from_module, from_file, line FROM uses " ..
     "WHERE (symbol = ?1 OR substr(symbol, -length(?1) - 1) = '.' || ?1 " ..
-    "OR substr(symbol, -length(?1) - 1) = ':' || ?1 OR symbol = ?2) AND " ..
+    "OR substr(symbol, -length(?1) - 1) = ':' || ?1 OR symbol = ?2 " ..
+    "OR substr(?1, -length(symbol) - 1) = '.' || symbol) AND " ..
     symbols.public_only("module", public) .. " AND " ..
     symbols.public_only("from_module", public) ..
     " ORDER BY module, symbol, from_file, line", { text(query), text(canonical) })
