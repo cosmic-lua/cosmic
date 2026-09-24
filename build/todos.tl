@@ -4,9 +4,11 @@
 ---
 --- The index is built by the build itself: `build.work.stage` scans
 --- each file it stages (`build.todo_scan`) in the moment it reads it,
---- into `todos` in `o/build.db`, so every file the build sees -- Teal,
---- and in cosmic's own tree the C core, build.zig and bin/zig -- is
---- covered by the one walk. Blame is kept beside it, in `blames`, and only this verb runs
+--- into `todos` in `o/build.db`, so the one walk covers every file in
+--- the tree: what the build consumes -- Teal, and in cosmic's own tree
+--- the C core, build.zig and bin/zig -- and, fingerprinted in `scanned`
+--- and read only when it moves, everything else it walks past: scripts,
+--- and in cosmic's own tree `bin/`, `eval/` and `ci/`. Blame is kept beside it, in `blames`, and only this verb runs
 --- git. With no git, or outside a repository, TODOs are still listed,
 --- with no commit.
 
@@ -145,7 +147,8 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
     "b.author_time, b.summary, b.boundary FROM " ..
-    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool) f " ..
+    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+    "UNION SELECT path, sha256 FROM scanned) f " ..
     "JOIN todos t ON t.sha256 = f.sha256 " ..
     "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
     "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
@@ -181,7 +184,8 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
                           rows: {Row}): integer | nil, string
   local pruned, prune_trouble = Sqlite.run(db,
     "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
-    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool) f " ..
+    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
+    "UNION SELECT path, sha256 FROM scanned) f " ..
     "JOIN todos t ON t.sha256 = f.sha256 WHERE f.path = blames.path " ..
     "AND t.line = blames.line AND t.sha256 = blames.sha256)",
     { { text = head } })

@@ -154,7 +154,6 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(Fs.mkdirs(root .. "/src"))
   assert(Fs.write(root .. "/src/a.tl", text({ "-- TODO: first", "local x = 1" })))
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2" })))
-  assert(Fs.write(root .. "/notes.sh", text({ "# TODO: not an input" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
   local listed = assert(todos.list(handle.db, root))
@@ -176,6 +175,34 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
   assert(rows[1][1] == "1", rows[1][1])
+  assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end
+
+local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
+  local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  assert(Fs.mkdirs(root .. "/scripts"))
+  assert(Fs.write(root .. "/scripts/release.sh",
+    text({ "#!/bin/sh", "# TODO: sign the archive" })))
+  assert(Fs.write(root .. "/big.txt",
+    "# TODO: too big to be text\n" .. string.rep("x", 2 * 1024 * 1024)))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local listed = assert(todos.list(handle.db, root))
+  assert(#listed == 1, "found " .. #listed)
+  assert(listed[1].file == "scripts/release.sh" and listed[1].line == 2)
+  assert(listed[1].text == "sign the archive", listed[1].text)
+  -- Scanned, not staged: nothing the build compiles or runs sees it.
+  local rows = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM files WHERE path = 'scripts/release.sh'"))
+  assert(rows[1][1] == "0", rows[1][1])
+
+  assert(Fs.remove(root .. "/scripts/release.sh"))
+  assert(work.stage(handle, false))
+  listed = assert(todos.list(handle.db, root))
+  assert(#listed == 0, "found " .. #listed)
+  rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
+  assert(rows[1][1] == "0", rows[1][1])
   assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end
