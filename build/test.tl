@@ -62,7 +62,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local sys = require("cosmic.sys")
-local coverage_report = require("build.coverage.report")
+local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
@@ -625,7 +625,7 @@ local function sorted_lines(set: {integer: any}): {integer}
   return out
 end
 
---- Every line `build.coverage.report` found for every non-vendor module
+--- Every line `build.coverage` found for every non-vendor module
 --- `modules` holds, added as a new snapshot for `run_at_ns`: rows here
 --- are never replaced, only later pruned by `prune_history`, so a
 --- file's coverage trend over the kept window of runs is a plain

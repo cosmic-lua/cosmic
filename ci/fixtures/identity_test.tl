@@ -139,8 +139,8 @@ local function run_sanitized(fixture_dir: string, root: string,
     "/cosmic-core"
 
   local entry_cache = work .. "/entry-cache"
-  -- tool.tl's own require("build.artifact")/require("test.portable.
-  -- artifact_fixture") resolve relative to the process cwd, so this must
+  -- tool.tl's own require("build.artifact")/require("test.portable")
+  -- resolve relative to the process cwd, so this must
   -- run from `root`, matching identity test's own unwrapped invocation
   -- (no `cd`, so it inherited the whole script's cwd, which is `root`).
   local entry_out = Fixture.run("sanitized-entry",
@@ -338,8 +338,8 @@ local function test_identity_primary(tmp: string)
   -- basis.
   -- Both tool.tl calls below run from `root`, matching identity test's
   -- own unwrapped invocations (no `cd "$project"`, unlike most of this
-  -- function): tool.tl's require("build.artifact")/require("test.portable.
-  -- artifact_fixture") resolve relative to the process cwd, and `project`
+  -- function): tool.tl's require("build.artifact")/require("test.portable")
+  -- resolve relative to the process cwd, and `project`
   -- has no build/ or test/ tree for them to find.
   Fixture.run("spoof-database", { fixture_dir .. "/runtime.old",
     root .. "/test/portable/tool.tl", "spoof-database",
