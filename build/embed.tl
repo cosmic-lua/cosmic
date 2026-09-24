@@ -17,7 +17,6 @@
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -30,7 +29,7 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record embed
 end
@@ -358,24 +357,21 @@ function embed.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--host"] = false })
   if parsed ~= nil and #parsed.words > 0 then
-    parsed, parse_trouble = nil, "no such option: " .. parsed.words[1]
+    parsed, parse_trouble = nil, "takes no arguments, not " .. parsed.words[1]
   end
   if parsed == nil then
     log:complain("build: " .. parse_trouble)
-    log:verdict("build", false)
     return 2
   end
   local host = parsed.set["--host"] == true
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
-    log:verdict("build", false)
     return 1
   end
   local names, trouble = embed.tree(root, host)
   if names == nil then
     log:complain(trouble)
-    log:verdict("build", false)
     return 1
   end
   local outputs: {string} = {}

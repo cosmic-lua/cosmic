@@ -6,8 +6,8 @@
 --- A query is a symbol first -- `Fs.read`, `read`, `cosmic.fs` -- and
 --- words to search the documentation for when no symbol is called that.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -16,7 +16,7 @@ local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record docs
   --- One ordered database view and the owner of every module in it.
@@ -698,12 +698,17 @@ end
 --- `cosmic docs <query>`: prints what the query names and ends in a
 --- verdict line; fails when nothing matches.
 function docs.run(argv: {integer:string}): integer
+  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  if parsed == nil then
+    log:complain("docs: " .. parse_trouble)
+    return 2
+  end
   local exit = stale_exit(argv)
   if exit ~= nil then
     return exit
   end
   local started = Time.monotonic_ns()
-  local query = table.concat({ table.unpack(argv, 2) }, " ")
+  local query = table.concat(parsed.words, " ")
   if query == "" then
     log:complain("docs: what to look up? a symbol (Fs.read), a module " ..
       "(cosmic.fs), or words to search for")
@@ -751,16 +756,25 @@ end
 --- `cosmic uses <symbol>`: every place that refers to the symbol, one
 --- `file:line` per line, and a verdict line.
 function docs.run_uses(argv: {integer:string}): integer
+  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  if parsed == nil then
+    log:complain("uses: " .. parse_trouble)
+    return 2
+  end
+  if #parsed.words > 1 then
+    log:complain("uses: one symbol at a time, not " .. #parsed.words)
+    return 2
+  end
+  local query = parsed.words[1] or ""
+  if query == "" then
+    log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
+    return 2
+  end
   local exit = stale_exit(argv)
   if exit ~= nil then
     return exit
   end
   local started = Time.monotonic_ns()
-  local query = argv[2] or ""
-  if query == "" then
-    log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
-    return 2
-  end
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
   if view == nil then

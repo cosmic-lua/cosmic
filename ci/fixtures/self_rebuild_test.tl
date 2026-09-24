@@ -101,6 +101,11 @@ local function apply_step8_edit(tree: string)
       "  assert(step8_sys.getenv(\"COSMIC_STEP8_REENTRY\") == \"kept with spaces\")",
     })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
+  -- The spaced argument is a selector too, and `cosmic test` fails on a
+  -- selector that matches no test module, so it names one.
+  Fixture.mkdir(tree .. "/argument with spaces")
+  Fixture.write(tree .. "/argument with spaces/step8_test.tl",
+    "local function test_selected()\n  assert(true)\nend\n")
 end
 
 -- Marks `build/docs.tl`'s verdict with an extra line, distinguishable from
