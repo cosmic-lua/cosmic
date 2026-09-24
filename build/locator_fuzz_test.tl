@@ -97,6 +97,10 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
   local program = tmp .. "/program"
   Fuzz.run({
     name = "host program locator",
+    -- Each input writes a whole host program, core included, and runs it:
+    -- on the checked core in CI's deep run, 2000 of them outlast a test's
+    -- deadline on a slow runner.
+    max_iters = 256,
     dir = tmp,
     gen = gen(tail),
     check = function(input: string): boolean, string

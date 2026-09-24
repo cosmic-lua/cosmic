@@ -84,6 +84,11 @@ local record Fuzz
     dir: string
     --- Iterations, in place of `FUZZ_ITERS`.
     iters: integer
+    --- The most iterations `FUZZ_ITERS` may ask for, for a property whose
+    --- every input costs a process or a file the size of a core: a deep
+    --- run raises every other property's count, and this one's only to
+    --- here.
+    max_iters: integer
     --- VM instructions one check may spend.
     budget: integer
   end
@@ -188,6 +193,9 @@ end
 function Fuzz.run(p: Fuzz.Property): integer
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
+  if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
+    iters = p.max_iters
+  end
   local budget = p.budget or DEFAULT_BUDGET
   local kept: string
   if p.dir ~= nil then
