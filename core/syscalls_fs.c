@@ -450,6 +450,10 @@ COSMIC_SYSCALL(readlink, 1) {
   if (got < 0) {
     return cosmic_fail(L, errno);
   }
+  /* readlink truncates silently: a target that fills the whole room may
+   * have been cut short. Neither Linux nor macOS stores one that long,
+   * so no test can reach this. */
+  if ((size_t)got >= sizeof room) return cosmic_fail(L, ENAMETOOLONG);
   lua_pushlstring(L, room, (size_t)got);
   return 1;
 }
