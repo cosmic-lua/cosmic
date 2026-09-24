@@ -419,7 +419,7 @@ local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp
   local rc = Tar.reader((assert(Stream.open(cut))))
   assert(rc:next())
   local none, trouble = rc:next()
-  assert(none == nil and trouble:find("end of archive", 1, true) ~= nil, trouble)
+  assert(none == nil and trouble:find("end of", 1, true) ~= nil, trouble)
   rc:close()
 end
 

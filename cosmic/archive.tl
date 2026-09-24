@@ -384,14 +384,20 @@ function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptio
     if mode == 0 then mode = 0x1a4 end
     local w, ctrouble = Stream.create(dest_path, mode)
     if w == nil then return false, ctrouble end
-    local copied, rtrouble = Stream.copy(body, w, bytes_left)
+    -- One byte past what is left is enough to know the limit is
+    -- crossed, and is all a limited body gives: the count tells, not
+    -- the copy's reason.
+    local limited = bytes_left ~= nil and bytes_left < math.maxinteger
+    local source = limited and Stream.limit(body, bytes_left + 1) or body
+    local copied, rtrouble = Stream.copy(source, w)
     if copied == nil then
       local _, _ = w:abort()
-      if bytes_left ~= nil and rtrouble:find("more than", 1, true) ~= nil then
-        return false, "archive: more than " .. tostring(opts.max_bytes) ..
-          " bytes to extract, at " .. entry.path
-      end
       return false, rtrouble
+    end
+    if bytes_left ~= nil and copied > bytes_left then
+      local _, _ = w:abort()
+      return false, "archive: more than " .. tostring(opts.max_bytes) ..
+        " bytes to extract, at " .. entry.path
     end
     if bytes_left ~= nil then bytes_left = bytes_left - copied end
     local ok, wtrouble = w:close()

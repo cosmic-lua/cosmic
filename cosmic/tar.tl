@@ -427,12 +427,7 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
     state.current = nil
     local skipped, dtrouble = Stream.skip(src, state.pending_skip)
     state.pending_skip = 0
-    if not skipped then
-      if dtrouble:find("end of", 1, true) ~= nil then
-        return fail("tar: unexpected end of archive")
-      end
-      return fail(dtrouble)
-    end
+    if not skipped then return fail("tar: " .. dtrouble) end
 
     local long_name: string
     local long_link: string

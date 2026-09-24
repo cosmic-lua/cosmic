@@ -340,7 +340,7 @@ local function test_wait_any_returns_the_first_to_finish()
   local r = assert(fast:wait())
   assert(r.ok and r.stdout == "quick")
   local none, trouble = Child.wait_any({ slow }, 0)
-  assert(none == nil and trouble == "timeout")
+  assert(none == nil and trouble == "")
   assert(slow:close())
 end
 

@@ -40,6 +40,19 @@
 ---    a binding) keeps the binding's shape: this rule does not read it,
 ---    nor does rule 2 read a return that hands on the binding's whole
 ---    answer. A caller that needs the errno calls the binding itself.
+--- 6. A reason is for a person, never parsed: a name a statement binds
+---    to a fallible call's reason (`err` in `local v, err = f()`, or in
+---    an assignment) may be passed on, logged, made part of a new
+---    message, or compared with `""`, but not read for what it says --
+---    `err:find(...)`, `:match`, `:gmatch`, `:sub`, `:byte`, the same
+---    through `string.find(err, ...)`, or `err == "timeout"` (`~=`
+---    too) against any literal but `""`. The name is followed from its
+---    binding through the rest of its block, until another binding of
+---    it takes over. A failure a caller must tell apart answers in a
+---    shape of its own: `nil, ""` for no answer and no failure (a
+---    deadline passed), a count or a field the caller reads, or a
+---    structured record standing where the value would. A reason
+---    reached any other way (`select(2, f())`) drops the slot, rule 1.
 ---
 --- The callee's type is the one the checker stored at the callee's own
 --- position (`build.receivers` installs the reporter that keeps it). A
@@ -459,6 +472,156 @@ local function sys_stand_ins(root: Node, records: {integer: Type},
   return out
 end
 
+--- The string methods that read a message for what it says, rule 6's
+--- concern: a caller that finds, matches, or cuts a reason is parsing it.
+local inspecting: {string: boolean} = {
+  find = true, match = true, gmatch = true, sub = true, byte = true,
+}
+
+--- One place a name is bound, in source order: rule 6 follows a reason
+--- from where a fallible call binds it to where another binding of the
+--- name takes over.
+local record Binding
+  at: integer
+  --- Where the name's scope ends: its block's end for a `local`, a
+  --- loop variable, or a parameter; an assignment's own block's end,
+  --- after which rule 6 no longer follows the name.
+  -- TODO: follow a reason assigned in an inner block (`local ok, err`
+  -- then `ok, err = f()` inside an `if`) to the end of the name's own
+  -- scope, not of the assignment's block, once build.receivers keeps
+  -- the declaration each variable node resolves to; tl's checker finds
+  -- it but stores it nowhere this can read.
+  ends: integer
+  --- Whether the name is declared here (it shadows until `ends`) rather
+  --- than assigned (it replaces whatever was there).
+  declared: boolean
+  --- Whether a fallible call's reason is what the name is bound to.
+  reason: boolean
+end
+
+--- A block's end, as one position; the end of the source when the
+--- parser stamped none (the module's own top-level block).
+local function block_end(block: Node | nil): integer
+  local y, x = block ~= nil and block.yend or nil, block ~= nil and block.xend or nil
+  if y == nil or x == nil then return math.maxinteger end
+  return position(y, x)
+end
+
+--- The index of the name a statement binds to a fallible call's reason:
+--- 2 in `local v, err = f()`; nil when the statement binds none.
+local function reason_slot(n: Node, callees: {integer: Type}): integer | nil
+  local exps = list_of(n.exps)
+  local last = exps[#exps]
+  if last == nil or #list_of(n.vars) <= #exps or not is_call(last) then return nil end
+  local e1 = last.e1
+  if e1 == nil or not fallible_type(callees[position(e1.y, e1.x)]) then return nil end
+  return #exps + 1
+end
+
+local function is_name(n: Node | nil, name: string): boolean
+  return n ~= nil and n.kind == "variable" and n.tk == name
+end
+
+--- The name `n` reads a reason's content through, and where: `err` in
+--- `err:find(...)`, `string.match(err, ...)`, or `err == "timeout"`.
+local function inspected(n: Node): Node | nil
+  local op = n.op
+  if n.kind ~= "op" or op == nil then return nil end
+  if op.op == "==" or op.op == "~=" then
+    local a, b = n.e1, n.e2
+    if a == nil or b == nil then return nil end
+    if a.kind == "variable" and b.kind == "string" and b.conststr ~= "" then return a end
+    if b.kind == "variable" and a.kind == "string" and a.conststr ~= "" then return b end
+    return nil
+  end
+  local callee = n.e1
+  if op.op ~= "@funcall" or callee == nil then return nil end
+  local how, member = callee.op, callee.e2
+  if callee.kind ~= "op" or how == nil or member == nil
+      or not inspecting[member.tk or ""] then
+    return nil
+  end
+  local receiver = callee.e1
+  if how.op == ":" and receiver ~= nil and receiver.kind == "variable" then
+    return receiver
+  end
+  local first = list_of(n.e2)[1]
+  if how.op == "." and is_name(receiver, "string") and first ~= nil
+      and first.kind == "variable" then
+    return first
+  end
+  return nil
+end
+
+--- Rule 6: a reason bound to a name is passed on, compared with `""`,
+--- or made part of a new message, never read for what it says. Every
+--- binding of every name is kept with the scope it holds in, and an
+--- inspection is flagged when the binding it reads is a reason's.
+local function check_inspections(file: string, root: Node, callees: {integer: Type},
+                                 problems: {string})
+  local bindings: {string: {Binding}} = {}
+  local reads: {{Node}} = {}
+  local function bind(name_node: Node | nil, ends: integer, declared: boolean,
+                      reason: boolean)
+    local name = name_node ~= nil and name_node.tk or nil
+    if name_node == nil or name == nil or name == "_" then return end
+    local list = bindings[name] or {}
+    bindings[name] = list
+    list[#list + 1] = {
+      at = position(name_node.y, name_node.x), ends = ends,
+      declared = declared, reason = reason,
+    }
+  end
+  local seen: {Node: boolean} = {}
+  local function go(n: Node, ends: integer)
+    if seen[n] then return end
+    seen[n] = true
+    local kind = n.kind
+    if kind == "statements" then ends = block_end(n) end
+    if kind == "local_declaration" or kind == "assignment" then
+      local slot = reason_slot(n, callees)
+      for i, var in ipairs(list_of(n.vars)) do
+        if var.kind == "identifier" or var.kind == "variable" then
+          bind(var, ends, kind == "local_declaration", i == slot)
+        end
+      end
+    elseif kind == "forin" then
+      for _, var in ipairs(list_of(n.vars)) do bind(var, block_end(n.body), true, false) end
+    elseif kind == "fornum" then
+      bind(n.var, block_end(n.body), true, false)
+    elseif is_function(n) then
+      for _, param in ipairs(list_of(n.args)) do bind(param, block_end(n.body), true, false) end
+    end
+    local read = inspected(n)
+    if read ~= nil then reads[#reads + 1] = { read, n } end
+    each_child(n, function(child: Node) go(child, ends) end)
+  end
+  go(root, math.maxinteger)
+  for _, list in pairs(bindings) do
+    table.sort(list, function(a: Binding, b: Binding): boolean return a.at < b.at end)
+  end
+  for _, pair in ipairs(reads) do
+    local read, via = pair[1], pair[2]
+    local at = position(read.y, read.x)
+    local list = bindings[read.tk or ""] or {}
+    for i = #list, 1, -1 do
+      local b = list[i]
+      if b.at < at and (not b.declared or b.ends >= at) then
+        -- A declaration whose scope has closed stood in an inner block:
+        -- the one before it is what this reads. Anything else is.
+        if b.reason and b.ends >= at then
+          problems[#problems + 1] = string.format(
+            "%s:%d: %s: a failure's reason is read for what it says; a "
+              .. "failure with meaning answers it in a shape of its own "
+              .. "(a value, a field, a record), not a message to parse",
+            file, via.y, read.tk)
+        end
+        break
+      end
+    end
+  end
+end
+
 local function line_of(problem: string): integer
   return math.tointeger(tonumber(problem:match("^[^:]*:(%d+):"))) or 0
 end
@@ -511,6 +674,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
       check_function(file, n, types, problems, stand_ins[n] or false)
     end
   end)
+  check_inspections(file, root, callees, problems)
   table.sort(problems, function(a: string, b: string): boolean
     local la, lb = line_of(a), line_of(b)
     if la ~= lb then return la < lb end

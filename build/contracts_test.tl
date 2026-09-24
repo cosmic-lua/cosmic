@@ -292,3 +292,57 @@ local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
     "  if errno == sys.ENOENT then return true, '' end\n" ..
     "  return nil, trouble\nend\nuse(missing)")
 end
+
+--- Rule 6: a reason is read for what it says in none of these ways.
+local function test_a_reason_read_for_what_it_says_is_flagged()
+  local read = "a failure's reason is read for what it says"
+  local bound = "local v, err = get()\n"
+  flags(bound .. "use(v, err:find('none'))", read)
+  flags(bound .. "use(v, err:match('^n'))", read)
+  flags(bound .. "for w in err:gmatch('%a') do use(v, w) end", read)
+  flags(bound .. "use(v, err:sub(1, 4))", read)
+  flags(bound .. "use(v, err:byte(1))", read)
+  flags(bound .. "use(v, string.find(err, 'none'))", read)
+  flags(bound .. "use(v, string.match(err, 'n'))", read)
+  flags(bound .. "use(v, err == 'none')", read)
+  flags(bound .. "use(v, 'none' ~= err)", read)
+  -- An effect's reason, and one bound by an assignment.
+  flags("local ok, why = put()\nuse(ok, why == 'full')", read)
+  flags("local v: integer\nlocal err: string\nv, err = get()\nuse(v, err:find('x'))", read)
+  -- Through the rest of the block, nested blocks and functions too.
+  flags(bound .. "if v == nil then use(err:find('none')) end", read)
+  flags(bound .. "use(v, function(): boolean return err == 'none' end)", read)
+end
+
+local function test_a_reason_passed_on_or_compared_with_empty_is_allowed()
+  local bound = "local v, err = get()\n"
+  allows(bound .. "use(v, err == '', err ~= '', '' == err)")
+  allows(bound .. "if err then use(v) end")
+  allows(bound .. "use(v, 'get: ' .. err, string.format('%s', err), #err > 0)")
+  allows(bound .. "complain(v, err)")
+  allows(bound .. "use(v, err:gsub('\\n', ' '))")
+  allows("local function f(): integer | nil, string\n" ..
+    "  local v, err = get()\n  if v == nil then return nil, 'f: ' .. err end\n" ..
+    "  return v, ''\nend\nuse(f)")
+end
+
+--- Only a reason's name is followed, and only while that binding holds.
+local function test_a_name_that_holds_no_reason_is_not_followed()
+  local read = "a failure's reason is read for what it says"
+  -- A string from a call that cannot fail, or a second result that is
+  -- not a reason.
+  allows("local s = name()\nuse(s:find('x'))")
+  allows("local function two(): string, string return 'a', 'b' end\n" ..
+    "local a, b = two()\nuse(a, b:find('b'))")
+  -- Another binding of the name takes over.
+  allows("local v, err = get()\nerr = name()\nuse(v, err:find('x'))")
+  allows("local v, err = get()\nuse(v, function(err: string): boolean\n" ..
+    "  return err:find('x') ~= nil\nend)")
+  allows("local v, err = get()\nuse(v)\nfor _, err in ipairs({'a'}) do use(err:find('a')) end")
+  -- A declaration in an inner block holds only there.
+  flags("local v, err = get()\ndo local err = name() use(err:find('x')) end\n" ..
+    "use(v, err:find('x'))", read)
+  allows("local err = name()\ndo local v, err = get() use(v, err) end\nuse(err:find('x'))")
+  -- A reason reached without a name drops its slot: rule 1 says so.
+  flags("use(select(2, get()) == 'none')", "its error slot is dropped")
+end
