@@ -150,9 +150,9 @@ content-derived Mach-O UUID follows it. the Linux lane builds a
 fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
 bare trap. `bin/zig build sanitized` boots with that core and embeds
-it in `o/sanitized/bin/cosmic`; CI verifies the embedded core bytes
-and, on the Linux x86-64 leg of every full run (merge queue, main, or a
-manual run), runs the whole test suite under a 90-second limit, with
+it in `o/sanitized/bin/cosmic`; every full CI run (merge queue, main,
+or a manual run) verifies the embedded core bytes and, on the Linux
+x86-64 leg, runs the whole test suite under a 90-second limit, with
 full undefined-behavior checking and coverage collection enabled. zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
@@ -469,8 +469,8 @@ that copied logical path; a read-only logical path fails rather than silently
 redirecting the rebuild into the tree;
 when the C core's inputs differ, only zig can build it, so the tool
 runs `bin/zig build boot` and re-enters the command, or, under
-`COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries two identities: the compiler it is,
-over the build's own modules in the importer's closure and the Teal
+`COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries
+two identities: the compiler it is, over the build's own modules in the importer's closure and the Teal
 compiler's and Lua's pins and patches, which every module key
 carries; and the runtime it is, over its host image and the same
 pins, which every test verdict carries. the standard library the
@@ -481,7 +481,9 @@ never mistaken for this one's.
 the C stage is hermetic and checked. `build.zig` runs with both of
 zig's caches, keyed by content, in the user's cosmic cache directory
 (`zig-project` and `zig-global` under `~/.cache/cosmic` by default) and
-shared by every checkout; `o/` and those two are the only things to
+shared by every checkout (`COSMIC_ZIG_CACHE` and
+`COSMIC_ZIG_GLOBAL_CACHE` move them, and with no cache directory at all
+they fall back to `o/`); `o/` and those caches are the only things to
 delete. the
 applier's output replaces the vendor directory the core compiles
 from, whole, never one file beside a pristine tree, because a quoted

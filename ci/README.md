@@ -53,12 +53,11 @@ same uid as the host runner, after root hands the checkout and restored
 caches over to it. See `.github/workflows/ci.yml` for the exact step order
 and ownership.
 
-Orchestration copies `cosmic_ci/` once per fixture into a separate,
-external fixture project, since each fixture needs a fresh working
-database; each runs on the pinned host `Proc.executable()` returns. Runner
-operation state is kept in a separately
-checked external database. The checked-in pin (`cosmic-driver.pin`) is the
-production trust root; local development may
+Orchestration copies `cosmic_ci/` once per fixture into a separate, external
+fixture project, since each fixture needs a fresh working database; each runs
+on the pinned host `Proc.executable()` returns. Runner operation state is kept
+in a separately checked external database. The checked-in pin
+(`cosmic-driver.pin`) is the production trust root; local development may
 preseed a temporary pin cache with a digest-verified locally built host, but
 that does not establish release publication or immutability.
 

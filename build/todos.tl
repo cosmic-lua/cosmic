@@ -486,9 +486,10 @@ function todos.run(argv: {integer:string}): integer
     return 1
   end
   -- TODO: list TODOs when only the core is stale, since nothing here
-  -- runs it: after a C edit reboot.ensure boots before any verb goes
-  -- on (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go on once the Teal side
-  -- is fresh, which reboot.state would have to tell apart from both.
+  -- runs it: after a C edit reboot.ensure boots before any verb goes on
+  -- (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go
+  -- on once the Teal side is fresh, which reboot.state would have to
+  -- tell apart from both.
   local code, reboot_trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if reboot_trouble ~= "" then

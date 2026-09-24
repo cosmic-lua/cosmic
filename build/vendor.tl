@@ -389,7 +389,7 @@ function Vendor.main(argv: {integer:string}): integer
       log:complain(trouble)
       return 1
     end
-    local _, _ = Fs.put(Fs.stdout, "vendor: " .. tree .. " (" .. count .. " files)\n")
+    log:say("vendor: " .. tree .. " (" .. count .. " files)")
     return 0
   end
 
@@ -427,7 +427,7 @@ function Vendor.main(argv: {integer:string}): integer
       log:complain(name .. ": " .. trouble)
       failed = true
     else
-      local _, _ = Fs.put(Fs.stdout, "vendor: vendor/" .. name .. " (" .. count .. " files)\n")
+      log:say("vendor: vendor/" .. name .. " (" .. count .. " files)")
     end
   end
   return failed and 1 or 0

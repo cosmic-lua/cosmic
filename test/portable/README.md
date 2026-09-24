@@ -114,15 +114,15 @@ the same fixture-only startup pause to
 rename and unlink the artifact after descriptor adoption. In each case a
 deterministic Teal edit causes exactly one database-only rebuild and
 re-entry at the same logical portable path, with the exact re-entered argv
-and an ordinary environment value checked on arrival. The rebuilt file
-keeps the retained prefix and cache entry count, and its bytes change. A
-subsequent core input edit (`core/startup.h`) is refused, under
-`COSMIC_AUTO_BOOT=0`, with the named `bin/zig build boot` remedy and touches neither the artifact nor the cache.
-Three further cases -- a pinned `vendor/tl` version, an unapplied
-`patch/tl` entry, and an edited `build/launcher.tl` -- are refused
+and an ordinary environment value checked on arrival. The rebuilt file keeps
+the retained prefix and cache entry count, and its bytes change. A subsequent
+core input edit (`core/startup.h`) is refused, under `COSMIC_AUTO_BOOT=0`,
+with the named `bin/zig build boot` remedy and touches neither the artifact
+nor the cache. Three further cases -- a pinned `vendor/tl` version, an
+unapplied `patch/tl` entry, and an edited `build/launcher.tl` -- are refused
 outright, before `test.run` or the artifact is ever reached. A last,
-dependency-free case exercises the prefix comparison itself: an exact
-match, a too-short program, and a single mutated byte.
+dependency-free case exercises the prefix comparison itself: an exact match, a
+too-short program, and a single mutated byte.
 
 The pinned CI driver owns full-suite execution, retained output, working
 database snapshots, delayed boundaries, and artifact immutability checks.

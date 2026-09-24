@@ -817,14 +817,14 @@ local function missing_example_return(m: Module): boolean
   return #m.tests > 0 and not m.has_top_level_return
 end
 
---- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"`
---- check) already treats a name starting with `_` as intentionally
---- unused and never warns about it -- but says so nowhere in the
---- warning it raises for every other name, and every warning is a
---- refused compile on cosmic's paths (see `generate`), so a fresh agent hits this as a hard build failure with
---- no hint of the one-character fix. Appended once, at the one place
---- every message is rendered, rather than patching the vendored
---- checker's own text.
+--- tl's own checker (`tl.lua`'s `var_name:sub(1, 1) == "_"` check)
+--- already treats a name starting with `_` as intentionally unused and
+--- never warns about it -- but says so nowhere in the warning it raises
+--- for every other name, and every warning is a refused compile on
+--- cosmic's paths (see `generate`), so a fresh agent hits this as a
+--- hard build failure with no hint of the one-character fix. Appended
+--- once, at the one place every message is rendered, rather than
+--- patching the vendored checker's own text.
 local function with_unused_hint(msg: string): string
   if msg:match("^unused variable ") or msg:match("^unused argument ") then
     return msg .. " -- name it _ or _<name> to mark it intentionally unused"

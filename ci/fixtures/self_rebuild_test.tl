@@ -115,8 +115,9 @@ local function apply_docs_marker_edit(tree: string)
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
--- Rejects the whole value if it is anything but digits: a loose `%d+` search would instead silently
--- accept and truncate a malformed value (e.g. extra trailing text).
+-- Rejects the whole value if it is anything but digits: a loose `%d+` search
+-- would instead silently accept and truncate a malformed value (e.g. extra
+-- trailing text).
 local function read_prefix_length(fixture_dir: string): integer
   local text = Fixture.read(fixture_dir .. "/runtime.old.prefix-length")
   local digits = text:match("^(%d+)\n*$")
@@ -290,8 +291,8 @@ local function run_refusal_case(root: string, fixture_dir: string,
     "artifact")
 end
 
--- A pure unit test of `compare_prefix` itself, with three synthetic cases:
--- an exact match, a program too short to hold the expected prefix, and a mutated
+-- A pure unit test of `compare_prefix` itself, with three synthetic cases: an
+-- exact match, a program too short to hold the expected prefix, and a mutated
 -- byte within the compared range.
 local function test_self_rebuild_prefix_comparison(_tmp: string)
   local expected = "abc"
