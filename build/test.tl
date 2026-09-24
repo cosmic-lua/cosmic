@@ -83,6 +83,13 @@ local log = require("build.verdict").log
 local bind = require("build.bind")
 
 local record test
+  --- A verdict's key, and whether every read it was computed from
+  --- still answers as it did when recorded: a key from an unstable
+  --- read describes no run, so no verdict is kept or looked up under it.
+  record VerdictKey
+    key: string
+    stable: boolean
+  end
   --- What the last run recorded about one test: what it read, which
   --- is what its key is computed over next time.
   record Previous
@@ -345,8 +352,7 @@ end
 function test.verdict_key(root: string, hashes: {string:string}, id: string,
                           module_key: string, runtime: string,
                           reads: {observations.Observation},
-                          key_parts: {string:string}):
-                          string, boolean
+                          key_parts: {string:string}): test.VerdictKey
   local resolutions = resolutions_of(reads)
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
@@ -440,7 +446,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
     end
     lines[#lines + 1] = part
   end
-  return Hash.hex_sha256(table.concat(lines, "\n")), stable
+  return { key = Hash.hex_sha256(table.concat(lines, "\n")), stable = stable }
 end
 
 --- Whether a passing verdict over `reads` is safe to reuse later: false
@@ -906,8 +912,9 @@ local function standing(rec: Recording, previous: {string:test.Previous},
                         id: string): test.Verdict, {observations.Observation}, string
   local was = previous[id]
   if was == nil then return nil, nil, "" end
-  local key, stable = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime,
+  local verdict_key = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime,
     was.reads, rec.key_parts)
+  local key, stable = verdict_key.key, verdict_key.stable
   local stood = stable and verdicts[key] or nil
   if stood == nil or not stood.passed then return nil, nil, "" end
   return stood, was.reads, key
@@ -984,8 +991,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
       passed, message = false, trouble
     end
   end
-  local reached, stable = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
+  local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
     rec.runtime, reads, rec.key_parts)
+  local reached, stable = verdict_reached.key, verdict_reached.stable
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
     message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
     stable and cacheable)

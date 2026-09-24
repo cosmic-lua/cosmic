@@ -23,21 +23,22 @@ local function test_capture_preserves_a_produced_table_and_restores(tmp: string)
   assert(Fs.write(path, "hello"))
   local original = sys.open
   local produced = { answer = 42 }
-  local ok, value, found = observations.capture(function(): any
+  local c = observations.capture(function(): any
     assert(Fs.read(path) == "hello")
     return produced
   end)
-  assert(ok and value == produced)
+  local found = c.reads
+  assert(c.ok and c.produced == produced)
   assert(sys.open == original)
   assert(#found == 1 and found[1].kind == "o" and found[1].path == path)
 end
 
 local function test_capture_restores_after_an_error()
   local original = sys.open
-  local ok, failure = observations.capture(function()
+  local c = observations.capture(function()
     error("expected")
   end)
-  assert(not ok and tostring(failure):find("expected", 1, true) ~= nil)
+  assert(not c.ok and tostring(c.produced):find("expected", 1, true) ~= nil)
   assert(sys.open == original)
 end
 

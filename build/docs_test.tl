@@ -776,9 +776,9 @@ local function test_an_unreadable_own_database_is_left_out(dir: string)
   assert(Fs.write(dir .. "/o/cosmic.db", "not a database"))
   local before = assert(sys.getcwd())
   assert(sys.chdir(dir))
-  local handles, public = docs.databases()
+  local sources = docs.databases()
   assert(sys.chdir(before))
-  local looked = assert(docs.view(handles, public))
+  local looked = assert(docs.view(sources.handles, sources.public))
   local found = assert(docs.lookup(looked, "Fs.read"))
   assert(#found > 0 and found.exact)
 end
@@ -797,7 +797,7 @@ local function test_a_familiar_command_finds_its_stand_in()
   -- observe, so this test stands across a rewrite of it; open it
   -- through `Fs` first, as build/exports_test.tl does, or have
   -- build.filesystem_observations see an `Sqlite.open`.
-  local handles = docs.databases()
+  local handles = docs.databases().handles
   local public: {boolean} = {}
   for index = 1, #handles do public[index] = true end
   local looked = assert(docs.view(handles, public))

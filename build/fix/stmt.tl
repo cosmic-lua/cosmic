@@ -49,7 +49,8 @@ local function begins_at(c: Ctx, s: Node): integer, integer
       return t.y, t.x
     end
   end
-  return ctx_mod.start_of(c, s)
+  local at = ctx_mod.start_of(c, s)
+  return at.y, at.x
 end
 
 --- Every statement of one block, each on the line the source gave it.

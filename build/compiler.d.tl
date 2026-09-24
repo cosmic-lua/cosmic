@@ -12,8 +12,9 @@ local record compiler
   -- TODO: declare `ast`, `type`, `Env.modules`, the reporter's
   -- collector and `parse_program`'s answer as the records build.ast
   -- (Node) and build.receivers (Type) declare, moved here, so the casts
-  -- build/contracts.tl's casts table lets build.ast.node and
-  -- build.receivers make at this boundary go, and build.importer's `is`
+  -- build/contracts.tl's casts table lets build.ast.node,
+  -- build.receivers and build.contracts (the module's own answer, for
+  -- rules 10 and 11) make at this boundary go, and build.importer's `is`
   -- check of the tree; the records would first have to stop requiring
   -- this declaration themselves.
   record Result

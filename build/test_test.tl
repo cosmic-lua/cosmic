@@ -31,11 +31,13 @@ local function test_identical_inputs_produce_the_same_stable_key(tmp: string)
   local reads: {observations.Observation} = {
     { kind = "o", path = path, answer = Hash.hex_sha256("hello") },
   }
-  local key1, stable1 = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
+  local verdict_key1 = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
     "runtime", reads, {})
+  local key1, stable1 = verdict_key1.key, verdict_key1.stable
   assert(stable1)
-  local key2, stable2 = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
+  local verdict_key2 = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
     "runtime", reads, {})
+  local key2, stable2 = verdict_key2.key, verdict_key2.stable
   assert(stable2)
   assert(key1 == key2)
 end
@@ -46,8 +48,8 @@ local function test_a_changed_content_read_is_unstable(tmp: string)
   local reads: {observations.Observation} = {
     { kind = "o", path = path, answer = Hash.hex_sha256("something else") },
   }
-  local _, stable = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
-    "runtime", reads, {})
+  local stable = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
+    "runtime", reads, {}).stable
   assert(not stable)
 end
 
@@ -57,26 +59,26 @@ local function test_a_changed_stat_read_is_unstable(tmp: string)
   local reads: {observations.Observation} = {
     { kind = "s", path = path, answer = "not a real stat answer" },
   }
-  local _, stable = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
-    "runtime", reads, {})
+  local stable = test.verdict_key(tmp, {}, "mod.tl name", "modkey",
+    "runtime", reads, {}).stable
   assert(not stable)
 end
 
 local function test_distinct_ids_never_share_a_key(tmp: string)
-  local key1 = test.verdict_key(tmp, {}, "path1 name1", "modkey", "runtime", {}, {})
-  local key2 = test.verdict_key(tmp, {}, "path2 name2", "modkey", "runtime", {}, {})
+  local key1 = test.verdict_key(tmp, {}, "path1 name1", "modkey", "runtime", {}, {}).key
+  local key2 = test.verdict_key(tmp, {}, "path2 name2", "modkey", "runtime", {}, {}).key
   assert(key1 ~= key2)
 end
 
 local function test_distinct_module_keys_never_share_a_key(tmp: string)
-  local key1 = test.verdict_key(tmp, {}, "path name", "modkey1", "runtime", {}, {})
-  local key2 = test.verdict_key(tmp, {}, "path name", "modkey2", "runtime", {}, {})
+  local key1 = test.verdict_key(tmp, {}, "path name", "modkey1", "runtime", {}, {}).key
+  local key2 = test.verdict_key(tmp, {}, "path name", "modkey2", "runtime", {}, {}).key
   assert(key1 ~= key2)
 end
 
 local function test_distinct_runtimes_never_share_a_key(tmp: string)
-  local key1 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime1", {}, {})
-  local key2 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime2", {}, {})
+  local key1 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime1", {}, {}).key
+  local key2 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime2", {}, {}).key
   assert(key1 ~= key2)
 end
 
@@ -91,8 +93,8 @@ local function test_distinct_read_sets_never_share_a_key(tmp: string)
   local reads_b: {observations.Observation} = {
     { kind = "o", path = b, answer = Hash.hex_sha256("hello") },
   }
-  local key1 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_a, {})
-  local key2 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_b, {})
+  local key1 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_a, {}).key
+  local key2 = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_b, {}).key
   assert(key1 ~= key2)
 end
 
@@ -105,12 +107,12 @@ end
 --- the header through the same key_part hex-encoding every read line
 --- already uses.
 local function test_header_fields_do_not_collide_across_their_boundary(tmp: string)
-  local key1 = test.verdict_key(tmp, {}, "foo bar", "baz", "r", {}, {})
-  local key2 = test.verdict_key(tmp, {}, "foo", "bar baz", "r", {}, {})
+  local key1 = test.verdict_key(tmp, {}, "foo bar", "baz", "r", {}, {}).key
+  local key2 = test.verdict_key(tmp, {}, "foo", "bar baz", "r", {}, {}).key
   assert(key1 ~= key2)
 
-  local key3 = test.verdict_key(tmp, {}, "id", "baz", "r", {}, {})
-  local key4 = test.verdict_key(tmp, {}, "id", "ba", "zr", {}, {})
+  local key3 = test.verdict_key(tmp, {}, "id", "baz", "r", {}, {}).key
+  local key4 = test.verdict_key(tmp, {}, "id", "ba", "zr", {}, {}).key
   assert(key3 ~= key4)
 end
 
@@ -200,10 +202,11 @@ local function test_the_shipped_database_enters_the_key(tmp: string)
   assert(Fs.write(db, "first"))
   assert(Fs.write(other, "first"))
   local function key_over(path: string): string, boolean
-    return test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime",
+    local k = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime",
       { { kind = "o", path = path, answer = Hash.hex_sha256("first") } }, {})
+    return k.key, k.stable
   end
-  local unread = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", {}, {})
+  local unread = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", {}, {}).key
   local keyed, stable = key_over(db)
   assert(stable and keyed ~= unread, "o/cosmic.db did not enter the key")
   assert(Fs.write(db, "second"))
@@ -231,15 +234,15 @@ local function test_an_environment_answer_is_part_of_the_key(tmp: string)
     { { kind = "e", path = "COSMIC_TEST_ENV_KEY", answer = "ok one" } }
   local reads_b: {observations.Observation} =
     { { kind = "e", path = "COSMIC_TEST_ENV_KEY", answer = "ok two" } }
-  local key_a = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_a, {})
-  local key_b = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_b, {})
+  local key_a = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_a, {}).key
+  local key_b = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads_b, {}).key
   assert(key_a ~= key_b)
 end
 
 local function test_a_changed_environment_answer_is_unstable(tmp: string)
   local reads: {observations.Observation} =
     { { kind = "e", path = "COSMIC_TEST_ENV_KEY", answer = "ok not the live value" } }
-  local _, stable = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads, {})
+  local stable = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads, {}).stable
   assert(not stable)
 end
 
@@ -268,8 +271,10 @@ local function test_a_tree_path_through_a_link_keys_as_the_tree_path(tmp: string
     local linked: {observations.Observation} = { unresolved[1],
       { kind = "r", path = through, answer = observations.resolution(through) } }
     assert(test.keyable(root, scratch, linked), name)
-    local key1, stable1 = test.verdict_key(root, {}, "p n", "m", "r", direct, {})
-    local key2, stable2 = test.verdict_key(root, {}, "p n", "m", "r", linked, {})
+    local verdict_key1 = test.verdict_key(root, {}, "p n", "m", "r", direct, {})
+    local key1, stable1 = verdict_key1.key, verdict_key1.stable
+    local verdict_key2 = test.verdict_key(root, {}, "p n", "m", "r", linked, {})
+    local key2, stable2 = verdict_key2.key, verdict_key2.stable
     assert(stable1 and stable2 and key1 ~= key2, name)
     -- A later run looks the verdict up from the stored reads, which
     -- carry no answers: it finds the key the run recorded.
@@ -277,7 +282,8 @@ local function test_a_tree_path_through_a_link_keys_as_the_tree_path(tmp: string
       { kind = "s", path = through, answer = "" },
       { kind = "r", path = through, answer = "" },
     }
-    local later, stable3 = test.verdict_key(root, {}, "p n", "m", "r", stored, {})
+    local verdict_later = test.verdict_key(root, {}, "p n", "m", "r", stored, {})
+    local later, stable3 = verdict_later.key, verdict_later.stable
     assert(stable3 and later == key2, name)
   end
   local out = elsewhere .. "/in/out"
@@ -311,16 +317,17 @@ local function test_a_retargeted_link_does_not_stand(tmp: string)
     { kind = "o", path = read, answer = "" },
     { kind = "r", path = read, answer = observations.resolution(read) },
   }
-  local before, stable = test.verdict_key(root, {}, "p n", "m", "r", reads, {})
+  local verdict_before = test.verdict_key(root, {}, "p n", "m", "r", reads, {})
+  local before, stable = verdict_before.key, verdict_before.stable
   assert(stable)
   assert(Fs.remove(base .. "/link"))
   assert(Fs.symlink(root .. "/b", base .. "/link"))
-  local _, still = test.verdict_key(root, {}, "p n", "m", "r", reads, {})
+  local still = test.verdict_key(root, {}, "p n", "m", "r", reads, {}).stable
   assert(not still)
   local stored: {observations.Observation} = {
     { kind = "o", path = read, answer = "" },
     { kind = "r", path = read, answer = "" },
   }
-  local after, _ = test.verdict_key(root, {}, "p n", "m", "r", stored, {})
+  local after = test.verdict_key(root, {}, "p n", "m", "r", stored, {}).key
   assert(after ~= before)
 end

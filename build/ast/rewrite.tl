@@ -82,8 +82,8 @@ local function find_all(ast: Node, pattern: Node): {Hit}
     end
   end)
   table.sort(hits, function(p: Hit, q: Hit): boolean
-    local py, px = ast_walk.span_start(p.node)
-    local qy, qx = ast_walk.span_start(q.node)
+    local ps, qs = ast_walk.span_start(p.node), ast_walk.span_start(q.node)
+    local py, px, qy, qx = ps.y, ps.x, qs.y, qs.x
     return py < qy or (py == qy and px < qx)
   end)
   return hits
@@ -132,8 +132,8 @@ end
 --- @return integer b
 local function byte_span(node: Node, tokens: {compiler.Token},
     starts: {integer}): integer, integer
-  local sy, sx = ast_walk.span_start(node)
-  local ey, ex = ast_walk.span_end(node, tokens)
+  local s, e = ast_walk.span_start(node), ast_walk.span_end(node, tokens)
+  local sy, sx, ey, ex = s.y, s.x, e.y, e.x
   return offset_of(starts, sy, sx), offset_of(starts, ey, ex)
 end
 
@@ -278,8 +278,8 @@ end
 --- @return integer b
 local function line_range(node: Node, tokens: {compiler.Token}, starts: {integer},
     source_len: integer): integer, integer
-  local sy, _ = ast_walk.span_start(node)
-  local ey, _ = ast_walk.span_end(node, tokens)
+  local sy = ast_walk.span_start(node).y
+  local ey = ast_walk.span_end(node, tokens).y
   local a = starts[sy]
   local b = ey + 1 <= #starts and starts[ey + 1] - 1 or source_len
   return a, b

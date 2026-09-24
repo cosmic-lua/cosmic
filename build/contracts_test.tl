@@ -56,7 +56,7 @@ local function problems_in(source: string, exemptions?: contracts.Exemptions): {
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
   local checked = result.ast as ast.Node -- cast: tl's checked AST
   return contracts.check("x.tl", checked, state, contracts.quiet_records(env),
-    receivers.record_named(env, "cosmic.sys", ""), exemptions)
+    receivers.record_named(env, "cosmic.sys", ""), exemptions, result.type)
 end
 
 --- Exemptions naming `keys` in the table `which` alone, in place of
@@ -631,4 +631,87 @@ local function test_a_same_named_local_elsewhere_is_not_the_field()
   allows("local record Options\n  links: string\nend\n" ..
     "local function f(o: Options)\n  local m = o.links\n  if m == 'skip' then use(1) end\n" ..
     "  local m2 = m\n  local m = 'x'\n  if m == 'a' or m == 'b' then use(m2) end\nend\nuse(f)")
+end
+
+--- Rule 10: what a module exports answers one result, or a failure pair.
+local function test_an_exported_tuple_is_flagged()
+  local tuple = "an exported function answers one result"
+  flags("local record M end\nfunction M.split(): string, string\n" ..
+    "  return 'a', 'b'\nend\nreturn M", "M.split: " .. tuple)
+  -- Two answers beside each other are a tuple, not a failure.
+  flags("local record M end\nfunction M.pair(): boolean, integer\n" ..
+    "  return true, 1\nend\nreturn M", tuple)
+  -- A variadic answer is as many results as a caller binds.
+  flags("local record M end\nfunction M.all(): string...\n" ..
+    "  return 'a', 'b'\nend\nreturn M", tuple)
+  -- A record declared inside the export exports its methods.
+  flags("local record M\n  record R\n    n: integer\n  end\nend\n" ..
+    "function M.R:pair(): integer, integer\n  return self.n, self.n\nend\nreturn M",
+    "M.R:pair: " .. tuple)
+  -- A field the record declares is exported however it is filled.
+  flags("local record M\n  f: function(): string, string\nend\n" ..
+    "local function f(): string, string return 'a', 'b' end\nM.f = f\nreturn M",
+    "M.f: " .. tuple)
+  -- A generic function is held the same as any other.
+  flags("local record M end\nfunction M.twice<T>(x: T): T, T\n" ..
+    "  return x, x\nend\nreturn M", "M.twice: " .. tuple)
+  -- A module that answers a constructor exports its fields by name.
+  flags("local function split(): string, string return 'a', 'b' end\n" ..
+    "return { split = split }", "split: " .. tuple)
+end
+
+local function test_an_exported_single_result_or_failure_pair_is_allowed()
+  allows("local record M end\nfunction M.one(): string\n  return 'a'\nend\n" ..
+    "function M.read(): string | nil, string\n  return sget()\nend\n" ..
+    "function M.write(): boolean, string\n  return put()\nend\nreturn M")
+  -- A local function keeps whatever shape it likes; only an export is held.
+  allows("local record M end\nlocal function split(): string, string\n" ..
+    "  return 'a', 'b'\nend\nfunction M.first(): string\n" ..
+    "  local a, _ = split()\n  return a\nend\nreturn M")
+  -- A record another module declares, only named here, is not this
+  -- module's to answer for.
+  allows("local record M\n  type Logger = Log\nend\nreturn M")
+end
+
+local function test_an_exempt_export_may_answer_a_tuple()
+  local found = problems_in("local record M end\nfunction M.split(): string, string\n" ..
+    "  return 'a', 'b'\nend\nreturn M", exempting("exempt", { "x.tl:M.split" }))
+  assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- Rule 11: an exported wrapper over a fallible `cosmic.sys` binding
+--- answers the binding's failure.
+local function test_an_exported_bare_boolean_over_a_binding_is_flagged()
+  local sys = "local sys = require('cosmic.sys')\nlocal record M end\n"
+  local bare = "calls cosmic.sys.unlink itself and answers a bare boolean"
+  flags(sys .. "function M.rm(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
+  -- A local function stored into the export is held the same.
+  flags(sys .. "local function rm(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
+    "local record N\n  rm: function(string): boolean\nend\n" ..
+    "local n: N = { rm = rm }\nuse(M)\nreturn n", bare)
+  -- A function the record declares, then defines, is the one defined.
+  flags("local sys = require('cosmic.sys')\n" ..
+    "local record M\n  rm: function(string): boolean\nend\n" ..
+    "function M.rm(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nreturn M", "M.rm: " .. bare)
+  -- A literal bound to a local, then stored, is the one stored.
+  flags(sys .. "local rm = function(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\n" ..
+    "use(M)\nreturn { rm = rm }", "rm: " .. bare)
+end
+
+local function test_a_wrapper_answering_its_failure_is_allowed()
+  local sys = "local sys = require('cosmic.sys')\nlocal record M end\n"
+  allows(sys .. "function M.rm(p: string): boolean, string\n" ..
+    "  local ok, err = sys.unlink(p)\n  if not ok then return false, err end\n" ..
+    "  return true, ''\nend\nreturn M")
+  -- A binding called from a function nested in it is that function's.
+  allows(sys .. "function M.later(p: string): boolean\n" ..
+    "  use(function(): boolean\n    local ok, _ = sys.unlink(p)\n    return ok\n  end)\n" ..
+    "  return true\nend\nreturn M")
+  -- A local wrapper is not the module's answer.
+  allows(sys .. "local function rm(p: string): boolean\n" ..
+    "  local ok, _ = sys.unlink(p)\n  return ok\nend\nuse(rm)\nreturn M")
 end

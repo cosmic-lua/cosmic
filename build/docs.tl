@@ -24,6 +24,12 @@ local log = require("build.verdict").log
 local bind = require("build.bind")
 
 local record docs
+  --- The databases a lookup reads, in order, and which of them, by
+  --- index, are public sources: what `view` takes.
+  record Sources
+    handles: {Sqlite.Handle}
+    public: {boolean}
+  end
   --- One ordered database view and the owner of every module in it.
   record View
     databases: {Sqlite.Handle}
@@ -442,7 +448,7 @@ end
 --- searches. A module found in an earlier one hides the same module in
 --- a later one, so a project's build answers for its own modules and
 --- the binary answers for the standard library.
-function docs.databases(): {Sqlite.Handle}, {boolean}
+function docs.databases(): docs.Sources
   local out: {Sqlite.Handle} = {}
   local public: {boolean} = {}
   local own_exists, own_trouble = Fs.exists("o/cosmic.db")
@@ -475,7 +481,7 @@ function docs.databases(): {Sqlite.Handle}, {boolean}
     out[#out + 1] = db
     public[#out] = outside
   end
-  return out, public
+  return { handles = out, public = public }
 end
 
 --- One lookup over `databases`, in order, with a module answered by an
@@ -838,8 +844,8 @@ function docs.run(argv: {integer:string}): integer
       "(cosmic.fs), or words to search for")
     return 2
   end
-  local handles, public = docs.databases()
-  local view, view_trouble = docs.view(handles, public)
+  local sources = docs.databases()
+  local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     log:complain("docs: " .. view_trouble)
     return 1
@@ -900,8 +906,8 @@ function docs.run_uses(argv: {integer:string}): integer
     return exit
   end
   local started = Time.monotonic_ns()
-  local handles, public = docs.databases()
-  local view, view_trouble = docs.view(handles, public)
+  local sources = docs.databases()
+  local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     log:complain("uses: " .. view_trouble)
     return 1

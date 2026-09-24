@@ -435,7 +435,7 @@ function fix.run(argv: {integer:string}): integer
   local rounds = 0
   while true do
     local sites, check_trouble = spill.check(root)
-    if check_trouble ~= "" then
+    if sites == nil then
       failures[#failures + 1] = "checking asserts: " .. check_trouble
       break
     end

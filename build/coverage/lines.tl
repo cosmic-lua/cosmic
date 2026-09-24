@@ -92,7 +92,7 @@ function lines.executable(built: compiler, source: string,
     if n.kind == "statements" then
       for _, stmt in ipairs(n) do
         if not not_executable[stmt.kind] then
-          local y, _x = ast.span_start(stmt)
+          local y = ast.span_start(stmt).y
           -- Lua attributes a closure to the line its body ends on, and
           -- a `local function` statement is nothing but that closure:
           -- its own first line never runs. (`function M.f` is pinned

@@ -51,8 +51,10 @@ these argues with the principle, not with the reviewer.
    add the errno in a third slot, and a stand-in a module stores
    into that table in a binding's place, which answers as the
    binding does; every other Teal function over it folds its answer
-   back to two. a throw or exit carries a trailing reason
-   and is exceptional by construction.
+   back to two. a function a module exports answers one value, a
+   failure pair, or a record: never a bare tuple, whose later slots a
+   caller drops as quietly as a reason. a throw or exit carries a
+   trailing reason and is exceptional by construction.
 4. **no escape hatch in the type layer.** casts are foreclosed;
    `any` lives only where untrusted data enters and a shape validator
    turns it into a record.

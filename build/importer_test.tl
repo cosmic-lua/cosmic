@@ -822,7 +822,8 @@ local function test_language_errors_name_relevant_checked_docs()
     assert(trouble:find("thing.tl:", 1, true) ~= nil, trouble)
     assert(trouble:find(case[2], 1, true) ~= nil, trouble)
     assert(trouble:find("cosmic docs " .. case[3], 1, true) ~= nil, trouble)
-    local found = assert(docs.lookup(assert(docs.view(docs.databases())), case[3]))
+    local sources = docs.databases()
+    local found = assert(docs.lookup(assert(docs.view(sources.handles, sources.public)), case[3]))
     assert(#found > 0, "hint query has no docs: " .. case[3])
   end
 end
@@ -837,7 +838,8 @@ local function test_malformed_type_keeps_error_and_has_searchable_guide()
   local result, trouble = compile_fixture(root)
   assert(result == nil)
   assert(trouble:find("expected a type list", 1, true) ~= nil, trouble)
-  local found = assert(docs.lookup(assert(docs.view(docs.databases())),
+  local sources = docs.databases()
+  local found = assert(docs.lookup(assert(docs.view(sources.handles, sources.public)),
     "enums_arrays_maps_tuples"))
   assert(#found > 0, "the type-shape guide must remain searchable")
 end
@@ -890,11 +892,12 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
---- API contracts are checked by the real importer before its compiled cache,
---- so a source with a forbidden public fallible signature never compiles.
-local function test_compile_rejects_a_bad_public_fallible_signature()
+--- `build.contracts` holds a module's exports to rule 10 as it compiles,
+--- so an exported function answering a tuple never does.
+local function test_compile_rejects_an_exported_tuple()
   local root = assert(write_fixture("api-contract", {
     ["build/importer.tl"] = "local record Stub end\nreturn Stub\n",
+    -- A syscall declaration source is part of what makes a tree cosmic's own.
     ["core/syscalls.h"] = table.concat({
       "/**",
       " * --- Reads bytes.",
@@ -907,8 +910,8 @@ local function test_compile_rejects_a_bad_public_fallible_signature()
     }, "\n") .. "\n",
     ["cosmic/bad.tl"] = table.concat({
       "local record Bad end",
-      "function Bad.read(): string | nil, string, boolean",
-      "  return nil, 'failed', false",
+      "function Bad.split(): string, string",
+      "  return 'a', 'b'",
       "end",
       "return Bad",
     }, "\n") .. "\n",
@@ -918,7 +921,7 @@ local function test_compile_rejects_a_bad_public_fallible_signature()
   local result, trouble = importer.compile(handle, built, "api-contract-test")
   work.close(handle)
   assert(result == nil)
-  assert(trouble:find("exactly (value, string)", 1, true), trouble)
+  assert(trouble:find("Bad.split: an exported function answers one result", 1, true), trouble)
 end
 
 --- The error-slot discipline (`build.contracts`) is checked beside the

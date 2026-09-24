@@ -155,10 +155,11 @@ local function test_shrink_cuts_and_lowers_draws()
   end
   local draws: {shrink.Draw} = {}
   for i, v in ipairs({ 3, 90, 2, 55, 1 }) do draws[i] = { min = 0, max = 100, value = v } end
-  local best, tries = shrink.shrink(draws, fails, 1000)
+  local shrunk = shrink.shrink(draws, fails, 1000)
+  local best, tries = shrunk.draws, shrunk.tries
   assert(#best == 1 and best[1].value == 7, ("%d draws, first %d"):format(#best, best[1].value))
   assert(tries > 0 and tries <= 1000)
-  local _, capped = shrink.shrink(draws, fails, 3)
+  local capped = shrink.shrink(draws, fails, 3).tries
   assert(capped == 3)
 end
 

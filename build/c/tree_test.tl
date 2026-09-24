@@ -47,8 +47,8 @@ local function test_a_macro_expansion_is_placed_where_it_was_used()
   local parent: tree.Node = { kind = "CallExpr", file = "core/a.c", line = 3, children = {} }
   local child: tree.Node = { kind = "CallExpr", file = "vendor/lua/src/lua.h", line = 9,
                              children = {}, parent = parent }
-  local file, line = tree.place(child)
-  assert(file == "core/a.c" and line == 3)
+  local at = assert(tree.placed(child))
+  assert(at.file == "core/a.c" and at.line == 3)
 end
 
 --- A function whose type begins with a system header's macro, `bool`,

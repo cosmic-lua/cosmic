@@ -122,8 +122,8 @@ local function test_rewrite_reports_only_accepted_original_hits_in_source_order(
   assert(result ~= nil, "rewrite failed: " .. tostring(err))
   assert(#result.refused == 1, "expected one refusal")
   assert(#result.edits == 2, "expected two accepted edits")
-  local y1, x1 = ast.span_start(result.edits[1].node)
-  local y2, x2 = ast.span_start(result.edits[2].node)
+  local s1, s2 = ast.span_start(result.edits[1].node), ast.span_start(result.edits[2].node)
+  local y1, x1, y2, x2 = s1.y, s1.x, s2.y, s2.x
   assert(y1 == 1 and x1 == 1 and y2 == 3 and x2 == 1,
     "accepted edit metadata must retain original positions")
   assert(result.code ==

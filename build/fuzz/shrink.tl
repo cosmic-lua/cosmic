@@ -17,6 +17,13 @@ local record Shrink
   --- building it actually made: a replay clamps a value out of range and
   --- supplies the low end for a draw past the list's end.
   type Fails = function(values: {integer}): boolean, {Draw}
+
+  --- What a shrink found: the simplest failing draws, and how many
+  --- candidates it checked to find them.
+  record Shrunk
+    draws: {Draw}
+    tries: integer
+  end
 end
 
 --- How far `d` sits above its range's low end, read as unsigned.
@@ -47,10 +54,10 @@ end
 --- @param draws {Draw} Draws whose input fails
 --- @param fails Fails Whether a candidate's input still fails
 --- @param max_tries integer The most candidates to check
---- @return {Draw} The simplest failing draws found
---- @return integer How many candidates were checked
+--- @return Shrunk The simplest failing draws found, and how many
+--- candidates were checked
 function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
-    max_tries: integer): {Shrink.Draw}, integer
+    max_tries: integer): Shrink.Shrunk
   local best = draws
   local tries = 0
 
@@ -111,7 +118,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
       i = i + 1
     end
   end
-  return best, tries
+  return { draws = best, tries = tries }
 end
 
 return Shrink

@@ -250,8 +250,8 @@ local function referenced(node: Node): string
   if bare.kind == "UnaryOperator" and bare.text:match("'&'") and #bare.children == 1 then
     bare = tree.bare(bare.children[1])
   end
-  local kind, id = tree.referent(bare)
-  if kind == "Var" or kind == "ParmVar" then return id end
+  local r = tree.referent(bare)
+  if r ~= nil and (r.kind == "Var" or r.kind == "ParmVar") then return r.id end
   return nil
 end
 
@@ -290,9 +290,9 @@ local record Context
 end
 
 local function report(ctx: Context, node: Node, rule: string, message: string)
-  local file, line = tree.place(node)
+  local at = tree.placed(node)
   ctx.findings[#ctx.findings + 1] = {
-    file = file or ctx.file, line = line or 0, rule = rule,
+    file = at ~= nil and at.file or ctx.file, line = at ~= nil and at.line or 0, rule = rule,
     within = ctx.within, message = message,
   }
 end
@@ -348,8 +348,8 @@ local function buffer_of(call: Node): string
       inner = tree.bare(bare.children[1])
     end
     if inner ~= nil and inner.kind == "DeclRefExpr" and is_buffer(inner) then
-      local _, id = tree.referent(inner)
-      return id
+      local r = tree.referent(inner)
+      return r ~= nil and r.id or nil
     end
   end
   return nil
@@ -447,8 +447,8 @@ local function receiver(state: State, call: Node): string, string
   end
   if at.kind == "BinaryOperator" and at.text:match("'='$") and at.children[2] == child then
     local target = tree.bare(at.children[1])
-    local kind, id, name = tree.referent(target)
-    if kind == "Var" and state.locals[id] then return id, name end
+    local r = tree.referent(target)
+    if r ~= nil and r.kind == "Var" and state.locals[r.id] then return r.id, r.name end
   end
   return nil, nil
 end
@@ -464,8 +464,8 @@ local function given(call: Node, slot: integer, state: State): string, string
   if bare.kind == "UnaryOperator" and #bare.children == 1 then
     bare = tree.bare(bare.children[1])
   end
-  local _, _, name = tree.referent(bare)
-  return id, name
+  local r = tree.referent(bare)
+  return id, r ~= nil and r.name or nil
 end
 
 --- The value of an integer constant expression, or nil: `-1`, `-(1)-1`.
@@ -587,8 +587,8 @@ local function expression(ctx: Context, node: Node, state: State)
         end
       end
       if name ~= nil then
-        local _, line = tree.place(n)
-        track_strings(state, n, name, line or 0)
+        local at = tree.placed(n)
+        track_strings(state, n, name, at ~= nil and at.line or 0)
       end
       if takes_state(n) and not (name ~= nil and quiet[name]) then
         for id, h in pairs(state.held) do
@@ -615,12 +615,14 @@ local function expression(ctx: Context, node: Node, state: State)
           end
         end
         if id ~= nil then
-          local _, line = tree.place(n)
-          state.held[id] = { name = var or "a resource", from = name, line = line or 0 }
+          local at = tree.placed(n)
+          state.held[id] = { name = var or "a resource", from = name,
+            line = at ~= nil and at.line or 0 }
         end
       end
     elseif n.kind == "DeclRefExpr" then
-      local _, id = tree.referent(n)
+      local r = tree.referent(n)
+      local id = r ~= nil and r.id or nil
       local p = id ~= nil and state.strings[id] or nil
       local assigned = n.parent ~= nil and n.parent.kind == "BinaryOperator"
         and n.parent.text:match("'='$") ~= nil and n.parent.children[1] == n
@@ -632,18 +634,19 @@ local function expression(ctx: Context, node: Node, state: State)
       end
     elseif n.kind == "BinaryOperator" and n.text:match("'='$") then
       -- A pointer given another value points into nothing on the stack.
-      local lhs_kind, lhs_id = tree.referent(tree.bare(n.children[1]))
+      local lhs = tree.referent(tree.bare(n.children[1]))
       local rhs = tree.bare(n.children[2])
-      if lhs_kind == "Var" and state.strings[lhs_id] ~= nil and not (rhs ~= nil
+      if lhs ~= nil and lhs.kind == "Var" and state.strings[lhs.id] ~= nil and not (rhs ~= nil
           and rhs.kind == "CallExpr" and string_pointers[tree.callee(rhs) or ""] ~= nil) then
-        state.strings[lhs_id] = nil
+        state.strings[lhs.id] = nil
       end
       -- A held resource stored anywhere but in a local has been handed
       -- on: to a record, a guard, an array that owns it.
       local id = referenced(n.children[2])
       local target = tree.bare(n.children[1])
-      local tkind, tid = tree.referent(target)
-      if id ~= nil and state.held[id] ~= nil and not (tkind == "Var" and state.locals[tid]) then
+      local t = tree.referent(target)
+      if id ~= nil and state.held[id] ~= nil
+          and not (t ~= nil and t.kind == "Var" and state.locals[t.id]) then
         state.held[id] = nil
       end
     end
@@ -925,8 +928,8 @@ local function truth(node: Node, known: Truths): boolean
   if bare.kind == "CallExpr" and known.functions[tree.callee(bare) or ""] then
     return true
   end
-  local kind, id = tree.referent(bare)
-  if kind == "Var" and known.locals[id] then return true end
+  local r = tree.referent(bare)
+  if r ~= nil and r.kind == "Var" and known.locals[r.id] then return true end
   local t = tree.canonical_type(bare)
   return t == "_Bool" or t == "bool"
 end
@@ -945,15 +948,17 @@ local function truth_locals(body: Node, known: Truths): {string: boolean}
         refused[n.id] = true
       end
     elseif n.kind == "BinaryOperator" and n.text:match("'='$") then
-      local kind, id = tree.referent(tree.bare(n.children[1]))
-      if kind == "Var" and not truth(n.children[2], known) then refused[id] = true end
+      local r = tree.referent(tree.bare(n.children[1]))
+      if r ~= nil and r.kind == "Var" and not truth(n.children[2], known) then
+        refused[r.id] = true
+      end
     elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator"
         and (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true)
           or n.text:find("'&'", 1, true))) then
       -- Changed in place, or handed out by address to be written
       -- anything at all: `fetch(&status)`.
-      local kind, id = tree.referent(tree.bare(n.children[1]))
-      if kind == "Var" then refused[id] = true end
+      local r = tree.referent(tree.bare(n.children[1]))
+      if r ~= nil and r.kind == "Var" then refused[r.id] = true end
     end
   end)
   local out: {string: boolean} = {}
@@ -1157,8 +1162,8 @@ function rules.unit(decls: {Node}, file: string,
   end
   for _, decl in ipairs(decls) do
     after(decl, function(n: Node)
-      local kind, _, name = tree.referent(n)
-      if kind == "Function" then u.refers[name] = true end
+      local r = tree.referent(n)
+      if r ~= nil and r.kind == "Function" then u.refers[r.name] = true end
     end)
   end
   return u
@@ -1179,8 +1184,9 @@ function rules.single_file(units: {rules.Unit}): {rules.Finding}
           break
         end
       end
-      local file, line = tree.place(prototype)
-      file = file or u.file
+      local at = tree.placed(prototype)
+      local file = at ~= nil and at.file or u.file
+      local line = at ~= nil and at.line or nil
       if not elsewhere and exempt[file .. " " .. name .. " single-file"] == nil then
         out[#out + 1] = {
           file = file, line = line or 0, rule = "single-file", within = name,

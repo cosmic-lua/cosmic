@@ -79,6 +79,12 @@ local record receivers
     is_va: boolean | nil
     --- A function's count of required parameters.
     min_arity: integer | nil
+    --- Whether a function takes its record as `self` (`R:f`).
+    is_method: boolean | nil
+    --- Where the checker met the type: a function's own definition,
+    --- or a field's declaration.
+    y: integer | nil
+    x: integer | nil
     --- A union's alternatives.
     types: {Type} | nil
   end

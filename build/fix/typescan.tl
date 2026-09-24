@@ -85,14 +85,14 @@ local function tk(s: Scan, i: integer): string
   return t ~= nil and t.tk or ""
 end
 
---- The inclusive last position token `i` occupies.
+--- The inclusive last column token `i` occupies, on its own line: a
+--- type's tokens never span lines, as a long string can.
 --- @param s Scan
 --- @param i integer
---- @return integer The 1-based line
 --- @return integer The 1-based column
-local function ends_at(s: Scan, i: integer): integer, integer
+local function last_column(s: Scan, i: integer): integer
   local t = s.tokens[i]
-  return t.y, t.x + #t.tk - 1
+  return t.x + #t.tk - 1
 end
 
 --- Whether `text` is an ordinary identifier, which is all this module
@@ -263,7 +263,7 @@ local record TypescanModule
   closing: function(s: Scan, i: integer): integer
   closing_angle: function(s: Scan, i: integer): integer
   word_after: function(s: Scan, i: integer, word: string): integer
-  ends_at: function(s: Scan, i: integer): integer, integer
+  last_column: function(s: Scan, i: integer): integer
   tk: function(s: Scan, i: integer): string
 end
 
@@ -276,7 +276,7 @@ local M: TypescanModule = {
   closing = closing,
   closing_angle = closing_angle,
   word_after = word_after,
-  ends_at = ends_at,
+  last_column = last_column,
   tk = tk,
 }
 

@@ -320,7 +320,6 @@ end
 --- derived them.
 local analysis_tables: {string} = {
   "parsed", "requires", "tests", "catalog", "docs", "refs", "examples",
-  "contracts",
 }
 
 --- The identity of the analyzer that is running: the compiler, and the
@@ -691,33 +690,6 @@ local function collect(handle: work.Handle, self_tree: boolean,
     }
   end
   return out
-end
-
---- `positions.check_api_contracts` over the modules no earlier build saw
---- pass under the same fallible syscalls, and a record of each that
---- passes now: the check parses every module it is handed, and what it
---- finds is a function of a module's bytes and that set alone.
-local function check_contracts(db: Sqlite.Handle, built: compiler, modules: {Module},
-                               fallible: {string:boolean}, names: string): boolean, string
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT source_hash FROM contracts WHERE fallible = ?1", { text(names) })
-  if rows == nil then return false, trouble end
-  local passed: {string:boolean} = {}
-  for _, row in ipairs(rows) do passed[row[1]] = true end
-  local unchecked: {Module} = {}
-  for _, m in ipairs(modules) do
-    if not passed[m.source_hash] then unchecked[#unchecked + 1] = m end
-  end
-  if #unchecked == 0 then return true, "" end
-  local contracted, contract_trouble = positions.check_api_contracts(built, unchecked, fallible)
-  if not contracted then return false, contract_trouble end
-  for _, m in ipairs(unchecked) do
-    local ok, why = Sqlite.run(db,
-      "INSERT OR IGNORE INTO contracts (source_hash, fallible) VALUES (?1, ?2)",
-      { text(m.source_hash), text(names) })
-    if not ok then return false, why end
-  end
-  return true, ""
 end
 
 --- The modules in an order where nothing is compiled before what it
@@ -1109,7 +1081,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   local refused = false
   if own_tree and contracts.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
-      receivers.record_named(env, "cosmic.sys", ""))
+      receivers.record_named(env, "cosmic.sys", ""), nil, result.type)
     if #problems > 0 and judged then
       return nil, table.concat(problems, "\n")
     end
@@ -1214,28 +1186,6 @@ function importer.compile(handle: work.Handle, built: compiler,
   local positioned, position_trouble = positions.check(modules, own_tree)
   if not positioned then
     return nil, position_trouble
-  end
-  if own_tree then
-    local header_rows, header_trouble = Sqlite.text_rows(handle.db,
-      "SELECT data FROM files WHERE path = 'core/syscalls.h'")
-    if header_rows == nil then return nil, header_trouble end
-    if #header_rows == 0 then
-      return nil, "core/syscalls.h: cosmic's own tree has no syscall declaration source"
-    end
-    local declared, declaration_trouble = gen_syscalls.read(header_rows[1][1])
-    if declared == nil then return nil, declaration_trouble end
-    local fallible: {string:boolean} = {}
-    local names: {string} = {}
-    for _, call in ipairs(declared.calls) do
-      if #call.results == 3 then
-        fallible[call.name] = true
-        names[#names + 1] = call.name
-      end
-    end
-    table.sort(names)
-    local contracted, contract_trouble =
-      check_contracts(handle.db, built, modules, fallible, table.concat(names, " "))
-    if not contracted then return nil, contract_trouble end
   end
   local order, why = ordered(modules)
   if order == nil then

@@ -304,17 +304,28 @@ local function span_end(node: Node, tokens: {compiler.Token}): integer, integer
 end
 
 local record WalkModule
+  --- A place in the source: 1-based line and column.
+  record Position
+    y: integer
+    x: integer
+  end
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}, passed?: {Node}): {Node}
-  span_start: function(node: Node): integer, integer
-  span_end: function(node: Node, tokens: {compiler.Token}): integer, integer
+  span_start: function(node: Node): Position
+  span_end: function(node: Node, tokens: {compiler.Token}): Position
 end
 
 local M: WalkModule = {
   walk = walk,
   children = children,
-  span_start = span_start,
-  span_end = span_end,
+  span_start = function(node: Node): WalkModule.Position
+    local y, x = span_start(node)
+    return { y = y, x = x }
+  end,
+  span_end = function(node: Node, tokens: {compiler.Token}): WalkModule.Position
+    local y, x = span_end(node, tokens)
+    return { y = y, x = x }
+  end,
 }
 
 return M

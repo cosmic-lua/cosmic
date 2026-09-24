@@ -79,7 +79,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "22"
+local version <const> = "23"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -148,11 +148,6 @@ local version <const> = "22"
 --- the commits between them leave the file alone, which moves `head`
 --- on. `cosmic todos` fills it, since a build has no business running
 --- git.
----
---- `contracts` is one source that `positions.check_api_contracts` passed,
---- under one set of fallible syscalls (`fallible`, their names sorted and
---- joined by spaces): a function of the bytes and that set alone, so a
---- source it names is not checked again.
 ---
 --- Raw cores remain build outputs under `o/core`; they are never copied into
 --- this working database. The compiler lives in `derived`, the one row there
@@ -347,9 +342,6 @@ work.schema = {
                                        summary TEXT NOT NULL,
                                        boundary INTEGER NOT NULL,
                                        PRIMARY KEY (path, line)) WITHOUT ROWID]],
-  [[CREATE TABLE IF NOT EXISTS contracts (source_hash TEXT NOT NULL,
-                                          fallible TEXT NOT NULL,
-                                          PRIMARY KEY (source_hash, fallible)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
