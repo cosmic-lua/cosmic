@@ -456,6 +456,94 @@ function Fs.fsync(fd: integer): boolean, string
   return true, ""
 end
 
+--- Copies one regular file's bytes a chunk at a time, so a large file
+--- is never held in memory whole.
+local function copy_bytes(from: string, to: string): boolean, string
+  local input, open_trouble = Fs.open_read(from)
+  if input == nil then return false, open_trouble end
+  -- Exclusive: a name that appeared since the target was checked, a
+  -- planted link included, is refused rather than written through.
+  local output, create_trouble = sys.open(to,
+    sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180)
+  if output == nil then
+    Fs.close(input)
+    return false, to .. ": " .. create_trouble
+  end
+  local ok, trouble = true, ""
+  while true do
+    local chunk, read_trouble = Fs.take(input, 1 << 20)
+    if chunk == nil then
+      ok, trouble = false, from .. ": " .. read_trouble
+      break
+    end
+    if chunk == "" then break end
+    local put, put_trouble = Fs.put(output, chunk)
+    if not put then
+      ok, trouble = false, to .. ": " .. put_trouble
+      break
+    end
+  end
+  Fs.close(input)
+  local closed, close_trouble = Fs.close(output)
+  if ok and not closed then return false, to .. ": " .. close_trouble end
+  return ok, trouble
+end
+
+--- Copies the tree at `from` to `to`: each regular file's bytes, each
+--- directory, and each symbolic link as a link to the same target, never
+--- followed. Every permission bit is kept, the umask not applied, except
+--- setuid and setgid: the copy belongs to whoever makes it, so they are
+--- dropped. Each modification time is kept to the second. `to` must not
+--- exist yet; each listing is read before its copy is made, so a tree
+--- copied into itself is not copied again. Anything else in the tree (a
+--- device, a socket, a named pipe) stops the copy with its path, and a
+--- copy that stops leaves what it made so far in place.
+-- TODO: keep what `cp -a` also keeps -- nanosecond times (once
+-- sys.utimens takes them), the access time, hard links as links (Stat has
+-- ino, dev and nlink), and the owner when run as root (once cosmic.sys
+-- carries lchown).
+function Fs.copy_tree(from: string, to: string): boolean, string
+  local present, present_trouble, number = sys.lstat(to)
+  if present ~= nil then
+    return false, to .. ": already exists"
+  elseif number ~= sys.ENOENT then
+    return false, to .. ": " .. present_trouble
+  end
+  local function copy(source: string, target: string): boolean, string
+    local st, trouble = sys.lstat(source)
+    if st == nil then return false, source .. ": " .. trouble end
+    local permissions = st.mode & 0x3ff
+    if st.kind == "link" then
+      local target_of, link_trouble = Fs.readlink(source)
+      if target_of == nil then return false, link_trouble end
+      local linked, symlink_trouble = Fs.symlink(target_of, target)
+      if not linked then return false, symlink_trouble end
+    elseif st.kind == "file" then
+      local copied, copy_trouble = copy_bytes(source, target)
+      if not copied then return false, copy_trouble end
+      local changed, chmod_trouble = sys.chmod(target, permissions)
+      if not changed then return false, target .. ": " .. chmod_trouble end
+    elseif st.kind == "dir" then
+      local entries, list_trouble = sys.readdir(source)
+      if entries == nil then return false, source .. ": " .. list_trouble end
+      local made, mkdir_trouble = sys.mkdir(target, 0x1c0)
+      if not made then return false, target .. ": " .. mkdir_trouble end
+      for _, name in ipairs(sorted_names(entries)) do
+        local copied, why = copy(source .. "/" .. name, target .. "/" .. name)
+        if not copied then return false, why end
+      end
+      -- The directory's own mode last, so a read-only one still took
+      -- its entries.
+      local changed, chmod_trouble = sys.chmod(target, permissions)
+      if not changed then return false, target .. ": " .. chmod_trouble end
+    else
+      return false, source .. ": not a file, directory or symbolic link"
+    end
+    return Fs.set_mtime(target, st.mtime, st.mtime)
+  end
+  return copy(from, to)
+end
+
 Fs.stdin = 0
 Fs.stdout = 1
 Fs.stderr = 2

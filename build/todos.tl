@@ -13,7 +13,9 @@
 --- with no commit.
 
 local Child = require("cosmic.child")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
@@ -22,6 +24,8 @@ local clock = require("build.clock")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
 local work = require("build.work")
+
+local log = Log.new("cosmic")
 
 local record todos
   --- What blame says about one line.
@@ -53,14 +57,6 @@ local record todos
     summary: string
     boundary: boolean
   end
-end
-
-local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 --- What `git blame --line-porcelain` said, by final line number.
@@ -481,7 +477,7 @@ function todos.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 1
   end
   -- TODO: list TODOs when only the core is stale, since nothing here
@@ -491,55 +487,50 @@ function todos.run(argv: {integer:string}): integer
   local code, reboot_trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if reboot_trouble ~= "" then
-      complain(reboot_trouble)
+      log:complain(reboot_trouble)
     end
     return code
   end
-  local oldest = false
+  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--oldest"] = false })
+  if parsed == nil then
+    log:complain("todos: " .. parse_trouble)
+    return 2
+  end
+  local oldest = parsed.set["--oldest"] == true
   local paths: {string} = {}
   local words: {string} = {}
-  local slot = 2
-  while argv[slot] ~= nil do
-    local option = argv[slot]
-    if option == "--oldest" then
-      oldest = true
-    elseif option:sub(1, 1) == "-" then
-      complain("todos: no such option: " .. option)
-      return 2
+  for _, word in ipairs(parsed.words) do
+    -- A path when it names one, and words to search for when not, as
+    -- `cosmic docs` takes a symbol first and words after.
+    local path = (word:gsub("^%./", ""):gsub("/+$", ""))
+    if path ~= "" and Fs.exists(root .. "/" .. path) then
+      paths[#paths + 1] = path
     else
-      -- A path when it names one, and words to search for when not, as
-      -- `cosmic docs` takes a symbol first and words after.
-      local path = (option:gsub("^%./", ""):gsub("/+$", ""))
-      if path ~= "" and Fs.exists(root .. "/" .. path) then
-        paths[#paths + 1] = path
-      else
-        words[#words + 1] = option
-      end
+      words[#words + 1] = word
     end
-    slot = slot + 1
   end
   local query = table.concat(words, " ")
 
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
-    complain(own_trouble)
+    log:complain(own_trouble)
     return 1
   end
   local handle, open_trouble = work.open(root)
   if handle == nil then
-    complain(open_trouble)
+    log:complain(open_trouble)
     return 1
   end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     work.abort(handle)
-    complain(stage_trouble)
+    log:complain(stage_trouble)
     return 1
   end
   local all, blamed = todos.list(handle.db, root)
   if all == nil then
     work.abort(handle)
-    complain(blamed as string)
+    log:complain(blamed as string)
     return 1
   end
   local ranks: {integer:integer} = nil
@@ -547,14 +538,14 @@ function todos.run(argv: {integer:string}): integer
     local found, search_trouble = todos.search(handle.db, query)
     if found == nil then
       work.abort(handle)
-      complain("todos: " .. search_trouble)
+      log:complain("todos: " .. search_trouble)
       return 1
     end
     ranks = found
   end
   local closed, close_trouble = work.close(handle)
   if not closed then
-    complain(close_trouble)
+    log:complain(close_trouble)
     return 1
   end
 
@@ -575,8 +566,8 @@ function todos.run(argv: {integer:string}): integer
     end)
   end
   if ranks ~= nil and #listed == 0 then
-    report("todos: FAIL (no TODO matches '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms)")
+    log:verdict("todos", false, "no TODO matches '" .. query .. "', " ..
+      clock.elapsed_ms(started) .. " ms")
     return 1
   end
   if oldest then
@@ -598,14 +589,14 @@ function todos.run(argv: {integer:string}): integer
   local files: {string:boolean} = {}
   local file_count = 0
   for _, todo in ipairs(listed) do
-    report(todos.render(todo))
+    log:say(todos.render(todo))
     if not files[todo.file] then
       files[todo.file] = true
       file_count = file_count + 1
     end
   end
-  report("todos: PASS (" .. #listed .. " todos in " .. file_count .. " files, " ..
-    tostring(blamed) .. " files blamed, " .. clock.elapsed_ms(started) .. " ms)")
+  log:verdict("todos", true, #listed .. " todos in " .. file_count .. " files, " ..
+    tostring(blamed) .. " files blamed, " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 
