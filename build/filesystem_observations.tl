@@ -6,6 +6,15 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
+-- What placing a path asks of the process, taken when this module
+-- loads -- before any test's module does -- so a test that stubs one
+-- cannot bend where its own reads are keyed.
+-- TODO: take the `Fs` functions a note calls (`within`, `dirname`,
+-- `basename`) the same way: a test that replaces one on the shared
+-- `Fs` table can still move a read in or out of the tree.
+local getcwd = sys.getcwd
+local realpath = sys.realpath
+
 local record observations
   record Observation
     kind: string
@@ -80,7 +89,7 @@ function observations.resolution(path: string): string
   local missing: {string} = {}
   local at = path
   while true do
-    local real, _ = sys.realpath(at)
+    local real, _ = realpath(at)
     if real ~= nil then
       for i = #missing, 1, -1 do
         real = (real == "/" and "" or real) .. "/" .. missing[i]
@@ -206,9 +215,16 @@ end
 --- queries too: absence and errors are answers a test can depend on.
 ---
 --- A "p" (a process started) or an "x" (a query no key can hold: a
---- request over the network, or a change of working directory, after
---- which a relative path no longer names a file in the tree) makes the
---- run's verdict one that never stands.
+--- request over the network, or a relative path when the working
+--- directory cannot be told) makes the run's verdict one that
+--- never stands.
+---
+--- A relative path is noted as the absolute one it names from the
+--- working directory the call was made in, asked of the process itself
+--- rather than tracked: a change of directory made while the module
+--- loaded, or through a reference to `sys.chdir` taken then, moves the
+--- test's own reads too. A change of directory is itself noted as a
+--- stat of where it went.
 ---
 --- Given `resolving`, an absolute path an open, a stat or a listing
 --- names outside its tree, or that climbs with "..", is noted a second
@@ -239,8 +255,18 @@ local function start(resolving: observations.Resolving | nil):
   -- that is no string at all, which the call itself raises for; only a
   -- path is an observation, and encoding anything else into a key would
   -- end the worker before the test could report.
-  local function note(kind: string, path: any, answer: string)
-    if path is string then
+  local function note(kind: string, given: any, answer: string)
+    if given is string then
+      local path = given
+      if path:sub(1, 1) ~= "/" and
+          (kind == "o" or kind == "s" or kind == "d" or kind == "m") then
+        local here, _ = getcwd()
+        if here == nil then
+          found[#found + 1] = { kind = "x", path = path, answer = "" }
+          return
+        end
+        path = (here == "/" and "" or here) .. "/" .. path
+      end
       found[#found + 1] = { kind = kind, path = path, answer = answer }
       if resolving ~= nil and (kind == "o" or kind == "s" or kind == "d") and
           path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
@@ -313,7 +339,7 @@ local function start(resolving: observations.Resolving | nil):
     return ok, trouble, errno
   end
   sys.chdir = function(path: string): boolean, string, integer
-    note("x", path, "")
+    note("s", path, stat_result_answer(stat(path)))
     return chdir(path)
   end
   -- A scripted request answers from the test's own text and connects
