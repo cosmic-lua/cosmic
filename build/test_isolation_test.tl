@@ -99,6 +99,58 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   assert(result.ok, assert(Fs.read(output)))
 end
 
+--- A test's directory is reached through a link, so a path resolved on
+--- one side of a comparison and not the other fails here as it does
+--- under macOS's /var; the one this test itself was handed is too.
+local function test_a_test_directory_is_reached_through_a_link(tmp: string)
+  local st = assert(sys.lstat(tmp))
+  assert(st.kind == "link", tmp .. " is a " .. st.kind)
+  local resolved = assert(Fs.absolute(tmp))
+  assert(resolved ~= tmp, resolved)
+  assert(Fs.is_dir(resolved))
+  local scratch = assert(test.scratch())
+  assert(assert(Fs.absolute(scratch)) == scratch, scratch)
+  assert(assert(Fs.readlink(scratch .. "/tmp")) == "real")
+  assert(assert(Fs.absolute(scratch .. "/tmp")) == scratch .. "/real")
+  assert(Fs.remove_tree(scratch))
+end
+
+--- The runner removes a passing test's directory, the real one behind
+--- the link included, and leaves a failing test's to look at.
+local function test_a_passing_tests_directory_is_removed(tmp: string)
+  local root = tmp .. "/project"
+  local temp = tmp .. "/temp"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(temp))
+  assert(Fs.write(root .. "/suite/left_test.tl", [[
+local Fs = require("cosmic.fs")
+local function test_passes(tmp: string)
+  assert(Fs.write(tmp .. "/kept", "x"))
+end
+local function test_fails(tmp: string)
+  assert(Fs.write(tmp .. "/kept", "x"))
+  error("fails")
+end
+]]))
+  local env = Env.all()
+  env.TMPDIR = temp
+  local output = tmp .. "/left.out"
+  local result = invoke(root, output, { "suite/left_test.tl" }, env)
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("1 of 2 failed", 1, true), text)
+  local left: {string} = {}
+  for _, name in ipairs((assert(Fs.list(temp)))) do
+    if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
+      left[#left + 1] = name
+    end
+  end
+  assert(#left == 1, table.concat(left, ", "))
+  local scratch = temp .. "/" .. left[1]
+  assert(assert(Fs.read(scratch .. "/real/kept")) == "x")
+  assert(assert(sys.lstat(scratch .. "/tmp")).kind == "link")
+end
+
 --- A fixture runtime's startup hooks pause one startup for a handshake;
 --- a worker inheriting them would pause too, with nobody to release it.
 local function test_workers_start_without_the_startup_hooks(tmp: string)

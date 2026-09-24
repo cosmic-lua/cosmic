@@ -132,8 +132,12 @@ local function test_fstat_and_stat_describe_a_file(tmp: string)
 end
 
 local function test_stat_and_lstat_describe_a_directory(tmp: string)
-  assert(assert(sys.stat(tmp)).kind == "dir")
-  assert(assert(sys.lstat(tmp)).kind == "dir")
+  -- The runner's tmp is reached through a link, so lstat of a
+  -- directory is asked of one made here.
+  local dir = tmp .. "/d"
+  assert(sys.mkdir(dir))
+  assert(assert(sys.stat(dir)).kind == "dir")
+  assert(assert(sys.lstat(dir)).kind == "dir")
 end
 
 local function test_stat_and_lstat_refuse_a_missing_path(tmp: string)

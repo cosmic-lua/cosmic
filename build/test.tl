@@ -38,11 +38,16 @@
 --- never touched.
 ---
 --- A test function receives one argument: the path of a fresh,
---- writable directory `Fs.mkdtemp` made just for it, which the runner
---- does not remove afterward, so a failing test's own files stay
---- around to look at. A test that ignores the argument -- the ordinary
---- shape, a bare `assert()` -- is called with it anyway, and Lua drops
---- an argument nobody asked for.
+--- writable directory made just for it, reached through a symbolic
+--- link -- `<scratch>/tmp`, a link to `<scratch>/real`, in a scratch
+--- directory `Fs.mkdtemp` made -- so that code resolving one path with
+--- `Fs.absolute` and not another compares them wrongly on every
+--- platform, as it would under macOS's `/var`, a link to `/private/var`.
+--- The runner removes the scratch directory once the test passes, and
+--- leaves a failing test's behind, so its own files stay around to look
+--- at. A test that ignores the argument -- the ordinary shape, a bare
+--- `assert()` -- is called with it anyway, and Lua drops an argument
+--- nobody asked for.
 ---
 --- Every file `cosmic.fs` opens goes through `cosmic.sys`'s shared
 --- `open` field, so the worker wraps it, and the other queries a
@@ -798,7 +803,11 @@ local record Job
   m: importer.Module
   name: string
   id: string
+  --- The directory the runner made for the test, holding `real` and
+  --- `tmp`, a link to it; removed once the test passes.
+  scratch: string
   tmp: string
+  passed: boolean
   handle: Child.Handle
   started_ns: integer
   deadline_ns: integer
@@ -897,7 +906,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     passed, message = reported.passed, reported.message
     reads = observations.join(reported.load_reads, reported.test_reads)
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.tmp, reads)
+    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads)
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -921,6 +930,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
   end
+  job.passed = passed
   if not passed then
     rec.failures[#rec.failures + 1] = id .. ": " .. message
     if result ~= nil and result.stdout ~= nil and result.stdout ~= "" then
@@ -960,15 +970,51 @@ local function worker_start(environment: {string:string}): Proc.Relaunch | nil, 
   return { argv = { executable }, env = env, fds = {} }, ""
 end
 
+--- A fresh scratch directory for one test, resolved (so nothing in
+--- its own path is a link, even where the system temp directory is
+--- one), holding `real`, an empty directory, and `tmp`, a link to it
+--- by the relative name `real`: the test is handed `<scratch>/tmp`.
+--- Removing the scratch directory with `Fs.remove_tree` removes the
+--- link without following it, and the real directory beside it.
+function test.scratch(): string | nil, string
+  local made, trouble = Fs.mkdtemp("cosmic-test-")
+  if made == nil then return nil, trouble end
+  local scratch, absolute_trouble = Fs.absolute(made)
+  if scratch == nil then
+    local _, _ = Fs.remove_tree(made)
+    return nil, absolute_trouble
+  end
+  local ok, why = Fs.mkdirs(scratch .. "/real")
+  if ok then ok, why = Fs.symlink("real", scratch .. "/tmp") end
+  if not ok then
+    local _, _ = Fs.remove_tree(scratch)
+    return nil, why
+  end
+  return scratch, ""
+end
+
+--- Removes the scratch directory of each job in `jobs` whose test
+--- finished and passed; a failing one's is left to look at, and one
+--- still running is not finished.
+local function sweep(jobs: {Job})
+  for _, job in ipairs(jobs) do
+    if job.passed and job.scratch ~= nil then
+      local _, _ = Fs.remove_tree(job.scratch)
+    end
+  end
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                       limits: test.Limits): boolean
-  local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
-  if tmp == nil then
+  local scratch, tmp_trouble = test.scratch()
+  if scratch == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
     return false
   end
+  job.scratch = scratch
+  local tmp = scratch .. "/tmp"
   job.tmp = tmp
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
@@ -1046,8 +1092,10 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     if #still < #running then
       -- A worker that is gone may have left processes of its own
       -- behind, outside the group its end reached; this process
-      -- adopted them, and ends them before the next test starts.
+      -- adopted them, and ends them before the next test starts,
+      -- and before what they could still write into is removed.
       Child.end_strays()
+      sweep(running)
     end
     running = still
   end
