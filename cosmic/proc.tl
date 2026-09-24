@@ -43,9 +43,9 @@ function Proc.executable(): string | nil, string
   return path, ""
 end
 
---- How many processors are online, at least one, as `nproc` counts them:
---- the natural bound on how many children to run at once for CPU-bound
---- work.
+--- How many processors are online, at least one: what `getconf
+--- _NPROCESSORS_ONLN` answers, which is `nproc` less any CPU affinity. The
+--- natural bound on how many children to run at once for CPU-bound work.
 function Proc.cpu_count(): integer
   return sys.cpu_count()
 end

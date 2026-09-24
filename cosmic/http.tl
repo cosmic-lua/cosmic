@@ -182,7 +182,7 @@ local function copy_body(response: Http.Response, fd: integer, hasher: Hash.Hash
   end
 end
 
---- Downloads `url` to `path`, as `curl -o` or `wget -O` would, streaming
+--- Downloads `url` to `path`, as `curl -fLo` or `wget` would, streaming
 --- to a fresh temporary file beside it -- created exclusively, so two
 --- downloads never share one and a planted symlink is never followed --
 --- and renaming into place only once the transfer is complete, synced to

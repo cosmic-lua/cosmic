@@ -315,7 +315,7 @@ local function sorted_names(entries: {string:string}): {string}
   return names
 end
 
---- The entries of a directory, sorted, without `.` and `..`: `ls -a`, or
+--- The entries of a directory, sorted, without `.` and `..`: `ls -A`, or
 --- `readdir`.
 function Fs.list(path: string): {string} | nil, string
   local entries, trouble = sys.readdir(path)
@@ -367,7 +367,7 @@ function Fs.absolute(path: string): string | nil, string
 end
 
 --- Moves a name, replacing the destination if it is there; this corresponds
---- to os.rename, or `mv` within one file system.
+--- to os.rename, or `mv -T` within one file system.
 function Fs.rename(from: string, to: string): boolean, string
   local moved, trouble = sys.rename(from, to)
   if not moved then
@@ -445,7 +445,8 @@ function Fs.readlink(path: string): string | nil, string
 end
 
 --- Sets a path's access and modification times, in whole seconds since
---- the epoch, as `touch -d` does. Changes the link itself, not its target.
+--- the epoch, as `touch -h -d` does. Changes the link itself, not its
+--- target.
 function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean, string
   local set, trouble = sys.utimens(path, atime_s, mtime_s)
   if not set then
@@ -512,8 +513,8 @@ local function copy_bytes(from: string, to: string): boolean, string
   return true, ""
 end
 
---- Copies the tree at `from` to `to`, as `cp -R` does: each regular
---- file's bytes, each directory, and each symbolic link as a link to the
+--- Copies the tree at `from` to a new `to`, as `cp -Rp` does: each
+--- regular file's bytes, each directory, and each symbolic link as a link to the
 --- same target, never followed. Every permission bit is kept, the umask
 --- not applied, except setuid and setgid: the copy belongs to whoever
 --- makes it, so they are dropped. Each modification time is kept to the

@@ -5,7 +5,9 @@ local docs = require("build.docs")
 local schema = require("build.schema")
 
 --- One in-memory shipped database holding the rows a test names, its
---- FTS index built, so the lookups run against the real schema.
+--- FTS index built, so the lookups run against the real schema. A row's
+--- ninth field is its `source_symbol` when that differs from its symbol,
+--- as the build writes an exported member: `find`, written `Proc.find`.
 local function database(rows: {{string}}, uses: {{string}},
                         examples?: {{string}}, modules?: {string}): Sqlite.Handle
   local db = assert(Sqlite.memory())
@@ -32,10 +34,10 @@ local function database(rows: {{string}}, uses: {{string}},
     assert(Sqlite.run(db,
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
       "signature, text, file, line) " ..
-      "VALUES (?1, ?2, ?2, ?8, ?3, ?4, ?5, ?6, ?7)",
+      "VALUES (?1, ?2, ?9, ?8, ?3, ?4, ?5, ?6, ?7)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { text = row[5] }, { text = row[6] }, { integer = math.tointeger(tonumber(row[7])) },
-        { integer = row[8] == "private" and 0 or 1 } }))
+        { integer = row[8] == "private" and 0 or 1 }, { text = row[9] or row[2] } }))
   end
   for _, row in ipairs(uses) do
     assert(Sqlite.run(db,
@@ -149,23 +151,64 @@ end
 --- exported function when none does -- never what another module's
 --- documentation happens to say.
 local function test_a_qualified_miss_answers_from_its_qualifier()
-  local rows: {{string}} = {}
-  for _, row in ipairs(fs_rows) do rows[#rows + 1] = row end
-  rows[#rows + 1] = { "cosmic.proc", "Proc.find", "function",
-    "function Proc.find(name: string): string", "Where a program runs from, as `which` finds it; " ..
-    "every file on the PATH is read.", "cosmic/proc.tl", "9" }
-  local db = database(rows, fs_uses)
+  -- Rows shaped as the build writes them: a member's own name, and the
+  -- name it was written as.
+  local rows: {{string}} = {
+    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
+    { "cosmic.fs", "read", "function", "function Fs.read(path: string): string",
+      "The whole of a file.", "cosmic/fs.tl", "23", "", "Fs.read" },
+    { "cosmic.fs", "write", "function", "function Fs.write(path: string, data: string): boolean",
+      "Writes the whole of a file.\nCreates no parent directory.", "cosmic/fs.tl", "40", "",
+      "Fs.write" },
+    { "cosmic.fs", "copy_bytes", "function", "local function copy_bytes(fd: integer)",
+      "Copies a file's bytes.", "cosmic/fs.tl", "50", "private" },
+    { "cosmic.proc", "find", "function", "function Proc.find(name: string): string",
+      "Where a program runs from, as `which` finds it; every file on the PATH is read.",
+      "cosmic/proc.tl", "9", "", "Proc.find" },
+  }
+  local db = database(rows, {})
   local near = assert(docs.lookup(view({ db }), "Fs.parent"))
   assert(not near.exact)
-  assert(#near == 1 and near[1].symbol == "Fs.write", tostring(#near))
+  assert(#near == 1 and near[1].source_symbol == "Fs.write", tostring(#near))
   local all = assert(docs.lookup(view({ db }), "Fs.slurp"))
-  assert(#all == 2 and all[1].symbol == "Fs.read" and all[2].symbol == "Fs.write",
-    tostring(#all))
+  assert(#all == 2 and all[1].source_symbol == "Fs.read" and
+    all[2].source_symbol == "Fs.write", tostring(#all))
   local which = assert(docs.lookup(view({ db }), "Proc.which"))
-  assert(#which == 1 and which[1].symbol == "Proc.find", tostring(#which))
+  assert(#which == 1 and which[1].source_symbol == "Proc.find", tostring(#which))
   -- "file" is in Fs's documentation too; Proc's qualifier keeps it out.
   local file = assert(docs.lookup(view({ db }), "Proc.file"))
-  assert(#file == 1 and file[1].symbol == "Proc.find", tostring(#file))
+  assert(#file == 1 and file[1].source_symbol == "Proc.find", tostring(#file))
+  -- A private helper is not something the qualifier offers.
+  local bytes = assert(docs.lookup(view({ db }), "Fs.bytes"))
+  for _, entry in ipairs(bytes) do
+    assert(entry.symbol ~= "copy_bytes", "a private helper was offered")
+  end
+end
+
+--- A word the documentation spells as code outranks one it only uses,
+--- unless that word is one of the function's own parameters, which
+--- documentation spells as code everywhere.
+local function test_a_search_ranks_what_a_function_stands_in_for()
+  local rows: {{string}} = {
+    { "cosmic.proc", "find", "function", "function Proc.find(name: string): string",
+      "Where a program runs from, as `which` finds it; `name` itself when it holds " ..
+      "a slash.", "cosmic/proc.tl", "9", "", "Proc.find" },
+    { "cosmic.time", "CLOCK", "value", "CLOCK: integer",
+      "The clock which steps.", "cosmic/time.tl", "3" },
+    { "cosmic.env", "get", "function", "function Env.get(name: string): string",
+      "A variable's value, looked up by its exact `name` in this process's " ..
+      "environment as it stands when called, or nil when it is unset.",
+      "cosmic/env.tl", "4", "", "Env.get" },
+    { "cosmic.env", "names", "function", "function Env.names(): {string}",
+      "Each variable name.", "cosmic/env.tl", "8", "", "Env.names" },
+  }
+  local db = database(rows, {})
+  local which = assert(docs.lookup(view({ db }), "which"))
+  assert(which[1].source_symbol == "Proc.find", which[1].source_symbol)
+  -- Both spell `name` as code, but as their parameter: neither is
+  -- boosted over the shorter match.
+  local name = assert(docs.lookup(view({ db }), "name variable"))
+  assert(name[1].source_symbol == "Env.names", name[1].source_symbol)
 end
 
 --- A one-letter word is a flag no documentation spells alone, so a
@@ -174,6 +217,12 @@ local function test_a_search_leaves_out_one_letter_words()
   local db = database(fs_rows, fs_uses)
   local found = assert(docs.lookup(view({ db }), "parent directory -p"))
   assert(#found == 1 and found[1].symbol == "Fs.write", tostring(#found))
+  -- A query of nothing else still searches for what it has.
+  local lone = database({
+    { "cosmic.fs", "Fs.x", "function", "function Fs.x()", "Axis x.", "cosmic/fs.tl", "3" },
+  }, {})
+  local x = assert(docs.lookup(view({ lone }), "x -"))
+  assert(#x == 1, tostring(#x))
 end
 
 --- A symbol renders as where it is, its signature, its documentation
@@ -541,6 +590,9 @@ end
 --- comment that stops naming its command is caught here, not by the
 --- next person who writes the function again.
 local function test_a_familiar_command_finds_its_stand_in()
+  -- Read from this tree's own o/cosmic.db, which the build rewrites
+  -- before any test runs: a doc comment edit changes that file, and
+  -- so this test's verdict key, and the test runs again.
   local handles = docs.databases()
   local public: {boolean} = {}
   for index = 1, #handles do public[index] = true end
@@ -569,7 +621,7 @@ local function test_a_familiar_command_finds_its_stand_in()
     { "unzip", "Archive.extract" },
     { "sha256sum", "Hash.hex_sha256" },
     { "sleep", "Time.sleep_ns" },
-    { "getrandom", "Rand.entropy" },
+    { "getentropy", "Rand.entropy" },
     { "urandom", "Rand.entropy" },
   }
   local wrong: {string} = {}
