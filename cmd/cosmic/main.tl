@@ -361,7 +361,7 @@ local function evaluate(argv: {integer:string}): integer
     arguments[#arguments + 1] = argv[slot]
     slot = slot + 1
   end
-  return exit_status("-e", (loaded as function(...: string): any)(table.unpack(arguments)))
+  return exit_status("-e", (loaded(table.unpack(arguments))))
 end
 
 --- `cosmic help [verb]`: the whole discovery surface, or one verb's line
