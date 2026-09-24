@@ -178,6 +178,62 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
   }
 }
 
+/* The line and column of byte `pos` of `text`, both counted from 1,
+ * the column in bytes. */
+/* TODO: count a JSON5 line ended by a lone \r, U+2028 or U+2029 as a
+ * line too, as yyjson reads one; only \n ends a line here, for syntax
+ * errors and depth failures alike. */
+static void position (const char *text, size_t pos, size_t *line,
+                      size_t *column) {
+  *line = 1;
+  *column = 1;
+  for (size_t i = 0; i < pos; i++) {
+    if (text[i] == '\n') {
+      (*line)++;
+      *column = 1;
+    } else {
+      (*column)++;
+    }
+  }
+}
+
+/* The offset of the first array or object in `text` that opens with
+ * `max_depth` others already open around it: the one decode refuses.
+ * yyjson keeps no offsets in its document, so this counts brackets in
+ * the text, which read cleanly, skipping strings -- single-quoted ones
+ * too, and comments, as JSON5 has them. */
+static size_t deep_offset (const char *text, size_t len, int max_depth) {
+  int open = 0;
+  for (size_t i = 0; i < len; i++) {
+    char c = text[i];
+    if (c == '"' || c == '\'') {
+      for (i++; i < len && text[i] != c; i++) {
+        if (text[i] == '\\') i++;
+      }
+    } else if (c == '/' && i + 1 < len && text[i + 1] == '/') {
+      /* JSON5 ends a line comment at any line terminator: \n, \r,
+       * U+2028 or U+2029 (E2 80 A8, E2 80 A9). */
+      while (i < len && text[i] != '\n' && text[i] != '\r' &&
+             !(i + 2 < len && (unsigned char)text[i] == 0xe2 &&
+               (unsigned char)text[i + 1] == 0x80 &&
+               ((unsigned char)text[i + 2] == 0xa8 ||
+                (unsigned char)text[i + 2] == 0xa9))) {
+        i++;
+      }
+    } else if (c == '/' && i + 1 < len && text[i + 1] == '*') {
+      for (i += 2; i + 1 < len && !(text[i] == '*' && text[i + 1] == '/'); i++) {
+      }
+      i++;
+    } else if (c == '[' || c == '{') {
+      if (open >= max_depth) return i;
+      open++;
+    } else if (c == ']' || c == '}') {
+      open--;
+    }
+  }
+  return len;
+}
+
 /* nil and where `text` stopped being JSON, as a line and a column of
  * bytes, both counted from 1. */
 static int read_failure (lua_State *L, const char *text, size_t len,
@@ -191,17 +247,8 @@ static int read_failure (lua_State *L, const char *text, size_t len,
     lua_pushliteral(L, "invalid JSON: the text is empty");
     return 2;
   }
-  size_t pos = err->pos < len ? err->pos : len;
-  size_t line = 1;
-  size_t column = 1;
-  for (size_t i = 0; i < pos; i++) {
-    if (text[i] == '\n') {
-      line++;
-      column = 1;
-    } else {
-      column++;
-    }
-  }
+  size_t line, column;
+  position(text, err->pos < len ? err->pos : len, &line, &column);
   lua_pushfstring(L, "invalid JSON at line %I, column %I: %s",
                   (lua_Integer)line, (lua_Integer)column, err->msg);
   return 2;
@@ -235,10 +282,10 @@ static int json_decode (lua_State *L) {
   guard->resource = doc;
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
     lua_pushnil(L);
-    /* TODO: say where, as a syntax error does. yyjson keeps no offsets
-     * in its document, so find the line and column by counting brackets
-     * outside strings in `text` up to the limit. */
-    lua_pushfstring(L, "JSON nests deeper than %d levels", d.max_depth);
+    size_t line, column;
+    position(text, deep_offset(text, len, d.max_depth), &line, &column);
+    lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I",
+                    d.max_depth, (lua_Integer)line, (lua_Integer)column);
     return 2;
   }
   lua_pushliteral(L, "");
@@ -263,6 +310,8 @@ struct encoding {
   int sorted;
   int nan_as_null;
   int sparse_as_null;
+  /* Write every character past ASCII as a \u escape. */
+  int ascii;
   int max_depth;
   /* Why the value cannot be encoded, once it cannot. */
   char failure[160];
@@ -409,18 +458,54 @@ static int is_utf8 (const unsigned char *s, size_t n) {
   return 1;
 }
 
-/* TODO: an option to write every non-ASCII character, and U+2028 and
- * U+2029 in particular, as \u escapes (surrogate pairs past U+FFFF), for
- * JSON embedded in HTML or JavaScript or read by ASCII-only tools. */
+static const char hex[] = "0123456789abcdef";
+
+/* `cp` as \uXXXX, or as a surrogate pair of them past U+FFFF. */
+static int put_unicode_escape (struct encoding *e, uint32_t cp) {
+  char out[12];
+  size_t length = 0;
+  uint32_t units[2];
+  size_t count = 1;
+  units[0] = cp;
+  if (cp > 0xffff) {
+    cp -= 0x10000;
+    units[0] = 0xd800 | (cp >> 10);
+    units[1] = 0xdc00 | (cp & 0x3ff);
+    count = 2;
+  }
+  for (size_t u = 0; u < count; u++) {
+    out[length++] = '\\';
+    out[length++] = 'u';
+    out[length++] = hex[(units[u] >> 12) & 0xf];
+    out[length++] = hex[(units[u] >> 8) & 0xf];
+    out[length++] = hex[(units[u] >> 4) & 0xf];
+    out[length++] = hex[units[u] & 0xf];
+  }
+  return put(e, out, length);
+}
+
 static int put_string (struct encoding *e, const char *s, size_t n) {
   if (!is_utf8((const unsigned char *)s, n)) {
     return refuse(e, "cannot encode a string that is not UTF-8");
   }
-  static const char hex[] = "0123456789abcdef";
   if (PUT_LITERAL(e, "\"") < 0) return -1;
   size_t start = 0;
   for (size_t i = 0; i < n; i++) {
     unsigned char c = (unsigned char)s[i];
+    if (c >= 0x80 && e->ascii) {
+      if (put(e, s + start, i - start) < 0) return -1;
+      /* The string is valid UTF-8, so the lead byte says how many
+       * continuation bytes follow, and they are there. */
+      size_t extra = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : 1;
+      uint32_t cp = c & (0x3f >> extra);
+      for (size_t k = 1; k <= extra; k++) {
+        cp = (cp << 6) | ((unsigned char)s[i + k] & 0x3f);
+      }
+      if (put_unicode_escape(e, cp) < 0) return -1;
+      i += extra;
+      start = i + 1;
+      continue;
+    }
     if (c >= 0x20 && c != '"' && c != '\\') continue;
     if (put(e, s + start, i - start) < 0) return -1;
     start = i + 1;
@@ -699,7 +784,7 @@ static int is_blank (const char *s, size_t n) {
 }
 
 /* encode(value, pretty?, indent?, sorted?, max_depth?, nan_as_null?,
- * sparse_as_null?): `value` as JSON text, and "". nil and a message
+ * sparse_as_null?, ascii?): `value` as JSON text, and "". nil and a message
  * when it holds something JSON cannot say. */
 static int json_encode (lua_State *L) {
   luaL_checkany(L, 1);
@@ -715,7 +800,8 @@ static int json_encode (lua_State *L) {
   e.max_depth = checked_depth(L, 5);
   e.nan_as_null = lua_toboolean(L, 6);
   e.sparse_as_null = lua_toboolean(L, 7);
-  lua_settop(L, 7);
+  e.ascii = lua_toboolean(L, 8);
+  lua_settop(L, 8);
   lua_getfield(L, LUA_REGISTRYINDEX, NULL_KEY);
   e.null_index = lua_gettop(L);
   e.guard = cosmic_guard_push(L, cosmic_free);

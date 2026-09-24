@@ -83,6 +83,11 @@ local record Json
     --- false). An array whose highest index is past 10 and past twice
     --- its number of values still fails, as too sparse to mean.
     sparse_as_null: boolean
+    --- Write every character past ASCII as a `\u` escape, a surrogate
+    --- pair past U+FFFF (default false): for JSON embedded in HTML or
+    --- JavaScript, where U+2028 and U+2029 end a line, or read by a
+    --- tool that takes only ASCII.
+    ascii: boolean
   end
 
   --- What `decode` may be told. Every field is optional.
@@ -184,7 +189,7 @@ function Json.encode(value: any, opts?: Json.EncodeOptions): string | nil, strin
     return raw.encode(value)
   end
   return raw.encode(value, opts.pretty, opts.indent, opts.sorted,
-    opts.max_depth, opts.nan_as_null, opts.sparse_as_null)
+    opts.max_depth, opts.nan_as_null, opts.sparse_as_null, opts.ascii)
 end
 
 --- The values of JSON Lines text (NDJSON): one JSON value to a line,
@@ -205,7 +210,9 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
       count = count + 1
       local value, err = Json.decode(line, opts)
       if err ~= "" then
-        local located = err:gsub("^invalid JSON at line 1,", "invalid JSON at line " .. number .. ",")
+        -- A line is its own text, so what the error says is line 1 is
+        -- this line of the whole.
+        local located = err:gsub(" at line 1, column ", " at line " .. number .. ", column ", 1)
         if located == err then
           located = "line " .. number .. ": " .. err
         end
@@ -230,6 +237,7 @@ function Json.encode_lines(values: {any}, opts?: Json.EncodeOptions): string | n
     line_opts = {
       sorted = opts.sorted, max_depth = opts.max_depth,
       nan_as_null = opts.nan_as_null, sparse_as_null = opts.sparse_as_null,
+      ascii = opts.ascii,
     }
   end
   local lines: {string} = {}
