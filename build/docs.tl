@@ -20,6 +20,7 @@ local symbols = require("build.symbols")
 local tree = require("build.tree")
 
 local log = require("build.verdict").log
+local bind = require("build.bind")
 
 local record docs
   --- One ordered database view and the owner of every module in it.
@@ -88,9 +89,7 @@ local record docs
   end
 end
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 --- A symbol as an `examples_fts` phrase: `Fs.read` and `Fs:read` alike
 --- become `"Fs read"`, matching adjacent tokens in that order -- what

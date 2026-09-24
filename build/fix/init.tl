@@ -329,11 +329,8 @@ function fix.run(argv: {integer:string}): integer
   -- In cosmic's own tree the rules and the layout are the tree's: a tool
   -- older than the tree would fix with the old ones and say nothing, so
   -- it rebuilds itself first and re-enters this command line.
-  local code, reboot_trouble = reboot.ensure(root, argv)
+  local code = reboot.stale_exit(argv)
   if code ~= nil then
-    if reboot_trouble ~= "" then
-      log:complain(reboot_trouble)
-    end
     return code
   end
   local picked, list_trouble = fix.chosen(root, paths)

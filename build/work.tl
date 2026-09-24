@@ -22,6 +22,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local todo_scan = require("build.todo_scan")
+local bind = require("build.bind")
 
 local record work
   --- An open working database, for one run. A run is one transaction
@@ -401,13 +402,9 @@ work.schema = {
                                                  PRIMARY KEY (ran_at_ns, test))]],
 }
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
-local function integer(value: integer): Sqlite.Value
-  return { integer = value }
-end
+local integer = bind.integer
 
 --- One column of one row, read as the integer it was written as.
 local function integer_of(rows: {{string}}): integer
@@ -743,15 +740,7 @@ local puts: {string:string} = {
 --- The largest file `scanned` reads for TODOs.
 local scanned_limit = 1024 * 1024
 
---- Runs a statement that yields no rows, once, and readies it to run
---- again with other parameters.
-local function once(statement: Sqlite.Statement): boolean, string
-  local state, trouble = statement:step()
-  if state == nil then
-    return false, trouble
-  end
-  return statement:reset()
-end
+local once = bind.once
 
 --- How long a file's modification time has to be in the past before
 --- a stat is trusted to stand for its bytes.
