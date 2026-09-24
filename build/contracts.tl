@@ -349,7 +349,9 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
   local all_values = #returns > 0
   for _, r in ipairs(returns) do
     local exps = list_of(r.exps)
-    local handed_on = stand_in and #exps == 3
+    -- A stand-in hands a binding's answer on as three names it bound.
+    local handed_on = stand_in and #exps == 3 and exps[1].kind == "variable"
+      and exps[2].kind == "variable" and exps[3].kind == "variable"
     if #exps >= 2 and not handed_on and not is_empty_string(exps[2])
         and not is_failure(exps[1], effect) then
       problems[#problems + 1] = string.format(

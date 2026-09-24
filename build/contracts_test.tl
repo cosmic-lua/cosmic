@@ -271,10 +271,15 @@ local function test_a_stand_in_for_a_sys_binding_keeps_its_errno()
     "  if path == '' then return true, 'empty' end\n  return mkdir(path, mode)\nend",
     "beside its reason")
   -- A local named `sys` that is another table is no stand-in's owner.
-  flags("local record Other\n  stat: function(string): integer | nil, string, integer\nend\n" ..
+  flags("local real = require('cosmic.sys')\n" ..
+    "local record Other\n  stat: function(string): integer | nil, string, integer\nend\n" ..
     "local sys: Other = {}\n" ..
     "sys.stat = function(_: string): integer | nil, string, integer\n" ..
-    "  return nil, 'no', 2\nend", "nothing in a third")
+    "  return nil, 'no', 2\nend\nuse(real)", "nothing in a third")
+  -- Only an answer handed on as the names it was bound to keeps its
+  -- errno; a value made up beside a reason is still refused.
+  flags(sys .. "sys.mkdtemp = function(_: string): string | nil, string, integer\n" ..
+    "  return 'v', 'oops', 1\nend", "beside its reason")
   -- The same function stored anywhere else is held to the rules.
   flags(sys .. stat .. "local t = {}\n" ..
     "t.stat = function(path: string): sys.Stat | nil, string, integer\n" ..

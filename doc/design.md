@@ -197,8 +197,9 @@ exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
 itself. in cosmic's own modules the build refuses a fallible Teal
 function that declares a third, save a stand-in stored into the
-table itself, which answers as the binding it replaces. one trace point at the table's dispatch gives a
-syscall log for every call uniformly when asked.
+table itself, which answers as the binding it replaces. one trace
+point at the table's dispatch gives a syscall log for every call
+uniformly when asked.
 
 `posix` is a reserved name of a different kind: not privacy, but
 scope. a module lives under `cosmic.posix.` when its whole job is
