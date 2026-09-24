@@ -505,7 +505,7 @@ local function returns_of(fn: Node, index: Index): {Node}
     if seen[n] then return end
     seen[n] = true
     if n.kind == "return" then out[#out + 1] = n end
-    for _, child in ipairs(kids[n] or ast.children(n, skipped)) do
+    for _, child in ipairs(kids[n]) do
       if not is_function(child) then go(child) end
     end
   end
@@ -806,11 +806,11 @@ local function inspected(n: Node): {Node}
   local receiver = callee.e1
   if how.op == ":" then
     local name = unwrapped(receiver)
-    return name ~= nil and { name } or {}
+    return name ~= nil and { name } or none
   end
   if how.op == "." and is_name(receiver, "string") then
     local name = unwrapped(list_of(n.e2)[1])
-    return name ~= nil and { name } or {}
+    return name ~= nil and { name } or none
   end
   return none
 end

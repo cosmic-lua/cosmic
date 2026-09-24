@@ -194,3 +194,21 @@ local function test_children_hands_back_what_a_skipped_field_leads_to()
   local all = walk_mod.children(block)
   assert(#all == #kept + #passed, #all .. " children, " .. #kept .. " kept, " .. #passed .. " passed")
 end
+
+--- A bare array standing in a node's array part is not among its
+--- children, but `walk` descends into it, so `passed` collects its
+--- nodes.
+local function test_children_hands_back_a_bare_array_in_the_array_part()
+  local leaf: node_mod.Node = { kind = "variable", f = "t.tl", y = 1, x = 1, tk = "a" }
+  local direct: node_mod.Node = { kind = "variable", f = "t.tl", y = 1, x = 3, tk = "b" }
+  local bare: {node_mod.Node} = { leaf }
+  local parent: node_mod.Node = { kind = "statements", f = "t.tl", y = 1, x = 1,
+    direct, bare as node_mod.Node }
+  local passed: {node_mod.Node} = {}
+  local kept = walk_mod.children(parent, {}, passed)
+  assert(#kept == 1 and kept[1] == direct, #kept .. " children")
+  assert(#passed == 1 and passed[1] == leaf, #passed .. " passed")
+  local walked: {node_mod.Node: boolean} = {}
+  walk_mod.walk(parent, function(n: node_mod.Node) walked[n] = true end)
+  assert(walked[leaf] and walked[direct], "walk did not reach both")
+end
