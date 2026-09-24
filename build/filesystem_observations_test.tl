@@ -144,14 +144,11 @@ local function test_getenv_environ_spawn_and_mkdtemp_are_observed()
   assert(kinds.m == 1)
 end
 
---- A request over the network and a change of directory are answers no
---- key can hold; a scripted request connects nowhere and is not one.
-local function test_network_and_chdir_are_unkeyable_observations(tmp: string)
-  local here = assert(sys.getcwd())
-  local chdir, open = sys.chdir, Http.open
+--- A request over the network is an answer no key can hold; a scripted
+--- request connects nowhere and is not one.
+local function test_a_network_request_is_an_unkeyable_observation()
+  local open = Http.open
   local run = observations.call(function()
-    assert(sys.chdir(tmp))
-    assert(sys.chdir(here))
     -- An unsupported scheme fails before any connection, and is noted
     -- all the same: the wrapper cannot tell which requests would connect.
     Http.open("ftp://example.invalid/")
@@ -164,7 +161,39 @@ local function test_network_and_chdir_are_unkeyable_observations(tmp: string)
   for _, observation in ipairs(run.reads) do
     if observation.kind == "x" then unkeyable[#unkeyable + 1] = observation.path end
   end
-  assert(#unkeyable == 3 and unkeyable[1] == tmp and unkeyable[2] == here and
-    unkeyable[3] == "ftp://example.invalid/", table.concat(unkeyable, " "))
-  assert(sys.chdir == chdir and Http.open == open, "a wrapper was left installed")
+  assert(#unkeyable == 1 and unkeyable[1] == "ftp://example.invalid/",
+    table.concat(unkeyable, " "))
+  assert(Http.open == open, "a wrapper was left installed")
+end
+
+--- A change of directory is a stat of where it went, and a relative
+--- path is noted as the absolute one it names from wherever the call
+--- was made.
+local function test_a_relative_path_is_noted_from_the_working_directory(tmp: string)
+  local here = assert(sys.getcwd())
+  assert(Fs.mkdirs(tmp .. "/away"))
+  local away = assert(sys.realpath(tmp .. "/away"))
+  assert(Fs.write(away .. "/f", "x"))
+  local chdir = sys.chdir
+  local run = observations.call(function()
+    assert(sys.chdir(away))
+    assert(Fs.read("f") == "x")
+    assert(sys.chdir(here))
+    local _ = sys.stat("nowhere-relative")
+  end, nil)
+  assert(run.passed, run.message)
+  local noted: {string} = {}
+  for _, observation in ipairs(run.reads) do
+    assert(observation.kind ~= "x", observation.path)
+    if observation.kind == "s" or observation.kind == "o" then
+      noted[#noted + 1] = observation.kind .. " " .. observation.path
+    end
+  end
+  local text = table.concat(noted, "\n")
+  assert(text:find("s " .. away .. "\n", 1, true), text)
+  assert(text:find("o " .. away .. "/f\n", 1, true), text)
+  assert(text:find("s " .. here .. "\n", 1, true), text)
+  assert(text:find("s " .. here .. "/nowhere-relative", 1, true), text)
+  assert(not text:find("o f\n", 1, true), text)
+  assert(sys.chdir == chdir, "a wrapper was left installed")
 end

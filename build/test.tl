@@ -435,8 +435,8 @@ end
 
 --- Whether a passing verdict over `reads` is safe to reuse later: false
 --- when the run spawned a process (an input no observation can hash),
---- made a request over the network or changed its working directory
---- (an "x" observation), or opened, stat'd, or listed a path outside `root`, `scratch`,
+--- made a request over the network or read a relative path when its
+--- working directory could not be told (an "x" observation), or opened, stat'd, or listed a path outside `root`, `scratch`,
 --- and every directory an "m" observation anywhere in the same list
 --- shows the test made for itself (not only one earlier in the list:
 --- `Fs.mkdirs` stats a directory to see whether it is already there
