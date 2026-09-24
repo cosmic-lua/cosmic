@@ -201,13 +201,22 @@ local function run(file: string, argv: {integer:string}): integer
   -- checker the tree no longer agrees with and run tests against
   -- old code. When only Teal moved, the tool rebuilds itself and
   -- re-enters this same command line; when the C core moved, it has
-  -- zig boot it (`build.reboot`).
+  -- zig boot it (`build.reboot`). Only the tree's own tool does either;
+  -- another refuses.
   if own_tree then
     local state, state_trouble = reboot.state(handle)
     if state == nil then
       work.close(handle)
       complain("cosmic: " .. state_trouble)
       return 1
+    end
+    if state ~= "fresh" then
+      local refused, refusal = reboot.foreign(root)
+      if refused ~= nil then
+        work.close(handle)
+        complain("cosmic: " .. refusal)
+        return refused
+      end
     end
     if state == "core" then
       work.close(handle)

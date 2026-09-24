@@ -47,9 +47,13 @@ reboot.foreign_refusal = "this cosmic is stale against the tree and is not " ..
 --- Whether the running binary is one this tree built: under `root/o`,
 --- as o/bin/cosmic and the checked suite's o/sanitized one are. Only such
 --- a tool rebuilds itself when stale, since a rebuild writes the tree's
---- tool over the running file; any other cosmic run here -- a release,
---- the bootstrap cache's, one on PATH -- would be overwritten with it.
---- `executable` is the running binary's path by default.
+--- tool over the path it was started as; any other cosmic run here -- a
+--- release, the bootstrap cache's, one on PATH -- would be overwritten
+--- with it. That path is judged where it names, its directory resolved
+--- but not the name itself: a file renamed or removed while it runs is
+--- still judged by where it was, and a link into o/ from elsewhere is
+--- elsewhere, since the rebuild would replace the link, not o/'s tool.
+--- `executable` is the path this process was started as by default.
 function reboot.own_tool(root: string, executable?: string): boolean | nil, string
   local running = executable
   if running == nil then
@@ -59,15 +63,30 @@ function reboot.own_tool(root: string, executable?: string): boolean | nil, stri
     end
     running = found
   end
-  local real, real_trouble = Fs.absolute(running)
-  if real == nil then
-    return nil, real_trouble
+  local directory, directory_trouble = Fs.absolute(Fs.dirname(running))
+  if directory == nil then
+    return nil, directory_trouble
   end
   local outputs, outputs_trouble = Fs.absolute(root .. "/o")
   if outputs == nil then
     return nil, outputs_trouble
   end
-  return Fs.within(real, outputs), ""
+  return Fs.within(directory .. "/" .. Fs.basename(running), outputs), ""
+end
+
+--- For a stale tool about to rebuild or boot: nil when it is the tree's
+--- own (`reboot.own_tool`) and may, else the exit code to return and
+--- what to report -- 3 and `reboot.foreign_refusal` for another cosmic,
+--- which neither rebuilds itself nor boots the tree.
+function reboot.foreign(root: string): integer | nil, string
+  local own, trouble = reboot.own_tool(root)
+  if own == nil then
+    return 1, trouble
+  end
+  if not own then
+    return 3, reboot.foreign_refusal
+  end
+  return nil, ""
 end
 
 --- Whether a tool stale against the core boots it: unless
@@ -236,8 +255,8 @@ end
 --- `trouble` to report first when it is not empty. Returns `nil` to
 --- say the caller may proceed as normal: either the tree is not
 --- cosmic's own, or the tool was found fresh, so no rebuild happened. A
---- stale tool that is not the tree's own (`reboot.own_tool`) returns 3
---- with `reboot.foreign_refusal`, rebuilding nothing.
+--- stale tool that is not the tree's own returns what `reboot.foreign`
+--- does, rebuilding nothing.
 --- @param argv the command line, re-entered after a rebuild
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
@@ -283,14 +302,10 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
     work.close(handle)
     return nil, ""
   end
-  local own, own_tool_trouble = reboot.own_tool(root)
-  if own == nil then
+  local refused, refusal = reboot.foreign(root)
+  if refused ~= nil then
     work.close(handle)
-    return 1, own_tool_trouble
-  end
-  if not own then
-    work.close(handle)
-    return 3, reboot.foreign_refusal
+    return refused, refusal
   end
   if state == "core" then
     work.close(handle)

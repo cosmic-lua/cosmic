@@ -31,7 +31,9 @@
    pin or patches runs `bin/zig build boot` first, its output on stderr.
    `COSMIC_AUTO_BOOT=0` makes the tool refuse instead, exiting 3 (CI's
    driver sets it). A boot that fails stops the command: check its exit
-   status rather than piping it away.
+   status rather than piping it away. Only the tree's own tool (under
+   `o/`) rebuilds or boots; another cosmic run in the tree when it is
+   stale -- a release, the bootstrap cache's -- refuses, exiting 3.
 4. Run `timeout 30 o/bin/cosmic test`. A test whose verdict still stands -- same
    module key, same contents for every file opened, and same stat and directory
    read answers under the root -- is not run again, so a run after a small edit

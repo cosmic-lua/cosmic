@@ -45,9 +45,11 @@ local function test_boot_into_boots_once(tmp: string)
   assert(Fs.read(root .. "/bin/ran") == nil, "booted a second time")
 end
 
---- Only a binary under the tree's o/ is its own tool, judged by where
---- the file really is: a link into o/ from outside counts, a link out
---- of o/ does not. A tree with no o/ has no tool of its own to judge.
+--- Only a binary under the tree's o/ is its own tool, judged by the
+--- path it was started as, its directory resolved: a link into o/ from
+--- outside is outside, a name in o/ is inside even when the file is gone
+--- (renamed or removed while it runs), and a directory link into o/
+--- counts. A tree with no o/ has no tool of its own to judge.
 local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root .. "/o/bin"))
@@ -58,13 +60,14 @@ local function test_own_tool_is_a_binary_under_the_trees_outputs(tmp: string)
     assert(Fs.write(path, "binary", 0x1ed))
   end
   assert(Fs.symlink(root .. "/o/bin/cosmic", tmp .. "/elsewhere/into"))
-  assert(Fs.symlink(tmp .. "/elsewhere/cosmic", root .. "/o/bin/out"))
+  assert(Fs.symlink(root .. "/o/bin", tmp .. "/bin-link"))
   local cases: {string:boolean} = {
     [root .. "/o/bin/cosmic"] = true,
     [root .. "/o/sanitized/bin/cosmic"] = true,
-    [tmp .. "/elsewhere/into"] = true,
+    [root .. "/o/bin/gone"] = true,
+    [tmp .. "/bin-link/cosmic"] = true,
+    [tmp .. "/elsewhere/into"] = false,
     [tmp .. "/elsewhere/cosmic"] = false,
-    [root .. "/o/bin/out"] = false,
   }
   for path, want in pairs(cases) do
     local own, trouble = reboot.own_tool(root, path)

@@ -1166,6 +1166,7 @@ function test.run(argv: {integer:string}): integer
   -- cosmic.* implementations and tests from an old tree. When only
   -- Teal moved, the tool rebuilds itself and re-enters this command
   -- line; when the C core moved, it has zig boot it (`build.reboot`).
+  -- Only the tree's own tool does either; another refuses.
   if own_tree then
     local state, state_trouble = reboot.state(handle)
     if state == nil then
@@ -1174,16 +1175,11 @@ function test.run(argv: {integer:string}): integer
       return 1
     end
     if state ~= "fresh" then
-      local own, own_tool_trouble = reboot.own_tool(root)
-      if own == nil then
+      local refused, refusal = reboot.foreign(root)
+      if refused ~= nil then
         work.close(handle)
-        log:complain(own_tool_trouble)
-        return 1
-      end
-      if not own then
-        work.close(handle)
-        log:complain(reboot.foreign_refusal)
-        return 3
+        log:complain(refusal)
+        return refused
       end
     end
     if state == "core" then
