@@ -64,14 +64,17 @@ local MIN_WORDS = 6
 --- what another function stands in for: documentation backticks
 --- parameters, fields, keywords and examples too (`is`, `finish`,
 --- `require`), which a function named the same way duplicates nothing.
+--- Some are left out on purpose: a project's `command` builds an argv
+--- rather than finding one, and its `touch` makes a missing file, which
+--- Fs.set_mtime does not.
 local COMMANDS: {string: boolean} = {}
 for name in ([[
-  awk base64 basename cat chmod chown cmp command cp curl cut date diff
+  awk base64 basename cat chmod chown cmp cp curl cut date diff
   dirname du env expand fsync ftruncate getconf getentropy getenv getpid
   getrandom grep gunzip gzip head hostname isatty kill ln ls md5sum mkdir
   mkdtemp mktemp mv nanosleep nproc readdir readlink realpath rename rm
   rmdir sed setenv sha1sum sha256sum sha512sum sleep sort stat tail tar
-  tee touch tr truncate umask uname uniq unlink unzip wc wget which xargs
+  tee tr truncate umask uname uniq unlink unzip wc wget which xargs
   zip
 ]]):gmatch("%S+") do
   COMMANDS[name] = true

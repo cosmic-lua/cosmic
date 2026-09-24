@@ -3,6 +3,7 @@ local Store = require("cosmic.store")
 local positions = require("build.positions")
 local teal = require("build.teal")
 local Fs = require("cosmic.fs")
+local Sqlite = require("cosmic.sqlite")
 
 local known: {near.Known} = {
   { kind = "function", module = "cosmic.proc", symbol = "find", source_symbol = "Proc.find",
@@ -152,4 +153,12 @@ local function test_the_standard_library_earns_no_note()
     end
   end
   assert(#noted == 0, table.concat(noted, "\n"))
+end
+
+--- A database built before the `docs` table existed offers nothing,
+--- rather than failing every fix.
+local function test_a_database_without_docs_offers_nothing()
+  local bare = assert(Sqlite.memory())
+  local found, trouble = near.known({ bare })
+  assert(found ~= nil and #found == 0, trouble)
 end
