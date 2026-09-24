@@ -55,7 +55,8 @@ as `lstat`, is there. A failure returns nil, the error, and the errno.
 ```teal
 local syscalls = require("cosmic.sys")
 
-local stat = assert(syscalls.lstat(tmp))
+assert(syscalls.mkdir(tmp .. "/made"))
+local stat = assert(syscalls.lstat(tmp .. "/made"))
 print(stat.kind)
 ```
 

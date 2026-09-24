@@ -61,8 +61,12 @@ end
 local function test_a_hung_or_exiting_test_fails_alone(tmp: string)
   local root, pidfile = project(tmp)
   local output = tmp .. "/run.out"
+  -- The failing tests' directories are kept; they are kept here.
+  local env = Env.all()
+  env.TMPDIR = tmp .. "/temp"
+  assert(Fs.mkdirs(env.TMPDIR))
   local started = Time.monotonic_ns()
-  local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" })
+  local result = invoke(root, output, { "--timeout", "1", "--jobs", "2" }, env)
   local text = assert(Fs.read(output))
   assert(not result.ok, text)
   assert(Time.monotonic_ns() - started < 30 * 1000 * 1000 * 1000, text)
@@ -97,6 +101,192 @@ local function test_limits_must_be_positive_whole_numbers(tmp: string)
   env.COSMIC_TEST_TIMEOUT = "5"
   result = invoke(root, output, { "suite/fine_test.tl" }, env)
   assert(result.ok, assert(Fs.read(output)))
+end
+
+--- A test's directory is reached through a link, so a path resolved on
+--- one side of a comparison and not the other fails here as it does
+--- under macOS's /var; the one this test itself was handed is too.
+local function test_a_test_directory_is_reached_through_a_link(tmp: string)
+  local st = assert(sys.lstat(tmp))
+  assert(st.kind == "link", tmp .. " is a " .. st.kind)
+  local resolved = assert(Fs.absolute(tmp))
+  assert(resolved ~= tmp, resolved)
+  assert(Fs.is_dir(resolved))
+  local scratch = assert(test.scratch())
+  assert(assert(Fs.absolute(scratch)) == scratch, scratch)
+  assert(assert(Fs.readlink(scratch .. "/tmp")) == "real")
+  assert(assert(Fs.absolute(scratch .. "/tmp")) == scratch .. "/real")
+  assert(Fs.remove_tree(scratch))
+end
+
+--- The runner removes a passing test's directory, the real one behind
+--- the link included, and leaves a failing test's to look at.
+local function test_a_passing_tests_directory_is_removed(tmp: string)
+  local root = tmp .. "/project"
+  local temp = tmp .. "/temp"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(temp))
+  assert(Fs.write(root .. "/suite/left_test.tl", [[
+local Fs = require("cosmic.fs")
+local function test_passes(tmp: string)
+  assert(Fs.write(tmp .. "/kept", "x"))
+end
+local function test_fails(tmp: string)
+  assert(Fs.write(tmp .. "/kept", "x"))
+  error("fails")
+end
+]]))
+  local env = Env.all()
+  env.TMPDIR = temp
+  local output = tmp .. "/left.out"
+  local result = invoke(root, output, { "suite/left_test.tl" }, env)
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("1 of 2 failed", 1, true), text)
+  assert(text:find("its directory is kept: " .. assert(Fs.absolute(temp)) .. "/cosmic-test-",
+    1, true), text)
+  local left: {string} = {}
+  for _, name in ipairs((assert(Fs.list(temp)))) do
+    if name:sub(1, 12) == "cosmic-test-" and name:sub(1, 21) ~= "cosmic-test-children-" then
+      left[#left + 1] = name
+    end
+  end
+  assert(#left == 1, table.concat(left, ", "))
+  local scratch = temp .. "/" .. left[1]
+  assert(assert(Fs.read(scratch .. "/real/kept")) == "x")
+  assert(assert(sys.lstat(scratch .. "/tmp")).kind == "link")
+end
+
+--- A file under the tree named through a link outside it is still the
+--- tree's: a test that writes a counter the environment names by such
+--- a path stands on its second run, as it does named from the root.
+local function test_a_tree_path_spelled_through_a_link_is_keyable(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/counts_test.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function test_counts()
+  local counter = assert(Env.get("COUNTER"))
+  local before, _ = Fs.read(counter)
+  assert(Fs.write(counter, (before or "") .. "x\n"))
+end
+]]))
+  assert(Fs.symlink(root, tmp .. "/link"))
+  local env = Env.all()
+  env.TMPDIR = tmp .. "/temp"
+  assert(Fs.mkdirs(env.TMPDIR))
+  local output = tmp .. "/counts.out"
+  for _, spelled in ipairs({ root, tmp .. "/link" }) do
+    env.COUNTER = spelled .. "/counter-" .. Fs.basename(spelled)
+    local tallies: {string} = {}
+    for run = 1, 2 do
+      local result = invoke(root, output, { "suite/counts_test.tl" }, env)
+      local text = assert(Fs.read(output))
+      assert(result.ok, text)
+      tallies[run] = text:match("1 tests, 1 modules; (%d+ ran, %d+ stood)") or text
+    end
+    assert(tallies[1] == "1 ran, 0 stood" and tallies[2] == "0 ran, 1 stood",
+      spelled .. ": " .. tallies[1] .. " then " .. tallies[2])
+  end
+end
+
+--- Runs `source`, the tests of a module of a project with a/f "good"
+--- and b/f "other", twice, then once more after a/f changes to "bad",
+--- with PROJ and OUTSIDE naming the project and a directory beside it;
+--- answers what each run printed.
+local function three_runs(tmp: string, source: string): {string}
+  local root = tmp .. "/proj"
+  local outside = tmp .. "/outside"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/a"))
+  assert(Fs.mkdirs(root .. "/b"))
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(root .. "/a/f", "good\n"))
+  assert(Fs.write(root .. "/b/f", "other\n"))
+  assert(Fs.write(root .. "/suite/link_test.tl", source))
+  local env = Env.all()
+  env.TMPDIR = tmp .. "/temp"
+  env.PROJ = root
+  env.OUTSIDE = outside
+  assert(Fs.mkdirs(env.TMPDIR))
+  local output = tmp .. "/link.out"
+  local texts: {string} = {}
+  for run = 1, 3 do
+    if run == 3 then assert(Fs.write(root .. "/a/f", "bad\n")) end
+    local _ = invoke(root, output, { "suite/link_test.tl" }, env)
+    texts[run] = assert(Fs.read(output))
+  end
+  return texts
+end
+
+--- A verdict over a file read through a link outside the tree is over
+--- the file the link led to when the test read it: a test that reads
+--- through the link and then points it elsewhere does not stand, and
+--- fails once the file it read changes.
+local function test_a_link_retargeted_by_the_test_does_not_stand(tmp: string)
+  local texts = three_runs(tmp, [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function test_link()
+  local proj, link = assert(Env.get("PROJ")), assert(Env.get("OUTSIDE")) .. "/L"
+  assert(Fs.remove(link))
+  assert(Fs.symlink(proj .. "/a", link))
+  assert(Fs.read(link .. "/f") == "good\n")
+  assert(Fs.remove(link))
+  assert(Fs.symlink(proj .. "/b", link))
+end
+]])
+  assert(texts[1]:find("1 ran, 0 stood", 1, true), texts[1])
+  assert(texts[2]:find("1 ran, 0 stood", 1, true), texts[2])
+  assert(texts[3]:find("suite.link_test test_link:", 1, true), texts[3])
+end
+
+--- A link in the test's own directory into the tree -- to a directory
+--- or to a file -- reads the tree: its verdict stands, and falls when
+--- the file it read changes.
+local function test_a_link_in_the_tests_directory_reads_the_tree(tmp: string)
+  local texts = three_runs(tmp, [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function test_directory(tmp: string)
+  assert(Fs.symlink(assert(Env.get("PROJ")) .. "/a", tmp .. "/D"))
+  assert(Fs.read(tmp .. "/D/f") == "good\n")
+end
+local function test_file(tmp: string)
+  assert(Fs.symlink(assert(Env.get("PROJ")) .. "/a/f", tmp .. "/L"))
+  assert(Fs.read(tmp .. "/L") == "good\n")
+end
+]])
+  assert(texts[1]:find("2 ran, 0 stood", 1, true), texts[1])
+  assert(texts[2]:find("0 ran, 2 stood", 1, true), texts[2])
+  assert(texts[3]:find("2 of 2 failed", 1, true), texts[3])
+end
+
+--- A path that climbs with ".." is not taken as the tree's by its
+--- spelling: "<root>/../outside/L" and "../outside/L" through a link
+--- the test retargets fail once the file they read changes.
+local function test_a_path_that_climbs_is_outside(tmp: string)
+  local texts = three_runs(tmp, [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function read_through(spelled: string)
+  local proj, link = assert(Env.get("PROJ")), assert(Env.get("OUTSIDE")) .. "/L"
+  assert(Fs.remove(link))
+  assert(Fs.symlink(proj .. "/a/f", link))
+  assert(Fs.read(spelled) == "good\n")
+  assert(Fs.remove(link))
+  assert(Fs.symlink(proj .. "/b", link))
+end
+local function test_absolute()
+  read_through(assert(Env.get("PROJ")) .. "/../outside/L")
+end
+local function test_relative()
+  read_through("../outside/L")
+end
+]])
+  assert(texts[1]:find("2 ran, 0 stood", 1, true), texts[1])
+  assert(texts[3]:find("2 of 2 failed", 1, true), texts[3])
 end
 
 --- A fixture runtime's startup hooks pause one startup for a handshake;
