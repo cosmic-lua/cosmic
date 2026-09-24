@@ -49,11 +49,12 @@
 -- aarch64 and darwin aarch64 tarballs) and pass -shellcheck=<its path>,
 -- so `run:` scripts are checked too, the same on every host.
 
--- TODO: record the verified tarball's sha256 beside the install and
--- check it against bin/actionlint.pin on every run, so a cache CI
--- restores (or a binary swapped after install) is held to the pin too,
--- not only an empty or non-executable one; it waits on nothing but the
--- cost of hashing the ~5 MB binary each run (Hash.sha256 over Fs.read).
+-- TODO: record the extracted binary's own sha256 beside it at install
+-- (the pin's digest is the tarball's, which a binary cannot be checked
+-- against) and check it on every run, so a cache CI restores (or a
+-- binary swapped after install) is held to what was verified, not only
+-- an empty or non-executable one; it waits on nothing but the cost of
+-- hashing the ~5 MB binary each run (Hash.sha256 over Fs.read).
 
 -- TODO: actionlint 1.7.12 accepts `${{ github.token }}` in a
 -- strategy.matrix value (the github context is available there), but a
