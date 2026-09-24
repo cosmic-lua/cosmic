@@ -42,6 +42,10 @@ local markers: {string:boolean} = {
 --- the space after the marker dropped. nil for a line that is not a
 --- comment on its own.
 local function comment_of(line: string): string, string, string
+  -- TODO: a TODO after code on its line (`x = 1 -- TODO: ...`) is not
+  -- found, since a line alone cannot tell a comment from a string. Take a
+  -- Teal file's comments from the tree tl's parser attaches them to
+  -- (build/ast/node.tl), and a C file's from clang's, and scan only those.
   local indent, marker, rest = line:match("^([ \t]*)([-#/*;]+)(.*)$")
   if indent == nil or not markers[marker] then
     return nil, nil, nil

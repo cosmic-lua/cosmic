@@ -16,6 +16,7 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local importer = require("build.importer")
@@ -89,13 +90,22 @@ function todos.parse_blame(porcelain: string): {integer:todos.Blame}
   return out
 end
 
+--- How long one git call may take before it is ended and its answer
+--- taken as none: a TODO is listed unblamed rather than not at all.
+local git_timeout_ms = 30 * 1000
+
 --- Runs git in `root`, its output when it succeeds.
 local function git(root: string, args: {string}): string | nil
+  -- TODO: resolve git on PATH rather than through /usr/bin/env, which
+  -- a system may not have, once cosmic.child or cosmic.proc carries a
+  -- PATH lookup; build/zig.tl's Zig.resolve is one, kept to itself.
   local argv: {string} = { "/usr/bin/env", "git", "-C", root }
   for _, each in ipairs(args) do
     argv[#argv + 1] = each
   end
-  local result = Child.run(argv, { stdin = "null", stdout = "capture", stderr = "null" })
+  local result = Child.run(argv, {
+    stdin = "null", stdout = "capture", stderr = "null", timeout_ms = git_timeout_ms,
+  })
   if result == nil or not result.ok or result.stdout == nil then
     return nil
   end
@@ -129,7 +139,12 @@ local function blame_files(root: string,
   local limit = blame_jobs()
   local running: {Child.Handle} = {}
   local file_of: {Child.Handle:string} = {}
+  local deadline_of: {Child.Handle:integer} = {}
   local next_file = 1
+  -- SIGINT or SIGTERM ends every git still running, then this process,
+  -- as `build.test` does for its workers.
+  local guarded = sys.guard_child_signals()
+  local cancelled = 0
   while next_file <= #order or #running > 0 do
     while #running < limit and next_file <= #order do
       local file = order[next_file]
@@ -147,24 +162,48 @@ local function blame_files(root: string,
       if handle ~= nil then
         running[#running + 1] = handle
         file_of[handle] = file
+        deadline_of[handle] = (Time.monotonic_ns() or 0) + git_timeout_ms * 1000000
       end
     end
     if #running == 0 then
       break
     end
-    local done = Child.wait_any(running)
+    if guarded then
+      cancelled = sys.cancelled_child_signal() or 0
+      if cancelled ~= 0 then
+        break
+      end
+    end
+    local done, trouble = Child.wait_any(running, 100)
+    local now = Time.monotonic_ns() or 0
     local still: {Child.Handle} = {}
     for _, handle in ipairs(running) do
-      if handle == done or done == nil then
+      if rawequal(handle, done) then
         local result = handle:wait()
         if result ~= nil and result.ok and result.stdout ~= nil then
           out[file_of[handle]] = todos.parse_blame(result.stdout)
         end
+      elseif (done == nil and trouble ~= "timeout") or now >= deadline_of[handle] then
+        -- Supervision failed, or git ran past its time: the file's
+        -- TODOs are listed unblamed.
+        handle:close()
       else
         still[#still + 1] = handle
       end
     end
     running = still
+  end
+  for _, handle in ipairs(running) do
+    handle:close()
+  end
+  if guarded then
+    local late = sys.unguard_child_signals() or 0
+    if cancelled == 0 then
+      cancelled = late
+    end
+  end
+  if cancelled ~= 0 then
+    sys.kill(sys.getpid(), cancelled)
   end
   return out
 end
@@ -405,6 +444,10 @@ function todos.run(argv: {integer:string}): integer
     complain(root_trouble)
     return 1
   end
+  -- TODO: list TODOs when only the core is stale, since nothing here
+  -- runs it: reboot.ensure refuses every verb until bin/zig build boot
+  -- after a C edit. A read-only verb could go on once the Teal side
+  -- is fresh, which reboot.state would have to tell apart from both.
   local code, reboot_trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if reboot_trouble ~= "" then
