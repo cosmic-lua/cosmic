@@ -530,7 +530,8 @@ end
 local reshaping: {string: boolean} = { lower = true, upper = true }
 
 --- The name under what only wraps it -- `(err)`, `tostring(err)`,
---- `err:lower()` -- or nil when `n` is no name so wrapped.
+--- `err:lower()` -- or nil when `n` is no name so wrapped. It gives up,
+--- answering nil, past 8 wrappers.
 local function unwrapped(n: Node | nil): Node | nil
   local at = n
   for _ = 1, 8 do
