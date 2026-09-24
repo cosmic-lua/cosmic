@@ -427,7 +427,9 @@ function Tar.reader(raw: Stream.Reader): Tar.TarReader
     state.current = nil
     local skipped, dtrouble = Stream.skip(src, state.pending_skip)
     state.pending_skip = 0
-    if not skipped then return fail("tar: " .. dtrouble) end
+    -- The skip's own reason says whether the archive ended early or a
+    -- read failed; this says what was being done.
+    if not skipped then return fail("tar: cannot skip to the next entry: " .. dtrouble) end
 
     local long_name: string
     local long_link: string

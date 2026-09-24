@@ -60,7 +60,7 @@ local record Archive
     --- modification time. On by default.
     mtimes: boolean
     --- Fails once the files written would total more than this many
-    --- bytes. Unlimited by default.
+    --- bytes. Unlimited by default; a negative limit raises.
     max_bytes: integer
     --- Fails once more than this many entries would be written.
     --- Unlimited by default.
@@ -314,6 +314,9 @@ end
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
     {string} | nil, string
   opts = opts or {}
+  if opts.max_bytes ~= nil and opts.max_bytes < 0 then
+    error("archive: max_bytes is negative", 2)
+  end
   local links_mode = opts.links or "skip"
   local skip_unsupported = opts.unsupported == "skip"
   local restore_mtimes = opts.mtimes ~= false

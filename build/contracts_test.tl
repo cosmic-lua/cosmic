@@ -346,3 +346,49 @@ local function test_a_name_that_holds_no_reason_is_not_followed()
   -- A reason reached without a name drops its slot: rule 1 says so.
   flags("use(select(2, get()) == 'none')", "its error slot is dropped")
 end
+
+--- A comparison reads a reason whatever it compares it with but `""`
+--- or `nil`: a named constant, a call, an ordering.
+local function test_a_reason_compared_with_anything_but_empty_is_flagged()
+  local read = "a failure's reason is read for what it says"
+  local bound = "local TIMEOUT <const> = 'timeout'\nlocal v, err = get()\n"
+  flags(bound .. "use(v, err == TIMEOUT)", read)
+  flags(bound .. "use(v, name() ~= err)", read)
+  flags(bound .. "use(v, err < 'm')", read)
+  flags(bound .. "use(v, err >= TIMEOUT)", read)
+  allows(bound .. "use(v, TIMEOUT, err == nil, nil ~= err, err ~= '')")
+end
+
+--- What only wraps a name reads the name.
+local function test_a_reason_read_through_a_wrapper_is_flagged()
+  local read = "a failure's reason is read for what it says"
+  local bound = "local v, err = get()\n"
+  flags(bound .. "use(v, (err):find('x'))", read)
+  flags(bound .. "use(v, tostring(err):find('x'))", read)
+  flags(bound .. "use(v, err:lower():find('x'))", read)
+  flags(bound .. "use(v, string.find(err:upper(), 'X'))", read)
+  flags(bound .. "use(v, tostring(err) == 'x')", read)
+  allows(bound .. "use(v, tostring(err) .. '!', err:lower())")
+end
+
+--- A name bound to a reason alone holds the reason.
+local function test_a_name_bound_to_a_reason_holds_it()
+  local read = "a failure's reason is read for what it says"
+  local bound = "local v, err = get()\n"
+  flags(bound .. "local why = err\nuse(v, why:find('x'))", read)
+  flags(bound .. "local why = err\nlocal again = why\nuse(v, again == 'x')", read)
+  flags(bound .. "local a, why = v, err\nuse(a, why:find('x'))", read)
+  flags(bound .. "local why: string\nwhy = tostring(err)\nuse(v, why:sub(1, 2))", read)
+  allows(bound .. "local why = 'get: ' .. err\nuse(v, why:find('x'))")
+  allows(bound .. "local why = err\nwhy = name()\nuse(v, why:find('x'))")
+end
+
+--- A `local`'s own right-hand side reads the binding before it.
+local function test_a_local_reads_its_own_name_from_before_it()
+  local read = "a failure's reason is read for what it says"
+  flags("local v, err = get()\nlocal err2 = err:find('x')\nuse(v, err2)", read)
+  flags("local v, err = get()\ndo local err = err:sub(1, 2) use(err) end\nuse(v)", read)
+  flags("local v, err = get()\ndo local err = err use(err:find('x')) end\nuse(v)", read)
+  allows("local err = name()\ndo local v, err = get() use(v, err) end\n" ..
+    "local e = err:find('x')\nuse(e)")
+end

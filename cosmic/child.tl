@@ -704,7 +704,9 @@ end
 --- Waits for the first of several handles to finish, servicing every
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
 --- at once. Nil and "" when `timeout_ms` passes first -- no handle
---- finished, and nothing failed -- and the handles are left running.
+--- finished, and nothing failed -- and the handles are left running:
+--- a timeout is `done == nil and trouble == ""`, so test `done` itself.
+--- `assert` on this answer raises at a timeout, with an empty message.
 -- TODO: carry a settled group's lingering members on Child.Result, a
 -- field beside the exit status, and answer the handle with "" here:
 -- build/test.tl reads the trouble beside the handle's result today, and
