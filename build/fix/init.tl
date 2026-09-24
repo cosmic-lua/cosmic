@@ -32,11 +32,14 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
 local Log = require("cosmic.log")
+local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
+local near = require("build.fix.near")
+local positions = require("build.positions")
 local reboot = require("build.reboot")
 local render_mod = require("build.fix.render")
 local rule = require("build.fix.rule")
@@ -253,6 +256,53 @@ end
 --- `cosmic fix [--check] [path...]`.
 --- @param argv {integer:string} The command line, the verb at slot 1
 --- @return integer The exit code: 0 when nothing is left to fix
+--- `near`'s notes on the exported functions of `files`, each line
+--- prefixed with its file: a test, an example or a declaration file
+--- offers nothing to compare. The module a file declares is read off its
+--- path under `root`, as the build names it.
+local function duplicate_notes(built: compiler, root: string, files: {string}): {string}
+  local known, known_trouble = near.known(Store.databases())
+  if known == nil then
+    return { "comparing with the standard library: " .. known_trouble }
+  end
+  local out: {string} = {}
+  for _, file in ipairs(files) do
+    local plain = not String.ends_with(file, "_test.tl") and
+      not String.ends_with(file, "_example.tl") and not String.ends_with(file, ".d.tl")
+    local absolute, _ = Fs.absolute(file)
+    local relative: string | nil = nil
+    if plain and absolute ~= nil then
+      local within, _ = Fs.relative(absolute, root)
+      relative = within
+    end
+    local source: string | nil = nil
+    if relative ~= nil and relative:sub(1, 3) ~= "../" then
+      local read, _ = Fs.read(file)
+      source = read
+    end
+    local found: positions.Analysis | nil = nil
+    if source ~= nil then
+      local analysis, _ = positions.analyze(built, source, file)
+      found = analysis
+    end
+    if found ~= nil and relative ~= nil then
+      local module = relative:gsub("%.tl$", ""):gsub("/", ".")
+      local candidates: {near.Candidate} = {}
+      for _, entry in ipairs(found.docs) do
+        if entry.exported and (entry.kind == "function" or entry.kind == "method") and
+            entry.text ~= "" then
+          candidates[#candidates + 1] = { source_symbol = entry.source_symbol,
+            text = entry.text, line = entry.line }
+        end
+      end
+      for _, note in ipairs(near.notes(module, candidates, known)) do
+        out[#out + 1] = file .. ":" .. note
+      end
+    end
+  end
+  return out
+end
+
 function fix.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--check"] = false })
@@ -423,6 +473,10 @@ function fix.run(argv: {integer:string}): integer
     end
   end
 
+  -- A note is a heuristic's, never a failure: it names what to look at.
+  for _, line in ipairs(duplicate_notes(built, root, files)) do
+    log:say("fix: note  " .. line)
+  end
   for _, line in ipairs(failures) do
     log:say("fix: FAIL  " .. line)
   end
