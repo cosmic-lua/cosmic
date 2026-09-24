@@ -2,6 +2,7 @@
 --- symbol each one demonstrates and run by `cosmic test` like any
 --- other test -- see doc/design.md's `examples` table.
 
+local Codec = require("cosmic.codec")
 local Rand = require("cosmic.rand")
 
 local Example = {}
@@ -14,6 +15,15 @@ function Example.new()
   print(roll)
   assert(roll >= 1 and roll <= 6)
   assert(b:int(1, 6) == roll, "the same seed drew another value")
+end
+
+--- Bytes nobody can guess or replay, for a token: unlike a `Source`,
+--- never the same twice.
+function Example.entropy()
+  local bytes, err = Rand.entropy(16)
+  assert(bytes ~= nil, err)
+  assert(#bytes == 16)
+  print(Codec.hex(bytes))
 end
 
 return Example

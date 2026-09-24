@@ -20,6 +20,7 @@
 --- chunk's own loader, present because this module was itself loaded,
 --- trusted, from the binary's own tree. Boot mode falls back to
 --- requiring it by name, which only boot's own preload answers.
+local Codec = require("cosmic.codec")
 local type raw_http = require("cosmic.internal.http")
 
 local extra: any = select(2, ...)
@@ -228,9 +229,9 @@ function Http.download(url: string, path: string, opts?: Http.Options): boolean,
     local digest, digest_trouble = hasher:digest()
     if digest == nil then
       ok, trouble = false, digest_trouble
-    elseif Hash.hex(digest) ~= want:lower() then
+    elseif Codec.hex(digest) ~= want:lower() then
       ok, trouble = false, path .. ": sha256 mismatch: want " .. want ..
-        ", got " .. Hash.hex(digest)
+        ", got " .. Codec.hex(digest)
     end
   end
   if ok then

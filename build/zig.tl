@@ -87,8 +87,6 @@ local record Zig
     sleep: function(ms: integer)
     now: function(): integer
   end
-
-  MIRRORS: {string}
 end
 
 local log = Log.new("bin/zig")
@@ -231,7 +229,7 @@ end
 --- the minisign signature zig publishes beside each file is not needed.
 -- TODO: check this list against community-mirrors.txt from ci/ (a
 -- scheduled job that fails on a difference) rather than by hand.
-Zig.MIRRORS = {
+local MIRRORS <const>: {string} = {
   "https://pkg.hexops.org/zig",
   "https://zigmirror.hryx.net/zig",
   "https://zig.linus.dev/zig",
@@ -443,7 +441,7 @@ local function unpack(work: string, pin: Zig.Pin, host: string): string | nil, s
   end
   local name = "zig-" .. host .. "-" .. pin.version .. ".tar.xz"
   local archive = work .. "/" .. name
-  local ok, dtrouble = Zig.fetch(Zig.sources(pin.version, name, Zig.MIRRORS), archive, sha256)
+  local ok, dtrouble = Zig.fetch(Zig.sources(pin.version, name, MIRRORS), archive, sha256)
   if not ok then
     return nil, "download of " .. name .. " failed: " .. dtrouble
   end
@@ -520,7 +518,7 @@ end
 
 --- The zig to run and its first trouble: `COSMIC_ZIG` when set,
 --- otherwise the pinned release for this host, fetched if need be.
-function Zig.locate(root: string): string | nil, string
+local function locate(root: string): string | nil, string
   local env_zig = Env.get("COSMIC_ZIG")
   if env_zig ~= nil and env_zig ~= "" then
     return env_zig, ""
@@ -618,7 +616,7 @@ local watched_trees: {string:boolean} = {
 --- Whether a walk of the root passes by `entry` (bare name `name`):
 --- anything hidden, the build's own output, and `ci/`, a tree of its
 --- own the boot never stages.
-function Zig.unwatched(entry: string, name: string): boolean
+local function unwatched(entry: string, name: string): boolean
   return name:sub(1, 1) == "." or entry == "o" or entry == "ci"
 end
 
@@ -627,7 +625,7 @@ end
 --- `core/`, `test/portable/*.c`, `vendor/`, `patch/`), plus what the
 --- boot stages -- the tool's own trees whole, Teal anywhere else, and
 --- the doc guides whose examples it runs.
-function Zig.watches(path: string): boolean
+local function watches(path: string): boolean
   if watched_files[path] then
     return true
   end
@@ -650,13 +648,13 @@ end
 --- editor's replace-by-rename, or a file added or removed, at the cost
 --- of a walk and a stat per file and never a read.
 function Zig.snapshot(root: string): {string:string} | nil, string
-  local walked, trouble = Fs.walk(root, Zig.unwatched)
+  local walked, trouble = Fs.walk(root, unwatched)
   if walked == nil then
     return nil, trouble
   end
   local seen: {string:string} = {}
   for _, path in ipairs(walked) do
-    if Zig.watches(path) then
+    if watches(path) then
       -- A file gone between the listing and the stat is simply absent.
       local st, _ = sys.stat(root .. "/" .. path)
       if st ~= nil then
@@ -775,7 +773,7 @@ end
 --- `build` between two snapshots of `root`: zig's own status, unless
 --- a source moved while it ran. A snapshot that cannot be taken first
 --- leaves the build unwatched rather than stopped.
-function Zig.watched_build(root: string, argv: {string}): integer
+local function watched_build(root: string, argv: {string}): integer
   local before, _ = Zig.snapshot(root)
   local status = Zig.run(argv)
   if before == nil or status > 128 then
@@ -803,7 +801,7 @@ function Zig.main(argv: {integer:string}): integer
     log:complain(root_trouble)
     return 2
   end
-  local zig, ztrouble = Zig.locate(root)
+  local zig, ztrouble = locate(root)
   if zig == nil then
     log:complain(ztrouble)
     return 1
@@ -829,7 +827,7 @@ function Zig.main(argv: {integer:string}): integer
   end
   if given[1] == "build" then
     exec_argv[1] = program
-    return Zig.watched_build(root, exec_argv)
+    return watched_build(root, exec_argv)
   end
   local _, trouble, number = sys.execve(program, exec_argv, Env.all())
   log:complain(program .. ": " .. tostring(trouble))

@@ -673,16 +673,6 @@ function Zip.open_string(data: string): Zip.ZipReader | nil, string
   end)
 end
 
---- Every entry of the zip at `path`, without keeping the reader open
---- -- so their `open` fails; use `Zip.open` to read bodies.
-function Zip.list(path: string): {Zip.Entry} | nil, string
-  local reader, trouble = Zip.open(path)
-  if reader == nil then return nil, trouble end
-  local entries = reader:entries()
-  local _, _ = reader:close()
-  return entries, ""
-end
-
 ------------------------------------------------------------------
 -- writing
 ------------------------------------------------------------------

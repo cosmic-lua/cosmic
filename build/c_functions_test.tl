@@ -17,8 +17,10 @@ local function test_a_function_is_entered_when_its_line_is_hit()
   assert(#tally.unentered == 1 and tally.unentered[1] == "core/a.c:missed")
 end
 
+--- One function the core's exemptions name: the VFS never writes.
+local exempt <const> = "core/vfs.c:file_write"
+
 local function test_an_exempt_function_is_not_a_failure()
-  local exempt = next(c_functions.exempt) as string
   local path, name = exempt:match("^(.-):([^:]+)$")
   local tally = c_functions.tally({ fn(path, 1, name) }, {})
   assert(tally.exempted == 1 and #tally.unentered == 0 and #tally.stale == 0)
@@ -27,7 +29,6 @@ end
 --- An exempt function a test entered after all is named as stale, and
 --- counted as entered rather than exempt.
 local function test_an_exempt_function_entered_is_stale()
-  local exempt = next(c_functions.exempt) as string
   local path, name = exempt:match("^(.-):([^:]+)$")
   local tally = c_functions.tally({ fn(path, 1, name) }, { [path] = { [1] = true } })
   assert(tally.entered == 1 and tally.exempted == 0)

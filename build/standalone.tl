@@ -66,7 +66,7 @@ end
 --- Where a clean compile of `source` by this binary is kept: nil when
 --- there is no cache directory `Fs.cache_dir` will vouch for, and so
 --- no cache.
-function standalone.cached_path(source: string): string | nil
+local function cached_path(source: string): string | nil
   local dir, _ = Fs.cache_dir("standalone")
   if dir == nil then
     return nil
@@ -119,7 +119,7 @@ end
 --- `file`'s Teal, checked and compiled to a loaded chunk -- from the
 --- cache when this binary compiled these exact bytes cleanly before.
 function standalone.compile(file: string, source: string): standalone.Main | nil, string
-  local cached = standalone.cached_path(source)
+  local cached = cached_path(source)
   local code: string
   if cached ~= nil then
     -- A cache that cannot be read is a miss.

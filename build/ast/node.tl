@@ -237,18 +237,16 @@ end
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param source string Source text to lex and parse
 --- @param name string Filename used in diagnostics and stamped onto every Node's `f`
---- @param lang? string Parser dialect forwarded to `parse_program` (default: tl's own)
 --- @return Parsed|nil The AST root plus the token stream, or nil on failure
 --- @return string Error message on failure, "" on success
-local function parse(built: compiler, source: string, name: string,
-                     lang?: string): Parsed | nil, string
+local function parse(built: compiler, source: string, name: string): Parsed | nil, string
   local tokens, lex_errs = built.lex(source, name)
   if #lex_errs > 0 then
     local e = lex_errs[1]
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
   end
   local parse_errs: {compiler.Error} = {}
-  local ast = built.parse_program(tokens, parse_errs, name, lang)
+  local ast = built.parse_program(tokens, parse_errs, name)
   if #parse_errs > 0 then
     local e = parse_errs[1]
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
@@ -262,8 +260,7 @@ local record NodeModule
   type TypeNode = TypeNode
   type Node = Node
   type Parsed = Parsed
-  parse: function(built: compiler, source: string, name: string,
-                  lang?: string): Parsed | nil, string
+  parse: function(built: compiler, source: string, name: string): Parsed | nil, string
 end
 
 local M: NodeModule = {

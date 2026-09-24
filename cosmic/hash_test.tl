@@ -2,6 +2,7 @@
 --- test vectors, in Teal and in SQL alike, and that an algorithm
 --- nobody has heard of is refused rather than answered.
 
+local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 
@@ -37,7 +38,7 @@ local macs: {{string}} = {
 local function test_digests_match_published_vectors()
   for _, v in ipairs(vectors) do
     local algorithm = v[1] as Hash.Algorithm
-    assert(Hash.hex(Hash.digest(algorithm, v[2])) == v[3], v[1])
+    assert(Codec.hex(Hash.digest(algorithm, v[2])) == v[3], v[1])
   end
   assert(Hash.hex_sha256("abc") == vectors[4][3])
 end
@@ -45,7 +46,7 @@ end
 local function test_hmac_matches_published_vectors()
   for _, v in ipairs(macs) do
     local algorithm = v[1] as Hash.Algorithm
-    assert(Hash.hex(Hash.hmac(algorithm, "key", fox)) == v[2], v[1])
+    assert(Codec.hex(Hash.hmac(algorithm, "key", fox)) == v[2], v[1])
   end
 end
 
@@ -86,7 +87,7 @@ local function test_hmac_takes_a_key_of_any_length()
   for _, case in ipairs(cases) do
     local algorithm = case[1] as Hash.Algorithm
     local label = case[1] .. " with a " .. #case[2] .. "-byte key"
-    assert(Hash.hex(Hash.hmac(algorithm, case[2], case[3])) == case[4], label)
+    assert(Codec.hex(Hash.hmac(algorithm, case[2], case[3])) == case[4], label)
     local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case[1] }, { blob = case[2] }, { text = case[3] } }))
     assert(rows[1][1] == case[4], "SQL, " .. label)

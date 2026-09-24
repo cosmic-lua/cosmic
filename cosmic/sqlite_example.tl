@@ -32,4 +32,10 @@ function Example.rowid_and_changes()
   assert(db:close())
 end
 
+--- The SQLite the core carries, for a report or a feature check.
+function Example.version()
+  print(Sqlite.version)
+  assert(Sqlite.version:match("^3%.%d+%.%d+$") ~= nil, Sqlite.version)
+end
+
 return Example
