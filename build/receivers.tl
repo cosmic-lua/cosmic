@@ -77,6 +77,8 @@ local record receivers
     rets: Type | nil
     --- A tuple whose last member repeats (`...: T`).
     is_va: boolean | nil
+    --- A function's count of required parameters.
+    min_arity: integer | nil
     --- A union's alternatives.
     types: {Type} | nil
   end
@@ -175,6 +177,12 @@ local function reporter_for(state: receivers.State): any
       if t.typename ~= "tuple" or state.every[at] == nil then
         state.every[at] = t
       end
+      -- A position holds one callee, the last function type stored
+      -- there. A chained call (`make()()`) does not collide: the outer
+      -- callee is the inner call, at its own `(`, and `make` is at its
+      -- name. Two callees could share a position only if tl stamped two
+      -- call targets on one token, which its parser never does; only a
+      -- position reaches `store_type`, so a node key is not available.
       local name = t.typename
       if name == "function" or name == "generic" or name == "poly" then
         state.callees[at] = t

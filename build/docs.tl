@@ -369,8 +369,20 @@ function docs.databases(): {Sqlite.Handle}, {boolean}
   local own_exists, own_trouble = Fs.exists("o/cosmic.db")
   assert(own_exists ~= nil, own_trouble)
   if own_exists then
-    out[#out + 1] = assert(Sqlite.open("o/cosmic.db", false))
-    public[#out] = false
+    -- The project's own build is best effort: one that cannot be opened
+    -- or read (a directory, a file that is not a database, one a build
+    -- is rewriting) is left out, so help and docs still answer from the
+    -- binary's own databases rather than failing on a stale output.
+    local own, _ = Sqlite.open("o/cosmic.db", false)
+    if own ~= nil then
+      local readable, _ = has_docs(own)
+      if readable == nil then
+        local _, _ = own:close()
+      else
+        out[#out + 1] = own
+        public[#out] = false
+      end
+    end
   end
   -- Outside cosmic's own tree the store's databases are public sources:
   -- a project sees its own code and the standard library, never the

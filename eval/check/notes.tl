@@ -103,12 +103,11 @@ function Notes.evidence(path: string): integer | nil, integer, string
     where r.passed = 1
     group by i.kind, i.origin
   ]], {})
-  local closed, close_trouble = Sqlite.close(db)
+  -- A read-only handle has nothing to lose in closing; the query's own
+  -- answer is the one that counts.
+  local _, _ = Sqlite.close(db)
   if rows == nil then
     return nil, 0, rtrouble
-  end
-  if not closed then
-    return nil, 0, close_trouble
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do

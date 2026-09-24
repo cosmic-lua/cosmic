@@ -8,9 +8,9 @@
 --- 1. A call to a fallible function keeps its error slot: it is bound
 ---    to at least two names (`local v, err = f()`, or an assignment),
 ---    returned whole as a `return`'s last value, or passed whole as the
----    last argument of `assert` or of a function that declares a
----    `string` parameter for the reason to land in (`complain(v,
----    why)`). Anywhere else -- `f() or x`, `not f()`, `if f() then`,
+---    last argument of `assert` or of a function whose last required
+---    parameters take every result, a `string` where the reason lands
+---    (`complain(v, why)`). Anywhere else -- `f() or x`, `not f()`, `if f() then`,
 ---    `(f())`, a non-final argument, `local v = f()`, `{f()}`,
 ---    `print(f())`, `table.insert(t, f())` -- the reason is dropped. A
 ---    call standing alone as a statement drops it too. A failure to be
@@ -306,9 +306,19 @@ local function check_function(file: string, fn: Node, types: {integer: Type},
   end
 end
 
+--- How many results a call's callee declares; 0 when it is not known.
+local function result_count(n: Node, callees: {integer: Type}): integer
+  local e1 = n.e1
+  if not is_call(n) or e1 == nil then return 0 end
+  local f = resolved(callees[position(e1.y, e1.x)])
+  local rets = f ~= nil and f.rets or nil
+  local members = rets ~= nil and rets.tuple or nil
+  return members ~= nil and #members or 0
+end
+
 --- Whether a call hands its last argument's reason on: `assert`, or a
---- callee that declares a `string` parameter, not a variadic one, just
---- past the one the argument's value lands in.
+--- callee whose required, not variadic parameters end exactly where the
+--- argument's results do, with a `string` for the reason to land in.
 local function takes_reason(call: Node, count: integer, callees: {integer: Type}): boolean
   local e1 = call.e1
   if e1 == nil then return false end
@@ -322,7 +332,8 @@ local function takes_reason(call: Node, count: integer, callees: {integer: Type}
   -- A method call's receiver is the first parameter.
   local op = e1.op
   local slot = count + 1 + ((e1.kind == "op" and op ~= nil and op.op == ":") and 1 or 0)
-  if slot > #members or (slot == #members and params.is_va) then return false end
+  local last = slot - 2 + result_count(list_of(call.e2)[count], callees)
+  if last ~= #members or params.is_va or (f.min_arity or 0) < last then return false end
   return typename(members[slot]) == "string"
 end
 

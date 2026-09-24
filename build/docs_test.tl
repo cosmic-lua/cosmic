@@ -1,4 +1,6 @@
+local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local sys = require("cosmic.sys")
 local docs = require("build.docs")
 local schema = require("build.schema")
 
@@ -481,4 +483,19 @@ local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
   assert(documented:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
   local found = assert(docs.lookup(view({ copy, documented }), "lstat"))
   assert(#found == 1 and found[1].line == 154, tostring(#found))
+end
+
+--- A project's own o/cosmic.db that is not a database is left out,
+--- rather than failing every lookup: help and docs still answer from
+--- the binary's own databases.
+local function test_an_unreadable_own_database_is_left_out(dir: string)
+  assert(Fs.mkdirs(dir .. "/o"))
+  assert(Fs.write(dir .. "/o/cosmic.db", "not a database"))
+  local before = assert(sys.getcwd())
+  assert(sys.chdir(dir))
+  local handles, public = docs.databases()
+  assert(sys.chdir(before))
+  local looked = assert(docs.view(handles, public))
+  local found = assert(docs.lookup(looked, "Fs.read"))
+  assert(#found > 0 and found.exact)
 end

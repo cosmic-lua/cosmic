@@ -22,6 +22,9 @@ local function problems_in(source: string): {string}
     "local function pair(): boolean, integer return true, 1 end",
     "local function use(...: any) end",
     "local function complain(_v: integer | nil, _why: string) end",
+    "local function lead(_a: string, _b: string, _c?: integer) end",
+    "local function maybe(_v: integer | nil, _why?: string) end",
+    "local function sget(): string | nil, string return nil, 'none' end",
     "local record Log",
     "  note: function(Log, integer | nil, string)",
     "end",
@@ -74,6 +77,15 @@ local function test_a_call_that_opens_a_block_is_still_judged()
   flags("while 1 < 0 do put() end", ignored)
 end
 
+--- A call whose callee is itself a call's answer is judged by the
+--- function type that answer has.
+local function test_a_chained_call_is_judged_by_the_inner_answer()
+  local source = "local function mk(): function(): boolean, string return put end\n"
+  flags(source .. "mk()()", "its failure is ignored")
+  allows(source .. "local _, _ = mk()()")
+  allows("local function named(): function(): string return name end\nnamed()()")
+end
+
 local function test_a_table_item_drops_the_error_slot()
   local dropped = "its error slot is dropped"
   flags("use({get()})", dropped)
@@ -90,6 +102,13 @@ local function test_a_last_argument_keeps_its_slot_only_where_a_reason_lands()
   flags("local t: {string} = {}\ntable.insert(t, get())", dropped)
   allows("use(assert(get()))")
   allows("complain(get())")
+  -- The reason would land in a parameter that is not the last.
+  flags("lead(sget())", dropped)
+  -- The reason would land in an optional parameter.
+  flags("maybe(get())", dropped)
+  -- A binding's errno, in a third result, lands in a third parameter.
+  allows("local function triple(): integer | nil, string, integer return nil, 'no', 2 end\n" ..
+    "local function take(_v: integer | nil, _why: string, _errno: integer) end\ntake(triple())")
   allows("log:note(get())")
   allows("log.note(log, get())")
 end
