@@ -388,6 +388,17 @@ local verbs: {string: function({integer:string}): integer} = {
   todos = function(argv: {integer:string}): integer
     return require("build.todos").run(argv)
   end,
+  -- Never stale-checked, unlike `db`: a staleness check stages the tree,
+  -- and this verb reads o/ and nothing else under it. It gives its own
+  -- verdict on every exit, a usage error included, so the check main
+  -- runs after a verdictless exit 2 never runs for it.
+  -- TODO: test that this dispatch neither stale-checks nor scans the
+  -- working directory -- run `cosmic sql` in a directory whose tree
+  -- would fail to stage -- beside build/verbs_test.tl, which already
+  -- spawns the built binary; build/sql_test.tl calls sql.run.
+  sql = function(argv: {integer:string}): integer
+    return require("build.sql").run(argv)
+  end,
 }
 
 --- What a verdict line a verb did not give itself says of its exit code.
