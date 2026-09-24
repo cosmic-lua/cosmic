@@ -264,21 +264,35 @@ local function staged_hashes(handle: Sqlite.Handle): {string:string} | nil, stri
   return out
 end
 
+--- Whether a path names a ".." component, which `Fs.within` and
+--- `Fs.relative`, being lexical, cannot follow: "<root>/../out/L" is not
+--- within the root, and nor, once through a link, need "a/../b" be.
+local function climbs(path: string): boolean
+  return ("/" .. path .. "/"):find("/%.%./") ~= nil
+end
+
 --- A recorded read as a path under the root, or nil when it is not
 --- one: a test's own scratch directory, or anything else outside the
 --- tree, is not an input to it, and nor is the build's own output. An
---- absolute path outside the root as written is under it when what it
---- resolved to -- `resolutions`, by path, from its "r" observation --
---- is, and is keyed by that resolved name, so the file's own line is
---- the same for both spellings of it (the "r" line beside it says
---- which link led there); with no resolution it is outside.
+--- absolute path outside the root as written, or that climbs with "..",
+--- is under it when what it resolved to -- `resolutions`, by path, from
+--- its "r" or "t" observation -- is, and is keyed by that resolved name,
+--- so the file's own line is the same for every spelling of it; with no
+--- resolution it is outside.
+-- TODO: a path under the root as written is keyed by its name there,
+-- though it may cross a link in the tree that leads out (proj/x to
+-- /out/L to proj/a/f): a test that retargets /out/L after reading
+-- proj/x keys proj/x by where it leads at the end. Resolve an in-tree
+-- read whose path crosses a link as it is read, noting an "r" for it
+-- as for one outside the tree, once that costs less than a realpath
+-- per in-tree read (a set of the tree's links, from the stage).
 local function under_root(root: string, path: string,
                           resolutions: {string:string}): string | nil
   local relative = path
   local rest, _ = Fs.relative(path, root)
-  if rest ~= nil then
+  if rest ~= nil and not climbs(path) then
     relative = rest
-  elseif path:sub(1, 1) == "/" then
+  elseif climbs(path) or path:sub(1, 1) == "/" then
     local real = resolutions[path]
     if real == nil or real == "" then return nil end
     local resolved, _ = Fs.relative(real, root)
@@ -291,17 +305,22 @@ local function under_root(root: string, path: string,
   return relative
 end
 
---- What each "r" observation in `reads` says its path resolved to: the
---- answer the test's own read recorded, or, for reads a stored run
---- gives back without answers, what the path resolves to now. The
---- "r" line itself enters the key, so a resolution that has changed
---- since keys differently.
+--- What each "r" or "t" observation in `reads` says its path resolved
+--- to: the answer the test's own read recorded, or, for an "r" a stored
+--- run gives back without its answer, what the path resolves to now. An
+--- "r" that resolves into the root enters the key itself, so one that
+--- resolves elsewhere since keys differently. A "t", a path under the
+--- test's own directory, is stored with its answer and never enters
+--- the key: that directory's name is new in every run, and gone after.
 local function resolutions_of(reads: {observations.Observation}): {string:string}
   local out: {string:string} = {}
   for _, observation in ipairs(reads) do
-    if observation.kind == "r" and out[observation.path] == nil then
+    local kind = observation.kind
+    if (kind == "r" or kind == "t") and out[observation.path] == nil then
       local answer = observation.answer
-      if answer == "" then answer = observations.resolution(observation.path) end
+      if kind == "r" and answer == "" then
+        answer = observations.resolution(observation.path)
+      end
       out[observation.path] = answer
     end
   end
@@ -333,7 +352,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if kind == "e" or kind == "r" then
+    local keyed = kind == "e"
+    if kind == "r" then
+      local real = resolutions[observation.path]
+      keyed = real ~= "" and Fs.within(real, root)
+    end
+    if keyed then
       local identified = kind .. " " .. observation.path
       if not seen[identified] then
         seen[identified] = true
@@ -425,9 +449,11 @@ end
 --- `Fs.mkdirs` stats a directory to see whether it is already there
 --- before the "m" observation that creates it, so the existence check
 --- for a directory a test is about to make of its own would otherwise
---- count as a foreign read). A path outside both as written is inside
---- when its "r" observation shows it resolved under either as the test
---- read it (see `under_root`). An environment
+--- count as a foreign read). A path with an "r" or "t" observation is
+--- judged by what it resolved to as the test read it (see
+--- `under_root`), so a link in the test's own directory leading out of
+--- it is outside; one that climbs with ".." and has none is outside. An
+--- environment
 --- read is keyable: its answer enters the verdict key like a file's
 --- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
 --- can exercise it directly.
@@ -449,17 +475,20 @@ function test.keyable(root: string, scratch: string,
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" then
       local path = observation.path
-      if path:sub(1, 1) == "/" and not under(root, path) and not under(scratch, path) then
+      local real = resolutions[path]
+      if real == "" or (real == nil and climbs(path)) then return false end
+      local judged = real or path
+      if judged:sub(1, 1) == "/" and not under(root, judged) and
+          not under(scratch, judged) then
         local made_here = false
         for _, dir in ipairs(made) do
-          if under(dir, path) then
+          if under(dir, judged) or (real ~= nil and
+              under(observations.resolution(dir), judged)) then
             made_here = true
             break
           end
         end
-        local real = resolutions[path]
-        if not made_here and (real == nil or real == "" or
-            (not under(root, real) and not under(scratch, real))) then
+        if not made_here then
           return false
         end
       end

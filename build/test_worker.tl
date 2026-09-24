@@ -57,6 +57,12 @@ local function unhex(data: string): string | nil
   end))
 end
 
+-- TODO: a report longer than Child's capture limit (16 MB) loses its
+-- head, and its test fails as one that never reported: an archive
+-- fuzz test's reads overran it under FUZZ_ITERS=2000 while every read
+-- of the test's own directory was noted twice. Drop repeated
+-- observations here, as
+-- `observations.join` does on the runner's side, or stream the report.
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
   for _, observation in ipairs(found) do
     lines[#lines + 1] = tag .. " " ..
@@ -207,14 +213,15 @@ function worker.run(argv: {integer:string}): integer
   local children = made and children_path or nil
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
-  -- A read outside the tree and the test's own directory is resolved
-  -- as it is read, in case it names a file of the tree through a link.
-  local inside: {string} = { root, tmp }
+  -- A read outside the tree is resolved as it is read, in case it
+  -- names a file of the tree through a link: the test's own directory's
+  -- links included.
+  local resolving: observations.Resolving = { tree = root, own = { tmp } }
   local resolved_tmp, _ = Fs.absolute(tmp)
-  if resolved_tmp ~= nil then inside[#inside + 1] = resolved_tmp end
+  if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
   local loaded, produced, load_reads = observations.capture(function(): any
     return require(module_path)
-  end, inside)
+  end, resolving)
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
@@ -230,7 +237,7 @@ function worker.run(argv: {integer:string}): integer
     else
       local test_session, _ = Coverage.start()
       local started = Time.monotonic_ns()
-      local run = observations.call(fn as function(any...): (any...), tmp, inside)
+      local run = observations.call(fn as function(any...): (any...), tmp, resolving)
       local finished = Time.monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)

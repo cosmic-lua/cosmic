@@ -13,6 +13,15 @@ local record observations
     answer: string
   end
 
+  --- Which reads are resolved as they are made: every absolute one
+  --- outside `tree` or climbing with "..", noted "r", or "t" when it is
+  --- under one of `own`, the test's own directory as it may be spelled,
+  --- and leads out of it or climbs.
+  record Resolving
+    tree: string
+    own: {string}
+  end
+
   --- One test body's run: whether it passed, its failure as text (""
   --- when it passed), and what it read either way.
   record Run
@@ -61,12 +70,13 @@ end
 --- What an absolute path resolves to, links and all, when it is read:
 --- `realpath` of the path, or, when it is not there (a stat or an open
 --- of a missing file is a read too), of its nearest existing ancestor
---- with the missing names after it. "" when that cannot be said: a
---- relative path, or one spelled with "." or "..", whose missing part
---- could not be taken lexically. Nothing is remembered between calls,
---- since a link can be retargeted between two reads.
+--- with the missing names after it as written, "." and ".." included:
+--- the first of them is missing, so nothing after it is reached, and
+--- the answer is that ancestor's. "" for a relative path. Nothing is
+--- remembered between calls, since a link can be retargeted between
+--- two reads.
 function observations.resolution(path: string): string
-  if path:sub(1, 1) ~= "/" or ("/" .. path .. "/"):find("/%.%.?/") then return "" end
+  if path:sub(1, 1) ~= "/" then return "" end
   local missing: {string} = {}
   local at = path
   while true do
@@ -86,13 +96,18 @@ end
 
 --- A versioned, line-safe representation. Paths may themselves contain
 --- newlines. Version 2 added "r", what a path outside the tree resolved
---- to when it was read.
+--- to when it was read, and "t", the same for a path under the test's
+--- own directory, which alone keeps its answer: that directory is gone
+--- by the time a later run could resolve the path again.
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
+    elseif kind == "t" then
+      lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
+        Codec.hex(observation.answer)
     end
   end
   return table.concat(lines, "\n")
@@ -113,16 +128,19 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   local found: {observations.Observation} = {}
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
-      local kind, encoded_path = line:match("^([osder]) ([0-9a-f]*)$")
+      local kind, encoded_path, encoded_answer = line:match("^([osdert]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
+      local answer: string = nil
       if encoded_path ~= nil then
         local decoded, _ = Codec.unhex(encoded_path)
         path = decoded
+        local decoded_answer, _ = Codec.unhex(encoded_answer)
+        answer = decoded_answer
       end
-      if kind == nil or path == nil then
+      if kind == nil or path == nil or answer == nil or (kind ~= "t" and answer ~= "") then
         return nil
       end
-      found[#found + 1] = { kind = kind, path = path, answer = "" }
+      found[#found + 1] = { kind = kind, path = path, answer = answer }
     end
   end
   return found
@@ -192,9 +210,11 @@ end
 --- which a relative path no longer names a file in the tree) makes the
 --- run's verdict one that never stands.
 ---
---- Given `inside`, an absolute path an open, a stat or a listing names
---- outside every directory in it is noted a second time, as an "r" whose answer
---- is `observations.resolution` of it then: a file of the tree may be
+--- Given `resolving`, an absolute path an open, a stat or a listing
+--- names outside its tree, or that climbs with "..", is noted a second
+--- time, as an "r" (a "t" under the test's own directory, and only
+--- when it leads out of it or climbs) whose answer is
+--- `observations.resolution` of it then: a file of the tree may be
 --- named through a link outside it, and what the link led to when the
 --- test read it is what its verdict describes.
 -- TODO: observe every call at the syscall table's dispatch, as
@@ -202,7 +222,8 @@ end
 -- `cosmic.sys` and `cosmic.http` here: lstat, readlink, realpath and
 -- getcwd are not observed, so a test whose answer turns on one of them
 -- outside the tree can still stand.
-local function start(inside: {string} | nil): {observations.Observation}, function()
+local function start(resolving: observations.Resolving | nil):
+                     {observations.Observation}, function()
   local found: {observations.Observation} = {}
   local open = sys.open
   local stat = sys.stat
@@ -221,16 +242,26 @@ local function start(inside: {string} | nil): {observations.Observation}, functi
   local function note(kind: string, path: string, answer: string)
     if type(path as any) == "string" then
       found[#found + 1] = { kind = kind, path = path, answer = answer }
-      if inside ~= nil and (kind == "o" or kind == "s" or kind == "d") and
-          path:sub(1, 1) == "/" then
-        for _, directory in ipairs(inside) do
-          if Fs.within(path, directory) then return end
+      if resolving ~= nil and (kind == "o" or kind == "s" or kind == "d") and
+          path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
+            ("/" .. path .. "/"):find("/%.%./") ~= nil) then
+        local noted = "r"
+        for _, directory in ipairs(resolving.own) do
+          if Fs.within(path, directory) then noted = "t" end
         end
         -- TODO: resolve by the call itself, not beside it (the path an
         -- opened descriptor names, once cosmic.sys carries one): another
         -- process retargeting a link between the two goes unseen.
-        found[#found + 1] = { kind = "r", path = path,
-          answer = observations.resolution(path) }
+        local resolved = observations.resolution(path)
+        if noted == "t" and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
+          -- Most of a test's reads are of its own directory; only one
+          -- that leads out of it, or that climbs (which only its
+          -- resolution can place), is worth a line.
+          for _, directory in ipairs(resolving.own) do
+            if Fs.within(resolved, directory) then return end
+          end
+        end
+        found[#found + 1] = { kind = noted, path = path, answer = resolved }
       end
     end
   end
@@ -310,11 +341,12 @@ end
 
 --- Calls a function and restores every wrapper even when it raises. The value
 --- is left intact so callers such as `require` can consume a produced table.
---- Given `inside`, a path read outside every directory in it is also
---- resolved as it is read; see `start`.
-function observations.capture(fn: function(any...): (any...), inside?: {string}):
+--- Given `resolving`, a path read outside its tree is also resolved as
+--- it is read; see `start`.
+function observations.capture(fn: function(any...): (any...),
+                              resolving?: observations.Resolving):
                               boolean, any, {observations.Observation}
-  local found, restore = start(inside)
+  local found, restore = start(resolving)
   local ok, produced = pcall(fn)
   restore()
   return ok, produced, found
@@ -323,10 +355,10 @@ end
 --- Calls one test body and presents its failure as text to the runner,
 --- beside what the body read whether it passed or not.
 function observations.call(fn: function(any...): (any...), argument: any,
-                           inside?: {string}): observations.Run
+                           resolving?: observations.Resolving): observations.Run
   local ok, produced, found = observations.capture(function(): any
     return fn(argument)
-  end, inside)
+  end, resolving)
   return { passed = ok, message = ok and "" or tostring(produced), reads = found }
 end
 

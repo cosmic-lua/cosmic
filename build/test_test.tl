@@ -255,13 +255,19 @@ local function test_a_tree_path_through_a_link_keys_as_the_tree_path(tmp: string
     local later, stable3 = test.verdict_key(root, {}, "p n", "m", "r", stored, {})
     assert(stable3 and later == key2, name)
   end
-  for _, path in ipairs({ elsewhere .. "/in/out", elsewhere .. "/in/sub/../sub/a.txt" }) do
-    local reads: {observations.Observation} = {
-      { kind = "o", path = path, answer = "" },
-      { kind = "r", path = path, answer = observations.resolution(path) },
-    }
-    assert(not test.keyable(root, scratch, reads), path)
-  end
+  local out = elsewhere .. "/in/out"
+  assert(not test.keyable(root, scratch, { { kind = "o", path = out, answer = "" },
+    { kind = "r", path = out, answer = observations.resolution(out) } }))
+  -- A path that climbs is judged by what it resolved to, and without a
+  -- resolution (a relative one has none) it is outside.
+  local climbing = root .. "/sub/../sub/a.txt"
+  assert(observations.resolution(climbing) == root .. "/sub/a.txt")
+  assert(not test.keyable(root, scratch, { { kind = "o", path = climbing, answer = "" } }))
+  assert(test.keyable(root, scratch, { { kind = "o", path = climbing, answer = "" },
+    { kind = "r", path = climbing, answer = observations.resolution(climbing) } }))
+  assert(not test.keyable(root, scratch, { { kind = "o", path = "../a.txt", answer = "" } }))
+  assert(observations.resolution(root .. "/gone/../sub/a.txt") ==
+    root .. "/gone/../sub/a.txt")
 end
 
 --- A read through a link outside the tree keys by where the link led
