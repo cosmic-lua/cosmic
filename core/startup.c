@@ -91,12 +91,12 @@ static void compiled_startup (struct cosmic_startup *startup,
   };
 }
 
-int cosmic_startup_has_private_environment (void) {
+bool cosmic_startup_has_private_environment (void) {
   for (size_t i = 0; i < sizeof portable_environment /
                               sizeof portable_environment[0]; i++) {
-    if (getenv(portable_environment[i]) != NULL) return 1;
+    if (getenv(portable_environment[i]) != NULL) return true;
   }
-  return 0;
+  return false;
 }
 
 void cosmic_startup_native (struct cosmic_startup *startup) {
@@ -113,8 +113,8 @@ void cosmic_startup_host (struct cosmic_startup *startup, int fd,
   startup->artifact_fd = fd;
 }
 
-int cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
-  if (artifact == NULL || artifact->fd < 0) return 0;
+bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact) {
+  if (artifact == NULL || artifact->fd < 0) return false;
   if (artifact->core_checked == 0) {
     const struct cosmic_portable_entry *entry = &artifact->portable.selected;
     unsigned char digest[COSMIC_DIGEST_MAX];
@@ -275,22 +275,22 @@ static void stamp_write (const char *path, const char *directory,
   if (!written || rename(temporary, path) != 0) unlink(temporary);
 }
 
-static int fail_adoption (struct cosmic_artifact *artifact, int core_fd,
-                          int physical_fd, const char **error,
-                          const char *why) {
+static bool fail_adoption (struct cosmic_artifact *artifact, int core_fd,
+                           int physical_fd, const char **error,
+                           const char *why) {
   if (physical_fd >= 0) close(physical_fd);
   if (core_fd >= 0) close(core_fd);
   cosmic_artifact_close(artifact);
   if (error != NULL) *error = why;
-  return 0;
+  return false;
 }
 
-int cosmic_startup_adopt (const struct cosmic_startup *startup,
-                          struct cosmic_artifact *artifact,
-                          const char **error) {
+bool cosmic_startup_adopt (const struct cosmic_startup *startup,
+                           struct cosmic_artifact *artifact,
+                           const char **error) {
   cosmic_artifact_init(artifact);
   if (error != NULL) *error = NULL;
-  if (startup->kind == COSMIC_STARTUP_NATIVE) return 1;
+  if (startup->kind == COSMIC_STARTUP_NATIVE) return true;
   if (startup->kind == COSMIC_STARTUP_HOST) {
     /* The kernel executed this very file: there is no launcher's choice to
      * check it against. Its structure is checked here, and its core's digest
@@ -317,7 +317,7 @@ int cosmic_startup_adopt (const struct cosmic_startup *startup,
       return fail_adoption(artifact, -1, -1, error,
                            host_error == NULL ? "host program is invalid" :
                                                 host_error);
-    return 1;
+    return true;
   }
   if (startup->artifact_path[0] != '/')
     return fail_adoption(artifact, startup->core_fd, -1, error,
@@ -424,5 +424,5 @@ int cosmic_startup_adopt (const struct cosmic_startup *startup,
     return fail_adoption(artifact, -1, -1, error,
                          "cannot mark retained artifact close-on-exec");
   artifact->core_checked = 1;
-  return 1;
+  return true;
 }

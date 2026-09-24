@@ -169,7 +169,8 @@ local function test_execve_survives_every_refused_allocation(tmp: string)
   local missing = tmp .. "/no-such-program"
   local ended = under_every_failure(function()
     local ok, trouble = sys.execve(missing, { missing, "an argument" }, { NAME = "value" })
-    assert(ok == nil and trouble ~= nil, "a program that is not there cannot run")
+    assert(ok == false and trouble ~= nil,
+      "a program that is not there cannot run")
   end)
   assert(ended > 0, "joining the environment allocates")
 end

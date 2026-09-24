@@ -126,14 +126,14 @@ static struct {
   int armed;
 } fault;
 
-int cosmic_fault (const char *point) {
-  if (!fault.armed || strcmp(point, fault.point) != 0) return 0;
+bool cosmic_fault (const char *point) {
+  if (!fault.armed || strcmp(point, fault.point) != 0) return false;
   if (fault.skip > 0) {
     fault.skip--;
-    return 0;
+    return false;
   }
   fault.armed = 0;
-  return 1;
+  return true;
 }
 
 /* ---- the instruments ----------------------------------------------- */

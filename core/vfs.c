@@ -287,25 +287,25 @@ static int append_escaped (char *into, size_t room, size_t *at, const char *s) {
   return 1;
 }
 
-int cosmic_vfs_uri (char *into, size_t room, const char *path) {
+bool cosmic_vfs_uri (char *into, size_t room, const char *path) {
   size_t at = 0;
   const char *scheme = "file:";
   size_t scheme_len = strlen(scheme);
   if (scheme_len + 1 >= room) {
-    return 0;
+    return false;
   }
   memcpy(into, scheme, scheme_len);
   at = scheme_len;
   if (!append_escaped(into, room, &at, path)) {
-    return 0;
+    return false;
   }
   /* No off= or len=: the VFS never trusts a URI for those. The one triple it
    * honors was registered from the validated retained artifact. */
   static const char tail[] = "?vfs=" COSMIC_VFS_NAME "&mode=ro&immutable=1";
   size_t written = sizeof tail - 1;
   if (at + written + 1 > room) {
-    return 0;
+    return false;
   }
   memcpy(into + at, tail, written + 1);
-  return 1;
+  return true;
 }

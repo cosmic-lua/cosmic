@@ -218,7 +218,7 @@ end
 local function test_a_string_still_on_the_stack_is_not(tmp: string)
   none(findings(tmp, header .. [[
 #include <string.h>
-int copied(lua_State *L, char *out) {
+static int copied(lua_State *L, char *out) {
   const char *s = lua_tostring(L, -1);
   memcpy(out, s, 4);
   lua_pop(L, 1);
@@ -263,4 +263,215 @@ COSMIC_SYSCALL(open, 3) {
   assert(#found == 2 and found[1].rule == "returned-shape" and found[1].line == 11
     and found[2].rule == "returned-shape" and found[2].line == 18,
     "expected two returned-shape findings, found " .. #found)
+end
+
+--- The findings of `rule` alone among `found`.
+local function only(found: {rules.Finding}, rule: string): {rules.Finding}
+  local out: {rules.Finding} = {}
+  for _, f in ipairs(found) do
+    if f.rule == rule then out[#out + 1] = f end
+  end
+  return out
+end
+
+--- An effect fails with false and a value with nil: execve is declared
+--- `boolean` in core/syscalls.h, entropy `string|nil`.
+local function test_a_failure_in_the_other_shape_is_found(tmp: string)
+  local found = findings(tmp, header .. [[
+#include "syscalls.h"
+#include "fail.h"
+COSMIC_SYSCALL(execve, 3) {
+  return cosmic_fail(L, ENOENT);
+}
+
+COSMIC_SYSCALL(entropy, 1) {
+  if (lua_gettop(L) == 0) return cosmic_fail_effect(L, EINVAL);
+  return cosmic_ok(L);
+}
+]])
+  local said: {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  assert(#found == 3 and found[1].rule == "failure-shape" and found[1].line == 9
+    and found[2].line == 13 and found[3].line == 14,
+    "expected three failure-shape findings, found: " .. table.concat(said, ", "))
+end
+
+local function test_a_failure_in_its_own_shape_is_not(tmp: string)
+  none(findings(tmp, header .. [[
+#include "syscalls.h"
+#include "fail.h"
+COSMIC_SYSCALL(execve, 3) {
+  return cosmic_fail_effect(L, ENOENT);
+}
+
+COSMIC_SYSCALL(entropy, 1) {
+  if (lua_gettop(L) == 0) return cosmic_fail(L, EINVAL);
+  lua_pushliteral(L, "bytes");
+  return 1;
+}
+]]))
+end
+
+--- `case.c`'s functions, declared in `case.h`.
+local function declared_in_header(tmp: string, declarations: string, source: string):
+    {rules.Finding}
+  assert(Fs.write(tmp .. "/case.h", declarations))
+  return findings(tmp, header .. '#include "case.h"\n' .. source)
+end
+
+--- A header's function answering only 0 or 1 -- itself, through a
+--- helper of its file, or through a local given only truths -- is a
+--- pass or a fail.
+local function test_an_int_that_is_a_pass_or_a_fail_is_found(tmp: string)
+  local decls = "int literal (int x);\nint helped (int x);\nint held (int x);\n"
+  local found = only(declared_in_header(tmp, decls, [[
+int literal (int x) {
+  if (x < 0) return 0;
+  return 1;
+}
+
+static int reject (void) { return 0; }
+
+int helped (int x) {
+  if (x < 0) return reject();
+  return x > 3;
+}
+
+int held (int x) {
+  int fits = x > 0 && x < 9;
+  return fits;
+}
+]]), "pass-fail-int")
+  local said: {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.within end
+  assert(#found == 3 and found[1].line == 7 and found[2].line == 14
+    and found[3].line == 19, "found: " .. table.concat(said, ", "))
+end
+
+--- A status is not a truth, nor is a function no header declares, nor
+--- one that already returns bool.
+local function test_a_status_or_a_bool_is_not(tmp: string)
+  local decls = "#include <stdbool.h>\nint status (int x);\nbool truth (int x);\n"
+  none(only(declared_in_header(tmp, decls, [[
+int status (int x) {
+  if (x < 0) return -1;
+  if (x == 0) return 0;
+  return 1;
+}
+
+bool truth (int x) {
+  return x > 0;
+}
+
+static int local_truth (int x) {
+  return x > 0;
+}
+
+int unused (void) { return local_truth(1) ? 3 : 4; }
+]]), "pass-fail-int"))
+end
+
+local function test_a_function_returning_one_constant_is_found(tmp: string)
+  one(findings(tmp, header .. [[
+int install (lua_State *L, int x) {
+  if (x) {
+    lua_settop(L, 0);
+    return 0;
+  }
+  return 0;
+}
+]]), "constant-return", 6)
+end
+
+--- A file's own helper, `main`, and a lua_CFunction's count are not
+--- flagged: the helper's constant is its file's business, `main`'s is
+--- the exit status, and a count is how many values it leaves.
+local function test_a_constant_that_says_something_is_not(tmp: string)
+  none(findings(tmp, header .. [[
+static int helper (void) { return 0; }
+
+int main (void) { return helper(); }
+
+int count (lua_State *L) {
+  lua_pushinteger(L, 1);
+  return 1;
+}
+]]))
+end
+
+local function test_a_binding_returning_true_alone_is_found(tmp: string)
+  one(findings(tmp, header .. [[
+#include "fail.h"
+static int close_it (lua_State *L) {
+  if (lua_gettop(L) == 0) return luaL_error(L, "nothing to close");
+  if (lua_gettop(L) > 1) {
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+  return cosmic_ok(L);
+}
+]]), "true-alone", 7)
+end
+
+local function test_a_binding_that_answers_something_is_not(tmp: string)
+  none(findings(tmp, header .. [[
+static int status (lua_State *L) {
+  if (lua_gettop(L) == 0) {
+    lua_pushboolean(L, 0);
+    return 1;
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+static int close_it (lua_State *L) {
+  lua_settop(L, 0);
+  return 0;
+}
+]]))
+end
+
+--- The findings of checking `files`, each written under `tmp` from its
+--- source, together.
+local function checked(tmp: string, sources: {string: string}, files: {string}):
+    {rules.Finding}
+  for name, source in pairs(sources) do
+    assert(Fs.write(tmp .. "/" .. name, source))
+  end
+  local out: {rules.Finding} = {}
+  for _, outcome in ipairs(c.check(root, files, tmp)) do
+    assert(outcome.findings ~= nil, outcome.trouble)
+    for _, f in ipairs(outcome.findings) do out[#out + 1] = f end
+  end
+  return out
+end
+
+local two_files: {string: string} = {
+  ["shared.h"] = "int mine (int x);\nint ours (int x);\n",
+  ["a.c"] = [[
+#include "shared.h"
+int mine (int x) { return x + 2; }
+int ours (int x) { return mine(x) * 3; }
+static int hidden (int x) { return x - 2; }
+int used (void) { return hidden(1); }
+]],
+  ["b.c"] = [[
+#include "shared.h"
+int total (void) { return ours(1) + 5; }
+]],
+}
+
+--- A function its header shares but only its own file refers to is
+--- that file's own; one another file calls is shared.
+local function test_a_shared_function_only_its_file_uses_is_found(tmp: string)
+  local found = only(checked(tmp, two_files, { "a.c", "b.c" }), "single-file")
+  one(found, "single-file", 1)
+  assert(found[1].file == "shared.h" and found[1].within == "mine",
+    found[1].file .. " " .. found[1].within)
+end
+
+--- With one file of two checked, what the other refers to is not
+--- known, and nothing is said.
+local function test_a_partial_check_says_nothing_of_sharing(tmp: string)
+  none(only(checked(tmp, two_files, { "a.c" }), "single-file"))
 end

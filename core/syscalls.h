@@ -328,7 +328,7 @@ COSMIC_SYSCALL(entropy, 1);
  * ---@param path string the executable to run
  * ---@param argv {string} the arguments, the program's own name first
  * ---@param environment {string:string} the environment the program starts with
- * ---@return boolean|nil ok nil, since the call returns only on failure
+ * ---@return boolean ok false, since the call returns only on failure
  * ---@return string error what went wrong
  * ---@return integer errno the error number
  */

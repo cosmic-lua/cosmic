@@ -82,7 +82,7 @@ local function test_prepare_refuses_sql_that_holds_two_statements()
   local handle = memory()
   failed(handle:prepare("SELECT 1; SELECT 2"))
   failed(handle:prepare("SELECT 1; not sql"))
-  assert(prepared(handle, "SELECT 1;  -- a trailing comment\n"):finalize())
+  prepared(handle, "SELECT 1;  -- a trailing comment\n"):finalize()
   handle:close()
 end
 
@@ -159,8 +159,8 @@ end
 local function test_a_finalized_statement_raises_from_every_method()
   local handle = memory()
   local statement = prepared(handle, "SELECT ?1")
-  assert(statement:finalize() == true)
-  assert(statement:finalize() == true, "finalizing twice is harmless")
+  assert(select("#", statement:finalize()) == 0, "finalizing returns nothing")
+  assert(select("#", statement:finalize()) == 0, "finalizing twice is harmless")
   for _, method in ipairs({ "step", "columns", "reset", "parameters" }) do
     raises((statement as {string: any})[method], statement)
   end

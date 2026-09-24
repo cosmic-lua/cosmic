@@ -274,7 +274,7 @@ COSMIC_SYSCALL(execve, 3) {
   char **envp = calloc((size_t)variables + 1, sizeof *envp);
   envp_guard->resource = envp;
   if (argv == NULL || envp == NULL) {
-    return cosmic_fail(L, ENOMEM);
+    return cosmic_fail_effect(L, ENOMEM);
   }
   for (size_t i = 1; i <= count; i++) {
     lua_rawgeti(L, 2, (lua_Integer)i);
@@ -296,7 +296,7 @@ COSMIC_SYSCALL(execve, 3) {
   int number = errno;
   if (sigpipe_ignored_here) signal(SIGPIPE, SIG_IGN);
   if (given != envp) free(given);
-  return cosmic_fail(L, number);
+  return cosmic_fail_effect(L, number);
 }
 
 static void free_environment (char **envp, lua_Integer count) {

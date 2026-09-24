@@ -8,6 +8,7 @@
 #ifndef COSMIC_STARTUP_H
 #define COSMIC_STARTUP_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "portable.h"
@@ -76,16 +77,21 @@ void cosmic_startup_host (struct cosmic_startup *startup, int fd,
                           const char *path);
 /* Whether the artifact's selected core range hashes to its manifest digest,
  * checked once and remembered. */
-int cosmic_artifact_core_matches (struct cosmic_artifact *artifact);
+bool cosmic_artifact_core_matches (struct cosmic_artifact *artifact);
 void cosmic_startup_portable (struct cosmic_startup *startup,
                               const char *artifact_path);
-int cosmic_startup_has_private_environment (void);
+/* Whether any launcher-private COSMIC_PORTABLE_ name is set. */
+bool cosmic_startup_has_private_environment (void);
 const char *cosmic_startup_validate (const struct cosmic_startup *startup);
-int cosmic_startup_adopt (const struct cosmic_startup *startup,
-                          struct cosmic_artifact *artifact,
-                          const char **error);
-int cosmic_startup_test_pause (const struct cosmic_startup *startup,
-                               const char **error);
+/* Adopts the artifact startup chose: false, with *error naming why, when
+ * it cannot, and *artifact then holds nothing. */
+bool cosmic_startup_adopt (const struct cosmic_startup *startup,
+                           struct cosmic_artifact *artifact,
+                           const char **error);
+/* The linked hook's pause before the runtime starts: false, with *error
+ * naming why, when startup must stop instead. */
+bool cosmic_startup_test_pause (const struct cosmic_startup *startup,
+                                const char **error);
 /* The names under the reserved COSMIC_PORTABLE_ prefix the linked hook
  * reads for itself and leaves in place for the processes this one
  * starts, NULL-terminated; the product hook names none, so startup

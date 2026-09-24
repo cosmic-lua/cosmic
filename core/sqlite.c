@@ -478,8 +478,7 @@ static int statement_finalize (lua_State *L) {
     sqlite3_finalize(s->stmt);
     s->stmt = NULL;
   }
-  lua_pushboolean(L, 1);
-  return 1;
+  return 0;
 }
 
 static int statement_gc (lua_State *L) {

@@ -23,7 +23,8 @@ psa_algorithm_t cosmic_hash_algorithm (const char *name);
  * source: 0 on success, an errno otherwise. */
 int cosmic_entropy (void *out, size_t len);
 
-/* Brings the library up. Once per process, before any other call. */
+/* Brings the library up. Once per process, before any other call.
+ * Returns the library's own status, PSA_SUCCESS (0) when it is up. */
 int cosmic_crypto_init (void);
 
 /* The raw digest of `data` under the algorithm `name` names: 0 on
@@ -32,7 +33,8 @@ int cosmic_crypto_init (void);
 int cosmic_digest (const char *name, const void *data, size_t len,
                    unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len);
 
-/* Streaming digest of exactly `length` bytes from a positioned descriptor. */
+/* Streaming digest of exactly `length` bytes from a positioned descriptor.
+ * Same returns as `cosmic_digest`. */
 int cosmic_digest_fd (const char *name, int fd, uint64_t offset,
                       uint64_t length,
                       unsigned char out[COSMIC_DIGEST_MAX], size_t *out_len);
