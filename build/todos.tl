@@ -189,7 +189,7 @@ local function blame_files(root: string,
         if result ~= nil and result.ok and result.stdout ~= nil then
           out[file_of[handle]] = todos.parse_blame(result.stdout)
         end
-      elseif (done == nil and trouble ~= "timeout") or now >= deadline_of[handle] then
+      elseif (done == nil and trouble ~= "") or now >= deadline_of[handle] then
         -- Supervision failed, or git ran past its time: the file's
         -- TODOs are listed unblamed.
         local _, _ = handle:close()

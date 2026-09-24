@@ -91,6 +91,8 @@ local record Handle
   _status: sys.ChildStatus
   _closed: boolean
   _guarded: boolean
+  --- The signal a guarded run was asked to stop by, once a wait saw it.
+  _cancelled: integer | nil
   _streams: {Stream}
   _input_fd: integer | nil
   _input: string
@@ -347,15 +349,19 @@ local function settled(self: Handle, timed_out: boolean, killed?: boolean): Resu
 end
 
 --- Waits for the child to exit until `deadline`, servicing its streams,
---- and settles it when it does. Returns "timeout" at the deadline and
---- "cancelled:<signal>" when a guarded run is asked to stop.
+--- and settles it when it does. Nil and "" at the deadline: no answer
+--- yet, and no failure. When a guarded run is asked to stop, keeps the
+--- signal in `_cancelled` and fails.
 local function poll_until(self: Handle, deadline?: integer,
     timed_out?: boolean, ignore_cancel?: boolean, killed?: boolean): Result | nil, string
   while true do
     if not ignore_cancel then
       local cancelled, cancel_trouble = sys.cancelled_child_signal()
       if cancelled == nil then return nil, cancel_trouble end
-      if cancelled ~= 0 then return nil, "cancelled:" .. tostring(cancelled) end
+      if cancelled ~= 0 then
+        self._cancelled = cancelled
+        return nil, "cancelled by signal " .. tostring(cancelled)
+      end
     end
     local status, trouble = exited(self)
     if status ~= nil then return settled(self, timed_out or false, killed) end
@@ -363,7 +369,7 @@ local function poll_until(self: Handle, deadline?: integer,
     local left = POLL_MS
     if deadline then
       local remaining = deadline - now()
-      if remaining <= 0 then return nil, "timeout" end
+      if remaining <= 0 then return nil, "" end
       left = math.max(0, math.min(POLL_MS, remaining // (1000 * 1000)))
     end
     pump({ self }, left)
@@ -390,7 +396,7 @@ local function terminate(self: Handle): Result | nil, string
   local _, _ = sys.kill(target(self), sys.SIGKILL)
   local final, reap_trouble = poll_until(self, now() + KILL_REAP_NS, true, true, true)
   if final == nil then
-    if reap_trouble == "timeout" then return nil, "child did not reap after SIGKILL" end
+    if reap_trouble == "" then return nil, "child did not reap after SIGKILL" end
     return nil, reap_trouble
   end
   return final, ""
@@ -460,7 +466,7 @@ local function make_handle(pid: integer, process_group: boolean): Handle
     if timeout_ms < 0 then return nil, "timeout is negative" end
     local r, trouble = poll_until(self, now() + timeout_ms * 1000000)
     if r then return r, "" end
-    if trouble ~= "timeout" then return nil, trouble end
+    if trouble ~= "" then return nil, trouble end
     return terminate(self)
   end
 
@@ -697,8 +703,10 @@ end
 
 --- Waits for the first of several handles to finish, servicing every
 --- one's streams meanwhile, and returns it settled: its `wait()` answers
---- at once. Nil and "timeout" when `timeout_ms` passes first; the
---- handles are left running.
+--- at once. Nil and "" when `timeout_ms` passes first -- no handle
+--- finished, and nothing failed -- and the handles are left running:
+--- a timeout is `done == nil and trouble == ""`, so test `done` itself.
+--- `assert` on this answer raises at a timeout, with an empty message.
 -- TODO: carry a settled group's lingering members on Child.Result, a
 -- field beside the exit status, and answer the handle with "" here:
 -- build/test.tl reads the trouble beside the handle's result today, and
@@ -720,7 +728,7 @@ function Child.wait_any(handles: {Handle}, timeout_ms?: integer): Handle | nil, 
     local left = POLL_MS
     if deadline then
       local remaining = deadline - now()
-      if remaining <= 0 then return nil, "timeout" end
+      if remaining <= 0 then return nil, "" end
       left = math.max(0, math.min(POLL_MS, remaining // (1000 * 1000)))
     end
     pump(handles, left)
@@ -801,9 +809,7 @@ function Child.run(argv: {string}, opts?: Options): Result | nil, string
   end
   local called, r, wait_trouble = pcall(supervised)
   local cancellation: integer
-  if called and wait_trouble and wait_trouble:sub(1, 10) == "cancelled:" then
-    cancellation = assert(math.tointeger((assert(tonumber(wait_trouble:sub(11))))))
-  end
+  if called and h then cancellation = h._cancelled end
   local cleanup_trouble: string
   if h and not h._closed and (not called or cancellation or not r) then
     local cleaned, answer, failure = pcall(terminate, h)
