@@ -1,11 +1,12 @@
---- What names an exact query as a symbol -- one rule, shared by
---- `cosmic docs`'s own matching (`build.docs`) and the compiler's own
---- hint for a name it could not resolve (`build.importer`), so a
---- compile-time pointer can never name a row `cosmic docs <word>`
---- itself would disagree with. Kept in its own module rather than in
---- either of those: `build.importer` already requires it directly
---- (for the hint), so `build.docs` requiring `build.importer` back
---- for this rule would be a cycle. This module requires neither.
+--- What names an exact query as a symbol, and what is a use of it --
+--- one rule, shared by `cosmic docs` and `cosmic uses` (`build.docs`)
+--- and the compiler's own hint for a name it could not resolve
+--- (`build.importer`), so a compile-time pointer can never name a row
+--- `cosmic docs <word>` itself would disagree with. Kept in its own
+--- module rather than in either of those: `build.importer` already
+--- requires it directly (for the hint), so `build.docs` requiring
+--- `build.importer` back for this rule would be a cycle. This module
+--- requires neither.
 
 local Sqlite = require("cosmic.sqlite")
 
@@ -29,15 +30,41 @@ function symbols.public_only(column: string, public: boolean): string
     " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
 end
 
+--- The condition under which the SQL `name` ends in `.` or `:` and then
+--- the SQL `last`: `last` is `name`'s last name, or its last few.
+local function ends_in(name: string, last: string): string
+  return "(substr(" .. name .. ", -length(" .. last .. ") - 1) = '.' || " .. last ..
+    " OR substr(" .. name .. ", -length(" .. last .. ") - 1) = ':' || " .. last .. ")"
+end
+
 --- The condition under which `alias` (a row of `docs`) names `?1`
 --- exactly: a symbol as declared (`Fs.read`), a symbol's last name
 --- alone (`read`, matching every `X.read` and `X:read`), or a
 --- module's own row (`cosmic.fs`).
 function symbols.named_where(alias: string): string
   return "(" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
-    "substr(" .. alias .. ".symbol, -length(?1) - 1) = '.' || ?1 OR " ..
-    "substr(" .. alias .. ".symbol, -length(?1) - 1) = ':' || ?1 OR " ..
+    ends_in(alias .. ".symbol", "?1") .. " OR " ..
     "(" .. alias .. ".symbol = '' AND " .. alias .. ".module = ?1))"
+end
+
+--- The condition under which `alias` (a row of `uses`) is a use of what
+--- `?1` names, the same way `named_where` finds its declaration. A use
+--- is recorded under its canonical path, without the module's own
+--- record (`exists`, `ZipWriter.add_file`), so besides that path and
+--- its last name alone, `?1` may spell it from the module's record
+--- down (`Fs.exists`, `Zip.ZipWriter.add_file`): one name more, and
+--- only one, so `Stream.Writer.write` is not a use of every `write`.
+-- TODO: the one name past the path is not checked against the module's
+-- own record, which no table keeps, so `Writer.write` is also a use of
+-- every bare `write` (`Fs.write`'s among them). Keep each module's
+-- record name (`Fs`, `Stream`) where `build.positions` canonicalizes a
+-- symbol, and match that name here rather than any single name.
+function symbols.used_where(alias: string): string
+  local symbol = alias .. ".symbol"
+  local record = "substr(?1, 1, length(?1) - length(" .. symbol .. ") - 1)"
+  return "(" .. symbol .. " = ?1 OR " .. ends_in(symbol, "?1") .. " OR " ..
+    "(" .. ends_in("?1", symbol) .. " AND instr(" .. record .. ", '.') = 0 AND " ..
+    "instr(" .. record .. ", ':') = 0))"
 end
 
 --- Every symbol `query` names exactly, across `databases` (searched in
