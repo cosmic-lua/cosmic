@@ -263,6 +263,12 @@ local function symbol_of(stmt: ast.Node): string
     return tk or ""
   end
   local owner = stmt.fn_owner
+  -- TODO: spell a dotted owner in full (`Thing.Box` for
+  -- `function Thing.Box:grow`): only a plain name carries `tk`, so a
+  -- method on a nested record is written `:grow`, unexported, and its
+  -- uses (recorded as `Box.grow`) never meet it -- `cosmic docs
+  -- Box.grow` and `cosmic uses :grow` both find nothing. Walk the owner's
+  -- `.` chain here, then canonicalize_docs strips the export as it does.
   local owner_tk = owner ~= nil and owner.tk or nil
   local sep = stmt.is_method and ":" or "."
   return (owner_tk or "") .. sep .. (tk or "")
