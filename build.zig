@@ -970,36 +970,10 @@ fn vendorLibrary(
     const curl = sources.curl;
     const yyjson = sources.yyjson;
 
-    // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
-    // macOS's also readline); POSIX is the whole of what the core needs
-    // on either OS, and dynamic loading from Lua is never wanted -- the
-    // module store is the only door. Same flag on both, so `nm`/`strings`
-    // finds no dlopen symbol reachable from Lua in either core.
-    //
-    // The one dlopen the macOS core itself does is c-ares's, in
-    // ares_sysconfig_mac.c: Apple's DNS configuration only comes out
-    // whole through a handful of configd-internal symbols that
-    // `libresolv` and `scutil` use and that c-ares reaches by dlopening
-    // libSystem, since there is no header or static import for them.
-    // That is a deliberate, narrow carve-out to this rule -- one
-    // library, one target, one already-loaded system library -- not a
-    // door into the module store.
-    // LUA_COMPAT_GLOBAL off: assigning to an undeclared global (no
-    // `global` statement) is a compile error rather than silently
-    // creating one, catching the classic Lua typo bug. The vendored
-    // compiler and every Teal-generated chunk run unchanged under it --
-    // neither ever assigns an undeclared global -- so there is nothing
-    // to trade for the safety.
-    const lua_base = [_][]const u8{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
-    const lua_checked = lua_base ++ lua_checks;
-    const lua_flags: []const []const u8 =
-        if (configuration.sanitize) &lua_checked else &lua_base;
-    mod.addCSourceFiles(.{
-        .root = lua.path(b, "src"),
-        .files = &lua_sources,
-        .flags = lua_flags,
-    });
-
+    // zig starts a library's files in the order they are added, so the
+    // longest go first: SQLite's amalgamation is the longest single compile
+    // by far (over 20 s released, 80 s under the checked core's sanitizer),
+    // then yyjson. Added after Lua's, they started late and finished last.
     // SQLite's compile-time configuration, as flags rather than a
     // configuration header: a flag is part of the compile's cache key,
     // where a header pulled in through SQLITE_CUSTOM_INCLUDE was seen to
@@ -1036,19 +1010,6 @@ fn vendorLibrary(
         .flags = sqlite_flags,
     });
 
-    // miniz reaches for fseeko/ftello, which are POSIX rather than C11.
-    // Its zlib-compatible aliases are off: the core calls the mz_ names,
-    // and the aliases are static wrappers every including file warns on.
-    mod.addCSourceFiles(.{
-        .root = miniz,
-        .files = &.{"miniz.c"},
-        .flags = &.{
-            "-std=c11",
-            "-D_XOPEN_SOURCE=700",
-            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
-        },
-    });
-
     // yyjson reads JSON for cosmic.json, and writes each number's
     // shortest form for its encoder. What the core never calls is
     // compiled out: the incremental reader, file and FILE* I/O, and
@@ -1062,6 +1023,49 @@ fn vendorLibrary(
             "-DYYJSON_DISABLE_INCR_READER=1",
             "-DYYJSON_DISABLE_FILE=1",
             "-DYYJSON_DISABLE_UTILS=1",
+        },
+    });
+
+    // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
+    // macOS's also readline); POSIX is the whole of what the core needs
+    // on either OS, and dynamic loading from Lua is never wanted -- the
+    // module store is the only door. Same flag on both, so `nm`/`strings`
+    // finds no dlopen symbol reachable from Lua in either core.
+    //
+    // The one dlopen the macOS core itself does is c-ares's, in
+    // ares_sysconfig_mac.c: Apple's DNS configuration only comes out
+    // whole through a handful of configd-internal symbols that
+    // `libresolv` and `scutil` use and that c-ares reaches by dlopening
+    // libSystem, since there is no header or static import for them.
+    // That is a deliberate, narrow carve-out to this rule -- one
+    // library, one target, one already-loaded system library -- not a
+    // door into the module store.
+    // LUA_COMPAT_GLOBAL off: assigning to an undeclared global (no
+    // `global` statement) is a compile error rather than silently
+    // creating one, catching the classic Lua typo bug. The vendored
+    // compiler and every Teal-generated chunk run unchanged under it --
+    // neither ever assigns an undeclared global -- so there is nothing
+    // to trade for the safety.
+    const lua_base = [_][]const u8{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
+    const lua_checked = lua_base ++ lua_checks;
+    const lua_flags: []const []const u8 =
+        if (configuration.sanitize) &lua_checked else &lua_base;
+    mod.addCSourceFiles(.{
+        .root = lua.path(b, "src"),
+        .files = &lua_sources,
+        .flags = lua_flags,
+    });
+
+    // miniz reaches for fseeko/ftello, which are POSIX rather than C11.
+    // Its zlib-compatible aliases are off: the core calls the mz_ names,
+    // and the aliases are static wrappers every including file warns on.
+    mod.addCSourceFiles(.{
+        .root = miniz,
+        .files = &.{"miniz.c"},
+        .flags = &.{
+            "-std=c11",
+            "-D_XOPEN_SOURCE=700",
+            "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
         },
     });
 
