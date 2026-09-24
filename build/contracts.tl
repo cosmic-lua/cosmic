@@ -50,8 +50,13 @@ local type Type = receivers.Type
 local record contracts
   --- `"file:function"` to the reason rules 2 to 4 do not hold it.
   exempt: {string: string}
-  --- `"module Record"` to the reason a statement may ignore its methods.
-  quiet: {string: string}
+  --- Methods of one record whose failure a statement may ignore.
+  record Quiet
+    reason: string
+    methods: {string: boolean}
+  end
+  --- `"module Record"` to the methods a statement may ignore, and why.
+  quiet: {string: Quiet}
 end
 
 contracts.exempt = {
@@ -62,24 +67,28 @@ contracts.exempt = {
     "trouble, which a caller reports beside the handle's result",
 }
 
---- The records whose methods' failures a statement may ignore without
---- saying so, with the reason: a diagnostic written to a stream has
+--- The methods whose failures a statement may ignore without saying
+--- so, by record, with the reason: a diagnostic written to a stream has
 --- nowhere else to report that the write failed, as `cosmic.log` says.
---- Only a call standing alone as a statement is let through; a result
---- used any other way is held to rule 1 like any other.
+--- Each method is named, so one a record gains later is held to rule 1
+--- until it is listed here. Only a call standing alone as a statement
+--- is let through; a result used any other way is held to rule 1 too.
 contracts.quiet = {
-  ["cosmic.log Logger"] = "a line written for a person; its failure has nowhere to go",
+  ["cosmic.log Logger"] = {
+    reason = "a line written for a person; its failure has nowhere to go",
+    methods = { say = true, complain = true, verdict = true },
+  },
 }
 
---- The type ids of `contracts.quiet`'s records, as the checker in `env`
---- holds them: what `check` takes as `quiet`.
-function contracts.quiet_records(env: compiler.Env): {integer: boolean}
-  local out: {integer: boolean} = {}
-  for key in pairs(contracts.quiet) do
+--- `contracts.quiet`'s methods by the type id of their record, as the
+--- checker in `env` holds it: what `check` takes as `quiet`.
+function contracts.quiet_records(env: compiler.Env): {integer: {string: boolean}}
+  local out: {integer: {string: boolean}} = {}
+  for key, entry in pairs(contracts.quiet) do
     local module, path = key:match("^(%S+) (%S+)$")
     if module ~= nil and path ~= nil then
       local found = receivers.record_named(env, module, path)
-      if found ~= nil and found.typeid ~= nil then out[found.typeid] = true end
+      if found ~= nil and found.typeid ~= nil then out[found.typeid] = entry.methods end
     end
   end
   return out
@@ -406,16 +415,20 @@ end
 --- @param typed the checker's types, as `build.receivers` kept them
 --- @param quiet `quiet_records`' answer, when the caller has an environment
 function contracts.check(file: string, root: Node, typed: receivers.State,
-                         quiet?: {integer: boolean}): {string}
+                         quiet?: {integer: {string: boolean}}): {string}
   local problems: {string} = {}
   local types, callees = typed.every, typed.callees
   local records = typed.types
   --- Whether a statement calls a method of a quiet record.
   local function is_quiet(e1: Node): boolean
-    local receiver = e1.e1
-    if quiet == nil or receiver == nil or e1.kind ~= "op" then return false end
-    local record = records[position(receiver.y, receiver.x)]
-    return record ~= nil and quiet[record.typeid] == true
+    local receiver, member = e1.e1, e1.e2
+    if quiet == nil or receiver == nil or member == nil or member.tk == nil
+        or e1.kind ~= "op" then
+      return false
+    end
+    local owner = records[position(receiver.y, receiver.x)]
+    local methods = owner ~= nil and quiet[owner.typeid] or nil
+    return methods ~= nil and methods[member.tk] == true
   end
   local kept, statements = keeping(root, callees), standing(root)
   ast.walk(root, function(n: Node)

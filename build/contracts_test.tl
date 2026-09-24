@@ -20,11 +20,14 @@ local function problems_in(source: string): {string}
     "local record Log",
     "  record Logger",
     "    say: function(Logger, string): boolean, string",
+    "    flush: function(Logger): boolean, string",
     "  end",
     "end",
     "function Log.new(): Log.Logger",
-    "  return { say = function(_: Log.Logger, _line: string): boolean, string",
-    "    return true, '' end }",
+    "  return {",
+    "    say = function(_: Log.Logger, _line: string): boolean, string return true, '' end,",
+    "    flush = function(_: Log.Logger): boolean, string return true, '' end,",
+    "  }",
     "end",
     "return Log",
   }, "\n"), env, nil, "tl")
@@ -205,4 +208,19 @@ local function test_a_quiet_records_method_may_stand_alone()
   allows(source .. "logger:say('hello')")
   allows(source .. "do logger:say('trouble') end")
   flags(source .. "use(logger:say('hello'))", "its error slot is dropped")
+  -- A method the list does not name is held to the rule.
+  flags(source .. "logger:flush()", "its failure is ignored")
+end
+
+--- Quiet is a record's type, not its name: a record of the program's
+--- own called Logger, with the same method, is held to the rule.
+local function test_a_record_named_like_a_quiet_one_is_not_quiet()
+  flags(table.concat({
+    "local record Logger",
+    "  say: function(Logger, string): boolean, string",
+    "end",
+    "local logger: Logger = { say = function(_: Logger, _l: string): boolean, string",
+    "  return true, '' end }",
+    "logger:say('hello')",
+  }, "\n"), "its failure is ignored")
 end

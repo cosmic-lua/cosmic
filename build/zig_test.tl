@@ -4,7 +4,9 @@
 --- install's scratch directory, and the snapshots that catch a source
 --- edited while a build runs.
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Zig = require("build.zig")
@@ -129,6 +131,29 @@ local function test_resolve_tells_a_missing_name_from_an_unrunnable_one(tmp: str
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
   local plain, denied = Zig.resolve("plain", tmp)
   assert(plain == nil and denied == tmp .. "/plain: not executable", denied)
+end
+
+--- `bin/zig` exits as a shell would when the zig it is given cannot
+--- run: 127 when there is none on PATH, 126 when there is one that is
+--- not executable.
+local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
+  local script = assert(Fs.absolute("build/zig.tl"))
+  local function run(): Child.Result
+    return (assert(Child.run({ assert(Proc.executable()), "--standalone", script, "version" }, {
+      env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
+        XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    })))
+  end
+  local missing = run()
+  assert(missing.code == 127, tostring(missing.stderr))
+  local missing_err = missing.stderr or ""
+  assert(missing_err:find("zig-for-test: not found", 1, true), missing_err)
+  assert(Fs.write(tmp .. "/zig-for-test", "not executable", 0x1a4))
+  local denied = run()
+  assert(denied.code == 126, tostring(denied.stderr))
+  local denied_err = denied.stderr or ""
+  assert(denied_err:find("zig-for-test: permission denied", 1, true), denied_err)
 end
 
 local function test_exec_status_is_the_shells()
