@@ -271,6 +271,8 @@ end
 --- working directory). The second result is the exit status a shell
 --- would give when nothing runnable was found: 127 for none at all,
 --- 126 for one that is there but not executable.
+-- TODO: call Proc.find, which does this, once ci/cosmic-driver.pin names
+-- a cosmic carrying it: this runs standalone on the pinned release.
 function Zig.resolve(name: string, path: string): string | nil, integer
   if name:find("/", 1, true) ~= nil then
     return name, 0

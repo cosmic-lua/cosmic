@@ -66,8 +66,7 @@ local function setup(tmp: string): Context
   local alias = work .. "/run alias"
   local diagnostics = work .. "/logs"
   Fixture.mkdir(program); Fixture.mkdir(run); Fixture.mkdir(diagnostics)
-  Fixture.run("run-alias", { "/usr/bin/env", "ln", "-s", run, alias },
-    work, diagnostics)
+  assert(Fs.symlink(run, alias))
   local artifact = program .. "/launcher.test"
   Fixture.copy(Fixture.required("COSMIC_FIXTURE_LAUNCHER"), artifact, 0x1ed)
   return { artifact = artifact,
@@ -300,8 +299,7 @@ end
 local function test_launcher_cache_policy_and_integrity(tmp: string)
   local ctx = setup(tmp)
   local target = ctx.work .. "/leaf-target"; Fixture.mkdir(target)
-  Fixture.run("leaf-link", { "/usr/bin/env", "ln", "-s", target,
-    ctx.work .. "/leaf-link" }, ctx.work, ctx.diagnostics)
+  assert(Fs.symlink(target, ctx.work .. "/leaf-link"))
   for i, suffix in ipairs({ "", "/", "////" }) do
     expect_failure(ctx, "leaf-link-failure-" .. tostring(i), "symbolic link",
       ctx.work .. "/leaf-link" .. suffix)
@@ -320,8 +318,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local sentinel = ctx.work .. "/sentinel"; Fixture.write(sentinel, "untouched\n")
   local linked = ctx.work .. "/symlink-cache"; Fixture.mkdir(linked)
   chmod(linked, 0x1c0)
-  Fixture.run("core-link", { "/usr/bin/env", "ln", "-s", sentinel,
-    linked .. "/" .. key }, ctx.work, ctx.diagnostics)
+  assert(Fs.symlink(sentinel, linked .. "/" .. key))
   local repaired = run(ctx, "symlink-repair", linked)
   outcome_ok(repaired, "symlink repair")
   assert(Fixture.read(sentinel) == "untouched\n" and
@@ -513,10 +510,8 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
     local parent = Env.get_or("COSMIC_PORTABLE_NOEXEC_ROOT", "/dev/shm")
     local parent_is_dir = Predicate.is_dir(parent)
     if parent_is_dir then
-      local made = Fixture.call("noexec-root", { "/usr/bin/env", "mktemp", "-d",
-        parent .. "/cosmic-launcher.XXXXXXXX" }, ctx.work, ctx.diagnostics)
-      if made.result.ok then
-        local noexec = Fixture.small(made.out, 4096):match("([^\n]+)") as string
+      local noexec = sys.mkdtemp(parent .. "/cosmic-launcher.XXXXXX")
+      if noexec then
         local called, failure = pcall(function(): boolean
           local probe = noexec .. "/probe"
           Fixture.write(probe, "#!/bin/sh\nexit 0\n", 0x1c0)
@@ -544,9 +539,8 @@ local function test_launcher_noexec_timing_and_immutability(tmp: string)
           end
           return true
         end)
-        local removed = Fixture.call("noexec-remove",
-          { "/bin/rm", "-rf", noexec }, ctx.work, ctx.diagnostics)
-        outcome_ok(removed, "noexec cleanup")
+        local removed, remove_trouble = Fs.remove_tree(noexec)
+        assert(removed, "noexec cleanup: " .. tostring(remove_trouble))
         if not called then error(failure) end
       end
     end

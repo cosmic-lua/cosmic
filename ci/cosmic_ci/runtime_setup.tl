@@ -8,9 +8,8 @@ local function chmod(path: string, mode: integer)
 end
 
 -- Copies a whole directory tree with the standard `cp -R`, matching
--- identity_test.tl's own `copy_tree`: Teal has no bundled recursive-copy
--- primitive, and shelling out to a standard POSIX utility for it is the
--- established idiom.
+-- identity_test.tl's own `copy_tree`.
+-- TODO: copy in this process once cosmic.fs carries a recursive copy.
 local function copy_tree(label: string, from: string, to: string, cwd: string,
     diagnostics: string)
   Fixture.run(label, { "/usr/bin/env", "cp", "-R", from, to }, cwd, diagnostics)

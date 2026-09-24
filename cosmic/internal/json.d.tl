@@ -18,7 +18,7 @@ local record json
   -- to `depth_limit`.
   encode: function(value: any, pretty?: boolean, indent?: string, sorted?: boolean,
                    max_depth?: integer, nan_as_null?: boolean,
-                   sparse_as_null?: boolean): string | nil, string
+                   sparse_as_null?: boolean, ascii?: boolean): string | nil, string
   -- Marks `t`, or a new table, as a JSON array and answers it. Raises
   -- when `t` has another metatable.
   array: function(t?: {any}): {any}

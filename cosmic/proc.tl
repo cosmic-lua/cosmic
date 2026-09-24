@@ -1,5 +1,6 @@
 --- The running process itself.
 
+local Env = require("cosmic.env")
 local sys = require("cosmic.sys")
 
 local record Proc
@@ -73,6 +74,45 @@ function Proc.relaunch(): Proc.Relaunch | nil, string
     fds = { [ARTIFACT_FD] = assert(found.artifact_fd), [CORE_FD] = assert(found.core_fd) },
   }
   return relaunch, ""
+end
+
+--- The search list `find` uses when PATH is unset, as execvp does.
+local DEFAULT_PATH <const> = "/bin:/usr/bin"
+
+--- Where the program `name` would run from, found as a shell finds it:
+--- `name` itself when it holds a slash, else the first executable file
+--- of that name in `path` -- a colon-separated list, PATH's value by
+--- default -- where an empty entry is the working directory. A relative
+--- entry gives a relative answer, as a shell's would. Nothing runnable
+--- is `nil` and why: no such file, or one that is there but not
+--- executable (a shell's 127 and 126). An empty name raises.
+function Proc.find(name: string, path?: string): string | nil, string
+  if name == "" then
+    error("Proc.find: the name is empty", 2)
+  end
+  if name:find("/", 1, true) ~= nil then
+    return name, ""
+  end
+  local search = path or Env.get("PATH") or DEFAULT_PATH
+  local unrunnable: string = nil
+  for dir in (search .. ":"):gmatch("([^:]*):") do
+    local candidate = (dir == "" and "." or dir) .. "/" .. name
+    local st = sys.stat(candidate)
+    if st ~= nil and st.kind == "file" then
+      -- TODO: ask whether this process may run the file --
+      -- faccessat(AT_EACCESS, X_OK) -- once cosmic.sys carries it; an
+      -- execute bit for anyone is taken for one this user holds, so a
+      -- file only others may run is answered where execvp would skip it.
+      if st.mode & 0x49 ~= 0 then
+        return candidate, ""
+      end
+      unrunnable = unrunnable or candidate
+    end
+  end
+  if unrunnable ~= nil then
+    return nil, unrunnable .. ": not executable"
+  end
+  return nil, name .. ": not found"
 end
 
 --- Whether a stream is a terminal.

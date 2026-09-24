@@ -98,10 +98,11 @@ local git_timeout_ms = 30 * 1000
 
 --- Runs git in `root`, its output when it succeeds.
 local function git(root: string, args: {string}): string | nil
-  -- TODO: resolve git on PATH rather than through /usr/bin/env, which
-  -- a system may not have, once cosmic.child or cosmic.proc carries a
-  -- PATH lookup; build/zig.tl's Zig.resolve is one, kept to itself.
-  local argv: {string} = { "/usr/bin/env", "git", "-C", root }
+  local found = Proc.find("git")
+  if found == nil then
+    return nil
+  end
+  local argv: {string} = { found, "-C", root }
   for _, each in ipairs(args) do
     argv[#argv + 1] = each
   end

@@ -291,8 +291,8 @@ local function test_depth_limits()
   local ok = decoded(string.rep("[", 64) .. "1" .. string.rep("]", 64))
   assert(ok ~= nil, "64 levels decode by default")
   local deep = string.rep("[", 65) .. "1" .. string.rep("]", 65)
-  assert(decode_failure(deep) == "JSON nests deeper than 64 levels", "65 do not")
-  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "JSON nests deeper than 1 levels",
+  assert(decode_failure(deep) == "JSON nests deeper than 64 levels at line 1, column 65", "65 do not")
+  assert(decode_failure('{"a":{"b":1}}', { max_depth = 1 }) == "JSON nests deeper than 1 levels at line 1, column 6",
     "an object counts")
   assert(decoded(deep, { max_depth = 65 }) ~= nil, "the limit is the caller's")
   local root: {any} = {}
@@ -478,7 +478,7 @@ local function test_json_lines()
   local _, bad = Json.decode_lines('1\n\n{"a": tru}\n')
   assert(bad == "invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
   local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
-  assert(deep == "line 2: JSON nests deeper than 1 levels", deep)
+  assert(deep == "JSON nests deeper than 1 levels at line 2, column 2", deep)
   local kept = Json.decode_lines("null\n1", { null_value = Json.null })
   assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
   assert(Json.encode_lines({ { b = 1, a = { 1 } }, "x", 3 }, { pretty = false }) ==
@@ -491,4 +491,36 @@ local function test_json_lines()
   assert(why == "value 2: cannot encode a function at $.f", why)
   local text = assert(Json.encode_lines({ { a = 1 }, Json.array() }))
   assert(encoded((Json.decode_lines(text))) == '[{"a":1},[]]', "a round trip")
+end
+
+--- A depth failure says where the refused array or object opens,
+--- counting past strings that hold brackets, and, in JSON5, past
+--- comments and single-quoted strings.
+local function test_a_depth_failure_says_where()
+  local text = '{"s": "[[{", "a": [\n  [1, {"x": [2]}]]}'
+  assert(decode_failure(text, { max_depth = 3 }) ==
+    "JSON nests deeper than 3 levels at line 2, column 7", decode_failure(text, { max_depth = 3 }))
+  local five = "// [[[\n{'s': '[{', /* { */ a: [[0]]}"
+  assert(decode_failure(five, { json5 = true, max_depth = 2 }) ==
+    "JSON nests deeper than 2 levels at line 2, column 25", decode_failure(five, { json5 = true, max_depth = 2 }))
+  -- JSON5 ends a line comment at \r, U+2028 and U+2029 as well as \n.
+  for _, eol in ipairs({ "\r", "\u{2028}", "\u{2029}" }) do
+    local failure = decode_failure("// c" .. eol .. "[[1]]", { json5 = true, max_depth = 1 })
+    assert(failure == ("JSON nests deeper than 1 levels at line 1, column %d"):format(6 + #eol), failure)
+  end
+end
+
+--- `ascii` writes every character past ASCII as a \u escape -- U+2028
+--- and U+2029 among them -- a surrogate pair past U+FFFF, in keys as in
+--- values, and the text reads back to the same string.
+local function test_ascii_escapes_every_character_past_ascii()
+  local s = "é\u{2028}x\u{2029}\u{1F600}\u{FFFF}\u{80}\u{7FF}\u{800}\u{10FFFF}"
+  local text = assert(Json.encode({ [s] = s }, { ascii = true }))
+  local escaped = '"\\u00e9\\u2028x\\u2029\\ud83d\\ude00\\uffff\\u0080\\u07ff\\u0800\\udbff\\udfff"'
+  assert(text == "{" .. escaped .. ":" .. escaped .. "}", text)
+  assert(not text:find("[\128-\255]"), "a byte past ASCII was written")
+  local back = assert(Json.decode(text)) as {string: string}
+  assert(back[s] == s, "it does not read back")
+  assert(Json.encode(s) == '"' .. s .. '"', "without ascii the text is as it was")
+  assert(Json.encode_lines({ "é" }, { ascii = true }) == '"\\u00e9"\n', "encode_lines passes it on")
 end

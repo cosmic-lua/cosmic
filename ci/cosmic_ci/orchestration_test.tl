@@ -103,9 +103,8 @@ local function test_provenance_failures_are_durable(tmp: string)
     tmp .. "/logs", context(candidate, corrupt_runner_temp)).result.ok)
 
   local missing_runner_temp = seeded_runner_temp("missing")
-  assert(assert(Child.run({ "/bin/rm",
-    missing_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256",
-    })).ok)
+  assert(Fs.remove(
+    missing_runner_temp .. "/cosmic-ci/products/portable-product-b/executed-cosmic.sha256"))
   assert(not Fixture.call("missing-attestation", append(base, { "provenance" }), project,
     tmp .. "/logs", context(candidate, missing_runner_temp)).result.ok)
 end

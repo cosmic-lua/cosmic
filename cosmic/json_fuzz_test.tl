@@ -98,6 +98,16 @@ local function decode_holds(input: string): boolean, string
   return true, ""
 end
 
+--- The column of the `n`th `[` or `{` in `opens`, which holds nothing
+--- else that brackets: the one a depth limit of n - 1 refuses.
+local function deepest(opens: string, n: integer): integer
+  local at = 0
+  for _ = 1, n do
+    at = assert(opens:find("[%[{]", at + 1))
+  end
+  return at
+end
+
 local function test_decode_is_total_on_mutated_json(tmp: string)
   Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds })
 end
@@ -184,6 +194,7 @@ local function recipe_options(r: Recipe): Json.EncodeOptions
     sorted = bits & 2 == 0,
     nan_as_null = bits & 4 ~= 0,
     sparse_as_null = bits & 8 ~= 0,
+    ascii = bits & 64 ~= 0,
   }
   if bits & 16 ~= 0 then opts.max_depth = next_byte(r) % 8 + 1 end
   if opts.pretty and bits & 32 ~= 0 then opts.indent = "\t" end
@@ -204,6 +215,9 @@ local function encode_holds(input: string): boolean, string
     return true, ""
   end
   if err ~= "" then return false, "a success with a message: " .. err end
+  if opts.ascii and text:find("[\128-\255]") then
+    return false, "ascii wrote a byte past ASCII: " .. text
+  end
   local same: Json.EncodeOptions = { nan_as_null = opts.nan_as_null,
     sparse_as_null = opts.sparse_as_null, max_depth = opts.max_depth }
   local expected, eerr = Json.encode(value, same)
@@ -247,7 +261,8 @@ local function test_the_depth_limits_are_exact(tmp: string)
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
         if err ~= "" then return false, ("%d levels under a limit of %d: %s"):format(n, limit, err) end
-      elseif value ~= nil or err ~= ("JSON nests deeper than %d levels"):format(limit) then
+      elseif value ~= nil or err ~= ("JSON nests deeper than %d levels at line 1, column %d"):
+           format(limit, deepest(opens, limit + 1)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
       if err == "" then

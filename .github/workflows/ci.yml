@@ -79,6 +79,10 @@ jobs:
     env:
       COSMIC_WORKER: ${{ matrix.name }}
       TARGET: ${{ matrix.target }}
+      # The checked core's whole suite and deep fuzz rerun (about two
+      # minutes a leg) run on linux-x86_64 alone; every leg still builds
+      # and verifies the checked core. See orchestration.tl's checked_suite.
+      COSMIC_CI_CHECKED_SUITE: ${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}
     steps:
       - name: install the tools the actions and the build need
         if: matrix.container
@@ -130,12 +134,26 @@ jobs:
       # reuses far less effectively than one it built itself. A key per
       # leg costs a bit of duplicate cache storage in exchange for every
       # leg reliably saving and reusing its own.
-      - name: cache zig build outputs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # A saved entry is never replaced under its own key, so every save
+      # takes a key of its own (the run's id), and a restore takes the
+      # newest entry for these exact inputs, else the newest for this leg.
+      # main saves after every run, so what every branch restores keeps
+      # up with main; other refs save only when nothing for these exact
+      # inputs was there to restore, as the single fixed key did, which
+      # keeps a branch's pushes from filling the repository's cache.
+      - name: name the zig build cache
+        id: zig-cache-key
+        shell: sh
+        run: echo "prefix=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**') }}-" >> "$GITHUB_OUTPUT"
+
+      - name: restore zig build outputs
+        id: zig-cache-restore
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/zig-build
-          key: zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**') }}
+          key: ${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            ${{ steps.zig-cache-key.outputs.prefix }}
             zig-build-${{ matrix.name }}-
 
       - name: hand the checkout and restored caches over to the unprivileged builder
@@ -195,17 +213,30 @@ jobs:
       # actions/cache publishes it only when the job succeeds; zig's own
       # content addressing makes restored entries safe to validate and reuse.
       - name: save zig build outputs for next run
+        id: cache-save
         if: always() && steps.driver.outcome == 'success'
         run: cosmic-driver cosmic_ci/driver.tl platform cache-save
+
+      - name: upload zig build outputs
+        if: >-
+          always() && steps.cache-save.outcome == 'success' &&
+          (github.ref == 'refs/heads/main' ||
+           !startsWith(steps.zig-cache-restore.outputs.cache-matched-key,
+                       steps.zig-cache-key.outputs.prefix))
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/zig-build
+          key: ${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
 
       # The regressions below read the checkout, the product and the
       # runtime the phases above made, and the product suite a fresh
       # extract of the tracked source: they share nothing but the
       # operations database, which each opens only to record a start or
-      # an end. The regressions mostly wait (on children, on timeouts)
-      # where the suite keeps every processor busy, so they start here,
-      # in the background, and the step that ends them only waits for
-      # their verdict.
+      # an end. So they start here, in the background, and the step that
+      # ends them only waits for their verdict. Both use processors (the
+      # self-rebuild and identity regressions compile), so the product
+      # suite leaves one to them (COSMIC_CI_PORTABLE_SPARE, read by the
+      # driver's portable phase).
       - name: start runtime, launcher, rebuild, and identity regressions
         id: fixtures-start
         run: |
@@ -222,6 +253,8 @@ jobs:
 
       - name: run the product suite from fresh tracked source
         id: portable-suite
+        env:
+          COSMIC_CI_PORTABLE_SPARE: '1'
         run: cosmic-driver cosmic_ci/driver.tl platform portable
 
       - name: verify the delayed portable database boundary
