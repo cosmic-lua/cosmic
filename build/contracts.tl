@@ -289,11 +289,6 @@ local skipped: {string: boolean} = {
   if_parent = true, fn_owner = true, expected = true, known = true,
 }
 
---- Calls `visit` on every child node of `n`.
-local function each_child(n: Node, visit: function(Node))
-  for _, child in ipairs(ast.children(n, skipped)) do visit(child) end
-end
-
 local function is_call(n: Node): boolean
   local op = n.op
   return n.kind == "op" and op ~= nil and op.op == "@funcall"
@@ -304,9 +299,12 @@ local function is_function(n: Node): boolean
     or n.kind == "record_function" or n.kind == "global_function"
 end
 
+--- The empty list, shared wherever a list is read and never written.
+local none: {Node} = {}
+
 --- An expression list's, or a block's, own nodes.
 local function list_of(n: Node | nil): {Node}
-  if n == nil then return {} end
+  if n == nil then return none end
   return n
 end
 
@@ -344,6 +342,67 @@ local record Used
   exempt: {string: boolean}
   parsing: {string: boolean}
   casts: {string: boolean}
+end
+
+--- One walk of a checked module's tree, kept for every rule to read
+--- rather than each walking it again. `order` is every node reached
+--- from the root through its children (`ast.children` passing by the
+--- fields `skipped` names), each once, at its first reach, depth
+--- first; `parent` is the node it was first reached from. `reached` is
+--- every node `ast.walk` reaches, the fields `skipped` names followed
+--- too, in no promised order.
+local record Index
+  order: {Node}
+  parent: {Node: Node}
+  kids: {Node: {Node}}
+  --- What `ast.walk` reaches from a node beyond `kids`: the nodes of
+  --- the fields `skipped` names, and of a bare array in its array part.
+  passed: {Node: {Node}}
+  reached: {Node}
+end
+
+local function index_of(root: Node): Index
+  local order: {Node} = {}
+  local parent: {Node: Node} = {}
+  -- A node is split once, when first reached, so `kids` holding it is
+  -- what marks it reached.
+  local kids: {Node: {Node}} = {}
+  local passed: {Node: {Node}} = {}
+  -- Filled by each split and emptied after, so a node with nothing
+  -- passed by (nearly every one) costs no list of its own.
+  local scratch: {Node} = {}
+  local function split(n: Node): {Node}
+    local own = ast.children(n, skipped, scratch)
+    kids[n] = own
+    if #scratch == 0 then
+      passed[n] = none
+    else
+      passed[n] = table.move(scratch, 1, #scratch, 1, {})
+      for i = #scratch, 1, -1 do scratch[i] = nil end
+    end
+    return own
+  end
+  local function go(n: Node, from: Node | nil)
+    if kids[n] ~= nil then return end
+    local own = split(n)
+    order[#order + 1] = n
+    if from ~= nil then parent[n] = from end
+    for _, child in ipairs(own) do go(child, n) end
+  end
+  go(root, nil)
+  -- What the fields `skipped` names lead to, beyond what `order` holds.
+  local reached: {Node} = table.move(order, 1, #order, 1, {})
+  local function reach(n: Node)
+    if kids[n] ~= nil then return end
+    local own = split(n)
+    reached[#reached + 1] = n
+    for _, child in ipairs(own) do reach(child) end
+    for _, child in ipairs(passed[n]) do reach(child) end
+  end
+  for i = 1, #order do
+    for _, child in ipairs(passed[order[i]]) do reach(child) end
+  end
+  return { order = order, parent = parent, kids = kids, passed = passed, reached = reached }
 end
 
 --- Every function literal a top-level statement binds, by what it is
@@ -387,19 +446,15 @@ local function scope_of(n: Node, within: string, bound: {Node: string}): string
   return bound[n] or within
 end
 
---- Every function in `root` by the name the exemption tables key its
---- code under (`scope_of`).
-local function scope_names(root: Node, bound: {Node: string}): {Node: string}
+--- The name the exemption tables key the code of every node reached
+--- through `index.order` under (`scope_of`), by node.
+local function scope_names(index: Index, bound: {Node: string}): {Node: string}
   local out: {Node: string} = {}
-  local seen: {Node: boolean} = {}
-  local function go(n: Node, within: string)
-    if seen[n] then return end
-    seen[n] = true
-    within = scope_of(n, within, bound)
-    if is_function(n) then out[n] = within end
-    each_child(n, function(child: Node) go(child, within) end)
+  local parent = index.parent
+  for _, n in ipairs(index.order) do
+    local above = parent[n]
+    out[n] = scope_of(n, above ~= nil and out[above] or "", bound)
   end
-  go(root, "")
   return out
 end
 
@@ -442,16 +497,17 @@ end
 
 --- Every return statement that belongs to `fn` itself, not to a
 --- function nested in it.
-local function returns_of(fn: Node): {Node}
+local function returns_of(fn: Node, index: Index): {Node}
   local out: {Node} = {}
   local seen: {Node: boolean} = {}
+  local kids = index.kids
   local function go(n: Node)
     if seen[n] then return end
     seen[n] = true
     if n.kind == "return" then out[#out + 1] = n end
-    each_child(n, function(child: Node)
+    for _, child in ipairs(kids[n] or ast.children(n, skipped)) do
       if not is_function(child) then go(child) end
-    end)
+    end
   end
   if fn.body ~= nil then go(fn.body) end
   return out
@@ -463,7 +519,7 @@ end
 --- hands the binding's whole answer on, errno and all.
 local function check_function(file: string, fn: Node, scope: string, exemptions: contracts.Exemptions,
                               types: {integer: Type}, used: Used,
-                              problems: {string}, stand_in: boolean)
+                              problems: {string}, stand_in: boolean, index: Index)
   local rets = fn.rets
   local tuple = rets ~= nil and rets.tuple or nil
   if rets == nil or tuple == nil or #tuple < 2 then return end
@@ -504,7 +560,7 @@ local function check_function(file: string, fn: Node, scope: string, exemptions:
       file, fn.y, name)
     return
   end
-  local returns = returns_of(fn)
+  local returns = returns_of(fn, index)
   local all_values = #returns > 0
   for _, r in ipairs(returns) do
     local exps = list_of(r.exps)
@@ -564,9 +620,9 @@ end
 --- Every place a call keeps all of its results: the last expression of
 --- a list bound to more names than it has expressions, the last value
 --- of a return, and the last argument of a call that takes a reason.
-local function keeping(root: Node, callees: {integer: Type}): {Node: boolean}
+local function keeping(index: Index, callees: {integer: Type}): {Node: boolean}
   local kept: {Node: boolean} = {}
-  ast.walk(root, function(n: Node)
+  for _, n in ipairs(index.reached) do
     if n.kind == "local_declaration" or n.kind == "assignment" then
       local exps, vars = list_of(n.exps), list_of(n.vars)
       if #exps > 0 and #vars > #exps then kept[exps[#exps]] = true end
@@ -577,18 +633,18 @@ local function keeping(root: Node, callees: {integer: Type}): {Node: boolean}
       local args = list_of(n.e2)
       if #args > 0 and takes_reason(n, #args, callees) then kept[args[#args]] = true end
     end
-  end)
+  end
   return kept
 end
 
 --- Every call standing alone as a statement.
-local function standing(root: Node): {Node: boolean}
+local function standing(index: Index): {Node: boolean}
   local out: {Node: boolean} = {}
-  ast.walk(root, function(n: Node)
+  for _, n in ipairs(index.reached) do
     if n.kind == "statements" then
       for _, statement in ipairs(list_of(n)) do out[statement] = true end
     end
-  end)
+  end
   return out
 end
 
@@ -596,25 +652,26 @@ end
 --- a stand-in for a binding, which answers in the binding's own shape.
 --- The table is known by the type the checker gave the field's owner,
 --- the record `cosmic.sys` declares, whatever the owner is called.
-local function sys_stand_ins(root: Node, records: {integer: Type},
+local function sys_stand_ins(index: Index, records: {integer: Type},
                              sys: Type | nil): {Node: boolean}
   local out: {Node: boolean} = {}
   local wanted = resolved(sys)
   if wanted == nil or wanted.typeid == nil then return out end
-  ast.walk(root, function(n: Node)
-    if n.kind ~= "assignment" then return end
-    local exps = list_of(n.exps)
-    for i, var in ipairs(list_of(n.vars)) do
-      local op, owner, stored = var.op, var.e1, exps[i]
-      if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil
-          and stored ~= nil and stored.kind == "function" then
-        local record_type = records[position(owner.y, owner.x)]
-        if record_type ~= nil and record_type.typeid == wanted.typeid then
-          out[stored] = true
+  for _, n in ipairs(index.reached) do
+    if n.kind == "assignment" then
+      local exps = list_of(n.exps)
+      for i, var in ipairs(list_of(n.vars)) do
+        local op, owner, stored = var.op, var.e1, exps[i]
+        if var.kind == "op" and op ~= nil and op.op == "." and owner ~= nil
+            and stored ~= nil and stored.kind == "function" then
+          local record_type = records[position(owner.y, owner.x)]
+          if record_type ~= nil and record_type.typeid == wanted.typeid then
+            out[stored] = true
+          end
         end
       end
     end
-  end)
+  end
   return out
 end
 
@@ -729,7 +786,7 @@ local comparing: {string: boolean} = {
 -- Binding.ends's TODO).
 local function inspected(n: Node): {Node}
   local op = n.op
-  if n.kind ~= "op" or op == nil then return {} end
+  if n.kind ~= "op" or op == nil then return none end
   if comparing[op.op] then
     local out: {Node} = {}
     local a, b = n.e1, n.e2
@@ -740,11 +797,11 @@ local function inspected(n: Node): {Node}
     return out
   end
   local callee = n.e1
-  if op.op ~= "@funcall" or callee == nil then return {} end
+  if op.op ~= "@funcall" or callee == nil then return none end
   local how, member = callee.op, callee.e2
   if callee.kind ~= "op" or how == nil or member == nil
       or not inspecting[member.tk or ""] then
-    return {}
+    return none
   end
   local receiver = callee.e1
   if how.op == ":" then
@@ -755,18 +812,26 @@ local function inspected(n: Node): {Node}
     local name = unwrapped(list_of(n.e2)[1])
     return name ~= nil and { name } or {}
   end
-  return {}
+  return none
 end
 
 --- The last position any node of `n`'s subtree stands at.
-local function last_position(n: Node): integer
+local function last_position(n: Node, index: Index): integer
   local last = 0
-  ast.walk(n, function(child: Node)
+  local seen: {Node: boolean} = {}
+  local kids, passed = index.kids, index.passed
+  local function go(child: Node)
+    if seen[child] then return end
+    seen[child] = true
     -- A list the parser built without a position of its own has none.
-    if child.y == nil or child.x == nil then return end
-    local at = position(child.y, child.x)
-    if at > last then last = at end
-  end)
+    if child.y ~= nil and child.x ~= nil then
+      local at = position(child.y, child.x)
+      if at > last then last = at end
+    end
+    for _, next_child in ipairs(kids[child]) do go(next_child) end
+    for _, next_child in ipairs(passed[child]) do go(next_child) end
+  end
+  go(n)
   return last
 end
 
@@ -776,8 +841,8 @@ end
 --- inspection is flagged when the binding it reads is a reason's. A
 --- name bound to another name alone (`local a = err`) holds whatever
 --- that one does.
-local function check_inspections(file: string, root: Node, callees: {integer: Type},
-                                 bound: {Node: string}, exemptions: contracts.Exemptions,
+local function check_inspections(file: string, index: Index, callees: {integer: Type},
+                                 scopes: {Node: string}, exemptions: contracts.Exemptions,
                                  used: Used, problems: {string})
   local bindings: {string: {Binding}} = {}
   local reads: {{Node}} = {}
@@ -794,17 +859,19 @@ local function check_inspections(file: string, root: Node, callees: {integer: Ty
       at = at, ends = ends, declared = declared, reason = reason, alias = alias,
     }
   end
-  local seen: {Node: boolean} = {}
-  local function go(n: Node, ends: integer, within: string)
-    if seen[n] then return end
-    seen[n] = true
+  local parent = index.parent
+  local ending: {Node: integer} = {}
+  for _, n in ipairs(index.order) do
     local kind = n.kind
+    local above = parent[n]
+    local ends = above ~= nil and ending[above] or math.maxinteger
     if kind == "statements" then ends = block_end(n) end
-    within = scope_of(n, within, bound)
+    ending[n] = ends
+    local within = scopes[n]
     if kind == "local_declaration" or kind == "assignment" then
       local slot = reason_slot(n, callees)
       local exps = list_of(n.exps)
-      local after = last_position(n) + 1
+      local after = last_position(n, index) + 1
       for i, var in ipairs(list_of(n.vars)) do
         if var.kind == "identifier" or var.kind == "variable" then
           bind(var, after, ends, kind == "local_declaration", i == slot, unwrapped(exps[i]))
@@ -825,14 +892,14 @@ local function check_inspections(file: string, root: Node, callees: {integer: Ty
       end
     end
     local reading = inspected(n)
-    if exemptions.parsing[file .. ":" .. within] == nil then
+    if #reading == 0 then
+      -- nothing read here
+    elseif exemptions.parsing[file .. ":" .. within] == nil then
       for _, read in ipairs(reading) do reads[#reads + 1] = { read, n } end
-    elseif #reading > 0 then
+    else
       used.parsing[file .. ":" .. within] = true
     end
-    each_child(n, function(child: Node) go(child, ends, within) end)
   end
-  go(root, math.maxinteger, "")
   for _, list in pairs(bindings) do
     table.sort(list, function(a: Binding, b: Binding): boolean return a.at < b.at end)
   end
@@ -898,14 +965,11 @@ end
 --- but for the top level's cast of the raw module the core hands the
 --- chunk (`local extra: any = select(2, ...)`, then `extra as
 --- raw_hash`): a chunk's arguments have no type Teal can give them.
-local function check_casts(file: string, root: Node, bound: {Node: string},
+local function check_casts(file: string, root: Node, index: Index, scopes: {Node: string},
                            exemptions: contracts.Exemptions, used: Used, problems: {string})
   local handed = handed_names(root)
-  local seen: {Node: boolean} = {}
-  local function go(n: Node, within: string)
-    if seen[n] then return end
-    seen[n] = true
-    within = scope_of(n, within, bound)
+  for _, n in ipairs(index.order) do
+    local within = scopes[n]
     local op = n.op
     if n.kind == "op" and op ~= nil and op.op == "as" then
       local operand = n.e1
@@ -924,9 +988,7 @@ local function check_casts(file: string, root: Node, bound: {Node: string},
           file, n.y, within == "" and "the top level" or within)
       end
     end
-    each_child(n, function(child: Node) go(child, within) end)
   end
-  go(root, "")
 end
 
 --- An exemption `file`'s check never needed: its function is gone, or
@@ -987,10 +1049,11 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   end
   local used: Used = { exempt = {}, parsing = {}, casts = {} }
   local bound = bound_names(root)
-  local scopes = scope_names(root, bound)
-  local kept, statements = keeping(root, callees), standing(root)
-  local stand_ins = sys_stand_ins(root, records, sys)
-  ast.walk(root, function(n: Node)
+  local index = index_of(root)
+  local scopes = scope_names(index, bound)
+  local kept, statements = keeping(index, callees), standing(index)
+  local stand_ins = sys_stand_ins(index, records, sys)
+  for _, n in ipairs(index.reached) do
     local e1 = n.e1
     if is_call(n) and not kept[n] and e1 ~= nil
         and fallible_type(callees[position(e1.y, e1.x)]) then
@@ -1009,11 +1072,11 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
       end
     elseif is_function(n) then
       check_function(file, n, scopes[n] or function_name(n), exemptions, types, used, problems,
-        stand_ins[n] or false)
+        stand_ins[n] or false, index)
     end
-  end)
-  check_inspections(file, root, callees, bound, exemptions, used, problems)
-  check_casts(file, root, bound, exemptions, used, problems)
+  end
+  check_inspections(file, index, callees, scopes, exemptions, used, problems)
+  check_casts(file, root, index, scopes, exemptions, used, problems)
   stale(file, "exempt", exemptions.exempt, used.exempt, problems)
   stale(file, "parsing", exemptions.parsing, used.parsing, problems)
   stale(file, "casts", exemptions.casts, used.casts, problems)
