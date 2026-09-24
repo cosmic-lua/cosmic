@@ -1,10 +1,12 @@
 --- `build/zig.tl`'s parts that need no network: pin parsing, the host
 --- triple, argument rewriting, root detection, `PATH` lookup, the exit
---- statuses a failed exec means, the cache hit, and the sweep of a dead
---- install's scratch directory.
+--- statuses a failed exec means, the cache hit, the sweep of a dead
+--- install's scratch directory, and the snapshots that catch a source
+--- edited while a build runs.
 
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 local Zig = require("build.zig")
 
 local function test_read_pin_parses_version_and_hosts()
@@ -132,4 +134,102 @@ local function test_sweep_removes_a_dead_installs_scratch_but_not_a_live_one(tmp
   assert(Fs.exists(dead) == false)
   assert(Fs.exists(live) == true)
   assert(Fs.exists(cache .. "/0.16.0-x86_64-linux") == true)
+end
+
+--- A small tree shaped like the repository's, with a file in each
+--- place a build reads and in each place it does not.
+local function sources(tmp: string): string
+  local root = tmp .. "/repo"
+  for _, dir in ipairs({ "core", "vendor/lua", "test/portable", "doc/guides", "o", "ci",
+      "bin", ".git" }) do
+    assert(Fs.mkdirs(root .. "/" .. dir))
+  end
+  for _, file in ipairs({ "build.zig", "bin/zig.pin", "core/a.c", "vendor/lua/lua.c",
+      "test/portable/probe.c", "test/unit_test.tl", "doc/guides/start.md", "doc/design.md",
+      "o/build.db", "ci/run.tl", "bin/zig", ".git/HEAD", "test/notes.txt" }) do
+    assert(Fs.write(root .. "/" .. file, "text"))
+  end
+  return root
+end
+
+local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: string)
+  local seen = assert(Zig.snapshot(sources(tmp)))
+  local paths: {string} = {}
+  for path in pairs(seen) do
+    paths[#paths + 1] = path
+  end
+  table.sort(paths)
+  assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/start.md " ..
+    "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
+end
+
+local function test_a_file_whose_size_changed_is_named(tmp: string)
+  local root = sources(tmp)
+  local before = assert(Zig.snapshot(root))
+  assert(Fs.write(root .. "/core/a.c", "text, and a comment"))
+  local moved = Zig.changed(before, (assert(Zig.snapshot(root))))
+  assert(#moved == 1 and moved[1] == "core/a.c", table.concat(moved, " "))
+end
+
+local function test_a_file_whose_mtime_alone_changed_is_named(tmp: string)
+  local root = sources(tmp)
+  assert(Fs.set_mtime(root .. "/vendor/lua/lua.c", 1000000000, 1000000000))
+  local before = assert(Zig.snapshot(root))
+  assert(Fs.set_mtime(root .. "/vendor/lua/lua.c", 1000000000, 1000000001))
+  local moved = Zig.changed(before, (assert(Zig.snapshot(root))))
+  assert(#moved == 1 and moved[1] == "vendor/lua/lua.c", table.concat(moved, " "))
+end
+
+local function test_added_and_removed_files_are_named_and_unread_ones_are_not(tmp: string)
+  local root = sources(tmp)
+  local before = assert(Zig.snapshot(root))
+  assert(Fs.write(root .. "/core/b.h", "new"))
+  assert(Fs.remove(root .. "/test/portable/probe.c"))
+  assert(Fs.write(root .. "/o/build.db", "the build's own output, rewritten"))
+  assert(Fs.write(root .. "/doc/design.md", "prose, rewritten"))
+  local moved = Zig.changed(before, (assert(Zig.snapshot(root))))
+  assert(table.concat(moved, " ") == "core/b.h test/portable/probe.c", table.concat(moved, " "))
+end
+
+local function test_an_unchanged_tree_moves_nothing(tmp: string)
+  local root = sources(tmp)
+  local before = assert(Zig.snapshot(root))
+  assert(#Zig.changed(before, (assert(Zig.snapshot(root)))) == 0)
+end
+
+local function test_race_report_names_five_paths_then_counts_the_rest()
+  assert(Zig.race_report({ "core/a.c" }) ==
+    "sources changed during the build: core/a.c; run it again")
+  local many: {string} = {}
+  for i = 1, 8 do
+    many[i] = "core/" .. tostring(i) .. ".c"
+  end
+  assert(Zig.race_report(many) == "sources changed during the build: " ..
+    "core/1.c, core/2.c, core/3.c, core/4.c, core/5.c and 3 more; run it again",
+    Zig.race_report(many))
+end
+
+local function test_child_status_is_the_shells()
+  assert(Zig.child_status({ code = 0, ok = true, timed_out = false, captured = {},
+    truncated = false }) == 0)
+  assert(Zig.child_status({ code = 3, ok = false, timed_out = false, captured = {},
+    truncated = false }) == 3)
+  assert(Zig.child_status({ signal = sys.SIGKILL, ok = false, timed_out = false,
+    captured = {}, truncated = false }) == 128 + sys.SIGKILL)
+end
+
+local function test_run_answers_as_the_child_did()
+  assert(Zig.run({ "/bin/sh", "-c", "exit 0" }) == 0)
+  assert(Zig.run({ "/bin/sh", "-c", "exit 3" }) == 3)
+  assert(Zig.run({ "/bin/sh", "-c", "kill -KILL $$" }) == 128 + sys.SIGKILL)
+end
+
+local function test_run_passes_on_a_signal_sent_to_it_alone()
+  -- The child has this process interrupted, as a `kill -INT` aimed at
+  -- bin/zig alone would; the child hears of it only if it is passed on.
+  local started = assert(Time.monotonic_ns())
+  local status = Zig.run({ "/bin/sh", "-c",
+    "trap 'exit 42' INT; kill -INT $PPID; sleep 10 & wait" })
+  assert(status == 42, tostring(status))
+  assert(assert(Time.monotonic_ns()) - started < 5 * 1000 * 1000 * 1000)
 end

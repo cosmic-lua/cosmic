@@ -34,16 +34,30 @@
 --- script's own path); every other subcommand passes through
 --- unchanged. zig runs in the caller's own working directory.
 ---
+--- Every other subcommand replaces this process with zig. `build` runs
+--- zig as a child instead, between two snapshots of what the build
+--- reads (`Zig.snapshot`): a source edited while zig compiles can land
+--- in one of a step's inputs and not another's -- two links of one
+--- core, say -- and the failure that follows names neither. When the
+--- snapshots differ this says which files moved and exits 1, even
+--- when zig succeeded, since what it wrote may mix the two versions.
+--- The child stays in this terminal's process group, so a Ctrl-C
+--- reaches zig itself; this process catches SIGINT and SIGTERM while
+--- zig runs, passes on one zig has not answered, and waits for zig to
+--- exit before it answers as zig did (`Zig.run`).
+---
 --- Exit codes follow the shell's: 127 when zig cannot be found, 126
 --- when it is found but cannot be run, 1 for anything else that stops
 --- it from starting.
 
 local Archive = require("cosmic.archive")
+local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
+local Time = require("cosmic.time")
 
 local record Zig
   record Pin
@@ -281,6 +295,200 @@ function Zig.exec_status(number: integer): integer
   return 126
 end
 
+--- The top-level files a build reads: CI's cache key names these.
+local watched_files: {string:boolean} = {
+  ["bin/zig.pin"] = true,
+  ["build.zig"] = true,
+  ["build.zig.zon"] = true,
+}
+
+--- The trees whose every file a build may read: the core's C and zig,
+--- the vendored sources and their patch records (CI's cache key), and
+--- the Teal trees the boot compiles and stages.
+local watched_trees: {string:boolean} = {
+  ["core"] = true,
+  ["vendor"] = true,
+  ["patch"] = true,
+  ["build"] = true,
+  ["cosmic"] = true,
+  ["cmd"] = true,
+}
+
+--- Whether a walk of the root passes by `entry` (bare name `name`):
+--- anything hidden, the build's own output, and `ci/`, a tree of its
+--- own the boot never stages.
+function Zig.unwatched(entry: string, name: string): boolean
+  return name:sub(1, 1) == "." or entry == "o" or entry == "ci"
+end
+
+--- Whether a build reads the file at `path`, relative to the root:
+--- CI's cache key (`bin/zig.pin`, `build.zig`, `build.zig.zon`,
+--- `core/`, `test/portable/*.c`, `vendor/`, `patch/`), plus what the
+--- boot stages -- the tool's own trees whole, Teal anywhere else, and
+--- the doc guides whose examples it runs.
+function Zig.watches(path: string): boolean
+  if watched_files[path] then
+    return true
+  end
+  local first = path:match("^([^/]+)/")
+  if first == nil then
+    return path:sub(-3) == ".tl"
+  end
+  if watched_trees[first] then
+    return true
+  end
+  if path:match("^test/portable/[^/]+%.c$") ~= nil or
+      path:match("^doc/guides/[^/]+%.md$") ~= nil then
+    return true
+  end
+  return first ~= "bin" and first ~= "doc" and path:sub(-3) == ".tl"
+end
+
+--- What a build reads under `root`, by relative path, each as its
+--- size, modification time and inode: enough to see an edit, an
+--- editor's replace-by-rename, or a file added or removed, at the cost
+--- of a walk and a stat per file and never a read.
+function Zig.snapshot(root: string): {string:string} | nil, string
+  local walked, trouble = Fs.walk(root, Zig.unwatched)
+  if walked == nil then
+    return nil, trouble
+  end
+  local seen: {string:string} = {}
+  for _, path in ipairs(walked) do
+    if Zig.watches(path) then
+      -- A file gone between the listing and the stat is simply absent.
+      local st = sys.stat(root .. "/" .. path)
+      if st ~= nil then
+        seen[path] = string.format("%d %d.%09d %d", st.size, st.mtime, st.mtime_ns, st.ino)
+      end
+    end
+  end
+  return seen, ""
+end
+
+--- The paths two snapshots disagree on -- changed, added or removed --
+--- sorted.
+function Zig.changed(before: {string:string}, after: {string:string}): {string}
+  local out: {string} = {}
+  for path, was in pairs(before) do
+    if after[path] ~= was then
+      out[#out + 1] = path
+    end
+  end
+  for path in pairs(after) do
+    if before[path] == nil then
+      out[#out + 1] = path
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+--- The line that says a build raced an edit: the first five paths that
+--- moved, then how many more.
+function Zig.race_report(paths: {string}): string
+  local named: {string} = {}
+  for i = 1, math.min(#paths, 5) do
+    named[i] = paths[i]
+  end
+  local list = table.concat(named, ", ")
+  if #paths > 5 then
+    list = list .. " and " .. tostring(#paths - 5) .. " more"
+  end
+  return "sources changed during the build: " .. list .. "; run it again"
+end
+
+--- The status a shell reports for a child: its exit code, or 128 plus
+--- the signal that ended it.
+function Zig.child_status(result: Child.Result): integer
+  if result.signal ~= nil then
+    return 128 + result.signal
+  end
+  return result.code or 1
+end
+
+local POLL_NS <const> = 20 * 1000 * 1000
+local PASS_ON_NS <const> = 250 * 1000 * 1000
+
+--- Runs `argv` (`argv[1]` an exact path) to its end in this process
+--- group, with the standard streams shared, and answers its status.
+--- SIGINT and SIGTERM are caught here meanwhile, so this process
+--- outlives the child whatever it is sent. A terminal's Ctrl-C reaches
+--- the child directly, since it shares this group; a signal sent to
+--- this process alone does not, so one the child has not answered by
+--- exiting within a quarter second is passed on to it -- late enough
+--- that a child the terminal already interrupted is not interrupted
+--- twice. A child SIGINT or SIGTERM ended ends this process with the
+--- same signal, as a shell expects of an interrupted command.
+function Zig.run(argv: {string}): integer
+  local guarded, guard_trouble = sys.guard_child_signals()
+  if not guarded then
+    complain("signal guard: " .. guard_trouble)
+    return 1
+  end
+  local function supervise(): Child.Result | nil, string
+    local h, trouble = Child.start(argv, { process_group = false })
+    if h == nil then
+      return nil, trouble
+    end
+    local pending = 0
+    local pass_on_at = 0
+    while true do
+      local state, wait_trouble = h:try_wait()
+      if state == nil then
+        return nil, wait_trouble
+      end
+      if state.finished then
+        return state.result, ""
+      end
+      local now = Time.monotonic_ns() or 0
+      local cancelled = sys.cancelled_child_signal()
+      if pending == 0 and cancelled ~= nil and cancelled ~= 0 then
+        pending, pass_on_at = cancelled, now + PASS_ON_NS
+      end
+      if pending ~= 0 and now >= pass_on_at then
+        h:stop(pending)
+        pending = 0
+      end
+      sys.nanosleep(POLL_NS)
+    end
+  end
+  local result, trouble = supervise()
+  sys.unguard_child_signals()
+  if result == nil then
+    complain(argv[1] .. ": " .. trouble)
+    return 1
+  end
+  local signal = result.signal
+  if signal == sys.SIGINT or signal == sys.SIGTERM then
+    sys.kill(sys.getpid(), signal)
+  end
+  return Zig.child_status(result)
+end
+
+--- `build` between two snapshots of `root`: zig's own status, unless
+--- a source moved while it ran. A snapshot that cannot be taken first
+--- leaves the build unwatched rather than stopped.
+function Zig.watched_build(root: string, argv: {string}): integer
+  local before = Zig.snapshot(root)
+  local status = Zig.run(argv)
+  if before == nil or status > 128 then
+    return status
+  end
+  local after, trouble = Zig.snapshot(root)
+  local moved: {string}
+  if after == nil then
+    moved = { trouble }
+  else
+    moved = Zig.changed(before, after)
+  end
+  if #moved == 0 then
+    return status
+  end
+  complain(Zig.race_report(moved))
+  return status ~= 0 and status or 1
+end
+
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Zig.main(argv: {integer:string}): integer
@@ -309,6 +517,10 @@ function Zig.main(argv: {integer:string}): integer
   local exec_argv: {string} = { zig }
   for _, a in ipairs(Zig.build_args(root, given)) do
     exec_argv[#exec_argv + 1] = a
+  end
+  if given[1] == "build" then
+    exec_argv[1] = program
+    return Zig.watched_build(root, exec_argv)
   end
   local _, trouble, number = sys.execve(program, exec_argv, Env.all())
   complain(program .. ": " .. tostring(trouble))

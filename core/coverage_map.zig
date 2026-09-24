@@ -40,17 +40,24 @@ pub fn main(init: std.process.Init) !void {
         const first = try blocksOf(arena, io, args[2]);
         const second = try blocksOf(arena, io, args[3]);
         if (first.count != second.count)
-            fatal("{s} has {d} blocks, {s} {d}", .{ args[3], second.count, args[2], first.count });
+            fatal("{s} has {d} blocks, {s} {d}; " ++ different_code, .{ args[3], second.count, args[2], first.count });
         for (0..first.count) |i| {
             const a = read(u64, first.pcs, i * 16) -% read(u64, first.pcs, 0);
             const b = read(u64, second.pcs, i * 16) -% read(u64, second.pcs, 0);
             if (a != b or read(u64, first.pcs, i * 16 + 8) != read(u64, second.pcs, i * 16 + 8))
-                fatal("{s}: block {d} is not the one {s} mapped", .{ args[3], i, args[2] });
+                fatal("{s}: block {d} is not the one {s} mapped; " ++ different_code, .{ args[3], i, args[2] });
         }
     } else {
         fatal("usage: coverage-map write <first> <root> <out.c> | check <first> <second>", .{});
     }
 }
+
+/// What a check failure means: the two links of one core compiled
+/// different sources. Both links compile the same files, so the usual
+/// cause is a source edited while the build ran, landing in one link and
+/// not the other.
+const different_code = "the two links hold different code, most likely because a source " ++
+    "changed during the build; run the build again";
 
 /// A core's sancov PC table: one (address, flags) pair of words per block.
 const Blocks = struct { pcs: []const u8, count: usize, format: Format };

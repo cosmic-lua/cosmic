@@ -47,7 +47,6 @@ c_functions.exempt = {
   ["core/vfs.c:file_sector_size"] = read_only,
   ["core/syscalls.c:report_child_error"] = before_exec,
   ["core/syscalls.c:close_child_descriptors"] = before_exec,
-  ["core/syscalls.c:catch_child_cancel"] = "a signal handler in a process the same signal then ends, which reports nothing",
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
   ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,
