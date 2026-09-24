@@ -45,6 +45,10 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     repo = "/"
   end
   dir = dir:gsub("(.)/+$", "%1")
+  -- The physical checks below compare against the repository with its
+  -- own links resolved too: on macOS a temporary directory is under
+  -- /var, which is /private/var.
+  local real_repo = Fs.absolute(repo) or repo
   if under(dir, eval) or under(dir, repo) then
     return nil, dir .. " is inside the repository; put the arena outside it"
   end
@@ -72,7 +76,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, ptrouble
   end
   dir = (physical == "/" and "" or physical) .. rest .. "/" .. name
-  if under(dir, repo) then
+  if under(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local made, mtrouble = Fs.mkdirs(dir:match("^(.*)/[^/]+$"))
@@ -86,7 +90,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     return nil, ptrouble
   end
   dir = (physical == "/" and "" or physical) .. "/" .. name
-  if under(dir, repo) then
+  if under(dir, real_repo) then
     return nil, "put the arena outside the repository"
   end
   local new, ntrouble, errno = sys.mkdir(dir)
