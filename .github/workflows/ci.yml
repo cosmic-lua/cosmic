@@ -97,8 +97,8 @@ jobs:
       - name: cache the pinned CI driver
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ${{ runner.temp }}/cache/cosmic/ci-driver
-          key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
+          path: ${{ runner.temp }}/cache/cosmic/bootstrap
+          key: cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}
 
       - name: cache the pinned zig
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -147,9 +147,16 @@ jobs:
       - name: bootstrap the pinned CI driver
         id: driver
         run: |
-          sh bootstrap-driver.sh cosmic-driver.pin \
-            "$RUNNER_TEMP/cache/cosmic/ci-driver" \
-            "$RUNNER_TEMP/bin/cosmic-driver"
+          # bin/cosmic-bootstrap fetches and verifies the pinned release
+          # into $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it
+          # again, and checks a restored cache against the pin first.
+          driver=$(COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" \
+            sh ../bin/cosmic-bootstrap)
+          mkdir -p "$RUNNER_TEMP/bin"
+          if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
+            echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
+          fi
+          ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
           # zig's global cache -- libc, compiler-rt and its standard library,
@@ -246,14 +253,18 @@ jobs:
       - name: cache the pinned CI driver
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          path: ${{ runner.temp }}/cache/cosmic/ci-driver
-          key: ci-driver-${{ hashFiles('ci/cosmic-driver.pin') }}
+          path: ${{ runner.temp }}/cache/cosmic/bootstrap
+          key: cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}
       - name: bootstrap the pinned provenance driver
         id: driver
         run: |
-          sh bootstrap-driver.sh cosmic-driver.pin \
-            "$RUNNER_TEMP/cache/cosmic/ci-driver" \
-            "$RUNNER_TEMP/bin/cosmic-driver"
+          driver=$(COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" \
+            sh ../bin/cosmic-bootstrap)
+          mkdir -p "$RUNNER_TEMP/bin"
+          if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
+            echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
+          fi
+          ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
