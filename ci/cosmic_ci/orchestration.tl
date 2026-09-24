@@ -219,6 +219,20 @@ local function checked_suite(c: Context, target: string, work: string): integer
   s = checked(c, "checked runtime context", { cosmic,
     c.root .. "/test/portable/tool.tl", "checked-context", core, target }, 30000)
   if s ~= 0 then return s end
+  -- The suite and the deep fuzz rerun on the checked core cost a leg
+  -- about two minutes. Most of what they check is the same on every
+  -- platform, so the workflow runs them on one leg, and the others set
+  -- COSMIC_CI_CHECKED_SUITE=skip; the checked core is still built and
+  -- verified above, and the fixtures still use it.
+  -- TODO: the core's platform-conditional C (__APPLE__, __aarch64__ in
+  -- core/syscalls.c, executable.c, ...) is not run under the sanitizer
+  -- off linux-x86_64; a checked run of only the tests that enter it, on
+  -- the legs that skip the whole suite, would cover it for seconds.
+  if Env.get("COSMIC_CI_CHECKED_SUITE") == "skip" then
+    Fs.put(Fs.stderr, "checked suite: skipped on this leg " ..
+      "(COSMIC_CI_CHECKED_SUITE=skip)\n")
+    return 0
+  end
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
