@@ -12,6 +12,11 @@ local function environment(extra?: {string:string}): {string:string}
   return values
 end
 
+--- How long a spawned driver.tl may take. It compiles every cosmic_ci
+--- module before it does anything, alongside the other self-tests, and on a
+--- CI runner that alone has taken over 2 s: a few seconds is too little.
+local driver_timeout = 60000
+
 local function call(argv: {string}, cwd: string, output: string,
     extra?: {string:string}, timeout?: integer): Child.Result
   local fd = assert(Fs.open_write(output))
@@ -168,7 +173,8 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local function run(phase: string, timeout: string, argv: {string}): Child.Result
     local command = { runner, driver, "run", phase, timeout }
     for _, value in ipairs(argv) do command[#command + 1] = value end
-    return call(command, project, tmp .. "/" .. phase .. ".out", ctx_env, 60000)
+    return call(command, project, tmp .. "/" .. phase .. ".out", ctx_env,
+      driver_timeout)
   end
   local spaced = tmp .. "/path with spaces"
   assert(run("success", "1000", { "/bin/sh", "-c",
@@ -185,7 +191,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
   local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true, timeout_ms = 35000 }))
-  for _ = 1, 200 do
+  for _ = 1, driver_timeout // 20 do
     if Predicate.exists(ready) then break end
     Time.sleep_ns(10 * 1000 * 1000)
   end
@@ -197,7 +203,8 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
 
   local summary = tmp .. "/summary.md"
   assert(call({ runner, driver, "summarize" }, project, tmp .. "/summarize.out",
-    driver_context(candidate, runner_temp, { GITHUB_STEP_SUMMARY = summary })).ok)
+    driver_context(candidate, runner_temp, { GITHUB_STEP_SUMMARY = summary }),
+    driver_timeout).ok)
   local text = assert(Fs.read(summary))
   for _, row in ipairs({ "| worker | run-1 | 1 | success | success |",
       "| worker | run-1 | 1 | nonzero | exit |",
@@ -219,7 +226,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
     symlink_runner_temp .. "/cosmic-ci/operations.db" }, tmp, tmp .. "/db-ln.out").ok)
   local linked = call({ runner, driver, "run", "symlink-db", "1000",
       "/bin/sh", "-c", "exit 0" }, project, tmp .. "/symlink-db.out",
-    driver_context(candidate, symlink_runner_temp))
+    driver_context(candidate, symlink_runner_temp), driver_timeout)
   assert(not linked.ok, "symlink operation database was accepted")
   assert(Hash.hex_sha256((assert(Fs.read(sentinel)))) == before,
     "rejected symlink changed its target")
@@ -236,8 +243,10 @@ local function test_summarize_reports_unavailable_database(tmp: string)
   local summary = tmp .. "/summary.md"
   local result = call({ runner, driver, "summarize" }, project,
     tmp .. "/summarize.out",
-    { RUNNER_TEMP = tmp .. "/runner-temp", GITHUB_STEP_SUMMARY = summary })
-  assert(result.ok, "summarize failed for a missing operation database")
+    { RUNNER_TEMP = tmp .. "/runner-temp", GITHUB_STEP_SUMMARY = summary },
+    driver_timeout)
+  assert(result.ok, "summarize failed for a missing operation database: " ..
+    (Fs.read(tmp .. "/summarize.out") or "<no output>"))
   local text = assert(Fs.read(summary))
   assert(text:find("## Cosmic CI operations", 1, true) and
     text:find("unavailable", 1, true), "summary omitted the unavailable-database line")

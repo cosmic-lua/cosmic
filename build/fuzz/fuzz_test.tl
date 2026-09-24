@@ -161,3 +161,13 @@ local function test_shrink_cuts_and_lowers_draws()
   local _, capped = shrink.shrink(draws, fails, 3)
   assert(capped == 3)
 end
+
+-- A costly property caps what FUZZ_ITERS may ask of it; a count the
+-- property names itself stands.
+local function test_max_iters_caps_the_count_but_not_a_named_one()
+  local function holds(_input: string): boolean, string return true, "" end
+  local capped = Fuzz.run({ name = "capped", max_iters = 5, gen = any_bytes, check = holds })
+  assert(capped == 5, "ran " .. capped)
+  local named = Fuzz.run({ name = "named", iters = 9, max_iters = 5, gen = any_bytes, check = holds })
+  assert(named == 9, "ran " .. named)
+end

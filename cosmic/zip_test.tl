@@ -4,41 +4,11 @@
 --- this file has no binary bytes of its own and no test spawns an
 --- external program.
 
+local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Zip = require("cosmic.zip")
-
-local B64_ALPHABET <const> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-local function b64_index(): {string:integer}
-  local map: {string:integer} = {}
-  for i = 1, #B64_ALPHABET do
-    map[B64_ALPHABET:sub(i, i)] = i - 1
-  end
-  return map
-end
-
-local B64_INDEX <const> = b64_index()
-
-local function base64_decode(data: string): string
-  local out: {string} = {}
-  local bits = 0
-  local nbits = 0
-  for i = 1, #data do
-    local c = data:sub(i, i)
-    local v = B64_INDEX[c]
-    if v ~= nil then
-      bits = (bits << 6) | v
-      nbits = nbits + 6
-      if nbits >= 8 then
-        nbits = nbits - 8
-        out[#out + 1] = string.char((bits >> nbits) & 0xFF)
-      end
-    end
-  end
-  return table.concat(out)
-end
 
 local ZIP_B64 <const> =
   "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
@@ -149,7 +119,7 @@ local function test_writer_and_reader_roundtrip_a_deflated_file()
 end
 
 local function test_a_system_made_deflated_entry_reads_back()
-  local raw = base64_decode(ZIP_B64)
+  local raw = assert(Codec.unbase64(ZIP_B64))
   local r = assert(Zip.open_string(raw))
   local entry = by_path(r:entries(), "src/big.txt")
   assert(entry.method == 8)
@@ -159,7 +129,7 @@ local function test_a_system_made_deflated_entry_reads_back()
 end
 
 local function test_a_system_made_zip_fixture_lists_its_stored_entries()
-  local raw = base64_decode(ZIP_B64)
+  local raw = assert(Codec.unbase64(ZIP_B64))
   local r = assert(Zip.open_string(raw))
   local entries = r:entries()
   assert(#entries == 4, tostring(#entries))
@@ -340,7 +310,7 @@ local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
 end
 
 local function test_a_unix_symlink_entry_is_reported_as_a_symlink()
-  local r = assert(Zip.open_string(base64_decode(ZIP_B64)))
+  local r = assert(Zip.open_string((assert(Codec.unbase64(ZIP_B64)))))
   local link = by_path(r:entries(), "src/adir/alink")
   assert(link.kind == "symlink" and link.linkpath == "short.txt", link.kind)
   assert(by_path(r:entries(), "src/short.txt").linkpath == "")
@@ -431,7 +401,7 @@ local function test_bodies_read_back_whatever_the_local_extra_field_and_size()
 end
 
 local function test_next_reports_a_symlink_target()
-  local r = assert(Zip.open_string(base64_decode(ZIP_B64)))
+  local r = assert(Zip.open_string((assert(Codec.unbase64(ZIP_B64)))))
   local found = false
   while true do
     local got = r:next()
