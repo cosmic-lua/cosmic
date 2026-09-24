@@ -434,7 +434,9 @@ end
 -- A stale cosmic that is not the tree's own tool -- one outside `o/`, as a
 -- release, the bootstrap cache's or one on PATH is -- refuses rather than
 -- rebuild, since the rebuild would write the tree's tool over its own
--- file. `docs` meets it in `build.reboot.ensure`, `test` in its own check.
+-- file. `docs` meets it in `build.reboot.ensure`, `test` in its own check,
+-- and `db` with an option it lacks in the check cmd/cosmic/main.tl makes
+-- before it calls a refused command line a usage error.
 local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   local root = Fixture.required("COSMIC_FIXTURE_ROOT")
   local fixture_dir = Fixture.required("COSMIC_FIXTURE_RUNTIME")
@@ -454,6 +456,8 @@ local function test_a_stale_tool_outside_the_tree_refuses(tmp: string)
   for _, verb in ipairs({
     { "docs", "cosmic.child" },
     { "test", "build/embed_test.tl" },
+    -- An option the tree may have added is not refused as a usage error.
+    { "db", "--an-option-this-tool-lacks" },
   }) do
     local argv = { program }
     for _, word in ipairs(verb) do argv[#argv + 1] = word end
