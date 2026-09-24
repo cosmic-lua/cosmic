@@ -338,15 +338,6 @@ static void apply_record (const char *record, const char *out_dir) {
   free(text);
 }
 
-/* TODO: no test enters the applier; every build runs it, but only on the
- * trees and records the tree holds. A test beside it (build/patch_test.tl)
- * should run it on a scratch <root>/vendor/<name>/PIN tree: the records
- * directory found from the PIN path, a missing one leaving the copy
- * pristine, a find matching zero or two times refused by name, a fence
- * header, and a path not shaped <root>/vendor/<name>/PIN refused. It waits
- * on build.zig installing the applier somewhere a test can run it, as it
- * installs the cores under o/core/. */
-
 /* Everything before the last slash of `path`, which must have one. */
 static char *parent (const char *path) {
   const char *slash = strrchr(path, '/');

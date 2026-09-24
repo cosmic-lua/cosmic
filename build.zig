@@ -492,6 +492,13 @@ pub fn build(b: *std.Build) void {
 
     const cores = b.step("cores", "build the core for every target");
     const boot = b.step("boot", "build the host core, then bridge into Teal");
+    // The applier is installed beside the cores, as o/tool/patch, so a
+    // test (build/patch_test.tl) can run it on trees of its own; every
+    // build otherwise runs it only on the trees the checkout holds.
+    const applier_install = b.addInstallArtifact(applier, .{
+        .dest_dir = .{ .override = .{ .custom = "tool" } },
+    });
+    boot.dependOn(&applier_install.step);
     const portable_hook_cores = b.step(
         "portable-hook-cores",
         "build release and retained-artifact test fixture cores",
