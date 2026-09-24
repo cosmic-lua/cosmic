@@ -11,6 +11,7 @@
 #include "crypto.h"
 #include "hash.h"
 #include "http.h"
+#include "json.h"
 #include "guard.h"
 #include "portable.h"
 #include "sqlite.h"
@@ -65,6 +66,7 @@ static const struct raw_module {
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
+  {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
   {"build.fuzz", "cosmic.internal.budget", cosmic_open_budget},
 };
 #define RAW_MODULE_COUNT (sizeof raw_modules / sizeof *raw_modules)

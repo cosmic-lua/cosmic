@@ -7,11 +7,21 @@
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Child = require("cosmic.child")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Fuzz = require("build.fuzz")
 local embed = require("build.embed")
 
 local TRAILER <const> = 48
+
+--- The most iterations this property runs, whatever `FUZZ_ITERS` asks.
+--- Each one writes a whole host program and starts it, so an iteration
+--- costs a process where every other property's costs a function call;
+--- CI's deep rerun (`FUZZ_ITERS=2000`) on the checked core ran it past
+--- the test's 300 s deadline. Below the cap, `FUZZ_ITERS` still picks
+--- the count, so `FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reproduces a
+--- failure as for any property.
+local MAX_ITERS <const> = 500
 local MANIFEST <const> = 4096
 
 --- The layout of a host program's tail, read from its own trailer.
@@ -95,8 +105,14 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
   assert(embed.tree(tree, true))
   local tail = split((assert(Fs.read(tree .. "/o/bin/ok"))))
   local program = tmp .. "/program"
+  -- Only a count past the cap is overridden: anything else, a bad value
+  -- included, is left to `run`'s own reading of `FUZZ_ITERS`.
+  local asked = math.tointeger(tonumber(Env.get("FUZZ_ITERS") or ""))
+  local capped: integer = nil
+  if asked ~= nil and asked > MAX_ITERS then capped = MAX_ITERS end
   Fuzz.run({
     name = "host program locator",
+    iters = capped,
     dir = tmp,
     gen = gen(tail),
     check = function(input: string): boolean, string

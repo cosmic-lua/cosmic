@@ -36,8 +36,9 @@ defines the target; once something ships, it leaves this file.
 design.md promises that the parsers facing untrusted input are fuzzed.
 `build.fuzz` runs the tar, zip and archive properties and the host-program
 locator's on every `cosmic test`, and CI reruns them deep on the checked core.
-curl and c-ares are fuzzed upstream; record that as their evidence rather
-than fuzzing them here.
+curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
+rather than fuzzing them here. `core/json.c`'s own walk into Lua values and
+its encoder are fuzzed here, in `cosmic/json_fuzz_test.tl`.
 
 - fuzz the portable launch. `build/locator_fuzz_test.tl` covers a host
   program's trailer and manifest, which share `decode_blocks` with a portable
@@ -76,13 +77,25 @@ Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `json`: design.md's principle 4 has untrusted data enter through a declared
-  shape; `cosmic.shape` is that shape, and there is no JSON codec yet to hand
-  it a value. JSON starts in Teal and is measured against a C implementation
-  once the benchmark harness exists.
-- `shape` follow-ups, each waiting on a caller that needs it: a record that
-  refuses keys it does not name, checks on a value beyond its type (a range, a
-  pattern, a length), and a recursive spec for a tree-shaped payload.
+- `shape` in use. `cosmic.shape` and `cosmic.json` both exist, and nothing in
+  the tree calls `Shape.into` yet. Convert the sites that read fields off a
+  decoded value through `as` casts, starting with those under `build/` and
+  `ci/`; their call shapes decide whether the inference limit in shape.tl's
+  module comment needs a helper, and whether `decode_into` (a TODO in
+  shape.tl) earns its place.
+- a spec that agrees with its record. Nothing checks that a `Shape.record`
+  names the fields of the Teal record its answer is annotated as, so a field
+  added to the record and not to the spec is never set. Have `cosmic fix`
+  compare a `Shape.record` literal with the record its `into` flows into, and
+  hold the tree to it; generating a spec from the record is the alternative.
+- the lint design.md's teal section plans: refuse `v is R` for a record `R`
+  on an `any`, which compiles to a table check, and point at `cosmic.shape`.
+- record `shape`'s decisions in design.md: the answer is a copy, a null
+  stand-in and a list's hole are missing values, and `integer` is the one
+  conversion. old's D28, which chose the opposite on the copy, is not on this
+  tree.
+- measure `into`'s copy on a large payload (a big NDJSON file) against
+  `Json.decode` on the same text once the benchmark harness exists.
 - `flags`, `log`, `string`, `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under

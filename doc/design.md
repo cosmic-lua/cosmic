@@ -106,7 +106,7 @@ kernel                               Linux; macOS
     mbedtls, miniz, argon2,          vendored pristine
     a regex engine
     bzip2, xz, c-ares, curl,         vendored pristine
-    Mozilla's CA roots
+    yyjson, Mozilla's CA roots
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
@@ -162,8 +162,8 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; argon2; a regex engine; the
-syscall table; the database VFS and the entry. measured stripped on
+hashing and HMAC; miniz for deflate; yyjson for JSON; argon2; a regex
+engine; the syscall table; the database VFS and the entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
 another 222 KB, miniz 98 KB; Lua and SQLite together in one static
 binary 1.4 MB. three carried cores plus mbedtls is on the order of
@@ -206,14 +206,18 @@ keeps Mach services out of the macOS sandbox profile.
 
 Teal by default: filesystem policy (walk, find, atomic write), child
 processes above spawn and wait, sandbox policy over raw enforcement
-syscalls, URL, SSE, tar, the zip directory, JSON, and the whole artifact build.
+syscalls, URL, SSE, tar, the zip directory, and the whole artifact build.
 C when a benchmark on
 a real scenario says the Teal is too slow and a fuzzed, vendorable C
 implementation exists. HTTP/1.1 framing starts in C on the second
-half of that rule, a fuzzed implementation existing; JSON starts in
-Teal and is measured against a C implementation on the harness when
-its tier lands, and the numbers pick. the benchmark harness, not
-taste, moves a module across the line in either direction.
+half of that rule, a fuzzed implementation existing. JSON starts in C
+on the same half: every program that talks to a service parses it,
+and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
+exact, and reads RFC 8259 unless a caller names JSON5 for the one
+read. it reads; the core's own C walks the document into Lua values and
+writes JSON back, with yyjson printing each float's shortest form.
+the benchmark harness, not taste, moves a module across the line in
+either direction.
 
 ### the lua surface
 
@@ -537,7 +541,7 @@ patched copy to `o/vendor/<name>`; a record whose anchor no longer
 matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
-xz's liblzma decoder, c-ares, curl, Mozilla's CA bundle, and tl;
+xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
 hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
