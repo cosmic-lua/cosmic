@@ -22,6 +22,7 @@ local type compiler = require("build.compiler")
 
 local record reboot
   core_refusal: string
+  foreign_refusal: string
   --- How the tree stands against the running binary.
   enum State
     "fresh"
@@ -36,6 +37,38 @@ local marker = "COSMIC_REBOOTED"
 
 --- What a tool stale against the core says when it does not boot.
 reboot.core_refusal = "the tool is stale; run bin/zig build boot"
+
+--- What a stale cosmic that is not the tree's own tool says: it neither
+--- rebuilds itself nor boots the tree.
+reboot.foreign_refusal = "this cosmic is stale against the tree and is not " ..
+  "the tree's own tool (under o/), so it will not rebuild itself; " ..
+  "run bin/zig build boot and use o/bin/cosmic"
+
+--- Whether the running binary is one this tree built: under `root/o`,
+--- as o/bin/cosmic and the checked suite's o/sanitized one are. Only such
+--- a tool rebuilds itself when stale, since a rebuild writes the tree's
+--- tool over the running file; any other cosmic run here -- a release,
+--- the bootstrap cache's, one on PATH -- would be overwritten with it.
+--- `executable` is the running binary's path by default.
+function reboot.own_tool(root: string, executable?: string): boolean | nil, string
+  local running = executable
+  if running == nil then
+    local found, trouble = Proc.executable()
+    if found == nil then
+      return nil, trouble
+    end
+    running = found
+  end
+  local real, real_trouble = Fs.absolute(running)
+  if real == nil then
+    return nil, real_trouble
+  end
+  local outputs, outputs_trouble = Fs.absolute(root .. "/o")
+  if outputs == nil then
+    return nil, outputs_trouble
+  end
+  return Fs.within(real, outputs), ""
+end
 
 --- Whether a tool stale against the core boots it: unless
 --- `COSMIC_AUTO_BOOT` is "0", which a caller that wants the refusal
@@ -202,15 +235,10 @@ end
 --- Returns an exit code the caller should return immediately, with
 --- `trouble` to report first when it is not empty. Returns `nil` to
 --- say the caller may proceed as normal: either the tree is not
---- cosmic's own, or the tool was found fresh, so no rebuild happened.
+--- cosmic's own, or the tool was found fresh, so no rebuild happened. A
+--- stale tool that is not the tree's own (`reboot.own_tool`) returns 3
+--- with `reboot.foreign_refusal`, rebuilding nothing.
 --- @param argv the command line, re-entered after a rebuild
--- TODO: rebuild only when the running executable is this tree's own
--- tool. A release run with a verb inside a checkout (as
--- `$(bin/cosmic-bootstrap) help` is) finds itself stale and replaces its
--- own file -- there, the digest-named bootstrap cache -- with a tree
--- build. Compare Proc.executable() with <root>/o/bin/cosmic first,
--- minding the checked suite, which runs a sanitized cosmic from outside
--- o/ against the tree (ci/cosmic_ci/orchestration.tl).
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
@@ -254,6 +282,15 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
   if state == "fresh" then
     work.close(handle)
     return nil, ""
+  end
+  local own, own_tool_trouble = reboot.own_tool(root)
+  if own == nil then
+    work.close(handle)
+    return 1, own_tool_trouble
+  end
+  if not own then
+    work.close(handle)
+    return 3, reboot.foreign_refusal
   end
   if state == "core" then
     work.close(handle)

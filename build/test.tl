@@ -1173,6 +1173,19 @@ function test.run(argv: {integer:string}): integer
       log:complain(state_trouble)
       return 1
     end
+    if state ~= "fresh" then
+      local own, own_tool_trouble = reboot.own_tool(root)
+      if own == nil then
+        work.close(handle)
+        log:complain(own_tool_trouble)
+        return 1
+      end
+      if not own then
+        work.close(handle)
+        log:complain(reboot.foreign_refusal)
+        return 3
+      end
+    end
     if state == "core" then
       work.close(handle)
       if not reboot.auto_boot() then
