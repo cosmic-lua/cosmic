@@ -1,0 +1,14 @@
+file: tl.lua
+note: a call to the standard `error` never returns, so a block ending in one ends the way a `return` does and `if e == nil then error(trouble) end` narrows e below it. Only a call spelled `error` whose type is the standard library's own function (see 24) counts: a local of that name with another type carries no handler, and another variable merely holding error is not trusted to keep holding it
+--- find
+      ["assert"] = function(self, node, a, b, argdelta)
+--- replace
+      ["error"] = function(self, node, a, b, argdelta)
+         if node.e1.kind == "variable" and node.e1.tk == "error" then
+            node.block_returns = true
+         end
+         return (self:type_check_function_call(node, a, b, argdelta))
+      end,
+
+      ["assert"] = function(self, node, a, b, argdelta)
+--- end

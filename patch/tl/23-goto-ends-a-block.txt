@@ -1,0 +1,13 @@
+file: tl.lua
+note: `goto` never falls through either, so a block ending in one ends the way 22 lets `break` end one: `if e == nil then goto continue end` narrows e below it. That is sound because the code a goto does reach starts at a label, and every label already widens every live narrow before the code after it is checked
+--- find
+            if found_label then
+               found_label.used_label = true
+            else
+--- replace
+            node.block_returns = true
+
+            if found_label then
+               found_label.used_label = true
+            else
+--- end

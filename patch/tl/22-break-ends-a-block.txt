@@ -1,0 +1,22 @@
+file: tl.lua
+note: `break` never falls through to the statement after it, any more than `return` does, so a block ending in one ends the same way: an `if e == nil then ... break end` narrows e below it, as the `return` form already does. The narrow lands in the scope holding the `if`, which is inside the loop `break` leaves, so it ends with the loop body and never reaches the code after the loop. `do` shared break's callbacks and keeps the old ones
+--- find
+   visit_node.cbs["break"] = {
+      after = function(_self, _node, _children)
+         return NONE
+      end,
+   }
+   visit_node.cbs["do"] = visit_node.cbs["break"]
+--- replace
+   visit_node.cbs["break"] = {
+      after = function(_self, node, _children)
+         node.block_returns = true
+         return NONE
+      end,
+   }
+   visit_node.cbs["do"] = {
+      after = function(_self, _node, _children)
+         return NONE
+      end,
+   }
+--- end
