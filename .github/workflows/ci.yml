@@ -41,16 +41,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The glibc Linux legs run in a pinned Ubuntu image, as the
+          # alpine leg runs in a pinned Alpine one, so a runner image
+          # update changes only the kernel under them. The digest is the
+          # multi-arch index's, which serves both x86_64 and aarch64.
+          # (macOS cannot be containerized; that leg takes the image
+          # macos-15 names.) --init and the unprivileged `runner` user are
+          # as for alpine-x86_64, below.
           - name: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-linux-musl
-            container: ''
-            shell: sh
+            container:
+              image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+              options: --init
+            # useradd -o: the image's own `ubuntu` user may hold the uid.
+            prepare: |
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
+              useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
+            shell: su runner -c "sh -e {0}"
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
-            container: ''
-            shell: sh
+            container:
+              image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+              options: --init
+            prepare: |
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
+              useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
+            shell: su runner -c "sh -e {0}"
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
@@ -65,6 +87,9 @@ jobs:
             container:
               image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
               options: --init
+            prepare: |
+              apk add --no-cache git tar zstd curl xz
+              adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # The container's default user stays root -- the runner never
             # passes --user to docker create/exec, and a default user whose
             # uid differs from the host runner's breaks the checkout
@@ -88,7 +113,8 @@ jobs:
         if: matrix.container
         working-directory: /
         shell: sh
-        # apk, and creating the unprivileged builder below, need root,
+        # The package install, and creating the unprivileged builder
+        # below (matrix.prepare), need root,
         # which is this container's default user. `runner`'s uid is read
         # from the workspace directory the host runner already created
         # (before this step, before checkout), so it matches the owner of
@@ -96,9 +122,7 @@ jobs:
         # file-command files. Every later step on this leg drops to
         # `runner` (see matrix.shell); only this step and the hand-over
         # below stay root, and say so explicitly.
-        run: |
-          apk add --no-cache git tar zstd curl xz
-          adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
+        run: ${{ matrix.prepare }}
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
