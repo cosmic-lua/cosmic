@@ -79,7 +79,7 @@ works, an ordinary global written over the same syscall table
 A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
-databases to describe. `docs` takes words to search for instead, and
+sources whose rows to count. `docs` takes words to search for instead, and
 `help` a verb.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
@@ -116,6 +116,22 @@ end
 
 local function complain(line: string)
   local _, _ = Fs.put(Fs.stderr, line .. "\n")
+end
+
+--- The exit code a program's return value asks for: a whole number from
+--- 0 to 255, or 0 for anything that is not a number. A number out of
+--- that range, or not whole, is complained about as `what`'s, and exits 1.
+local function exit_status(what: string, value: any): integer
+  if not (value is number) then
+    return 0
+  end
+  local whole = math.tointeger(value)
+  if whole == nil or whole < 0 or whole > 255 then
+    complain("cosmic: " .. what .. " returned " .. tostring(value) ..
+      ", not an exit status 0-255")
+    return 1
+  end
+  return whole
 end
 
 --- The directory a path sits in, absolute.
@@ -170,9 +186,9 @@ end
 --- own name -- but nothing ordinary reaches it, since no length or
 --- loop starts before 1; a caller that wants its own name reads
 --- `argv[0]` directly. A record whose `main` field is a function is
---- called the same way, through that field. An integer the function
---- returns is the exit code; anything else, or no function at all,
---- is 0.
+--- called the same way, through that field. A whole number the
+--- function returns is the exit code -- see `exit_status` -- and
+--- anything else, or no function at all, is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
@@ -307,10 +323,7 @@ local function run(file: string, argv: {integer:string}): integer
       arguments[slot - 1] = argv[slot]
       slot = slot + 1
     end
-    local status: any = entry(arguments)
-    if status is integer then
-      return status
-    end
+    return exit_status(file, entry(arguments))
   end
   return 0
 end
@@ -323,8 +336,9 @@ local as_option: {string:string} = {
 
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
 --- does, against this binary's own standard library, with no tree around
---- it. The words after it are its `...`; an integer it returns is the
---- exit code, and anything else is 0.
+--- it. The words after it are its `...`; a whole number it returns is the
+--- exit code, one outside 0-255 is complained about and exits 1, and
+--- anything else is 0.
 --- @param argv the whole command line, `cosmic` at slot 0 and `-e` at
 ---   slot 1
 local function evaluate(argv: {integer:string}): integer
@@ -344,11 +358,7 @@ local function evaluate(argv: {integer:string}): integer
     arguments[#arguments + 1] = argv[slot]
     slot = slot + 1
   end
-  local status: any = (loaded as function(...: string): any)(table.unpack(arguments))
-  if status is integer then
-    return status
-  end
-  return 0
+  return exit_status("-e", (loaded as function(...: string): any)(table.unpack(arguments)))
 end
 
 --- `cosmic help [verb]`: the whole discovery surface, or one verb's line

@@ -217,6 +217,25 @@ local function test_e_runs_a_lua_chunk(tmp: string)
   local bare = cosmic(tmp, { "-e" })
   assert(bare.code == 2, bare.stderr)
   assert((bare.stderr or ""):find("usage: cosmic -e", 1, true), bare.stderr)
+  assert(cosmic(tmp, { "-e", "return 'text'" }).code == 0)
+  assert(cosmic(tmp, { "-e", "return {}" }).code == 0)
+  assert(cosmic(tmp, { "-e", "return 3.0" }).code == 3)
+  for _, far in ipairs({ "300", "-1", "2.5" }) do
+    local refused = cosmic(tmp, { "-e", "return " .. far })
+    assert(refused.code == 1, far .. ": " .. tostring(refused.code))
+    assert((refused.stderr or ""):find("-e returned " .. far .. ", not an exit status 0-255",
+      1, true), refused.stderr)
+  end
+  local nothing, _ = Fs.exists(tmp .. "/o")
+  assert(nothing == false, "-e wrote under o/")
+end
+
+local function test_a_file_run_refuses_an_exit_status_out_of_range(tmp: string)
+  assert(Fs.write(tmp .. "/far.tl", "return function(): integer\n  return 300\nend\n"))
+  local result = cosmic(tmp, { "far.tl" })
+  assert(result.code == 1, result.stderr)
+  assert((result.stderr or ""):find("far.tl returned 300, not an exit status 0-255", 1, true),
+    result.stderr)
 end
 
 --- A tree with two programs and a module that reads a file.
@@ -259,10 +278,16 @@ end
 local function test_db_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
   local _ = expect(tree, "build", { "build" }, 0)
-  local one = expect(tree, "db", { "db", "o/cosmic.db" }, 0).stdout or ""
-  assert(one:find("in 1 databases", 1, true), one)
-  assert(not one:find("build.db", 1, true), one)
-  local both = expect(tree, "db", { "db" }, 0).stdout or ""
-  assert(both:find("in 2 databases", 1, true) and both:find("builds, latest first", 1, true), both)
-  local _ = expect(tree, "db", { "db", "o/nothing.db" }, 1)
+  local narrowed = expect(tree, "db", { "db", "./lib/" }, 0).stdout or ""
+  assert(narrowed:find("rows about lib in 2 databases", 1, true), narrowed)
+  -- lib/reader.tl is one module and one staged file.
+  assert(narrowed:find("\n +1  modules\n"), narrowed)
+  assert(narrowed:find("\n +1  files\n"), narrowed)
+  assert(not narrowed:find("builds, latest first", 1, true), narrowed)
+  assert(not narrowed:find("pages", 1, true), narrowed)
+  local whole = expect(tree, "db", { "db" }, 0).stdout or ""
+  assert(whole:find("in 2 databases", 1, true) and whole:find("builds, latest first", 1, true),
+    whole)
+  local none = expect(tree, "db", { "db", "nowhere" }, 1).stdout or ""
+  assert(none:find("no row is about nowhere", 1, true), none)
 end

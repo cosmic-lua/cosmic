@@ -183,6 +183,10 @@ function standalone.run(argv: {integer:string}): integer
     arguments[slot - 2] = argv[slot]
     slot = slot + 1
   end
+  -- TODO: refuse a status outside 0-255 here with the file's name, as
+  -- cmd/cosmic/main.tl's `exit_status` does for a file run and -e;
+  -- until then the core refuses it, naming cmd.cosmic.main, and exits 2.
+  -- The fix moves `exit_status` to a module both can require.
   local status: any = main(arguments)
   if status is integer then
     return status

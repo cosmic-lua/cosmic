@@ -33,8 +33,9 @@ local record Cli
   --- `lua -e` does, against this binary's own standard library, with no
   --- tree around it -- nothing staged or built, nothing under o/
   --- written, and no staleness check. The words after the chunk are its
-  --- `...`; it prints only what it prints, and an integer it returns is
-  --- the exit code, anything else 0
+  --- `...`; it prints only what it prints, and a whole number it
+  --- returns is the exit code -- one outside 0-255 is complained about
+  --- and exits 1 -- anything else 0
   eval: string
   --- `cosmic test`: builds the tree in the working directory, then
   --- runs every test it defines -- see test, Example -- which
@@ -64,9 +65,13 @@ local record Cli
   --- program inside, which starts faster, with no launcher, but runs
   --- only on a system like this one
   build: string
-  --- `cosmic db [path...]`: what the two databases under o/ hold --
-  --- or the SQLite databases the paths name -- table by table: rows,
-  --- pages, bytes; and for o/build.db, how the last few builds went
+  --- `cosmic db [path...]`: what the two databases under o/ hold,
+  --- table by table -- rows, pages, bytes -- how the last few builds
+  --- went, and the slowest tests. Paths narrow it to the rows about the
+  --- sources under them -- a row whose file, or whose module's file, is
+  --- under one -- counted per table, and the slowest of those tests.
+  --- Pages, bytes and builds are not per source, and neither is a table
+  --- keyed only by a source's hash, so a narrowed report leaves them out
   db: string
   --- `cosmic docs <q>`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs), or words to search the

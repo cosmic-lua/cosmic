@@ -7,14 +7,36 @@ local Fs = require("cosmic.fs")
 local record narrow
 end
 
+--- `path` with each "." and empty component dropped and each ".."
+--- taking the one before it away, lexically: a ".." with nothing before
+--- it to take stays, but none climbs above "/".
+local function lexical(path: string): string
+  local parts: {string} = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      if #parts > 0 and parts[#parts] ~= ".." then
+        parts[#parts] = nil
+      elseif path:sub(1, 1) ~= "/" then
+        parts[#parts + 1] = part
+      end
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
+  end
+  local joined = table.concat(parts, "/")
+  if path:sub(1, 1) == "/" then
+    return "/" .. joined
+  end
+  return joined == "" and "." or joined
+end
+
 --- Each word as a path relative to `root`: "." for the root itself, the
 --- rest after it for a path within it, and a path outside it or not
---- there at all as written, less a leading "./" and a trailing "/".
+--- there at all as written, with its "." and ".." resolved lexically.
 function narrow.paths(root: string, words: {string}): {string}
   local out: {string} = {}
   for _, word in ipairs(words) do
-    local path = word:gsub("/+$", "")
-    while path:sub(1, 2) == "./" do path = path:sub(3) end
+    local path = lexical(word)
     local absolute, _ = Fs.absolute(word)
     if absolute ~= nil then
       local rest, _ = Fs.relative(absolute, root)

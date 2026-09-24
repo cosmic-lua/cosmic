@@ -42,7 +42,7 @@ local Proc = require("cosmic.proc")
 local result = assert(Child.run({ assert(Proc.executable()), "help", "db" },
   { cwd = tmp, stdout = "capture", timeout_ms = 10000 }))
 local out = result.stdout or ""
-print(out:match("^[^\n]*"))
+print(out:match("^`cosmic db[^`]*`"))
 local verbs = 0
 for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
@@ -52,7 +52,7 @@ print(out:match("help: PASS %(1 verb") ~= nil)
 ```
 
 ```output
-`cosmic db [path...]`: what the two databases under o/ hold --
+`cosmic db [path...]`
 1 verb
 true
 ```
@@ -98,5 +98,6 @@ hi
 ```
 
 `test`, `fix` and `todos` take paths the same way. `uses` takes paths
-after its symbol, and `db` the databases to describe. `docs` takes
+after its symbol, and `db` counts only the rows about the sources under
+them. `docs` takes
 words to search for, and `help` a verb.
