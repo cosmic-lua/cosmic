@@ -100,6 +100,9 @@ local function test_a_corrupt_host_program_is_refused_by_name(tmp: string)
     -- Each input writes a whole host program, core included, and runs it:
     -- on the checked core in CI's deep run, 2000 of them outlast a test's
     -- deadline on a slow runner.
+    -- TODO: write the core once and rewrite only the tail (manifest,
+    -- database, trailer) for each input, then drop this cap, once
+    -- cosmic.sys carries ftruncate: an input can make the file shorter.
     max_iters = 256,
     dir = tmp,
     gen = gen(tail),
