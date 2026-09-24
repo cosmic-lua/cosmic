@@ -15,6 +15,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local narrow = require("build.narrow")
 local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
@@ -879,19 +880,13 @@ function docs.run(argv: {integer:string}): integer
   return 0
 end
 
---- `cosmic uses <symbol>`: every place that refers to the symbol, one
---- `file:line` per line, and a verdict line.
+--- `cosmic uses <symbol> [path...]`: every place that refers to the
+--- symbol, one `file:line` per line -- only those in a file under one
+--- of the paths, when there are any -- and a verdict line.
 function docs.run_uses(argv: {integer:string}): integer
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
   if parsed == nil then
     log:complain("uses: " .. parse_trouble)
-    return 2
-  end
-  -- TODO: take paths after the symbol to narrow its uses to the files
-  -- under them, as doc/design.md's "a verb takes paths to narrow it"
-  -- promises; until then a second word is refused.
-  if #parsed.words > 1 then
-    log:complain("uses: one symbol at a time, not " .. #parsed.words)
     return 2
   end
   local query = parsed.words[1] or ""
@@ -915,15 +910,28 @@ function docs.run_uses(argv: {integer:string}): integer
     log:complain("uses: " .. trouble)
     return 1
   end
-  for _, use in ipairs(found) do
-    log:say(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
+  local words: {string} = {}
+  for slot = 2, #parsed.words do words[#words + 1] = parsed.words[slot] end
+  local root, root_trouble = Fs.absolute(".")
+  if root == nil then
+    log:complain("uses: " .. root_trouble)
+    return 1
   end
-  if #found == 0 then
-    log:verdict("uses", false, "nothing refers to '" .. query .. "', " ..
+  local paths = narrow.paths(root, words)
+  local shown = 0
+  for _, use in ipairs(found) do
+    if narrow.holds(paths, use.from_file) then
+      log:say(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
+      shown = shown + 1
+    end
+  end
+  if shown == 0 then
+    local where = #paths > 0 and " under " .. table.concat(paths, ", ") or ""
+    log:verdict("uses", false, "nothing" .. where .. " refers to '" .. query .. "', " ..
       clock.elapsed_ms(started) .. " ms")
     return 1
   end
-  log:verdict("uses", true, #found .. " places, " .. clock.elapsed_ms(started) .. " ms")
+  log:verdict("uses", true, shown .. " places, " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 

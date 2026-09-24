@@ -29,7 +29,8 @@ local help_prefix = "cosmic -- a runtime for self-contained command-line softwar
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if `cosmic.cli`'s own database
 --- row is ever missing.
-local function verb_help(): string
+--- @param verbs the verbs to print, in order
+local function verb_help(verbs: {string}): string
   local docs = require("build.docs")
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
@@ -37,12 +38,12 @@ local function verb_help(): string
     return "(cosmic.cli: " .. view_trouble .. ")"
   end
   local names: {string} = {}
-  for _, verb in ipairs(Cli.order) do
+  for _, verb in ipairs(verbs) do
     names[#names + 1] = "Cli." .. verb
   end
   local found, trouble = docs.named_all(view, names)
   local lines: {string} = {}
-  for _, verb in ipairs(Cli.order) do
+  for _, verb in ipairs(verbs) do
     local symbol = "Cli." .. verb
     local text: string | nil = nil
     if found ~= nil then
@@ -75,8 +76,13 @@ and `cosmic.proc`. `debug` is `cosmic.errors.trace`. `print` still
 works, an ordinary global written over the same syscall table
 `cosmic.fs` uses.
 
-A verb takes paths to narrow it. `test` accepts exact module names, source
-paths, and directories. `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
+A verb takes paths to narrow it: `test` exact module names, source
+paths and directories; `fix`, `build` and `todos` the files or
+directories to act on; `uses` paths after its symbol; `db` the
+sources whose rows to count. `docs` takes words to search for instead,
+`sql` one statement, and `help` a verb.
+
+`fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
 operator and bracket, the spacing around each, and two columns of
 indentation per level of block -- from the tree rather than from
 whichever two tokens ended up adjacent, so `local x <const> = 5` is
@@ -100,7 +106,8 @@ Every verb ends in a verdict line -- `fix: PASS (...)` or `fix: FAIL
 its command line was refused -- an option, an argument or a verb it
 does not know; 3 when the tool is older than the tree and did not
 rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file
-run exits with what its program returns.
+run, `--standalone` and `-e` are not verbs of that kind: each prints
+only what its program prints and exits with what it returns.
 ]]
 
 local function say(line: string)
@@ -109,6 +116,24 @@ end
 
 local function complain(line: string)
   local _, _ = Fs.put(Fs.stderr, line .. "\n")
+end
+
+--- The exit code a program's return value asks for, as the core decides
+--- it for a built program (`cosmic_tostatus`, build/exit_status_test.tl):
+--- nil is 0, and a whole number from 0 to 255 is itself. Anything else --
+--- a boolean, text, a table, 1.5, -1, 256 -- is complained about as
+--- `what`'s, and exits 2.
+local function exit_status(what: string, value: any): integer
+  if value == nil then
+    return 0
+  end
+  local whole = value is number and math.tointeger(value) or nil
+  if whole == nil or whole < 0 or whole > 255 then
+    complain("cosmic: " .. what .. " returned " .. tostring(value) ..
+      ", not an exit status 0-255")
+    return 2
+  end
+  return whole
 end
 
 --- The directory a path sits in, absolute.
@@ -163,9 +188,10 @@ end
 --- own name -- but nothing ordinary reaches it, since no length or
 --- loop starts before 1; a caller that wants its own name reads
 --- `argv[0]` directly. A record whose `main` field is a function is
---- called the same way, through that field. An integer the function
---- returns is the exit code; anything else, or no function at all,
---- is 0.
+--- called the same way, through that field. What the function returns
+--- is the exit code as a built program's is -- see `exit_status`: nil
+--- is 0, and anything but a whole number from 0 to 255 exits 2. No
+--- function at all is 0.
 --- @param file the path named on the command line
 --- @param argv the whole command line, `cosmic` at slot 0 and `file` at
 ---   slot 1; the file sees only what follows it, as its own `argv`
@@ -301,15 +327,45 @@ local function run(file: string, argv: {integer:string}): integer
       arguments[slot - 1] = argv[slot]
       slot = slot + 1
     end
-    local status: any = entry(arguments)
-    if status is integer then
-      return status
-    end
+    return exit_status(file, entry(arguments))
   end
   return 0
 end
 
---- `cosmic help [verb]`: the whole discovery surface, and a verdict line.
+--- The verbs spelled as options, by that spelling.
+local as_option: {string:string} = {
+  ["--standalone"] = "standalone",
+  ["-e"] = "eval",
+}
+
+--- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
+--- does, against this binary's own standard library, with no tree around
+--- it. The words after it are its `...`; what it returns is the exit
+--- code as a file run's is -- see `exit_status`.
+--- @param argv the whole command line, `cosmic` at slot 0 and `-e` at
+---   slot 1
+local function evaluate(argv: {integer:string}): integer
+  local chunk = argv[2]
+  if chunk == nil then
+    complain("cosmic: usage: cosmic -e '<chunk>' [args...]")
+    return 2
+  end
+  local loaded, trouble = load(chunk, "=-e", "t")
+  if loaded == nil then
+    complain("cosmic: " .. tostring(trouble))
+    return 1
+  end
+  local arguments: {string} = {}
+  local slot = 3
+  while argv[slot] ~= nil do
+    arguments[#arguments + 1] = argv[slot]
+    slot = slot + 1
+  end
+  return exit_status("-e", (loaded as function(...: string): any)(table.unpack(arguments)))
+end
+
+--- `cosmic help [verb]`: the whole discovery surface, or one verb's line
+--- of it, and a verdict line.
 --- @param asked the verb `cosmic <verb> --help` asked about, or nil to
 ---   read the words after `help` itself
 local function help(argv: {integer:string}, asked: string | nil): integer
@@ -325,12 +381,13 @@ local function help(argv: {integer:string}, asked: string | nil): integer
   local words: {string} = { asked }
   if asked == nil then
     local line = argv
-    if argv[2] == "--standalone" then
-      -- `standalone` is the verb spelled as an option (`cosmic
-      -- --standalone <file>`), and asked about by either spelling.
+    local spelled = argv[2] ~= nil and as_option[argv[2]] or nil
+    if spelled ~= nil then
+      -- A verb spelled as an option (`cosmic --standalone <file>`,
+      -- `cosmic -e <chunk>`) is asked about by either spelling.
       line = {}
       for slot, word in pairs(argv) do line[slot] = word end
-      line[2] = "standalone"
+      line[2] = spelled
     end
     local parsed, parse_trouble = Flags.parse(line, 2, {})
     if parsed == nil then
@@ -356,9 +413,12 @@ local function help(argv: {integer:string}, asked: string | nil): integer
       return 2
     end
   end
-  -- TODO: print only the asked verb's line for `cosmic help <verb>`, as
-  -- doc/design.md promises; until then a verb gets the whole surface.
-  say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
+  if #words == 1 then
+    say(verb_help(words))
+    log:verdict("help", true, "1 verb, " .. clock.elapsed_ms(started) .. " ms")
+    return 0
+  end
+  say(help_prefix .. "\n" .. verb_help(Cli.order) .. "\n" .. help_suffix)
   log:verdict("help", true, #Cli.order .. " verbs, " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
@@ -422,6 +482,10 @@ local function main(argv: {integer:string}): integer
     local worker = require("build.test_worker")
     return worker.run(argv)
   end
+  if word == "-e" then
+    -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
+    return evaluate(argv)
+  end
   if word == "--standalone" then
     -- One file against this binary's own standard library: no tree is
     -- staged or built and no staleness is checked -- see
@@ -469,8 +533,6 @@ local function main(argv: {integer:string}): integer
     return code
   end
   if verb:sub(1, 1) == "-" then
-    -- TODO: take `-e <chunk>` here and run it, as doc/design.md's
-    -- command-line section promises; the PR on those promises adds it.
     complain("cosmic: no such option: " .. verb)
     complain("cosmic: `cosmic help` is the whole discovery surface")
     return 2
