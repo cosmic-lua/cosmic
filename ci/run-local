@@ -24,7 +24,9 @@
 #
 # The driver is this checkout's own o/bin/cosmic (run `bin/zig build boot`
 # first), not the pinned release CI uses. State lives outside the checkout,
-# in $COSMIC_CI_LOCAL (default ${TMPDIR:-/tmp}/cosmic-ci-local-<uid>).
+# in $COSMIC_CI_LOCAL (default ${TMPDIR:-/tmp}/cosmic-ci-local-<uid>/<key>,
+# the key a checksum of this checkout's path, so runs from two worktrees
+# at once do not share a candidate).
 #
 # CI runs the driver as an unprivileged user, and a fixture may expect a
 # permission to be refused that root would be granted. So when invoked as
@@ -57,7 +59,15 @@ zig_global=${COSMIC_ZIG_GLOBAL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig
 seed=${COSMIC_ZIG_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig-project}
 
 uid=$(id -u)
-state=${COSMIC_CI_LOCAL:-${TMPDIR:-/tmp}/cosmic-ci-local-$uid}
+# Each checkout gets its own state by default: two run at once would
+# otherwise replace each other's candidate and ci/ copy mid-run.
+# TODO: remove the state of a checkout that no longer exists (a few GB
+# each, its candidate still registered as a worktree of the checkout
+# that ran it); nothing records which path a key came from yet, so a
+# `path` file in each state would let a later run find and prune them.
+base=${TMPDIR:-/tmp}/cosmic-ci-local-$uid
+key=$(printf %s "$root" | cksum | awk '{ print $1 }')
+state=${COSMIC_CI_LOCAL:-$base/$key}
 case $state in /*) ;; *) die "COSMIC_CI_LOCAL must be absolute" ;; esac
 case $state/ in "$root"/*) die "state must be outside the checkout" ;; esac
 candidate=$state/candidate
@@ -98,17 +108,21 @@ drop() {
 if [ "$mechanism" != none ]; then
   echo "run-local: running as root; the driver runs as $user" \
     "(uid $user_uid, via $mechanism)" >&2
-  # The state directory is the one place the driver writes: the candidate,
+  # The state directory is where the driver writes: the candidate,
   # its o/ and the zig caches seeded into it, RUNNER_TEMP, XDG_CACHE_HOME
   # (which Fs.cache_dir refuses when someone else owns it), and the ci/
-  # copy with its o/. So the whole of it belongs to the user, re-owned
-  # once when an earlier run as root left it root's. The checkout itself
+  # copy with its o/; zig's global cache (below) may sit beside it. So
+  # the whole of it belongs to the user, re-owned once when an earlier
+  # run as root left it root's. The checkout itself
   # stays root's and is only read: o/bin/cosmic, and the project cache
   # that COSMIC_ZIG_CACHE_FROM names, which the driver copies with
   # `cp -a` into the candidate rather than writing in place.
   # drop_env is split on spaces, and names paths under the state.
   case $state in *[[:space:]]*) die "COSMIC_CI_LOCAL must not contain spaces" ;; esac
   mkdir -p "$state"
+  # The default state sits in a base root made, which a umask of 077
+  # would leave the user unable to enter.
+  [ -n "${COSMIC_CI_LOCAL:-}" ] || chmod 755 "$base"
   if [ "$(ls -ldn "$state" | awk '{ print $3 }')" != "$user_uid" ]; then
     chown -R "$user_uid:$user_gid" "$state"
   fi
@@ -149,8 +163,20 @@ if [ "$mechanism" != none ]; then
     seed=
   fi
   # zig writes its global cache as it builds, and the user cannot write
-  # root's; it gets one of its own in the state, kept across runs.
-  zig_global=$state/zig-global
+  # root's; it gets one of its own, kept across runs. Under the default
+  # state each user's is shared by every checkout (zig's cache takes
+  # concurrent writers), so a new worktree does not rebuild libc; it is
+  # keyed by user so runs dropping to different users never re-own it
+  # from under each other.
+  if [ -n "${COSMIC_CI_LOCAL:-}" ]; then
+    zig_global=$state/zig-global
+  else
+    zig_global=$base/zig-global-$user_uid
+    mkdir -p "$zig_global"
+    if [ "$(ls -ldn "$zig_global" | awk '{ print $3 }')" != "$user_uid" ]; then
+      chown -R "$user_uid:$user_gid" "$zig_global"
+    fi
+  fi
 else
   drop_env=
   mkdir -p "$state"

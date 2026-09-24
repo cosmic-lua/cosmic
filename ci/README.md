@@ -28,7 +28,9 @@ checkout's `o/`. A full run takes a few minutes. The driver runs from a
 copy of this checkout's `ci/`, fixtures included, taken each time run-local
 starts, so after one full run `ci/run-local fixtures` re-runs edited
 fixtures against the same products. Each phase's log is under
-`$COSMIC_CI_LOCAL/logs/` (default `${TMPDIR:-/tmp}/cosmic-ci-local-<uid>`).
+`$COSMIC_CI_LOCAL/logs/` (default `${TMPDIR:-/tmp}/cosmic-ci-local-<uid>/<key>`,
+keyed by the checkout's path, so worktrees can run at once; a removed
+worktree's state stays until deleted).
 
 CI runs the driver unprivileged, and as root a permission a fixture expects
 to be refused may be granted. So invoked as root, run-local runs the driver
