@@ -198,6 +198,28 @@ jobs:
         if: always() && steps.driver.outcome == 'success'
         run: cosmic-driver cosmic_ci/driver.tl platform cache-save
 
+      # The regressions below read the checkout, the product and the
+      # runtime the phases above made, and the product suite a fresh
+      # extract of the tracked source: they share nothing but the
+      # operations database, which each opens only to record a start or
+      # an end. The regressions mostly wait (on children, on timeouts)
+      # where the suite keeps every processor busy, so they start here,
+      # in the background, and the step that ends them only waits for
+      # their verdict.
+      - name: start runtime, launcher, rebuild, and identity regressions
+        id: fixtures-start
+        run: |
+          rm -f "$RUNNER_TEMP/fixtures.status"
+          # The status is written whatever the regressions answer (the step
+          # shell runs with -e), and every stream is redirected, so the
+          # runner does not hold this step open on an inherited pipe.
+          ( status=0
+            cosmic-driver cosmic_ci/driver.tl platform fixtures \
+              > "$RUNNER_TEMP/fixtures.log" 2>&1 || status=$?
+            echo "$status" > "$RUNNER_TEMP/fixtures.status.tmp"
+            mv "$RUNNER_TEMP/fixtures.status.tmp" "$RUNNER_TEMP/fixtures.status"
+          ) < /dev/null > /dev/null 2>&1 &
+
       - name: run the product suite from fresh tracked source
         id: portable-suite
         run: cosmic-driver cosmic_ci/driver.tl platform portable
@@ -207,7 +229,13 @@ jobs:
         run: cosmic-driver cosmic_ci/driver.tl platform portable-boundary "${{ steps.portable-suite.outcome }}"
 
       - name: run runtime, launcher, rebuild, and identity regressions
-        run: cosmic-driver cosmic_ci/driver.tl platform fixtures
+        if: always() && steps.fixtures-start.outcome == 'success'
+        # The regressions' own timeouts bound them well within this.
+        timeout-minutes: 15
+        run: |
+          while [ ! -f "$RUNNER_TEMP/fixtures.status" ]; do sleep 1; done
+          cat "$RUNNER_TEMP/fixtures.log"
+          exit "$(cat "$RUNNER_TEMP/fixtures.status")"
 
       - name: attest the exact executed product bytes
         run: cosmic-driver cosmic_ci/driver.tl platform attest "${{ strategy.job-total }}"
