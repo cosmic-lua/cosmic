@@ -138,14 +138,6 @@ function test.matches(selector: string, path: string, file: string): boolean
   return Fs.within(file, selector)
 end
 
-local function selected(m: importer.Module, selectors: {string}): boolean
-  if #selectors == 0 then return true end
-  for _, selector in ipairs(selectors) do
-    if test.matches(selector, m.path, m.file) then return true end
-  end
-  return false
-end
-
 local function text(value: string): Sqlite.Value
   return { text = value }
 end
@@ -1076,14 +1068,24 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
     end
     return number, ""
   end
+  -- A deadline is kept in milliseconds, so seconds past this would wrap.
+  local most_seconds = math.maxinteger // 1000
+  local function seconds_of(value: string, what: string): integer | nil, string
+    local seconds, trouble = positive(value, what)
+    if seconds == nil then return nil, trouble end
+    if seconds > most_seconds then
+      return nil, what .. " must be at most " .. most_seconds .. " seconds, not " .. value
+    end
+    return seconds, ""
+  end
   local from_env = Env.get(timeout_variable)
   if from_env ~= nil and from_env ~= "" then
-    local seconds, trouble = positive(from_env, timeout_variable)
+    local seconds, trouble = seconds_of(from_env, timeout_variable)
     if seconds == nil then return nil, trouble end
     limits.timeout_ms = seconds * 1000
   end
   if values["--timeout"] ~= nil then
-    local seconds, trouble = positive(values["--timeout"], "--timeout")
+    local seconds, trouble = seconds_of(values["--timeout"], "--timeout")
     if seconds == nil then return nil, trouble end
     limits.timeout_ms = seconds * 1000
   end
@@ -1219,26 +1221,27 @@ function test.run(argv: {integer:string}): integer
     " files staged, " .. staged.read .. " read) in " ..
     clock.elapsed_ms(started) .. " ms")
 
-  local selected_modules: {importer.Module} = {}
-  for _, m in ipairs(result.modules) do
-    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 and
-       selected(m, selectors) then
-      selected_modules[#selected_modules + 1] = m
-    end
-  end
   -- Each selector must match a test module on its own: one mistyped
   -- among good ones would otherwise narrow the run without a word.
-  local unmatched: {string} = {}
-  for _, selector in ipairs(selectors) do
-    local matched = false
-    for _, m in ipairs(result.modules) do
-      if (m.kind == "test" or m.kind == "example") and #m.tests > 0 and
-         test.matches(selector, m.path, m.file) then
-        matched = true
-        break
+  local selected_modules: {importer.Module} = {}
+  local matched: {string:boolean} = {}
+  for _, m in ipairs(result.modules) do
+    if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
+      local chosen = #selectors == 0
+      for _, selector in ipairs(selectors) do
+        if test.matches(selector, m.path, m.file) then
+          matched[selector] = true
+          chosen = true
+        end
+      end
+      if chosen then
+        selected_modules[#selected_modules + 1] = m
       end
     end
-    if not matched then
+  end
+  local unmatched: {string} = {}
+  for _, selector in ipairs(selectors) do
+    if not matched[selector] then
       unmatched[#unmatched + 1] = selector
     end
   end

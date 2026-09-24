@@ -761,6 +761,9 @@ function docs.run_uses(argv: {integer:string}): integer
     log:complain("uses: " .. parse_trouble)
     return 2
   end
+  -- TODO: take paths after the symbol to narrow its uses to the files
+  -- under them, as doc/design.md's "a verb takes paths to narrow it"
+  -- promises; until then a second word is refused.
   if #parsed.words > 1 then
     log:complain("uses: one symbol at a time, not " .. #parsed.words)
     return 2

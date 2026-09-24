@@ -128,6 +128,9 @@ end
 function databases.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  -- TODO: take paths to narrow the description to the rows about them,
+  -- as doc/design.md's "a verb takes paths to narrow it" promises; until
+  -- then a word here is refused.
   if parsed ~= nil and #parsed.words > 0 then
     parsed, parse_trouble = nil, "takes no arguments, not " .. parsed.words[1]
   end

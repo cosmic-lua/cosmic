@@ -253,6 +253,15 @@ local function run_rebuild_case(root: string, fixture_dir: string,
       action .. ": core-change refusal touched the artifact")
     assert(cache_entries(cache) == entries_before,
       action .. ": core-change refusal changed the cache entry count")
+    -- An option the tree may have added is not refused by a stale tool
+    -- as a usage error: the staleness is found first.
+    local optioned = Fixture.call_with_environment("core-change-option-" .. action,
+      { program, "db", "--an-option-this-tool-lacks" }, tree, diagnostics,
+      refusal_values)
+    assert(optioned.result.code == 3,
+      action .. ": a stale tool refused an unknown option with exit status " ..
+      tostring(optioned.result.code) .. ", want 3")
+    Fixture.contains(optioned.err, "the tool is stale; run bin/zig build boot")
   end)
 end
 

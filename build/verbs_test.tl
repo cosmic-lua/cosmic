@@ -28,7 +28,7 @@ local surplus: {string:{string} | string} = {
   docs = "takes any number of words to search for",
   uses = { "uses", "Fs.read", "Fs.write" },
   todos = "takes any number of paths and words",
-  help = { "help", "extra" },
+  help = { "help", "test", "fix" },
 }
 
 --- One command line that passes and one that fails, each run in `tree`
@@ -161,7 +161,7 @@ local function test_a_mistyped_verb_is_named(tmp: string)
   local result = cosmic(tmp, { "tset" })
   local err = result.stderr or ""
   assert(result.code == 2, err)
-  assert(err:find("no such verb: tset", 1, true), err)
+  assert(err:find("no such verb or file: tset", 1, true), err)
 end
 
 local function test_each_selector_must_match(tmp: string)
@@ -173,7 +173,18 @@ local function test_each_selector_must_match(tmp: string)
   assert(not err:find("good", 1, true), err)
 end
 
-local function test_standalone_needs_a_file(tmp: string)
-  local result = cosmic(tmp, { "--standalone" })
-  assert(result.code == 2, result.stderr)
+local function test_help_takes_a_verb(tmp: string)
+  local _ = expect(tmp, "help", { "help", "test" }, 0)
+  local _ = expect(tmp, "help", { "test", "--help" }, 0)
+  local _ = expect(tmp, "help", { "db", "-h" }, 0)
+  local refused = expect(tmp, "help", { "help", "tset" }, 2)
+  local out = refused.stdout or ""
+  assert(out:find("help: FAIL (no such verb: tset)", 1, true), out)
+end
+
+local function test_a_timeout_that_would_wrap_is_refused(tmp: string)
+  local tree = write_tree(tmp)
+  local result = expect(tree, "test", { "test", "--timeout", "99999999999999999", "good" }, 2)
+  local err = result.stderr or ""
+  assert(err:find("--timeout must be at most", 1, true), err)
 end

@@ -294,24 +294,11 @@ local function run(file: string, argv: {integer:string}): integer
   return 0
 end
 
---- `cosmic help`: the whole discovery surface, and a verdict line.
-local function help(argv: {integer:string}): integer
-  local started = Time.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, {})
-  -- TODO: take a verb (`cosmic help test`) and print only its line, as
-  -- doc/design.md promises; until then a word here is refused like any
-  -- argument a verb does not take.
-  if parsed ~= nil and #parsed.words > 0 then
-    parsed, parse_trouble = nil, "takes no arguments, not " .. parsed.words[1]
-  end
-  if parsed == nil then
-    complain("cosmic: help: " .. parse_trouble)
-    return 2
-  end
-  -- Same staleness guard `test` applies: cheap (a fingerprint
-  -- compare) when the tool is already fresh, so this keeps help
-  -- fast in the ordinary case, and only rebuilds when an edit to
-  -- build.docs itself would otherwise go unseen.
+--- The exit code to return at once when the tool is older than the tree
+--- it runs in -- after a rebuild that failed, or a refused boot, having
+--- said why -- or nil to go on. When the tool can rebuild itself it does,
+--- and runs this command line again rather than returning.
+local function stale_code(argv: {integer:string}): integer | nil
   local reboot = require("build.reboot")
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
@@ -319,12 +306,53 @@ local function help(argv: {integer:string}): integer
     return 1
   end
   local code, trouble = reboot.ensure(root, argv)
+  if code ~= nil and trouble ~= "" then
+    complain("cosmic: " .. trouble)
+  end
+  return code
+end
+
+--- `cosmic help [verb]`: the whole discovery surface, and a verdict line.
+--- @param asked the verb `cosmic <verb> --help` asked about, or nil to
+---   read the words after `help` itself
+local function help(argv: {integer:string}, asked: string | nil): integer
+  local started = Time.monotonic_ns()
+  -- Same staleness guard `test` applies: cheap (a fingerprint
+  -- compare) when the tool is already fresh, so this keeps help
+  -- fast in the ordinary case, and only rebuilds when an edit to
+  -- build.docs itself would otherwise go unseen.
+  local code = stale_code(argv)
   if code ~= nil then
-    if trouble ~= "" then
-      complain("cosmic: " .. trouble)
-    end
     return code
   end
+  local words: {string} = { asked }
+  if asked == nil then
+    local parsed, parse_trouble = Flags.parse(argv, 2, {})
+    if parsed == nil then
+      complain("cosmic: help: " .. parse_trouble)
+      log:verdict("help", false, parse_trouble)
+      return 2
+    end
+    words = parsed.words
+  end
+  if #words > 1 then
+    complain("cosmic: help: one verb at a time, not " .. #words)
+    log:verdict("help", false, "one verb at a time")
+    return 2
+  end
+  if #words == 1 then
+    local known = false
+    for _, verb in ipairs(Cli.order) do
+      if verb == words[1] then known = true end
+    end
+    if not known then
+      complain("cosmic: help: no such verb: " .. words[1])
+      log:verdict("help", false, "no such verb: " .. words[1])
+      return 2
+    end
+  end
+  -- TODO: print only the asked verb's line for `cosmic help <verb>`, as
+  -- doc/design.md promises; until then a verb gets the whole surface.
   say(help_prefix .. "\n" .. verb_help() .. "\n" .. help_suffix)
   log:verdict("help", true, #Cli.order .. " verbs, " .. clock.elapsed_ms(started) .. " ms")
   return 0
@@ -332,7 +360,9 @@ end
 
 --- Each verb that ends in a verdict line, by the word that names it.
 local verbs: {string: function({integer:string}): integer} = {
-  help = help,
+  help = function(argv: {integer:string}): integer
+    return help(argv, nil)
+  end,
   test = function(argv: {integer:string}): integer
     return require("build.test").run(argv)
   end,
@@ -389,17 +419,36 @@ local function main(argv: {integer:string}): integer
     verb = "help"
   end
   local chosen = verbs[verb]
+  if chosen ~= nil and verb ~= "help" and (argv[2] == "-h" or argv[2] == "--help") then
+    -- `cosmic <verb> --help` is `cosmic help <verb>`.
+    local asked = verb
+    verb = "help"
+    chosen = function(line: {integer:string}): integer
+      return help(line, asked)
+    end
+  end
   if chosen ~= nil then
     -- A verb gives its own verdict wherever it has one to give; an exit
     -- it left without one -- its command line refused, a setup failure,
     -- a stale tool -- still ends in one here.
     local code = chosen(argv)
+    if code == 2 and not verdict.given then
+      -- A verb may read its command line before it checks the tool is
+      -- as new as the tree, and an option the tree added is one a stale
+      -- tool refuses: it rebuilds and runs the line again here instead.
+      local stale = stale_code(argv)
+      if stale ~= nil then
+        code = stale
+      end
+    end
     if not verdict.given then
       log:verdict(verb, code == 0, detail_of(code))
     end
     return code
   end
   if verb:sub(1, 1) == "-" then
+    -- TODO: take `-e <chunk>` here and run it, as doc/design.md's
+    -- command-line section promises; the PR on those promises adds it.
     complain("cosmic: no such option: " .. verb)
     complain("cosmic: `cosmic help` is the whole discovery surface")
     return 2
@@ -409,7 +458,7 @@ local function main(argv: {integer:string}): integer
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
     local exists, _ = Fs.exists(verb)
     if not exists then
-      complain("cosmic: no such verb: " .. verb .. "; see `cosmic help`")
+      complain("cosmic: no such verb or file: " .. verb .. "; see `cosmic help`")
       return 2
     end
   end
