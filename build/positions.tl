@@ -16,6 +16,7 @@
 
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
+local String = require("cosmic.string")
 
 local record positions
   --- One catalog entry: a literal `return nil, ...`/`return false, ...`
@@ -231,7 +232,7 @@ local function line_at(lines: {string}, y: integer): string
   if line == nil then
     return ""
   end
-  return (line:gsub("^%s+", ""):gsub("%s+$", ""))
+  return String.trim(line)
 end
 
 --- The source text from one position up to just before another, its
@@ -248,7 +249,7 @@ local function span_text(lines: {string}, y: integer, x: integer,
     parts[#parts + 1] = line:sub(from, to)
   end
   local joined = table.concat(parts, " ")
-  return (joined:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""))
+  return String.trim((joined:gsub("%s+", " ")))
 end
 
 --- A declared function's own name: a `local_function`'s name alone, or

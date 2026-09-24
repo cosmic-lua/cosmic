@@ -30,6 +30,7 @@
 
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local ast = require("build.ast")
@@ -100,7 +101,7 @@ local function sources(root: string): {string} | nil, string
   end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if file:sub(-3) == ".tl" then
+    if String.ends_with(file, ".tl") then
       out[#out + 1] = file
     end
   end
@@ -239,13 +240,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
           c_out[#c_out + 1] = path .. "/" .. file
         end
       end
-    elseif path:sub(-2) == ".c" or path:sub(-2) == ".h" then
+    elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
       if own then
         c_out[#c_out + 1] = path
       else
         refused[#refused + 1] = path .. ": C is checked only in cosmic's own tree"
       end
-    elseif path:sub(-3) ~= ".tl" then
+    elseif not String.ends_with(path, ".tl") then
       refused[#refused + 1] = path .. ": not a Teal or C source"
     else
       out[#out + 1] = path
@@ -341,7 +342,7 @@ function fix.run(argv: {integer:string}): integer
         if not written then failures[#failures + 1] = write_trouble end
       end
     end
-    if file:sub(-2) == ".c" then compiled[#compiled + 1] = file end
+    if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
   end
   for _, outcome in ipairs(c_check.check(root, compiled)) do
     if outcome.findings == nil then

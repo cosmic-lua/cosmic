@@ -23,6 +23,7 @@ local ast = require("build.ast")
 local importer = require("build.importer")
 local teal = require("build.teal")
 local work = require("build.work")
+local String = require("cosmic.string")
 local type compiler = require("build.compiler")
 
 local record spill
@@ -42,7 +43,7 @@ spill.message = "assert(...) passes on every value it was given, not only " ..
 --- `<file>:<line>:<column>: <spill.message>` line.
 function spill.sites(text: string): spill.Sites
   local found: spill.Sites = {}
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     local file, y, x, rest = line:match("^(.-):(%d+):(%d+): (.*)$")
     if file ~= nil and rest:sub(1, #spill.message) == spill.message then
       local at = found[file]

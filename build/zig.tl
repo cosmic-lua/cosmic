@@ -402,6 +402,9 @@ function Zig.watches(path: string): boolean
   if watched_files[path] then
     return true
   end
+  -- TODO: String.ends_with in place of `sub(-3)` here once
+  -- ci/cosmic-driver.pin names a cosmic carrying cosmic.string: bin/zig runs
+  -- this file on the pinned bootstrap.
   local first = path:match("^([^/]+)/")
   if first == nil then
     return path:sub(-3) == ".tl"

@@ -69,7 +69,7 @@ importer.analyzer_modules = {
   "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.compiler",
   "build.doctest", "build.doctest.generate", "build.doctest.markdown",
   "build.gen_syscalls", "build.positions",
-  "cosmic.env", "cosmic.fs",
+  "cosmic.env", "cosmic.fs", "cosmic.string",
 }
 
 --- Whether `root` is cosmic's own tree, structurally. Exposed so a

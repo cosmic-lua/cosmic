@@ -57,6 +57,7 @@ local Proc = require("cosmic.proc")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local sys = require("cosmic.sys")
@@ -1387,7 +1388,7 @@ function test.run(argv: {integer:string}): integer
       if #printed > 4096 then
         printed = "..." .. printed:sub(-4096)
       end
-      for printed_line in (printed:gsub("\n$", "") .. "\n"):gmatch("([^\n]*)\n") do
+      for printed_line in String.lines((printed:gsub("\n$", ""))) do
         report("  | " .. printed_line)
       end
     end
