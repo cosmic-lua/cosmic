@@ -177,9 +177,10 @@ chmod 755 o/bin/cosmic
   assert(outcome.result.code == 23, "suite failure was not primary")
   assert(assert(Fs.stat(work .. "/local-diagnostics/local-test.out")).size > 100000)
   assert(assert(Fs.read(work .. "/local-diagnostics/local-test.status")):find("23", 1, true))
-  local local_cache = Predicate.is_dir(fake .. "/o/zig-cache")
-  local global_cache = Predicate.is_dir(fake .. "/o/zig-global")
-  assert(local_cache and global_cache)
+  -- The project cache is seeded into o/; zig's global cache is not, since
+  -- bin/zig uses it where it was restored (COSMIC_ZIG_GLOBAL_CACHE).
+  assert(Predicate.is_dir(fake .. "/o/zig-cache"), "project cache was not seeded")
+  assert(not Predicate.is_dir(fake .. "/o/zig-global"), "global cache was copied into o/")
   assert(Fs.exists(fake .. "/o/poison") == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")

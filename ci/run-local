@@ -44,6 +44,10 @@ die() {
   exit 2
 }
 
+# zig's global cache is shared (build/zig.tl): resolve this user's before
+# XDG_CACHE_HOME is pointed at the run's own state below.
+zig_global=${COSMIC_ZIG_GLOBAL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cosmic/zig-global}
+
 uid=$(id -u)
 state=${COSMIC_CI_LOCAL:-${TMPDIR:-/tmp}/cosmic-ci-local-$uid}
 case $state in /*) ;; *) die "COSMIC_CI_LOCAL must be absolute" ;; esac
@@ -130,11 +134,13 @@ if [ "$mechanism" != none ]; then
   drop test -x "$cosmic" -a -r "$root/ci/cosmic_ci/driver.tl" ||
     die "$user cannot read $root; make the checkout readable by others," \
       "or name another user with COSMIC_CI_LOCAL_USER"
-  for seed in "$root/o/zig-cache" "$root/o/zig-global"; do
-    if [ -d "$seed" ] && ! drop test -r "$seed" -a -x "$seed"; then
-      die "$user cannot read $seed"
-    fi
-  done
+  seed=$root/o/zig-cache
+  if [ -d "$seed" ] && ! drop test -r "$seed" -a -x "$seed"; then
+    die "$user cannot read $seed"
+  fi
+  # zig writes its global cache as it builds, and the user cannot write
+  # root's; it gets one of its own in the state, kept across runs.
+  zig_global=$state/zig-global
 else
   drop_env=
   mkdir -p "$state"
@@ -190,7 +196,7 @@ for phase in "$@"; do
     drop env GITHUB_WORKSPACE="$candidate" RUNNER_TEMP="$state/runner" \
       GITHUB_RUN_ID=local GITHUB_RUN_ATTEMPT=1 COSMIC_WORKER=local \
       TARGET="$target" XDG_CACHE_HOME="$state/cache" \
-      COSMIC_ZIG_CACHE_SEED="$root/o" \
+      COSMIC_ZIG_CACHE_SEED="$root/o" COSMIC_ZIG_GLOBAL_CACHE="$zig_global" \
       "$cosmic" cosmic_ci/driver.tl platform "$phase" success
   ) > "$log" 2>&1 || status=$?
   echo "run-local: $phase: status $status, $(( $(date +%s) - started )) s, log $log" >&2

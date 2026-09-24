@@ -29,10 +29,17 @@
 --- removed on every path out, and one a dead process left behind is
 --- removed by the next install.
 ---
---- `build` gets cache-directory, global-cache-directory and prefix
---- flags under the repository's `o/` (the root is found from this
---- script's own path); every other subcommand passes through
---- unchanged. zig runs in the caller's own working directory.
+--- `build` gets cache-directory and prefix flags under the repository's
+--- `o/` (the root is found from this script's own path), and a
+--- global-cache-directory flag naming zig's global cache: what it builds
+--- of its own -- libc, compiler-rt, the standard library -- keyed by
+--- content and not by where a checkout sits, so every worktree and
+--- session shares one. It is `COSMIC_ZIG_GLOBAL_CACHE` when set, else
+--- `zig-global` beside the installed zig, else (no cache directory at
+--- all) `o/zig-global`. The project's own cache stays in `o/`: zig keys
+--- a C object by its source's absolute path, so another checkout would
+--- never hit it. Every other subcommand passes through unchanged. zig
+--- runs in the caller's own working directory.
 ---
 --- Exit codes follow the shell's: 127 when zig cannot be found, 126
 --- when it is found but cannot be run, 1 for anything else that stops
@@ -118,16 +125,17 @@ function Zig.repo_root(script_path: string): string | nil, string
   return root, ""
 end
 
---- `argv` as zig gets it: `build` gains three flags keeping zig's
---- caches and install prefix under `root/o`, ahead of the caller's own
---- arguments; anything else passes through unchanged.
-function Zig.build_args(root: string, argv: {string}): {string}
+--- `argv` as zig gets it: `build` gains three flags, ahead of the
+--- caller's own arguments, keeping zig's project cache and install prefix
+--- under `root/o` and its global cache at `shared`; anything else passes
+--- through unchanged.
+function Zig.build_args(root: string, shared: string, argv: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
       "build",
       "--cache-dir", root .. "/o/zig-cache",
-      "--global-cache-dir", root .. "/o/zig-global",
+      "--global-cache-dir", shared,
       "--prefix", root .. "/o",
     }
     for i = 2, #argv do
@@ -273,6 +281,26 @@ function Zig.locate(root: string): string | nil, string
   return Zig.ensure_installed(cache, cache .. "/" .. pin.version .. "-" .. host, pin, host)
 end
 
+--- Where zig keeps its global cache: `COSMIC_ZIG_GLOBAL_CACHE` when
+--- set, else `zig-global` in this user's cosmic cache directory, else
+--- `root/o/zig-global`.
+function Zig.global_cache(root: string, environment?: {string:string}): string
+  local given: string
+  if environment ~= nil then
+    given = environment.COSMIC_ZIG_GLOBAL_CACHE
+  else
+    given = Env.get("COSMIC_ZIG_GLOBAL_CACHE")
+  end
+  if given ~= nil and given ~= "" then
+    return given
+  end
+  local cache = Fs.cache_dir("zig-global", environment)
+  if cache ~= nil then
+    return cache
+  end
+  return root .. "/o/zig-global"
+end
+
 --- The exit status a failed exec means, as a shell reports it.
 function Zig.exec_status(number: integer): integer
   if number == sys.ENOENT or number == sys.ENOTDIR then
@@ -307,7 +335,7 @@ function Zig.main(argv: {integer:string}): integer
     at = at + 1
   end
   local exec_argv: {string} = { zig }
-  for _, a in ipairs(Zig.build_args(root, given)) do
+  for _, a in ipairs(Zig.build_args(root, Zig.global_cache(root), given)) do
     exec_argv[#exec_argv + 1] = a
   end
   local _, trouble, number = sys.execve(program, exec_argv, Env.all())
