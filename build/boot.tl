@@ -22,7 +22,7 @@ local log = Log.new("cosmic")
 --- generated release target record file, and slots 6 through 8 optionally set
 --- the checked output directory, checked raw core, and four-entry record file
 local function boot(root: string, argv: {integer:string}): integer
-  local started = Time.monotonic_ns() or 0
+  local started = Time.monotonic_ns()
   local host = argv[4]
   if host == nil or host == "" then
     log:verdict("boot", false, "the command line names no host target")
@@ -132,19 +132,19 @@ local function boot(root: string, argv: {integer:string}): integer
   end
   local staged, stage_trouble = work.stage(handle, true)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, stage_trouble)
     return 1
   end
   local fingerprint, print_trouble = work.fingerprint(handle)
   if fingerprint == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, print_trouble)
     return 1
   end
   local kept, keep_trouble = work.put_compiler(handle, teal_source)
   if not kept then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, keep_trouble)
     return 1
   end
@@ -154,13 +154,13 @@ local function boot(root: string, argv: {integer:string}): integer
   -- fresh working database and keys exactly as a warm build does.
   local derived, derive_trouble = importer.derive(handle, true, compiler)
   if not derived then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, derive_trouble)
     return 1
   end
   local identities, identity_trouble = work.identities(handle)
   if identities == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, identity_trouble)
     return 1
   end
@@ -168,38 +168,38 @@ local function boot(root: string, argv: {integer:string}): integer
   local result, compile_trouble =
     importer.compile(handle, compiler, identities.compiler)
   if result == nil then
-    work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    work.close(handle)
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local _, _ = work.close(handle)
     log:say("boot: FAIL\n" .. compile_trouble)
     return 1
   end
   local database_path = output .. "/cosmic.db"
   local written, write_trouble =
     writer.write_result(handle, database_path, result)
-  work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
+  local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled,
     result.cached, written and "PASS" or "FAIL")
   if not written then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:say("boot: FAIL\n" .. write_trouble)
     return 1
   end
 
   local database, read_trouble = Fs.read(database_path)
   if database == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, read_trouble)
     return 1
   end
   local prefix, prefix_trouble = artifact.prefix(manifest_records, images,
     selected_configuration)
   if prefix == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, prefix_trouble)
     return 1
   end
   local program, program_trouble = artifact.program(prefix, database)
   if program == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     log:verdict("boot", false, program_trouble)
     return 1
   end

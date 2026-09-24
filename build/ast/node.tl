@@ -231,7 +231,7 @@ end
 --- @param name string Filename used in diagnostics and stamped onto every Node's `f`
 --- @param lang? string Parser dialect forwarded to `parse_program` (default: tl's own)
 --- @return Parsed|nil The AST root plus the token stream, or nil on failure
---- @return string Error message on failure, nil on success
+--- @return string Error message on failure, "" on success
 local function parse(built: compiler, source: string, name: string,
                      lang?: string): Parsed | nil, string
   local tokens, lex_errs = built.lex(source, name)
@@ -246,7 +246,7 @@ local function parse(built: compiler, source: string, name: string,
     return nil, string.format("%s:%d:%d: %s", name, e.y, e.x, e.msg)
   end
   -- cast: parse_program erases its AST to `any`
-  return { node = ast as Node, tokens = tokens }, nil
+  return { node = ast as Node, tokens = tokens }, ""
 end
 
 local record NodeModule

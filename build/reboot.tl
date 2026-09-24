@@ -79,21 +79,6 @@ function reboot.own_tool(root: string, executable?: string): boolean | nil, stri
   return Fs.within(directory .. "/" .. Fs.basename(running), outputs), ""
 end
 
---- For a stale tool about to rebuild or boot: nil when it is the tree's
---- own (`reboot.own_tool`) and may, else the exit code to return and
---- what to report -- 3 and `reboot.foreign_refusal` for another cosmic,
---- which neither rebuilds itself nor boots the tree.
-function reboot.foreign(root: string): integer | nil, string
-  local own, trouble = reboot.own_tool(root)
-  if own == nil then
-    return 1, trouble
-  end
-  if not own then
-    return 3, reboot.foreign_refusal
-  end
-  return nil, ""
-end
-
 --- Whether a tool stale against the core boots it: unless
 --- `COSMIC_AUTO_BOOT` is "0", which a caller that wants the refusal
 --- (a fixture holding the artifact still, say) sets.
@@ -217,7 +202,7 @@ function reboot.boot_into(root: string, argv: {integer:string},
   if environment[marker] ~= nil then
     return "the tool is still stale after a reboot"
   end
-  Fs.put(Fs.stderr, "cosmic: the core is stale; running bin/zig build boot\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: the core is stale; running bin/zig build boot\n")
   local result, trouble = Child.run({ root .. "/bin/zig", "build", "boot" },
     { cwd = root, env = environment, stdout = 2 })
   if result == nil then
@@ -260,9 +245,13 @@ end
 --- `trouble` to report first when it is not empty. Returns `nil` to
 --- say the caller may proceed as normal: either the tree is not
 --- cosmic's own, or the tool was found fresh, so no rebuild happened. A
---- stale tool that is not the tree's own returns what `reboot.foreign`
---- does, rebuilding nothing.
+--- stale tool that is not the tree's own (`reboot.own_tool`) returns 3
+--- with `reboot.foreign_refusal`, rebuilding nothing.
 --- @param argv the command line, re-entered after a rebuild
+-- TODO: answer a record (an exit code and its message) or nil, once the
+-- callers are reworked around it: nil means "proceed" here, not a
+-- failure, so this pair is not a value and its reason, and
+-- build.contracts exempts it from the error-slot rules until then.
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then
@@ -278,49 +267,62 @@ function reboot.ensure(root: string, argv: {integer:string}): integer | nil, str
 
   local moved, moved_trouble = work.tool_moved(handle)
   if moved == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return 1, moved_trouble
   end
   if not moved then
     local recorded, recorded_trouble = work.recorded_boot_hash(handle)
     if recorded == nil and recorded_trouble ~= "" then
-      work.close(handle)
+      local _, _ = work.close(handle)
       return 1, recorded_trouble
     end
     if recorded ~= nil and recorded == (Store.meta("boot_hash") or "") then
-      work.close(handle)
+      local closed, close_trouble = work.close(handle)
+      if not closed then
+        return 1, close_trouble
+      end
       return nil, ""
     end
   end
 
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return 1, stage_trouble
   end
   local state, state_trouble = reboot.state(handle)
   if state == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return 1, state_trouble
   end
   if state == "fresh" then
-    work.close(handle)
+    local closed, close_trouble = work.close(handle)
+    if not closed then
+      return 1, close_trouble
+    end
     return nil, ""
   end
-  local refused, refusal = reboot.foreign(root)
-  if refused ~= nil then
-    work.close(handle)
-    return refused, refusal
+  local own, own_tool_trouble = reboot.own_tool(root)
+  if own == nil then
+    local _, _ = work.close(handle)
+    return 1, own_tool_trouble
+  end
+  if not own then
+    local _, _ = work.close(handle)
+    return 3, reboot.foreign_refusal
   end
   if state == "core" then
-    work.close(handle)
+    local closed, close_trouble = work.close(handle)
+    if not closed then
+      return 1, close_trouble
+    end
     if not reboot.auto_boot() then
       return 3, reboot.core_refusal
     end
     return 3, reboot.boot_into(root, argv)
   end
   -- state == "teal"
-  Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
+  local _, _ = Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
   local built = teal.lazy()
   local reboot_trouble = reboot.into(handle, built, argv)
   return 3, reboot_trouble

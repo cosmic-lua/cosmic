@@ -111,7 +111,7 @@ local function apply_docs_marker_edit(tree: string)
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
     "function docs.run(argv: {integer:string}): integer",
-    { "  Fs.put(Fs.stdout, \"step8-docs-marker\\n\")" })
+    { "  local _, _ = Fs.put(Fs.stdout, \"step8-docs-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 
@@ -376,7 +376,7 @@ local function apply_fix_marker_edit(tree: string)
   local lines = split_lines(Fixture.read(path))
   lines = insert_after(lines,
     "function fix.run(argv: {integer:string}): integer",
-    { "  Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
+    { "  local _, _ = Fs.put(Fs.stdout, \"step8-fix-marker\\n\")" })
   Fixture.write(path, table.concat(lines, "\n") .. "\n")
 end
 

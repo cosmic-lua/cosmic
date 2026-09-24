@@ -86,11 +86,11 @@ end
 --- then the directory. A file cut short by a process killed mid-write
 --- yields the whole lines it holds.
 local function child_hits(directory: string, into: Coverage.Hits)
-  local names = Fs.list(directory)
+  local names, _ = Fs.list(directory)
   if names ~= nil then
     for _, name in ipairs(names) do
       local file = directory .. "/" .. name
-      local text = Fs.read(file)
+      local text, _ = Fs.read(file)
       if text ~= nil then
         for path, line in text:gmatch("([^\t\n]+)\t(%d+)\n") do
           local here = into[path]
@@ -101,10 +101,10 @@ local function child_hits(directory: string, into: Coverage.Hits)
           here[math.tointeger(tonumber(line)) as integer] = true
         end
       end
-      Fs.remove(file)
+      local _, _ = Fs.remove(file)
     end
   end
-  sys.rmdir(directory)
+  local _, _ = sys.rmdir(directory)
 end
 
 function worker.encode(report: worker.Report): string
@@ -184,12 +184,13 @@ end
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
   if root == nil or module_path == nil or name == nil or tmp == nil then
-    Fs.put(Fs.stderr, "cosmic: test --worker needs a root, a module, a test and a directory\n")
+    local _, _ = Fs.put(Fs.stderr,
+      "cosmic: test --worker needs a root, a module, a test and a directory\n")
     return 2
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
   if not attached then
-    Fs.put(Fs.stderr, "cosmic: " .. attach_trouble .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. attach_trouble .. "\n")
     return 2
   end
   local report: worker.Report = {
@@ -198,13 +199,16 @@ function worker.run(argv: {integer:string}): integer
   }
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
-  local children = Fs.mkdtemp("cosmic-test-children-")
+  local children, _ = Fs.mkdtemp("cosmic-test-children-")
   if children ~= nil then Coverage.children(children) end
-  local load_session = Coverage.start()
+  local load_session, _ = Coverage.start()
   local loaded, produced, load_reads = observations.capture(function(): any
     return require(module_path)
   end)
-  if load_session ~= nil then report.load_hits = Coverage.stop(load_session) end
+  if load_session ~= nil then
+    local hits, _ = Coverage.stop(load_session)
+    report.load_hits = hits
+  end
   report.load_reads = load_reads
   report.loaded = loaded
   if not loaded then
@@ -214,12 +218,15 @@ function worker.run(argv: {integer:string}): integer
     if type(fn) ~= "function" then
       report.message = module_path .. " has no test named " .. name
     else
-      local test_session = Coverage.start()
-      local started = Time.monotonic_ns() or 0
+      local test_session, _ = Coverage.start()
+      local started = Time.monotonic_ns()
       local passed, message, test_reads = observations.call(
         fn as function(any...): (any...), tmp)
-      local finished = Time.monotonic_ns() or started
-      if test_session ~= nil then report.test_hits = Coverage.stop(test_session) end
+      local finished = Time.monotonic_ns()
+      if test_session ~= nil then
+        local hits, _ = Coverage.stop(test_session)
+        report.test_hits = hits
+      end
       report.passed, report.message = passed, message
       report.test_reads = test_reads
       report.elapsed_ns = finished - started
@@ -231,7 +238,7 @@ function worker.run(argv: {integer:string}): integer
   end
   local written, trouble = Fs.put(worker.report_fd, worker.encode(report))
   if not written then
-    Fs.put(Fs.stderr, "cosmic: the test report: " .. trouble .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "cosmic: the test report: " .. trouble .. "\n")
     return 2
   end
   return 0

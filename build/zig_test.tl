@@ -4,7 +4,9 @@
 --- install's scratch directory, and the snapshots that catch a source
 --- edited while a build runs.
 
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 local Zig = require("build.zig")
@@ -117,18 +119,41 @@ local function test_resolve_searches_path_for_a_bare_name(tmp: string)
   assert(Fs.write(tmp .. "/a/tool", "not executable", 0x1a4))
   assert(Fs.write(tmp .. "/b/tool", "#!/bin/sh\n", 0x1ed))
   local path = tmp .. "/missing:" .. tmp .. "/a:" .. tmp .. "/b"
-  local found, status = Zig.resolve("tool", path)
-  assert(found == tmp .. "/b/tool" and status == 0)
+  local found, why = Zig.resolve("tool", path)
+  assert(found == tmp .. "/b/tool" and why == "")
   -- A name with a slash is used as it is, never searched for.
   assert(Zig.resolve("./tool", path) == "./tool")
 end
 
-local function test_resolve_answers_127_for_nothing_and_126_for_no_permission(tmp: string)
+local function test_resolve_tells_a_missing_name_from_an_unrunnable_one(tmp: string)
   local none, missing = Zig.resolve("no-such-tool", tmp)
-  assert(none == nil and missing == 127)
+  assert(none == nil and missing == "no-such-tool: not found", missing)
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
   local plain, denied = Zig.resolve("plain", tmp)
-  assert(plain == nil and denied == 126)
+  assert(plain == nil and denied == tmp .. "/plain: not executable", denied)
+end
+
+--- `bin/zig` exits as a shell would when the zig it is given cannot
+--- run: 127 when there is none on PATH, 126 when there is one that is
+--- not executable.
+local function test_main_exits_127_for_no_zig_and_126_for_an_unrunnable_one(tmp: string)
+  local script = assert(Fs.absolute("build/zig.tl"))
+  local function run(): Child.Result
+    return (assert(Child.run({ assert(Proc.executable()), "--standalone", script, "version" }, {
+      env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
+        XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    })))
+  end
+  local missing = run()
+  assert(missing.code == 127, tostring(missing.stderr))
+  local missing_err = missing.stderr or ""
+  assert(missing_err:find("zig-for-test: not found", 1, true), missing_err)
+  assert(Fs.write(tmp .. "/zig-for-test", "not executable", 0x1a4))
+  local denied = run()
+  assert(denied.code == 126, tostring(denied.stderr))
+  local denied_err = denied.stderr or ""
+  assert(denied_err:find("zig-for-test: permission denied", 1, true), denied_err)
 end
 
 local function test_exec_status_is_the_shells()
@@ -261,9 +286,9 @@ end
 local function test_run_passes_on_a_signal_sent_to_it_alone()
   -- The child has this process interrupted, as a `kill -INT` aimed at
   -- bin/zig alone would; the child hears of it only if it is passed on.
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local status = Zig.run({ "/bin/sh", "-c",
     "trap 'exit 42' INT; kill -INT $PPID; sleep 10 & wait" })
   assert(status == 42, tostring(status))
-  assert(assert(Time.monotonic_ns()) - started < 5 * 1000 * 1000 * 1000)
+  assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end

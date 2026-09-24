@@ -32,12 +32,19 @@ end
 --- answering the arena's absolute path. `dir` must not exist yet, and
 --- must be outside the repository eval/ sits in, links resolved.
 function Arena.lay(eval: string, task: string, binary: string, dir: string): string | nil, string
-  local task_text = not task:find("/", 1, true) and Fs.read(eval .. "/task/" .. task .. ".md") or nil
+  if task:find("/", 1, true) then
+    return nil, "no task eval/task/" .. task .. ".md"
+  end
+  -- Any task file that cannot be read is no task by that name.
+  local task_text, _ = Fs.read(eval .. "/task/" .. task .. ".md")
   if task_text == nil then
     return nil, "no task eval/task/" .. task .. ".md"
   end
-  local st = Fs.stat(binary)
-  if st == nil or st.kind ~= "file" or st.mode & 0x49 == 0 then
+  local st, stat_trouble = Fs.stat(binary)
+  if st == nil then
+    return nil, binary .. " is not an executable: " .. stat_trouble
+  end
+  if st.kind ~= "file" or st.mode & 0x49 == 0 then
     return nil, binary .. " is not an executable"
   end
   local repo = eval:match("^(.*)/[^/]+$")
@@ -48,7 +55,9 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   -- The physical checks below compare against the repository with its
   -- own links resolved too: on macOS a temporary directory is under
   -- /var, which is /private/var.
-  local real_repo = Fs.absolute(repo) or repo
+  -- A repository that cannot be resolved is compared as it is spelled.
+  local resolved_repo, _ = Fs.absolute(repo)
+  local real_repo = resolved_repo or repo
   if under(dir, eval) or under(dir, repo) then
     return nil, dir .. " is inside the repository; put the arena outside it"
   end
@@ -64,7 +73,12 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     parent = "/"
   end
   local existing, rest = parent, ""
-  while not Fs.exists(existing) do
+  while true do
+    local exists, exists_trouble = Fs.exists(existing)
+    if exists == nil then
+      return nil, existing .. ": " .. exists_trouble
+    end
+    if exists then break end
     rest = "/" .. existing:match("([^/]+)$") .. rest
     existing = existing:match("^(.*)/[^/]+$") or "."
     if existing == "" then
@@ -138,13 +152,13 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
 end
 
 local function complain(message: string)
-  Fs.put(Fs.stderr, "arena: " .. message .. "\n")
+  local _, _ = Fs.put(Fs.stderr, "arena: " .. message .. "\n")
 end
 
 function Arena.main(argv: {integer: string}): integer
   local task, binary, dir = argv[1], argv[2], argv[3]
   if task == nil or binary == nil or dir == nil or argv[4] ~= nil then
-    Fs.put(Fs.stderr, "usage: eval/arena <task> <cosmic-binary> <dir>\n")
+    local _, _ = Fs.put(Fs.stderr, "usage: eval/arena <task> <cosmic-binary> <dir>\n")
     return 2
   end
   local script, strouble = Fs.absolute(argv[0])
@@ -162,7 +176,7 @@ function Arena.main(argv: {integer: string}): integer
     complain(trouble)
     return 2
   end
-  Fs.put(Fs.stdout, "arena: " .. laid .. " (task " .. task .. ")\n")
+  local _, _ = Fs.put(Fs.stdout, "arena: " .. laid .. " (task " .. task .. ")\n")
   return 0
 end
 

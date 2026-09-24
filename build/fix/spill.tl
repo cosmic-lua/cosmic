@@ -92,7 +92,7 @@ function spill.check(root: string): spill.Sites, string
   if handle == nil then return {}, open_trouble end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
-    work.close(handle)
+    local _, _ = work.close(handle)
     return {}, stage_trouble
   end
   local built = teal.lazy()

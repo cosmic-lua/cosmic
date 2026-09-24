@@ -202,12 +202,12 @@ function Fuzz.run(p: Fuzz.Property): integer
   for i = 1, iters do
     local draws: {Draw} = {}
     local input = p.gen(recording(Rand.new(seeds:int(math.mininteger, math.maxinteger)), draws))
-    if kept ~= nil then Fs.write(kept, input) end
+    if kept ~= nil then local _, _ = Fs.write(kept, input) end
     local held, why = attempt(p.check, input, budget)
     if not held then
       local function fails(values: {integer}): boolean, {Draw}
         local candidate, used = build(p.gen, values)
-        local still = attempt(p.check, candidate, budget)
+        local still, _ = attempt(p.check, candidate, budget)
         return not still, used
       end
       local smallest, tries = shrink.shrink(draws, fails, SHRINK_TRIES)
@@ -219,7 +219,7 @@ function Fuzz.run(p: Fuzz.Property): integer
         -- A check that fails only sometimes: report what first failed.
         small, smallest = input, draws
       end
-      if kept ~= nil then Fs.write(kept, small) end
+      if kept ~= nil then local _, _ = Fs.write(kept, small) end
       local shown = Codec.hex(small:sub(1, SHOWN_BYTES))
       if #small > SHOWN_BYTES then shown = shown .. "..." end
       error(("fuzz %s: seed=%d iteration=%d: %s\n" ..

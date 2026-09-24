@@ -334,17 +334,17 @@ local function time_runtime(argv: {string}): integer
     "usage: tool.tl time-runtime ARTIFACT CACHE")
   local started = Env.get(marker)
   if started ~= nil then
-    assert(Proc.executable() == target,
+    assert(assert(Proc.executable()) == target,
       "runtime timing re-entry changed logical executable")
     local before = assert(math.tointeger(tonumber(started)),
       "runtime timing marker is invalid")
-    local after = assert(Time.monotonic_ns())
+    local after = Time.monotonic_ns()
     print(string.format("real %.6f", (after - before) / 1000000000))
     return 0
   end
 
   local environment = Env.all()
-  environment[marker] = tostring((assert(Time.monotonic_ns())))
+  environment[marker] = tostring(Time.monotonic_ns())
   environment["COSMIC_PORTABLE_CACHE"] = cache
   local arguments = { target, argv[0], "time-runtime", target, cache }
   local _, trouble = Proc.exec(target, arguments, environment)
@@ -355,7 +355,7 @@ end
 --- on a retained artifact descriptor, from inside a real Cosmic runtime.
 local function retained_prefix_probe(argv: {string}): integer
   local function phase(name: string)
-    Fs.put(Fs.stderr, "cosmic portable probe phase: " .. name .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "cosmic portable probe phase: " .. name .. "\n")
   end
   local expected_prefix = assert(argv[1])
   local expected_marker = assert(argv[2])
@@ -370,9 +370,9 @@ local function retained_prefix_probe(argv: {string}): integer
   phase("fixture metadata read")
   local executable = assert(Store.meta("artifact"))
   phase("artifact metadata read")
-  assert(Proc.executable() == executable)
+  assert(assert(Proc.executable()) == executable)
   phase("Proc executable read")
-  assert(sys.executable() == executable)
+  assert(assert(sys.executable()) == executable)
   phase("sys executable read")
   local private = {
     "COSMIC_PORTABLE_ARTIFACT_FD", "COSMIC_PORTABLE_CORE_FD",
@@ -384,7 +384,7 @@ local function retained_prefix_probe(argv: {string}): integer
     assert(sys.getenv(name) == nil, name .. " escaped portable startup")
   end
   phase("private environment checked")
-  Fs.put(Fs.stdout, expected_marker .. " " .. expected_prefix .. "\n")
+  local _, _ = Fs.put(Fs.stdout, expected_marker .. " " .. expected_prefix .. "\n")
   return 0
 end
 
@@ -421,11 +421,11 @@ return function(argv: {string}): integer
   local command = argv[1]
   local handler = command ~= nil and subcommands[command] or nil
   if handler == nil then
-    Fs.put(Fs.stderr, "usage: tool.tl SUBCOMMAND ARGS...\n")
+    local _, _ = Fs.put(Fs.stderr, "usage: tool.tl SUBCOMMAND ARGS...\n")
     local names: {string} = {}
     for name in pairs(subcommands) do names[#names + 1] = name end
     table.sort(names)
-    Fs.put(Fs.stderr, "subcommands: " .. table.concat(names, ", ") .. "\n")
+    local _, _ = Fs.put(Fs.stderr, "subcommands: " .. table.concat(names, ", ") .. "\n")
     return 2
   end
   -- Reindex argv[2:] down to [1:], keeping [0] (this script's own path) for

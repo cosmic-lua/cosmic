@@ -158,7 +158,7 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local listed = assert(todos.list(handle.db, root))
+  local listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1, "found " .. #listed)
   assert(listed[1].file == "src/a.tl" and listed[1].line == 1)
   assert(listed[1].text == "first" and listed[1].commit == "")
@@ -166,14 +166,14 @@ local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   -- Bytes already indexed are not scanned again, so their rows stand.
   assert(Sqlite.run(handle.db, "UPDATE todos SET text = 'from the index'"))
   assert(work.stage(handle, false))
-  listed = assert(todos.list(handle.db, root))
+  listed = assert(todos.list(handle.db, root)).todos
   assert(listed[1].text == "from the index", listed[1].text)
 
   -- A file that moved is read again, and bytes no file holds are dropped.
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2", "  -- TODO: second" })))
   assert(Fs.write(root .. "/src/a.tl", text({ "local x = 1" })))
   assert(work.stage(handle, false))
-  listed = assert(todos.list(handle.db, root))
+  listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
   local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
   assert(rows[1][1] == "1", rows[1][1])
@@ -190,7 +190,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
     "# TODO: too big to be text\n" .. string.rep("x", 2 * 1024 * 1024)))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local listed = assert(todos.list(handle.db, root))
+  local listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 1, "found " .. #listed)
   assert(listed[1].file == "scripts/release.sh" and listed[1].line == 2)
   assert(listed[1].text == "sign the archive", listed[1].text)
@@ -201,7 +201,7 @@ local function test_a_file_the_build_does_not_consume_is_scanned_all_the_same()
 
   assert(Fs.remove(root .. "/scripts/release.sh"))
   assert(work.stage(handle, false))
-  listed = assert(todos.list(handle.db, root))
+  listed = assert(todos.list(handle.db, root)).todos
   assert(#listed == 0, "found " .. #listed)
   rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM scanned"))
   assert(rows[1][1] == "0", rows[1][1])
@@ -233,9 +233,8 @@ local function test_blame_carries_across_commits_that_leave_a_file_alone()
   local handle = assert(work.open(root))
   local function listed(): {todos.Todo}, integer
     assert(work.stage(handle, false))
-    local all, blamed = todos.list(handle.db, root)
-    assert(all ~= nil, blamed)
-    return all, blamed as integer
+    local listing = assert(todos.list(handle.db, root))
+    return listing.todos, listing.blamed
   end
   local all, blamed = listed()
   assert(blamed == 2, "blamed " .. blamed)
@@ -275,7 +274,7 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   assert(Fs.write(root .. "/b.sh", text({ "# TODO: replace with a Teal script" })))
   local handle = assert(work.open(root))
   assert(work.stage(handle, false))
-  local all = assert(todos.list(handle.db, root))
+  local all = assert(todos.list(handle.db, root)).todos
   local line_of: {integer:string} = {}
   for _, todo in ipairs(all) do
     line_of[todo.id] = todo.file .. ":" .. todo.line

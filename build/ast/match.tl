@@ -372,14 +372,16 @@ end
 --- @param built compiler The loaded compiler capsule (`build.teal.load()`)
 --- @param pattern_src string The pattern in its `$NAME`/`$$$NAME` surface syntax
 --- @return Node|nil The pattern's own top node, or nil on a parse failure
---- @return string Error message on failure, nil on success
+--- @return string Error message on failure, "" on success
 local function compile_pattern(built: compiler, pattern_src: string): Node | nil, string
   local desugared = desugar(pattern_src)
   local parsed, err = node_mod.parse(built, desugared, "<pattern>")
   if parsed then
-    return attach_predicates(parsed.node[1], last_predicates), nil
+    return attach_predicates(parsed.node[1], last_predicates), ""
   end
-  local wrapped = node_mod.parse(built, "return " .. desugared, "<pattern>")
+  -- The direct parse's own error is the one reported: the wrapped
+  -- retry is only a second reading of the same source.
+  local wrapped, _ = node_mod.parse(built, "return " .. desugared, "<pattern>")
   if not wrapped then
     return nil, err
   end
@@ -387,7 +389,7 @@ local function compile_pattern(built: compiler, pattern_src: string): Node | nil
   if not exps or exps[1] == nil then
     return nil, err
   end
-  return attach_predicates(exps[1], last_predicates), nil
+  return attach_predicates(exps[1], last_predicates), ""
 end
 
 --- Match `pattern` against `node`, returning the capture bindings on

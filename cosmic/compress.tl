@@ -43,12 +43,12 @@ local record Compress
   --- follows its drained output (in practice ""). It raises while
   --- `pending()` is true, so its output is bounded too; drain first:
   ---
-  ---     local out = s:update(chunk)       -- use out
+  ---     local out = assert(s:update(chunk))   -- use out
   ---     while s:pending() do
-  ---       out = s:update("")              -- use out
+  ---       out = assert(s:update(""))          -- use out
   ---     end
-  ---     ...                               -- at end of input:
-  ---     local last = s:finish()           -- a small tail at most
+  ---     ...                                   -- at end of input:
+  ---     local last = assert(s:finish())       -- a small tail at most
   ---
   --- A decoder's `finish` errors when the compressed data stopped
   --- early ("truncated ... stream"). After `finish`, after an error,
@@ -78,7 +78,8 @@ end
 function Compress.deflate(data: string): string | nil, string
   local enc, trouble = raw.deflater("zlib", 9)
   if enc == nil then return nil, trouble end
-  local head = enc:update(data) as string
+  local head, update_trouble = enc:update(data)
+  if head == nil then return nil, update_trouble end
   local tail, ftrouble = enc:finish()
   if tail == nil then return nil, ftrouble end
   return head .. tail, ""
