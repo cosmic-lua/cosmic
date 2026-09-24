@@ -3,7 +3,8 @@
 # cache the pinned bootstrap cosmic, then print its path (no arguments)
 # or run it with the arguments given. Every other build script is Teal
 # this binary runs standalone -- build/zig.tl behind bin/zig,
-# build/vendor.tl behind bin/vendor -- against its own embedded
+# build/vendor.tl behind bin/vendor, build/actionlint.tl behind
+# bin/actionlint -- against its own embedded
 # standard library, so neither the tree's state nor o/ matters to it.
 #
 # The pin is ci/cosmic-driver.pin, the release CI runs as its driver

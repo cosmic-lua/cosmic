@@ -261,8 +261,8 @@ local function test_runtime_environment_scrubbing(tmp: string)
     root .. "/test/portable/tool.tl", "environment-clean", cache }
   for _, name in ipairs(names) do argv[#argv + 1] = name end
 
-  -- tool.tl's own require("build.artifact")/require("test.portable.
-  -- artifact_fixture") resolve relative to the process cwd, so this (like
+  -- tool.tl's own require("build.artifact")/require("test.portable")
+  -- resolve relative to the process cwd, so this (like
   -- every other tool.tl invocation here) must run from `root`, not `work`.
   local outcome = Fixture.run("environment-clean", argv, root, diagnostics,
     values)

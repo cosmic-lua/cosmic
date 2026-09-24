@@ -67,8 +67,9 @@ local record Cli
   --- looked for in the working directory only, never above it. Each row
   --- is one line of tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
-  --- \r and any other control byte as \xHH. The verdict line goes to
-  --- stderr. Exits 0 when the statement ran, rows or none; 1 when the
+  --- \r and any other control byte as \xHH. The verdict line comes
+  --- after the rows, as every verb's last line. Exits 0 when the
+  --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
   --- command line it cannot read. Nothing is built or staged.
   sql: string

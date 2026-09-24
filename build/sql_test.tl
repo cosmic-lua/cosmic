@@ -35,13 +35,19 @@ end
 local record Written
   out: {string}
   err: {string}
+  --- The verdict line, as stdout would end in it.
+  verdict: string
 end
 
 local function run(root: string, words: {string}): integer, Written
-  local written: Written = { out = {}, err = {} }
+  local written: Written = { out = {}, err = {}, verdict = "" }
   local code = sql.run(argv_of(words), root, {
     out = function(line: string) written.out[#written.out + 1] = line end,
     err = function(line: string) written.err[#written.err + 1] = line end,
+    verdict = function(passed: boolean, detail: string)
+      assert(written.verdict == "", "a second verdict: " .. written.verdict)
+      written.verdict = "sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ")"
+    end,
   })
   return code, written
 end
@@ -67,16 +73,16 @@ local function test_rows_come_back_one_line_each_with_cells_escaped()
   assert(lines[5] == "3\t\\x1B[31m\\x7F\\\\N", lines[5])
   local none = assert(query(path, "SELECT a FROM t WHERE 0"))
   assert(#none == 0)
-  -- Rows go to stdout and nothing else does; the verdict goes to stderr.
+  -- Rows go to stdout, then the verdict; complaints go to stderr.
   local code, written = run(root, { "SELECT a FROM t WHERE a > 1 AND a < 3 ORDER BY a" })
   assert(code == 0)
   assert(#written.out == 2 and written.out[1] == "1.5" and written.out[2] == "2.0",
     table.concat(written.out, "|"))
-  assert(#written.err == 1 and written.err[1]:find("^sql: PASS %(2 rows from o/cosmic.db, ")
-    ~= nil, written.err[1])
+  assert(#written.err == 0, table.concat(written.err, "|"))
+  assert(written.verdict:find("^sql: PASS %(2 rows from o/cosmic.db, ") ~= nil, written.verdict)
   code, written = run(root, { "SELECT a FROM t WHERE 0" })
   assert(code == 0 and #written.out == 0)
-  assert(written.err[1]:find("^sql: PASS %(0 rows") ~= nil, written.err[1])
+  assert(written.verdict:find("^sql: PASS %(0 rows") ~= nil, written.verdict)
   assert(Fs.remove_tree(root))
 end
 
@@ -132,7 +138,7 @@ local function test_a_missing_database_and_bad_sql_fail()
   assert(written.err[1] == "cosmic: sql: o/build.db: no such database: " .. root ..
     "/o/build.db; o/ is looked for only in the working directory, never above it",
     written.err[1])
-  assert(written.err[2]:find("^sql: FAIL %(o/build.db, ") ~= nil, written.err[2])
+  assert(written.verdict:find("^sql: FAIL %(o/build.db, ") ~= nil, written.verdict)
   assert(Fs.exists(missing) == false, "opening made the file")
   local lines, why = query(root .. "/o/cosmic.db", "SELEC 1")
   assert(lines == nil and why:find("syntax error", 1, true) ~= nil, why)
@@ -163,6 +169,8 @@ local function test_a_command_line_it_cannot_read_is_a_usage_error()
   assert(code == 2 and #written.out == 0)
   assert(written.err[1]:find("name one database, not --build and --build", 1, true) ~= nil,
     written.err[1])
+  -- A refused command line still ends in the verb's own verdict.
+  assert(written.verdict:find("^sql: FAIL %(usage") ~= nil, written.verdict)
   -- After "--" a word is the statement, even one that looks like an option.
   assert(run(root, { "--", "--build" }) == 1)
   assert(Fs.remove_tree(root))

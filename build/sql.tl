@@ -18,18 +18,19 @@
 --- as `\t`, `\n` or `\r`, and any other control byte as `\xHH`, so one
 --- row is always one line, no stored escape sequence reaches the
 --- terminal, and undoing those escapes gives the stored bytes back. The
---- verdict line goes to stderr, not stdout, so the rows can be piped on
---- as they are.
+--- verdict line comes last on stdout, as every verb's does (see
+--- build/verbs_test.tl), so a pipe that wants only the rows drops the
+--- last line; complaints go to stderr.
 
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local verdicts = require("build.verdict")
 
-local log = Log.new("cosmic")
+local log = verdicts.log
 
 --- The `cosmic sql` verb: `run` is what `cmd/cosmic/main.tl` calls;
 --- `source`, `open`, `query` and `cell` are its steps, each testable
@@ -45,11 +46,12 @@ local record sql
     hint: string | nil
   end
 
-  --- Where `run` writes: a row line, and a complaint or the verdict
-  --- line. Each takes a line without its newline.
+  --- Where `run` writes: a row line, a complaint, and the verdict.
+  --- `out` and `err` take a line without its newline.
   record Output
     out: function(line: string)
     err: function(line: string)
+    verdict: function(passed: boolean, detail: string)
   end
 
   --- A database `open` made read-only.
@@ -239,13 +241,18 @@ function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
   return lines, ""
 end
 
---- Rows to stdout; complaints and the verdict line to stderr.
+--- Rows to stdout, then the verdict line through `build.verdict`'s
+--- logger, which tells `cmd/cosmic/main.tl` one was given; complaints
+--- to stderr.
 local standard: sql.Output = {
   out = function(line: string)
     local _, _ = log:say(line)
   end,
   err = function(line: string)
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
+  end,
+  verdict = function(passed: boolean, detail: string)
+    local _, _ = log:verdict("sql", passed, detail)
   end,
 }
 
@@ -257,8 +264,8 @@ local standard: sql.Output = {
 --- @param argv the command line, `sql` at slot 1
 --- @param root the directory whose o/ holds the databases; the working
 ---   directory when nil
---- @param output where rows, complaints and the verdict go; stdout and
----   stderr when nil
+--- @param output where rows, complaints and the verdict go; stdout,
+---   stderr and `build.verdict`'s logger when nil
 function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): integer
   local started = Time.monotonic_ns()
   local to = output or standard
@@ -266,23 +273,25 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
     to.err("cosmic: sql: " .. line)
   end
   local function verdict(passed: boolean, detail: string)
-    to.err("sql: " .. (passed and "PASS" or "FAIL") .. " (" .. detail .. ", " ..
-      clock.elapsed_ms(started) .. " ms)")
+    to.verdict(passed, detail .. ", " .. clock.elapsed_ms(started) .. " ms")
   end
   local usage = "cosmic sql [--db <path> | --build | --store] '<statement>'"
   local parsed, parse_trouble = Flags.parse(argv, 2, spec)
   if parsed == nil then
     complain(parse_trouble .. "; " .. usage)
+    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   if #parsed.words ~= 1 then
     complain("give one statement, quoted as one argument: " .. usage)
+    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   if root == nil then
     local here, trouble = Fs.absolute(".")
     if here == nil then
       complain(trouble)
+      verdict(false, "no working directory")
       return 1
     end
     root = here
@@ -290,6 +299,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
   local source, source_trouble = sql.source(root, parsed, sql.options_given(argv))
   if source == nil then
     complain(source_trouble .. "; " .. usage)
+    verdict(false, "usage: see `cosmic help sql`")
     return 2
   end
   local opened, open_trouble = sql.open(source)

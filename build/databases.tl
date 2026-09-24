@@ -4,14 +4,14 @@
 --- noticed, and how a change to what the build stores is judged by
 --- what it costs.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
-local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local reboot = require("build.reboot")
 
-local log = Log.new("cosmic")
+local log = require("build.verdict").log
 
 local record databases
 end
@@ -127,6 +127,17 @@ end
 ---   stale copy of `build.databases` itself -- see `build.reboot.ensure`
 function databases.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
+  local parsed, parse_trouble = Flags.parse(argv, 2, {})
+  -- TODO: take paths to narrow the description to the rows about them,
+  -- as doc/design.md's "a verb takes paths to narrow it" promises; until
+  -- then a word here is refused.
+  if parsed ~= nil and #parsed.words > 0 then
+    parsed, parse_trouble = nil, "takes no arguments, not " .. parsed.words[1]
+  end
+  if parsed == nil then
+    log:complain("db: " .. parse_trouble)
+    return 2
+  end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)

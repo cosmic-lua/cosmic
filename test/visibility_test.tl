@@ -1,10 +1,12 @@
---- Proves the sibling-privacy rule `build.positions` enforces on every
---- directory in the tree, not only cosmic's own: a directory with its
---- own `init.tl` is private, and only a file inside it may require a
+--- Proves the privacy by position `build.positions` enforces on every
+--- directory in the tree, not only cosmic's own, end to end through
+--- `importer.compile`: a directory's own `init.tl` is the one path in
+--- from outside, and only a file inside the directory may require a
 --- sibling that sits beside that entry. Also proves the entry itself,
 --- `case/init.tl`, resolves under its own bare name, `require("case")`
 --- -- the ordinary Lua `?/init.lua` convention -- from outside `case/`,
---- which the sibling-privacy checks above never exercise.
+--- and that a nested directory with no `init.tl`, `deep/dir/`, has no
+--- path in from outside at all.
 ---
 --- The fixture is written to a fresh temp directory per test, the same
 --- one `build.test`'s runner already hands every test function, rather
@@ -41,6 +43,17 @@ local function write_entry_fixture(root: string)
   assert(Fs.mkdirs(root .. "/case"))
   assert(Fs.write(root .. "/case/init.tl", entry_source))
   assert(Fs.write(root .. "/outsider.tl", entry_user_source))
+end
+
+--- Writes a nested directory with no entry, `deep/dir/`, holding one
+--- module, and a file at the root that requires it -- or, when `inside`
+--- is true, a file beside it that does.
+local function write_unentered_fixture(root: string, inside: boolean)
+  assert(Fs.mkdirs(root .. "/deep/dir"))
+  assert(Fs.write(root .. "/deep/dir/x.tl", sibling_source))
+  local user_path = inside and (root .. "/deep/dir/user.tl") or
+    (root .. "/outsider.tl")
+  assert(Fs.write(user_path, "local x = require(\"deep.dir.x\")\nreturn x\n"))
 end
 
 --- Builds the fixture at `root` and reports whether the tree compiled.
@@ -92,4 +105,22 @@ local function test_entry_reachable_from_outside_by_its_own_bare_name(tmp: strin
   local ok, trouble = try_build(root)
   assert(ok, "require(\"case\") from outside case/ should resolve to " ..
     "case/init.tl, but: " .. tostring(trouble))
+end
+
+local function test_nested_directory_without_an_entry_refused_from_outside(tmp: string)
+  local root = tmp .. "/unentered"
+  write_unentered_fixture(root, false)
+  local ok, trouble = try_build(root)
+  assert(not ok, "a module in a nested directory with no init.tl, " ..
+    "required from outside it, should have been refused")
+  assert(trouble:find("outsider.tl: deep.dir.x is private to deep/dir/", 1, true) ~= nil,
+    trouble)
+end
+
+local function test_nested_directory_without_an_entry_reachable_from_inside(tmp: string)
+  local root = tmp .. "/unentered_inside"
+  write_unentered_fixture(root, true)
+  local ok, trouble = try_build(root)
+  assert(ok, "a module required from within its own entry-less directory " ..
+    "should build, but: " .. tostring(trouble))
 end
