@@ -1194,9 +1194,8 @@ function importer.compile(handle: work.Handle, built: compiler,
             failure = generate_trouble
             break
           end
-          local made = assert(generated)
-          lua = made.lua
-          bytecode = made.bytecode
+          lua = generated.lua
+          bytecode = generated.bytecode
           result.compiled = result.compiled + 1
         end
         m.lua = lua

@@ -7,7 +7,12 @@
 --- case is paired with a negative one proving the narrow is dropped
 --- on a write, and one proving a chained base (`a.b.field`, whose
 --- base is itself a field access rather than a bare variable) is
---- never narrowed at all.
+--- never narrowed at all. Past 19: `a or b` drops a's nil
+--- (20-or-drops-nil.txt); an `if` with no `else` no longer counts as
+--- ending the block holding it (21); and a guard ending in `break`,
+--- `goto` or `error(...)` narrows below it as one ending in `return`
+--- already did (22 through 25), each with a case proving the narrow
+--- stays out of code that control falling through can reach.
 ---
 --- Every fixture is a single file in its own fresh subdirectory,
 --- rather than several files sharing one `tmp`, because `build.
@@ -219,4 +224,191 @@ end
   assert(not ok, "o.sub.field's base, o.sub, is itself a field access " ..
     "rather than a bare variable, so guarding o.sub.field must never " ..
     "narrow it")
+end
+
+local entry_prelude = [[
+local record Entry
+   size: integer
+end
+
+local function next_entry(): Entry | nil, string
+   return nil, "done"
+end
+]]
+
+local list_prelude = [[
+local function list(_dir: string): {string} | nil, string
+   return nil, "no such directory"
+end
+]]
+
+--- Whether a refused build was refused for indexing a nil union, the
+--- one refusal every negative case below is about: any other one --
+--- an unused local, say -- would pass them for the wrong reason.
+local function refused_nil_index(ok: boolean, trouble: string): boolean
+  return not ok and trouble:find("cannot index key 'size'", 1, true) ~= nil
+end
+
+local function test_or_drops_the_left_nil(tmp: string)
+  local ok, trouble = try_build(tmp, "or-drops-nil", entry_prelude .. list_prelude .. [[
+local names = list("x") or {}
+for _, name in ipairs(names) do print(name) end
+
+local declared: {string} = list("x") or {}
+print(#declared)
+
+local e = next_entry() or { size = 0 }
+print(e.size)
+]])
+  assert(ok, "`list(dir) or {}` cannot be nil, so it should be {string}, " ..
+    "but: " .. tostring(trouble))
+end
+
+local function test_or_takes_one_value_of_a_call(tmp: string)
+  local ok, trouble = try_build(tmp, "or-one-value", list_prelude .. [[
+local function count(names: {string}): integer
+   return #names
+end
+print(count(list("x") or {}))
+]])
+  assert(ok, "`f() or {}` is one value -- f's first, without its nil -- " ..
+    "so it fills a one-argument call, but: " .. tostring(trouble))
+end
+
+local function test_or_nil_keeps_the_nil(tmp: string)
+  local ok, trouble = try_build(tmp, "or-nil-keeps", entry_prelude .. [[
+local e = next_entry() or nil
+print(e.size)
+]])
+  assert(refused_nil_index(ok, trouble), "`x or nil` can still be nil, so indexing it must be refused")
+end
+
+local function test_or_keeps_the_right_nil(tmp: string)
+  local ok, trouble = try_build(tmp, "or-right-nil", entry_prelude .. [[
+local e = next_entry() or next_entry()
+print(e.size)
+]])
+  assert(refused_nil_index(ok, trouble), "`a or b` with b a nil union can still be nil")
+end
+
+local function test_break_narrows_below_the_guard(tmp: string)
+  local ok, trouble = try_build(tmp, "break-narrows", entry_prelude .. [[
+for _ = 1, 3 do
+   local e, trouble = next_entry()
+   if e == nil then
+      print(trouble)
+      break
+   end
+   print(e.size)
+end
+
+while true do
+   local e = next_entry()
+   if not e then break end
+   print(e.size)
+end
+]])
+  assert(ok, "a guard ending in break should narrow below it, as one " ..
+    "ending in return does, but: " .. tostring(trouble))
+end
+
+local function test_break_narrow_stays_in_the_loop(tmp: string)
+  local ok, trouble = try_build(tmp, "break-stays", entry_prelude .. [[
+local e = next_entry()
+while true do
+   if e == nil then break end
+   print(e.size)
+   break
+end
+print(e.size)
+]])
+  assert(refused_nil_index(ok, trouble), "the break leaves the loop with e nil, so the narrow " ..
+    "must not reach the code after it")
+end
+
+local function test_break_on_one_path_does_not_narrow(tmp: string)
+  local ok, trouble = try_build(tmp, "break-one-path", entry_prelude .. [[
+local function flag(): boolean return true end
+for _ = 1, 3 do
+   local e = next_entry()
+   if e == nil then
+      if flag() then break end
+   end
+   print(e.size)
+end
+]])
+  assert(refused_nil_index(ok, trouble), "a guard that falls through when its inner branch does " ..
+    "not break must not narrow")
+end
+
+local function test_return_on_one_path_does_not_narrow(tmp: string)
+  local ok, trouble = try_build(tmp, "return-one-path", entry_prelude .. [[
+local function flag(): boolean return true end
+local function use()
+   local e = next_entry()
+   if e == nil then
+      if flag() then return end
+   end
+   print(e.size)
+end
+use()
+]])
+  assert(refused_nil_index(ok, trouble), "an inner if with no else can " ..
+    "fall through, so the outer guard must not narrow")
+end
+
+local function test_goto_narrows_below_the_guard(tmp: string)
+  local ok, trouble = try_build(tmp, "goto-narrows", entry_prelude .. [[
+for _ = 1, 3 do
+   local e = next_entry()
+   if e == nil then
+      goto continue
+   end
+   print(e.size)
+   ::continue::
+end
+]])
+  assert(ok, "a guard ending in goto should narrow below it, but: " ..
+    tostring(trouble))
+end
+
+local function test_goto_narrow_ends_at_a_label(tmp: string)
+  local ok, trouble = try_build(tmp, "goto-label", entry_prelude .. [[
+local e = next_entry()
+do
+   if e == nil then goto skip end
+   print(e.size)
+   ::skip::
+   print(e.size)
+end
+]])
+  assert(refused_nil_index(ok, trouble), "a label is reached by the goto with e nil, so the " ..
+    "narrow must not reach the code after it")
+end
+
+local function test_error_narrows_below_the_guard(tmp: string)
+  local ok, trouble = try_build(tmp, "error-narrows", entry_prelude .. [[
+local e, trouble = next_entry()
+if e == nil then
+   error(trouble)
+end
+print(e.size)
+]])
+  assert(ok, "a guard ending in error(...) should narrow below it, but: " ..
+    tostring(trouble))
+end
+
+local function test_a_local_error_does_not_narrow(tmp: string)
+  local ok, trouble = try_build(tmp, "error-local", entry_prelude .. [[
+local function error(message: string)
+   print(message)
+end
+local e, trouble = next_entry()
+if e == nil then
+   error(trouble)
+end
+print(e.size)
+]])
+  assert(refused_nil_index(ok, trouble), "a local function named error returns, so calling it " ..
+    "must not narrow")
 end
