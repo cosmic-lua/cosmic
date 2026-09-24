@@ -720,7 +720,7 @@ core/syscalls.h     the annotated header the .d.tl and doc rows derive from
 core/bridge.lua.h   the boot environment for tl.lua, Lua text in C
 cosmic/             the standard library; entry files are public, siblings not
 cmd/cosmic/         the binary's main
-build/              the importer, checker driver, embed (Teal, private to cmd/ and tests)
+build/              the importer, checker driver, embed (Teal; private to build/ cmd/ test/ tests)
 doc/                prose
 o/                  output; o/cosmic.db, o/build.db; never committed
 ```
@@ -749,8 +749,12 @@ directory with none, as `cosmic/` and `build/` are, is a namespace
 whose every file is a flat module of its own. `build/` is private
 besides: in cosmic's own tree only `build/` itself, the binary under
 `cmd/`, a test, and test support under `test/` may import `build.*`,
-so the standard library never depends on the tool that builds it. a project tree may hold no `cosmic`-prefixed path
-at all unless it is cosmic's own tree, so a project can never place
+so the standard library never depends on the tool that builds it.
+that is the position rule again rather than a list to maintain: it
+names places, the binary the tool is and the tests that check it,
+never modules, so a new file under `build/` or a new test needs no
+entry anywhere. a project tree may hold no `cosmic`-prefixed path at
+all unless it is cosmic's own tree, so a project can never place
 itself as a false sibling to claim another module's private surface.
 entry-point reachability is settled; whether an exported function's own name is
 capitalized by convention, `fs.Read` rather than `fs.read`, is a

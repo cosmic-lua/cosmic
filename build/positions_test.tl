@@ -1119,3 +1119,39 @@ local function test_position_keeps_build_private_in_cosmics_own_tree()
   }, false)
   assert(ok, trouble)
 end
+
+--- A test has no more reach than any other file: one outside a closed
+--- directory is refused its siblings too.
+local function test_position_refuses_a_test_outside_a_closed_directory()
+  local ok, trouble = positioned({
+    { "lib/init.tl" }, { "lib/part.tl" }, { "main_test.tl", "lib.part" },
+  }, false)
+  assert(not ok and trouble:find("main_test.tl: lib.part is private to lib/", 1, true), trouble)
+  ok, trouble = positioned({
+    { "lib/init.tl" }, { "lib/part.tl" }, { "lib/part_test.tl", "lib.part" },
+  }, false)
+  assert(ok, trouble)
+end
+
+--- An `init.tl` at the root is the module `init`, a flat file of the
+--- root like any other: public, and it closes nothing.
+local function test_position_treats_a_root_init_as_a_flat_module()
+  local ok, trouble = positioned({
+    { "init.tl", "notes" }, { "notes.tl" }, { "lib/fs.tl", "init" },
+  }, false)
+  assert(ok, trouble)
+end
+
+--- A top-level directory with its own `init.tl` is closed, yet its files
+--- may import from a top-level namespace beside it, which is open.
+local function test_position_lets_a_closed_directory_import_an_open_namespace()
+  local ok, trouble = positioned({
+    { "app/init.tl", "app.part", "lib.fs" }, { "app/part.tl", "lib.fs" },
+    { "lib/fs.tl" },
+  }, false)
+  assert(ok, trouble)
+  ok, trouble = positioned({
+    { "app/init.tl" }, { "app/part.tl" }, { "lib/fs.tl", "app.part" },
+  }, false)
+  assert(not ok and trouble:find("lib/fs.tl: app.part is private to app/", 1, true), trouble)
+end
