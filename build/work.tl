@@ -79,7 +79,7 @@ local record work
   version: string
 end
 
-work.version = "21"
+work.version = "22"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -223,12 +223,12 @@ work.version = "21"
 --- over the kept window of runs is a plain query away.
 ---
 --- `coverage_by_test` answers a narrower question `coverage` cannot:
---- which specific test(s) hit a given line in a given run -- the input
---- test-impact analysis needs later ("given a changed file, which
---- tests are worth re-running"). A row's mere presence means that test
---- hit that line in that run: there is no `hit` column, since absence
---- already means "not hit by that test in that run" and only lines a
---- test actually hit are ever inserted.
+--- which lines a given test hit in a given run -- the input test-impact
+--- analysis needs later ("given a changed file, which tests are worth
+--- re-running"). It is one row per test per run, its `hits` every line
+--- the test hit, as `build.test`'s `encode_hits` writes them: one row
+--- per line hit would be millions a run, and writing them, then
+--- deleting the last run's, cost a full run most of its time.
 work.schema = {
   [[CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,
                                      value BLOB NOT NULL) WITHOUT ROWID]],
@@ -394,12 +394,9 @@ work.schema = {
                                          PRIMARY KEY (ran_at_ns, path, line))
                                         WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS coverage_by_test (ran_at_ns INTEGER NOT NULL,
-                                                 path TEXT NOT NULL,
-                                                 line INTEGER NOT NULL,
                                                  test TEXT NOT NULL,
-                                                 PRIMARY KEY (ran_at_ns, path,
-                                                              line, test))
-                                                WITHOUT ROWID]],
+                                                 hits TEXT NOT NULL,
+                                                 PRIMARY KEY (ran_at_ns, test))]],
 }
 
 local function text(value: string): Sqlite.Value
