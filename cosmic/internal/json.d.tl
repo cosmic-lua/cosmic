@@ -8,10 +8,12 @@ local record json
   -- text is not one RFC 8259 JSON value (JSON5 when `json5`) or nests
   -- past `max_depth` (`default_depth` when absent). With
   -- `big_as_string`, an integer past 64 bits, or a number past a
-  -- double's range, decodes as its text. Raises when `max_depth` is
+  -- double's range, decodes as its text. With `lone_surrogates`, a lone
+  -- surrogate escape decodes as U+FFFD. Raises when `max_depth` is
   -- outside 1 to `depth_limit`.
   decode: function(text: string, null?: any, max_depth?: integer,
-                   json5?: boolean, big_as_string?: boolean): any | nil, string
+                   json5?: boolean, big_as_string?: boolean,
+                   lone_surrogates?: boolean): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at $.users[3].name`. Raises
   -- when `indent` is not spaces and tabs, or `max_depth` is outside 1

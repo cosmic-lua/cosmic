@@ -107,6 +107,14 @@ local record Json
     --- exact as `"18446744073709551615"`. For large unsigned IDs. It
     --- encodes back as a string, not a number.
     big_numbers_as_strings: boolean
+    --- Read a lone surrogate escape -- `\ud83d` with no low half after
+    --- it, or a low half alone -- as U+FFFD rather than failing
+    --- (default false), for text a writer cut in the middle of a
+    --- character, as Python's json module and Claude Code transcripts
+    --- can hold. A pair still reads as the character it names. Keys
+    --- that differ only in their lone surrogates become the same key,
+    --- and the last one stands.
+    lone_surrogates: boolean
   end
 
   --- The stand-in for JSON `null`: pass it as `null_value` to keep a
@@ -137,7 +145,7 @@ function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
     return raw.decode(text)
   end
   return raw.decode(text, opts.null_value, opts.max_depth, opts.json5,
-    opts.big_numbers_as_strings)
+    opts.big_numbers_as_strings, opts.lone_surrogates)
 end
 
 --- What JSON calls a decoded value, for a wrong-shape message.
