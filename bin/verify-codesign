@@ -1,26 +1,21 @@
 #!/bin/sh
-# TODO: replace with a Teal script run by `cosmic --standalone`, as bin/zig
-# and bin/vendor are.
-# Whether Zig's ad-hoc signature on a raw macOS core is one Apple's own tooling
-# accepts. Only macOS itself can judge that -- codesign is not something
-# a Linux host can run -- so every other host takes this as a no-op: the
-# same CI step runs unchanged on every target's own worker, and only the
-# macOS one does real work.
+# Whether Zig's ad-hoc signature on a raw macOS core is one Apple's own
+# tooling accepts, on macOS, and a no-op elsewhere: see
+# build/verify_codesign.tl, which this runs with `cosmic --standalone` on
+# $COSMIC_BOOTSTRAP when set (it must be an executable file), else on the
+# pinned release bin/cosmic-bootstrap fetches.
+#
+#   bin/verify-codesign <path-to-macos-binary>
 set -eu
 
-[ "$#" -eq 1 ] || {
-  printf 'verify-codesign: usage: %s <path-to-macos-binary>\n' "$0" >&2
-  exit 2
-}
-binary=$1
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+script=$root/build/verify_codesign.tl
 
-case "$(uname -s)" in
-  Darwin)
-    codesign --verify --strict --verbose=2 "$binary"
-    codesign --display --verbose=4 "$binary"
-    printf 'verify-codesign: PASS (%s)\n' "$binary"
-    ;;
-  *)
-    printf 'verify-codesign: skipped (%s only verifies on macOS)\n' "$binary"
-    ;;
-esac
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    printf 'bin/verify-codesign: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
+    exit 1
+  fi
+  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
+fi
+exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
