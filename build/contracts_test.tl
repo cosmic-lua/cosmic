@@ -501,3 +501,29 @@ local function test_a_stale_exemption_is_refused()
   assert(#exempt == 1 and exempt[1]:find("contracts.exempt names x.tl:gone, " .. unused, 1, true),
     table.concat(exempt, "\n"))
 end
+
+--- A test's tree stubs build/importer.tl to be taken for cosmic's own,
+--- and the stub uses no exemption: an entry naming one of its functions
+--- would be refused as stale in every such tree (see `stale`).
+local function test_no_exemption_names_a_function_of_the_importer()
+  local prefix = "build/importer.tl:"
+  for name, entries in pairs({
+    exempt = contracts.exempt, parsing = contracts.parsing, casts = contracts.casts,
+  }) do
+    for key in pairs(entries) do
+      assert(key:sub(1, #prefix) ~= prefix, "contracts." .. name .. " names " .. key)
+    end
+  end
+end
+
+--- Rules 2 to 5 key an exemption as the other tables do: a nested
+--- function under the one around it.
+local function test_an_exempt_function_is_keyed_by_its_scope()
+  local source = "local function f()\n" ..
+    "  local function g(): integer | nil, string return 1, 'x' end\n  use(g)\nend\nuse(f)"
+  flags(source, "a failure answers nil beside its reason")
+  contracts.exempt["x.tl:f.g"] = "a test's own exemption"
+  local found = problems_in(source)
+  contracts.exempt["x.tl:f.g"] = nil
+  assert(#found == 0, table.concat(found, "\n"))
+end

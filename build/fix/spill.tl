@@ -85,6 +85,10 @@ end
 --- Builds the tree at `root` and returns the sites its refusal names,
 --- none when it builds or when what stops it is something else. A
 --- tree that cannot be built at all answers none, and says why.
+-- TODO: say so when the build refuses the tree for anything but a
+-- spill -- a type error, or a build.contracts rule -- rather than
+-- answering none, so `cosmic fix` does not pass a tree `cosmic test`
+-- then refuses; until then the build, not fix, is the gate for those.
 function spill.check(root: string): spill.Sites, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then return {}, own_trouble end

@@ -62,8 +62,7 @@
 ---    as its second argument (`local extra: any = select(2, ...)`),
 ---    which Teal can give no type.
 ---
---- `contracts.parsing` and `contracts.casts` key a function as
---- `"file:function"` (`contracts.exempt` by its own name alone): a named
+--- The exemption tables key a function as `"file:function"`: a named
 --- function by its name (`f`, `R.f`, `R:f`), under the named function
 --- it is nested in (`outer.inner`); a literal a top-level statement
 --- binds by what it is bound to (`f = function`, `local t = { g =
@@ -387,6 +386,22 @@ local function scope_of(n: Node, within: string, bound: {Node: string}): string
   return bound[n] or within
 end
 
+--- Every function in `root` by the name the exemption tables key its
+--- code under (`scope_of`).
+local function scope_names(root: Node, bound: {Node: string}): {Node: string}
+  local out: {Node: string} = {}
+  local seen: {Node: boolean} = {}
+  local function go(n: Node, within: string)
+    if seen[n] then return end
+    seen[n] = true
+    within = scope_of(n, within, bound)
+    if is_function(n) then out[n] = within end
+    each_child(n, function(child: Node) go(child, within) end)
+  end
+  go(root, "")
+  return out
+end
+
 local function is_empty_string(n: Node): boolean
   return n.kind == "string" and n.conststr == ""
 end
@@ -445,7 +460,8 @@ end
 --- stand-in for a `cosmic.sys` binding keeps the binding's third slot,
 --- so rule 5 does not read it, nor does rule 2 read a return that
 --- hands the binding's whole answer on, errno and all.
-local function check_function(file: string, fn: Node, types: {integer: Type}, used: Used,
+local function check_function(file: string, fn: Node, scope: string,
+                              types: {integer: Type}, used: Used,
                               problems: {string}, stand_in: boolean)
   local rets = fn.rets
   local tuple = rets ~= nil and rets.tuple or nil
@@ -457,8 +473,12 @@ local function check_function(file: string, fn: Node, types: {integer: Type}, us
   local value = admits_nil(declared[1])
   if not effect and not value then return end
   local name = function_name(fn)
-  if contracts.exempt[file .. ":" .. name] ~= nil then
-    used.exempt[file .. ":" .. name] = true
+  -- TODO: mark an exemption used only where a rule 2 to 5 would have
+  -- refused the function, so one whose function now keeps the
+  -- discipline is reported stale too; that wants the rules run whole
+  -- and their problems dropped, rather than skipped at this lookup.
+  if contracts.exempt[file .. ":" .. scope] ~= nil then
+    used.exempt[file .. ":" .. scope] = true
     return
   end
   local second = declared[2]
@@ -849,6 +869,10 @@ end
 
 --- Every name a top-level `local` binds to the raw module the core
 --- hands this chunk, `select(2, ...)`.
+-- TODO: stop trusting a name a later top-level statement assigns
+-- something else (`extra = other`), which this does not follow; it
+-- wants the same binding-by-position tracking rule 6 does
+-- (check_inspections' Binding), shared rather than written again.
 local function handed_names(root: Node): {string: boolean}
   local out: {string: boolean} = {}
   for _, statement in ipairs(list_of(root)) do
@@ -950,6 +974,7 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
   end
   local used: Used = { exempt = {}, parsing = {}, casts = {} }
   local bound = bound_names(root)
+  local scopes = scope_names(root, bound)
   local kept, statements = keeping(root, callees), standing(root)
   local stand_ins = sys_stand_ins(root, records, sys)
   ast.walk(root, function(n: Node)
@@ -970,7 +995,8 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
           file, n.y, spelled(e1))
       end
     elseif is_function(n) then
-      check_function(file, n, types, used, problems, stand_ins[n] or false)
+      check_function(file, n, scopes[n] or function_name(n), types, used, problems,
+        stand_ins[n] or false)
     end
   end)
   check_inspections(file, root, callees, bound, used, problems)
