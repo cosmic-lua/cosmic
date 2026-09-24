@@ -42,6 +42,8 @@ local record importer
 
   record Result
     modules: {Module}
+    --- The compiler identity every key in `modules` carries.
+    tool: string
     main: string | nil
     -- One message per `kind = "test"` module refused compilation
     -- because it both defines its own tests and returns its own value;
@@ -1229,7 +1231,7 @@ function importer.compile(handle: work.Handle, built: compiler,
     return nil, keys_trouble
   end
   local result: importer.Result = {
-    modules = {}, main = nil, refused = {},
+    modules = {}, tool = tool, main = nil, refused = {},
     compiled = 0, cached = 0,
   }
   local db = handle.db
