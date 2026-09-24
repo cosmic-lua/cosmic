@@ -572,13 +572,11 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   local count = 0
   local check = cursor(pread, cd_offset, cd_size)
   while true do
-    local got, etrouble = next_record(check, entry_mt, true)
-    if got == nil then
+    local entry, etrouble = next_record(check, entry_mt, true)
+    if entry == nil then
       if etrouble ~= "" then return nil, etrouble end
       break
     end
-    -- TODO: use `got` itself once #2011 merges: its break narrows it.
-    local entry: Zip.Entry = got
     count = count + 1
     if entry.kind == "symlink" then
       local target, ltrouble = read_link(entry)
@@ -610,10 +608,8 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     local all: {Zip.Entry} = {}
     local c = cursor(pread, cd_offset, cd_size)
     while true do
-      local got = next_record(c, entry_mt)
-      if got == nil then break end
-      -- TODO: use `got` itself once #2011 merges: its break narrows it.
-      local entry: Zip.Entry = got
+      local entry = next_record(c, entry_mt)
+      if entry == nil then break end
       all[#all + 1] = entry
       local target = links[#all]
       if target ~= nil then entry.linkpath = target end
