@@ -61,6 +61,19 @@
 ---    makes without one is of the raw module the core hands the chunk
 ---    as its second argument (`local extra: any = select(2, ...)`),
 ---    which Teal can give no type.
+--- 8. A function a module exports answers one result, or a value or an
+---    effect and its reason: `string, string`, `integer, integer` or
+---    `boolean, integer` from an exported function is a tuple whose
+---    later slots a caller drops as silently as a reason (`f() or x`,
+---    `{f()}`), and says nowhere what each slot is. Answer a record
+---    to hand back more. Exported means a field of the record the
+---    module returns, or of a record declared inside it, as the
+---    checker typed the module's answer.
+--- 9. An exported function that calls a fallible `cosmic.sys` binding
+---    itself, not from a function nested in it, and answers a boolean
+---    answers the binding's failure too: `boolean, string`. A bare
+---    `boolean` over a binding has already dropped the reason a caller
+---    needs, however carefully it bound it.
 ---
 --- The exemption tables key a function as `"file:function"`: a named
 --- function by its name (`f`, `R.f`, `R:f`), under the named function
@@ -75,7 +88,7 @@
 --- callee the checker gave no function type is not judged. Rules 2 to
 --- 5 read a function's declared results.
 ---
---- `exempt` names the functions rules 2 to 5 cannot yet hold,
+--- `exempt` names the functions rules 2 to 5, 8 and 9 cannot yet hold,
 --- `parsing` the functions rule 6 cannot, and `casts`
 --- the functions rule 7 lets cast, each with its reason; the TODO for
 --- each is where its fix goes.
@@ -92,7 +105,7 @@ local record contracts
   --- the reason; `check` holds a module to this module's own unless it
   --- is handed others.
   record Exemptions
-    --- The functions rules 2 to 5 do not hold.
+    --- The functions rules 2 to 5, 8 and 9 do not hold.
     exempt: {string: string}
     --- The functions rule 6 does not hold.
     parsing: {string: string}
@@ -140,6 +153,8 @@ local casts: {string: string} = {
     "(build/compiler.d.tl)",
   ["build/ast/walk.tl:map_of"] =
     "a node's fields read by reflection: which it has depends on its kind",
+  ["build/contracts.tl:exported_functions"] =
+    "vendored tl hands a module's checked type as any (build/compiler.d.tl)",
   ["build/contracts.tl:check_function"] =
     "build.ast declares tl's type objects as TypeNode and " ..
     "build.receivers as Type: two declarations of one thing",
@@ -929,6 +944,175 @@ local function check_casts(file: string, root: Node, bound: {Node: string},
   go(root, "")
 end
 
+--- One function a module exports: its name as a caller spells it
+--- (`M.f`, `M.Reader:read`) and the type the checker gave it.
+local record Exported
+  name: string
+  type: Type
+end
+
+--- The name of the table a module returns, `M` in `return M`; `""`
+--- when its last statement returns something else.
+local function export_name(root: Node): string
+  local statements = list_of(root)
+  local last = statements[#statements]
+  local exps = last ~= nil and last.kind == "return" and list_of(last.exps) or {}
+  local first = exps[1]
+  if first ~= nil and first.kind == "variable" and first.tk ~= nil then return first.tk end
+  return ""
+end
+
+--- Every function the record `export` holds, and every record declared
+--- inside it (not one another module declares that it only names), by
+--- its exported name under `root`.
+local function exported_functions(export: any, root: string): {Exported}
+  local out: {Exported} = {}
+  local seen: {Type: boolean} = {}
+  local function walk(t: Type | nil, path: string)
+    local r = resolved(t)
+    if r == nil or seen[r] or (r.typename ~= "record" and r.typename ~= "interface") then
+      return
+    end
+    seen[r] = true
+    local fields = r.fields
+    if fields == nil then return end
+    for _, key in ipairs(r.field_order or {}) do
+      local field = fields[key]
+      if field ~= nil and field.typename == "function" then
+        out[#out + 1] = { name = path .. (field.is_method and ":" or ".") .. key, type = field }
+      elseif field ~= nil and field.typename == "typedecl" and not field.is_alias then
+        walk(field, path .. "." .. key)
+      end
+    end
+  end
+  walk(export as Type, root) -- cast: the checker's own type object, handed over as any
+  return out
+end
+
+--- The function nodes that define the exported functions: one defined
+--- where its exported type was met (`function M.f`), and one a
+--- top-level statement stores into an exported field, as a literal or
+--- a local function by name (`M.f = f`, `local M: T = { f = f }`).
+local function exported_nodes(root: Node, exported: {Exported}): {Node: Exported}
+  local at: {integer: Exported} = {}
+  local named: {string: Exported} = {}
+  for _, e in ipairs(exported) do
+    local y, x = e.type.y, e.type.x
+    if y ~= nil and x ~= nil then at[position(y, x)] = e end
+    named[(e.name:gsub(":", "."))] = e
+  end
+  local locals: {string: Node} = {}
+  local out: {Node: Exported} = {}
+  local function stored(value: Node | nil, name: string)
+    local e = named[name]
+    if value == nil or e == nil then return end
+    if value.kind == "function" then
+      out[value] = e
+    elseif value.kind == "variable" and value.tk ~= nil and locals[value.tk] ~= nil then
+      out[locals[value.tk]] = e
+    end
+  end
+  for _, statement in ipairs(list_of(root)) do
+    local name = statement.name
+    if statement.kind == "local_function" and name ~= nil and name.tk ~= nil then
+      locals[name.tk] = statement
+    end
+    if is_function(statement) then
+      local e = at[position(statement.y, statement.x)]
+      if e ~= nil then out[statement] = e end
+    elseif statement.kind == "assignment" or statement.kind == "local_declaration" then
+      local exps = list_of(statement.exps)
+      for i, var in ipairs(list_of(statement.vars)) do
+        local value, spelling = exps[i], spelled(var)
+        if value ~= nil and value.kind == "literal_table" then
+          for _, item in ipairs(list_of(value)) do
+            local key = item.key
+            if key ~= nil and key.kind == "string" and key.conststr ~= nil then
+              stored(item.value, spelling .. "." .. key.conststr)
+            end
+          end
+        else
+          stored(value, spelling)
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- Rule 8, over every exported function's declared results.
+local function check_exports(file: string, exported: {Exported}, exemptions: contracts.Exemptions,
+                             used: Used, problems: {string})
+  for _, e in ipairs(exported) do
+    local rets = e.type.rets
+    local results = rets ~= nil and rets.tuple or {}
+    local many = #results >= 2 or (rets ~= nil and rets.is_va == true and #results >= 1)
+    local key = file .. ":" .. e.name
+    if many and not fallible_results(results) then
+      if exemptions.exempt[key] ~= nil then
+        used.exempt[key] = true
+      else
+        problems[#problems + 1] = string.format(
+          "%s:%d: %s: an exported function answers one result, or a value or an "
+            .. "effect and its reason; answer a record to hand back more",
+          file, e.type.y or 0, e.name)
+      end
+    end
+  end
+end
+
+--- The fallible `cosmic.sys` binding `fn` calls itself, not from a
+--- function nested in it, by name; nil when it calls none.
+local function sys_call_in(fn: Node, callees: {integer: Type}, records: {integer: Type},
+                           sys: Type | nil): string | nil
+  local wanted = resolved(sys)
+  if wanted == nil or wanted.typeid == nil or fn.body == nil then return nil end
+  local sys_id = wanted.typeid
+  local found: string | nil = nil
+  local seen: {Node: boolean} = {}
+  local function go(n: Node)
+    if found ~= nil or seen[n] then return end
+    seen[n] = true
+    local e1 = n.e1
+    local receiver = e1 ~= nil and e1.e1 or nil
+    local member = e1 ~= nil and e1.e2 or nil
+    if is_call(n) and e1 ~= nil and receiver ~= nil and member ~= nil
+        and fallible_type(callees[position(e1.y, e1.x)]) then
+      local owner = records[position(receiver.y, receiver.x)]
+      if owner ~= nil and owner.typeid == sys_id then found = member.tk end
+    end
+    each_child(n, function(child: Node)
+      if not is_function(child) then go(child) end
+    end)
+  end
+  go(fn.body)
+  return found
+end
+
+--- Rule 9, over every exported function defined in this module.
+local function check_wrappers(file: string, nodes: {Node: Exported}, callees: {integer: Type},
+                              records: {integer: Type}, sys: Type | nil,
+                              exemptions: contracts.Exemptions, used: Used, problems: {string})
+  for fn, e in pairs(nodes) do
+    local rets = e.type.rets
+    local results = rets ~= nil and rets.tuple or {}
+    if typename(results[1]) == "boolean" and not fallible_results(results) then
+      local binding = sys_call_in(fn, callees, records, sys)
+      local key = file .. ":" .. e.name
+      if binding ~= nil then
+        if exemptions.exempt[key] ~= nil then
+          used.exempt[key] = true
+        else
+          problems[#problems + 1] = string.format(
+            "%s:%d: %s: calls cosmic.sys.%s itself and answers a bare boolean; "
+              .. "answer its failure too: boolean, string",
+            file, fn.y, e.name, binding)
+        end
+      end
+    end
+  end
+end
+
 --- An exemption `file`'s check never needed: its function is gone, or
 --- no longer does what the table excuses. No table may name a function
 --- of build/importer.tl, whatever module is checked: a test's tree
@@ -967,9 +1151,11 @@ end
 --- has an environment that has loaded it
 --- @param given the exemptions to hold the module to, in place of this
 --- module's own
+--- @param export the type the checker gave the module's answer, for
+--- rules 8 and 9; without it they hold nothing
 function contracts.check(file: string, root: Node, typed: receivers.State,
                          quiet?: {integer: {string: boolean}}, sys?: Type,
-                         given?: contracts.Exemptions): {string}
+                         given?: contracts.Exemptions, export?: any): {string}
   local exemptions = given or own_exemptions
   local problems: {string} = {}
   local types, callees = typed.every, typed.callees
@@ -1012,6 +1198,10 @@ function contracts.check(file: string, root: Node, typed: receivers.State,
         stand_ins[n] or false)
     end
   end)
+  local exported = exported_functions(export, export_name(root))
+  check_exports(file, exported, exemptions, used, problems)
+  check_wrappers(file, exported_nodes(root, exported), callees, records, sys, exemptions,
+    used, problems)
   check_inspections(file, root, callees, bound, exemptions, used, problems)
   check_casts(file, root, bound, exemptions, used, problems)
   stale(file, "exempt", exemptions.exempt, used.exempt, problems)

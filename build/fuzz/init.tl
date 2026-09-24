@@ -204,7 +204,8 @@ function Fuzz.run(p: Fuzz.Property): integer
         local still, _ = attempt(p.check, candidate, budget)
         return not still, used
       end
-      local smallest, tries = shrink.shrink(draws, fails, SHRINK_TRIES)
+      local shrunk = shrink.shrink(draws, fails, SHRINK_TRIES)
+      local smallest, tries = shrunk.draws, shrunk.tries
       local small = build(p.gen, shrink.values_of(smallest))
       local small_held, small_why = attempt(p.check, small, budget)
       if not small_held then

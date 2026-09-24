@@ -14,9 +14,11 @@ local type Parsed = ast_node.Parsed
 local type Hit = ast_rewrite.Hit
 local type Refusal = ast_rewrite.Refusal
 local type RewriteResult = ast_rewrite.RewriteResult
+local type Position = ast_walk.Position
 
 local record AstModule
   type Node = Node
+  type Position = Position
   type TypeNode = TypeNode
   type Parsed = Parsed
   type Hit = Hit
@@ -25,7 +27,7 @@ local record AstModule
   parse: function(built: compiler, source: string, name: string): Parsed | nil, string
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}): {Node}
-  span_start: function(node: Node): integer, integer
+  span_start: function(node: Node): Position
   compile_pattern: function(built: compiler, pattern_src: string): Node | nil, string
   find_all: function(ast: Node, pattern: Node): {Hit}
   all_requires: function(built: compiler, parsed: Parsed): {string} | nil, string

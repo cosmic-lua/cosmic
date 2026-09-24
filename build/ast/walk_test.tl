@@ -89,7 +89,8 @@ local function test_span_end_return_lands_on_last_operand_not_the_block_end()
   local ret = body[1]
   assert(ret.kind == "return", "ret.kind: " .. tostring(ret.kind))
 
-  local ey, ex = walk_mod.span_end(ret, parsed.tokens)
+  local e = walk_mod.span_end(ret, parsed.tokens)
+  local ey, ex = e.y, e.x
   assert(ey == 2 and ex == 32,
     string.format("span_end(return) = %d:%d, want 2:32 (b's own last column)",
       ey, ex))
@@ -109,7 +110,8 @@ local function test_span_end_call_lands_on_its_own_close_paren()
   assert(call.kind == "op" and call_op.op == "@funcall",
     "expected the outer call node")
 
-  local ey, ex = walk_mod.span_end(call, parsed.tokens)
+  local e = walk_mod.span_end(call, parsed.tokens)
+  local ey, ex = e.y, e.x
   assert(ey == 1 and ex == 15,
     string.format("span_end(call) = %d:%d, want 1:15 (the closing ')')", ey, ex))
   assert(source:sub(ex, ex) == ")",
@@ -129,7 +131,8 @@ local function test_span_end_if_recovers_end_through_its_block_body()
   local if_stmt = parsed.node[1]
   assert(if_stmt.kind == "if", "if_stmt.kind: " .. tostring(if_stmt.kind))
 
-  local ey, ex = walk_mod.span_end(if_stmt, parsed.tokens)
+  local e = walk_mod.span_end(if_stmt, parsed.tokens)
+  local ey, ex = e.y, e.x
   assert(ey == 1 and ex == 29,
     string.format("span_end(if) = %d:%d, want 1:29 (its own closing 'end')",
       ey, ex))
@@ -170,7 +173,8 @@ local function test_span_start_call_lands_on_its_leftmost_leaf()
   assert(call.y == 1 and call.x == 11,
     "expected the call's own y/x to be mid-expression: " .. call.x)
 
-  local sy, sx = walk_mod.span_start(call)
+  local s = walk_mod.span_start(call)
+  local sy, sx = s.y, s.x
   assert(sy == 1 and sx == 1,
     string.format("span_start(call) = %d:%d, want 1:1 (leftmost, at 'os')", sy, sx))
 end

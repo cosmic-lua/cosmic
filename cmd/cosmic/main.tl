@@ -32,8 +32,8 @@ local help_prefix = "cosmic -- a runtime for self-contained command-line softwar
 --- @param verbs the verbs to print, in order
 local function verb_help(verbs: {string}): string
   local docs = require("build.docs")
-  local handles, public = docs.databases()
-  local view, view_trouble = docs.view(handles, public)
+  local sources = docs.databases()
+  local view, view_trouble = docs.view(sources.handles, sources.public)
   if view == nil then
     return "(cosmic.cli: " .. view_trouble .. ")"
   end

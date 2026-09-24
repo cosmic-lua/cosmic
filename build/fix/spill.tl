@@ -84,27 +84,27 @@ function spill.wrap(built: compiler, source: string, name: string,
 end
 
 --- Builds the tree at `root` and returns the sites its refusal names,
---- none when it builds or when what stops it is something else. A
---- tree that cannot be built at all answers none, and says why.
+--- none when it builds or when what stops it is something else; nil,
+--- and why, for a tree that cannot be built at all.
 -- TODO: say so when the build refuses the tree for anything but a
 -- spill -- a type error, or a build.contracts rule -- rather than
 -- answering none, so `cosmic fix` does not pass a tree `cosmic test`
 -- then refuses; until then the build, not fix, is the gate for those.
-function spill.check(root: string): spill.Sites, string
+function spill.check(root: string): spill.Sites | nil, string
   local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then return {}, own_trouble end
+  if own_tree == nil then return nil, own_trouble end
   local handle, open_trouble = work.open(root)
-  if handle == nil then return {}, open_trouble end
+  if handle == nil then return nil, open_trouble end
   local staged, stage_trouble = work.stage(handle, own_tree)
   if staged == nil then
     local _, _ = work.close(handle)
-    return {}, stage_trouble
+    return nil, stage_trouble
   end
   local built = teal.lazy()
   local result, compile_trouble = importer.compile(handle, built,
     Store.meta("compiler") or "")
   local closed, close_trouble = work.close(handle)
-  if not closed then return {}, close_trouble end
+  if not closed then return nil, close_trouble end
   if result ~= nil then
     return spill.sites(table.concat(result.refused, "\n")), ""
   end

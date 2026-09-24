@@ -57,6 +57,14 @@ local record tree
     children: {tree.Node}
     parent: tree.Node
   end
+  --- What a reference refers to, as the dump spells it.
+  record Referent
+    --- "Function", "Var", "ParmVar".
+    kind: string
+    --- The address of the declaration it refers to.
+    id: string
+    name: string
+  end
 end
 
 --- Whether `file`, as the dump names it, is C of this tree's own rather
@@ -223,11 +231,12 @@ function tree.canonical_type(node: tree.Node): string
   return written or tree.type_of(node)
 end
 
---- What a reference refers to: its kind ("Function", "Var", "ParmVar"),
---- address and name, or nil for a node that is not one.
-function tree.referent(node: tree.Node): string, string, string
-  if node.kind ~= "DeclRefExpr" then return nil, nil, nil end
-  return node.text:match(" (%a+) (0x%x+) '([^']*)'")
+--- What a reference refers to, or nil for a node that is not one.
+function tree.referent(node: tree.Node): tree.Referent | nil
+  if node == nil or node.kind ~= "DeclRefExpr" then return nil end
+  local kind, id, name = node.text:match(" (%a+) (0x%x+) '([^']*)'")
+  if kind == nil then return nil end
+  return { kind = kind, id = id, name = name }
 end
 
 --- `node` with every implicit conversion and parenthesis around it seen
@@ -244,8 +253,8 @@ end
 --- through a pointer.
 function tree.callee(call: tree.Node): string
   if call.kind ~= "CallExpr" or #call.children == 0 then return nil end
-  local kind, _, name = tree.referent(tree.bare(call.children[1]))
-  if kind == "Function" then return name end
+  local r = tree.referent(tree.bare(call.children[1]))
+  if r ~= nil and r.kind == "Function" then return r.name end
   return nil
 end
 
@@ -260,19 +269,20 @@ local function own_within(node: tree.Node): tree.Node
   return nil
 end
 
---- The line of this tree's own C that `node` belongs to: its own when it
---- was spelled there. A node a macro expanded to is placed where the
---- macro was used: at the first of its arguments that was written there,
---- or else at the nearest enclosing node that was.
-function tree.place(node: tree.Node): string, integer
+--- The node of this tree's own C whose file and line `node` belongs
+--- to: itself when it was spelled there. A node a macro expanded to is
+--- placed where the macro was used: at the first of its arguments that
+--- was written there, or else at the nearest enclosing node that was.
+--- Nil when none was.
+function tree.placed(node: tree.Node): tree.Node | nil
   local within = own_within(node)
-  if within ~= nil then return within.file, within.line end
+  if within ~= nil then return within end
   local at = node.parent
   while at ~= nil do
-    if own(at.file) then return at.file, at.line end
+    if own(at.file) then return at end
     at = at.parent
   end
-  return nil, nil
+  return nil
 end
 
 return tree

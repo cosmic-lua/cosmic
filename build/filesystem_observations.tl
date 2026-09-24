@@ -29,6 +29,13 @@ local record observations
     message: string
     reads: {Observation}
   end
+  --- What `capture` saw: whether the call returned, its first result
+  --- or what it raised, and what it read.
+  record Captured
+    ok: boolean
+    produced: any
+    reads: {Observation}
+  end
 end
 
 --- Returns both lists in observation order, without changing either input.
@@ -345,22 +352,21 @@ end
 --- Given `resolving`, a path read outside its tree is also resolved as
 --- it is read; see `start`.
 function observations.capture(fn: function(any...): (any...),
-                              resolving?: observations.Resolving):
-                              boolean, any, {observations.Observation}
+                              resolving?: observations.Resolving): observations.Captured
   local found, restore = start(resolving)
   local ok, produced = pcall(fn)
   restore()
-  return ok, produced, found
+  return { ok = ok, produced = produced, reads = found }
 end
 
 --- Calls one test body and presents its failure as text to the runner,
 --- beside what the body read whether it passed or not.
 function observations.call(fn: function(any...): (any...), argument: any,
                            resolving?: observations.Resolving): observations.Run
-  local ok, produced, found = observations.capture(function(): any
+  local c = observations.capture(function(): any
     return fn(argument)
   end, resolving)
-  return { passed = ok, message = ok and "" or tostring(produced), reads = found }
+  return { passed = c.ok, message = c.ok and "" or tostring(c.produced), reads = c.reads }
 end
 
 --- The current answer to an "e" observation, re-read live rather than

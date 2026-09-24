@@ -220,9 +220,10 @@ function worker.run(argv: {integer:string}): integer
   local resolving: observations.Resolving = { tree = root, own = { tmp } }
   local resolved_tmp, _ = Fs.absolute(tmp)
   if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
-  local loaded, produced, load_reads = observations.capture(function(): any
+  local captured = observations.capture(function(): any
     return require(module_path)
   end, resolving)
+  local loaded, produced, load_reads = captured.ok, captured.produced, captured.reads
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits

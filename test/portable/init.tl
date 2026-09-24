@@ -4,6 +4,12 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 
 local record fixture
+  --- A generated target-record TSV's text, and one blob per target
+  --- it names.
+  record Targets
+    blobs: {string:string}
+    records: string
+  end
   record Entry
     target: integer
     configuration: integer
@@ -100,13 +106,13 @@ function fixture.prefix_hash(artifact: fixture.Artifact): string
 end
 
 --- Reads a generated target-record TSV and returns one blob per target, read
---- from MAKE_PATH(target), plus the raw TSV text (which build.artifact's own
+--- from MAKE_PATH(target), beside the raw TSV text (which build.artifact's own
 --- writers also take directly). The three fixture writers differ only in
 --- where each target's blob lives (a raw core under a per-target directory,
 --- or a flat native payload file), so they share this loop.
 function fixture.load_by_target(records_path: string,
                                 make_path: function(string): string):
-                                {string:string}, string
+                                fixture.Targets
   local records = assert(Fs.read(records_path))
   local blobs: {string:string} = {}
   for line in records:gmatch("[^\n]+") do
@@ -114,7 +120,7 @@ function fixture.load_by_target(records_path: string,
     assert(target ~= nil, "invalid generated target record")
     blobs[target] = assert(Fs.read(make_path(target)))
   end
-  return blobs, records
+  return { blobs = blobs, records = records }
 end
 
 return fixture

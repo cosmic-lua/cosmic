@@ -49,7 +49,7 @@ local record Ctx
   --- `span_start`, remembered: the renderer asks for the same node's
   --- start once per join it sits beside, and the answer is a walk of
   --- the whole subtree.
-  memo: {Node:{integer}}
+  memo: {Node: ast.Position}
   --- Constructs this renderer will not write. A refusal is named rather
   --- than guessed at: writing something else and calling it the same
   --- program is the one outcome a source rewriter may never have.
@@ -63,16 +63,14 @@ end
 --- Where `node`'s own subtree starts, remembered across calls.
 --- @param ctx Ctx
 --- @param node Node
---- @return integer The 1-based line
---- @return integer The 1-based column
-local function start_of(ctx: Ctx, node: Node): integer, integer
+--- @return ast.Position Where it starts
+local function start_of(ctx: Ctx, node: Node): ast.Position
   local known = ctx.memo[node]
-  if known ~= nil then
-    return known[1], known[2]
+  if known == nil then
+    known = ast.span_start(node)
+    ctx.memo[node] = known
   end
-  local y, x = ast.span_start(node)
-  ctx.memo[node] = { y, x }
-  return y, x
+  return known
 end
 
 --- The leading whitespace of a line that begins at source column `x`.
@@ -93,8 +91,8 @@ end
 --- @param node Node
 --- @param inline string The separator to write when no line break is due
 local function lead(ctx: Ctx, node: Node, inline: string)
-  local y, x = start_of(ctx, node)
-  emit.advance(ctx.em, y, indent(ctx, x), inline, x)
+  local at = start_of(ctx, node)
+  emit.advance(ctx.em, at.y, indent(ctx, at.x), inline, at.x)
 end
 
 --- Move to a bare position rather than a node's -- a continuation the
@@ -190,8 +188,8 @@ local function region(ctx: Ctx, first: integer, last: integer): boolean
   if opening == nil or last < first then
     return false
   end
-  local ey, ex = typescan.ends_at(ctx.scan, last)
-  verbatim(ctx, opening.y, opening.x, ey, ex)
+  verbatim(ctx, opening.y, opening.x, ctx.scan.tokens[last].y,
+    typescan.last_column(ctx.scan, last))
   return true
 end
 
@@ -222,7 +220,7 @@ end
 local record CtxModule
   type Ctx = Ctx
   refuse: function(ctx: Ctx, what: string)
-  start_of: function(ctx: Ctx, node: Node): integer, integer
+  start_of: function(ctx: Ctx, node: Node): ast.Position
   indent: function(ctx: Ctx, x: integer): string
   lead: function(ctx: Ctx, node: Node, inline: string)
   lead_at: function(ctx: Ctx, y: integer, x: integer, inline: string)

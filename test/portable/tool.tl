@@ -270,10 +270,11 @@ local function write_format_fixture(argv: {string}): integer
   local records_path, core_root, output = argv[1], argv[2], argv[3]
   assert(records_path ~= nil and core_root ~= nil and output ~= nil,
     "usage: tool.tl write-format-fixture TARGETS CORE_ROOT OUTPUT")
-  local cores, records = fixture.load_by_target(records_path,
+  local targets = fixture.load_by_target(records_path,
     function(target: string): string
       return core_root .. "/" .. target .. "/cosmic-core"
     end)
+  local cores, records = targets.blobs, targets.records
   local prefix = assert(artifact.prefix(records, cores))
   local database_a = "SQLite format 3\0fixture database A"
   local database_b = "SQLite format 3\0fixture database B"
@@ -292,10 +293,11 @@ local function write_launcher_fixture(argv: {string}): integer
   local records_path, payload_root, output = argv[1], argv[2], argv[3]
   assert(records_path ~= nil and payload_root ~= nil and output ~= nil,
     "usage: tool.tl write-launcher-fixture TARGETS PAYLOAD_ROOT OUTPUT")
-  local payloads, records = fixture.load_by_target(records_path,
+  local targets = fixture.load_by_target(records_path,
     function(target: string): string
       return payload_root .. "/payload-" .. target
     end)
+  local payloads, records = targets.blobs, targets.records
   local release = assert(artifact.prefix(records, payloads))
   local testing = assert(artifact.test_prefix(records, payloads))
   local database = "SQLite format 3\0launcher contract fixture"
@@ -315,10 +317,11 @@ local function write_runtime_fixture(argv: {string}): integer
   assert(records_path ~= nil and cores_root ~= nil and
     database_path ~= nil and output ~= nil,
     "usage: tool.tl write-runtime-fixture TARGETS CORES DATABASE OUTPUT [test]")
-  local cores, records = fixture.load_by_target(records_path,
+  local targets = fixture.load_by_target(records_path,
     function(target: string): string
       return cores_root .. "/" .. target .. "/cosmic-core"
     end)
+  local cores, records = targets.blobs, targets.records
   local prefix = argv[5] == "test" and
     assert(artifact.test_prefix(records, cores)) or
     assert(artifact.prefix(records, cores))
