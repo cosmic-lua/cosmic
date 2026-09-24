@@ -559,7 +559,8 @@ includes it.
 
 ### teal
 
-tl vendored, carried patches, upstream-first and fork-if-blocked.
+tl vendored, its changes carried as patches under `patch/tl/` and not
+proposed upstream.
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data

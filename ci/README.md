@@ -21,12 +21,18 @@ this machine, for its own target, with this checkout's `o/bin/cosmic` as the
 driver instead of the pinned release. It snapshots the working tree, tracked
 and untracked files alike, into a fresh candidate outside the checkout, sets
 the variables a workflow job would, and seeds the zig caches from this
-checkout's `o/`. A full run takes a few minutes. The fixtures are read from
-this checkout's `ci/fixtures/` when they run, so after one full run
-`ci/run-local fixtures` re-runs edited fixtures against the same products.
-Each phase's log is under `$COSMIC_CI_LOCAL/logs/` (default
-`${TMPDIR:-/tmp}/cosmic-ci-local-<uid>`). Run it as an unprivileged user:
-as root, a permission a fixture expects to be refused may be granted.
+checkout's `o/`. A full run takes a few minutes. The driver runs from a
+copy of this checkout's `ci/`, fixtures included, taken each time run-local
+starts, so after one full run `ci/run-local fixtures` re-runs edited
+fixtures against the same products. Each phase's log is under
+`$COSMIC_CI_LOCAL/logs/` (default `${TMPDIR:-/tmp}/cosmic-ci-local-<uid>`).
+
+CI runs the driver unprivileged, and as root a permission a fixture expects
+to be refused may be granted. So invoked as root, run-local runs the driver
+as `$COSMIC_CI_LOCAL_USER` (default `$SUDO_USER` under sudo, else `nobody`)
+through `setpriv` or `runuser`, after handing it the state directory; the
+checkout stays root's and must be readable by that user. Where neither tool
+exists (macOS) it warns and runs as root.
 
 ## runner users
 
