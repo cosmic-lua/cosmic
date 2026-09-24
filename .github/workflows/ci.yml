@@ -15,6 +15,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # The Ubuntu legs install their packages from this dated snapshot of the
+  # archive, which never changes, rather than from the live mirrors, which
+  # are sometimes caught mid-sync (a 404 for a package, or an index of the
+  # wrong size) and fail the leg before it builds anything. Moving it is a
+  # deliberate edit, as moving the image digest is.
+  UBUNTU_SNAPSHOT: 20260924T120000Z
+
 # A newer push supersedes a branch's run, but every main run finishes: its
 # zig build cache is the one every other branch can restore, and its
 # prerelease is published only from a completed run. So each main commit
@@ -54,11 +62,25 @@ jobs:
             container:
               image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
               options: --init
+              # snapshot.ubuntu.com is HTTPS-only, and the image holds no
+              # CA bundle until ca-certificates is installed from it, so apt
+              # trusts the host runner's bundle for that first install. apt
+              # verifies the archive's signed indexes whatever the transport.
+              volumes:
+                - /etc/ssl/certs/ca-certificates.crt:/usr/local/share/ci/host-ca.crt:ro
             # useradd -o: the image's own `ubuntu` user may hold the uid.
             prepare: |
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
+              cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
+              Types: deb
+              URIs: https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/
+              Suites: noble noble-updates noble-security
+              Components: main
+              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+              EOF
+              set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/usr/local/share/ci/host-ca.crt
+              apt-get "$@" update
+              apt-get "$@" install -y --no-install-recommends ca-certificates curl git xz-utils zstd
               useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # setpriv, not su: util-linux su resets PATH, which drops the
             # driver's directory that the bootstrap step adds to GITHUB_PATH;
@@ -70,10 +92,24 @@ jobs:
             container:
               image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
               options: --init
+              # snapshot.ubuntu.com is HTTPS-only, and the image holds no
+              # CA bundle until ca-certificates is installed from it, so apt
+              # trusts the host runner's bundle for that first install. apt
+              # verifies the archive's signed indexes whatever the transport.
+              volumes:
+                - /etc/ssl/certs/ca-certificates.crt:/usr/local/share/ci/host-ca.crt:ro
             prepare: |
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
+              cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
+              Types: deb
+              URIs: https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/
+              Suites: noble noble-updates noble-security
+              Components: main
+              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+              EOF
+              set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/usr/local/share/ci/host-ca.crt
+              apt-get "$@" update
+              apt-get "$@" install -y --no-install-recommends ca-certificates curl git xz-utils zstd
               useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # setpriv, not su: util-linux su resets PATH, which drops the
             # driver's directory that the bootstrap step adds to GITHUB_PATH;
@@ -94,7 +130,11 @@ jobs:
               image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
               options: --init
             prepare: |
-              apk add --no-cache git tar zstd curl xz
+              for attempt in 1 2 3; do
+                apk add --no-cache git tar zstd curl xz && break
+                [ "$attempt" = 3 ] && exit 1
+                sleep 10
+              done
               adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # The container's default user stays root -- the runner never
             # passes --user to docker create/exec, and a default user whose
