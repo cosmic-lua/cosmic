@@ -1,41 +1,26 @@
---- `cosmic todos`: every `TODO:` comment in the tree, indexed into
---- `o/build.db`, each with the commit that last touched its line and
---- when -- what `git blame` says about it.
+--- `cosmic todos`: every `TODO:` comment in the tree, each with the
+--- commit that last touched its line and when -- what `git blame` says
+--- about it.
 ---
---- A TODO is a comment line whose text opens with `TODO:` after the
---- comment's own marker (`--`, `---`, `#`, `//`, `/*`, `*`, `;`), and
---- the lines under it that carry on the same paragraph: the same
---- indentation and marker, with text, up to a blank comment line, a
---- line that is not a comment, the next TODO, or a line that opens a
---- sentence after one that ended one -- a script's header often runs
---- its TODO straight into what the script does, with no blank line. A `TODO:` anywhere
---- else on a line -- in a string, in prose, after code -- is not one,
---- so a test can hold the text of a TODO without being listed.
----
---- The index is `todos` in `o/build.db`, one row per TODO, keyed by its
---- file and first line. A row is kept while its file hashes the same
---- and `HEAD` names the same commit, since blame is a function of the
---- two, so a run after an edit blames only the files that moved. With
---- no git, or outside a repository, TODOs are still found and listed,
+--- The index is built by the build itself: `build.work.stage` scans
+--- each file it stages (`build.todo_scan`) in the moment it reads it,
+--- into `todos` in `o/build.db`, so every file the build sees -- Teal,
+--- and in cosmic's own tree the C core, build.zig and bin/zig -- is
+--- covered by the one walk. Blame is kept beside it, in `blames`, and only this verb runs
+--- git. With no git, or outside a repository, TODOs are still listed,
 --- with no commit.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local importer = require("build.importer")
 local reboot = require("build.reboot")
+local todo_scan = require("build.todo_scan")
+local work = require("build.work")
 
 local record todos
-  --- One TODO where it is written: its first line, its last, and its
-  --- text, the paragraph's lines joined by single spaces.
-  record Found
-    line: integer
-    last: integer
-    text: string
-  end
-
   --- What blame says about one line.
   record Blame
     --- The commit's full hash; all zeros for a line not committed yet.
@@ -63,31 +48,7 @@ local record todos
     boundary: boolean
   end
 
-  schema: string
-  rule: string
 end
-
---- The version of what `scan` finds in a file's text. A row's `sha256`
---- hashes it with the bytes, so a change to the rule bumps it and
---- every file is scanned again rather than answered from rows the old
---- rule wrote.
-todos.rule = "2"
-
---- The index's table, made in `o/build.db` beside the build's own.
---- `sha256` and `head` are what a row is a function of: the file's
---- bytes, hashed with `rule`, and the commit `HEAD` named when it was
---- blamed ("" for none).
-todos.schema = [[CREATE TABLE IF NOT EXISTS todos (path TEXT NOT NULL,
-                                                   line INTEGER NOT NULL,
-                                                   last INTEGER NOT NULL,
-                                                   text TEXT NOT NULL,
-                                                   sha256 TEXT NOT NULL,
-                                                   head TEXT NOT NULL,
-                                                   commit_id TEXT NOT NULL,
-                                                   author_time INTEGER NOT NULL,
-                                                   summary TEXT NOT NULL,
-                                                   boundary INTEGER NOT NULL,
-                                                   PRIMARY KEY (path, line)) WITHOUT ROWID]]
 
 local function report(line: string)
   Fs.put(Fs.stdout, line .. "\n")
@@ -95,90 +56,6 @@ end
 
 local function complain(line: string)
   Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
-end
-
---- The comment markers a TODO may follow.
-local markers: {string:boolean} = {
-  ["--"] = true,
-  ["---"] = true,
-  ["#"] = true,
-  ["##"] = true,
-  ["//"] = true,
-  ["///"] = true,
-  ["/*"] = true,
-  ["/**"] = true,
-  ["*"] = true,
-  [";"] = true,
-  [";;"] = true,
-}
-
---- A line as a comment: its indentation, its marker, and its text with
---- the space after the marker dropped. nil for a line that is not a
---- comment on its own.
-local function comment_of(line: string): string, string, string
-  local indent, marker, rest = line:match("^([ \t]*)([-#/*;]+)(.*)$")
-  if indent == nil or not markers[marker] then
-    return nil, nil, nil
-  end
-  if rest ~= "" and not rest:match("^[ \t]") then
-    return nil, nil, nil
-  end
-  rest = rest:gsub("^[ \t]+", ""):gsub("[ \t]*%*/[ \t]*$", ""):gsub("[ \t]+$", "")
-  return indent, marker, rest
-end
-
---- The marker a line carrying a comment on is written with: a block
---- comment's lines go on with `*`, a column in or not, every other
---- comment with its own.
-local function continued(marker: string): string
-  if marker:sub(1, 1) == "/" and marker:sub(2, 2) == "*" then
-    return "*"
-  end
-  return marker
-end
-
---- Every TODO in one file's text, in order.
-function todos.scan(source: string): {todos.Found}
-  local lines: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = (line:gsub("\r$", ""))
-  end
-  if source:sub(-1) == "\n" then
-    lines[#lines] = nil
-  end
-  local found: {todos.Found} = {}
-  local index = 1
-  while index <= #lines do
-    local indent, marker, rest = comment_of(lines[index])
-    local text = rest ~= nil and rest:match("^TODO:[ \t]*(.*)$") or nil
-    if text == nil then
-      index = index + 1
-    else
-      local first = index
-      local parts: {string} = { text }
-      local following = continued(marker)
-      index = index + 1
-      while index <= #lines do
-        local next_indent, next_marker, next_rest = comment_of(lines[index])
-        local aligned = next_indent == indent or
-          (following ~= marker and next_indent == indent .. " ")
-        if not aligned or
-          (next_marker ~= marker and next_marker ~= following) or
-          next_rest == "" or next_rest:match("^TODO:") or
-          (parts[#parts]:match("%.$") and next_rest:match("^%u")) then
-          break
-        end
-        parts[#parts + 1] = next_rest
-        index = index + 1
-      end
-      found[#found + 1] = {
-        line = first,
-        last = index - 1,
-        text = table.concat(parts, " "),
-      }
-    end
-  end
-  return found
 end
 
 --- What `git blame --line-porcelain` said, by final line number.
@@ -235,7 +112,7 @@ end
 --- Blame for the first line of each TODO in one file; empty when git
 --- has nothing to say about the file.
 local function blame(root: string, file: string,
-                     found: {todos.Found}): {integer:todos.Blame}
+                     found: {todo_scan.Found}): {integer:todos.Blame}
   local args: {string} = { "blame", "--line-porcelain" }
   for _, todo in ipairs(found) do
     args[#args + 1] = "-L"
@@ -255,156 +132,122 @@ local function uncommitted(commit: string): boolean
   return commit:match("^0+$") ~= nil
 end
 
---- The directories never walked: generated output, vendored trees, and
---- anything hidden.
-local function skip(entry: string, name: string): boolean
-  if name:sub(1, 1) == "." then
-    return true
-  end
-  return entry == "o" or entry == "vendor" or entry == "ci/o"
-end
-
---- The largest file read for TODOs; anything bigger is data.
-local largest = 4 * 1024 * 1024
-
---- One file's rows as the index holds them.
-local record Cached
+--- Every TODO in the staged tree with what is known of its blame, in
+--- file and line order: a row with no blame for `head` has `commit` ""
+--- and `blamed` false.
+local record Row
+  todo: todos.Todo
   sha256: string
-  head: string
-  rows: {todos.Todo}
+  blamed: boolean
 end
 
-local function cached_rows(db: Sqlite.Handle): {string:Cached} | nil, string
+local function rows_of(db: Sqlite.Handle, head: string): {Row} | nil, string
   local rows, trouble = Sqlite.rows(db,
-    "SELECT path, line, last, text, sha256, head, commit_id, author_time, " ..
-    "summary, boundary FROM todos ORDER BY path, line")
+    "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
+    "b.author_time, b.summary, b.boundary FROM " ..
+    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool) f " ..
+    "JOIN todos t ON t.sha256 = f.sha256 " ..
+    "LEFT JOIN blames b ON b.path = f.path AND b.line = t.line " ..
+    "AND b.sha256 = t.sha256 AND b.head = ?1 " ..
+    "ORDER BY f.path, t.line", { { text = head } })
   if rows == nil then
     return nil, trouble
   end
-  local out: {string:Cached} = {}
+  local out: {Row} = {}
   for _, row in ipairs(rows) do
-    local path = row[1].text
-    local entry = out[path]
-    if entry == nil then
-      entry = { sha256 = row[5].text, head = row[6].text, rows = {} }
-      out[path] = entry
-    end
-    entry.rows[#entry.rows + 1] = {
-      file = path,
-      line = row[2].integer,
-      last = row[3].integer,
-      text = row[4].text,
-      commit = row[7].text,
-      author_time = row[8].integer,
-      summary = row[9].text,
-      boundary = row[10].integer ~= 0,
+    local blamed = row[6].kind ~= "null"
+    out[#out + 1] = {
+      todo = {
+        file = row[1].text,
+        line = row[2].integer,
+        last = row[3].integer,
+        text = row[4].text,
+        commit = blamed and row[6].text or "",
+        author_time = blamed and row[7].integer or 0,
+        summary = blamed and row[8].text or "",
+        boundary = blamed and row[9].integer ~= 0,
+      },
+      sha256 = row[5].text,
+      blamed = blamed,
     }
   end
   return out
 end
 
---- Replaces one file's rows.
-local function put_rows(db: Sqlite.Handle, file: string, sha256: string,
-                        head: string, rows: {todos.Todo}): boolean, string
-  local ok, trouble = Sqlite.run(db, "DELETE FROM todos WHERE path = ?1",
-    { { text = file } })
-  if not ok then
-    return false, trouble
+--- Blames every row not yet blamed for `head`, one git call per file,
+--- keeping what it says in `blames`, and drops the rows there no TODO
+--- stands on any more. Returns how many files it blamed.
+local function blame_rows(db: Sqlite.Handle, root: string, head: string,
+                          rows: {Row}): integer | nil, string
+  local pruned, prune_trouble = Sqlite.run(db,
+    "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
+    "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool) f " ..
+    "JOIN todos t ON t.sha256 = f.sha256 WHERE f.path = blames.path " ..
+    "AND t.line = blames.line AND t.sha256 = blames.sha256)",
+    { { text = head } })
+  if not pruned then
+    return nil, prune_trouble
   end
-  for _, todo in ipairs(rows) do
-    ok, trouble = Sqlite.run(db,
-      "INSERT INTO todos (path, line, last, text, sha256, head, commit_id, " ..
-      "author_time, summary, boundary) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-      { { text = file }, { integer = todo.line }, { integer = todo.last },
-        { text = todo.text }, { text = sha256 }, { text = head },
-        { text = todo.commit }, { integer = todo.author_time },
-        { text = todo.summary }, { integer = todo.boundary and 1 or 0 } })
-    if not ok then
-      return false, file .. ": " .. trouble
+  if head == "" then
+    return 0
+  end
+  local order: {string} = {}
+  local pending: {string:{Row}} = {}
+  for _, row in ipairs(rows) do
+    if not row.blamed then
+      local file = row.todo.file
+      if pending[file] == nil then
+        pending[file] = {}
+        order[#order + 1] = file
+      end
+      table.insert(pending[file], row)
     end
   end
-  return true, ""
+  for _, file in ipairs(order) do
+    local found: {todo_scan.Found} = {}
+    for _, row in ipairs(pending[file]) do
+      found[#found + 1] = { line = row.todo.line, last = row.todo.last, text = row.todo.text }
+    end
+    local said = blame(root, file, found)
+    for _, row in ipairs(pending[file]) do
+      local line = said[row.todo.line]
+      local known = line ~= nil and not uncommitted(line.commit)
+      local todo = row.todo
+      todo.commit = known and line.commit or ""
+      todo.author_time = known and line.author_time or 0
+      todo.summary = known and line.summary or ""
+      todo.boundary = known and line.boundary or false
+      local ok, trouble = Sqlite.run(db,
+        "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
+        "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        { { text = file }, { integer = todo.line }, { text = row.sha256 },
+          { text = head }, { text = todo.commit }, { integer = todo.author_time },
+          { text = todo.summary }, { integer = todo.boundary and 1 or 0 } })
+      if not ok then
+        return nil, file .. ": " .. trouble
+      end
+    end
+  end
+  return #order
 end
 
---- What one pass of `todos.index` did.
-local record Indexed
-  todos: {todos.Todo}
-  --- How many files were blamed, rather than answered from the index.
-  blamed: integer
-end
-
---- Brings the index in `db` up to date with the tree under `root`,
---- blaming only a file whose bytes or `HEAD` moved since its rows were
---- written, and returns every TODO, in file and line order.
-function todos.index(db: Sqlite.Handle, root: string): Indexed | nil, string
-  local made, trouble = db:exec(todos.schema)
-  if not made then
+--- Every TODO in the tree staged into `db`, blamed where git can,
+--- in file and line order, and how many files had to be blamed.
+function todos.list(db: Sqlite.Handle, root: string): {todos.Todo} | nil, integer | string
+  local head = head_of(root)
+  local rows, trouble = rows_of(db, head)
+  if rows == nil then
     return nil, trouble
   end
-  local walked, walk_trouble = Fs.walk(root, skip)
-  if walked == nil then
-    return nil, walk_trouble
+  local blamed, blame_trouble = blame_rows(db, root, head, rows)
+  if blamed == nil then
+    return nil, blame_trouble
   end
-  local cached, cache_trouble = cached_rows(db)
-  if cached == nil then
-    return nil, cache_trouble
+  local out: {todos.Todo} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = row.todo
   end
-  local head = head_of(root)
-  local out: Indexed = { todos = {}, blamed = 0 }
-  for _, file in ipairs(walked) do
-    local st = Fs.stat(root .. "/" .. file)
-    local data: string = nil
-    if st ~= nil and st.size <= largest then
-      data = Fs.read(root .. "/" .. file)
-    end
-    if data ~= nil and data:find("TODO:", 1, true) ~= nil and
-      data:find("\0", 1, true) == nil then
-      local sha256 = Hash.hex_sha256(todos.rule .. "\0" .. data)
-      local was = cached[file]
-      cached[file] = nil
-      local rows: {todos.Todo}
-      if was ~= nil and was.sha256 == sha256 and was.head == head then
-        rows = was.rows
-      else
-        local found = todos.scan(data)
-        local blamed: {integer:todos.Blame} = {}
-        if head ~= "" and #found > 0 then
-          blamed = blame(root, file, found)
-          out.blamed = out.blamed + 1
-        end
-        rows = {}
-        for _, todo in ipairs(found) do
-          local said = blamed[todo.line]
-          local known = said ~= nil and not uncommitted(said.commit)
-          rows[#rows + 1] = {
-            file = file,
-            line = todo.line,
-            last = todo.last,
-            text = todo.text,
-            commit = known and said.commit or "",
-            author_time = known and said.author_time or 0,
-            summary = known and said.summary or "",
-            boundary = known and said.boundary or false,
-          }
-        end
-        local ok, put_trouble = put_rows(db, file, sha256, head, rows)
-        if not ok then
-          return nil, put_trouble
-        end
-      end
-      for _, row in ipairs(rows) do
-        out.todos[#out.todos + 1] = row
-      end
-    end
-  end
-  for file in pairs(cached) do
-    local ok, put_trouble = put_rows(db, file, "", "", {})
-    if not ok then
-      return nil, put_trouble
-    end
-  end
-  return out
+  return out, blamed
 end
 
 --- A time in seconds since the epoch as its UTC date, `YYYY-MM-DD`.
@@ -447,8 +290,9 @@ local function wanted(file: string, paths: {string}): boolean
   return false
 end
 
---- `cosmic todos [--oldest] [path...]`: indexes the tree's TODOs and
---- lists them, one per line, in file order or, with `--oldest`, oldest
+--- `cosmic todos [--oldest] [path...]`: stages the tree as a build
+--- does, which indexes its TODOs, blames the ones not yet blamed, and
+--- lists them one per line, in file order or, with `--oldest`, oldest
 --- commit first, then a verdict line.
 --- @param argv the command line, re-entered if this binary embeds a
 ---   stale copy of `build.todos` itself -- see `build.reboot.ensure`
@@ -482,34 +326,36 @@ function todos.run(argv: {integer:string}): integer
     slot = slot + 1
   end
 
-  local made, mkdir_trouble = Fs.mkdirs(root .. "/o")
-  if not made then
-    complain(mkdir_trouble)
+  local own_tree, own_trouble = importer.is_own_tree(root)
+  if own_tree == nil then
+    complain(own_trouble)
     return 1
   end
-  local path = root .. "/o/build.db"
-  local db, open_trouble = Sqlite.open(path, true)
-  if db == nil then
-    complain(path .. ": " .. open_trouble)
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    complain(open_trouble)
     return 1
   end
-  local indexed: Indexed = nil
-  local ok, trouble = Sqlite.transact(db, function(): boolean, string
-    local result, why = todos.index(db, root)
-    if result == nil then
-      return false, why
-    end
-    indexed = result
-    return true, ""
-  end)
-  db:close()
-  if not ok then
-    complain(path .. ": " .. trouble)
+  local staged, stage_trouble = work.stage(handle, own_tree)
+  if staged == nil then
+    work.abort(handle)
+    complain(stage_trouble)
+    return 1
+  end
+  local all, blamed = todos.list(handle.db, root)
+  if all == nil then
+    work.abort(handle)
+    complain(blamed as string)
+    return 1
+  end
+  local closed, close_trouble = work.close(handle)
+  if not closed then
+    complain(close_trouble)
     return 1
   end
 
   local listed: {todos.Todo} = {}
-  for _, todo in ipairs(indexed.todos) do
+  for _, todo in ipairs(all) do
     if wanted(todo.file, paths) then
       listed[#listed + 1] = todo
     end
@@ -540,8 +386,7 @@ function todos.run(argv: {integer:string}): integer
     end
   end
   report("todos: PASS (" .. #listed .. " todos in " .. file_count .. " files, " ..
-    indexed.blamed ..
-    " files blamed, " .. clock.elapsed_ms(started) .. " ms)")
+    tostring(blamed) .. " files blamed, " .. clock.elapsed_ms(started) .. " ms)")
   return 0
 end
 

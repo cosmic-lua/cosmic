@@ -1,6 +1,8 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
+local work = require("build.work")
 
 --- Lines joined into one file's text, so no line of this file opens
 --- with a comment marker and is listed itself.
@@ -9,7 +11,7 @@ local function text(lines: {string}): string
 end
 
 local function test_a_todo_carries_on_through_its_paragraph()
-  local found = todos.scan(text({
+  local found = todo_scan.scan(text({
     "local x = 1",
     "  -- TODO: drop the cast once the pin names a cosmic",
     "  -- carrying patch/tl/24.",
@@ -25,7 +27,7 @@ local function test_a_todo_carries_on_through_its_paragraph()
 end
 
 local function test_a_paragraph_ends_at_code_a_new_marker_or_the_next_todo()
-  local found = todos.scan(text({
+  local found = todo_scan.scan(text({
     "# TODO: first",
     "# TODO: second",
     "  # indented, so another comment",
@@ -42,7 +44,7 @@ local function test_a_paragraph_ends_at_code_a_new_marker_or_the_next_todo()
 end
 
 local function test_a_sentence_opened_on_a_new_line_starts_a_new_paragraph()
-  local found = todos.scan(text({
+  local found = todo_scan.scan(text({
     "#!/bin/sh",
     "# TODO: replace with a Teal script run by `cosmic --standalone`,",
     "# as bin/zig is.",
@@ -54,8 +56,23 @@ local function test_a_sentence_opened_on_a_new_line_starts_a_new_paragraph()
     found[1].text)
 end
 
+local function test_a_c_comment_block()
+  local found = todo_scan.scan(text({
+    "/*",
+    " * The allocator.",
+    " *",
+    " * TODO: keep blocks past 2 MiB too, once the",
+    " * cache is bounded by bytes.",
+    " */",
+    "static int x;",
+  }))
+  assert(#found == 1 and found[1].line == 4 and found[1].last == 5)
+  assert(found[1].text == "keep blocks past 2 MiB too, once the cache is bounded by bytes.",
+    found[1].text)
+end
+
 local function test_block_comments_and_other_markers()
-  local found = todos.scan(text({
+  local found = todo_scan.scan(text({
     "/* TODO: a block comment",
     " * that goes on */",
     "// TODO: a line comment",
@@ -69,7 +86,7 @@ local function test_block_comments_and_other_markers()
 end
 
 local function test_todo_outside_a_comment_of_its_own_is_not_one()
-  local found = todos.scan(text({
+  local found = todo_scan.scan(text({
     "Leave `TODO:` comments as the work goes.",
     "x = 1 -- TODO: after code",
     "s = \"-- TODO: in a string\"",
@@ -81,9 +98,9 @@ local function test_todo_outside_a_comment_of_its_own_is_not_one()
 end
 
 local function test_crlf_and_a_missing_final_newline()
-  local found = todos.scan("-- TODO: one\r\n-- two\r\nx")
+  local found = todo_scan.scan("-- TODO: one\r\n-- two\r\nx")
   assert(#found == 1 and found[1].text == "one two", found[1] and found[1].text)
-  found = todos.scan("# TODO: last line")
+  found = todo_scan.scan("# TODO: last line")
   assert(#found == 1 and found[1].text == "last line")
 end
 
@@ -132,38 +149,33 @@ local function test_render_marks_unblamed_and_boundary_rows()
   assert(todos.render(row) == "a.tl:3: 2023-11-14 ^0123456 do it", todos.render(row))
 end
 
-local function test_index_keeps_rows_until_a_file_moves()
+local function test_staging_indexes_what_it_reads_and_forgets_what_goes()
   local root = assert(Fs.mkdtemp("cosmic-todos-test-"))
   assert(Fs.mkdirs(root .. "/src"))
-  assert(Fs.mkdirs(root .. "/o"))
   assert(Fs.write(root .. "/src/a.tl", text({ "-- TODO: first", "local x = 1" })))
-  assert(Fs.write(root .. "/o/skipped.tl", text({ "-- TODO: generated" })))
   assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2" })))
-  local db = assert(Sqlite.memory())
+  assert(Fs.write(root .. "/notes.sh", text({ "# TODO: not an input" })))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local listed = assert(todos.list(handle.db, root))
+  assert(#listed == 1, "found " .. #listed)
+  assert(listed[1].file == "src/a.tl" and listed[1].line == 1)
+  assert(listed[1].text == "first" and listed[1].commit == "")
 
-  local first = assert(todos.index(db, root))
-  assert(#first.todos == 1, "found " .. #first.todos)
-  assert(first.todos[1].file == "src/a.tl" and first.todos[1].text == "first")
+  -- Bytes already indexed are not scanned again, so their rows stand.
+  assert(Sqlite.run(handle.db, "UPDATE todos SET text = 'from the index'"))
+  assert(work.stage(handle, false))
+  listed = assert(todos.list(handle.db, root))
+  assert(listed[1].text == "from the index", listed[1].text)
 
-  -- An unchanged file is answered from its rows...
-  assert(Sqlite.run(db, "UPDATE todos SET text = 'from the index'"))
-  local second = assert(todos.index(db, root))
-  assert(second.todos[1].text == "from the index", second.todos[1].text)
-
-  -- So is one the rule would read differently now.
-  local rule = todos.rule
-  todos.rule = rule .. "-next"
-  local reread = assert(todos.index(db, root))
-  todos.rule = rule
-  assert(reread.todos[1].text == "first", reread.todos[1].text)
-
-  -- A file that moved is read again, and one with no TODO left is dropped.
-  assert(Fs.write(root .. "/src/b.tl", text({ "# TODO: second" })))
+  -- A file that moved is read again, and bytes no file holds are dropped.
+  assert(Fs.write(root .. "/src/b.tl", text({ "local y = 2", "  -- TODO: second" })))
   assert(Fs.write(root .. "/src/a.tl", text({ "local x = 1" })))
-  local third = assert(todos.index(db, root))
-  assert(#third.todos == 1 and third.todos[1].file == "src/b.tl")
-  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM todos"))
-  assert(#rows == 1 and rows[1][1] == "src/b.tl")
-  db:close()
+  assert(work.stage(handle, false))
+  listed = assert(todos.list(handle.db, root))
+  assert(#listed == 1 and listed[1].file == "src/b.tl" and listed[1].line == 2)
+  local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM todos"))
+  assert(rows[1][1] == "1", rows[1][1])
+  assert(work.close(handle))
   assert(Fs.remove_tree(root))
 end

@@ -16,9 +16,11 @@
 --- not read again.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
+local todo_scan = require("build.todo_scan")
 
 local record work
   --- An open working database, for one run. A run is one transaction
@@ -77,7 +79,7 @@ local record work
   version: string
 end
 
-work.version = "19"
+work.version = "20"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -122,6 +124,17 @@ work.version = "19"
 --- function of the bytes and of that module's rule for what counts as
 --- executable, so a change to the rule bumps `work.version`, as a
 --- change to what a parse records does for `parsed`.
+---
+--- `todos` is every `TODO:` comment `build.todo_scan` finds in one
+--- staged file, keyed by the file's content hash like `parsed`: staging
+--- scans a file in the same moment it reads it, so an unchanged file
+--- costs nothing, and a row is a function of the bytes and the scan's
+--- rule alone -- a change to the rule bumps `work.version`. A row no
+--- staged file hashes to any more is dropped at the end of the stage.
+--- `blames` is what `git blame` said about one TODO's first line, kept
+--- while the file hashes the same and `HEAD` names the same commit
+--- (`head`), which is all blame is a function of; `cosmic todos` fills
+--- it, since a build has no business running git.
 ---
 --- `contracts` is one source that `positions.check_api_contracts` passed,
 --- under one set of fallible syscalls (`fallible`, their names sorted and
@@ -288,6 +301,20 @@ work.schema = {
                                          source TEXT NOT NULL,
                                          line INTEGER NOT NULL,
                                          PRIMARY KEY (source_hash, ordinal)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS todos (sha256 TEXT NOT NULL,
+                                      line INTEGER NOT NULL,
+                                      last INTEGER NOT NULL,
+                                      text TEXT NOT NULL,
+                                      PRIMARY KEY (sha256, line)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS blames (path TEXT NOT NULL,
+                                       line INTEGER NOT NULL,
+                                       sha256 TEXT NOT NULL,
+                                       head TEXT NOT NULL,
+                                       commit_id TEXT NOT NULL,
+                                       author_time INTEGER NOT NULL,
+                                       summary TEXT NOT NULL,
+                                       boundary INTEGER NOT NULL,
+                                       PRIMARY KEY (path, line)) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS contracts (source_hash TEXT NOT NULL,
                                           fallible TEXT NOT NULL,
                                           PRIMARY KEY (source_hash, fallible)) WITHOUT ROWID]],
@@ -734,9 +761,39 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
   return once(put)
 end
 
-local function finish(put_files: Sqlite.Statement, put_tool: Sqlite.Statement)
+--- Whether a file's TODOs are the tree's own: a patch record's context
+--- lines and a vendored pin are upstream's.
+local function holds_own_todos(file: string): boolean
+  local first = first_of(file)
+  return first ~= "patch" and first ~= "vendor"
+end
+
+--- Records the TODOs in one file's bytes under their hash, unless a
+--- file with the same bytes already has. Text holding no `TODO:`, or
+--- holding a NUL, is not scanned.
+local function put_todos(put: Sqlite.Statement, data: string): boolean, string
+  if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
+    return true, ""
+  end
+  local sha256 = Hash.hex_sha256(data)
+  for _, found in ipairs(todo_scan.scan(data)) do
+    put:bind_text(1, sha256)
+    put:bind_integer(2, found.line)
+    put:bind_integer(3, found.last)
+    put:bind_text(4, found.text)
+    local ok, trouble = once(put)
+    if not ok then
+      return false, trouble
+    end
+  end
+  return true, ""
+end
+
+local function finish(put_files: Sqlite.Statement, put_tool: Sqlite.Statement,
+                      put_todo: Sqlite.Statement)
   put_files:finalize()
   put_tool:finalize()
+  put_todo:finalize()
 end
 
 --- Deletes the rows `known` still holds, which the walk did not find.
@@ -785,6 +842,13 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     put_files:finalize()
     return nil, put_tool_trouble
   end
+  local put_todo, put_todo_trouble = db:prepare(
+    "INSERT OR IGNORE INTO todos (sha256, line, last, text) VALUES (?1, ?2, ?3, ?4)")
+  if put_todo == nil then
+    put_files:finalize()
+    put_tool:finalize()
+    return nil, put_todo_trouble
+  end
   local now = Time.now_ns() or 0
   local staged: work.Staged = { files = 0, read = 0 }
 
@@ -794,7 +858,7 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
     if input or tool then
       local st, stat_trouble = Fs.stat(root .. "/" .. file)
       if st == nil then
-        finish(put_files, put_tool)
+        finish(put_files, put_tool, put_todo)
         return nil, stat_trouble
       end
       local mtime_ns = st.mtime * 1000000000 + st.mtime_ns
@@ -805,28 +869,35 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
       if write_files or write_tool then
         local data, read_trouble = Fs.read(root .. "/" .. file)
         if data == nil then
-          finish(put_files, put_tool)
+          finish(put_files, put_tool, put_todo)
           return nil, read_trouble
         end
         staged.read = staged.read + 1
+        if holds_own_todos(file) then
+          local ok, why = put_todos(put_todo, data)
+          if not ok then
+            finish(put_files, put_tool, put_todo)
+            return nil, file .. ": " .. why
+          end
+        end
         if write_files then
           local ok, why = put_row(put_files, file, st, mtime_ns, settled, data)
           if not ok then
-            finish(put_files, put_tool)
+            finish(put_files, put_tool, put_todo)
             return nil, file .. ": " .. why
           end
         end
         if write_tool then
           local ok, why = put_row(put_tool, file, st, mtime_ns, settled, data)
           if not ok then
-            finish(put_files, put_tool)
+            finish(put_files, put_tool, put_todo)
             return nil, file .. ": " .. why
           end
         end
       end
     end
   end
-  finish(put_files, put_tool)
+  finish(put_files, put_tool, put_todo)
   local forgot, forget_trouble = forget(db, "files", known_files)
   if not forgot then
     return nil, forget_trouble
@@ -834,6 +905,12 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   forgot, forget_trouble = forget(db, "tool", known_tool)
   if not forgot then
     return nil, forget_trouble
+  end
+  local pruned, prune_trouble = db:exec(
+    "DELETE FROM todos WHERE sha256 NOT IN " ..
+    "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool)")
+  if not pruned then
+    return nil, prune_trouble
   end
   return staged
 end
