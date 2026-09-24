@@ -11,28 +11,29 @@
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 local record VerifyCodesign
-  --- Where macOS keeps codesign.
-  codesign: string
 end
 
--- TODO: find codesign on PATH with Proc.find, as the sh did, once
--- ci/cosmic-driver.pin names a cosmic carrying it: this runs standalone
--- on the pinned release. macOS ships codesign at this path, which nothing
--- on PATH can shadow in the meantime.
-VerifyCodesign.codesign = "/usr/bin/codesign"
-
 --- Verifies `binary` on a host whose uname(2) sysname is `sysname`,
---- with codesign's own output passing straight through; the exit
+--- with codesign, found on `path` (PATH when nil) as the shell script
+--- found it, and its own output passing straight through; the exit
 --- status the shell script gave.
-function VerifyCodesign.verify(sysname: string, binary: string, codesign?: string): integer
+function VerifyCodesign.verify(sysname: string, binary: string, path?: string): integer
   if sysname ~= "Darwin" then
     Fs.put(Fs.stdout, "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
     return 0
   end
-  local tool = codesign or VerifyCodesign.codesign
+  -- Nothing runnable named codesign is 127, as for a missing command,
+  -- whether there is none or one without execute permission; the
+  -- message says which.
+  local tool, missing = Proc.find("codesign", path)
+  if tool == nil then
+    Fs.put(Fs.stderr, "verify-codesign: " .. missing .. "\n")
+    return 127
+  end
   for _, args in ipairs({
     { "--verify", "--strict", "--verbose=2" },
     { "--display", "--verbose=4" },
