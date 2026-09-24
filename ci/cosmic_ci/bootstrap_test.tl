@@ -65,7 +65,13 @@ local function bootstrap(tmp: string, root: string, output: string,
 end
 
 --- A curl on a PATH of its own that writes `$DOWNLOAD_SOURCE` wherever
---- it is asked to, whatever URL it is given.
+--- it is asked to, whatever URL it is given -- unless `$FAIL_ONCE`
+--- names a file that is there, when it removes that file, leaves a
+--- scrap of a transfer at the output and fails, as a dropped
+--- connection would, or `$WRONG_ONCE` names one, when it removes that
+--- file and writes other bytes than the source's, succeeding, as a
+--- transfer cut short without an error would. Each call appends a line
+--- to `$CALLS` when set.
 local function fake_curl(tmp: string): string
   local fake = tmp .. "/fake bin"
   assert(Fs.mkdirs(fake))
@@ -73,6 +79,17 @@ local function fake_curl(tmp: string): string
 while [ "$#" -gt 0 ]; do
   if [ "$1" = --output ]; then output=$2; shift 2; else shift; fi
 done
+[ -z "${CALLS:-}" ] || echo call >> "$CALLS"
+if [ -n "${FAIL_ONCE:-}" ] && [ -e "$FAIL_ONCE" ]; then
+  rm -f "$FAIL_ONCE"
+  printf scrap > "$output"
+  exit 56
+fi
+if [ -n "${WRONG_ONCE:-}" ] && [ -e "$WRONG_ONCE" ]; then
+  rm -f "$WRONG_ONCE"
+  printf 'not the pinned bytes' > "$output"
+  exit 0
+fi
 cp "$DOWNLOAD_SOURCE" "$output"
 ]], 0x1ed))
   return fake .. ":" .. assert(Env.get("PATH"))
@@ -130,10 +147,101 @@ local function test_bootstrap_rejects_corrupt_cache_and_download(tmp: string)
   local cached = cache .. "/cosmic-" .. digest
   assert(Fs.write(cached, "bad cache", 0x1ed))
   assert(Fs.write(tmp .. "/download", "bad download"))
+  -- One attempt: a retry would only pause and fetch the same bad bytes.
   local result = bootstrap(tmp, root, tmp .. "/bad.out",
-    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/download" })
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/download",
+      COSMIC_BOOTSTRAP_ATTEMPTS = "1" })
   assert(not result.ok and Fs.exists(cached) == false,
     "corrupt replacement was accepted")
+end
+
+--- A download that fails partway is tried again from an empty file, and
+--- the second, whole one is verified and kept; nothing partial is left.
+local function test_bootstrap_retries_a_failed_download(tmp: string)
+  local program = assert(Proc.executable())
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
+  local root, cache = bootstrap_root(tmp, string.rep("e", 40), digest)
+  assert(Fs.write(tmp .. "/fail-once", ""))
+  local result = bootstrap(tmp, root, tmp .. "/retry.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program, FAIL_ONCE = tmp .. "/fail-once",
+      CALLS = tmp .. "/calls", COSMIC_BOOTSTRAP_ATTEMPTS = "2" })
+  local out = assert(Fs.read(tmp .. "/retry.out"))
+  assert(result.ok, out)
+  assert(out:find("retrying", 1, true) ~= nil, out)
+  assert(assert(Fs.read(tmp .. "/calls")) == "call\ncall\n")
+  assert(Hash.hex_sha256((assert(Fs.read(cache .. "/cosmic-" .. digest)))) == digest)
+  local names = assert(Fs.list(cache))
+  assert(#names == 1, "a partial download was left: " .. table.concat(names, " "))
+end
+
+--- A download with the wrong digest is tried again, not kept.
+local function test_bootstrap_retries_a_download_with_the_wrong_digest(tmp: string)
+  local program = assert(Proc.executable())
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
+  local root, cache = bootstrap_root(tmp, string.rep("9", 40), digest)
+  assert(Fs.write(tmp .. "/wrong-once", ""))
+  local result = bootstrap(tmp, root, tmp .. "/wrong.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program, WRONG_ONCE = tmp .. "/wrong-once",
+      CALLS = tmp .. "/calls", COSMIC_BOOTSTRAP_ATTEMPTS = "2" })
+  local out = assert(Fs.read(tmp .. "/wrong.out"))
+  assert(result.ok, out)
+  assert(out:find("the pin says " .. digest .. "; retrying", 1, true) ~= nil, out)
+  assert(assert(Fs.read(tmp .. "/calls")) == "call\ncall\n")
+  assert(Hash.hex_sha256((assert(Fs.read(cache .. "/cosmic-" .. digest)))) == digest)
+  assert(#assert(Fs.list(cache)) == 1, "a partial download was left")
+end
+
+--- COSMIC_BOOTSTRAP_ATTEMPTS is a count from 1 to 20, written plainly;
+--- anything else stops the script before it downloads anything.
+local function test_bootstrap_refuses_a_bad_attempt_count(tmp: string)
+  local program = assert(Proc.executable())
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
+  local root, _ = bootstrap_root(tmp, string.rep("8", 40), digest)
+  for _, given in ipairs({ "0", "21", "07", "x", "-1", "" }) do
+    local result = bootstrap(tmp, root, tmp .. "/count.out",
+      { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program, CALLS = tmp .. "/calls",
+        COSMIC_BOOTSTRAP_ATTEMPTS = given })
+    local out = assert(Fs.read(tmp .. "/count.out"))
+    if given == "" then
+      -- Empty is unset: the default.
+      assert(result.ok, out)
+    else
+      assert(not result.ok, given .. " was taken")
+      assert(out:find("not a count from 1 to 20", 1, true) ~= nil, out)
+    end
+  end
+  assert(assert(Fs.read(tmp .. "/calls")) == "call\n", "a refused count still downloaded")
+  local one = bootstrap(tmp, root, tmp .. "/one.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program, COSMIC_BOOTSTRAP_ATTEMPTS = "20" })
+  assert(one.ok, assert(Fs.read(tmp .. "/one.out")))
+end
+
+--- One attempt that fails says so in the singular.
+local function test_bootstrap_counts_a_single_attempt(tmp: string)
+  local digest = string.rep("0", 64)
+  local root, _ = bootstrap_root(tmp, string.rep("7", 40), digest)
+  assert(Fs.write(tmp .. "/fail-once", ""))
+  local result = bootstrap(tmp, root, tmp .. "/single.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
+      FAIL_ONCE = tmp .. "/fail-once", COSMIC_BOOTSTRAP_ATTEMPTS = "1" })
+  local out = assert(Fs.read(tmp .. "/single.out"))
+  assert(not result.ok and out:find("(after 1 attempt)", 1, true) ~= nil, out)
+end
+
+--- Every attempt failing fails the script, saying how many it made.
+local function test_bootstrap_gives_up_after_its_attempts(tmp: string)
+  local digest = string.rep("0", 64)
+  local root, cache = bootstrap_root(tmp, string.rep("f", 40), digest)
+  assert(Fs.write(tmp .. "/fail-once", ""))
+  local result = bootstrap(tmp, root, tmp .. "/gave-up.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing",
+      FAIL_ONCE = tmp .. "/fail-once", CALLS = tmp .. "/calls",
+      COSMIC_BOOTSTRAP_ATTEMPTS = "2" })
+  local out = assert(Fs.read(tmp .. "/gave-up.out"))
+  assert(not result.ok, out)
+  assert(out:find("after 2 attempts", 1, true) ~= nil, out)
+  assert(assert(Fs.read(tmp .. "/calls")) == "call\ncall\n")
+  assert(#assert(Fs.list(cache)) == 0, "a partial download was left")
 end
 
 local function test_bootstrap_replaces_a_corrupt_cache_from_a_verified_download(tmp: string)
