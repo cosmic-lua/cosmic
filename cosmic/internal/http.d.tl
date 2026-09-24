@@ -27,7 +27,7 @@ local record http
     -- far; "" for one over the network. Raises if recording it ran
     -- out of memory.
     sent: function(Handle): string
-    close: function(Handle): boolean
+    close: function(Handle)
   end
 
   record Options

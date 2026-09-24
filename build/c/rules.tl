@@ -20,6 +20,37 @@
 --- - "returned-shape": a binding of the syscall table returns a count of
 ---   values its declaration in core/syscalls.h does not, or a fallible
 ---   one returns two -- a failure without its errno (core/fail.h).
+--- - "failure-shape": a fallible binding fails in the other shape than
+---   its declaration's: one declared `boolean`, an effect, fails through
+---   `cosmic_fail_effect` (false, error, errno); one declared a value
+---   fails through `cosmic_fail` (nil, error, errno) and never answers a
+---   bare true -- directly, or through a helper of the file that returns
+---   only that shape. build/gen_syscalls.tl refuses `boolean|nil`, which is
+---   neither.
+--- - "pass-fail-int": a function a header declares to return `int` (a
+---   file's own helpers are not held to it, only its header's promises)
+---   returns only 0, 1 or a truth -- a comparison, a bool, a call of a
+---   helper of the file that answers only truths, a local given only
+---   truths. It is a pass or a fail, and returns `bool`. One that forwards
+---   a library's status stays `int`, its contract said at its declaration.
+--- - "constant-return": a function of external linkage returns the same
+---   constant on every path, which tells its caller nothing: it returns
+---   void. `main`, and a function handed the state first, whose `int`
+---   may be a count of the values it left, are not.
+--- - "true-alone": a `lua_CFunction` returns `true` and nothing else on
+---   every path (`lua_pushboolean(L, 1); return 1;` or `cosmic_ok`), so
+---   it returns no values.
+--- - "single-file": a function a header declares is referred to by no
+---   translation unit but the one defining it, so it belongs to that file,
+---   static, out of the header. It is decided over a whole tree at once
+---   (`rules.unit`, `rules.single_file`), so `build.c` finds it only when
+---   every C file is checked together.
+---
+--- "pass-fail-int", "constant-return" and "true-alone" read the code
+--- one platform's preprocessor leaves (build.c compiles for the host): a
+--- function whose returns differ under an `#ifdef` is judged by the
+--- branch compiled, and one the other branch makes a real answer is
+--- exempted in `exempt`, with the reason.
 ---
 --- The walk is source order, not a flow analysis. A branch that ends --
 --- in a `return`, a `goto`, or a call that never returns -- leaves what
@@ -30,6 +61,7 @@
 --- cannot see is said in `exempt`, with the reason, rather than worked
 --- around in the code it checks.
 
+local String = require("cosmic.string")
 local tree = require("build.c.tree")
 
 local type Node = tree.Node
@@ -40,7 +72,9 @@ local record rules
     file: string
     line: integer
     --- Which rule: "narrowed-integer", "above-buffer",
-    --- "held-across-raise".
+    --- "held-across-raise", "string-after-pop", "returned-shape",
+    --- "failure-shape", "pass-fail-int", "constant-return", "true-alone",
+    --- "single-file".
     rule: string
     --- The function it is in.
     within: string
@@ -51,14 +85,34 @@ local record rules
   --- `"<file> <function> <rule>"`.
   exempt: {string: string}
 
+  --- What one translation unit defines that a header declares, and
+  --- every function it refers to: what "single-file" is read from, once
+  --- every unit of the tree has been.
+  record Unit
+    file: string
+    --- The functions it defines that a header declares, neither static
+    --- nor inline, to that declaration.
+    defines: {string: tree.Node}
+    --- The names of the functions it refers to anywhere.
+    refers: {string: boolean}
+  end
+
   --- What core/syscalls.h declares a binding returns: how many values,
   --- and whether the last is an errno or a code, so that a failure is
   --- three of them.
   record Declared
     count: integer
     fallible: boolean
+    --- Whether what it returns on success is `boolean`: an effect, whose
+    --- failure is `false`, rather than a value, whose failure is `nil`.
+    effect: boolean
   end
 end
+
+--- Why a function the checked core alone refers to is still in a header.
+local checked_only <const> = "every file refers to it through a macro of its header " ..
+  "that names it only in the checked core (COSMIC_CHECKED); the check compiles " ..
+  "the others as a release core does, where the macro names libc's or nothing"
 
 rules.exempt = {
   ["core/boot.c slurp held-across-raise"] =
@@ -74,6 +128,14 @@ rules.exempt = {
   ["core/syscalls_fs.c cosmic_sys_open_temporary held-across-raise"] =
     "its answer, and the answer's \"fd\" key, exist before the file is opened, " ..
     "so setting the descriptor into it allocates nothing",
+  ["core/memory.h cosmic_malloc single-file"] = checked_only,
+  ["core/memory.h cosmic_calloc single-file"] = checked_only,
+  ["core/memory.h cosmic_realloc single-file"] = checked_only,
+  ["core/memory.h cosmic_free single-file"] = checked_only,
+  ["core/fault.h cosmic_fault single-file"] = checked_only,
+  ["core/startup_hook.c cosmic_startup_test_pause constant-return"] =
+    "a link-time seam: the product hook always lets startup go on, and " ..
+    "test/portable/startup_hook.c, linked in its place, answers whether it may",
 }
 
 --- The calls that take a resource, and the argument that receives it
@@ -219,6 +281,10 @@ local record Context
   findings: {rules.Finding}
   --- What the tree's own functions release, by name and argument index.
   releasing: {string: {integer: boolean}}
+  --- The functions of the file that return `int` and only truths.
+  truthful: {string: boolean}
+  --- The failure shape each function of the file returns in.
+  shapes: {string: string}
 end
 
 local function report(ctx: Context, node: Node, rule: string, message: string)
@@ -728,9 +794,33 @@ local record Function
   name: string
   params: {Node}
   body: Node
+  --- Its definition.
+  decl: Node
+  --- Its type as written: `int (lua_State *)`.
+  type: string
+  --- Whether it is `static`, and whether it is `inline`.
+  static: boolean
+  inline: boolean
+  --- A declaration of it in a header, or nil when no header declares it.
+  prototype: Node
+end
+
+--- Whether a function declaration says `static`, or `inline`: the words
+--- after its type.
+local function storage(decl: Node): boolean, boolean
+  local words = decl.text:match("'([^']*)$") or ""
+  return words:find("static", 1, true) ~= nil, words:find("inline", 1, true) ~= nil
 end
 
 local function functions(decls: {Node}): {Function}
+  -- The first header declaration of each function, by name.
+  local prototypes: {string: Node} = {}
+  for _, decl in ipairs(decls) do
+    if decl.kind == "FunctionDecl" and String.ends_with(decl.file or "", ".h") then
+      local name = name_of(decl)
+      if name ~= nil and prototypes[name] == nil then prototypes[name] = decl end
+    end
+  end
   local out: {Function} = {}
   for _, decl in ipairs(decls) do
     if decl.kind == "FunctionDecl" then
@@ -741,7 +831,15 @@ local function functions(decls: {Node}): {Function}
         if child.kind == "CompoundStmt" then body = child end
       end
       if body ~= nil then
-        out[#out + 1] = { name = name_of(decl), params = params, body = body }
+        local name = name_of(decl)
+        local static, inline = storage(decl)
+        local prototype = prototypes[name]
+        if prototype == decl then prototype = nil end
+        out[#out + 1] = {
+          name = name, params = params, body = body, decl = decl,
+          type = tree.canonical_type(decl) or "", static = static, inline = inline,
+          prototype = prototype,
+        }
       end
     end
   end
@@ -770,7 +868,236 @@ local function releasing(fns: {Function}): {string: {integer: boolean}}
   return out
 end
 
+-- constant-return, pass-fail-int, true-alone ---------------------------
+
+--- Whether a function is a `lua_CFunction`: its `int` is how many values
+--- it leaves on the stack, not a status.
+local function lua_facing(fn: Function): boolean
+  return fn.type == "int (lua_State *)" or fn.type == "int (struct lua_State *)"
+end
+
+--- Whether a function is handed the state first: its `int` may be a
+--- count of values it left, as a lua_CFunction's is.
+local function state_first(fn: Function): boolean
+  return fn.type:match("^int %(lua_State %*") ~= nil
+    or fn.type:match("^int %(struct lua_State %*") ~= nil
+end
+
+--- Every `return` in a body.
+local function returns_in(body: Node): {Node}
+  local out: {Node} = {}
+  after(body, function(n: Node)
+    if n.kind == "ReturnStmt" then out[#out + 1] = n end
+  end)
+  return out
+end
+
+--- The operators whose value is a truth.
+local truths: {string: boolean} = {
+  ["=="] = true, ["!="] = true, ["<"] = true, [">"] = true, ["<="] = true,
+  [">="] = true, ["&&"] = true, ["||"] = true,
+}
+
+--- What an expression may be read as a truth through: the functions of
+--- the file that return only truths, and the locals of the function
+--- that are only ever given one, by address.
+local record Truths
+  functions: {string: boolean}
+  locals: {string: boolean}
+end
+
+--- Whether an expression is a truth: the literal 0 or 1, a comparison,
+--- a logical operator, a value of type bool, a call of a function that
+--- returns only truths, or a local only ever given one.
+local function truth(node: Node, known: Truths): boolean
+  local bare = tree.bare(node)
+  if bare == nil then return false end
+  local v = constant(bare)
+  if v ~= nil then return v == 0 or v == 1 end
+  if bare.kind == "BinaryOperator" and truths[bare.text:match("'([^']*)'$") or ""] then
+    return true
+  end
+  if bare.kind == "UnaryOperator" and bare.text:find("'!'", 1, true) ~= nil then
+    return true
+  end
+  if bare.kind == "CallExpr" and known.functions[tree.callee(bare) or ""] then
+    return true
+  end
+  local kind, id = tree.referent(bare)
+  if kind == "Var" and known.locals[id] then return true end
+  local t = tree.canonical_type(bare)
+  return t == "_Bool" or t == "bool"
+end
+
+--- The locals of `body` given only truths: at their declaration, and at
+--- every assignment.
+local function truth_locals(body: Node, known: Truths): {string: boolean}
+  local offered: {string: boolean} = {}
+  local refused: {string: boolean} = {}
+  after(body, function(n: Node)
+    if n.kind == "VarDecl" then
+      local init = n.children[#n.children]
+      if init ~= nil and init.kind ~= "ParmVarDecl" and truth(init, known) then
+        offered[n.id] = true
+      else
+        refused[n.id] = true
+      end
+    elseif n.kind == "BinaryOperator" and n.text:match("'='$") then
+      local kind, id = tree.referent(tree.bare(n.children[1]))
+      if kind == "Var" and not truth(n.children[2], known) then refused[id] = true end
+    elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator"
+        and (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true)
+          or n.text:find("'&'", 1, true))) then
+      -- Changed in place, or handed out by address to be written
+      -- anything at all: `fetch(&status)`.
+      local kind, id = tree.referent(tree.bare(n.children[1]))
+      if kind == "Var" then refused[id] = true end
+    end
+  end)
+  local out: {string: boolean} = {}
+  for id in pairs(offered) do
+    if not refused[id] then out[id] = true end
+  end
+  return out
+end
+
+--- Whether every `return` of `fn` returns a truth, of which there is at
+--- least one.
+local function returns_truths(fn: Function, known: Truths): boolean
+  local returns = returns_in(fn.body)
+  if #returns == 0 then return false end
+  local mine: Truths = { functions = known.functions, locals = truth_locals(fn.body, known) }
+  for _, r in ipairs(returns) do
+    if #r.children ~= 1 or not truth(r.children[1], mine) then return false end
+  end
+  return true
+end
+
+--- The functions of a file that return `int` and only truths, found
+--- until no more are: a helper that returns 0 on every failure makes the
+--- function returning it one too.
+local function truthful(fns: {Function}): {string: boolean}
+  local known: Truths = { functions = {}, locals = {} }
+  local changed = true
+  while changed do
+    changed = false
+    for _, fn in ipairs(fns) do
+      if not known.functions[fn.name] and fn.type:match("^int %(") and not lua_facing(fn)
+          and returns_truths(fn, known) then
+        known.functions[fn.name] = true
+        changed = true
+      end
+    end
+  end
+  return known.functions
+end
+
+--- A function of external linkage whose every `return` returns one
+--- constant is a function that returns nothing; one declared in a header
+--- to return `int` that returns only truths is a pass or a fail, which
+--- is a `bool`.
+local function returned_constant(ctx: Context, fn: Function)
+  if fn.static or fn.name == "main" or state_first(fn) then return end
+  local returns = returns_in(fn.body)
+  if #returns == 0 then return end
+  local same: integer = nil
+  local all_same = true
+  for _, r in ipairs(returns) do
+    local v = #r.children == 1 and constant(r.children[1]) or nil
+    if v == nil or (same ~= nil and v ~= same) then all_same = false end
+    same = same or v
+  end
+  if all_same then
+    report(ctx, fn.decl, "constant-return", fn.name .. " returns " .. same ..
+      " on every path, which tells its caller nothing: return void")
+  elseif fn.prototype ~= nil and fn.type:match("^int %(") and ctx.truthful[fn.name] then
+    report(ctx, fn.decl, "pass-fail-int", fn.name .. " returns only 0, 1 or a truth, " ..
+      "a pass or a fail: return bool (<stdbool.h>), true for success, rather than int")
+  end
+end
+
+--- Whether a `return` leaves `true` alone on the stack: `return
+--- cosmic_ok(L)`, or `return 1` just after `lua_pushboolean(L, 1)`.
+local function returns_true_alone(r: Node): boolean
+  local value = #r.children == 1 and tree.bare(r.children[1]) or nil
+  if value == nil then return false end
+  if value.kind == "CallExpr" and tree.callee(value) == "cosmic_ok" then return true end
+  if constant(value) ~= 1 then return false end
+  local block = r.parent
+  if block == nil or block.kind ~= "CompoundStmt" then return false end
+  local before: Node = nil
+  for i, child in ipairs(block.children) do
+    if child == r then before = block.children[i - 1] break end
+  end
+  local call = before and tree.bare(before)
+  if call == nil or call.kind ~= "CallExpr" or tree.callee(call) ~= "lua_pushboolean" then
+    return false
+  end
+  local flag = arguments(call)[2]
+  local v = flag and constant(flag)
+  return v ~= nil and v ~= 0
+end
+
+--- A `lua_CFunction` that, whenever it returns, returns `true` and
+--- nothing else tells its caller nothing: it returns no values.
+local function true_alone(ctx: Context, fn: Function)
+  -- A header's inline helper is a piece of a binding's return, such as
+  -- cosmic_ok (core/fail.h), not a binding.
+  if not lua_facing(fn) or fn.inline then return end
+  local any = false
+  for _, r in ipairs(returns_in(fn.body)) do
+    local value = #r.children == 1 and tree.bare(r.children[1]) or nil
+    if value ~= nil and value.kind == "CallExpr" and ends(value) then
+      -- A raise is no return.
+    elseif returns_true_alone(r) then
+      any = true
+    else
+      return
+    end
+  end
+  if any then
+    report(ctx, fn.decl, "true-alone", fn.name .. " returns true and nothing else " ..
+      "on every path, which tells its caller nothing: return no values")
+  end
+end
+
 -- returned-shape -------------------------------------------------------
+
+--- The failure shape each function of a file returns in: "fail" for one
+--- whose every shaped `return` is `cosmic_fail` (nil, error, errno) or a
+--- helper of that shape, "effect" for `cosmic_fail_effect`, "ok" for
+--- `cosmic_ok`; a function with no shaped return, or more than one
+--- shape, has none. Found until no more are, so a wrapper of a wrapper
+--- is seen through.
+local function failure_shapes(fns: {Function}): {string: string}
+  local shapes: {string: string} = {
+    cosmic_fail = "fail", cosmic_fail_effect = "effect", cosmic_ok = "ok",
+  }
+  local changed = true
+  while changed do
+    changed = false
+    for _, fn in ipairs(fns) do
+      if shapes[fn.name] == nil and not fn.name:match("^cosmic_sys_") then
+        local shape: string = nil
+        local mixed = false
+        for _, r in ipairs(returns_in(fn.body)) do
+          local value = #r.children == 1 and tree.bare(r.children[1]) or nil
+          local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
+          local this = helper ~= nil and shapes[helper] or nil
+          if this ~= nil then
+            if shape ~= nil and shape ~= this then mixed = true end
+            shape = shape or this
+          end
+        end
+        if shape ~= nil and not mixed then
+          shapes[fn.name] = shape
+          changed = true
+        end
+      end
+    end
+  end
+  return shapes
+end
 
 --- Every `return` of a count in a binding of the syscall table, against
 --- what the binding is declared to return. A count is what a binding
@@ -783,6 +1110,20 @@ local function returned_shape(ctx: Context, name: string, body: Node,
   if d == nil then return end
   after(body, function(n: Node)
     if n.kind ~= "ReturnStmt" or #n.children ~= 1 then return end
+    local value = tree.bare(n.children[1])
+    local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
+    local shape = helper ~= nil and ctx.shapes[helper] or nil
+    local through = helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_")
+      and " (through " .. helper .. ")" or ""
+    if d.fallible and d.effect and shape == "fail" then
+      report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared an effect " ..
+        "(boolean), whose failure is false, a message and an errno: return " ..
+        "cosmic_fail_effect, not cosmic_fail" .. through .. " (core/fail.h)")
+    elseif d.fallible and not d.effect and (shape == "effect" or shape == "ok") then
+      report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared to return " ..
+        "a value, whose failure is nil, a message and an errno, and never a bare true: " ..
+        "return the value, or cosmic_fail" .. through .. " (core/fail.h)")
+    end
     local count = constant(n.children[1])
     if count == nil then return end
     if count > d.count then
@@ -796,6 +1137,64 @@ local function returned_shape(ctx: Context, name: string, body: Node,
   end)
 end
 
+-- single-file ----------------------------------------------------------
+
+--- What the translation unit `file`, whose own declarations are `decls`,
+--- defines for others and refers to.
+function rules.unit(decls: {Node}, file: string,
+                    declared?: {string: rules.Declared}): rules.Unit
+  local u: rules.Unit = { file = file, defines = {}, refers = {} }
+  for _, fn in ipairs(functions(decls)) do
+    -- A binding's declaration in core/syscalls.h carries the annotation
+    -- the Teal declaration is made from, whoever refers to it.
+    local call = fn.name:match("^cosmic_sys_(.+)$")
+    local binding = call ~= nil and declared ~= nil and declared[call] ~= nil
+    if fn.prototype ~= nil and not fn.static and not fn.inline and not binding then
+      u.defines[fn.name] = fn.prototype
+    end
+  end
+  for _, decl in ipairs(decls) do
+    after(decl, function(n: Node)
+      local kind, _, name = tree.referent(n)
+      if kind == "Function" then u.refers[name] = true end
+    end)
+  end
+  return u
+end
+
+--- The functions a header declares that no translation unit but the one
+--- defining it refers to, over `units`, every translation unit of a tree:
+--- such a function is the defining file's own, and belongs in it as
+--- `static`, out of the header. What `exempt` excuses is left out.
+function rules.single_file(units: {rules.Unit}): {rules.Finding}
+  local out: {rules.Finding} = {}
+  for _, u in ipairs(units) do
+    for name, prototype in pairs(u.defines) do
+      local elsewhere = false
+      for _, other in ipairs(units) do
+        if other.file ~= u.file and other.refers[name] then
+          elsewhere = true
+          break
+        end
+      end
+      local file, line = tree.place(prototype)
+      file = file or u.file
+      if not elsewhere and rules.exempt[file .. " " .. name .. " single-file"] == nil then
+        out[#out + 1] = {
+          file = file, line = line or 0, rule = "single-file", within = name,
+          message = name .. " is used only by " .. u.file .. ", which defines it: " ..
+            "make it static there and take it out of the header",
+        }
+      end
+    end
+  end
+  table.sort(out, function(a: rules.Finding, b: rules.Finding): boolean
+    if a.file ~= b.file then return a.file < b.file end
+    return a.line < b.line
+  end)
+  return out
+end
+
 --- Every finding in `decls`, a translation unit's own declarations, that
 --- `exempt` does not excuse, sorted by place. `declared` is what
 --- core/syscalls.h declares each binding returns, by the binding's name.
@@ -804,12 +1203,15 @@ function rules.check(decls: {Node}, file: string,
   local fns = functions(decls)
   local findings: {rules.Finding} = {}
   local ctx: Context = { file = file, within = "", findings = findings,
-                         releasing = releasing(fns) }
+                         releasing = releasing(fns), truthful = truthful(fns),
+                         shapes = failure_shapes(fns) }
   for _, fn in ipairs(fns) do
     ctx.within = fn.name
     narrowed(ctx, fn.body)
     above_buffer(ctx, fn.body, fn.params)
     returned_shape(ctx, fn.name, fn.body, declared or {})
+    returned_constant(ctx, fn)
+    true_alone(ctx, fn)
     local state: State = { held = {}, locals = {}, reported = {}, status = {}, strings = {} }
     statement(ctx, fn.body, state)
   end

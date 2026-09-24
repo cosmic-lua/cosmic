@@ -1,10 +1,10 @@
 #include "startup.h"
 
-int cosmic_startup_test_pause (const struct cosmic_startup *startup,
-                               const char **error) {
+bool cosmic_startup_test_pause (const struct cosmic_startup *startup,
+                                const char **error) {
   (void)startup;
   (void)error;
-  return 1;
+  return true;
 }
 
 void cosmic_startup_test_phase (const struct cosmic_startup *startup,

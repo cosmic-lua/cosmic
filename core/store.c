@@ -488,7 +488,7 @@ static int push_binary_meta (lua_State *L, int list, const char *key) {
  * names, which is what a runtime identity is made of. A portable start checked
  * it before Lua ran; a host program is checked the first time it is asked.
  * The artifact is main's own, not a constant: the answer is remembered on it. */
-static int core_identity_holds (const struct cosmic_artifact *artifact) {
+static bool core_identity_holds (const struct cosmic_artifact *artifact) {
   return cosmic_artifact_core_matches((struct cosmic_artifact *)artifact);
 }
 
@@ -723,8 +723,8 @@ sqlite3 *cosmic_store_database (lua_State *L, int index) {
   return db;
 }
 
-int cosmic_store_install (lua_State *L, sqlite3 *binary,
-                          const struct cosmic_artifact *artifact) {
+void cosmic_store_install (lua_State *L, sqlite3 *binary,
+                           const struct cosmic_artifact *artifact) {
   lua_newtable(L);
   if (binary != NULL) {
     sqlite3_set_authorizer(binary, reads_only, NULL);
@@ -756,7 +756,6 @@ int cosmic_store_install (lua_State *L, sqlite3 *binary,
    * above can reach it. */
   open_store_module(L, artifact);
   cosmic_store_set_raw(L, "cosmic.internal.store");
-  return 0;
 }
 
 void cosmic_store_set_raw (lua_State *L, const char *name) {
@@ -795,9 +794,9 @@ void cosmic_store_preload_raw (lua_State *L) {
   lua_pop(L, 1);
 }
 
-int cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size) {
+bool cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size) {
   if (size == 0) {
-    return 0;
+    return false;
   }
   out[0] = '\0';
   lua_getfield(L, LUA_REGISTRYINDEX, STORE_LIST);
@@ -805,7 +804,7 @@ int cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size) {
   lua_pushstring(L, key);
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
     lua_pop(L, 1);
-    return 0;
+    return false;
   }
   /* Copied while the value is still on the stack: once popped, nothing
    * keeps its string alive. */

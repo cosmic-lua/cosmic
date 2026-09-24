@@ -6,22 +6,24 @@
  * failure paths when nothing it can arrange makes the library fail.
  *
  * Only the checked core has fault points (core/testing_checked.c); in
- * every other core the macro is the constant 0, and the guarded call is
+ * every other core the macro is the constant false, and the guarded call is
  * all that is compiled.
  */
 
 #ifndef COSMIC_FAULT_H
 #define COSMIC_FAULT_H
 
+#include <stdbool.h>
+
 #ifdef COSMIC_CHECKED
 
 /* True, once, when `point` is armed and its skipped calls are used up. */
-int cosmic_fault (const char *point);
+bool cosmic_fault (const char *point);
 #define COSMIC_FAULT(point) cosmic_fault(point)
 
 #else
 
-#define COSMIC_FAULT(point) 0
+#define COSMIC_FAULT(point) false
 
 #endif
 

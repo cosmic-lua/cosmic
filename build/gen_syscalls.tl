@@ -164,6 +164,16 @@ local function parse_call(name: string, lines: {string}): Call | nil, string
       "value, string, integer)"
   end
   if n == 3 then
+    local first = call.results[1].kind
+    if first == "boolean | nil" then
+      return nil, name .. ": a fallible syscall's first return is boolean, an " ..
+        "effect that fails with false, or a value that fails with nil -- " ..
+        "never boolean|nil"
+    end
+    if first ~= "boolean" and first:sub(-6) ~= " | nil" then
+      return nil, name .. ": a fallible syscall's first return is boolean, or " ..
+        "a value that fails with nil (T|nil)"
+    end
     if call.results[2].kind ~= "string" then
       return nil, name .. ": a fallible syscall's second return is the " ..
         "error, which must be string"

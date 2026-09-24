@@ -10,6 +10,8 @@
 #ifndef COSMIC_STORE_H
 #define COSMIC_STORE_H
 
+#include <stdbool.h>
+
 #include "lua.h"
 #include "sqlite3.h"
 
@@ -20,8 +22,8 @@ struct cosmic_artifact;
  * opened. The raw `cosmic.internal.store` value goes in the registry,
  * never in package.preload: only a caller the searcher itself trusts
  * ever gets it back. */
-int cosmic_store_install (lua_State *L, sqlite3 *binary,
-                          const struct cosmic_artifact *artifact);
+void cosmic_store_install (lua_State *L, sqlite3 *binary,
+                           const struct cosmic_artifact *artifact);
 
 /* Registers the value on top of the stack (popped) as the raw module a
  * trusted caller's `require(name)` resolves to. core/surface.c's
@@ -41,9 +43,9 @@ void cosmic_store_open_raw (lua_State *L);
 void cosmic_store_preload_raw (lua_State *L);
 
 /* Copies one entry of the meta table into `out`, NUL-terminated. Returns
- * 0 when the entry is missing, cannot be read, or does not fit in `size`
- * bytes; `out` is then an empty string. */
-int cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size);
+ * false when the entry is missing, cannot be read, or does not fit in
+ * `size` bytes; `out` is then an empty string. */
+bool cosmic_store_meta (lua_State *L, const char *key, char *out, size_t size);
 
 /* The databases `require` searches, in search order: how many there
  * are, and the connection at 1-based `index` (NULL past the end). The
