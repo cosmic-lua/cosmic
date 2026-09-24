@@ -795,7 +795,7 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   else
     if entry.uses > 0 then
       lines[#lines + 1] = "  used in " .. entry.uses .. " place" ..
-        (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.symbol
+        (entry.uses == 1 and "" or "s") .. "; cosmic uses " .. entry.source_symbol
     end
     local examples, examples_trouble = across(view,
       function(db: Sqlite.Handle, public: boolean): {docs.Example} | nil, string

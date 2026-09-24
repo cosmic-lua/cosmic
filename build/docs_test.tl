@@ -2,14 +2,26 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local docs = require("build.docs")
+local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
 
---- One in-memory shipped database holding the rows a test names, its
---- FTS index built, so the lookups run against the real schema. A row's
---- ninth field is its `source_symbol` when that differs from its symbol,
---- as the build writes an exported member: `find`, written `Proc.find`.
+--- Lines as one source file's text.
+local function source(...: string): string
+  return table.concat({ ... }, "\n") .. "\n"
+end
+
+--- The shipped database the tree `files` builds to, rows and all, as
+--- `build.docs_fixture` makes it with the build's own code.
+local function built(dir: string, files: {string: string}): Sqlite.Handle
+  return fixture.database(dir, files)
+end
+
+--- One in-memory shipped database holding rows written by hand, for a
+--- shape the build's projection of a tree never writes (each caller says
+--- which). A row's eighth field is "private" for an unexported symbol,
+--- its ninth its `source_symbol` when that differs from its symbol.
 local function database(rows: {{string}}, uses: {{string}},
-                        examples?: {{string}}, modules?: {string}): Sqlite.Handle
+                        modules?: {string}): Sqlite.Handle
   local db = assert(Sqlite.memory())
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
@@ -22,7 +34,6 @@ local function database(rows: {{string}}, uses: {{string}},
   else
     for _, row in ipairs(rows) do members[row[1]] = true end
     for _, row in ipairs(uses) do members[row[3]] = true end
-    for _, row in ipairs(examples or {}) do members[row[1]] = true end
   end
   for module in pairs(members) do
     assert(Sqlite.run(db,
@@ -46,13 +57,6 @@ local function database(rows: {{string}}, uses: {{string}},
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
         { integer = math.tointeger(tonumber(row[5])) } }))
   end
-  for _, row in ipairs(examples or {}) do
-    assert(Sqlite.run(db,
-      "INSERT INTO examples (module, name, text, file, line, source) " ..
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-      { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
-        { integer = math.tointeger(tonumber(row[5])) }, { text = row[6] } }))
-  end
   assert(db:exec("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')"))
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
   return db
@@ -62,41 +66,87 @@ local function view(databases: {Sqlite.Handle}): docs.View
   return (assert(docs.view(databases)))
 end
 
-local fs_rows: {{string}} = {
-  { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
-  { "cosmic.fs", "Fs", "record", "local record Fs", "", "cosmic/fs.tl", "12" },
-  { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string | nil, string",
-    "The whole of a file.", "cosmic/fs.tl", "23" },
-  { "cosmic.fs", "Fs.write", "function", "function Fs.write(path: string, data: string): boolean, string",
-    "Writes the whole of a file.\nCreates no parent directory.", "cosmic/fs.tl", "40" },
-}
-local fs_uses: {{string}} = {
-  { "cosmic.fs", "Fs.read", "build.boot", "build/boot.tl", "56" },
-  { "cosmic.fs", "Fs.read", "build.test", "build/test.tl", "225" },
-}
+--- `cosmic.fs`, documented, and two modules that each read a file
+--- through it: `build/boot.tl` on its line 3, `build/test.tl` on its 4.
+local function fs_tree(extra?: {string: string}): {string: string}
+  local files: {string: string} = {
+    ["cosmic/fs.tl"] = source(
+      "--- Files and directories.",
+      "",
+      "local record Fs",
+      "end",
+      "",
+      "--- The whole of a file.",
+      "function Fs.read(path: string): string | nil, string",
+      "  return nil, path",
+      "end",
+      "",
+      "--- Writes the whole of a file.",
+      "--- Creates no parent directory.",
+      "function Fs.write(path: string, data: string): boolean, string",
+      "  return false, path .. data",
+      "end",
+      "",
+      "return Fs"),
+    ["build/boot.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local text = Fs.read(\"boot\")",
+      "return text"),
+    ["build/test.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "",
+      "local text = Fs.read(\"test\")",
+      "return text"),
+  }
+  for path, text in pairs(extra or {}) do
+    files[path] = text
+  end
+  return files
+end
+
+--- A worked example for `cosmic.fs`: `Example.<name>`, its doc comment
+--- `text`, its body `body`, declared on line 7 of its file.
+local function fs_example(name: string, text: string, body: string): string
+  return source(
+    "local Fs = require(\"cosmic.fs\")",
+    "local Hash = require(\"cosmic.hash\")",
+    "",
+    "local record Example",
+    "end",
+    "",
+    "--- " .. text,
+    "function Example." .. name .. "()",
+    body,
+    "end",
+    "",
+    "return Example")
+end
 
 --- A symbol as declared is found by name, with its use count.
-local function test_looks_up_a_symbol_as_declared()
-  local db = database(fs_rows, fs_uses)
+local function test_looks_up_a_symbol_as_declared(dir: string)
+  local db = built(dir, fs_tree())
   local found, trouble = docs.lookup(view({ db }), "Fs.read")
   local exact = found ~= nil and found.exact
   assert(found ~= nil, trouble)
   assert(exact, "a declared name was not an exact match")
-  assert(#found == 1 and found[1].symbol == "Fs.read", tostring(#found))
+  assert(#found == 1 and found[1].source_symbol == "Fs.read", tostring(#found))
+  assert(found[1].symbol == "read", found[1].symbol)
   assert(found[1].uses == 2, tostring(found[1].uses))
 end
 
 --- A symbol's last name alone finds every symbol ending in it.
-local function test_looks_up_a_symbol_by_its_last_name()
-  local db = database(fs_rows, fs_uses)
+local function test_looks_up_a_symbol_by_its_last_name(dir: string)
+  local db = built(dir, fs_tree())
   local found = assert(docs.lookup(view({ db }), "read"))
-  assert(#found == 1 and found[1].symbol == "Fs.read")
+  assert(#found == 1 and found[1].source_symbol == "Fs.read", tostring(#found))
 end
 
 --- A module's own name finds its module row; rendering it lists what
 --- the module declares.
-local function test_looks_up_a_module_and_lists_its_symbols()
-  local db = database(fs_rows, fs_uses)
+local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
+  local db = built(dir, fs_tree())
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   assert(#found == 1 and found[1].kind == "module", tostring(#found))
   local lines = assert(docs.render(view({ db }), found[1]))
@@ -110,17 +160,24 @@ end
 --- A module's listing leaves out the functions its returned value never
 --- reaches, but keeps the types it declares; a private function is still
 --- found by its own name.
-local function test_a_module_listing_leaves_out_private_functions()
-  local rows: {{string}} = {
-    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
-    { "cosmic.fs", "Stat", "record", "local record Stat", "", "cosmic/fs.tl", "5", "private" },
-    { "cosmic.fs", "Fs", "record", "local record Fs", "", "cosmic/fs.tl", "12" },
-    { "cosmic.fs", "write_all", "function", "local function write_all(fd: integer)",
-      "", "cosmic/fs.tl", "18", "private" },
-    { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string",
-      "", "cosmic/fs.tl", "23" },
-  }
-  local db = database(rows, {})
+local function test_a_module_listing_leaves_out_private_functions(dir: string)
+  local db = built(dir, { ["cosmic/fs.tl"] = source(
+    "--- Files and directories.",
+    "",
+    "local record Stat",
+    "end",
+    "",
+    "local record Fs",
+    "end",
+    "",
+    "local function write_all(fd: integer)",
+    "end",
+    "",
+    "function Fs.read(path: string): string",
+    "  return path",
+    "end",
+    "",
+    "return Fs") })
   local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local lines = assert(docs.render(view({ db }), found[1]))
   assert(lines[3] == "  record Stat", lines[3])
@@ -133,15 +190,15 @@ end
 
 --- Words that name no symbol search the documentation, every word
 --- required, and a name nothing matches finds nothing.
-local function test_searches_the_documentation_for_words()
-  local db = database(fs_rows, fs_uses)
+local function test_searches_the_documentation_for_words(dir: string)
+  local db = built(dir, fs_tree())
   local words = assert(docs.lookup(view({ db }), "whole file"))
   local exact = words.exact
   assert(words ~= nil)
   assert(not exact)
   assert(#words == 2, tostring(#words))
   local one = assert(docs.lookup(view({ db }), "parent directory"))
-  assert(#one == 1 and one[1].symbol == "Fs.write")
+  assert(#one == 1 and one[1].source_symbol == "Fs.write")
   local none = assert(docs.lookup(view({ db }), "nothing_like_this"))
   assert(#none == 0)
 end
@@ -150,23 +207,41 @@ end
 --- the members whose documentation carries the last name, or every
 --- exported function when none does -- never what another module's
 --- documentation happens to say.
-local function test_a_qualified_miss_answers_from_its_qualifier()
-  -- Rows shaped as the build writes them: a member's own name, and the
-  -- name it was written as.
-  local rows: {{string}} = {
-    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
-    { "cosmic.fs", "read", "function", "function Fs.read(path: string): string",
-      "The whole of a file.", "cosmic/fs.tl", "23", "", "Fs.read" },
-    { "cosmic.fs", "write", "function", "function Fs.write(path: string, data: string): boolean",
-      "Writes the whole of a file.\nCreates no parent directory.", "cosmic/fs.tl", "40", "",
-      "Fs.write" },
-    { "cosmic.fs", "copy_bytes", "function", "local function copy_bytes(fd: integer)",
-      "Copies a file's bytes.", "cosmic/fs.tl", "50", "private" },
-    { "cosmic.proc", "find", "function", "function Proc.find(name: string): string",
-      "Where a program runs from, as `which` finds it; every file on the PATH is read.",
-      "cosmic/proc.tl", "9", "", "Proc.find" },
-  }
-  local db = database(rows, {})
+local function test_a_qualified_miss_answers_from_its_qualifier(dir: string)
+  local db = built(dir, {
+    ["cosmic/fs.tl"] = source(
+      "--- Files and directories.",
+      "",
+      "local record Fs",
+      "end",
+      "",
+      "--- The whole of a file.",
+      "function Fs.read(path: string): string",
+      "  return path",
+      "end",
+      "",
+      "--- Writes the whole of a file.",
+      "--- Creates no parent directory.",
+      "function Fs.write(path: string, data: string): boolean",
+      "  return path == data",
+      "end",
+      "",
+      "--- Copies a file's bytes.",
+      "local function copy_bytes(fd: integer)",
+      "end",
+      "",
+      "return Fs"),
+    ["cosmic/proc.tl"] = source(
+      "local record Proc",
+      "end",
+      "",
+      "--- Where a program runs from, as `which` finds it; every file on the PATH is read.",
+      "function Proc.find(name: string): string",
+      "  return name",
+      "end",
+      "",
+      "return Proc"),
+  })
   local near = assert(docs.lookup(view({ db }), "Fs.parent"))
   assert(not near.exact)
   assert(#near == 1 and near[1].source_symbol == "Fs.write", tostring(#near))
@@ -188,21 +263,43 @@ end
 --- A word the documentation spells as code outranks one it only uses,
 --- unless that word is one of the function's own parameters, which
 --- documentation spells as code everywhere.
-local function test_a_search_ranks_what_a_function_stands_in_for()
-  local rows: {{string}} = {
-    { "cosmic.proc", "find", "function", "function Proc.find(name: string): string",
-      "Where a program runs from, as `which` finds it; `name` itself when it holds " ..
-      "a slash.", "cosmic/proc.tl", "9", "", "Proc.find" },
-    { "cosmic.time", "CLOCK", "value", "CLOCK: integer",
-      "The clock which steps.", "cosmic/time.tl", "3" },
-    { "cosmic.env", "get", "function", "function Env.get(name: string): string",
-      "A variable's value, looked up by its exact `name` in this process's " ..
-      "environment as it stands when called, or nil when it is unset.",
-      "cosmic/env.tl", "4", "", "Env.get" },
-    { "cosmic.env", "names", "function", "function Env.names(): {string}",
-      "Each variable name.", "cosmic/env.tl", "8", "", "Env.names" },
-  }
-  local db = database(rows, {})
+local function test_a_search_ranks_what_a_function_stands_in_for(dir: string)
+  local db = built(dir, {
+    ["cosmic/proc.tl"] = source(
+      "local record Proc",
+      "end",
+      "",
+      "--- Where a program runs from, as `which` finds it; `name` itself when it holds",
+      "--- a slash.",
+      "function Proc.find(name: string): string",
+      "  return name",
+      "end",
+      "",
+      "return Proc"),
+    ["cosmic/time.tl"] = source(
+      "local record Time",
+      "  --- The clock which steps.",
+      "  CLOCK: integer",
+      "end",
+      "",
+      "return Time"),
+    ["cosmic/env.tl"] = source(
+      "local record Env",
+      "end",
+      "",
+      "--- A variable's value, looked up by its exact `name` in this process's",
+      "--- environment as it stands when called, or nil when it is unset.",
+      "function Env.get(name: string): string",
+      "  return name",
+      "end",
+      "",
+      "--- Each variable name.",
+      "function Env.names(): {string}",
+      "  return {}",
+      "end",
+      "",
+      "return Env"),
+  })
   local which = assert(docs.lookup(view({ db }), "which"))
   assert(which[1].source_symbol == "Proc.find", which[1].source_symbol)
   -- Both spell `name` as code, but as their parameter: neither is
@@ -213,25 +310,31 @@ end
 
 --- A one-letter word is a flag no documentation spells alone, so a
 --- search leaves it out rather than finding nothing.
-local function test_a_search_leaves_out_one_letter_words()
-  local db = database(fs_rows, fs_uses)
+local function test_a_search_leaves_out_one_letter_words(dir: string)
+  local db = built(dir, fs_tree())
   local found = assert(docs.lookup(view({ db }), "parent directory -p"))
-  assert(#found == 1 and found[1].symbol == "Fs.write", tostring(#found))
+  assert(#found == 1 and found[1].source_symbol == "Fs.write", tostring(#found))
   -- A query of nothing else still searches for what it has.
-  local lone = database({
-    { "cosmic.fs", "Fs.x", "function", "function Fs.x()", "Axis x.", "cosmic/fs.tl", "3" },
-  }, {})
+  local lone = built(dir, { ["cosmic/fs.tl"] = source(
+    "local record Fs",
+    "end",
+    "",
+    "--- Axis x.",
+    "function Fs.x()",
+    "end",
+    "",
+    "return Fs") })
   local x = assert(docs.lookup(view({ lone }), "x -"))
   assert(#x == 1, tostring(#x))
 end
 
 --- A symbol renders as where it is, its signature, its documentation
 --- line by line, and how it is used.
-local function test_renders_a_symbol()
-  local db = database(fs_rows, fs_uses)
+local function test_renders_a_symbol(dir: string)
+  local db = built(dir, fs_tree())
   local found = assert(docs.lookup(view({ db }), "Fs.write"))
   local lines = assert(docs.render(view({ db }), found[1]))
-  assert(lines[1] == "cosmic.fs Fs.write (cosmic/fs.tl:40)", lines[1])
+  assert(lines[1] == "cosmic.fs Fs.write (cosmic/fs.tl:13)", lines[1])
   assert(lines[2] == "  function Fs.write(path: string, data: string): boolean, string", lines[2])
   assert(lines[3] == "  Writes the whole of a file.", lines[3])
   assert(lines[4] == "  Creates no parent directory.", lines[4])
@@ -246,15 +349,16 @@ end
 --- source, in that order, under `Fs.read`'s own doc comment; a
 --- module's own listing marks which of its symbols have one. The
 --- example is matched to `Fs.read` by its own code calling it, not by
---- its function name (`read`, here, could have been anything).
-local function test_renders_a_symbols_example()
-  local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "read", "Reads a file back.", "cosmic/fs_example.tl",
-      "3", "function Example.read()\n  print(Fs.read(\"x\"))\nend" },
-  })
+--- its function name (`read`, here, could have been anything). An
+--- example's own call is a use, as any module's is.
+local function test_renders_a_symbols_example(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
+      "  print(Fs.read(\"x\"))"),
+  }))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
   local lines = assert(docs.render(view({ db }), read[1]))
-  assert(lines[#lines - 4] == "  example read (cosmic/fs_example.tl:3):",
+  assert(lines[#lines - 4] == "  example read (cosmic/fs_example.tl:8):",
     lines[#lines - 4])
   assert(lines[#lines - 3] == "  Reads a file back.", lines[#lines - 3])
   assert(lines[#lines - 2] == "    function Example.read()", lines[#lines - 2])
@@ -263,20 +367,31 @@ local function test_renders_a_symbols_example()
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[4] == "  function Fs.read (2 uses, 1 example)", module_lines[4])
+  assert(module_lines[4] == "  function Fs.read (3 uses, 1 example)", module_lines[4])
   assert(module_lines[5] == "  function Fs.write", module_lines[5])
 end
 
 --- Many examples can be for one symbol: each is matched independently
 --- by its own code, so nothing caps how many turn up, and each keeps
 --- its own name in the rendering to tell them apart.
-local function test_many_examples_for_one_symbol()
-  local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "basic", "", "cosmic/fs_example.tl", "3",
-      "function Example.basic()\n  print(Fs.read(\"notes.txt\"))\nend" },
-    { "cosmic.fs", "missing_file", "", "cosmic/fs_example.tl", "9",
-      "function Example.missing_file()\n  local ok = Fs.read(\"none\")\nend" },
-  })
+local function test_many_examples_for_one_symbol(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "function Example.basic()",
+      "  print(Fs.read(\"notes.txt\"))",
+      "end",
+      "",
+      "function Example.missing_file()",
+      "  local ok = Fs.read(\"none\")",
+      "end",
+      "",
+      "return Example"),
+  }))
   local read = assert(docs.lookup(view({ db }), "Fs.read"))
   local lines = assert(docs.render(view({ db }), read[1]))
   local headers: {string} = {}
@@ -286,31 +401,45 @@ local function test_many_examples_for_one_symbol()
     end
   end
   assert(#headers == 2, table.concat(headers, " | "))
-  assert(headers[1] == "  example basic (cosmic/fs_example.tl:3):", headers[1])
-  assert(headers[2] == "  example missing_file (cosmic/fs_example.tl:9):", headers[2])
+  assert(headers[1] == "  example basic (cosmic/fs_example.tl:6):", headers[1])
+  assert(headers[2] == "  example missing_file (cosmic/fs_example.tl:10):", headers[2])
 
   local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
   local module_lines = assert(docs.render(view({ db }), module[1]))
-  assert(module_lines[4] == "  function Fs.read (2 uses, 2 examples)", module_lines[4])
+  assert(module_lines[4] == "  function Fs.read (4 uses, 2 examples)", module_lines[4])
 end
 
 --- FTS5 tokenizes on `_`, so `Hash.hex` and `Hash.hex_sha256` share
 --- their first two tokens; an example that only ever calls
 --- `Hash.hex_sha256` must not also match `Hash.hex`.
-local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix()
-  local rows: {{string}} = {
-    { "cosmic.hash", "", "module", "", "", "cosmic/hash.tl", "1" },
-    { "cosmic.hash", "Hash", "record", "local record Hash", "", "cosmic/hash.tl", "5" },
-    { "cosmic.hash", "Hash.hex", "function",
+local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix(dir: string)
+  local db = built(dir, {
+    ["cosmic/hash.tl"] = source(
+      "local record Hash",
+      "end",
+      "",
+      "--- Hex encodes a digest.",
       "function Hash.hex(digest: string): string",
-      "Hex encodes a digest.", "cosmic/hash.tl", "10" },
-    { "cosmic.hash", "Hash.hex_sha256", "function",
+      "  return digest",
+      "end",
+      "",
+      "--- The hexadecimal SHA-256 of some bytes.",
       "function Hash.hex_sha256(data: string): string",
-      "The hexadecimal SHA-256 of some bytes.", "cosmic/hash.tl", "20" },
-  }
-  local db = database(rows, {}, {
-    { "cosmic.hash", "hex_sha256", "", "cosmic/hash_example.tl", "3",
-      "function Example.hex_sha256()\n  print(Hash.hex_sha256(\"x\"))\nend" },
+      "  return data",
+      "end",
+      "",
+      "return Hash"),
+    ["cosmic/hash_example.tl"] = source(
+      "local Hash = require(\"cosmic.hash\")",
+      "",
+      "local record Example",
+      "end",
+      "",
+      "function Example.hex_sha256()",
+      "  print(Hash.hex_sha256(\"x\"))",
+      "end",
+      "",
+      "return Example"),
   })
   local hex = assert(docs.lookup(view({ db }), "Hash.hex"))
   assert(#hex == 1 and hex[1].examples == 0, tostring(hex[1].examples))
@@ -326,11 +455,11 @@ end
 --- A word only a worked example's own code or its own doc comment
 --- mentions -- never in `Fs.read`'s own doc comment -- still finds
 --- `cosmic.fs`, and renders the matching comment and checked source.
-local function test_searches_finds_a_word_only_in_an_example()
-  local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "read", "", "cosmic/fs_example.tl", "3",
-      "function Example.read()\n  print(Hash.hex_sha256(Fs.read(\"x\")))\nend" },
-  })
+local function test_searches_finds_a_word_only_in_an_example(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "Reads a digest.",
+      "  print(Hash.hex_sha256(Fs.read(\"x\")))"),
+  }))
   local found = assert(docs.lookup(view({ db }), "hex_sha256"))
   local exact = found.exact
   assert(found ~= nil)
@@ -339,13 +468,13 @@ local function test_searches_finds_a_word_only_in_an_example()
     found[1].symbol == "Example.read",
     tostring(#found))
   local lines = assert(docs.render(view({ db }), found[1]))
-  assert(lines[1] == "cosmic.fs example read (cosmic/fs_example.tl:3)", lines[1])
+  assert(lines[1] == "cosmic.fs example read (cosmic/fs_example.tl:8)", lines[1])
   assert(table.concat(lines, "\n"):find("Hash.hex_sha256(Fs.read", 1, true) ~= nil)
 
-  local db2 = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "read", "Demonstrates reading a config file.",
-      "cosmic/fs_example.tl", "3", "function Example.read()\nend" },
-  })
+  local db2 = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read",
+      "Demonstrates reading a config file.", ""),
+  }))
   local by_text = assert(docs.lookup(view({ db2 }), "config"))
   assert(#by_text == 1 and by_text[1].module == "cosmic.fs" and
     by_text[1].symbol == "Example.read",
@@ -357,12 +486,11 @@ end
 
 --- A documentation comment ranks first, while the matching worked example is
 --- also returned under its own identity and rendered only there.
-local function test_search_keeps_docs_and_example_identities()
-  local db = database(fs_rows, fs_uses, {
-    { "cosmic.fs", "read_config", "Reads a whole config file.",
-      "cosmic/fs_example.tl", "3",
-      "function Example.read_config()\n  Fs.read(\"config\")\nend" },
-  })
+local function test_search_keeps_docs_and_example_identities(dir: string)
+  local db = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read_config", "Reads a whole config file.",
+      "  Fs.read(\"config\")"),
+  }))
   local found = assert(docs.lookup(view({ db }), "whole config"))
   assert(#found == 1, "expected one example result")
   assert(found[1].symbol == "Example.read_config", found[1].symbol)
@@ -372,15 +500,13 @@ end
 
 --- Examples obey the same whole-module project precedence as docs: a
 --- project's replacement is shown and the binary's older example is hidden.
-local function test_example_search_obeys_module_ownership()
-  local project = database(fs_rows, {}, {
-    { "cosmic.fs", "new_read", "current sentinel contract",
-      "cosmic/fs_example.tl", "3", "function Example.new_read()\nend" },
-  })
-  local binary = database(fs_rows, {}, {
-    { "cosmic.fs", "old_read", "legacy sentinel contract",
-      "cosmic/fs_example.tl", "3", "function Example.old_read()\nend" },
-  })
+local function test_example_search_obeys_module_ownership(dir: string)
+  local project = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("new_read", "current sentinel contract", ""),
+  }))
+  local binary = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("old_read", "legacy sentinel contract", ""),
+  }))
   local current = assert(docs.lookup(view({ project, binary }), "current sentinel"))
   assert(#current == 1)
   assert(table.concat(assert(docs.render(view({ project, binary }), current[1])), "\n"):
@@ -389,16 +515,20 @@ local function test_example_search_obeys_module_ownership()
 end
 
 --- The uses of a symbol, by either name.
-local function test_lists_uses()
-  local db = database(fs_rows, fs_uses)
+local function test_lists_uses(dir: string)
+  local db = built(dir, fs_tree())
   local found = assert(docs.uses(view({ db }), "read"))
   assert(#found == 2 and found[1].from_file == "build/boot.tl", tostring(#found))
+  assert(found[1].line == 3, tostring(found[1].line))
+  assert(#assert(docs.uses(view({ db }), "Fs.read")) == 2)
   assert(#assert(docs.uses(view({ db }), "Fs.write")) == 0)
 end
 
 --- A name spelled from a module's record down is a use of the member
 --- it ends in, and of nothing else with the same last name: a use is
 --- recorded without the module's own record (`write`, `Writer.write`).
+--- Written by hand: `ZipWriter.add_file` is a use through a typed
+--- value, which only a compile finds (see `build.docs_fixture`).
 local function test_a_qualified_name_lists_only_its_own_uses()
   local db = database({}, {
     { "cosmic.fs", "write", "build.boot", "build/boot.tl", "10" },
@@ -422,28 +552,34 @@ end
 
 --- An earlier database owns a module as a whole: symbols removed by the
 --- replacement cannot reappear from a later database.
-local function test_an_earlier_database_hides_a_module_in_a_later_one()
-  local project = database({
-    { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string",
-      "The project's own.", "cosmic/fs.tl", "5" },
-  }, {})
-  local binary = database(fs_rows, fs_uses)
+local function test_an_earlier_database_hides_a_module_in_a_later_one(dir: string)
+  local project = built(dir, { ["cosmic/fs.tl"] = source(
+    "local record Fs",
+    "end",
+    "",
+    "--- The project's own.",
+    "function Fs.read(path: string): string",
+    "  return path",
+    "end",
+    "",
+    "return Fs") })
+  local binary = built(dir, fs_tree())
   local read = assert(docs.lookup(view({ project, binary }), "read"))
   assert(#read == 1 and read[1].text == "The project's own.", tostring(#read))
   local write = assert(docs.lookup(view({ project, binary }), "Fs.write"))
   for _, entry in ipairs(write) do
-    assert(entry.symbol ~= "Fs.write", "a removed symbol reappeared from the older module")
+    assert(entry.source_symbol ~= "Fs.write",
+      "a removed symbol reappeared from the older module")
   end
 end
 
 --- Membership owns a module even when it produced no documentation.
 --- Old symbols and examples must both stay hidden.
-local function test_an_undocumented_module_hides_old_docs_and_examples()
-  local project = database({}, {}, {}, { "cosmic.fs" })
-  local binary = database(fs_rows, {}, {
-    { "cosmic.fs", "read", "legacy example", "cosmic/fs_example.tl", "3",
-      "function Example.read()\n  Fs.read(\"x\")\nend" },
-  })
+local function test_an_undocumented_module_hides_old_docs_and_examples(dir: string)
+  local project = built(dir, { ["cosmic/fs.tl"] = source("return {}") })
+  local binary = built(dir, fs_tree({
+    ["cosmic/fs_example.tl"] = fs_example("read", "legacy example", "  Fs.read(\"x\")"),
+  }))
   local layered = view({ project, binary })
   assert(#assert(docs.lookup(layered, "Fs.read")) == 0)
   assert(#assert(docs.lookup(layered, "legacy example")) == 0)
@@ -451,20 +587,41 @@ end
 
 --- Uses belong to their calling module. Independent callers in later
 --- databases survive, while a replaced caller's older positions do not.
-local function test_uses_merge_active_calling_modules()
-  local project = database({}, {
-    { "external.api", "Api.call", "app.main", "app/main.tl", "9" },
-  })
-  local binary = database({
-    { "external.api", "Api.call", "function", "function Api.call()",
-      "Calls the API.", "external/api.tl", "5" },
-  }, {
-    { "external.api", "Api.call", "app.main", "old/app.tl", "4" },
-    { "external.api", "Api.call", "lib.helper", "lib/helper.tl", "12" },
+local function test_uses_merge_active_calling_modules(dir: string)
+  local project = built(dir, { ["app/main.tl"] = source(
+    "local Api = require(\"external.api\")",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "Api.call()") })
+  local binary = built(dir, {
+    ["external/api.tl"] = source(
+      "local record Api",
+      "end",
+      "",
+      "--- Calls the API.",
+      "function Api.call()",
+      "end",
+      "",
+      "return Api"),
+    ["app/main.tl"] = source(
+      "local Api = require(\"external.api\")",
+      "",
+      "",
+      "Api.call()"),
+    ["lib/helper.tl"] = source(
+      "local Api = require(\"external.api\")",
+      "",
+      "Api.call()"),
   })
   local found = assert(docs.uses(view({ project, binary }), "Api.call"))
   assert(#found == 2, tostring(#found))
-  assert(found[1].from_file == "app/main.tl", found[1].from_file)
+  assert(found[1].from_file == "app/main.tl" and found[1].line == 9,
+    found[1].from_file .. ":" .. found[1].line)
   assert(found[2].from_file == "lib/helper.tl", found[2].from_file)
   local entry = assert(docs.lookup(view({ project, binary }), "Api.call"))[1]
   assert(entry ~= nil and entry.uses == 2, tostring(entry and entry.uses))
@@ -474,29 +631,58 @@ end
 --- source: it answers for the standard library's own modules and for
 --- nothing behind them -- not the build, not `cosmic.internal.*`, not
 --- a test -- and counts only the uses those modules make.
-local function test_a_public_source_answers_only_for_the_standard_library()
-  local rows: {{string}} = {
-    { "cosmic.fs", "", "module", "", "Files and directories.", "cosmic/fs.tl", "1" },
-    { "cosmic.fs", "Fs.read", "function", "function Fs.read(path: string): string | nil, string",
-      "The whole of a file.", "cosmic/fs.tl", "23" },
-    { "build.importer", "", "module", "", "The tree, read by position.", "build/importer.tl", "1" },
-    { "build.importer", "importer.read", "function", "function importer.read(path: string): string",
-      "The whole of a file, staged.", "build/importer.tl", "9" },
-    { "cosmic.internal.sqlite", "", "module", "", "SQLite at the Lua boundary.",
-      "cosmic/internal/sqlite.d.tl", "1" },
-    { "cosmic.internal.sqlite", "sqlite.read", "function", "read: function(Statement): string",
-      "A raw read.", "cosmic/internal/sqlite.d.tl", "8" },
-    { "cosmic.coverage_test", "", "module", "", "Proves coverage.", "cosmic/coverage_test.tl", "1" },
-    { "cosmic.coverage_test", "test_read", "function", "local function test_read()",
-      "Reads the whole of a file.", "cosmic/coverage_test.tl", "4" },
-  }
-  local uses: {{string}} = {
-    { "cosmic.fs", "Fs.read", "build.boot", "build/boot.tl", "56" },
-    { "cosmic.fs", "Fs.read", "cosmic.hash", "cosmic/hash.tl", "12" },
-  }
-  local modules = { "cosmic.fs", "build.importer", "cosmic.internal.sqlite",
-    "cosmic.coverage_test", "build.boot", "cosmic.hash" }
-  local db = database(rows, uses, {}, modules)
+local function test_a_public_source_answers_only_for_the_standard_library(dir: string)
+  local db = built(dir, {
+    ["cosmic/fs.tl"] = source(
+      "--- Files and directories.",
+      "",
+      "local record Fs",
+      "end",
+      "",
+      "--- The whole of a file.",
+      "function Fs.read(path: string): string | nil, string",
+      "  return nil, path",
+      "end",
+      "",
+      "return Fs"),
+    ["build/importer.tl"] = source(
+      "--- The tree, read by position.",
+      "",
+      "local record importer",
+      "end",
+      "",
+      "--- The whole of a file, staged.",
+      "function importer.read(path: string): string",
+      "  return path",
+      "end",
+      "",
+      "return importer"),
+    ["cosmic/internal/sqlite.d.tl"] = source(
+      "--- SQLite at the Lua boundary.",
+      "",
+      "local record sqlite",
+      "  --- A raw read.",
+      "  read: function(Statement): string",
+      "end",
+      "",
+      "return sqlite"),
+    ["cosmic/coverage_test.tl"] = source(
+      "--- Proves coverage.",
+      "",
+      "--- Reads the whole of a file.",
+      "local function test_read()",
+      "end"),
+    ["build/boot.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local text = Fs.read(\"boot\")",
+      "return text"),
+    ["cosmic/hash.tl"] = source(
+      "local Fs = require(\"cosmic.fs\")",
+      "",
+      "local text = Fs.read(\"hash\")",
+      "return text"),
+  })
 
   local everything = assert(docs.view({ db }))
   assert(#assert(docs.lookup(everything, "read")) == 3)
@@ -518,17 +704,28 @@ end
 --- Counts use the same public target-and-caller boundary as the listed rows.
 --- A binary row aimed at a private build name must not inflate an unrelated
 --- project module that happens to own that path.
-local function test_public_use_count_matches_list_across_project_collision()
-  local project = database({
-    { "build.helper", "Helper.run", "function", "function Helper.run()",
-      "Runs the project helper.", "build/helper.tl", "4" },
-  }, {})
-  local binary = database({
-    { "cosmic.fs", "Fs.read", "function", "function Fs.read()",
-      "Reads a file.", "cosmic/fs.tl", "20" },
-  }, {
-    { "build.helper", "Helper.run", "cosmic.fs", "cosmic/fs.tl", "30" },
-  }, {}, { "cosmic.fs" })
+local function test_public_use_count_matches_list_across_project_collision(dir: string)
+  local project = built(dir, { ["build/helper.tl"] = source(
+    "local record Helper",
+    "end",
+    "",
+    "--- Runs the project helper.",
+    "function Helper.run()",
+    "end",
+    "",
+    "return Helper") })
+  local binary = built(dir, { ["cosmic/fs.tl"] = source(
+    "local Helper = require(\"build.helper\")",
+    "",
+    "local record Fs",
+    "end",
+    "",
+    "--- Reads a file.",
+    "function Fs.read()",
+    "  Helper.run()",
+    "end",
+    "",
+    "return Fs") })
   local layered = assert(docs.view({ project, binary }, { false, true }))
   local entry = assert(docs.lookup(layered, "Helper.run"))[1]
   assert(entry ~= nil and entry.uses == 0, tostring(entry and entry.uses))
@@ -537,14 +734,16 @@ end
 
 --- A module that is only a declaration -- `cosmic.sys`, generated from
 --- a C header -- is owned through `decls`, and its rows, which carry
---- no line of their own, render without one.
+--- no line of their own, render without one. Written by hand: which
+--- rows carry no line is the header generator's own line map's to say,
+--- and this pins how such a row renders, whatever the header holds.
 local function test_a_declared_module_is_found_without_a_line()
   local rows: {{string}} = {
     { "cosmic.sys", "syscalls.lstat", "field",
       "lstat: function(path: string): Stat | nil, string, integer",
       "Describes a path, not a link's target.", "core/syscalls.h", "0" },
   }
-  local db = database(rows, {}, nil, {})
+  local db = database(rows, {}, {})
   assert(db:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
   local found = assert(docs.lookup(view({ db }), "lstat"))
   assert(#found == 1 and found[1].module == "cosmic.sys", tostring(#found))
@@ -554,15 +753,16 @@ end
 
 --- A database that copied a declaration without its documentation --
 --- an executable's own, which carries every declaration it was built
---- against -- does not hide the database that documents it.
+--- against -- does not hide the database that documents it. Written by
+--- hand: that copy is `build.embed`'s shape, not the build's.
 local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
-  local copy = database({}, {}, nil, {})
+  local copy = database({}, {}, {})
   assert(copy:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
   local rows: {{string}} = {
     { "cosmic.sys", "syscalls.lstat", "field", "lstat: function(path: string)",
       "Describes a path.", "core/syscalls.h", "154" },
   }
-  local documented = database(rows, {}, nil, {})
+  local documented = database(rows, {}, {})
   assert(documented:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
   local found = assert(docs.lookup(view({ copy, documented }), "lstat"))
   assert(#found == 1 and found[1].line == 154, tostring(#found))
