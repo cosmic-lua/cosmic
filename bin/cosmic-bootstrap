@@ -15,6 +15,10 @@
 # then renamed into place, so a file at that name is always a verified
 # one: a warm run reads the pin and nothing else.
 #
+# A download that fails, or whose sha256 is not the pin's, is tried
+# again from an empty .part file, with a growing pause between tries, up
+# to COSMIC_BOOTSTRAP_ATTEMPTS times (default 5).
+#
 # A cache this script did not fill -- CI restores its
 # from actions/cache -- is checked again when COSMIC_BOOTSTRAP_VERIFY is set:
 # a cached file whose sha256 is not the pin's is removed and fetched
@@ -76,15 +80,37 @@ if [ ! -x "$cached" ]; then
   trap 'rm -f "$partial"' EXIT
   trap 'rm -f "$partial"; exit 1' HUP INT TERM
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-      --output "$partial" "$url" || die "download failed: $url"
+    fetch() {
+      curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 30 --output "$partial" "$url"
+    }
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$partial" "$url" || die "download failed: $url"
+    fetch() { wget -qO "$partial" "$url"; }
   else
     die "need curl or wget to fetch $url"
   fi
-  got=$(sha256_file "$partial")
-  [ "$got" = "$digest" ] || die "$url has sha256 $got; the pin says $digest"
+  # A shell loop rather than curl's --retry, which skips most failures
+  # before 7.71's --retry-all-errors and which wget lacks: one network
+  # blip should not fail a CI job. Every attempt starts from no partial
+  # file, and a download whose digest is wrong is tried again too, since
+  # a truncated transfer can end without an error.
+  attempts=${COSMIC_BOOTSTRAP_ATTEMPTS:-5}
+  case $attempts in *[!0-9]* | '' | 0) die "COSMIC_BOOTSTRAP_ATTEMPTS=$attempts is not a positive count" ;; esac
+  attempt=1
+  while :; do
+    rm -f "$partial"
+    if fetch; then
+      got=$(sha256_file "$partial")
+      [ "$got" = "$digest" ] && break
+      why="$url has sha256 $got; the pin says $digest"
+    else
+      why="download failed: $url"
+    fi
+    [ "$attempt" -lt "$attempts" ] || die "$why (after $attempt attempts)"
+    printf 'bin/cosmic-bootstrap: %s; retrying in %ss\n' "$why" "$((attempt * 2))" >&2
+    sleep "$((attempt * 2))"
+    attempt=$((attempt + 1))
+  done
   chmod 755 "$partial"
   # Another process may have won the race; its file is the same bytes.
   mv -f "$partial" "$cached"

@@ -6,6 +6,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
@@ -178,6 +179,96 @@ local function test_a_failed_install_leaves_no_scratch_directory(tmp: string)
     "x86_64-linux")
   assert(zig == nil and trouble:find("sha256", 1, true) ~= nil)
   assert(#assert(Fs.list(cache)) == 0, "a .work directory was left behind")
+end
+
+local function test_sources_try_a_few_shuffled_mirrors_then_ziglang_org()
+  local mirrors = { "https://a", "https://b", "https://c", "https://d", "https://e", "https://f" }
+  -- Always swapping with the first reverses the list's tail each pass.
+  local urls = Zig.sources("0.16.0", "zig.tar.xz", mirrors, function(_: integer): integer
+    return 1
+  end)
+  assert(#urls == 5, tostring(#urls))
+  local seen: {string:boolean} = {}
+  for i = 1, 4 do
+    local mirror = urls[i]:match("^(https://%a)/zig%.tar%.xz%?source=cosmic$")
+    assert(mirror ~= nil, urls[i])
+    assert(not seen[mirror], "a mirror is tried twice")
+    seen[mirror] = true
+  end
+  assert(urls[5] == "https://ziglang.org/download/0.16.0/zig.tar.xz", urls[5])
+  local few = Zig.sources("0.16.0", "zig.tar.xz", { "https://m" })
+  assert(#few == 2 and few[1] == "https://m/zig.tar.xz?source=cosmic")
+end
+
+--- A stand-in for Http.download that answers `replies[url]` in turn --
+--- "ok" writes the file -- and records each call and each pause.
+local function scripted(replies: {string:{string}}, calls: {string},
+    sleeps: {integer}): Zig.Fetcher
+  local served: {string:integer} = {}
+  return {
+    download = function(url: string, path: string, opts: Http.Options): boolean, string
+      assert(opts.sha256 == "abc")
+      assert(Fs.exists(path) == false, "an attempt started over an earlier file")
+      calls[#calls + 1] = url
+      served[url] = (served[url] or 0) + 1
+      local reply = replies[url][served[url]] or replies[url][#replies[url]]
+      if reply == "ok" then
+        assert(Fs.write(path, "tarball"))
+        return true, ""
+      end
+      return false, reply
+    end,
+    sleep = function(ns: integer)
+      sleeps[#sleeps + 1] = ns
+    end,
+  }
+end
+
+local function test_fetch_falls_through_a_failing_source_to_the_next(tmp: string)
+  local calls: {string} = {}
+  local sleeps: {integer} = {}
+  local path = tmp .. "/zig.tar.xz"
+  assert(Fs.write(path, "left over"))
+  local ok, trouble = Zig.fetch({ "http://one", "http://two" }, path, "abc", scripted({
+    ["http://one"] = { "couldn't connect" },
+    ["http://two"] = { "ok" },
+  }, calls, sleeps))
+  assert(ok, trouble)
+  assert(#calls == 2 and calls[1] == "http://one" and calls[2] == "http://two")
+  assert(#sleeps == 0)
+  assert(Fs.read(path) == "tarball")
+end
+
+local function test_fetch_moves_past_a_sha_mismatch_and_never_asks_that_source_again(tmp: string)
+  local calls: {string} = {}
+  local sleeps: {integer} = {}
+  local ok, trouble = Zig.fetch({ "http://bad", "http://slow" }, tmp .. "/z", "abc", scripted({
+    ["http://bad"] = { "z: sha256 mismatch: want abc, got def" },
+    ["http://slow"] = { "timed out", "ok" },
+  }, calls, sleeps))
+  assert(ok, trouble)
+  assert(table.concat(calls, " ") == "http://bad http://slow http://slow", table.concat(calls, " "))
+  assert(#sleeps == 1 and sleeps[1] > 0, "no pause before the second round")
+end
+
+local function test_fetch_names_every_source_when_all_fail(tmp: string)
+  local calls: {string} = {}
+  local sleeps: {integer} = {}
+  local ok, trouble = Zig.fetch({ "http://one", "http://two", "http://three" }, tmp .. "/z", "abc",
+    scripted({
+      ["http://one"] = { "couldn't connect" },
+      ["http://two"] = { "z: sha256 mismatch: want abc, got def" },
+      ["http://three"] = { "http://three: HTTP 404" },
+    }, calls, sleeps))
+  assert(not ok)
+  assert(trouble:find("http://one: couldn't connect", 1, true) ~= nil, trouble)
+  assert(trouble:find("http://two: z: sha256 mismatch", 1, true) ~= nil, trouble)
+  assert(trouble:find("http://three: HTTP 404", 1, true) ~= nil, trouble)
+  assert(trouble:find("http://three: http://three", 1, true) == nil, trouble)
+  -- Bounded: two sources a round for three rounds, and the bad one once.
+  assert(#calls == 7, tostring(#calls))
+  assert(#sleeps == 2 and sleeps[2] > sleeps[1], "the pause does not grow")
+  assert(Fs.exists(tmp .. "/z") == false)
 end
 
 local function test_sweep_removes_a_dead_installs_scratch_but_not_a_live_one(tmp: string)

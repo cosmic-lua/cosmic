@@ -20,9 +20,11 @@
 --- `$HOME/.cache/cosmic/zig/...`, and no fallback when neither is set;
 --- see `Fs.cache_dir`, which also refuses a cache directory someone
 --- else could write to): if `<install>/zig` is already there
---- it is used as is; otherwise the tarball
---- `https://ziglang.org/download/<version>/zig-<host>-<version>.tar.xz`
---- is downloaded with `Http.download`'s own `sha256` check into a
+--- it is used as is; otherwise the tarball `zig-<host>-<version>.tar.xz`
+--- is downloaded with `Http.download`'s own `sha256` check -- from a few
+--- of zig's community mirrors, then
+--- `https://ziglang.org/download/<version>/`, retried in rounds
+--- (`Zig.sources`, `Zig.fetch`) -- into a
 --- scratch `.work.<pid>` directory under the cache, extracted with
 --- `cosmic.archive`, and renamed into place -- tolerating a concurrent
 --- winner, whose copy is the same bytes. The scratch directory is
@@ -75,6 +77,15 @@ local record Zig
     version: string
     shas: {string:string}
   end
+
+  --- What `Zig.fetch` downloads with and pauses with: `Http.download`
+  --- and `sys.nanosleep` unless a test says otherwise.
+  record Fetcher
+    download: function(url: string, path: string, opts: Http.Options): boolean, string
+    sleep: function(ns: integer)
+  end
+
+  MIRRORS: {string}
 end
 
 -- TODO: Log.new("bin/zig"):complain once ci/cosmic-driver.pin names a cosmic
@@ -209,6 +220,132 @@ function Zig.sweep(cache: string)
   end
 end
 
+--- zig's community mirrors of `https://ziglang.org/download/`, as
+--- https://ziglang.org/download/community-mirrors.txt listed them on
+--- 2026-09-24. Refresh this list by copying that file's lines here. A
+--- mirror serves a release's files flat, at `<mirror>/<name>`. No mirror
+--- is trusted: each download is held to `bin/zig.pin`'s sha256, so a
+--- stale, broken or hostile one costs an attempt and nothing more, and
+--- the minisign signature zig publishes beside each file is not needed.
+Zig.MIRRORS = {
+  "https://pkg.hexops.org/zig",
+  "https://zigmirror.hryx.net/zig",
+  "https://zig.linus.dev/zig",
+  "https://zig.squirl.dev",
+  "https://zig.mirror.mschae23.de/zig",
+  "https://ziglang.freetls.fastly.net",
+  "https://zig.tilok.dev",
+  "https://zig-mirror.tsimnet.eu/zig",
+  "https://zig.karearl.com/zig",
+  "https://pkg.earth/zig",
+  "https://fs.liujiacai.net/zigbuilds",
+  "https://zigmirror.com",
+  "https://zig.chainsafe.dev",
+  "https://zig.savalione.com",
+  "https://zig.bcr.ist",
+  "https://zig.vortan.dev/zig",
+}
+
+--- How many mirrors one install tries before ziglang.org.
+local MIRRORS_TRIED <const> = 4
+--- How many times over the sources an install goes before it gives up.
+local ROUNDS <const> = 3
+--- The pause before round `n` is `(n - 1)` times this.
+local BACKOFF_NS <const> = 2 * 1000 * 1000 * 1000
+
+--- The URLs to fetch `name`, zig `version`'s release tarball, from, in
+--- the order to try them: `MIRRORS_TRIED` of `mirrors` in a random order
+--- (`random(n)` picks from 1 to n, `math.random` by default), then
+--- ziglang.org. zig asks automated downloaders -- CI above all -- to
+--- use the community mirrors and keep ziglang.org, which is served on a
+--- budget, for last; shuffling spreads that load and keeps one dead
+--- mirror from being every run's first attempt. ziglang.org comes last
+--- rather than never, so a list gone stale still installs. Each mirror
+--- URL carries `?source=cosmic`, which zig asks for so mirror operators
+--- can tell who fetches.
+function Zig.sources(version: string, name: string, mirrors: {string},
+    random?: function(integer): integer): {string}
+  local pick = random or math.random
+  local order: {string} = {}
+  for i, mirror in ipairs(mirrors) do
+    order[i] = mirror
+  end
+  for i = #order, 2, -1 do
+    local j = pick(i)
+    order[i], order[j] = order[j], order[i]
+  end
+  local out: {string} = {}
+  for i = 1, math.min(#order, MIRRORS_TRIED) do
+    out[i] = order[i] .. "/" .. name .. "?source=cosmic"
+  end
+  out[#out + 1] = "https://ziglang.org/download/" .. version .. "/" .. name
+  return out
+end
+
+local function real_sleep(ns: integer)
+  local _, _ = sys.nanosleep(ns)
+end
+
+--- Downloads the file whose sha256 is `sha256` to `path` from the first
+--- of `urls` that serves it, going over them up to `ROUNDS` times with a
+--- growing pause between rounds. Each attempt starts from no file at
+--- `path` (`Http.download` writes a fresh temporary file and renames it
+--- into place only once the digest matches). A source that served the
+--- wrong bytes is not asked again; one that failed any other way is, in
+--- the next round. When every attempt fails, the message names each
+--- source tried and its last trouble.
+function Zig.fetch(urls: {string}, path: string, sha256: string,
+    via?: Zig.Fetcher): boolean, string
+  local download = via ~= nil and via.download or Http.download
+  local sleep = via ~= nil and via.sleep or real_sleep
+  local last: {string:string} = {}
+  local wrong: {string:boolean} = {}
+  local attempts = 0
+  for round = 1, ROUNDS do
+    local asked = false
+    for _, url in ipairs(urls) do
+      if not wrong[url] then
+        if not asked and round > 1 then
+          sleep((round - 1) * BACKOFF_NS)
+        end
+        asked = true
+        attempts = attempts + 1
+        local _, _ = Fs.remove(path)
+        local ok, trouble = download(url, path, {
+          sha256 = sha256,
+          -- A mirror that does not answer is better skipped soon.
+          connect_timeout_ms = 10000,
+        })
+        if ok then
+          return true, ""
+        end
+        -- Http.download names the URL itself for some failures; the
+        -- report below names each source once.
+        if String.starts_with(trouble, url .. ": ") then
+          last[url] = trouble:sub(#url + 3)
+        else
+          last[url] = trouble
+        end
+        -- TODO: tell a digest mismatch apart by something other than
+        -- Http.download's message, once it reports which failure it hit
+        -- apart from the text.
+        if trouble:find("sha256 mismatch", 1, true) ~= nil then
+          wrong[url] = true
+        end
+      end
+    end
+    if not asked then
+      break
+    end
+  end
+  local lines: {string} = {}
+  for _, url in ipairs(urls) do
+    lines[#lines + 1] = "\n  " .. url .. ": " .. (last[url] or "not tried")
+  end
+  return false, "every source failed (" .. tostring(attempts) .. " attempts):" ..
+    table.concat(lines)
+end
+
 --- Downloads, verifies and extracts `pin`'s release for `host` into
 --- `work`, returning the extracted directory.
 local function unpack(work: string, pin: Zig.Pin, host: string): string | nil, string
@@ -221,11 +358,10 @@ local function unpack(work: string, pin: Zig.Pin, host: string): string | nil, s
     return nil, mtrouble
   end
   local name = "zig-" .. host .. "-" .. pin.version .. ".tar.xz"
-  local url = "https://ziglang.org/download/" .. pin.version .. "/" .. name
   local archive = work .. "/" .. name
-  local ok, dtrouble = Http.download(url, archive, { sha256 = sha256 })
+  local ok, dtrouble = Zig.fetch(Zig.sources(pin.version, name, Zig.MIRRORS), archive, sha256)
   if not ok then
-    return nil, "download failed: " .. url .. ": " .. dtrouble
+    return nil, "download of " .. name .. " failed: " .. dtrouble
   end
   local written, xtrouble = Archive.extract(archive, work)
   if written == nil then
