@@ -1059,6 +1059,10 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
   return cancelled
 end
 
+-- TODO: read these with Flags.parse, refusing an unknown option: today
+-- `cosmic test --bogus` takes "--bogus" as a selector and answers that no
+-- test module matches it. Selectors are the other words, so test.run
+-- would take them from the parse rather than from what is left of argv.
 --- The run's bounds: `--timeout SECONDS` and `--jobs N` from the
 --- command line, which also drop out of it; the deadline's default
 --- from `COSMIC_TEST_TIMEOUT`. Nil and why for a value that is not a
