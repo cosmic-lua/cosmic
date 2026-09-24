@@ -73,7 +73,6 @@ local record compiler
   -- code is nil when the input did not parse.
   gen: function(input: string, env: Env, options: any,
                 language: string): string | nil, Result
-  version: function(): string
   -- Lexes `source` into its token stream plus any lex errors. `lex`
   -- itself never fails outright: unlexable bytes still come back as
   -- (possibly partial) tokens, with the trouble recorded in the second

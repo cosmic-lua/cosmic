@@ -199,6 +199,10 @@ end
 --- @param i integer
 --- @return integer
 rets_end = function(s: Scan, i: integer): integer
+  -- TODO: a variadic last return (`function(): any...`) ends at its
+  -- `...`, which this leaves off, so `fix` refuses a `local type` alias
+  -- of such a function as a changed program; the fix is to take a
+  -- trailing `...` into the list's end.
   if tk(s, i) == "(" then
     return closing(s, i)
   end
