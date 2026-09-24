@@ -79,6 +79,10 @@ jobs:
     env:
       COSMIC_WORKER: ${{ matrix.name }}
       TARGET: ${{ matrix.target }}
+      # The checked core's whole suite and deep fuzz rerun (about two
+      # minutes a leg) run on linux-x86_64 alone; every leg still builds
+      # and verifies the checked core. See orchestration.tl's checked_suite.
+      COSMIC_CI_CHECKED_SUITE: ${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}
     steps:
       - name: install the tools the actions and the build need
         if: matrix.container
