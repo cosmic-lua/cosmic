@@ -45,6 +45,12 @@ case $digest in *[!0-9a-f]* | '') die "$pin: line 3 is not a sha256" ;; esac
 [ "$url" = "https://github.com/cosmic-lua/cosmic/releases/download/next-$commit/cosmic" ] ||
   die "$pin: line 2 is not the release of line 1's commit"
 
+attempts=${COSMIC_BOOTSTRAP_ATTEMPTS:-5}
+case $attempts in
+  [1-9] | 1[0-9] | 20) ;;
+  *) die "COSMIC_BOOTSTRAP_ATTEMPTS=$attempts is not a count from 1 to 20" ;;
+esac
+
 if [ -n "${XDG_CACHE_HOME:-}" ]; then
   cache=$XDG_CACHE_HOME/cosmic/bootstrap
 else
@@ -80,12 +86,19 @@ if [ ! -x "$cached" ]; then
   trap 'rm -f "$partial"' EXIT
   trap 'rm -f "$partial"; exit 1' HUP INT TERM
   if command -v curl >/dev/null 2>&1; then
+    # One attempt gives up on no connection in 30 s, under 64 KiB/s for
+    # 20 s straight, or no whole ~18 MB binary in 5 minutes.
     fetch() {
       curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-        --connect-timeout 30 --output "$partial" "$url"
+        --connect-timeout 30 --speed-limit 65536 --speed-time 20 --max-time 300 \
+        --output "$partial" "$url"
     }
   elif command -v wget >/dev/null 2>&1; then
-    fetch() { wget -qO "$partial" "$url"; }
+    # wget has no minimum speed: 30 s of silence ends an attempt, and it
+    # makes one try (its default is 20), the loop below the rest.
+    # TODO: bound a whole wget attempt, as curl's --max-time does, once
+    # this script can rely on timeout(1) being there (macOS lacks it).
+    fetch() { wget -q --timeout=30 --tries=1 -O "$partial" "$url"; }
   else
     die "need curl or wget to fetch $url"
   fi
@@ -94,8 +107,6 @@ if [ ! -x "$cached" ]; then
   # blip should not fail a CI job. Every attempt starts from no partial
   # file, and a download whose digest is wrong is tried again too, since
   # a truncated transfer can end without an error.
-  attempts=${COSMIC_BOOTSTRAP_ATTEMPTS:-5}
-  case $attempts in *[!0-9]* | '' | 0) die "COSMIC_BOOTSTRAP_ATTEMPTS=$attempts is not a positive count" ;; esac
   attempt=1
   while :; do
     rm -f "$partial"
@@ -106,7 +117,10 @@ if [ ! -x "$cached" ]; then
     else
       why="download failed: $url"
     fi
-    [ "$attempt" -lt "$attempts" ] || die "$why (after $attempt attempts)"
+    if [ "$attempt" -ge "$attempts" ]; then
+      [ "$attempt" -eq 1 ] && die "$why (after 1 attempt)"
+      die "$why (after $attempt attempts)"
+    fi
     printf 'bin/cosmic-bootstrap: %s; retrying in %ss\n' "$why" "$((attempt * 2))" >&2
     sleep "$((attempt * 2))"
     attempt=$((attempt + 1))

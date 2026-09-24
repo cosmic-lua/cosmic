@@ -183,33 +183,42 @@ end
 
 local function test_sources_try_a_few_shuffled_mirrors_then_ziglang_org()
   local mirrors = { "https://a", "https://b", "https://c", "https://d", "https://e", "https://f" }
-  -- Always swapping with the first reverses the list's tail each pass.
+  -- Swapping each place from the last down with the first rotates the
+  -- list left by one: b c d e f a.
   local urls = Zig.sources("0.16.0", "zig.tar.xz", mirrors, function(_: integer): integer
     return 1
   end)
-  assert(#urls == 5, tostring(#urls))
-  local seen: {string:boolean} = {}
-  for i = 1, 4 do
-    local mirror = urls[i]:match("^(https://%a)/zig%.tar%.xz%?source=cosmic$")
-    assert(mirror ~= nil, urls[i])
-    assert(not seen[mirror], "a mirror is tried twice")
-    seen[mirror] = true
-  end
-  assert(urls[5] == "https://ziglang.org/download/0.16.0/zig.tar.xz", urls[5])
+  local want = {
+    "https://b/zig.tar.xz?source=cosmic",
+    "https://c/zig.tar.xz?source=cosmic",
+    "https://d/zig.tar.xz?source=cosmic",
+    "https://e/zig.tar.xz?source=cosmic",
+    "https://ziglang.org/download/0.16.0/zig.tar.xz",
+  }
+  assert(table.concat(urls, " ") == table.concat(want, " "), table.concat(urls, " "))
+  -- Picking each place itself leaves the list as it was.
+  local kept = Zig.sources("0.16.0", "zig.tar.xz", mirrors, function(n: integer): integer
+    return n
+  end)
+  assert(kept[1] == "https://a/zig.tar.xz?source=cosmic", kept[1])
   local few = Zig.sources("0.16.0", "zig.tar.xz", { "https://m" })
   assert(#few == 2 and few[1] == "https://m/zig.tar.xz?source=cosmic")
 end
 
 --- A stand-in for Http.download that answers `replies[url]` in turn --
---- "ok" writes the file -- and records each call and each pause.
+--- "ok" writes the file -- and records each call and each pause. Its
+--- clock moves only by the pauses and by `per_call_ms` a download.
 local function scripted(replies: {string:{string}}, calls: {string},
-    sleeps: {integer}): Zig.Fetcher
+    sleeps: {integer}, per_call_ms?: integer): Zig.Fetcher
   local served: {string:integer} = {}
+  local clock = 0
   return {
     download = function(url: string, path: string, opts: Http.Options): boolean, string
       assert(opts.sha256 == "abc")
+      assert(opts.timeout_ms > 0 and opts.low_speed_bytes > 1, "an attempt has no bound")
       assert(Fs.exists(path) == false, "an attempt started over an earlier file")
       calls[#calls + 1] = url
+      clock = clock + (per_call_ms or 0)
       served[url] = (served[url] or 0) + 1
       local reply = replies[url][served[url]] or replies[url][#replies[url]]
       if reply == "ok" then
@@ -218,8 +227,12 @@ local function scripted(replies: {string:{string}}, calls: {string},
       end
       return false, reply
     end,
-    sleep = function(ns: integer)
-      sleeps[#sleeps + 1] = ns
+    sleep = function(ms: integer)
+      sleeps[#sleeps + 1] = ms
+      clock = clock + ms
+    end,
+    now = function(): integer
+      return clock
     end,
   }
 end
@@ -268,6 +281,58 @@ local function test_fetch_names_every_source_when_all_fail(tmp: string)
   -- Bounded: two sources a round for three rounds, and the bad one once.
   assert(#calls == 7, tostring(#calls))
   assert(#sleeps == 2 and sleeps[2] > sleeps[1], "the pause does not grow")
+  assert(Fs.exists(tmp .. "/z") == false)
+end
+
+local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
+  local calls: {string} = {}
+  local sleeps: {integer} = {}
+  local ok, trouble = Zig.fetch({ "http://mirror", "http://fallback" }, tmp .. "/z", "abc",
+    scripted({
+      ["http://mirror"] = { "z: sha256 mismatch: want abc, got def" },
+      ["http://fallback"] = { "z: sha256 mismatch: want abc, got 123", "ok" },
+    }, calls, sleeps))
+  assert(ok, trouble)
+  assert(table.concat(calls, " ") == "http://mirror http://fallback http://fallback",
+    table.concat(calls, " "))
+end
+
+local function test_fetch_stops_when_its_time_is_spent(tmp: string)
+  local calls: {string} = {}
+  local sleeps: {integer} = {}
+  -- Each attempt takes five minutes: the budget holds three.
+  local ok, trouble = Zig.fetch({ "http://one", "http://two" }, tmp .. "/z", "abc",
+    scripted({
+      ["http://one"] = { "timed out" },
+      ["http://two"] = { "timed out" },
+    }, calls, sleeps, 5 * 60 * 1000))
+  assert(not ok)
+  assert(#calls == 3, tostring(#calls))
+  assert(trouble:find("out of time after 3 attempts", 1, true) ~= nil, trouble)
+end
+
+--- The real Http.download, answered by a scripted server with the wrong
+--- body: its message is what Zig.fetch reads a mismatch from, so a
+--- change in that text fails here rather than retrying a bad mirror.
+local function test_fetch_sees_a_real_mismatch(tmp: string)
+  local calls: {string} = {}
+  local fetcher: Zig.Fetcher = {
+    download = function(url: string, path: string, opts: Http.Options): boolean, string
+      calls[#calls + 1] = url
+      opts.script = { "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nwrong" }
+      return Http.download(url, path, opts)
+    end,
+    sleep = function(_: integer) end,
+    now = function(): integer return 0 end,
+  }
+  local ok, trouble = Zig.fetch({ "http://127.0.0.1/a", "http://127.0.0.1/b" }, tmp .. "/z",
+    string.rep("0", 64), fetcher)
+  assert(not ok)
+  assert(trouble:find("sha256 mismatch", 1, true) ~= nil, trouble)
+  -- The mirror once; the fallback, never barred, each round.
+  assert(table.concat(calls, " ") ==
+    "http://127.0.0.1/a http://127.0.0.1/b http://127.0.0.1/b http://127.0.0.1/b",
+    table.concat(calls, " "))
   assert(Fs.exists(tmp .. "/z") == false)
 end
 

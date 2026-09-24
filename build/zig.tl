@@ -78,11 +78,13 @@ local record Zig
     shas: {string:string}
   end
 
-  --- What `Zig.fetch` downloads with and pauses with: `Http.download`
-  --- and `sys.nanosleep` unless a test says otherwise.
+  --- What `Zig.fetch` downloads with, pauses with (for milliseconds)
+  --- and reads the time from (in milliseconds): `Http.download`,
+  --- `sys.nanosleep` and `Time.monotonic_ns` unless a test says otherwise.
   record Fetcher
     download: function(url: string, path: string, opts: Http.Options): boolean, string
-    sleep: function(ns: integer)
+    sleep: function(ms: integer)
+    now: function(): integer
   end
 
   MIRRORS: {string}
@@ -222,11 +224,16 @@ end
 
 --- zig's community mirrors of `https://ziglang.org/download/`, as
 --- https://ziglang.org/download/community-mirrors.txt listed them on
---- 2026-09-24. Refresh this list by copying that file's lines here. A
+--- 2026-09-24. Refresh this list by copying that file's lines here;
+--- three of them already failed for 0.16.0 that day (zigmirror.hryx.net
+--- 502, zig.linus.dev 404, zig.tilok.dev 500), which costs an attempt
+--- each when drawn, ziglang.org still ending every round. A
 --- mirror serves a release's files flat, at `<mirror>/<name>`. No mirror
 --- is trusted: each download is held to `bin/zig.pin`'s sha256, so a
 --- stale, broken or hostile one costs an attempt and nothing more, and
 --- the minisign signature zig publishes beside each file is not needed.
+-- TODO: check this list against community-mirrors.txt from ci/ (a
+-- scheduled job that fails on a difference) rather than by hand.
 Zig.MIRRORS = {
   "https://pkg.hexops.org/zig",
   "https://zigmirror.hryx.net/zig",
@@ -251,7 +258,21 @@ local MIRRORS_TRIED <const> = 4
 --- How many times over the sources an install goes before it gives up.
 local ROUNDS <const> = 3
 --- The pause before round `n` is `(n - 1)` times this.
-local BACKOFF_NS <const> = 2 * 1000 * 1000 * 1000
+local BACKOFF_MS <const> = 2000
+
+--- What bounds one attempt and all of them. A source that has not
+--- connected in 10 s, or that moves under 64 KiB/s for 20 s straight,
+--- or that has not finished in 3 minutes (a ~55 MB tarball needs about
+--- 300 KiB/s on average), is given up on; a trickling or hostile mirror
+--- costs at most one attempt's 3 minutes. No attempt starts once 12
+--- minutes have gone, and each one's limit is cut to what is left of
+--- those 12, pauses included, so the worst case for a whole install is
+--- about 12 minutes, well inside CI's 45-minute job limit.
+local CONNECT_TIMEOUT_MS <const> = 10000
+local LOW_SPEED_BYTES <const> = 64 * 1024
+local LOW_SPEED_SECONDS <const> = 20
+local ATTEMPT_TIMEOUT_MS <const> = 3 * 60 * 1000
+local BUDGET_MS <const> = 12 * 60 * 1000
 
 --- The URLs to fetch `name`, zig `version`'s release tarball, from, in
 --- the order to try them: `MIRRORS_TRIED` of `mirrors` in a random order
@@ -282,55 +303,77 @@ function Zig.sources(version: string, name: string, mirrors: {string},
   return out
 end
 
-local function real_sleep(ns: integer)
-  local _, _ = sys.nanosleep(ns)
+local function real_sleep(ms: integer)
+  local _, _ = sys.nanosleep(ms * 1000 * 1000)
+end
+
+local function real_now_ms(): integer
+  -- TODO: drop the `or 0` once ci/cosmic-driver.pin names a cosmic whose
+  -- Time.monotonic_ns answers an integer alone, as Zig.run's does.
+  return (Time.monotonic_ns() or 0) // (1000 * 1000)
 end
 
 --- Downloads the file whose sha256 is `sha256` to `path` from the first
 --- of `urls` that serves it, going over them up to `ROUNDS` times with a
---- growing pause between rounds. Each attempt starts from no file at
---- `path` (`Http.download` writes a fresh temporary file and renames it
---- into place only once the digest matches). A source that served the
---- wrong bytes is not asked again; one that failed any other way is, in
---- the next round. When every attempt fails, the message names each
+--- growing pause between rounds, each attempt and the whole bounded as
+--- `BUDGET_MS` says. Each attempt starts from no file at `path`
+--- (`Http.download` writes a fresh temporary file and renames it into
+--- place only once the digest matches). A mirror that served the wrong
+--- bytes is not asked again; one that failed any other way is, in the
+--- next round. The last of `urls`, the fallback (ziglang.org), is never
+--- barred: a transfer cut short without an error reads as a mismatch
+--- too, and giving up the one source every list ends with on that would
+--- make it fatal. When every attempt fails, the message names each
 --- source tried and its last trouble.
 function Zig.fetch(urls: {string}, path: string, sha256: string,
     via?: Zig.Fetcher): boolean, string
   local download = via ~= nil and via.download or Http.download
   local sleep = via ~= nil and via.sleep or real_sleep
+  local now = via ~= nil and via.now or real_now_ms
+  local deadline = now() + BUDGET_MS
   local last: {string:string} = {}
   local wrong: {string:boolean} = {}
   local attempts = 0
+  local out_of_time = false
   for round = 1, ROUNDS do
     local asked = false
-    for _, url in ipairs(urls) do
-      if not wrong[url] then
+    for i, url in ipairs(urls) do
+      if not wrong[url] and not out_of_time then
         if not asked and round > 1 then
-          sleep((round - 1) * BACKOFF_NS)
+          sleep(math.min((round - 1) * BACKOFF_MS, math.max(deadline - now(), 0)))
         end
-        asked = true
-        attempts = attempts + 1
-        local _, _ = Fs.remove(path)
-        local ok, trouble = download(url, path, {
-          sha256 = sha256,
-          -- A mirror that does not answer is better skipped soon.
-          connect_timeout_ms = 10000,
-        })
-        if ok then
-          return true, ""
-        end
-        -- Http.download names the URL itself for some failures; the
-        -- report below names each source once.
-        if String.starts_with(trouble, url .. ": ") then
-          last[url] = trouble:sub(#url + 3)
+        local left = deadline - now()
+        if left <= 0 then
+          out_of_time = true
         else
-          last[url] = trouble
-        end
-        -- TODO: tell a digest mismatch apart by something other than
-        -- Http.download's message, once it reports which failure it hit
-        -- apart from the text.
-        if trouble:find("sha256 mismatch", 1, true) ~= nil then
-          wrong[url] = true
+          asked = true
+          attempts = attempts + 1
+          local _, _ = Fs.remove(path)
+          local ok, trouble = download(url, path, {
+            sha256 = sha256,
+            connect_timeout_ms = math.min(CONNECT_TIMEOUT_MS, left),
+            low_speed_bytes = LOW_SPEED_BYTES,
+            low_speed_seconds = LOW_SPEED_SECONDS,
+            timeout_ms = math.min(ATTEMPT_TIMEOUT_MS, left),
+          })
+          if ok then
+            return true, ""
+          end
+          -- Http.download names the URL itself for some failures; the
+          -- report below names each source once.
+          if String.starts_with(trouble, url .. ": ") then
+            last[url] = trouble:sub(#url + 3)
+          else
+            last[url] = trouble
+          end
+          -- TODO: tell a digest mismatch apart by something other than
+          -- Http.download's message text, once ci/cosmic-driver.pin names
+          -- a cosmic whose Http.download reports which failure it hit
+          -- apart from the text (test_fetch_sees_a_real_mismatch fails if
+          -- the text changes first).
+          if i < #urls and trouble:find("sha256 mismatch", 1, true) ~= nil then
+            wrong[url] = true
+          end
         end
       end
     end
@@ -342,7 +385,8 @@ function Zig.fetch(urls: {string}, path: string, sha256: string,
   for _, url in ipairs(urls) do
     lines[#lines + 1] = "\n  " .. url .. ": " .. (last[url] or "not tried")
   end
-  return false, "every source failed (" .. tostring(attempts) .. " attempts):" ..
+  local why = out_of_time and "out of time after " or "every source failed after "
+  return false, why .. tostring(attempts) .. " attempts:" ..
     table.concat(lines)
 end
 
