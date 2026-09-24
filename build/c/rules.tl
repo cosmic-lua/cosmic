@@ -139,6 +139,10 @@ local exempt: {string: string} = {
 --- The calls that take a resource, and the argument that receives it
 --- when it is not the call's value: `sqlite3_prepare_v2(db, sql, n,
 --- &statement, tail)` hands its statement back through its fourth.
+-- TODO: count `fcntl(fd, F_DUPFD_CLOEXEC, ...)` (sys.dup) and `pipe`'s
+-- two ends as acquisitions: a raise between one and its release goes
+-- unseen today. `fcntl` takes a descriptor only for its F_DUPFD
+-- commands, so this waits on the rule telling a call by its arguments.
 local acquires: {string: integer} = {
   malloc = 0, calloc = 0, realloc = 0, strdup = 0, strndup = 0,
   fopen = 0, fdopen = 0, opendir = 0, fdopendir = 0,

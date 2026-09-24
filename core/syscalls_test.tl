@@ -314,6 +314,61 @@ local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
   assert(text:find("SigIgn:", 1, true) ~= nil, text)
 end
 
+--- Whether `fd` is closed on exec, as /proc says; nil where there is no
+--- /proc to ask.
+-- TODO: ask the descriptor itself, once cosmic.sys carries
+-- fcntl(F_GETFD): without /proc (macOS, a sandbox) the close-on-exec
+-- promises of dup and dup2 go unchecked.
+local function closed_on_exec(fd: integer): boolean | nil
+  local info = sys.open("/proc/self/fdinfo/" .. fd, sys.O_RDONLY)
+  if info == nil then return nil end
+  local text = assert(sys.read(info, 4096))
+  sys.close(info)
+  local flags = assert(tonumber(assert(text:match("flags:%s*(%d+)")), 8))
+  return flags & 0x80000 ~= 0
+end
+
+--- A copy names what its original does and is closed on exec; `dup2`
+--- points a descriptor at another's file, which is how a caller takes
+--- over its own standard output for a while: what `print` writes from C
+--- lands there too, and the descriptor stays open across exec.
+local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
+  local ends = assert(sys.pipe())
+  local copy = assert(sys.dup(ends.writer))
+  assert(copy ~= ends.writer)
+  assert(sys.write(copy, "copied") == 6)
+  assert(sys.read(ends.reader, 64) == "copied")
+  assert(closed_on_exec(copy) ~= false, "a copy is closed on exec")
+
+  local path = tmp .. "/out"
+  local file = create(path)
+  local saved = assert(sys.dup(1))
+  local redirected, trouble = pcall(function(): string
+    assert(sys.dup2(file, 1))
+    assert(closed_on_exec(1) ~= true, "a descriptor dup2 made is left open across exec")
+    print("printed")
+    return ""
+  end)
+  assert(sys.dup2(saved, 1))
+  sys.close(saved)
+  assert(redirected, trouble)
+  assert(sys.pread(file, 64, 0) == "printed\n")
+  local before = closed_on_exec(file)
+  assert(sys.dup2(file, file))
+  assert(closed_on_exec(file) == before, "dup2 of a descriptor onto itself changes nothing")
+  sys.close(file)
+
+  sys.close(copy)
+  local gone, dup_trouble, errno = sys.dup(copy)
+  assert(gone == nil and dup_trouble ~= "" and errno == sys.EBADF, dup_trouble)
+  local ok, dup2_trouble, dup2_errno = sys.dup2(copy, ends.writer)
+  assert(ok == false and dup2_trouble ~= "" and dup2_errno == sys.EBADF, dup2_trouble)
+  assert(sys.write(ends.writer, "kept") == 4)
+  assert(sys.read(ends.reader, 64) == "kept")
+  sys.close(ends.reader)
+  sys.close(ends.writer)
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)
