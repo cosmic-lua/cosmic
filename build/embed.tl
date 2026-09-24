@@ -16,6 +16,7 @@
 --- builds the tool.
 
 local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -28,15 +29,9 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
+local log = Log.new("cosmic")
+
 local record embed
-end
-
-local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 local function text(value: string): Sqlite.Value
@@ -366,22 +361,22 @@ function embed.run(argv: {integer:string}): integer
     if argv[slot] == "--host" then
       host = true
     else
-      complain("build: no such option: " .. argv[slot])
-      report("build: FAIL")
+      log:complain("build: no such option: " .. argv[slot])
+      log:verdict("build", false)
       return 2
     end
     slot = slot + 1
   end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
-    report("build: FAIL")
+    log:complain(root_trouble)
+    log:verdict("build", false)
     return 1
   end
   local names, trouble = embed.tree(root, host)
   if names == nil then
-    complain(trouble)
-    report("build: FAIL")
+    log:complain(trouble)
+    log:verdict("build", false)
     return 1
   end
   local outputs: {string} = {}
@@ -390,7 +385,7 @@ function embed.run(argv: {integer:string}): integer
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  report("build: PASS (" .. wrote .. ", " .. clock.elapsed_ms(started) .. " ms)")
+  log:verdict("build", true, wrote .. ", " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 

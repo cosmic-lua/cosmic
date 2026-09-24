@@ -7,6 +7,7 @@
 --- words to search the documentation for when no symbol is called that.
 
 local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -14,6 +15,8 @@ local clock = require("build.clock")
 local reboot = require("build.reboot")
 local symbols = require("build.symbols")
 local tree = require("build.tree")
+
+local log = Log.new("cosmic")
 
 local record docs
   --- One ordered database view and the owner of every module in it.
@@ -79,27 +82,19 @@ local record docs
   end
 end
 
-local function report(line: string)
-  Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
-end
-
 --- Rebuilds and re-enters `argv` first when this binary embeds a
 --- stale copy of `build.docs` itself -- see `build.reboot.ensure`.
 --- Returns an exit code to return immediately, or `nil` to proceed.
 local function stale_exit(argv: {integer:string}): integer | nil
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 1
   end
   local code, trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if trouble ~= "" then
-      complain(trouble)
+      log:complain(trouble)
     end
     return code
   end
@@ -670,41 +665,41 @@ function docs.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local query = table.concat({ table.unpack(argv, 2) }, " ")
   if query == "" then
-    complain("docs: what to look up? a symbol (Fs.read), a module " ..
+    log:complain("docs: what to look up? a symbol (Fs.read), a module " ..
       "(cosmic.fs), or words to search for")
     return 2
   end
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
   if view == nil then
-    complain("docs: " .. view_trouble)
+    log:complain("docs: " .. view_trouble)
     return 1
   end
   local found, trouble = docs.lookup(view, query)
   if found == nil then
-    complain("docs: " .. trouble)
+    log:complain("docs: " .. trouble)
     return 1
   end
   if #found == 0 then
-    report("docs: FAIL (nothing named or documented as '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms)")
+    log:verdict("docs", false, "nothing named or documented as '" .. query .. "', " ..
+      clock.elapsed_ms(started) .. " ms")
     return 1
   end
   if not found.exact then
-    report("No exact symbol match; showing related documentation:")
-    report("")
+    log:say("No exact symbol match; showing related documentation:")
+    log:say("")
   end
   for index, entry in ipairs(found) do
     if index > 1 then
-      report("")
+      log:say("")
     end
     for _, line in ipairs(docs.render(view, entry)) do
-      report(line)
+      log:say(line)
     end
   end
-  report("")
-  report("docs: PASS (" .. #found .. (found.exact and " named" or " found") ..
-    ", " .. #view.databases .. " databases, " .. clock.elapsed_ms(started) .. " ms)")
+  log:say("")
+  log:verdict("docs", true, #found .. (found.exact and " named" or " found") ..
+    ", " .. #view.databases .. " databases, " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 
@@ -718,29 +713,29 @@ function docs.run_uses(argv: {integer:string}): integer
   local started = Time.monotonic_ns() or 0
   local query = argv[2] or ""
   if query == "" then
-    complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
+    log:complain("uses: which symbol? as declared (Fs.read) or by its last name (read)")
     return 2
   end
   local handles, public = docs.databases()
   local view, view_trouble = docs.view(handles, public)
   if view == nil then
-    complain("uses: " .. view_trouble)
+    log:complain("uses: " .. view_trouble)
     return 1
   end
   local found, trouble = docs.uses(view, query)
   if found == nil then
-    complain("uses: " .. trouble)
+    log:complain("uses: " .. trouble)
     return 1
   end
   for _, use in ipairs(found) do
-    report(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
+    log:say(use.from_file .. ":" .. use.line .. ": " .. use.module .. " " .. use.symbol)
   end
   if #found == 0 then
-    report("uses: FAIL (nothing refers to '" .. query .. "', " ..
-      clock.elapsed_ms(started) .. " ms)")
+    log:verdict("uses", false, "nothing refers to '" .. query .. "', " ..
+      clock.elapsed_ms(started) .. " ms")
     return 1
   end
-  report("uses: PASS (" .. #found .. " places, " .. clock.elapsed_ms(started) .. " ms)")
+  log:verdict("uses", true, #found .. " places, " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 
