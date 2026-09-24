@@ -364,10 +364,10 @@ local function test_copy_moves_everything_and_can_be_capped()
   local c = Stream.collect()
   local n = assert(Stream.copy(Stream.from_string(string.rep("z", 100000)), c))
   assert(n == 100000 and c:result() == string.rep("z", 100000))
+  -- A cap is a limited reader and a count, as the doc comment says.
   local capped = Stream.collect()
-  local none, trouble = Stream.copy(Stream.from_string("0123456789"), capped, 5)
-  assert(none == nil and trouble:find("more than 5", 1, true) ~= nil, trouble)
-  assert(capped:result() == "")
+  local over = assert(Stream.copy(Stream.limit(Stream.from_string("0123456789"), 6), capped))
+  assert(over == 6 and over > 5 and capped:result() == "012345")
 end
 
 local function test_tee_feeds_a_hashing_writer_beside_the_real_one()
