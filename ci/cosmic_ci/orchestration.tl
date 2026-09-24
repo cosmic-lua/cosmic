@@ -533,6 +533,10 @@ local function phase_fixtures(p: PlatformContext): integer
   local product = p.product
   local contract = p.contract
   local runtime = p.runtime
+  -- TODO: give this fixture's tests a COSMIC_TEST_TIMEOUT of their own:
+  -- each rebuilds the tool (about 20 s here, several at once), under the
+  -- runner's default 30 s per test, and a loaded run-local timed out the
+  -- rename and unlink cases once.
   local s = fixture_test(c, work, "self-rebuild-regression", "self_rebuild",
     self_rebuild_test_timeout_ms, {
     COSMIC_FIXTURE_ROOT = root,
