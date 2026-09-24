@@ -9,9 +9,12 @@ itself. `cosmic_ci/` is its Teal namespace; `testdata/` holds fixture input
 and is excluded from module and test discovery. Its working database lands
 at `ci/o/build.db` (gitignored).
 
-`bootstrap-driver.sh` downloads and verifies the pinned host, caching it by
-digest, and copies it to a runner path (`$RUNNER_TEMP/bin/cosmic-driver`,
-which CI then puts on `PATH` via `GITHUB_PATH`). CI then runs the driver in
+`bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
+digest under `$XDG_CACHE_HOME/cosmic/bootstrap`; CI sets
+`COSMIC_BOOTSTRAP_VERIFY` so a cache actions/cache restored is checked against
+the pin again, and links the result to a runner path
+(`$RUNNER_TEMP/bin/cosmic-driver`, which CI then puts on `PATH` via
+`GITHUB_PATH`). CI then runs the driver in
 place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 
 ## running the platform job locally

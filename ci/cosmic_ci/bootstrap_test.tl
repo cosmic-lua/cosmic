@@ -41,17 +41,53 @@ local function pin(path: string, commit: string, digest: string)
     commit .. "/cosmic\n" .. digest .. "\n"))
 end
 
+--- A checkout of its own at `tmp/root` for bin/cosmic-bootstrap, which
+--- reads the pin beside it: the candidate's script, and a pin naming
+--- `digest`. Its cache is `tmp/xdg/cosmic/bootstrap`.
+local function bootstrap_root(tmp: string, commit: string, digest: string): string, string
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/ci"))
+  assert(Fs.write(root .. "/bin/cosmic-bootstrap",
+    (assert(Fs.read(checkout_root() .. "/bin/cosmic-bootstrap"))), 0x1ed))
+  pin(root .. "/ci/cosmic-driver.pin", commit, digest)
+  local cache = tmp .. "/xdg/cosmic/bootstrap"
+  assert(Fs.mkdirs(cache))
+  return root, cache
+end
+
+--- Runs bin/cosmic-bootstrap under `root` as CI does, re-verifying its
+--- cache, with `extra` in its environment.
+local function bootstrap(tmp: string, root: string, output: string,
+    extra?: {string:string}): Child.Result
+  local env: {string:string} = { XDG_CACHE_HOME = tmp .. "/xdg", COSMIC_BOOTSTRAP_VERIFY = "1" }
+  if extra then for name, value in pairs(extra) do env[name] = value end end
+  return call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" }, tmp, output, env)
+end
+
+--- A curl on a PATH of its own that writes `$DOWNLOAD_SOURCE` wherever
+--- it is asked to, whatever URL it is given.
+local function fake_curl(tmp: string): string
+  local fake = tmp .. "/fake bin"
+  assert(Fs.mkdirs(fake))
+  assert(Fs.write(fake .. "/curl", [[#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then output=$2; shift 2; else shift; fi
+done
+cp "$DOWNLOAD_SOURCE" "$output"
+]], 0x1ed))
+  return fake .. ":" .. assert(Env.get("PATH"))
+end
+
 local function seeded_bootstrap(tmp: string): string, string
   local program = assert(Proc.executable())
   local digest = Hash.hex_sha256((assert(Fs.read(program))))
-  local cache, runner = tmp .. "/cache", tmp .. "/runner"
-  assert(Fs.mkdirs(cache))
-  assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program)))))
-  local pin_path = tmp .. "/local.pin"
-  pin(pin_path, string.rep("a", 40), digest)
-  local result = call({ "/bin/sh", checkout_root() .. "/ci/bootstrap-driver.sh",
-      pin_path, cache, runner }, tmp, tmp .. "/bootstrap.out")
-  assert(result.ok, assert(Fs.read(tmp .. "/bootstrap.out")))
+  local root, cache = bootstrap_root(tmp, string.rep("a", 40), digest)
+  assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program))), 0x1ed))
+  local result = bootstrap(tmp, root, tmp .. "/bootstrap.out")
+  local out = assert(Fs.read(tmp .. "/bootstrap.out"))
+  assert(result.ok, out)
+  local runner = out:gsub("\n$", "")
+  assert(runner == cache .. "/cosmic-" .. digest, out)
   return runner, digest
 end
 
@@ -89,74 +125,43 @@ local function driver_project(tmp: string): string
 end
 
 local function test_bootstrap_rejects_corrupt_cache_and_download(tmp: string)
-  local cache, fake = tmp .. "/cache", tmp .. "/fake bin"
-  assert(Fs.mkdirs(cache) and Fs.mkdirs(fake))
-  local commit, digest = string.rep("b", 40), string.rep("0", 64)
-  local pin_path = tmp .. "/bad.pin"
-  pin(pin_path, commit, digest)
-  assert(Fs.write(cache .. "/cosmic-" .. digest, "bad cache"))
+  local digest = string.rep("0", 64)
+  local root, cache = bootstrap_root(tmp, string.rep("b", 40), digest)
+  local cached = cache .. "/cosmic-" .. digest
+  assert(Fs.write(cached, "bad cache", 0x1ed))
   assert(Fs.write(tmp .. "/download", "bad download"))
-  assert(Fs.write(fake .. "/curl", [[#!/bin/sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output ]; then output=$2; shift 2; else shift; fi
-done
-cp "$DOWNLOAD_SOURCE" "$output"
-]]))
-  assert(call({ "/bin/chmod", "755", fake .. "/curl" }, tmp,
-    tmp .. "/chmod.out").ok)
-  local result = call({ "/bin/sh", checkout_root() .. "/ci/bootstrap-driver.sh",
-      pin_path, cache, tmp .. "/runner" }, tmp,
-    tmp .. "/bad.out", { PATH = fake .. ":" .. assert(Env.get("PATH")),
-      DOWNLOAD_SOURCE = tmp .. "/download" })
-  assert(not result.ok and Fs.exists(tmp .. "/runner") == false,
+  local result = bootstrap(tmp, root, tmp .. "/bad.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/download" })
+  assert(not result.ok and Fs.exists(cached) == false,
     "corrupt replacement was accepted")
 end
 
 local function test_bootstrap_replaces_a_corrupt_cache_from_a_verified_download(tmp: string)
   local program = assert(Proc.executable())
   local digest = Hash.hex_sha256((assert(Fs.read(program))))
-  local cache, fake = tmp .. "/cache", tmp .. "/fake bin"
-  assert(Fs.mkdirs(cache) and Fs.mkdirs(fake))
-  assert(Fs.write(cache .. "/cosmic-" .. digest, "corrupt"))
-  assert(Fs.write(fake .. "/curl", [[#!/bin/sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output ]; then output=$2; shift 2; else shift; fi
-done
-cp "$DOWNLOAD_SOURCE" "$output"
-]]))
-  assert(call({ "/bin/chmod", "755", fake .. "/curl" }, tmp,
-    tmp .. "/chmod.out").ok)
-  local pin_path = tmp .. "/download.pin"
-  pin(pin_path, string.rep("d", 40), digest)
-  local result = call({ "/bin/sh", checkout_root() .. "/ci/bootstrap-driver.sh",
-      pin_path, cache, tmp .. "/runner" }, tmp,
-    tmp .. "/download.out", { PATH = fake .. ":" .. assert(Env.get("PATH")),
-      DOWNLOAD_SOURCE = program })
+  local root, cache = bootstrap_root(tmp, string.rep("d", 40), digest)
+  local cached = cache .. "/cosmic-" .. digest
+  assert(Fs.write(cached, "corrupt", 0x1ed))
+  local result = bootstrap(tmp, root, tmp .. "/download.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program })
   assert(result.ok, assert(Fs.read(tmp .. "/download.out")))
-  assert(Hash.hex_sha256((assert(Fs.read(tmp .. "/runner")))) == digest,
-    "downloaded runner changed after verification")
+  assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest,
+    "downloaded driver changed after verification")
 end
 
-local function test_bootstrap_rejects_hostile_destinations(tmp: string)
+--- A link at the cache's name is never followed: even one to the right
+--- bytes is replaced by a verified download of its own.
+local function test_bootstrap_replaces_a_linked_cache_entry(tmp: string)
   local program = assert(Proc.executable())
   local digest = Hash.hex_sha256((assert(Fs.read(program))))
-  local cache = tmp .. "/cache"
-  assert(Fs.mkdirs(cache))
-  assert(Fs.write(cache .. "/cosmic-" .. digest, (assert(Fs.read(program)))))
-  local pin_path = tmp .. "/local.pin"
-  pin(pin_path, string.rep("c", 40), digest)
-  local script = checkout_root() .. "/ci/bootstrap-driver.sh"
-
-  assert(Fs.write(tmp .. "/existing-runner", "already here"))
-  local existing = call({ "/bin/sh", script, pin_path, cache,
-      tmp .. "/existing-runner" }, tmp, tmp .. "/existing.out")
-  assert(not existing.ok, "existing runner was accepted")
-
-  assert(call({ "/bin/ln", "-s", tmp .. "/target", tmp .. "/runner-link" },
-    tmp, tmp .. "/ln.out").ok)
-  local linked = call({ "/bin/sh", script, pin_path, cache, tmp .. "/runner-link" },
-    tmp, tmp .. "/linked.out")
-  assert(not linked.ok, "symlink runner was accepted")
+  local root, cache = bootstrap_root(tmp, string.rep("c", 40), digest)
+  local cached = cache .. "/cosmic-" .. digest
+  assert(Fs.symlink(program, cached))
+  local result = bootstrap(tmp, root, tmp .. "/linked.out",
+    { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program })
+  assert(result.ok, assert(Fs.read(tmp .. "/linked.out")))
+  assert(Fs.readlink(cached) == nil, "a linked cache entry was kept")
+  assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest)
 end
 
 local function test_driver_records_success_failures_timeout_and_interruption(tmp: string)

@@ -6,14 +6,19 @@
 # build/vendor.tl behind bin/vendor -- against its own embedded
 # standard library, so neither the tree's state nor o/ matters to it.
 #
-# The pin is ci/cosmic-driver.pin, the one CI's bootstrap-driver.sh
-# reads too: a commit, that commit's release URL, and the binary's
-# sha256, one per line. The binary is cached by digest, as
+# The pin is ci/cosmic-driver.pin, the release CI runs as its driver
+# too: a commit, that commit's release URL, and the binary's sha256, one
+# per line. The binary is cached by digest, as
 # $XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256> (default
 # ~/.cache/cosmic/bootstrap/...). It is downloaded to a .part file
 # beside that name, checked against the pin, made executable, and only
 # then renamed into place, so a file at that name is always a verified
 # one: a warm run reads the pin and nothing else.
+#
+# A cache this script did not fill -- CI restores its
+# from actions/cache -- is checked again when COSMIC_BOOTSTRAP_VERIFY is set:
+# a cached file whose sha256 is not the pin's is removed and fetched
+# afresh, as if it had never been there.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -43,16 +48,29 @@ else
 fi
 cached=$cache/cosmic-$digest
 
-if [ ! -x "$cached" ]; then
-  sha256_file() {
-    if command -v sha256sum >/dev/null 2>&1; then
-      sha256sum "$1" | cut -d' ' -f1
-    elif command -v shasum >/dev/null 2>&1; then
-      shasum -a 256 "$1" | cut -d' ' -f1
-    else
-      die "need sha256sum or shasum to verify $url"
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  else
+    die "need sha256sum or shasum to verify $url"
+  fi
+}
+
+if [ -n "${COSMIC_BOOTSTRAP_VERIFY:-}" ] && { [ -e "$cached" ] || [ -L "$cached" ]; }; then
+  if [ -L "$cached" ] || [ ! -f "$cached" ]; then
+    rm -f "$cached" || die "cannot remove $cached, which is not the pin's"
+  else
+    # An assignment, so a missing hash tool stops the script here.
+    got=$(sha256_file "$cached")
+    if [ "$got" != "$digest" ]; then
+      rm -f "$cached" || die "cannot remove $cached, which is not the pin's"
     fi
-  }
+  fi
+fi
+
+if [ ! -x "$cached" ]; then
   mkdir -p "$cache"
   partial=$cache/.cosmic-$digest.$$.part
   trap 'rm -f "$partial"' EXIT
