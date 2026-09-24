@@ -60,7 +60,10 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
               useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
-            shell: su runner -c "sh -e {0}"
+            # setpriv, not su: util-linux su resets PATH, which drops the
+            # driver's directory that the bootstrap step adds to GITHUB_PATH;
+            # setpriv changes only the user and keeps the environment.
+            shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-linux-musl
@@ -72,7 +75,10 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
               useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
-            shell: su runner -c "sh -e {0}"
+            # setpriv, not su: util-linux su resets PATH, which drops the
+            # driver's directory that the bootstrap step adds to GITHUB_PATH;
+            # setpriv changes only the user and keeps the environment.
+            shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
           - name: macos-aarch64
             runner: macos-15
             target: aarch64-macos
