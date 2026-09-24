@@ -951,9 +951,9 @@ end
 local record Cache
   run: integer
   tool: string
-  --- Whether this run holds its modules to `build.contracts`; a compile
-  --- made without is kept only for this run's own database (see
-  --- `importer.compile`'s `unjudged`).
+  --- Whether this run refuses a module `build.contracts` refuses,
+  --- rather than keeping its compile for this run's own database only
+  --- (see `importer.compile`'s `unjudged`).
   judged: boolean
   look: Sqlite.Statement
   put: Sqlite.Statement
@@ -963,8 +963,9 @@ end
 local function prepare_cache(handle: work.Handle, tool: string,
                              judged: boolean): Cache | nil, string
   local db = handle.db
-  -- An unjudged compile is marked seen -1 and never reused: the next
-  -- run compiles and judges the module again.
+  -- A compile build.contracts refused, kept anyway by an unjudged run,
+  -- is marked seen -1 and never reused: the next run compiles and
+  -- judges the module again.
   local look, look_trouble = db:prepare(
     "UPDATE compiled SET seen = ?2 WHERE key = ?1 AND seen >= 0 RETURNING lua")
   if look == nil then
@@ -1049,16 +1050,17 @@ local function bytecode_of(code: string, name: string,
 end
 
 --- Puts one compile in the cache under its key, and the module in
---- this run's plan.
+--- this run's plan. A `refused` compile is kept for this run alone.
 local function remember(cache: Cache, path: string, key: string, ordinal: integer,
-                        lua: string | nil, bytecode: string | nil): boolean, string
+                        lua: string | nil, bytecode: string | nil,
+                        refused: boolean): boolean, string
   if lua ~= nil and bytecode ~= nil then
     local put = cache.put
     local bound, bind_trouble = put:bind_text(1, key)
     if bound then bound, bind_trouble = put:bind_text(2, cache.tool) end
     if bound then bound, bind_trouble = put:bind_text(3, lua) end
     if bound then bound, bind_trouble = put:bind_blob(4, bytecode) end
-    if bound then bound, bind_trouble = put:bind_integer(5, cache.judged and cache.run or -1) end
+    if bound then bound, bind_trouble = put:bind_integer(5, refused and -1 or cache.run) end
     if not bound then
       return false, bind_trouble
     end
@@ -1085,10 +1087,13 @@ local record Generated
   --- The record-field uses the checker's types resolved -- see
   --- `build.receivers`.
   references: {receivers.Reference}
+  --- Whether `build.contracts` refused the module, and the compile was
+  --- kept anyway for an unjudged run.
+  refused: boolean
 end
 
 local function generate(m: Module, built: compiler, env: compiler.Env,
-                        typed: receivers.State, judged: boolean,
+                        typed: receivers.State, own_tree: boolean, judged: boolean,
                         databases: {Sqlite.Handle},
                         public: {boolean}): Generated | nil, string
   local code, result = built.gen(m.source, env, nil, "tl")
@@ -1110,12 +1115,14 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   if not (checked is ast.Node) then
     return nil, m.file .. ": the compiler answered no syntax tree"
   end
-  if judged and contracts.applies(m.kind, m.generated) then
+  local refused = false
+  if own_tree and contracts.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
       receivers.record_named(env, "cosmic.sys", ""))
-    if #problems > 0 then
+    if #problems > 0 and judged then
       return nil, table.concat(problems, "\n")
     end
+    refused = #problems > 0
   end
   local references = receivers.references(typed, env, checked)
   if m.kind == "test" then
@@ -1125,7 +1132,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   if bytecode == nil then
     return nil, dump_trouble
   end
-  return { lua = code, bytecode = bytecode, references = references }, ""
+  return { lua = code, bytecode = bytecode, references = references, refused = refused }, ""
 end
 
 --- The record-field uses one compile found, kept under its key beside
@@ -1168,7 +1175,7 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
   local key = Hash.hex_sha256(source .. "\n" .. tool)
   local lua, look_trouble = cached_lua(cache, key)
   if lua ~= nil then
-    return remember(cache, "vendor.tl", key, ordinal, nil, nil)
+    return remember(cache, "vendor.tl", key, ordinal, nil, nil, false)
   end
   if look_trouble ~= "" then
     return false, look_trouble
@@ -1178,7 +1185,7 @@ local function plan_compiler(handle: work.Handle, cache: Cache,
     return false, "the vendored compiler would not load: " .. tostring(load_trouble)
   end
   return remember(cache, "vendor.tl", key, ordinal, source,
-    string.dump(chunk, false))
+    string.dump(chunk, false), false)
 end
 
 --- Compiles every module, in import order, into Lua and bytecode --
@@ -1197,12 +1204,14 @@ end
 --- @param built the compiler, loaded and ready
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
---- @param unjudged whether to skip `build.contracts`' judgment of
----   cosmic's own modules: a stale tool rebuilding itself (`build.reboot`)
----   would judge the tree by its own, older rules and exemptions, so it
----   leaves that to the tool it builds, which re-enters the command. A
----   compile made so is kept only for this run's database, never
----   reused, so the next run compiles and judges the module again.
+--- @param unjudged whether a module `build.contracts` refuses is kept
+---   rather than refused: a stale tool rebuilding itself (`build.reboot`)
+---   judges the tree by its own, older rules and exemptions, so it
+---   leaves the last word to the tool it builds, which re-enters the
+---   command. A compile the old rules refuse is kept only for this run's
+---   database, never reused, so the next run compiles and judges the
+---   module again; one they pass is cached as any other, since a change
+---   to the rules themselves forgets every compile (`forget_stale_receivers`).
 function importer.compile(handle: work.Handle, built: compiler,
                           tool: string, unjudged?: boolean): importer.Result | nil, string
   local own_tree, own_trouble = tree.is_own(handle.root)
@@ -1311,6 +1320,7 @@ function importer.compile(handle: work.Handle, built: compiler,
           return false, look_trouble
         end
         local bytecode: string | nil = nil
+        local refused = false
         if lua ~= nil then
           result.cached = result.cached + 1
         else
@@ -1324,7 +1334,7 @@ function importer.compile(handle: work.Handle, built: compiler,
             typed = receivers.install(made_env)
           end
           local generated, generate_trouble =
-            generate(m, built, env, assert(typed), own_tree and judged, hint_databases,
+            generate(m, built, env, assert(typed), own_tree, judged, hint_databases,
               hint_public)
           if generated == nil then
             failure = generate_trouble
@@ -1332,6 +1342,7 @@ function importer.compile(handle: work.Handle, built: compiler,
           end
           lua = generated.lua
           bytecode = generated.bytecode
+          refused = generated.refused
           result.compiled = result.compiled + 1
           local kept_refs, refs_trouble = keep_references(db, m.key,
             generated.references)
@@ -1342,7 +1353,7 @@ function importer.compile(handle: work.Handle, built: compiler,
         end
         m.lua = lua
         local kept, keep_trouble = remember(cache, m.path, m.key, ordinal, lua,
-          bytecode)
+          bytecode, refused)
         if not kept then
           finish_cache(cache)
           return false, m.file .. ": " .. keep_trouble

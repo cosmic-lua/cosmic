@@ -159,9 +159,9 @@ function reboot.into(handle: work.Handle, built: compiler,
     return identity_trouble
   end
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
-  -- is older than the tree's. The tool built here judges the tree by
-  -- the tree's own when it re-enters the command, and compiles again
-  -- every module compiled here unjudged.
+  -- may be older than the tree's, so a module it refuses is built
+  -- anyway, and the tool built here judges it again, by the tree's own,
+  -- when it re-enters the command.
   local result, compile_trouble =
     importer.compile(handle, built, identities.compiler, true)
   if result == nil then
