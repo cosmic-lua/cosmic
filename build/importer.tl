@@ -1269,7 +1269,8 @@ function importer.compile(handle: work.Handle, built: compiler,
           lua = made.lua
           bytecode = made.bytecode
           result.compiled = result.compiled + 1
-          local kept_refs, refs_trouble = keep_references(db, m.key, made.references)
+          local kept_refs, refs_trouble = keep_references(db, m.key,
+            assert(generated).references)
           if not kept_refs then
             finish_cache(cache)
             return false, m.file .. ": " .. refs_trouble
