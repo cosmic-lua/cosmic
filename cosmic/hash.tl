@@ -63,8 +63,8 @@ function Hash.hex(digest: string): string
   return Codec.hex(digest)
 end
 
---- The hexadecimal SHA-256 of some bytes, which is the form the build
---- writes into keys.
+--- The hexadecimal SHA-256 of some bytes, as `sha256sum` prints it,
+--- which is the form the build writes into keys.
 function Hash.hex_sha256(data: string): string
   return Hash.hex(sys.digest("sha256", data))
 end

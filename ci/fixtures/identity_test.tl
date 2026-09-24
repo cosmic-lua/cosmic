@@ -28,12 +28,10 @@ local function read_prefix_length(fixture_dir: string): integer
     "invalid prefix length: " .. text))
 end
 
--- TODO: copy in this process with Fs.copy_tree once ci/cosmic-driver.pin
--- names a cosmic carrying it. Unlike `cp -R` it keeps the source's times
--- and modes with no umask applied, rather than fresh times and the umask's.
-local function copy_tree(label: string, from: string, to: string, cwd: string,
-    diagnostics: string)
-  Fixture.run(label, { "/usr/bin/env", "cp", "-R", from, to }, cwd, diagnostics)
+-- Copies a whole directory tree to `to`, which must not exist yet.
+local function copy_tree(label: string, from: string, to: string)
+  local copied, trouble = Fs.copy_tree(from, to)
+  assert(copied, label .. ": " .. trouble)
 end
 
 -- Counts the plain files directly inside `directory`. The portable cache is
@@ -178,8 +176,7 @@ local function check_transported(fixture_dir: string, finished: string,
     work: string, diagnostics: string)
   -- The destination must not exist so this creates a fresh relocated project.
   local project = work .. "/transported-project"
-  copy_tree("restore-transported-state", finished, project, work,
-    diagnostics)
+  copy_tree("restore-transported-state", finished, project)
   local counter = project .. "/test-runs"
   local cache = work .. "/transported-cache"
 
@@ -243,8 +240,7 @@ local function test_identity_primary(tmp: string)
   -- from a verdict, however many the file holds.
   local focused = work .. "/focused-embed"
   Fixture.mkdir(focused)
-  copy_tree("copy-build", root .. "/build", focused .. "/build", work,
-    diagnostics)
+  copy_tree("copy-build", root .. "/build", focused .. "/build")
   local focused_run = Fixture.run("focused-embed", { fixture_dir .. "/runtime.old",
     "test", "build/embed_test.tl" }, focused, diagnostics,
     { COSMIC_PORTABLE_CACHE = cache })
