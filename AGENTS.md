@@ -17,6 +17,8 @@
    `build/zig.tl`), so a fresh worktree compiles only the core's own C;
    delete them to reclaim the space. `o/bin/cosmic db` says what both
    databases under `o/` hold and how the last few builds went;
+   `o/bin/cosmic sql [--build|--store|--db <path>] '<statement>'` runs one
+   read-only query against one of them, with no script and no build;
    `o/bin/cosmic docs <symbol>`
    shows a symbol's signature, doc comment and use count, and
    `o/bin/cosmic uses <symbol>` lists every `file:line` that refers to it.

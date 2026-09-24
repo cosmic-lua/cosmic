@@ -341,6 +341,12 @@ local function main(argv: {integer:string}): integer
     local databases = require("build.databases")
     return databases.run(argv)
   end
+  if verb == "sql" then
+    -- Never stale-checked, unlike `db`: a staleness check stages the
+    -- tree, and this verb reads o/ and nothing else under it.
+    local sql = require("build.sql")
+    return sql.run(argv)
+  end
   if verb == "build" then
     local embed = require("build.embed")
     return embed.run(argv)
