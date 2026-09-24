@@ -107,9 +107,12 @@ bool cosmic_host_trailer (int fd) {
          memcmp(magic, COSMIC_HOST_TRAILER_MAGIC, sizeof magic) == 0;
 }
 
-/* The trailer and the one manifest block both formats share: reads them,
- * checks every field but the trailer magic's meaning, and fills the ranges
- * and entries. `first_core` is the least offset a core may start at. */
+/* The trailer, the one manifest block and the database header both
+ * formats share: reads them, checks every field but the trailer magic's
+ * meaning, and fills the ranges and entries. `first_core` is the least
+ * offset a core may start at: 0 for a host program, the shell's length
+ * for a portable artifact. What only one format has -- the portable
+ * shell, its several cores and their padding -- its own decoder checks. */
 static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_core,
                            struct cosmic_portable *decoded,
                            struct cosmic_portable *out, const char **error) {
@@ -238,13 +241,7 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
                              struct cosmic_portable *out,
                              const char **error) {
   struct cosmic_portable decoded;
-  unsigned char trailer[COSMIC_PORTABLE_TRAILER_LENGTH];
-  unsigned char manifest[COSMIC_PORTABLE_MANIFEST_LENGTH];
-  unsigned char header[SQLITE_HEADER_LENGTH];
   unsigned char shebang[] = "#!/bin/sh\n";
-  struct stat st;
-  uint64_t file_length;
-  uint64_t trailer_offset;
   uint64_t required_seen = 0;
   int selected = -1;
 
@@ -255,96 +252,15 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
 
   if (target_id == 0 || configuration_id == 0)
     return reject(out, error, "compiled target or configuration is zero");
-  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0)
-    return reject(out, error, "artifact size is unavailable");
-  file_length = (uint64_t)st.st_size;
-  if (file_length > (uint64_t)INT64_MAX)
-    return reject(out, error, "artifact is too large");
-  if (file_length < COSMIC_PORTABLE_SHELL_LENGTH +
-                        COSMIC_PORTABLE_MANIFEST_LENGTH +
-                        SQLITE_HEADER_LENGTH +
-                        COSMIC_PORTABLE_TRAILER_LENGTH)
-    return reject(out, error, "artifact is truncated");
-  trailer_offset = file_length - COSMIC_PORTABLE_TRAILER_LENGTH;
-  if (!read_at(fd, trailer, sizeof trailer, trailer_offset))
-    return reject(out, error, "trailer cannot be read");
-  if (memcmp(trailer, COSMIC_PORTABLE_TRAILER_MAGIC,
-             COSMIC_PORTABLE_MAGIC_LENGTH) != 0)
-    return reject(out, error, "trailer magic differs");
-  if (be32(trailer + 8) != COSMIC_PORTABLE_VERSION)
-    return reject(out, error, "trailer version is unsupported");
-  if (be32(trailer + 12) != COSMIC_PORTABLE_TRAILER_LENGTH)
-    return reject(out, error, "trailer length differs");
-
-  decoded.manifest_offset = be64(trailer + 16);
-  decoded.manifest_length = be64(trailer + 24);
-  decoded.database_offset = be64(trailer + 32);
-  decoded.database_length = be64(trailer + 40);
-  if (decoded.manifest_length != COSMIC_PORTABLE_MANIFEST_LENGTH)
-    return reject(out, error, "manifest block length differs");
-  if (!range_ends_at_or_before(decoded.manifest_offset,
-                               decoded.manifest_length, trailer_offset) ||
-      decoded.manifest_offset + decoded.manifest_length !=
-          decoded.database_offset)
-    return reject(out, error, "manifest range differs from database offset");
-  if (!range_ends_at_or_before(decoded.database_offset,
-                               decoded.database_length, trailer_offset) ||
-      decoded.database_offset + decoded.database_length != trailer_offset)
-    return reject(out, error, "database range differs from trailer offset");
-  if (decoded.manifest_offset < COSMIC_PORTABLE_SHELL_LENGTH ||
-      decoded.manifest_offset % COSMIC_PORTABLE_CORE_ALIGNMENT != 0)
-    return reject(out, error, "manifest offset is not aligned after the shell");
-
+  if (!decode_blocks(fd, COSMIC_PORTABLE_TRAILER_MAGIC,
+                     COSMIC_PORTABLE_SHELL_LENGTH, &decoded, out, error))
+    return false;
   if (!read_at(fd, shebang, sizeof shebang - 1, 0) ||
       memcmp(shebang, "#!/bin/sh\n", sizeof shebang - 1) != 0)
     return reject(out, error, "shell header has no portable shebang");
-  if (!read_at(fd, manifest, sizeof manifest, decoded.manifest_offset))
-    return reject(out, error, "manifest cannot be read");
-  if (memcmp(manifest, COSMIC_PORTABLE_MANIFEST_MAGIC,
-             COSMIC_PORTABLE_MAGIC_LENGTH) != 0)
-    return reject(out, error, "manifest magic differs");
-  if (be32(manifest + 8) != COSMIC_PORTABLE_VERSION)
-    return reject(out, error, "manifest version is unsupported");
-  if (be32(manifest + 12) != COSMIC_PORTABLE_MANIFEST_LENGTH)
-    return reject(out, error, "manifest encoded length differs");
-  decoded.prefix_length = be64(manifest + 16);
-  decoded.entry_count = be32(manifest + 24);
-  if (be32(manifest + 28) != COSMIC_PORTABLE_ENTRY_LENGTH)
-    return reject(out, error, "manifest entry length differs");
-  if (decoded.prefix_length != decoded.database_offset ||
-      decoded.prefix_length !=
-          decoded.manifest_offset + decoded.manifest_length)
-    return reject(out, error, "manifest prefix length differs");
-  if (decoded.entry_count == 0 ||
-      decoded.entry_count > COSMIC_PORTABLE_MAX_ENTRIES)
-    return reject(out, error, "manifest entry count is outside its bound");
-
-  uint64_t used = COSMIC_PORTABLE_MANIFEST_HEADER_LENGTH +
-                  (uint64_t)decoded.entry_count * COSMIC_PORTABLE_ENTRY_LENGTH;
-  if (used > decoded.manifest_length)
-    return reject(out, error, "manifest entries exceed their block");
-  if (!zero_range(fd, decoded.manifest_offset + used,
-                  decoded.manifest_length - used))
-    return reject(out, error, "manifest padding is not zero");
 
   for (uint32_t i = 0; i < decoded.entry_count; i++) {
-    const unsigned char *raw = manifest +
-        COSMIC_PORTABLE_MANIFEST_HEADER_LENGTH +
-        (uint64_t)i * COSMIC_PORTABLE_ENTRY_LENGTH;
-    struct cosmic_portable_entry *entry = &decoded.entries[i];
-    entry->target_id = be32(raw);
-    entry->configuration_id = be32(raw + 4);
-    entry->offset = be64(raw + 8);
-    entry->length = be64(raw + 16);
-    memcpy(entry->sha256, raw + 24, COSMIC_PORTABLE_SHA256_LENGTH);
-    if (entry->target_id == 0 || entry->configuration_id == 0)
-      return reject(out, error, "manifest entry identity is zero");
-    if (entry->offset < COSMIC_PORTABLE_SHELL_LENGTH ||
-        entry->offset % COSMIC_PORTABLE_CORE_ALIGNMENT != 0 ||
-        entry->length == 0 ||
-        !range_ends_at_or_before(entry->offset, entry->length,
-                                 decoded.manifest_offset))
-      return reject(out, error, "core range is outside the aligned prefix");
+    const struct cosmic_portable_entry *entry = &decoded.entries[i];
     for (uint32_t j = 0; j < i; j++) {
       const struct cosmic_portable_entry *other = &decoded.entries[j];
       if (entry->target_id == other->target_id &&
@@ -396,11 +312,6 @@ bool cosmic_portable_decode (int fd, uint32_t target_id,
     return reject(out, error, "manifest does not follow minimal core padding");
   if (!zero_range(fd, after, expected_manifest - after))
     return reject(out, error, "final core padding is not zero");
-
-  if (decoded.database_length < SQLITE_HEADER_LENGTH ||
-      !read_at(fd, header, sizeof header, decoded.database_offset) ||
-      memcmp(header, SQLITE_HEADER, SQLITE_HEADER_LENGTH) != 0)
-    return reject(out, error, "database header differs from SQLite");
 
   decoded.selected = decoded.entries[(uint32_t)selected];
   *out = decoded;

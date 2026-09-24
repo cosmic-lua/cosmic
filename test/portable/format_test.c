@@ -196,6 +196,7 @@ static int self_test (const char *path) {
   } while (0)
 
   unsigned char bad_magic = 'X';
+  ok &= mutation("shell shebang", data, length, 2, &bad_magic, 1);
   ok &= mutation("trailer magic", data, length, trailer, &bad_magic, 1);
   MUTATE32("trailer version", trailer + 8, 2);
   MUTATE32("trailer encoded length", trailer + 12, 0x30000000u);
