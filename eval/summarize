@@ -1,85 +1,21 @@
 #!/bin/sh
-# TODO: replace this sh and embedded Python with a Teal script run by
-# `cosmic --standalone`. Reading the transcript needs a JSON decoder,
-# which the standard library does not have yet.
-# Numbers from a Claude Code stream-json transcript: turns, tool calls,
-# minutes, cost, then the friction the journal may not admit to --
-# failed tool calls, `cosmic docs` lookups that found no exact match,
-# the tool call at which `cosmic test` first passed, and how many times
-# the journal was written (one write at the end is a retelling, not a
-# log). Last, every absolute path a tool call named outside the arena,
-# and any mention of this repository or a skills directory: those are
-# contamination or boundary breaches to check before trusting the run.
-# Another agent's transcript needs its own reader.
+# Numbers from a Claude Code stream-json transcript, and the tool calls
+# that left the arena or named this repository: see eval/summarize.tl,
+# which this runs with `cosmic --standalone` on $COSMIC_BOOTSTRAP when
+# set (it must be an executable file), else on the pinned release
+# bin/cosmic-bootstrap fetches.
 #
 #   eval/summarize <arena>/transcript.jsonl
 set -eu
-transcript=${1:?usage: eval/summarize <transcript.jsonl>}
-repo=$(cd "$(dirname "$0")/.." && pwd -P)
-arena=$(cd "$(dirname "$transcript")" && pwd -P)
-python3 - "$transcript" "$arena" "$repo" <<'PY'
-import json, re, sys
-transcript, arena, repo = sys.argv[1:]
-calls, results = [], {}
-result = None
-for line in open(transcript):
-    try:
-        event = json.loads(line)
-    except ValueError:
-        continue
-    kind = event.get("type")
-    if kind == "assistant":
-        for part in event["message"]["content"]:
-            if part["type"] == "tool_use":
-                calls.append(part)
-    elif kind == "user" and isinstance(event["message"]["content"], list):
-        for part in event["message"]["content"]:
-            if part.get("type") == "tool_result":
-                text = part["content"]
-                if not isinstance(text, str):
-                    text = " ".join(x.get("text", "") for x in text)
-                results[part["tool_use_id"]] = (bool(part.get("is_error")), text)
-    elif kind == "result":
-        result = event
 
-failed = docs_misses = journal_writes = 0
-first_green = None
-outside, tainted = set(), set()
-# System locations a shell call may name without leaving the arena.
-system = ("/usr/", "/bin/", "/sbin/", "/lib/", "/etc/", "/dev/", "/proc/", "/opt/")
-for index, call in enumerate(calls, 1):
-    error, text = results.get(call["id"], (False, ""))
-    failed += error
-    docs_misses += text.count("No exact symbol match") + text.count("docs: FAIL")
-    if first_green is None and "test: PASS" in text:
-        first_green = index
-    given = json.dumps(call["input"])
-    if "JOURNAL.md" in given and (call["name"] in ("Write", "Edit") or
-                                  re.search(r">>?\s*\S*JOURNAL\.md|tee\b[^|]*JOURNAL\.md", given)):
-        journal_writes += 1
-    # Where the call acts, not what it writes: a file's own contents
-    # would otherwise count every path its prose mentions.
-    where = " ".join(str(call["input"].get(key, ""))
-                     for key in ("command", "file_path", "path", "pattern"))
-    for path in re.findall(r"(?<![\w.$~<>])(/[\w.@+-]+(?:/[\w.@+-]+)*)", where):
-        if (path == arena or path.startswith(arena + "/") or path.startswith(system)
-                or path + "/" in system):
-            continue
-        outside.add(path)
-    for mark in (repo, ".claude/skills", ".claude/plugins"):
-        if mark in given:
-            tainted.add(mark)
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+script=$root/eval/summarize.tl
 
-if result is not None:
-    print("turns=%s tools=%d minutes=%.1f cost=$%.2f" % (
-        result.get("num_turns"), len(calls), result.get("duration_ms", 0) / 60000,
-        result.get("total_cost_usd", 0)))
-else:
-    print("turns=null tools=%d minutes=null cost=null (no result event: timed out?)" % len(calls))
-print("failed_calls=%d docs_misses=%d first_green_test_call=%s journal_writes=%d" % (
-    failed, docs_misses, first_green if first_green is not None else "null", journal_writes))
-for path in sorted(outside):
-    print("outside-arena: " + path)
-for mark in sorted(tainted):
-    print("CONTAMINATION: a tool call named " + mark)
-PY
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    printf 'eval/summarize: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
+    exit 1
+  fi
+  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
+fi
+exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
