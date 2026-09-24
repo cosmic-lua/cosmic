@@ -6,6 +6,10 @@
 --- an error. A predicate uses the same contract, with false as a valid
 --- answer. A call that only has an effect returns `boolean, string`.
 ---
+--- `basename`, `dirname`, `within` and `relative` are the exception:
+--- they work on a path's text alone, read nothing, and cannot fail, so
+--- each answers a plain value.
+---
 --- The syscall table itself is `cosmic.sys`. A call this module does not
 --- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
 --- `cosmic docs cosmic.sys` lists every one.
@@ -542,6 +546,70 @@ function Fs.copy_tree(from: string, to: string): boolean, string
     return Fs.set_mtime(target, st.mtime, st.mtime)
   end
   return copy(from, to)
+end
+
+--- `path` without its trailing slashes, scanned back from the end: a
+--- pattern anchored at `$` would retry at every slash of a long run.
+local function unslashed(path: string): string
+  local to = #path
+  while to > 0 and path:byte(to) == 47 do to = to - 1 end
+  return path:sub(1, to)
+end
+
+--- The last component of a path, as basename(1) names it: trailing
+--- slashes are ignored, "/" is itself, and "" stays "". Lexical: nothing
+--- is read from disk.
+function Fs.basename(path: string): string
+  if path == "" then return "" end
+  local trimmed = unslashed(path)
+  if trimmed == "" then return "/" end
+  local at = #trimmed
+  while at > 0 and trimmed:byte(at) ~= 47 do at = at - 1 end
+  return trimmed:sub(at + 1)
+end
+
+--- The directory a path names its last component in, as dirname(1)
+--- answers: trailing slashes are ignored, a bare name is in ".", and
+--- "/" and a component directly under it are in "/". Lexical: nothing
+--- is read from disk, and "a/.." is in "a".
+function Fs.dirname(path: string): string
+  local trimmed = unslashed(path)
+  if trimmed == "" then
+    return path == "" and "." or "/"
+  end
+  local at = #trimmed
+  while at > 0 and trimmed:byte(at) ~= 47 do at = at - 1 end
+  if at == 0 then return "." end
+  local directory = unslashed(trimmed:sub(1, at))
+  if directory == "" then return "/" end
+  return directory
+end
+
+--- Whether `path` is `directory` or lies under it, comparing the text
+--- component by component: "a/bc" is not within "a/b". Trailing slashes
+--- on either are ignored. Lexical, so both should be written the same
+--- way (absolute, or relative to one place, with no "." or ".."); an
+--- empty directory holds nothing.
+function Fs.within(path: string, directory: string): boolean
+  if directory == "" then return false end
+  local base = unslashed(directory)
+  if base == "" then return path:sub(1, 1) == "/" end
+  return unslashed(path) == base or path:sub(1, #base + 1) == base .. "/"
+end
+
+--- `path` relative to `directory`, lexically: "." when they are the same,
+--- the rest after the directory's "/" when `path` is within it, and nil
+--- with a reason when it is not.
+function Fs.relative(path: string, directory: string): string | nil, string
+  if not Fs.within(path, directory) then
+    return nil, path .. ": not within " .. directory
+  end
+  local base = unslashed(directory)
+  local from = #base + 1
+  while path:byte(from) == 47 do from = from + 1 end
+  local rest = unslashed(path:sub(from))
+  if rest == "" then return ".", "" end
+  return rest, ""
 end
 
 Fs.stdin = 0

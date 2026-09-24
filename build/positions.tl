@@ -16,6 +16,7 @@
 
 local type compiler = require("build.compiler")
 local ast = require("build.ast")
+local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 
 local record positions
@@ -1100,8 +1101,7 @@ function positions.check(modules: {positions.Module}): boolean, string
       if other ~= nil then
         local dir = dirname(other.file)
         if private_dirs[dir] and other.file ~= dir .. "/init.tl" then
-          local inside = m.file:sub(1, #dir + 1) == dir .. "/"
-          if not inside then
+          if not Fs.within(m.file, dir) then
             return false, m.file .. ": " .. name .. " is private to " ..
               dir .. "/; only a file inside it may import it"
           end

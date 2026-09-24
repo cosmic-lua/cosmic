@@ -135,7 +135,7 @@ function test.matches(selector: string, path: string, file: string): boolean
   selector = normalized(selector)
   if selector == "." then return true end
   if selector == path or selector == file then return true end
-  return selector ~= "" and file:sub(1, #selector + 1) == selector .. "/"
+  return Fs.within(file, selector)
 end
 
 local function selected(m: importer.Module, selectors: {string}): boolean
@@ -263,14 +263,11 @@ end
 --- one: a test's own scratch directory, or anything else outside the
 --- tree, is not an input to it, and nor is the build's own output.
 local function under_root(root: string, path: string): string | nil
-  local relative: string
-  if path == root then
-    relative = "."
-  elseif path:sub(1, #root + 1) == root .. "/" then
-    relative = path:sub(#root + 2)
-  elseif path:sub(1, 1) ~= "/" then
-    relative = path
-  else
+  local relative = path
+  local rest = Fs.relative(path, root)
+  if rest ~= nil then
+    relative = rest
+  elseif path:sub(1, 1) == "/" then
     return nil
   end
   if relative == "o" or relative:sub(1, 2) == "o/" then
@@ -398,7 +395,7 @@ end
 function test.keyable(root: string, scratch: string,
                       reads: {observations.Observation}): boolean
   local function under(dir: string, path: string): boolean
-    return dir ~= "" and (path == dir or path:sub(1, #dir + 1) == dir .. "/")
+    return Fs.within(path, dir)
   end
   local made: {string} = {}
   for _, observation in ipairs(reads) do
@@ -1136,12 +1133,9 @@ function test.run(argv: {integer:string}): integer
     elseif absolute ~= nil then
       selector = normalized(absolute)
     end
-    if root == "/" and selector:sub(1, 1) == "/" then
-      selector = selector:sub(2)
-    elseif selector == root then
-      selector = "."
-    elseif selector:sub(1, #root + 1) == root .. "/" then
-      selector = selector:sub(#root + 2)
+    local rest = Fs.relative(selector, root)
+    if rest ~= nil then
+      selector = rest
     end
     selectors[#selectors + 1] = selector
     slot = slot + 1

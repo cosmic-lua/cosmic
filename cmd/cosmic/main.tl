@@ -107,11 +107,7 @@ local function directory_of(path: string): string | nil, string
   if resolved == nil then
     return nil, trouble
   end
-  local parent = resolved:match("^(.*)/[^/]+$")
-  if parent == nil or parent == "" then
-    return "/"
-  end
-  return parent
+  return Fs.dirname(resolved), ""
 end
 
 --- The tree a file run builds: the working directory when the file
@@ -125,7 +121,7 @@ local function root_of(file: string): string | nil, string
     return nil, file .. ": " .. trouble
   end
   local here = Fs.absolute(".")
-  if here ~= nil and (here == "/" or resolved:sub(1, #here + 1) == here .. "/") then
+  if here ~= nil and Fs.within(resolved, here) then
     return here
   end
   return directory_of(file)

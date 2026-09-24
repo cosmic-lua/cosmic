@@ -72,8 +72,7 @@ local function skip(entry: string): boolean
   if first == "o" or first == "vendor" or first == "patch" or first == "bin" then
     return true
   end
-  local name = entry:match("([^/]+)$") or entry
-  return name:sub(1, 1) == "."
+  return Fs.basename(entry):sub(1, 1) == "."
 end
 
 --- Every C file under `dir`, `.c` and `.h`, relative to it and sorted.

@@ -460,7 +460,7 @@ local function wanted(file: string, paths: {string}): boolean
     return true
   end
   for _, path in ipairs(paths) do
-    if file == path or file:sub(1, #path + 1) == path .. "/" then
+    if Fs.within(file, path) then
       return true
     end
   end
