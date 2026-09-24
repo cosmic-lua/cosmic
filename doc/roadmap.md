@@ -39,8 +39,9 @@ defines the target; once something ships, it leaves this file.
 design.md promises that the parsers facing untrusted input are fuzzed.
 `build.fuzz` runs the tar, zip and archive properties and the host-program
 locator's on every `cosmic test`, and CI reruns them deep on the checked core.
-curl and c-ares are fuzzed upstream; record that as their evidence rather
-than fuzzing them here.
+curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
+rather than fuzzing them here. `core/json.c`'s own walk into Lua values and
+its encoder are fuzzed here, in `cosmic/json_fuzz_test.tl`.
 
 - fuzz the portable launch. `build/locator_fuzz_test.tl` covers a host
   program's trailer and manifest, which share `decode_blocks` with a portable
@@ -77,10 +78,10 @@ Open the remaining `fopen` paths with `O_CLOEXEC` (`"e"` in the mode):
 design.md's core tier names modules the tree does not have yet. the ones the
 promises lean on come first:
 
-- `shape` and `json`: design.md's principle 4 has untrusted data enter through
-  a declared shape, and there is no shape validator or JSON codec to do it.
-  JSON starts in Teal and is measured against a C implementation once the
-  benchmark harness exists.
+- `shape`: design.md's principle 4 has untrusted data enter through a
+  declared shape. `cosmic.json` decodes to `any`, and there is no validator
+  yet to turn that into a record; `decode_object`, `decode_array` and `is`
+  are the interim.
 - `flags`, `log`, `string`, `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under

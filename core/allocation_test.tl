@@ -22,6 +22,7 @@
 local Compress = require("cosmic.compress")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -368,6 +369,27 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "a hasher is an allocation")
   assert_c_heap(bytes, blocks, "hashing under refusal")
+end
+
+--- `decode` holds a yyjson document and `encode` its output on the C
+--- heap; a refusal anywhere, Lua's or theirs, raises or answers nil and
+--- a message, and leaves neither behind.
+local function test_json_leaves_nothing_whenever_an_allocation_fails()
+  if not checked then return end
+  local text = '{"b": [1, 2.5, "x\\u00e9", true, null], "a": {"c": {}, "d": []}}'
+  local wide: {string: any} = {}
+  for i = 1, 40 do wide["key" .. i] = Json.array({ i, "value " .. i }) end
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local value, trouble = Json.decode(text, { null_value = Json.null })
+    assert(trouble == "", trouble)
+    assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
+    assert(assert(Json.encode(wide, { pretty = true })):sub(1, 1) == "{")
+    assert(Json.encode(wide, { sorted = false }) ~= nil)
+  end)
+  assert(ended > 0, "decoding and encoding allocate")
+  assert_c_heap(bytes, blocks, "JSON under refusal")
 end
 
 --- A whole reply: a status line, `head`'s header lines, and `body`.
