@@ -41,23 +41,23 @@ static const char *const portable_environment[] = {
   COSMIC_PORTABLE_ENV_CORE_SHA256,
 };
 
-static int decimal (const char *text, uint64_t maximum, uint64_t *out) {
-  if (text == NULL || *text == '\0') return 0;
+static bool decimal (const char *text, uint64_t maximum, uint64_t *out) {
+  if (text == NULL || *text == '\0') return false;
   uint64_t value = 0;
   size_t digits = 0;
   for (const unsigned char *p = (const unsigned char *)text; *p != 0; p++) {
-    if (*p < '0' || *p > '9' || ++digits > 20) return 0;
+    if (*p < '0' || *p > '9' || ++digits > 20) return false;
     unsigned digit = *p - '0';
-    if (value > (maximum - digit) / 10) return 0;
+    if (value > (maximum - digit) / 10) return false;
     value = value * 10 + digit;
   }
   *out = value;
-  return 1;
+  return true;
 }
 
-static int hex_digest (const char *text,
-                       unsigned char out[COSMIC_PORTABLE_SHA256_LENGTH]) {
-  if (text == NULL) return 0;
+static bool hex_digest (const char *text,
+                        unsigned char out[COSMIC_PORTABLE_SHA256_LENGTH]) {
+  if (text == NULL) return false;
   for (size_t i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++) {
     unsigned value = 0;
     for (unsigned half = 0; half < 2; half++) {
@@ -66,7 +66,7 @@ static int hex_digest (const char *text,
       if (c >= '0' && c <= '9') digit = c - '0';
       else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
       else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
-      else return 0;
+      else return false;
       value = value * 16 + digit;
     }
     out[i] = (unsigned char)value;
@@ -211,44 +211,44 @@ static void stamp_line (const struct stat *core_stat, char *line, size_t room) {
 /* The stamp's path and its directory, when the executing core is the cache
  * entry the launcher names for this manifest entry; 0 for a core run from
  * anywhere else, which is always hashed and never stamped. */
-static int stamp_path (const struct cosmic_portable_entry *entry,
-                       const struct stat *core_stat, char *path, size_t room,
-                       char *directory, size_t directory_room) {
+static bool stamp_path (const struct cosmic_portable_entry *entry,
+                        const struct stat *core_stat, char *path, size_t room,
+                        char *directory, size_t directory_room) {
   char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
-  if (!cosmic_executable_path(core_path, sizeof core_path)) return 0;
+  if (!cosmic_executable_path(core_path, sizeof core_path)) return false;
   char *slash = strrchr(core_path, '/');
-  if (slash == NULL || slash == core_path) return 0;
+  if (slash == NULL || slash == core_path) return false;
   char key[64 + 2 * COSMIC_PORTABLE_SHA256_LENGTH];
   int used = snprintf(key, sizeof key, "core-%u-%u-%llu-",
                       (unsigned)entry->target_id,
                       (unsigned)entry->configuration_id,
                       (unsigned long long)entry->length);
   if (used < 0 || (size_t)used + 2 * COSMIC_PORTABLE_SHA256_LENGTH >= sizeof key)
-    return 0;
+    return false;
   for (unsigned i = 0; i < COSMIC_PORTABLE_SHA256_LENGTH; i++)
     snprintf(key + used + 2 * i, 3, "%02x", entry->sha256[i]);
-  if (strcmp(slash + 1, key) != 0) return 0;
+  if (strcmp(slash + 1, key) != 0) return false;
   struct stat path_stat;
   if (lstat(core_path, &path_stat) != 0 ||
       path_stat.st_dev != core_stat->st_dev ||
       path_stat.st_ino != core_stat->st_ino)
-    return 0;
+    return false;
   *slash = '\0';
   used = snprintf(path, room, "%s/.verified-%s", core_path, key);
-  if (used < 0 || (size_t)used >= room) return 0;
+  if (used < 0 || (size_t)used >= room) return false;
   used = snprintf(directory, directory_room, "%s", core_path);
   return used >= 0 && (size_t)used < directory_room;
 }
 
-static int stamp_holds (const char *path, const struct stat *core_stat) {
+static bool stamp_holds (const char *path, const struct stat *core_stat) {
   char expected[96];
   stamp_line(core_stat, expected, sizeof expected);
   int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) return 0;
+  if (fd < 0) return false;
   char found[sizeof expected];
   ssize_t length = read(fd, found, sizeof found - 1);
   close(fd);
-  if (length <= 0) return 0;
+  if (length <= 0) return false;
   found[length] = '\0';
   return strcmp(found, expected) == 0;
 }
@@ -378,8 +378,8 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
                          "executing core length differs from manifest");
   char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
   char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
-  int stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
-                           stamp_directory, sizeof stamp_directory);
+  bool stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
+                            stamp_directory, sizeof stamp_directory);
   unsigned char digest[COSMIC_DIGEST_MAX];
   size_t digest_length = 0;
   if (stamped && stamp_holds(stamp, &core_stat)) {

@@ -109,7 +109,8 @@ end
 
 --- What checking `file` came to, and what it defines and refers to.
 local function outcome(root: string, file: string, result: Child.Result, trouble: string,
-                       declared: {string: rules.Declared}): c.Outcome, rules.Unit
+                       declared: {string: rules.Declared}, limit: integer):
+    c.Outcome, rules.Unit
   if result == nil then
     return { file = file, trouble = trouble }
   end
@@ -118,7 +119,7 @@ local function outcome(root: string, file: string, result: Child.Result, trouble
     return { file = file, trouble = "clang could not read it:\n" .. (err:gsub("\n+$", "")) }
   end
   if result.truncated then
-    return { file = file, trouble = "its syntax tree is larger than " .. dump_limit ..
+    return { file = file, trouble = "its syntax tree is larger than " .. limit ..
       " bytes, the most that is read of one" }
   end
   local decls = tree.parse(tostring(result.stdout or ""), root)
@@ -147,8 +148,12 @@ end
 --- come back in the order of `files`. A header two of them include is
 --- checked with each, and what is found in it is reported once. When
 --- `files` are every C file under `cwd`, a function no file but its own
---- refers to ("single-file") is found too, with the file defining it.
-function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
+--- refers to ("single-file") is found too, with the file defining it,
+--- as long as every one of them could be read. `limit` is the most bytes
+--- of one file's syntax tree that are read, by default `dump_limit`; a
+--- file whose tree is larger is refused rather than half checked.
+function c.check(root: string, files: {string}, cwd?: string, limit?: integer):
+    {c.Outcome}
   cwd = cwd or root
   local declared = declared_in(root)
   local outcomes: {c.Outcome} = {}
@@ -159,7 +164,7 @@ function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
   while next_file <= #files or #running > 0 do
     while next_file <= #files and #running < parallel do
       local handle, trouble = Child.start(command(root, files[next_file], cwd), {
-        cwd = cwd, stdout = "capture", stderr = "capture", capture_limit = dump_limit,
+        cwd = cwd, stdout = "capture", stderr = "capture", capture_limit = limit or dump_limit,
       })
       if handle == nil then
         outcomes[next_file] = { file = files[next_file], trouble = trouble }
@@ -180,7 +185,7 @@ function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
       else
         local result, wait_trouble = done:wait()
         outcomes[which[done]], units[which[done]] = outcome(root, files[which[done]], result,
-          wait_trouble, declared)
+          wait_trouble, declared, limit or dump_limit)
         local still: {Child.Handle} = {}
         for _, handle in ipairs(running) do
           if handle ~= done then still[#still + 1] = handle end
@@ -196,7 +201,10 @@ function c.check(root: string, files: {string}, cwd?: string): {c.Outcome}
       if units[i] ~= nil then every[#every + 1] = units[i] end
       by_file[outcomes[i].file] = outcomes[i]
     end
-    for _, f in ipairs(rules.single_file(every)) do
+    -- A file that could not be read refers to what is not known: its
+    -- own trouble is the finding, rather than guesses about the rest.
+    local known = #every == #files
+    for _, f in ipairs(known and rules.single_file(every) or {}) do
       for _, u in ipairs(every) do
         local o = by_file[u.file]
         if u.defines[f.within] ~= nil and o.findings ~= nil then

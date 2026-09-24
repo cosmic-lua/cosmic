@@ -296,11 +296,34 @@ COSMIC_SYSCALL(entropy, 1) {
     "expected three failure-shape findings, found: " .. table.concat(said, ", "))
 end
 
+--- A helper of the file that fails in one shape carries it: a wrapper,
+--- or a wrapper of one, is seen through.
+local function test_a_failure_through_a_helper_is_found(tmp: string)
+  local found = findings(tmp, header .. [[
+#include "syscalls.h"
+#include "fail.h"
+static int bad (lua_State *L, int e) { return cosmic_fail(L, e); }
+static int worse (lua_State *L, int e) { return bad(L, e); }
+
+COSMIC_SYSCALL(execve, 3) {
+  if (lua_gettop(L) == 0) return bad(L, EINVAL);
+  return worse(L, ENOENT);
+}
+]])
+  local said: {string} = {}
+  for _, f in ipairs(found) do said[#said + 1] = f.line .. " " .. f.rule end
+  assert(#found == 2 and found[1].rule == "failure-shape" and found[1].line == 12
+    and found[2].line == 13, "found: " .. table.concat(said, ", "))
+end
+
 local function test_a_failure_in_its_own_shape_is_not(tmp: string)
   none(findings(tmp, header .. [[
 #include "syscalls.h"
 #include "fail.h"
+static int good (lua_State *L, int e) { return cosmic_fail_effect(L, e); }
+
 COSMIC_SYSCALL(execve, 3) {
+  if (lua_gettop(L) == 0) return good(L, EINVAL);
   return cosmic_fail_effect(L, ENOENT);
 }
 
@@ -351,8 +374,17 @@ end
 --- A status is not a truth, nor is a function no header declares, nor
 --- one that already returns bool.
 local function test_a_status_or_a_bool_is_not(tmp: string)
-  local decls = "#include <stdbool.h>\nint status (int x);\nbool truth (int x);\n"
+  local decls = "#include <stdbool.h>\nint status (int x);\nbool truth (int x);\n" ..
+    "int fetched (int x);\n"
   none(only(declared_in_header(tmp, decls, [[
+int fetch (int *out);
+
+int fetched (int x) {
+  int status = 0;
+  if (!fetch(&status)) return 0;
+  return status;
+}
+
 int status (int x) {
   if (x < 0) return -1;
   if (x == 0) return 0;
@@ -373,9 +405,9 @@ end
 
 local function test_a_function_returning_one_constant_is_found(tmp: string)
   one(findings(tmp, header .. [[
-int install (lua_State *L, int x) {
+int install (int *slot, int x) {
   if (x) {
-    lua_settop(L, 0);
+    *slot = x;
     return 0;
   }
   return 0;
@@ -383,11 +415,18 @@ int install (lua_State *L, int x) {
 ]]), "constant-return", 6)
 end
 
---- A file's own helper, `main`, and a lua_CFunction's count are not
---- flagged: the helper's constant is its file's business, `main`'s is
---- the exit status, and a count is how many values it leaves.
+--- A file's own helper, `main`, and a count of values left on the
+--- stack are not flagged: the helper's constant is its file's business,
+--- `main`'s is the exit status, and a count is how many values it leaves.
 local function test_a_constant_that_says_something_is_not(tmp: string)
   none(findings(tmp, header .. [[
+int push_three (lua_State *L, int e) {
+  lua_pushinteger(L, e);
+  lua_pushinteger(L, e);
+  lua_pushinteger(L, e);
+  return 3;
+}
+
 static int helper (void) { return 0; }
 
 int main (void) { return helper(); }
@@ -474,4 +513,27 @@ end
 --- known, and nothing is said.
 local function test_a_partial_check_says_nothing_of_sharing(tmp: string)
   none(only(checked(tmp, two_files, { "a.c" }), "single-file"))
+end
+
+--- A syntax tree larger than what is read of one is refused, not
+--- checked from wherever the kept part begins.
+local function test_a_tree_larger_than_the_limit_is_refused(tmp: string)
+  assert(Fs.write(tmp .. "/case.c", header .. "int f(void) { return 0; }\n"))
+  local outcome = c.check(root, { "case.c" }, tmp, 4096)[1]
+  assert(outcome.findings == nil, "a cut tree was checked")
+  assert(outcome.trouble:find("larger than 4096", 1, true) ~= nil, outcome.trouble)
+end
+
+--- A file that could not be read leaves what it refers to unknown, so
+--- nothing is said of sharing.
+local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
+  local sources: {string: string} = {}
+  for name, source in pairs(two_files) do sources[name] = source end
+  sources["b.c"] = "int total (void) { return undeclared; }\n"
+  for name, source in pairs(sources) do
+    assert(Fs.write(tmp .. "/" .. name, source))
+  end
+  local outcomes = c.check(root, { "a.c", "b.c" }, tmp)
+  assert(outcomes[2].findings == nil, "b.c was read")
+  none(only(outcomes[1].findings, "single-file"))
 end

@@ -24,16 +24,19 @@
 ---   its declaration's: one declared `boolean`, an effect, fails through
 ---   `cosmic_fail_effect` (false, error, errno); one declared a value
 ---   fails through `cosmic_fail` (nil, error, errno) and never answers a
----   bare true. build/gen_syscalls.tl refuses `boolean|nil`, which is
+---   bare true -- directly, or through a helper of the file that returns
+---   only that shape. build/gen_syscalls.tl refuses `boolean|nil`, which is
 ---   neither.
---- - "pass-fail-int": a function a header declares to return `int`
+--- - "pass-fail-int": a function a header declares to return `int` (a
+---   file's own helpers are not held to it, only its header's promises)
 ---   returns only 0, 1 or a truth -- a comparison, a bool, a call of a
 ---   helper of the file that answers only truths, a local given only
 ---   truths. It is a pass or a fail, and returns `bool`. One that forwards
 ---   a library's status stays `int`, its contract said at its declaration.
 --- - "constant-return": a function of external linkage returns the same
 ---   constant on every path, which tells its caller nothing: it returns
----   void. `main` and a `lua_CFunction`, whose `int` is a count, are not.
+---   void. `main`, and a function handed the state first, whose `int`
+---   may be a count of the values it left, are not.
 --- - "true-alone": a `lua_CFunction` returns `true` and nothing else on
 ---   every path (`lua_pushboolean(L, 1); return 1;` or `cosmic_ok`), so
 ---   it returns no values.
@@ -43,10 +46,11 @@
 ---   (`rules.unit`, `rules.single_file`), so `build.c` finds it only when
 ---   every C file is checked together.
 ---
---- TODO: AGENTS.md's C checklist names none of "failure-shape",
---- "pass-fail-int", "constant-return", "true-alone" or "single-file"
---- yet; add them there, marked (checked), once a maintainer edits it --
---- an agent does not change its own instructions.
+--- "pass-fail-int", "constant-return" and "true-alone" read the code
+--- one platform's preprocessor leaves (build.c compiles for the host): a
+--- function whose returns differ under an `#ifdef` is judged by the
+--- branch compiled, and one the other branch makes a real answer is
+--- exempted in `exempt`, with the reason.
 ---
 --- The walk is source order, not a flow analysis. A branch that ends --
 --- in a `return`, a `goto`, or a call that never returns -- leaves what
@@ -279,6 +283,8 @@ local record Context
   releasing: {string: {integer: boolean}}
   --- The functions of the file that return `int` and only truths.
   truthful: {string: boolean}
+  --- The failure shape each function of the file returns in.
+  shapes: {string: string}
 end
 
 local function report(ctx: Context, node: Node, rule: string, message: string)
@@ -870,6 +876,13 @@ local function lua_facing(fn: Function): boolean
   return fn.type == "int (lua_State *)" or fn.type == "int (struct lua_State *)"
 end
 
+--- Whether a function is handed the state first: its `int` may be a
+--- count of values it left, as a lua_CFunction's is.
+local function state_first(fn: Function): boolean
+  return fn.type:match("^int %(lua_State %*") ~= nil
+    or fn.type:match("^int %(struct lua_State %*") ~= nil
+end
+
 --- Every `return` in a body.
 local function returns_in(body: Node): {Node}
   local out: {Node} = {}
@@ -933,7 +946,10 @@ local function truth_locals(body: Node, known: Truths): {string: boolean}
       local kind, id = tree.referent(tree.bare(n.children[1]))
       if kind == "Var" and not truth(n.children[2], known) then refused[id] = true end
     elseif n.kind == "CompoundAssignOperator" or (n.kind == "UnaryOperator"
-        and (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true))) then
+        and (n.text:find("'++'", 1, true) or n.text:find("'--'", 1, true)
+          or n.text:find("'&'", 1, true))) then
+      -- Changed in place, or handed out by address to be written
+      -- anything at all: `fetch(&status)`.
       local kind, id = tree.referent(tree.bare(n.children[1]))
       if kind == "Var" then refused[id] = true end
     end
@@ -981,7 +997,7 @@ end
 --- to return `int` that returns only truths is a pass or a fail, which
 --- is a `bool`.
 local function returned_constant(ctx: Context, fn: Function)
-  if fn.static or fn.name == "main" or lua_facing(fn) then return end
+  if fn.static or fn.name == "main" or state_first(fn) then return end
   local returns = returns_in(fn.body)
   if #returns == 0 then return end
   local same: integer = nil
@@ -1047,6 +1063,42 @@ end
 
 -- returned-shape -------------------------------------------------------
 
+--- The failure shape each function of a file returns in: "fail" for one
+--- whose every shaped `return` is `cosmic_fail` (nil, error, errno) or a
+--- helper of that shape, "effect" for `cosmic_fail_effect`, "ok" for
+--- `cosmic_ok`; a function with no shaped return, or more than one
+--- shape, has none. Found until no more are, so a wrapper of a wrapper
+--- is seen through.
+local function failure_shapes(fns: {Function}): {string: string}
+  local shapes: {string: string} = {
+    cosmic_fail = "fail", cosmic_fail_effect = "effect", cosmic_ok = "ok",
+  }
+  local changed = true
+  while changed do
+    changed = false
+    for _, fn in ipairs(fns) do
+      if shapes[fn.name] == nil and not fn.name:match("^cosmic_sys_") then
+        local shape: string = nil
+        local mixed = false
+        for _, r in ipairs(returns_in(fn.body)) do
+          local value = #r.children == 1 and tree.bare(r.children[1]) or nil
+          local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
+          local this = helper ~= nil and shapes[helper] or nil
+          if this ~= nil then
+            if shape ~= nil and shape ~= this then mixed = true end
+            shape = shape or this
+          end
+        end
+        if shape ~= nil and not mixed then
+          shapes[fn.name] = shape
+          changed = true
+        end
+      end
+    end
+  end
+  return shapes
+end
+
 --- Every `return` of a count in a binding of the syscall table, against
 --- what the binding is declared to return. A count is what a binding
 --- returns only when it returns a literal: `return cosmic_fail(...)` is
@@ -1060,15 +1112,17 @@ local function returned_shape(ctx: Context, name: string, body: Node,
     if n.kind ~= "ReturnStmt" or #n.children ~= 1 then return end
     local value = tree.bare(n.children[1])
     local helper = value ~= nil and value.kind == "CallExpr" and tree.callee(value) or nil
-    if d.fallible and d.effect and helper == "cosmic_fail" then
+    local shape = helper ~= nil and ctx.shapes[helper] or nil
+    local through = helper ~= nil and ctx.shapes[helper] ~= nil and not helper:match("^cosmic_")
+      and " (through " .. helper .. ")" or ""
+    if d.fallible and d.effect and shape == "fail" then
       report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared an effect " ..
         "(boolean), whose failure is false, a message and an errno: return " ..
-        "cosmic_fail_effect, not cosmic_fail (core/fail.h)")
-    elseif d.fallible and not d.effect and (helper == "cosmic_fail_effect"
-        or helper == "cosmic_ok") then
+        "cosmic_fail_effect, not cosmic_fail" .. through .. " (core/fail.h)")
+    elseif d.fallible and not d.effect and (shape == "effect" or shape == "ok") then
       report(ctx, n, "failure-shape", "cosmic.sys." .. call .. " is declared to return " ..
         "a value, whose failure is nil, a message and an errno, and never a bare true: " ..
-        "return the value, or cosmic_fail (core/fail.h)")
+        "return the value, or cosmic_fail" .. through .. " (core/fail.h)")
     end
     local count = constant(n.children[1])
     if count == nil then return end
@@ -1149,7 +1203,8 @@ function rules.check(decls: {Node}, file: string,
   local fns = functions(decls)
   local findings: {rules.Finding} = {}
   local ctx: Context = { file = file, within = "", findings = findings,
-                         releasing = releasing(fns), truthful = truthful(fns) }
+                         releasing = releasing(fns), truthful = truthful(fns),
+                         shapes = failure_shapes(fns) }
   for _, fn in ipairs(fns) do
     ctx.within = fn.name
     narrowed(ctx, fn.body)

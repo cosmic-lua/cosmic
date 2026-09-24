@@ -68,32 +68,32 @@ static uint64_t be64 (const unsigned char *p) {
   return value;
 }
 
-static int range_ends_at_or_before (uint64_t offset, uint64_t length,
-                                    uint64_t limit) {
+static bool range_ends_at_or_before (uint64_t offset, uint64_t length,
+                                     uint64_t limit) {
   return offset <= limit && length <= limit - offset;
 }
 
-static int align_core (uint64_t value, uint64_t *aligned) {
+static bool align_core (uint64_t value, uint64_t *aligned) {
   uint64_t remainder = value % COSMIC_PORTABLE_CORE_ALIGNMENT;
   uint64_t padding = remainder == 0 ? 0 :
       COSMIC_PORTABLE_CORE_ALIGNMENT - remainder;
-  if (value > UINT64_MAX - padding) return 0;
+  if (value > UINT64_MAX - padding) return false;
   *aligned = value + padding;
-  return 1;
+  return true;
 }
 
-static int zero_range (int fd, uint64_t offset, uint64_t length) {
+static bool zero_range (int fd, uint64_t offset, uint64_t length) {
   unsigned char bytes[4096];
   while (length > 0) {
     size_t take = length < sizeof bytes ? (size_t)length : sizeof bytes;
-    if (!read_at(fd, bytes, take, offset)) return 0;
+    if (!read_at(fd, bytes, take, offset)) return false;
     for (size_t i = 0; i < take; i++) {
-      if (bytes[i] != 0) return 0;
+      if (bytes[i] != 0) return false;
     }
     offset += take;
     length -= take;
   }
-  return 1;
+  return true;
 }
 
 bool cosmic_host_trailer (int fd) {
@@ -110,9 +110,9 @@ bool cosmic_host_trailer (int fd) {
 /* The trailer and the one manifest block both formats share: reads them,
  * checks every field but the trailer magic's meaning, and fills the ranges
  * and entries. `first_core` is the least offset a core may start at. */
-static int decode_blocks (int fd, const char *trailer_magic, uint64_t first_core,
-                          struct cosmic_portable *decoded,
-                          struct cosmic_portable *out, const char **error) {
+static bool decode_blocks (int fd, const char *trailer_magic, uint64_t first_core,
+                           struct cosmic_portable *decoded,
+                           struct cosmic_portable *out, const char **error) {
   unsigned char trailer[COSMIC_PORTABLE_TRAILER_LENGTH];
   unsigned char manifest[COSMIC_PORTABLE_MANIFEST_LENGTH];
   unsigned char header[SQLITE_HEADER_LENGTH];
@@ -202,7 +202,7 @@ static int decode_blocks (int fd, const char *trailer_magic, uint64_t first_core
       !read_at(fd, header, sizeof header, decoded->database_offset) ||
       memcmp(header, SQLITE_HEADER, SQLITE_HEADER_LENGTH) != 0)
     return reject(out, error, "database header differs from SQLite");
-  return 1;
+  return true;
 }
 
 bool cosmic_host_decode (int fd, uint32_t target_id, uint32_t configuration_id,
