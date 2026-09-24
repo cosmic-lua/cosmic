@@ -217,3 +217,34 @@ local function test_a_changed_environment_answer_is_unstable(tmp: string)
   local _, stable = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads, {})
   assert(not stable)
 end
+
+--- A file of the tree named through a link from outside it, present or
+--- not, keys as it does named from the root; a link inside the tree to
+--- a file outside it is still outside once resolved.
+local function test_a_tree_path_through_a_link_keys_as_the_tree_path(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/root"
+  local elsewhere = assert(Fs.absolute(tmp)) .. "/elsewhere"
+  assert(Fs.mkdirs(root .. "/sub"))
+  assert(Fs.mkdirs(elsewhere))
+  assert(Fs.write(root .. "/sub/a.txt", "hello"))
+  assert(Fs.write(elsewhere .. "/b.txt", "outside"))
+  assert(Fs.symlink(root, elsewhere .. "/in"))
+  assert(Fs.symlink(elsewhere .. "/b.txt", root .. "/out"))
+  local scratch = tmp .. "/scratch"
+  for _, name in ipairs({ "sub/a.txt", "sub/missing/c.txt" }) do
+    local direct: {observations.Observation} = { { kind = "s", path = root .. "/" .. name,
+      answer = observations.stat_answer(root .. "/" .. name) } }
+    local linked: {observations.Observation} = { { kind = "s",
+      path = elsewhere .. "/in/" .. name, answer = direct[1].answer } }
+    assert(test.keyable(root, scratch, linked), name)
+    local key1, stable1 = test.verdict_key(root, {}, "p n", "m", "r", direct, {})
+    local key2, stable2 = test.verdict_key(root, {}, "p n", "m", "r", linked, {})
+    assert(stable1 and stable2 and key1 == key2, name)
+  end
+  local out: {observations.Observation} =
+    { { kind = "o", path = elsewhere .. "/in/out", answer = "" } }
+  assert(not test.keyable(root, scratch, out))
+  local dotted: {observations.Observation} =
+    { { kind = "o", path = elsewhere .. "/in/sub/../sub/a.txt", answer = "" } }
+  assert(not test.keyable(root, scratch, dotted))
+end

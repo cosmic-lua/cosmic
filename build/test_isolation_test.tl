@@ -157,6 +157,40 @@ end
   assert(assert(sys.lstat(scratch .. "/tmp")).kind == "link")
 end
 
+--- A file under the tree named through a link outside it is still the
+--- tree's: a test that writes a counter the environment names by such
+--- a path stands on its second run, as it does named from the root.
+local function test_a_tree_path_spelled_through_a_link_is_keyable(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.write(root .. "/suite/counts_test.tl", [[
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local function test_counts()
+  local counter = assert(Env.get("COUNTER"))
+  local before, _ = Fs.read(counter)
+  assert(Fs.write(counter, (before or "") .. "x\n"))
+end
+]]))
+  assert(Fs.symlink(root, tmp .. "/link"))
+  local env = Env.all()
+  env.TMPDIR = tmp .. "/temp"
+  assert(Fs.mkdirs(env.TMPDIR))
+  local output = tmp .. "/counts.out"
+  for _, spelled in ipairs({ root, tmp .. "/link" }) do
+    env.COUNTER = spelled .. "/counter-" .. Fs.basename(spelled)
+    local tallies: {string} = {}
+    for run = 1, 2 do
+      local result = invoke(root, output, { "suite/counts_test.tl" }, env)
+      local text = assert(Fs.read(output))
+      assert(result.ok, text)
+      tallies[run] = text:match("1 tests, 1 modules; (%d+ ran, %d+ stood)") or text
+    end
+    assert(tallies[1] == "1 ran, 0 stood" and tallies[2] == "0 ran, 1 stood",
+      spelled .. ": " .. tallies[1] .. " then " .. tallies[2])
+  end
+end
+
 --- A fixture runtime's startup hooks pause one startup for a handshake;
 --- a worker inheriting them would pause too, with nobody to release it.
 local function test_workers_start_without_the_startup_hooks(tmp: string)

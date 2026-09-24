@@ -264,16 +264,73 @@ local function staged_hashes(handle: Sqlite.Handle): {string:string} | nil, stri
   return out
 end
 
+--- What an absolute path resolves to, links and all, as `Fs.absolute`
+--- answers, or nil when that cannot be said. A path that is not there
+--- (a stat or an open of a missing file is a read too) resolves as its
+--- nearest existing ancestor does, with the missing names after it.
+--- `resolved` remembers each directory's answer, false for none, for
+--- as long as its caller keeps the table: a run's, since the tree does
+--- not change under it. A path spelled with "." or ".." is not
+--- resolved, since its missing part could not be taken lexically.
+local function resolve(path: string, resolved: {string:string | boolean}): string | nil
+  if path:sub(1, 1) ~= "/" or ("/" .. path .. "/"):find("/%.%.?/") then return nil end
+  local function directory(dir: string): string | nil
+    local known = resolved[dir]
+    if known == nil then
+      local real, _ = Fs.absolute(dir)
+      if real == nil then
+        local parent = Fs.dirname(dir)
+        if parent ~= dir then
+          local above = directory(parent)
+          if above ~= nil then
+            real = (above == "/" and "" or above) .. "/" .. Fs.basename(dir)
+          end
+        end
+      end
+      known = real or false
+      resolved[dir] = known
+    end
+    return known ~= false and known as string or nil
+  end
+  local within = directory(Fs.dirname(path))
+  if within == nil then return nil end
+  return (within == "/" and "" or within) .. "/" .. Fs.basename(path)
+end
+
+--- An absolute path outside `directory` as written, relative to it once
+--- resolved: a file of the tree named through a link outside it (a
+--- temporary directory under one, as macOS's is) is still the tree's.
+--- Nil when it resolves outside too. The last name is resolved itself
+--- when it is there, so a link out of the tree is outside; a missing
+--- one is as good as a plain name, since it holds nothing to read.
+local function resolved_within(path: string, directory: string,
+                               resolved: {string:string | boolean}): string | nil
+  local real = resolve(path, resolved)
+  if real == nil then return nil end
+  local rest, _ = Fs.relative(real, directory)
+  if rest == nil then return nil end
+  local final, _ = Fs.absolute(real)
+  if final ~= nil and final ~= real then
+    rest, _ = Fs.relative(final, directory)
+  end
+  return rest
+end
+
 --- A recorded read as a path under the root, or nil when it is not
 --- one: a test's own scratch directory, or anything else outside the
---- tree, is not an input to it, and nor is the build's own output.
-local function under_root(root: string, path: string): string | nil
+--- tree, is not an input to it, and nor is the build's own output. A
+--- path under the root only once resolved is keyed by its resolved
+--- name, so both spellings of one file key alike.
+local function under_root(root: string, path: string,
+                          resolved: {string:string | boolean}): string | nil
   local relative = path
   local rest, _ = Fs.relative(path, root)
   if rest ~= nil then
     relative = rest
   elseif path:sub(1, 1) == "/" then
-    return nil
+    local real = resolved_within(path, root, resolved)
+    if real == nil then return nil end
+    relative = real
   end
   if relative == "o" or relative:sub(1, 2) == "o/" then
     return nil
@@ -297,8 +354,10 @@ end
 function test.verdict_key(root: string, hashes: {string:string}, id: string,
                           module_key: string, runtime: string,
                           reads: {observations.Observation},
-                          key_parts: {string:string}):
+                          key_parts: {string:string},
+                          resolved?: {string:string | boolean}):
                           string, boolean
+  resolved = resolved or {}
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
   local stable = true
@@ -317,7 +376,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         answers[identified] = observation.answer
       end
     elseif kind == "o" or kind == "s" or kind == "d" then
-      local relative = under_root(root, observation.path)
+      local relative = under_root(root, observation.path, resolved)
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
         seen[identified] = true
@@ -393,12 +452,15 @@ end
 --- `Fs.mkdirs` stats a directory to see whether it is already there
 --- before the "m" observation that creates it, so the existence check
 --- for a directory a test is about to make of its own would otherwise
---- count as a foreign read). An environment read is keyable: its
---- answer enters the verdict key like a file's hash does. Exposed
---- alongside `test.verdict_key` so `test_test.tl` can exercise it
---- directly.
+--- count as a foreign read). A path outside both as written but under
+--- either once resolved (see `under_root`) is inside. An environment
+--- read is keyable: its answer enters the verdict key like a file's
+--- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
+--- can exercise it directly.
 function test.keyable(root: string, scratch: string,
-                      reads: {observations.Observation}): boolean
+                      reads: {observations.Observation},
+                      resolved?: {string:string | boolean}): boolean
+  resolved = resolved or {}
   local function under(dir: string, path: string): boolean
     return Fs.within(path, dir)
   end
@@ -422,7 +484,8 @@ function test.keyable(root: string, scratch: string,
             break
           end
         end
-        if not made_here then
+        if not made_here and resolved_within(path, root, resolved) == nil and
+            resolved_within(path, scratch, resolved) == nil then
           return false
         end
       end
@@ -822,6 +885,8 @@ local record Recording
   run_at_ns: integer
   run: integer
   key_parts: {string:string}
+  --- What each directory a read named resolves to, for the run.
+  resolved: {string:string | boolean}
   failures: {string}
   errors: {string}
   --- What each failing test printed, by its id.
@@ -840,7 +905,7 @@ local function standing(rec: Recording, previous: {string:test.Previous},
   local was = previous[id]
   if was == nil then return nil, nil, "" end
   local key, stable = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime,
-    was.reads, rec.key_parts)
+    was.reads, rec.key_parts, rec.resolved)
   local stood = stable and verdicts[key] or nil
   if stood == nil or not stood.passed then return nil, nil, "" end
   return stood, was.reads, key
@@ -906,7 +971,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     passed, message = reported.passed, reported.message
     reads = observations.join(reported.load_reads, reported.test_reads)
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads)
+    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads, rec.resolved)
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -918,7 +983,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     end
   end
   local reached, stable = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
-    rec.runtime, reads, rec.key_parts)
+    rec.runtime, reads, rec.key_parts, rec.resolved)
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
     message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
     stable and cacheable)
@@ -1364,7 +1429,7 @@ function test.run(argv: {integer:string}): integer
   local by_test: {string: Coverage.Hits} = {}
   local rec: Recording = {
     records = records, root = root, hashes = hashes, runtime = runtime,
-    run_at_ns = run_at_ns, run = handle.run, key_parts = {},
+    run_at_ns = run_at_ns, run = handle.run, key_parts = {}, resolved = {},
     failures = failures, errors = errors, outputs = {},
     hits = hits, by_test = by_test, tally = tally,
   }
