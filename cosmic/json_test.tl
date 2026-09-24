@@ -309,7 +309,10 @@ local function test_depth_limits()
   cycle[1] = cycle
   assert(encode_failure(cycle, { max_depth = 5 }):match("contain itself"), "a cycle fails")
   assert(not pcall(Json.decode, "1", { max_depth = 0 }), "a limit below 1 raises")
-  assert(not pcall(Json.encode, 1, { max_depth = 1001 }), "a limit past 1000 raises")
+  assert(Json.default_depth == 64 and Json.depth_limit == 1000, "the core's limits")
+  assert(Json.encode(1, { max_depth = Json.depth_limit }) == "1", "the limit itself is allowed")
+  assert(not pcall(Json.encode, 1, { max_depth = Json.depth_limit + 1 }),
+    "a limit past the most raises")
   local fractional: any = { max_depth = 1.5 }
   assert(not pcall(Json.encode, 1, fractional as Json.EncodeOptions), "a fractional limit raises")
 end

@@ -72,8 +72,9 @@ local record Json
     --- lists them in table order, which is faster and differs run to
     --- run.
     sorted: boolean
-    --- How many arrays and objects may nest, 1 to 1000 (default 64).
-    --- A table that contains itself fails here.
+    --- How many arrays and objects may nest, 1 to `Json.depth_limit`
+    --- (1000; default `Json.default_depth`, 64). A table that contains
+    --- itself fails here.
     max_depth: integer
     --- Write NaN and the infinities as `null` rather than failing
     --- (default false).
@@ -89,7 +90,8 @@ local record Json
     --- What to put where the text says `null`, so a Lua table can hold
     --- it. `Json.null` is the usual choice: it encodes back as `null`.
     null_value: any
-    --- How many arrays and objects may nest, 1 to 1000 (default 64).
+    --- How many arrays and objects may nest, 1 to `Json.depth_limit`
+    --- (1000; default `Json.default_depth`, 64).
     max_depth: integer
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
@@ -106,9 +108,19 @@ local record Json
   --- document's nulls, and it encodes as `null`. It is a userdata, so
   --- indexing it by mistake raises; `v == Json.null` is the test.
   null: any
+
+  --- How many arrays and objects may nest when `max_depth` is not
+  --- given: 64.
+  default_depth: integer
+
+  --- The most `max_depth` may be: 1000. Each level of nesting is a
+  --- level of recursion in the core, on the C stack.
+  depth_limit: integer
 end
 
 Json.null = raw.null
+Json.default_depth = raw.default_depth
+Json.depth_limit = raw.depth_limit
 
 --- The value `text` holds, and "". nil and a message, naming the line
 --- and column, when the text is not one JSON value or nests past
