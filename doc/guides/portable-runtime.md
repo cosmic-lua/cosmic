@@ -240,9 +240,8 @@ host programs only.
 
 ## rebuild without replacing cores
 
-Two own-tree paths compare fingerprints through
-[`build.reboot`](../../build/reboot.tl): `cosmic test` and direct execution of a
-Teal source file. A Teal-only change can reuse the validated prefix. The
+Every verb run in cosmic's own tree compares fingerprints through
+[`build.reboot`](../../build/reboot.tl) before it goes on. A Teal-only change can reuse the validated prefix. The
 rebuild projects a new database, combines it with that prefix, atomically
 replaces the logical artifact, and re-executes the original arguments and
 environment once.
@@ -253,7 +252,8 @@ to `o/bin/cosmic`. A read-only logical path therefore fails. Rename and unlink
 remain supported because the running process reads the retained descriptor.
 
 A marker rejects a second rebuild loop. A core-input change cannot reuse the
-prefix and exits with the instruction to run `bin/zig build boot`. This keeps a
+prefix, so the tool runs `bin/zig build boot` itself and re-enters the command
+(or, under `COSMIC_AUTO_BOOT=0`, exits 3 with the instruction to). This keeps a
 database-only rebuild fast without claiming old native code matches new C,
 Zig, or vendor inputs. Retained-descriptor access also lets a database-only
 rebuild finish after the starting artifact is renamed or unlinked.
@@ -290,9 +290,10 @@ divide the runtime contract into observable boundaries:
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) builds and tests
 the release product independently on Linux x86-64, Linux ARM64, macOS ARM64,
 and Alpine x86-64 -- the last running as a job container on an Ubuntu runner,
-building and testing natively on musl/BusyBox like every other leg. Every
-matrix leg runs the checked core, runtime fixtures, identity proof, and
-delayed database boundaries. Each producer records the product hash before
+building and testing natively on musl/BusyBox like every other leg. In a full
+run (merge queue, main, or a manual run) every matrix leg runs the runtime
+fixtures, identity proof, and delayed database boundaries; the Linux x86-64
+leg also runs the checked core's suite. Each producer records the product hash before
 and after execution; the provenance join requires all four uploaded `cosmic`
 files to match those attestations and each other.
 

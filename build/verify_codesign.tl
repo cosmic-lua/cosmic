@@ -10,24 +10,22 @@
 --- bootstrap cosmic, as bin/zig runs build/zig.tl: it requires
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 local record VerifyCodesign
 end
 
+local log = Log.new("verify-codesign")
+
 --- Verifies `binary` on a host whose uname(2) sysname is `sysname`,
 --- with codesign, found on `path` (PATH when nil) as the shell script
 --- found it, and its own output passing straight through; the exit
 --- status the shell script gave.
--- TODO: Log.new("verify-codesign") for these lines once
--- ci/cosmic-driver.pin names a cosmic carrying cosmic.log: bin/verify-codesign
--- runs this file on the pinned bootstrap.
 function VerifyCodesign.verify(sysname: string, binary: string, path?: string): integer
   if sysname ~= "Darwin" then
-    local _, _ = Fs.put(Fs.stdout,
-      "verify-codesign: skipped (" .. binary .. " only verifies on macOS)\n")
+    log:say("verify-codesign: skipped (" .. binary .. " only verifies on macOS)")
     return 0
   end
   -- Nothing runnable named codesign is 127, as for a missing command,
@@ -35,7 +33,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
   -- message says which.
   local tool, missing = Proc.find("codesign", path)
   if tool == nil then
-    local _, _ = Fs.put(Fs.stderr, "verify-codesign: " .. missing .. "\n")
+    log:complain(missing)
     return 127
   end
   for _, args in ipairs({
@@ -51,26 +49,25 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
     -- A codesign that cannot be started is 127 whatever the reason, as
     -- for a missing command; the message says which.
     if result == nil then
-      local _, _ = Fs.put(Fs.stderr, "verify-codesign: " .. tool .. ": " .. trouble .. "\n")
+      log:complain(tool .. ": " .. trouble)
       return 127
     end
     if not result.ok then
       return result.code or 128 + (result.signal or 0)
     end
   end
-  local _, _ = Fs.put(Fs.stdout, "verify-codesign: PASS (" .. binary .. ")\n")
+  log:verdict("verify-codesign", true, binary)
   return 0
 end
 
 function VerifyCodesign.main(argv: {integer: string}): integer
   if argv[1] == nil or argv[2] ~= nil then
-    local _, _ = Fs.put(Fs.stderr,
-      "verify-codesign: usage: bin/verify-codesign <path-to-macos-binary>\n")
+    log:complain("usage: bin/verify-codesign <path-to-macos-binary>")
     return 2
   end
   local names, trouble = sys.uname()
   if names == nil then
-    local _, _ = Fs.put(Fs.stderr, "verify-codesign: uname: " .. trouble .. "\n")
+    log:complain("uname: " .. trouble)
     return 1
   end
   return VerifyCodesign.verify(names.sysname, argv[1])

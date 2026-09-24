@@ -120,8 +120,8 @@ end
 --- happens to share.
 ---
 --- On its own this over-matches: FTS5's tokenizer splits on `_`, so
---- `Fs.hex` and `Fs.hex_sha256` share the same first two tokens, and
---- `"Fs hex"` matches an example that only ever calls the second one.
+--- `Hash.hex` and `Hash.hex_sha256` share the same first two tokens, and
+--- `"Hash hex"` matches an example that only ever calls the second one.
 --- `example_boundary` is the other half of every query this builds --
 --- a phrase match narrows to candidates cheaply, the boundary check
 --- on those few rows says whether the symbol is really there, whole.
@@ -130,8 +130,8 @@ local function example_phrase(symbol: string): string
 end
 
 --- A GLOB pattern matching `symbol` followed by a character that could
---- not continue the same identifier -- so `Fs.hex` matches `Fs.hex(`
---- but not `Fs.hex_sha256`. Checked against an example's own text and
+--- not continue the same identifier -- so `Hash.hex` matches `Hash.hex(`
+--- but not `Hash.hex_sha256`. Checked against an example's own text and
 --- source, space-joined so a match flush against the end of either
 --- still has a boundary to land on.
 local function example_boundary(symbol: string): string

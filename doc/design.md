@@ -151,7 +151,8 @@ fourth core in ReleaseSafe with `sanitize_c = .full`, which is
 undefined-behavior checking with a message and a trace rather than a
 bare trap. `bin/zig build sanitized` boots with that core and embeds
 it in `o/sanitized/bin/cosmic`; CI verifies the embedded core bytes
-and runs the whole test suite under `timeout 90` on every push, with
+and, on the Linux x86-64 leg of every full run (merge queue, main, or a
+manual run), runs the whole test suite under a 90-second limit, with
 full undefined-behavior checking and coverage collection enabled. zig
 ships no address sanitizer runtime for any target;
 an address-sanitized job on a real clang, outside the pinned
@@ -429,8 +430,8 @@ tool is made of, `build/`, `core/`, `cosmic/`, `cmd/`, `patch/`, each
 vendored tree's `PIN`, `build.zig` and the zig wrapper. a vendored
 tree is a function of its pin and its patch records and is never
 edited in place, so those are its inputs and the tree is not walked.
-on a mismatch the tool refuses with `the tool is stale; run bin/zig build
-boot` and exit 3. raw cores remain build outputs under `o/core`; the working
+on a mismatch the tool rebuilds itself, as below, or refuses with exit 3
+when it cannot. raw cores remain build outputs under `o/core`; the working
 database carries the compiler source needed for a later database-only rebuild.
 
 sqlite is load-bearing at boot, so its sharp edges are the runtime's
@@ -466,8 +467,9 @@ by name. rename and unlink remain supported because retained descriptors carry
 the running artifact. an externally copied tool is therefore rewritten at
 that copied logical path; a read-only logical path fails rather than silently
 redirecting the rebuild into the tree;
-when the C core's inputs differ, only zig can build it, and the tool
-says so. the binary also carries two identities: the compiler it is,
+when the C core's inputs differ, only zig can build it, so the tool
+runs `bin/zig build boot` and re-enters the command, or, under
+`COSMIC_AUTO_BOOT=0`, says so and exits 3. the binary also carries two identities: the compiler it is,
 over the build's own modules in the importer's closure and the Teal
 compiler's and Lua's pins and patches, which every module key
 carries; and the runtime it is, over its host image and the same
@@ -477,7 +479,10 @@ imports it and nothing more. a row compiled by another compiler is
 never mistaken for this one's.
 
 the C stage is hermetic and checked. `build.zig` runs with both of
-zig's caches under `o/`, and `o/` is the only thing to delete. the
+zig's caches, keyed by content, in the user's cosmic cache directory
+(`zig-project` and `zig-global` under `~/.cache/cosmic` by default) and
+shared by every checkout; `o/` and those two are the only things to
+delete. the
 applier's output replaces the vendor directory the core compiles
 from, whole, never one file beside a pristine tree, because a quoted
 `#include` finds the neighbor first and a half-applied patch builds
@@ -553,7 +558,7 @@ files -- no `curl`, `tar` or `unzip`, and from any directory, since a
 standalone run reads nothing of the tree but the one file.
 `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
-it exists. a ~200-line C applier that zig builds first writes the
+it exists. a ~400-line C applier that zig builds first writes the
 patched copy to `o/vendor/<name>`; a record whose anchor no longer
 matches fails the build by name.
 

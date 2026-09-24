@@ -148,7 +148,8 @@ jobs:
           path: ${{ runner.temp }}/cache/cosmic/zig
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
 
-      # `bin/zig` keeps its project cache under o/ (see its own comment)
+      # The driver keeps the candidate's project cache under o/
+      # (cosmic_ci/orchestration.tl)
       # so a fresh checkout starts cold: every leg recompiles vendor/ and
       # core/ from nothing even when neither changed. This restores that
       # cache from outside the checkout -- the driver build phase requires
@@ -218,7 +219,7 @@ jobs:
           # zig's global cache -- libc, compiler-rt and its standard library,
           # keyed by content -- is used where actions/cache restored it,
           # outside the checkout; the driver seeds and saves only the
-          # project cache, which bin/zig keeps under o/.
+          # project cache, which the driver keeps under o/.
           echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
           # Where the zig-build cache above was restored, for the driver's
           # build and cache-save phases. Spelled from $RUNNER_TEMP, not

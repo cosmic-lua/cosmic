@@ -54,9 +54,9 @@ Linux, ARM Linux, ARM macOS, and Alpine x86 Linux producers. The `provenance`
 job compares the exact `cosmic` bytes all four attest they ran.
 
 The driver's `runtime_setup.tl` assembles the runtime fixture
-directory (`COSMIC_FIXTURE_RUNTIME`) from a booted checkout's prebuilt cores
-(`COSMIC_FIXTURE_PREBUILT`), portable writer (`COSMIC_FIXTURE_WRITER`), and
-portable database (`COSMIC_FIXTURE_DATABASE`): it writes the
+directory (`COSMIC_FIXTURE_RUNTIME`) from a booted checkout's prebuilt cores,
+portable writer, and portable database, which `RuntimeSetup.build` takes as
+arguments: it writes the
 `runtime.release`/`.old`/`.new`/`.basis`/`.missing`/`.sanitized`/
 `.incompatible` complete artifacts and one `runtime.corrupt-<target>` file
 per generated target, each with its retained-prefix hash and length
@@ -95,12 +95,13 @@ database successively with real release and sanitized cores, a changed
 runtime basis, an unchanged repeat, a spoofed project database, and a
 missing-runtime-identity refusal: changed runtime contexts run, while
 unchanged and application-only contexts stand. It finishes by snapshotting
-the finished project under the shared process `TMPDIR` for
-`test_identity_transported`, which restores that snapshot fresh -- mirroring
+the finished project under the shared process `TMPDIR` and restoring that
+snapshot fresh (`check_transported`) -- mirroring
 a cross-host CI artifact hand-off, transported here by copy rather than
 upload -- and proves the transported project keeps its application database
-content and produces byte-identical, executable application output. Normal
-CI runs this complete identity proof independently on every native host.
+content and produces byte-identical, executable application output. A full
+CI run (merge queue, main, or a manual run) runs this complete identity
+proof independently on every native host.
 Mutable developer state remains local to one runner; cross-platform support
 is established by executing and attesting the same immutable product bytes
 in all supported platform environments.
@@ -115,8 +116,8 @@ deterministic Teal edit causes exactly one database-only rebuild and
 re-entry at the same logical portable path, with the exact re-entered argv
 and an ordinary environment value checked on arrival. The rebuilt file
 keeps the retained prefix and cache entry count, and its bytes change. A
-subsequent core input edit (`core/startup.h`) is refused with the named
-`bin/zig build boot` remedy and touches neither the artifact nor the cache.
+subsequent core input edit (`core/startup.h`) is refused, under
+`COSMIC_AUTO_BOOT=0`, with the named `bin/zig build boot` remedy and touches neither the artifact nor the cache.
 Three further cases -- a pinned `vendor/tl` version, an unapplied
 `patch/tl` entry, and an edited `build/launcher.tl` -- are refused
 outright, before `test.run` or the artifact is ever reached. A last,
@@ -125,7 +126,7 @@ match, a too-short program, and a single mutated byte.
 
 The pinned CI driver owns full-suite execution, retained output, working
 database snapshots, delayed boundaries, and artifact immutability checks.
-It runs portable suites from a fresh tracked-source export on every leg,
-including the `alpine-x86_64` job container, which builds and tests
-natively on musl/BusyBox like every other leg. Its isolated project and
+In a full run it runs portable suites from a fresh tracked-source export on
+every leg, including the `alpine-x86_64` job container, which builds and
+tests natively on musl/BusyBox like every other leg. Its isolated project and
 command contracts are documented in `ci`.

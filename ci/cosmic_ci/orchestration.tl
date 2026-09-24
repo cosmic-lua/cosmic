@@ -140,10 +140,6 @@ local function fuzz_tests(root: string): {string}
   return found
 end
 
-local function parent(path: string): string
-  return (assert(path:match("^(.*)/[^/]+$"), path .. ": no parent directory"))
-end
-
 local function copy_flat_tl_dir(source: string, destination: string)
   local names: {string} = {}
   for _, name in ipairs((assert(Fs.list(source)))) do
@@ -160,8 +156,8 @@ end
 
 local function fixture_project(c: Context, work: string): string
   local project = work .. "/fixture-project"
-  local driver_namespace = parent(c.driver)
-  local fixtures_source = parent(driver_namespace) .. "/fixtures"
+  local driver_namespace = Fs.dirname(c.driver)
+  local fixtures_source = Fs.dirname(driver_namespace) .. "/fixtures"
   assert(Fs.remove_tree(project))
   copy_flat_tl_dir(driver_namespace, project .. "/cosmic_ci")
   copy_flat_tl_dir(fixtures_source, project .. "/fixtures")
@@ -178,12 +174,10 @@ local function fixture_test(c: Context, work: string, name: string,
   local fixture_environment = environment(extra)
   fixture_environment.TMPDIR = diagnostics .. "/tmp"
   local out, err = diagnostics .. "/test.out", diagnostics .. "/test.err"
-  local status = logged(c, "fixture: " .. name,
+  return logged(c, "fixture: " .. name,
     { assert(Proc.executable()), "test",
       "fixtures/" .. source .. "_test.tl" }, out, err, timeout_ms, project,
     fixture_environment)
-  if status ~= 0 then return status end
-  return 0
 end
 
 local function checked_suite(c: Context, target: string, work: string): integer
@@ -193,8 +187,8 @@ local function checked_suite(c: Context, target: string, work: string): integer
   local checked_target: string | nil = nil
   local target_records = read(targets_path)
   for line in target_records:gmatch("[^\n]+") do
-    local id, configuration, name, _target_name =
-      line:match("^(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)")
+    local id, configuration, name =
+      line:match("^(%d+)\t(%d+)\t([^\t]+)\t[^\t]+")
     if configuration == "2" and name == "sanitized" then
       assert(not target_id, "multiple sanitized target records"); target_id = id
     end
@@ -266,8 +260,7 @@ local function checked_suite(c: Context, target: string, work: string): integer
     deep_fuzz_timeout_ms, c.root, environment({ FUZZ_ITERS = deep_fuzz_iters,
       COSMIC_TEST_TIMEOUT = deep_fuzz_test_timeout_s }))
   write(diagnostics .. "/checked-fuzz.status", tostring(s) .. "\n")
-  if s ~= 0 then return s end
-  return 0
+  return s
 end
 
 local function snapshot(c: Context, diagnostics: string, label: string,
@@ -445,13 +438,8 @@ local function phase_assemble(p: PlatformContext): integer
   assert(LauncherSetup.build(root, contract .. "/launcher", target,
     work .. "/launcher-setup") == contract .. "/launcher",
     "launcher setup returned the wrong output")
-  local after_product: {{string}} = {
-    { root .. "/bin/zig", "build", "sanitized" },
-  }
-  local after_labels = { "checked build" }
-  for i, cmd in ipairs(after_product) do
-    s = checked(c, after_labels[i], cmd); if s ~= 0 then return s end
-  end
+  s = checked(c, "checked build", { root .. "/bin/zig", "build", "sanitized" })
+  if s ~= 0 then return s end
   s = checked_suite(c, target, work)
   if s ~= 0 then return s end
   s = checked(c, "hook-core build", { root .. "/bin/zig", "build", "portable-hook-cores", "--prefix", work .. "/prebuilt" }); if s ~= 0 then return s end
