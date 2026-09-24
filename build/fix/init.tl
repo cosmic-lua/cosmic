@@ -263,6 +263,10 @@ end
 --- @param files {string} The files a fix covered
 --- @return {string} One line per note, `file:line: message`
 function fix.notes(built: compiler, root: string, files: {string}): {string}
+  -- Each file's path is resolved, so the root must be too: on macOS a
+  -- temporary directory is under /var, a link to /private/var.
+  local resolved_root, _ = Fs.absolute(root)
+  local base = resolved_root or root
   local known, known_trouble = near.known(Store.databases())
   if known == nil then
     return { "comparing with the standard library: " .. known_trouble }
@@ -274,7 +278,7 @@ function fix.notes(built: compiler, root: string, files: {string}): {string}
     local absolute, _ = Fs.absolute(file)
     local relative: string | nil = nil
     if plain and absolute ~= nil then
-      local within, _ = Fs.relative(absolute, root)
+      local within, _ = Fs.relative(absolute, base)
       relative = within
     end
     local source: string | nil = nil

@@ -259,7 +259,11 @@ local function test_notes_name_what_the_library_already_has(tmp: string)
     "return Paths",
     "",
   }, "\n")
-  assert(Fs.mkdirs(tmp .. "/tree/tools/paths"))
+  -- The tree is reached through a link, as a macOS temporary directory
+  -- is (/var is /private/var): the root and each file must be resolved
+  -- alike.
+  assert(Fs.mkdirs(tmp .. "/real/tools/paths"))
+  assert(Fs.symlink(tmp .. "/real", tmp .. "/tree"))
   assert(Fs.write(tmp .. "/tree/tools/paths/init.tl", source))
   assert(Fs.write(tmp .. "/tree/tools/paths_test.tl", source))
   assert(Fs.write(tmp .. "/outside.tl", source))
