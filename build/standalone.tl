@@ -183,6 +183,11 @@ function standalone.run(argv: {integer:string}): integer
     arguments[slot - 2] = argv[slot]
     slot = slot + 1
   end
+  -- TODO: judge what main returns as cmd/cosmic/main.tl's `exit_status`
+  -- does for a file run and -e, complaining with the file's name; until
+  -- then an integer out of range reaches the core, which names
+  -- cmd.cosmic.main, and text, a table or a float is 0. The fix moves
+  -- `exit_status` to a module both can require.
   local status: any = main(arguments)
   if status is integer then
     return status
