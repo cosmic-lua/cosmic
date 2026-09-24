@@ -406,6 +406,17 @@ local function phase_local_boundary(p: PlatformContext): integer
   assert(read(local_d .. "/local-immediate/hashes.sha256") == read(local_d .. "/local-boundary/hashes.sha256"), "local database changed across boundary"); return 0
 end
 
+--- The tree's format check, which `fix --check` also builds and
+--- type-checks it for: the first thing assemble does, and all a branch
+--- push's light run does after the native suite (see ci.yml's
+--- COSMIC_CI_SCOPE).
+local function format_check(p: PlatformContext): integer
+  assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
+    "no local-boundary snapshot; run the local-boundary phase first")
+  return checked(p.operation, "format check",
+    { p.root .. "/o/bin/cosmic", "fix", "--check", "." })
+end
+
 local function phase_assemble(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
@@ -414,13 +425,9 @@ local function phase_assemble(p: PlatformContext): integer
   local product = p.product
   local contract = p.contract
   local runtime = p.runtime
-  local local_d = p.local_diagnostics
   local portable_d = p.portable_diagnostics
   local fresh = p.fresh
-  assert(exists(local_d .. "/local-boundary/hashes.sha256"),
-    "no local-boundary snapshot; run the local-boundary phase first")
-  local s = checked(c, "format check",
-    { root .. "/o/bin/cosmic", "fix", "--check", "." })
+  local s = format_check(p)
   if s ~= 0 then return s end
   s = checked(c, "codesign verification",
     { root .. "/bin/verify-codesign",
@@ -592,6 +599,7 @@ local function platform_impl(phase: string, p: PlatformContext): integer
   assert(targets[p.target], "unsupported target"); mkdir(p.work)
   if phase == "build" then return phase_build(p)
   elseif phase == "local-boundary" then return phase_local_boundary(p)
+  elseif phase == "format" then return format_check(p)
   elseif phase == "assemble" then return phase_assemble(p)
   elseif phase == "portable" then return phase_portable(p)
   elseif phase == "portable-boundary" then return phase_portable_boundary(p)
