@@ -27,6 +27,7 @@ local ast = require("build.ast")
 local doctest = require("build.doctest")
 local gen_syscalls = require("build.gen_syscalls")
 local positions = require("build.positions")
+local receivers = require("build.receivers")
 local symbols = require("build.symbols")
 local teal = require("build.teal")
 local tree = require("build.tree")
@@ -359,6 +360,43 @@ local function forget_stale_analysis(db: Sqlite.Handle): boolean, string
   return Sqlite.run(db,
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
     { text(analyzer) })
+end
+
+--- The identity of the code that finds `typed_refs`: `build.receivers`
+--- as the running binary carries it, or the binary whole when it
+--- carries none. Named apart from `analyzer_identity` because its rows
+--- ride on compiles, which only a change to this code must redo.
+local function receivers_identity(): string
+  local source = Store.source("build.receivers")
+  if source == nil then
+    return "binary " .. (Store.meta("boot_hash") or "")
+  end
+  return Hash.hex_sha256(source)
+end
+
+--- Forgets every compile, and the record-field uses found with it,
+--- when the code that finds those uses has changed since: a compile
+--- whose key stands is never checked again, so a `typed_refs` row is
+--- only as right as the `build.receivers` that ran beside the checker.
+local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
+  local identity = receivers_identity()
+  local last, last_trouble = Sqlite.text_rows(db,
+    "SELECT value FROM meta WHERE key = 'receivers'")
+  if last == nil then
+    return false, last_trouble
+  end
+  if #last > 0 and last[1][1] == identity then
+    return true, ""
+  end
+  for _, statement in ipairs({ "DELETE FROM compiled", "DELETE FROM typed_refs" }) do
+    local ok, trouble = db:exec(statement)
+    if not ok then
+      return false, trouble
+    end
+  end
+  return Sqlite.run(db,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('receivers', ?1)",
+    { text(identity) })
 end
 
 --- Brings `derived` and the parse tables up to the staged tree, inside
@@ -998,9 +1036,13 @@ end
 local record Generated
   lua: string
   bytecode: string
+  --- The record-field uses the checker's types resolved -- see
+  --- `build.receivers`.
+  references: {receivers.Reference}
 end
 
 local function generate(m: Module, built: compiler, env: compiler.Env,
+                        typed: receivers.State,
                         databases: {Sqlite.Handle},
                         public: {boolean}): Generated | nil, string
   local code, result = built.gen(m.source, env, nil, "tl")
@@ -1018,6 +1060,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   -- after it that requires it is checked against that, rather than
   -- against a second read and check of the same source.
   env.modules[m.path] = result.type
+  local references = receivers.references(typed, env, result.ast)
   if m.kind == "test" then
     code = with_test_tail(code, m.tests)
   end
@@ -1025,7 +1068,29 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   if bytecode == nil then
     return nil, dump_trouble
   end
-  return { lua = code, bytecode = bytecode }, ""
+  return { lua = code, bytecode = bytecode, references = references }, ""
+end
+
+--- The record-field uses one compile found, kept under its key beside
+--- the compile itself, replacing whatever an earlier compile under the
+--- same key left.
+local function keep_references(db: Sqlite.Handle, key: string,
+                               references: {receivers.Reference}): boolean, string
+  local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
+  if not ok then
+    return false, why
+  end
+  for ordinal, entry in ipairs(references) do
+    ok, why = Sqlite.run(db,
+      "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
+      "VALUES (?1, ?2, ?3, ?4, ?5)",
+      { text(key), { integer = ordinal }, text(entry.module), text(entry.member),
+        { integer = entry.line } })
+    if not ok then
+      return false, why
+    end
+  end
+  return true, ""
 end
 
 --- The vendored compiler, planned and cached like any module: its Lua
@@ -1127,6 +1192,7 @@ function importer.compile(handle: work.Handle, built: compiler,
   -- cached compile below: a run that compiles nothing never pays for
   -- `new_env`'s parse and type-check of tl's own prelude and stdlib.
   local env: compiler.Env | nil = nil
+  local typed: receivers.State | nil = nil
 
   -- Where a refused module's own hint (`with_docs_hint`) looks up the
   -- name it could not resolve: this build's own working database
@@ -1146,6 +1212,10 @@ function importer.compile(handle: work.Handle, built: compiler,
     local cleared, clear_trouble = db:exec("DELETE FROM plan")
     if not cleared then
       return false, clear_trouble
+    end
+    local forgotten, forget_trouble = forget_stale_receivers(db)
+    if not forgotten then
+      return false, forget_trouble
     end
     local cache, prepare_trouble = prepare_cache(handle, tool)
     if cache == nil then
@@ -1187,9 +1257,10 @@ function importer.compile(handle: work.Handle, built: compiler,
               break
             end
             env = made_env
+            typed = receivers.install(made_env)
           end
           local generated, generate_trouble =
-            generate(m, built, env, hint_databases, hint_public)
+            generate(m, built, env, assert(typed), hint_databases, hint_public)
           if generated == nil then
             failure = generate_trouble
             break
@@ -1198,6 +1269,11 @@ function importer.compile(handle: work.Handle, built: compiler,
           lua = made.lua
           bytecode = made.bytecode
           result.compiled = result.compiled + 1
+          local kept_refs, refs_trouble = keep_references(db, m.key, made.references)
+          if not kept_refs then
+            finish_cache(cache)
+            return false, m.file .. ": " .. refs_trouble
+          end
         end
         m.lua = lua
         local kept, keep_trouble = remember(cache, m.path, m.key, ordinal, lua,
@@ -1222,9 +1298,13 @@ function importer.compile(handle: work.Handle, built: compiler,
       end
     end
     finish_cache(cache)
-    return Sqlite.run(db,
+    local pruned, prune_trouble = Sqlite.run(db,
       "DELETE FROM compiled WHERE tool <> ?1 OR seen < ?2",
       { text(tool), { integer = handle.run - kept_runs } })
+    if not pruned then
+      return false, prune_trouble
+    end
+    return db:exec("DELETE FROM typed_refs WHERE key NOT IN (SELECT key FROM compiled)")
   end
   local made, transact_trouble = compile_all()
   if not made then

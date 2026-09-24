@@ -33,6 +33,10 @@ local record compiler
     module_filenames: {string:string}
     loaded: {string:any}
     defaults: Defaults
+    -- When set, the checker hands every node's type to `reporter`'s
+    -- collector as it checks; see `build.receivers`.
+    report_types: boolean | nil
+    reporter: any
   end
 
   -- One comment tl's lexer attached to the token that follows it.

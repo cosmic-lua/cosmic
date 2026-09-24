@@ -96,6 +96,17 @@ local insert_uses =
   "JOIN refs r ON r.source_hash = i.source_hash " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
+--- The record-field uses `build.receivers` found while each planned
+--- module was compiled, kept under the compile's key: `w:add_file(...)`
+--- on a `Zip.ZipWriter` is a use of `ZipWriter.add_file` in `cosmic.zip`.
+local insert_typed_uses =
+  "INSERT OR IGNORE INTO out.uses (module, symbol, from_module, " ..
+  "from_file, line) " ..
+  "SELECT r.module, r.member, p.path, i.file, r.line " ..
+  "FROM plan p JOIN inputs i ON i.path = p.path AND i.kind <> 'decl' " ..
+  "JOIN typed_refs r ON r.key = p.key " ..
+  "ORDER BY r.module, r.member, p.path, r.line"
+
 --- The worked examples `build.positions.examples_of` found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
 --- against the module its file name pairs with (the `_example` suffix
@@ -156,9 +167,12 @@ local rebuild_fts: {string} = {
 --- is still there, the file already is the projection of these rows,
 --- and nothing is written. The catalog, docs, examples and references
 --- add nothing here: an extracted row changes only with the source it
---- was parsed from, which moves that module's key.
+--- was parsed from, which moves that module's key. A record-field use
+--- rides on a compile instead, which a change to the code finding it
+--- redoes under the same key, so that code's identity (`receivers`
+--- in `meta`) is signed too.
 local function signature_sql(): string
-  local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis')"
+  local metadata = "('boot_hash', 'image_hash', 'compiler', 'runtime_basis', 'receivers')"
   return "SELECT lower(hex(sha256(" ..
   "coalesce((SELECT group_concat(p.path || ' ' || p.key || ' ' || i.file, " ..
   "char(10) ORDER BY p.path) FROM plan p JOIN inputs i ON i.path = p.path " ..
@@ -217,7 +231,7 @@ local function project(handle: work.Handle, path: string,
       return false, meta_trouble
     end
     for _, statement in ipairs({ insert_catalog_extracted, insert_docs,
-                                 insert_uses, insert_examples }) do
+                                 insert_uses, insert_typed_uses, insert_examples }) do
       local ok, failure = db:exec(statement)
       if not ok then
         return false, failure

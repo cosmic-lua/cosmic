@@ -413,6 +413,85 @@ local function test_project_keeps_uses_of_bundled_symbols()
   work.close(handle)
 end
 
+--- A function held in a nested record's field is used wherever a value
+--- the checker typed as that record reads it, by `:` or by `.`, whatever
+--- the value is named -- including a record a `.d.tl` declares. An
+--- assignment to the field defines it rather than using it, and a
+--- module member reached through its alias is still found by name.
+local function test_uses_of_a_record_field_follow_the_value_s_type()
+  local root = assert(write_fixture("record-field-uses", {
+    ["shapes.tl"] = table.concat({
+      "local record Shapes",
+      "  record Box",
+      "    width: integer",
+      "    area: function(Box): integer",
+      "  end",
+      "end",
+      "function Shapes.box(width: integer): Shapes.Box",
+      "  local made: Shapes.Box = { width = width }",
+      "  made.area = function(self: Shapes.Box): integer return self.width * self.width end",
+      "  return made",
+      "end",
+      "return Shapes",
+      "",
+    }, "\n"),
+    ["counter.d.tl"] = table.concat({
+      "local record Counter",
+      "  record Tally",
+      "    bump: function(Tally, integer)",
+      "  end",
+      "end",
+      "return Counter",
+      "",
+    }, "\n"),
+    ["main.tl"] = table.concat({
+      'local Shapes = require("shapes")',
+      'local type Counter = require("counter")',
+      "local record Main",
+      "end",
+      "function Main.run(t: Counter.Tally): integer",
+      "  local b = Shapes.box(2)",
+      "  local first = b:area()",
+      "  local read = b.area",
+      "  b.width = 3",
+      "  t:bump(first)",
+      "  return read(b)",
+      "end",
+      "return Main",
+      "",
+    }, "\n"),
+  }))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, false))
+  local result = assert(importer.compile(handle, built, "importer-test"))
+  assert(writer.write_result(handle, root .. "/o/cosmic.db", result))
+  local shipped = assert(Sqlite.open(root .. "/o/cosmic.db", false))
+  local rows = assert(Sqlite.text_rows(shipped,
+    "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
+    "ORDER BY line, module, symbol"))
+  local got: {string} = {}
+  for _, row in ipairs(rows) do
+    got[#got + 1] = row[3] .. " " .. row[1] .. " " .. row[2]
+  end
+  local want = "6 shapes box, 7 shapes Box.area, 8 shapes Box.area, " ..
+    "10 counter Tally.bump"
+  assert(table.concat(got, ", ") == want, table.concat(got, ", "))
+  local view = assert(docs.view({ shipped }))
+  for _, query in ipairs({ "Shapes.Box.area", "Box.area", "area" }) do
+    local uses = assert(docs.uses(view, query))
+    local lines: {string} = {}
+    for _, use in ipairs(uses) do
+      lines[#lines + 1] = use.from_file .. ":" .. use.line
+    end
+    assert(table.concat(lines, " ") == "main.tl:7 main.tl:8",
+      query .. ": " .. table.concat(lines, " "))
+  end
+  local tally = assert(docs.uses(view, "Counter.Tally.bump"))
+  assert(#tally == 1 and tally[1].line == 10, tostring(#tally))
+  assert(shipped:close())
+  work.close(handle)
+end
+
 --- The compiler identity closes over what `build.importer` requires, so
 --- it is the same whether the working database is fresh or has parsed
 --- the tree before -- a boot on an empty `o/` must key its modules
