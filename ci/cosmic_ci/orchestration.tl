@@ -90,6 +90,9 @@ local launcher_test_timeout_ms <const> = 180000
 local self_rebuild_test_timeout_ms <const> = 180000
 local runtime_test_timeout_ms <const> = 180000
 local identity_test_timeout_ms <const> = 120000
+-- The sanitized cosmic's first, cold compile of the test tree, run
+-- once before the checked manifest entry is timed.
+local checked_compile_timeout_ms <const> = 300000
 
 -- A whole `cosmic test` run takes 12-16 s on a runner and its slowest test
 -- about a second. Each test gets far less than the whole run, so a test that
@@ -195,14 +198,16 @@ local function checked_suite(c: Context, target: string, work: string): integer
   local cosmic = sanitized .. "/bin/cosmic"
   local core = sanitized .. "/cosmic-core"
   local entry = work .. "/checked-entry.txt"
-  -- TODO: this bound also covers the sanitized cosmic's first, cold
-  -- compile of the tree tool.tl sits in, 41 s on a 4-core host under
-  -- ci/run-local against under a second warm. Give the compile a bound of
-  -- its own (a warm-up run beside this one), or raise this one, so a
-  -- slower host times out only on the entry itself.
-  local s = capture_small(c, "checked manifest entry", { cosmic,
-    c.root .. "/test/portable/tool.tl", "entry", cosmic, target_id, "2" },
-    entry, 30000)
+  local entry_command = { cosmic, c.root .. "/test/portable/tool.tl", "entry",
+    cosmic, target_id, "2" }
+  -- The sanitized cosmic's first run compiles the tree tool.tl sits in:
+  -- 41 s on a 4-core host under ci/run-local, against under a second
+  -- once warm. That compile gets a bound of its own, so the entry's
+  -- bound below times the entry and nothing else.
+  local s = capture_small(c, "checked tool compile", entry_command,
+    work .. "/checked-compile.txt", checked_compile_timeout_ms)
+  if s ~= 0 then return s end
+  s = capture_small(c, "checked manifest entry", entry_command, entry, 30000)
   if s ~= 0 then return s end
   local offset_text, length_text, digest =
     read(entry):match("^(%d+)[ \t]+(%d+)[ \t]+([0-9a-f]+)\n$")
