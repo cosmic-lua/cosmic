@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or
---- build, fix, db, docs, uses, todos, help, run, standalone) answers
+--- build, fix, db, sql, docs, uses, todos, help, run, standalone) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
 --- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
@@ -59,6 +59,20 @@ local record Cli
   --- `cosmic db`: what the two databases under o/ hold, table by
   --- table -- rows, pages, bytes -- and how the last few builds went
   db: string
+  --- `cosmic sql [--db <path> | --build | --store] <statement>`: runs
+  --- one SQL statement read-only -- SQLite itself refuses a write --
+  --- against o/cosmic.db, or the binary's own database when there is
+  --- none; `--build` names o/build.db, `--store` the binary's own (which
+  --- refuses every PRAGMA but data_version) and `--db` any file. o/ is
+  --- looked for in the working directory only, never above it. Each row
+  --- is one line of tab-separated cells: NULL as \N, a blob as X'<hex>',
+  --- and in text a backslash, tab, newline or return as \\, \t, \n or
+  --- \r and any other control byte as \xHH. The verdict line comes
+  --- after the rows, as every verb's last line. Exits 0 when the
+  --- statement ran, rows or none; 1 when the
+  --- database or the statement failed, a write among them; 2 for a
+  --- command line it cannot read. Nothing is built or staged.
+  sql: string
   --- `cosmic docs <q>`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs), or words to search the
   --- documentation for
@@ -90,9 +104,9 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", test = "test", fix = "fix", build = "build",
-    db = "db", docs = "docs", uses = "uses", todos = "todos", help = "help",
+    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", help = "help",
   },
-  order = { "run", "standalone", "test", "fix", "build", "db", "docs", "uses", "todos", "help" },
+  order = { "run", "standalone", "test", "fix", "build", "db", "sql", "docs", "uses", "todos", "help" },
 }
 
 return module

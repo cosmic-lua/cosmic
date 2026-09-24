@@ -28,6 +28,7 @@ local surplus: {string:{string} | string} = {
   docs = "takes any number of words to search for",
   uses = { "uses", "Fs.read", "Fs.write" },
   todos = "takes any number of paths and words",
+  sql = { "sql", "SELECT 1", "extra" },
   help = { "help", "test", "fix" },
 }
 
@@ -48,6 +49,7 @@ local cases: {string:Case} = {
   docs = { pass = { "docs", "Fs.read" }, fail = { "docs", "zzqqx_nothing_named" } },
   uses = { pass = { "uses", "Fs.read" }, fail = { "uses", "zzqqx_nothing_named" } },
   todos = { pass = { "todos" }, fail = { "todos", "zzqqx_nothing_named" } },
+  sql = { pass = { "sql", "SELECT 1" }, fail = { "sql", "SELECT * FROM zzqqx_no_table" } },
   help = { pass = { "help" }, fail = "help has nothing to fail on but its command line" },
 }
 
