@@ -5,42 +5,12 @@
 --- interop check -- `tar_test.tl` and `zip_test.tl` already cover
 --- reading what other tools wrote.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
-
-local B64_ALPHABET <const> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-local function b64_index(): {string:integer}
-  local map: {string:integer} = {}
-  for i = 1, #B64_ALPHABET do
-    map[B64_ALPHABET:sub(i, i)] = i - 1
-  end
-  return map
-end
-
-local B64_INDEX <const> = b64_index()
-
-local function base64_decode(data: string): string
-  local out: {string} = {}
-  local bits = 0
-  local nbits = 0
-  for i = 1, #data do
-    local c = data:sub(i, i)
-    local v = B64_INDEX[c]
-    if v ~= nil then
-      bits = (bits << 6) | v
-      nbits = nbits + 6
-      if nbits >= 8 then
-        nbits = nbits - 8
-        out[#out + 1] = string.char((bits >> nbits) & 0xFF)
-      end
-    end
-  end
-  return table.concat(out)
-end
 
 --- `tar -cf a.tar src` (a directory holding src/short.txt and the
 --- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2 -c.
@@ -241,7 +211,7 @@ end
 
 local function test_extract_a_gzip_compressed_tar_made_by_system_tar(tmp: string)
   local path = tmp .. "/a.tar.gz"
-  assert(Fs.write(path, base64_decode(TAR_GZ_B64)))
+  assert(Fs.write(path, (assert(Codec.unbase64(TAR_GZ_B64)))))
   local dest = tmp .. "/out"
   local written = assert(Archive.extract(path, dest))
   table.sort(written)
@@ -251,7 +221,7 @@ end
 
 local function test_extract_an_xz_compressed_tar_made_by_system_tar(tmp: string)
   local path = tmp .. "/a.tar.xz"
-  assert(Fs.write(path, base64_decode(TAR_XZ_B64)))
+  assert(Fs.write(path, (assert(Codec.unbase64(TAR_XZ_B64)))))
   local dest = tmp .. "/out"
   local written = assert(Archive.extract(path, dest))
   table.sort(written)
@@ -261,7 +231,7 @@ end
 
 local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: string)
   local path = tmp .. "/a.tar.bz2"
-  assert(Fs.write(path, base64_decode(TAR_BZ2_B64)))
+  assert(Fs.write(path, (assert(Codec.unbase64(TAR_BZ2_B64)))))
   local dest = tmp .. "/out"
   local written = assert(Archive.extract(path, dest))
   table.sort(written)
@@ -539,7 +509,7 @@ end
 local function test_extract_creates_a_zip_symlink_as_a_symlink(tmp: string)
   local ZIP_B64 = "UEsDBAoAAAAAADItN13z+cmLFAAAABQAAAANABwAc3JjL3Nob3J0LnR4dFVUCQADkGazapBms2p1eAsAAQQAAAAABAAAAABzaG9ydCBmaWxlIGNvbnRlbnRzClBLAwQKAAAAAAAyLTddI9j0uAkAAAAJAAAADgAcAHNyYy9hZGlyL2FsaW5rVVQJAAOQZrNqkGazanV4CwABBAAAAAAEAAAAAHNob3J0LnR4dFBLAwQUAAAACAA4LTdd0RXq2CAAAACZCAAACwAcAHNyYy9iaWcudHh0VVQJAAOcZrNqn2azanV4CwABBAAAAAAEAAAAAEtJTctJLElVyE1VSBlljjJHmaPMUeYoc5Q5yhxIJhcAUEsDBAoAAAAAADgtN13z+cmLFAAAABQAAAAUABwAc3JjL3Nob3J0X3N0b3JlZC50eHRVVAkAA5xms2qfZrNqdXgLAAEEAAAAAAQAAAAAc2hvcnQgZmlsZSBjb250ZW50cwpQSwECHgMKAAAAAAAyLTdd8/nJixQAAAAUAAAADQAYAAAAAAABAAAApIEAAAAAc3JjL3Nob3J0LnR4dFVUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADItN10j2PS4CQAAAAkAAAAOABgAAAAAAAAAAAD/oVsAAABzcmMvYWRpci9hbGlua1VUBQADkGazanV4CwABBAAAAAAEAAAAAFBLAQIeAxQAAAAIADgtN13RFerYIAAAAJkIAAALABgAAAAAAAEAAACkgawAAABzcmMvYmlnLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLAQIeAwoAAAAAADgtN13z+cmLFAAAABQAAAAUABgAAAAAAAAAAACkgREBAABzcmMvc2hvcnRfc3RvcmVkLnR4dFVUBQADnGazanV4CwABBAAAAAAEAAAAAFBLBQYAAAAABAAEAFIBAABzAQAAAAA="
   local archive = tmp .. "/sys.zip"
-  assert(Fs.write(archive, base64_decode(ZIP_B64)))
+  assert(Fs.write(archive, (assert(Codec.unbase64(ZIP_B64)))))
   local entries = assert(Archive.list(archive))
   local kinds: {string:string} = {}
   for _, e in ipairs(entries) do kinds[e.path] = e.kind end

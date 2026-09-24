@@ -300,16 +300,14 @@ local function phase_build(p: PlatformContext): integer
   local root = p.root
   local local_d = p.local_diagnostics
   assert(not exists(root .. "/o"), "build requires fresh checkout without o")
+  -- Only the project cache is seeded into o/: zig's global cache is used
+  -- where it was restored (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl).
   local seed = Env.get("COSMIC_ZIG_CACHE_SEED")
-  if seed and (is_dir(seed .. "/zig-cache") or is_dir(seed .. "/zig-global")) then
+  if seed and is_dir(seed .. "/zig-cache") then
     mkdir(root .. "/o")
-    for _, name in ipairs({ "zig-cache", "zig-global" }) do
-      if is_dir(seed .. "/" .. name) then
-        local copied = checked(c, "restore " .. name,
-          { "/usr/bin/env", "cp", "-a", seed .. "/" .. name, root .. "/o/" })
-        if copied ~= 0 then return copied end
-      end
-    end
+    local copied = checked(c, "restore zig-cache",
+      { "/usr/bin/env", "cp", "-a", seed .. "/zig-cache", root .. "/o/" })
+    if copied ~= 0 then return copied end
   end
   local s = checked(c, "core build and boot", { root .. "/bin/zig", "build", "cores", "boot" }, 0)
   if s ~= 0 then return s end
@@ -486,17 +484,17 @@ end
 local function phase_cache_save(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
+  -- Only the project cache is copied back: zig's global cache was used
+  -- in place, under the seed, and is saved as it stands.
   local seed = assert(Env.get("COSMIC_ZIG_CACHE_SEED"), "cache seed is required")
   mkdir(seed)
-  for _, name in ipairs({ "zig-cache", "zig-global" }) do
-    local removed = checked(c, "remove saved " .. name,
-      { "/bin/rm", "-rf", seed .. "/" .. name })
-    if removed ~= 0 then return removed end
-    if is_dir(root .. "/o/" .. name) then
-      local copied = checked(c, "save " .. name,
-        { "/usr/bin/env", "cp", "-a", root .. "/o/" .. name, seed .. "/" })
-      if copied ~= 0 then return copied end
-    end
+  local removed = checked(c, "remove saved zig-cache",
+    { "/bin/rm", "-rf", seed .. "/zig-cache" })
+  if removed ~= 0 then return removed end
+  if is_dir(root .. "/o/zig-cache") then
+    local copied = checked(c, "save zig-cache",
+      { "/usr/bin/env", "cp", "-a", root .. "/o/zig-cache", seed .. "/" })
+    if copied ~= 0 then return copied end
   end
   return 0
 end

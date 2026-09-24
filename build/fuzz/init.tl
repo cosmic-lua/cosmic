@@ -22,6 +22,7 @@
 --- that did it behind; `run` names that file in what it prints, which
 --- the runner shows for a failing test.
 
+local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
@@ -84,6 +85,11 @@ local record Fuzz
     dir: string
     --- Iterations, in place of `FUZZ_ITERS`.
     iters: integer
+    --- The most iterations `FUZZ_ITERS` may ask for, for a property whose
+    --- every input costs a process or a file the size of a core: a deep
+    --- run raises every other property's count, and this one's only to
+    --- here.
+    max_iters: integer
     --- VM instructions one check may spend.
     budget: integer
   end
@@ -160,12 +166,6 @@ local function attempt(check: function(string): boolean, string, input: string,
   return true, ""
 end
 
-local function hex(s: string): string
-  return (s:gsub(".", function(c: string): string
-    return ("%02x"):format(c:byte())
-  end))
-end
-
 --- A file name for the property, from its name.
 local function slug(name: string): string
   local s = name:gsub("[^%w]+", "-"):gsub("^-+", ""):gsub("-+$", "")
@@ -188,6 +188,9 @@ end
 function Fuzz.run(p: Fuzz.Property): integer
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
+  if p.iters == nil and p.max_iters ~= nil and iters > p.max_iters then
+    iters = p.max_iters
+  end
   local budget = p.budget or DEFAULT_BUDGET
   local kept: string
   if p.dir ~= nil then
@@ -217,7 +220,7 @@ function Fuzz.run(p: Fuzz.Property): integer
         small, smallest = input, draws
       end
       if kept ~= nil then Fs.write(kept, small) end
-      local shown = hex(small:sub(1, SHOWN_BYTES))
+      local shown = Codec.hex(small:sub(1, SHOWN_BYTES))
       if #small > SHOWN_BYTES then shown = shown .. "..." end
       error(("fuzz %s: seed=%d iteration=%d: %s\n" ..
         "  shrunk in %d tries from %d draws and %d bytes to %d draws and %d bytes; input (hex): %s\n" ..
