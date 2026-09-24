@@ -12,8 +12,12 @@
 1. Run `bin/zig build boot` in a fresh worktree. This builds the required cores
    and stages the tree into `o/build.db`, the working database every later
    build reads; copying an existing cosmic executable alone is insufficient to
-   test a fresh checkout. `o/bin/cosmic db` says what both databases under
-   `o/` hold and how the last few builds went; `o/bin/cosmic docs <symbol>`
+   test a fresh checkout. zig's caches are shared by every checkout
+   (`zig-project` and `zig-global` under `~/.cache/cosmic`, see
+   `build/zig.tl`), so a fresh worktree compiles only the core's own C;
+   delete them to reclaim the space. `o/bin/cosmic db` says what both
+   databases under `o/` hold and how the last few builds went;
+   `o/bin/cosmic docs <symbol>`
    shows a symbol's signature, doc comment and use count, and
    `o/bin/cosmic uses <symbol>` lists every `file:line` that refers to it.
 2. Edit source and tests, then run `o/bin/cosmic fix <changed-paths>`.
