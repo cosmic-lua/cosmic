@@ -89,10 +89,12 @@ local record receivers
   end
 end
 
---- A position as one integer key: columns never reach 2^20.
-local function position(y: integer, x: integer): integer
+--- A position as one integer key, the one every table in `State` is
+--- keyed by: columns never reach 2^20.
+function receivers.position(y: integer, x: integer): integer
   return (y << 20) | x
 end
+local position = receivers.position
 
 --- The record or interface a type is, looking through declarations,
 --- nominals, generics and a one-value tuple; nil for any other type.
@@ -189,7 +191,7 @@ local function reporter_for(state: receivers.State): any
       end
       local found = record_of(t)
       if found ~= nil then
-        state.types[position(y, x)] = found
+        state.types[at] = found
       end
     end,
     reserve_symbol_list_slot = ignore,

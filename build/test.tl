@@ -67,6 +67,7 @@ local c_functions = require("build.c_functions")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 local observations = require("build.filesystem_observations")
@@ -121,9 +122,7 @@ local timeout_variable = "COSMIC_TEST_TIMEOUT"
 --- while still ending a hung test well inside any whole-run budget.
 local default_timeout_s = 30
 
---- Whether one test module is named by a selector. A module name and its
---- source path match exactly; a directory matches only at a `/` boundary.
---- This keeps `test foo` from also selecting `foobar_test.tl`.
+--- A selector without its trailing slashes and leading "./".
 local function normalized(selector: string): string
   if selector == "" then return selector end
   selector = selector:gsub("/+$", "")
@@ -131,6 +130,9 @@ local function normalized(selector: string): string
   return selector
 end
 
+--- Whether one test module is named by a selector. A module name and its
+--- source path match exactly; a directory matches only at a `/` boundary.
+--- This keeps `test foo` from also selecting `foobar_test.tl`.
 function test.matches(selector: string, path: string, file: string): boolean
   selector = normalized(selector)
   if selector == "." then return true end
@@ -274,8 +276,8 @@ end
 --- it read, by name. A file the stage holds is hashed already; any
 --- other is read for it here, and one that is gone says so.
 ---
---- Exposed as `test.verdict_key` (`run_module`'s two call sites use it
---- the same as any other caller would) so `test_test.tl` can pin two
+--- Exposed as `test.verdict_key` (`standing` and `finish` use it the
+--- same as any other caller would) so `test_test.tl` can pin two
 --- properties directly, without a compiled tree or a work database to
 --- reach them through: that distinct inputs never collide on the same
 --- key, and that a read whose current answer differs from what was
@@ -680,10 +682,8 @@ local function write_coverage(handle: Sqlite.Handle, built: compiler,
   local by_source: {string: importer.Module} = {}
   local sorted_paths: {string} = {}
   for _, m in ipairs(modules) do
-    if m.kind ~= "vendor" then
-      by_source[m.path] = m
-      sorted_paths[#sorted_paths + 1] = m.path
-    end
+    by_source[m.path] = m
+    sorted_paths[#sorted_paths + 1] = m.path
   end
   for path in pairs(native_lines) do
     if by_source[path] == nil then
@@ -1139,7 +1139,7 @@ function test.run(argv: {integer:string}): integer
     selectors[#selectors + 1] = selector
   end
   local started = Time.monotonic_ns()
-  local own_tree, own_trouble = importer.is_own_tree(root)
+  local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     log:complain(own_trouble)
     return 1

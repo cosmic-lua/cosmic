@@ -172,7 +172,7 @@ static int sqlite_open (lua_State *L) {
     return 2;
   }
   /* No SQLITE_OPEN_URI: `path` is an ordinary filename, never a `file:`
-   * URI. M1 documents no URI form, so `vfs=`, `off=` and `len=` are
+   * URI. No URI form is documented, so `vfs=`, `off=` and `len=` are
    * never parsed out of a caller's path at all, not even refused. */
   int flags = writable ? (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
                        : SQLITE_OPEN_READONLY;

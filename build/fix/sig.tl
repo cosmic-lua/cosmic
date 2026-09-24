@@ -27,9 +27,7 @@ local type Node = ast.Node
 local type TypeNode = ast.TypeNode
 local type Ctx = ctx_mod.Ctx
 
-local function refuse(c: Ctx, what: string)
-  c.refused[#c.refused + 1] = what
-end
+local refuse = ctx_mod.refuse
 
 --- The arguments the source actually wrote, in order: a method's
 --- implicit `self` is in the parser's list but not in the text.

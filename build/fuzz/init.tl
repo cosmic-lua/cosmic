@@ -128,12 +128,6 @@ local function recording(rng: Rand.Source, draws: {Draw}): Fuzz.Source
   return src
 end
 
-local function values_of(draws: {Draw}): {integer}
-  local out: {integer} = {}
-  for i, d in ipairs(draws) do out[i] = d.value end
-  return out
-end
-
 --- An integer from the environment, or `otherwise` when it is unset.
 --- Raises when it is set to anything but a positive integer, so a typo
 --- is never a silent default.
@@ -211,7 +205,7 @@ function Fuzz.run(p: Fuzz.Property): integer
         return not still, used
       end
       local smallest, tries = shrink.shrink(draws, fails, SHRINK_TRIES)
-      local small = build(p.gen, values_of(smallest))
+      local small = build(p.gen, shrink.values_of(smallest))
       local small_held, small_why = attempt(p.check, small, budget)
       if not small_held then
         why = small_why
