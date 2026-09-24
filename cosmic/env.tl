@@ -5,7 +5,8 @@ local sys = require("cosmic.sys")
 local record Env
 end
 
---- One variable, or nil when it is not set; this is the os.getenv operation.
+--- One variable, or nil when it is not set; this is the os.getenv
+--- operation, C's `getenv`.
 function Env.get(name: string): string | nil
   return sys.getenv(name)
 end

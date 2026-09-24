@@ -622,6 +622,7 @@ local function test_a_familiar_command_finds_its_stand_in()
     { "sha256sum", "Hash.hex_sha256" },
     { "sleep", "Time.sleep_ns" },
     { "getentropy", "Rand.entropy" },
+    { "getenv", "Env.get" },
     { "urandom", "Rand.entropy" },
   }
   local wrong: {string} = {}

@@ -5,6 +5,9 @@
 ---
 --- A query is a symbol first -- `Fs.read`, `read`, `cosmic.fs` -- and
 --- words to search the documentation for when no symbol is called that.
+--- A qualified name that names nothing (Proc.which) answers from what
+--- its qualifier offers, and a search ranks first the functions whose
+--- documentation names its first word as what they stand in for.
 
 local Fs = require("cosmic.fs")
 local Log = require("cosmic.log")
@@ -261,12 +264,12 @@ local function spelled_as_code(word: string): string
   return "*`" .. word:lower() .. "[` ]*"
 end
 
---- An SQL condition true when row `d` spells `?2` as code and `?3` is
---- not one of its own parameters: documentation backticks its
+--- An SQL condition true when function `d` spells `?2` as code and `?3`
+--- (lowercase) is not one of its own parameters: documentation backticks its
 --- parameters (`path`, `name`) everywhere, so only a name that is not
 --- one says what the function stands in for.
 local STANDS_IN_SQL =
-  "(lower(d.text) GLOB ?2 AND NOT (d.signature GLOB '*(' || ?3 || '[?:]*' " ..
+  "(d.kind IN ('function', 'method') AND lower(d.text) GLOB ?2 AND NOT (d.signature GLOB '*(' || ?3 || '[?:]*' " ..
   "OR d.signature GLOB '*, ' || ?3 || '[?:]*'))"
 
 --- The first word of `query` a search keeps (see `fts_query`).
@@ -339,7 +342,7 @@ local function scoped(db: Sqlite.Handle, public: boolean, qualifier: string,
       "WHERE docs_fts MATCH ?1 AND d.source_symbol GLOB ?4 AND d.exported = 1 AND " ..
       symbols.public_only("d.module", public) ..
       " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
-      { text(fts), text(spelled_as_code(lead_word(name))), text(lead_word(name)),
+      { text(fts), text(spelled_as_code(lead_word(name))), text(lead_word(name):lower()),
         text(member) })
     if rows == nil then
       return nil, trouble
@@ -368,7 +371,7 @@ local function searched_docs(db: Sqlite.Handle, public: boolean, fts: string,
     "SELECT " .. columns .. " FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
     "WHERE docs_fts MATCH ?1 AND " .. symbols.public_only("d.module", public) ..
     " ORDER BY " .. STANDS_IN_SQL .. " DESC, bm25(docs_fts), d.module, d.id LIMIT 20",
-    { text(fts), text(spelled_as_code(lead)), text(lead) })
+    { text(fts), text(spelled_as_code(lead)), text(lead:lower()) })
   if rows == nil then
     return nil, trouble
   end
