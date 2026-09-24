@@ -60,6 +60,9 @@ local record receivers
     tuple: {Type} | nil
     fields: {string: Type} | nil
     field_order: {string} | nil
+    --- A record's or interface's interfaces, every one it inherits
+    --- from included, once the checker has expanded them.
+    interface_list: {Type} | nil
   end
 
   record Owner
@@ -98,6 +101,33 @@ local function record_of(t: receivers.Type | nil): receivers.Type | nil
       at = members[1]
     else
       return nil
+    end
+  end
+  return nil
+end
+
+--- The interface under `t` that declares its field `name`, when `t`
+--- inherits it rather than declaring it itself: the deepest one, since
+--- an interface that extends another carries its fields too. nil when
+--- no interface of `t` has the field.
+local function declaring(t: receivers.Type, name: string,
+                         seen: {receivers.Type: boolean}): receivers.Type | nil
+  local list = t.interface_list
+  if list == nil or seen[t] then
+    return nil
+  end
+  seen[t] = true
+  for _, listed in ipairs(list) do
+    local iface = record_of(listed)
+    if iface ~= nil then
+      local fields = iface.fields
+      if fields ~= nil and fields[name] ~= nil then
+        local deeper = declaring(iface, name, seen)
+        if deeper ~= nil then
+          return deeper
+        end
+        return iface
+      end
     end
   end
   return nil
@@ -260,11 +290,14 @@ function receivers.references(state: receivers.State, env: compiler.Env,
     if owner == nil then
       return
     end
-    -- TODO: a field the record inherits from an interface is recorded
-    -- under the record (`Collector.write`), which has no docs row, rather
-    -- than under the interface that declares it (`Writer.write`), so
-    -- `cosmic uses Stream.Writer.write` misses `c:write(...)` on a
-    -- Collector. Walk the record's `interface_list` for the declaring one.
+    -- A field the record inherits is a use of the interface that
+    -- declares it (`Writer.write`, not `Collector.write`), when some
+    -- module's type declares that interface.
+    local from = declaring(typed, e2.tk, {})
+    local inherited = from ~= nil and owners[from.typeid] or nil
+    if inherited ~= nil then
+      owner = inherited
+    end
     local member = owner.path .. "." .. e2.tk
     local id = owner.module .. "\n" .. member .. "\n" .. e2.y
     if not seen[id] then
