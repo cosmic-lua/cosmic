@@ -5,20 +5,15 @@
 --- what it costs.
 
 local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local reboot = require("build.reboot")
 
+local log = Log.new("cosmic")
+
 local record databases
-end
-
-local function report(line: string)
-  local _, _ = Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 --- A number, right-aligned in `width` columns.
@@ -52,8 +47,8 @@ local function describe(path: string): integer | nil, string
     is_table[row[1]] = true
   end
   local st, _ = Fs.stat(path)
-  report(path .. "  " .. (st ~= nil and st.size or 0) .. " bytes")
-  report("  " .. column("rows", 8) .. column("pages", 8) ..
+  log:say(path .. "  " .. (st ~= nil and st.size or 0) .. " bytes")
+  log:say("  " .. column("rows", 8) .. column("pages", 8) ..
     column("bytes", 10) .. column("payload", 10) .. "  name")
   for _, row in ipairs(sizes) do
     local name, pages, bytes, payload = row[1], row[2], row[3], row[4]
@@ -67,7 +62,7 @@ local function describe(path: string): integer | nil, string
       end
       rows = counted[1][1]
     end
-    report("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
+    log:say("  " .. column(rows, 8) .. column(pages, 8) .. column(bytes, 10) ..
       column(payload, 10) .. "  " .. name)
   end
   local _, _ = db:close()
@@ -87,9 +82,9 @@ local function builds(path: string): boolean, string
   if rows == nil then
     return false, trouble
   end
-  report("builds, latest first")
+  log:say("builds, latest first")
   for _, row in ipairs(rows) do
-    report("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. row[3] ..
+    log:say("  run " .. row[1] .. "  " .. row[2] .. " ms  " .. row[3] ..
       " files staged (" .. row[4] .. " read)  " .. row[5] .. " compiled, " ..
       row[6] .. " cached  " .. row[7])
   end
@@ -117,10 +112,10 @@ local function slowest(path: string): boolean, string
   if #rows == 0 then
     return true, ""
   end
-  report("slowest tests")
+  log:say("slowest tests")
   for _, row in ipairs(rows) do
     local ns = math.tointeger(tonumber(row[3]) or 0) or 0
-    report("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row[1] ..
+    log:say("  " .. string.format("%.1f", ns / 1e9) .. "s  " .. row[1] ..
       " " .. row[2])
   end
   return true, ""
@@ -134,13 +129,13 @@ function databases.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 1
   end
   local code, reboot_trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if reboot_trouble ~= "" then
-      complain(reboot_trouble)
+      log:complain(reboot_trouble)
     end
     return code
   end
@@ -150,13 +145,13 @@ function databases.run(argv: {integer:string}): integer
     local path = root .. "/" .. name
     local present, present_trouble = Fs.exists(path)
     if present == nil then
-      complain(present_trouble)
+      log:complain(present_trouble)
       return 1
     end
     if present then
       local counted, trouble = describe(path)
       if counted == nil then
-        complain(path .. ": " .. trouble)
+        log:complain(path .. ": " .. trouble)
         return 1
       end
       seen = seen + 1
@@ -164,24 +159,24 @@ function databases.run(argv: {integer:string}): integer
       if name == "o/build.db" then
         local ok, build_trouble = builds(path)
         if not ok then
-          complain(path .. ": " .. build_trouble)
+          log:complain(path .. ": " .. build_trouble)
           return 1
         end
         ok, build_trouble = slowest(path)
         if not ok then
-          complain(path .. ": " .. build_trouble)
+          log:complain(path .. ": " .. build_trouble)
           return 1
         end
       end
     end
   end
   if seen == 0 then
-    report("db: FAIL (no database under " .. root .. "/o; build first, " ..
-      clock.elapsed_ms(started) .. " ms)")
+    log:verdict("db", false, "no database under " .. root .. "/o; build first, " ..
+      clock.elapsed_ms(started) .. " ms")
     return 1
   end
-  report("db: PASS (" .. tables .. " tables in " .. seen .. " databases, " ..
-    clock.elapsed_ms(started) .. " ms)")
+  log:verdict("db", true, tables .. " tables in " .. seen .. " databases, " ..
+    clock.elapsed_ms(started) .. " ms")
   return 0
 end
 

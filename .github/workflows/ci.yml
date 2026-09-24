@@ -15,6 +15,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # The Ubuntu legs install their packages from this dated snapshot of the
+  # archive, which never changes, rather than from the live mirrors, which
+  # are sometimes caught mid-sync (a 404 for a package, or an index of the
+  # wrong size) and fail the leg before it builds anything. Moving it is a
+  # deliberate edit, as moving the image digest is.
+  UBUNTU_SNAPSHOT: 20260924T120000Z
+
 # A newer push supersedes a branch's run, but every main run finishes: its
 # zig build cache is the one every other branch can restore, and its
 # prerelease is published only from a completed run. So each main commit
@@ -54,11 +62,25 @@ jobs:
             container:
               image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
               options: --init
+              # snapshot.ubuntu.com is HTTPS-only, and the image holds no
+              # CA bundle until ca-certificates is installed from it, so apt
+              # trusts the host runner's bundle for that first install. apt
+              # verifies the archive's signed indexes whatever the transport.
+              volumes:
+                - /etc/ssl/certs/ca-certificates.crt:/usr/local/share/ci/host-ca.crt:ro
             # useradd -o: the image's own `ubuntu` user may hold the uid.
             prepare: |
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
+              cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
+              Types: deb
+              URIs: https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/
+              Suites: noble noble-updates noble-security
+              Components: main
+              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+              EOF
+              set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/usr/local/share/ci/host-ca.crt
+              apt-get "$@" update
+              apt-get "$@" install -y --no-install-recommends ca-certificates curl git xz-utils zstd
               useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # setpriv, not su: util-linux su resets PATH, which drops the
             # driver's directory that the bootstrap step adds to GITHUB_PATH;
@@ -70,10 +92,24 @@ jobs:
             container:
               image: ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
               options: --init
+              # snapshot.ubuntu.com is HTTPS-only, and the image holds no
+              # CA bundle until ca-certificates is installed from it, so apt
+              # trusts the host runner's bundle for that first install. apt
+              # verifies the archive's signed indexes whatever the transport.
+              volumes:
+                - /etc/ssl/certs/ca-certificates.crt:/usr/local/share/ci/host-ca.crt:ro
             prepare: |
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends ca-certificates curl git xz-utils zstd
+              cat > /etc/apt/sources.list.d/ubuntu.sources <<EOF
+              Types: deb
+              URIs: https://snapshot.ubuntu.com/ubuntu/$UBUNTU_SNAPSHOT/
+              Suites: noble noble-updates noble-security
+              Components: main
+              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+              EOF
+              set -- -o Acquire::Retries=5 -o Acquire::https::CaInfo=/usr/local/share/ci/host-ca.crt
+              apt-get "$@" update
+              apt-get "$@" install -y --no-install-recommends ca-certificates curl git xz-utils zstd
               useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # setpriv, not su: util-linux su resets PATH, which drops the
             # driver's directory that the bootstrap step adds to GITHUB_PATH;
@@ -94,7 +130,11 @@ jobs:
               image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
               options: --init
             prepare: |
-              apk add --no-cache git tar zstd curl xz
+              for attempt in 1 2 3; do
+                apk add --no-cache git tar zstd curl xz && break
+                [ "$attempt" = 3 ] && exit 1
+                sleep 10
+              done
               adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
             # The container's default user stays root -- the runner never
             # passes --user to docker create/exec, and a default user whose
@@ -110,6 +150,12 @@ jobs:
     env:
       COSMIC_WORKER: ${{ matrix.name }}
       TARGET: ${{ matrix.target }}
+      # A branch push (a PR's run) is `light`: each leg builds, runs its
+      # native suite and the format check, and stops. The merge queue,
+      # main and a manual run are `full`: the checked core, the product and
+      # portable suites, the regressions, attestation and provenance, so
+      # nothing lands on main without all of it.
+      COSMIC_CI_SCOPE: ${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}
       # The checked core's whole suite and deep fuzz rerun (about two
       # minutes a leg) run on linux-x86_64 alone; every leg still builds
       # and verifies the checked core. See orchestration.tl's checked_suite.
@@ -233,7 +279,12 @@ jobs:
       - name: verify the delayed native database boundary
         run: cosmic-driver cosmic_ci/driver.tl platform local-boundary
 
+      - name: check the tree's format
+        if: env.COSMIC_CI_SCOPE == 'light'
+        run: cosmic-driver cosmic_ci/driver.tl platform format
+
       - name: build local portable and checked artifacts
+        if: env.COSMIC_CI_SCOPE == 'full'
         run: cosmic-driver cosmic_ci/driver.tl platform assemble
 
       # The last step above to invoke `bin/zig build` (the fixture steps,
@@ -260,6 +311,7 @@ jobs:
 
       - name: run the product suite from fresh tracked source
         id: portable-suite
+        if: env.COSMIC_CI_SCOPE == 'full'
         run: cosmic-driver cosmic_ci/driver.tl platform portable
 
       - name: verify the delayed portable database boundary
@@ -267,9 +319,11 @@ jobs:
         run: cosmic-driver cosmic_ci/driver.tl platform portable-boundary "${{ steps.portable-suite.outcome }}"
 
       - name: run runtime, launcher, rebuild, and identity regressions
+        if: env.COSMIC_CI_SCOPE == 'full'
         run: cosmic-driver cosmic_ci/driver.tl platform fixtures
 
       - name: attest the exact executed product bytes
+        if: env.COSMIC_CI_SCOPE == 'full'
         run: cosmic-driver cosmic_ci/driver.tl platform attest "${{ strategy.job-total }}"
 
       - name: summarize worker operations
@@ -284,7 +338,9 @@ jobs:
           path: ${{ runner.temp }}/cosmic-ci/operations.db
           if-no-files-found: ignore
 
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+      - name: upload the attested product
+        if: env.COSMIC_CI_SCOPE == 'full'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: portable-product-${{ matrix.name }}
           path: ${{ runner.temp }}/cosmic-ci/platform/product
@@ -307,6 +363,8 @@ jobs:
   # cross-platform byte identity.
   provenance:
     needs: platform
+    # Only a full run's legs attest and upload a product (COSMIC_CI_SCOPE).
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     defaults:
       run:
         working-directory: ci
@@ -348,6 +406,24 @@ jobs:
           name: provenance-operations
           path: ${{ runner.temp }}/cosmic-ci/operations.db
           if-no-files-found: ignore
+
+  # One check a ruleset can require whatever a run's scope: it passes
+  # when every job it waits on passed or was skipped (provenance, on a
+  # branch push), and fails when any failed or was cancelled.
+  ci:
+    needs: [platform, provenance]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: every job passed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in success|skipped) ;; *) exit 1 ;; esac
+          done
 
   prerelease:
     needs: provenance

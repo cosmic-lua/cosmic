@@ -14,6 +14,22 @@ local function problems_in(source: string): {string}
   local env = assert(built.new_env({
     defaults = { feat_lax = "off", gen_compat = "off", gen_target = "5.4" },
   }))
+  -- A stand-in `cosmic.log`, known to the checker the way the importer
+  -- makes a compiled module known to the ones after it.
+  local log_code, log_result = built.gen(table.concat({
+    "local record Log",
+    "  record Logger",
+    "    say: function(Logger, string): boolean, string",
+    "  end",
+    "end",
+    "function Log.new(): Log.Logger",
+    "  return { say = function(_: Log.Logger, _line: string): boolean, string",
+    "    return true, '' end }",
+    "end",
+    "return Log",
+  }, "\n"), env, nil, "tl")
+  assert(log_code ~= nil, "the stand-in cosmic.log did not compile")
+  env.modules["cosmic.log"] = log_result.type
   local state = receivers.install(env)
   local prelude = table.concat({
     "local function get(): integer | nil, string return nil, 'none' end",
@@ -33,7 +49,8 @@ local function problems_in(source: string): {string}
   local code, result = built.gen(prelude .. source, env, nil, "tl")
   assert(code ~= nil and #result.type_errors == 0 and #result.syntax_errors == 0,
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
-  return contracts.check("x.tl", result.ast as ast.Node, state) -- cast: tl's checked AST
+  local checked = result.ast as ast.Node -- cast: tl's checked AST
+  return contracts.check("x.tl", checked, state, contracts.quiet_records(env))
 end
 
 local function flags(source: string, wanted: string)
@@ -179,4 +196,13 @@ local function test_an_exempt_function_is_not_held_to_the_return_rules()
   local found = problems_in(source)
   contracts.exempt["x.tl:f"] = nil
   assert(#found == 0, table.concat(found, "\n"))
+end
+
+--- A logger's line stands alone as a statement: its failure has nowhere
+--- to go. Used any other way, it is held to the rule like any call.
+local function test_a_quiet_records_method_may_stand_alone()
+  local source = 'local Log = require("cosmic.log")\nlocal logger = Log.new()\n'
+  allows(source .. "logger:say('hello')")
+  allows(source .. "do logger:say('trouble') end")
+  flags(source .. "use(logger:say('hello'))", "its error slot is dropped")
 end

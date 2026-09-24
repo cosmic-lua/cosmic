@@ -70,3 +70,19 @@ local function test_a_degenerate_argument_raises()
   local ok2, err2 = pcall(src.bytes, src, -1)
   assert(not ok2 and tostring(err2):find("count is negative", 1, true), tostring(err2))
 end
+
+local function test_entropy_draws_fresh_bytes()
+  local a = assert(Rand.entropy(32))
+  local b = assert(Rand.entropy(32))
+  assert(#a == 32 and #b == 32 and a ~= b)
+  assert(assert(Rand.entropy(0)) == "")
+  -- Past getentropy's 256-byte ceiling, drawn in several calls.
+  local many = assert(Rand.entropy(1000))
+  assert(#many == 1000 and many:sub(1, 256) ~= many:sub(257, 512))
+end
+
+local function test_entropy_refuses_a_degenerate_count()
+  assert(not pcall(Rand.entropy, -1))
+  assert(not pcall(Rand.entropy, (1 << 20) + 1))
+  assert(#assert(Rand.entropy(1 << 20)) == 1 << 20)
+end

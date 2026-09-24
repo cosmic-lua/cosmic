@@ -70,7 +70,7 @@ importer.analyzer_modules = {
   "build.ast.requires", "build.ast.rewrite", "build.ast.walk", "build.compiler",
   "build.doctest", "build.doctest.generate", "build.doctest.markdown",
   "build.gen_syscalls", "build.positions",
-  "cosmic.env", "cosmic.fs",
+  "cosmic.env", "cosmic.fs", "cosmic.string",
 }
 
 --- Whether `root` is cosmic's own tree, structurally. Exposed so a
@@ -1087,7 +1087,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   env.modules[m.path] = result.type
   if own_tree and contracts.applies(m.kind, m.generated) then
     local checked = result.ast as ast.Node -- cast: tl's checked AST
-    local problems = contracts.check(m.file, checked, typed)
+    local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env))
     if #problems > 0 then
       return nil, table.concat(problems, "\n")
     end

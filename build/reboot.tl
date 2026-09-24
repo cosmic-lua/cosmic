@@ -208,6 +208,13 @@ end
 -- callers are reworked around it: nil means "proceed" here, not a
 -- failure, so this pair is not a value and its reason, and
 -- build.contracts exempts it from the error-slot rules until then.
+-- TODO: rebuild only when the running executable is this tree's own
+-- tool. A release run with a verb inside a checkout (as
+-- `$(bin/cosmic-bootstrap) help` is) finds itself stale and replaces its
+-- own file -- there, the digest-named bootstrap cache -- with a tree
+-- build. Compare Proc.executable() with <root>/o/bin/cosmic first,
+-- minding the checked suite, which runs a sanitized cosmic from outside
+-- o/ against the tree (ci/cosmic_ci/orchestration.tl).
 function reboot.ensure(root: string, argv: {integer:string}): integer | nil, string
   local own_tree, own_trouble = importer.is_own_tree(root)
   if own_tree == nil then

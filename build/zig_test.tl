@@ -125,10 +125,10 @@ end
 
 local function test_resolve_tells_a_missing_name_from_an_unrunnable_one(tmp: string)
   local none, missing = Zig.resolve("no-such-tool", tmp)
-  assert(none == nil and missing == "not found", missing)
+  assert(none == nil and missing == "no-such-tool: not found", missing)
   assert(Fs.write(tmp .. "/plain", "not executable", 0x1a4))
   local plain, denied = Zig.resolve("plain", tmp)
-  assert(plain == nil and denied == "permission denied", denied)
+  assert(plain == nil and denied == tmp .. "/plain: not executable", denied)
 end
 
 local function test_exec_status_is_the_shells()

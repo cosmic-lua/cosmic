@@ -167,55 +167,12 @@ function Summarize.paths(text: string): {string}
   return found
 end
 
---- A line with every lone surrogate escape (`\ud83d` with no low half
---- after it, or a low half alone) written as U+FFFD, which cosmic.json
---- would otherwise refuse the whole line for. Claude Code writes one
---- when it cuts a tool's output in the middle of an emoji.
--- TODO: decode with Json.decode's `lone_surrogates`, which does this,
--- once ci/cosmic-driver.pin names a cosmic carrying it: this runs
--- standalone on the pinned release.
-function Summarize.without_lone_surrogates(line: string): string
-  local out: {string} = {}
-  local from = 1
-  local at = 1
-  while true do
-    local s = line:find("\\", at, true)
-    if s == nil then
-      break
-    end
-    local hex = line:match("^u(%x%x%x%x)", s + 1)
-    if hex == nil then
-      at = s + 2
-    else
-      local unit = tonumber(hex, 16)
-      local low = line:match("^\\u(%x%x%x%x)", s + 6)
-      local low_unit = low ~= nil and tonumber(low, 16) or 0
-      if unit >= 0xd800 and unit <= 0xdbff and low_unit >= 0xdc00 and low_unit <= 0xdfff then
-        at = s + 12
-      elseif unit >= 0xd800 and unit <= 0xdfff then
-        out[#out + 1] = line:sub(from, s - 1)
-        out[#out + 1] = "\\ufffd"
-        from = s + 6
-        at = from
-      else
-        at = s + 6
-      end
-    end
-  end
-  out[#out + 1] = line:sub(from)
-  return table.concat(out)
-end
-
 --- One line's value, or nil. A lone surrogate, which Python's
---- json.loads also reads, is read as U+FFFD.
+--- json.loads also reads and Claude Code writes when it cuts a tool's
+--- output in the middle of an emoji, is read as U+FFFD.
 local function decode(line: string): any
-  local value, trouble = Json.decode(line, { max_depth = max_depth })
-  if trouble:find("surrogate", 1, true) then
-    -- A line that does not decode either way is nil, and skipped.
-    local retried, _ = Json.decode(Summarize.without_lone_surrogates(line),
-      { max_depth = max_depth })
-    value = retried
-  end
+  -- A line that does not decode is nil, and skipped.
+  local value, _ = Json.decode(line, { max_depth = max_depth, lone_surrogates = true })
   return value
 end
 

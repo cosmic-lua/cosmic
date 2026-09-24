@@ -11,6 +11,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local String = require("cosmic.string")
 local gen_syscalls = require("build.gen_syscalls")
 local layout = require("build.c.layout")
 local rules = require("build.c.rules")
@@ -71,8 +72,7 @@ local function skip(entry: string): boolean
   if first == "o" or first == "vendor" or first == "patch" or first == "bin" then
     return true
   end
-  local name = entry:match("([^/]+)$") or entry
-  return name:sub(1, 1) == "."
+  return Fs.basename(entry):sub(1, 1) == "."
 end
 
 --- Every C file under `dir`, `.c` and `.h`, relative to it and sorted.
@@ -81,7 +81,7 @@ function c.sources(dir: string): {string} | nil, string
   if files == nil then return nil, trouble end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if file:sub(-2) == ".c" or file:sub(-2) == ".h" then out[#out + 1] = file end
+    if String.ends_with(file, ".c") or String.ends_with(file, ".h") then out[#out + 1] = file end
   end
   table.sort(out)
   return out

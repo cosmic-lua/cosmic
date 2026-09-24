@@ -362,9 +362,16 @@ if [ "$portable_entry_state" = valid ]; then
   cosmic_core_verified=1
 fi
 if [ "$cosmic_core_verified" != 1 ]; then
+@RECHECK_HOOK@
+  # Another launcher may have published a winner since the entry was last
+  # seen: a valid one here has been hashed, or its stamp still holds, as a
+  # valid one above had.
   portable_inspect_entry
+  if [ "$portable_entry_state" = valid ]; then
+    cosmic_core_verified=1
+  fi
 fi
-if [ "$portable_entry_state" != valid ]; then
+if [ "$cosmic_core_verified" != 1 ]; then
   [ "$cosmic_cache_writable" = 1 ] ||
     portable_die 'selected core is absent and cache is read-only'
   cosmic_stage=$(mktemp "$cosmic_cache/.core.XXXXXXXX") ||
@@ -478,6 +485,8 @@ function launcher.render(arms: string, test_hooks: boolean): string
       "portable_test_hook after_artifact_open")
     rendered = substitute(rendered, "@REPAIR_HOOK@",
       "  portable_test_hook after_repair_lock")
+    rendered = substitute(rendered, "@RECHECK_HOOK@",
+      "  portable_test_hook before_recheck")
     rendered = substitute(rendered, "@PUBLISH_HOOK@",
       "  portable_test_hook before_publish")
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
@@ -485,6 +494,7 @@ function launcher.render(arms: string, test_hooks: boolean): string
     rendered = substitute(rendered, "@SELECT_HOOK@", "")
     rendered = substitute(rendered, "@ADOPT_HOOK@", "")
     rendered = substitute(rendered, "@REPAIR_HOOK@", "")
+    rendered = substitute(rendered, "@RECHECK_HOOK@", "")
     rendered = substitute(rendered, "@PUBLISH_HOOK@", "")
   end
   return rendered

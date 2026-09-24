@@ -109,7 +109,7 @@ promises lean on come first:
   tree.
 - measure `into`'s copy on a large payload (a big NDJSON file) against
   `Json.decode` on the same text once the benchmark harness exists.
-- `flags`, `log`, `string`, `format`, `check`: small modules a program
+- `format`, `check`: small modules a program
   otherwise hand-rolls.
 - `ast`, `teal`, `test`, `doc` and `embed` exist only as build internals under
   `build/`. decide which become public `cosmic.*` modules and what a program

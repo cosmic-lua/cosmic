@@ -8,6 +8,7 @@
 local Cli = require("cosmic.cli")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 
@@ -106,11 +107,7 @@ local function directory_of(path: string): string | nil, string
   if resolved == nil then
     return nil, trouble
   end
-  local parent = resolved:match("^(.*)/[^/]+$")
-  if parent == nil or parent == "" then
-    return "/"
-  end
-  return parent
+  return Fs.dirname(resolved), ""
 end
 
 --- The tree a file run builds: the working directory when the file
@@ -124,7 +121,7 @@ local function root_of(file: string): string | nil, string
     return nil, file .. ": " .. trouble
   end
   local here, _ = Fs.absolute(".")
-  if here ~= nil and (here == "/" or resolved:sub(1, #here + 1) == here .. "/") then
+  if here ~= nil and Fs.within(resolved, here) then
     return here
   end
   return directory_of(file)
@@ -140,7 +137,7 @@ local function module_of(root: string, file: string): string | nil, string
     return nil, file .. " is not inside " .. root
   end
   local relative = resolved:sub(#root + 2)
-  if relative:sub(-3) ~= ".tl" then
+  if not String.ends_with(relative, ".tl") then
     return nil, file .. " is not a Teal source"
   end
   return (relative:gsub("%.tl$", ""):gsub("/", "."))

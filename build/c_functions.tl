@@ -12,6 +12,7 @@
 
 local Coverage = require("cosmic.coverage")
 local Fs = require("cosmic.fs")
+local String = require("cosmic.string")
 
 local record c_functions
   --- The C functions no test can enter, by `key`, and why.
@@ -116,7 +117,7 @@ function c_functions.sources(root: string, functions: {Coverage.Function}): {str
       local text, _ = Fs.read(root .. "/" .. fn.path)
       if text ~= nil then
         local lines: {string} = {}
-        for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+        for line in String.lines(text) do lines[#lines + 1] = line end
         sources[fn.path] = lines
       end
     end

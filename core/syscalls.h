@@ -305,6 +305,25 @@ COSMIC_SYSCALL(getpid, 0);
 COSMIC_SYSCALL(getuid, 0);
 
 /*
+ * --- Sets the file mode creation mask, the permission bits a new file or
+ * --- directory is made without, for this process and every child it
+ * --- starts afterwards.
+ * ---@param mask integer the permission bits to withhold, 0 to 0777
+ * ---@return integer previous the mask before this call
+ */
+COSMIC_SYSCALL(umask, 1);
+
+/*
+ * --- Draws bytes from the operating system's entropy source, fit for a
+ * --- key, token or nonce.
+ * ---@param count integer how many bytes, 0 to 1 MiB
+ * ---@return string|nil bytes the bytes, or nil on failure
+ * ---@return string error what went wrong, when bytes is nil
+ * ---@return integer errno the error number, when bytes is nil
+ */
+COSMIC_SYSCALL(entropy, 1);
+
+/*
  * --- Replaces the process with another program. It returns only on failure.
  * ---@param path string the executable to run
  * ---@param argv {string} the arguments, the program's own name first
@@ -562,6 +581,17 @@ COSMIC_SYSCALL(utimens, 3);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(fsync, 1);
+
+/*
+ * --- Sets a descriptor's file to exactly `length` bytes, cutting it
+ * --- short or extending it with zero bytes.
+ * ---@param fd integer the descriptor, open for writing
+ * ---@param length integer the size to set, not negative
+ * ---@return boolean ok false on failure
+ * ---@return string error what went wrong, when ok is false
+ * ---@return integer errno the error number, when ok is false
+ */
+COSMIC_SYSCALL(ftruncate, 2);
 
 /*
  * --- The numbers the calls above take and give back. They come from

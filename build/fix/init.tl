@@ -28,8 +28,11 @@
 --- `build.c` holds, where a finding is a file refused and is fixed by
 --- hand. A header is held to them through the files that include it.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
+local Log = require("cosmic.log")
+local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
 local ast = require("build.ast")
@@ -41,6 +44,8 @@ local spill = require("build.fix.spill")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local type compiler = require("build.compiler")
+
+local log = Log.new("cosmic")
 
 local record fix
   --- What one file's pipeline produced, and whether it differs from
@@ -82,8 +87,7 @@ local function skip(entry: string): boolean
   if not_source[first] then
     return true
   end
-  local name = entry:match("([^/]+)$") or entry
-  return name:sub(1, 1) == "."
+  return Fs.basename(entry):sub(1, 1) == "."
 end
 
 --- Every Teal source under `root`, as paths relative to it. Declaration
@@ -100,7 +104,7 @@ local function sources(root: string): {string} | nil, string
   end
   local out: {string} = {}
   for _, file in ipairs(files) do
-    if file:sub(-3) == ".tl" then
+    if String.ends_with(file, ".tl") then
       out[#out + 1] = file
     end
   end
@@ -169,14 +173,6 @@ function fix.source(built: compiler, source: string,
   return { source = out, changed = out ~= source }
 end
 
-local function report(line: string)
-  local _, _ = Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
-end
-
 --- The files one invocation covers: whatever paths were named, or the
 --- whole tree when none were.
 ---
@@ -239,13 +235,13 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
           c_out[#c_out + 1] = path .. "/" .. file
         end
       end
-    elseif path:sub(-2) == ".c" or path:sub(-2) == ".h" then
+    elseif String.ends_with(path, ".c") or String.ends_with(path, ".h") then
       if own then
         c_out[#c_out + 1] = path
       else
         refused[#refused + 1] = path .. ": C is checked only in cosmic's own tree"
       end
-    elseif path:sub(-3) ~= ".tl" then
+    elseif not String.ends_with(path, ".tl") then
       refused[#refused + 1] = path .. ": not a Teal or C source"
     else
       out[#out + 1] = path
@@ -259,25 +255,17 @@ end
 --- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local checking = false
-  local paths: {string} = {}
-  local i = 2
-  while argv[i] ~= nil do
-    local word = argv[i]
-    if word == "--check" then
-      checking = true
-    elseif word:sub(1, 1) == "-" then
-      complain("fix: no such option: " .. word)
-      return 2
-    else
-      paths[#paths + 1] = word
-    end
-    i = i + 1
+  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--check"] = false })
+  if parsed == nil then
+    log:complain("fix: " .. parse_trouble)
+    return 2
   end
+  local checking = parsed.set["--check"] == true
+  local paths = parsed.words
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 1
   end
   -- In cosmic's own tree the rules and the layout are the tree's: a tool
@@ -286,19 +274,19 @@ function fix.run(argv: {integer:string}): integer
   local code, reboot_trouble = reboot.ensure(root, argv)
   if code ~= nil then
     if reboot_trouble ~= "" then
-      complain(reboot_trouble)
+      log:complain(reboot_trouble)
     end
     return code
   end
   local picked, list_trouble = fix.chosen(root, paths)
   if picked == nil then
-    complain(list_trouble)
+    log:complain(list_trouble)
     return 1
   end
 
   local built, load_trouble = teal.load()
   if built == nil then
-    complain(load_trouble)
+    log:complain(load_trouble)
     return 1
   end
 
@@ -316,9 +304,16 @@ function fix.run(argv: {integer:string}): integer
   -- taken relative to it.
   local c_files: {string} = {}
   for _, file in ipairs(picked.c_files) do
+    -- A path that cannot be resolved, or lies outside the root, is
+    -- refused below either way; the failure line says why.
     local absolute, _ = Fs.absolute(file)
-    if absolute ~= nil and absolute:sub(1, #root + 1) == root .. "/" then
-      c_files[#c_files + 1] = absolute:sub(#root + 2)
+    local rest: string | nil = nil
+    if absolute ~= nil then
+      local relative, _ = Fs.relative(absolute, root)
+      rest = relative
+    end
+    if rest ~= nil and rest ~= "." then
+      c_files[#c_files + 1] = rest
     else
       failures[#failures + 1] = file .. ": C is checked only inside the tree"
     end
@@ -341,7 +336,7 @@ function fix.run(argv: {integer:string}): integer
         if not written then failures[#failures + 1] = write_trouble end
       end
     end
-    if file:sub(-2) == ".c" then compiled[#compiled + 1] = file end
+    if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
   end
   for _, outcome in ipairs(c_check.check(root, compiled)) do
     if outcome.findings == nil then
@@ -429,23 +424,23 @@ function fix.run(argv: {integer:string}): integer
   end
 
   for _, line in ipairs(failures) do
-    report("fix: FAIL  " .. line)
+    log:say("fix: FAIL  " .. line)
   end
   for _, file in ipairs(changed) do
-    report("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
+    log:say("fix: " .. (checking and "would fix  " or "fixed  ") .. file)
   end
   if #failures > 0 then
-    report("fix: FAIL (" .. #failures .. " of " .. counted .. " files refused, " ..
-      clock.elapsed_ms(started) .. " ms)")
+    log:verdict("fix", false, #failures .. " of " .. counted .. " files refused, " ..
+      clock.elapsed_ms(started) .. " ms")
     return 1
   end
   if checking and #changed > 0 then
-    report("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
+    log:say("fix: FAIL (" .. #changed .. " of " .. counted .. " files to fix, " ..
       clock.elapsed_ms(started) .. " ms); `cosmic fix` rewrites them in place")
     return 1
   end
-  report("fix: PASS (" .. counted .. " files, " .. #changed ..
-    (checking and " to fix, " or " fixed, ") .. clock.elapsed_ms(started) .. " ms)")
+  log:verdict("fix", true, counted .. " files, " .. #changed ..
+    (checking and " to fix, " or " fixed, ") .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 

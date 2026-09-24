@@ -6,6 +6,10 @@
 --- an error. A predicate uses the same contract, with false as a valid
 --- answer. A call that only has an effect returns `boolean, string`.
 ---
+--- `basename`, `dirname`, `within` and `relative` are the exception:
+--- they work on a path's text alone, read nothing, and cannot fail, so
+--- each answers a plain value.
+---
 --- The syscall table itself is `cosmic.sys`. A call this module does not
 --- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
 --- `cosmic docs cosmic.sys` lists every one.
@@ -447,6 +451,17 @@ function Fs.set_mtime(path: string, atime_s: integer, mtime_s: integer): boolean
   return true, ""
 end
 
+--- Sets a descriptor's file to exactly `length` bytes, cutting it short
+--- or extending it with zero bytes. The descriptor must be open for
+--- writing; a negative length raises.
+function Fs.truncate(fd: integer, length: integer): boolean, string
+  local ok, trouble = sys.ftruncate(fd, length)
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
 --- Flushes a descriptor's data and metadata to storage.
 function Fs.fsync(fd: integer): boolean, string
   local ok, trouble = sys.fsync(fd)
@@ -454,6 +469,163 @@ function Fs.fsync(fd: integer): boolean, string
     return false, trouble
   end
   return true, ""
+end
+
+--- Copies one regular file's bytes a chunk at a time, so a large file
+--- is never held in memory whole.
+local function copy_bytes(from: string, to: string): boolean, string
+  -- TODO: open with O_NOFOLLOW, once cosmic.sys carries it, so a source
+  -- swapped for a link or a FIFO after its lstat is refused rather than
+  -- followed or blocked on.
+  local input, open_trouble = Fs.open_read(from)
+  if input == nil then return false, open_trouble end
+  -- Exclusive: a name that appeared since the target was checked, a
+  -- planted link included, is refused rather than written through.
+  local output, create_trouble = sys.open(to,
+    sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180)
+  if output == nil then
+    local _, _ = Fs.close(input)
+    return false, to .. ": " .. create_trouble
+  end
+  local ok, trouble = true, ""
+  while true do
+    local chunk, read_trouble = Fs.take(input, 1 << 20)
+    if chunk == nil then
+      ok, trouble = false, from .. ": " .. read_trouble
+      break
+    end
+    if chunk == "" then break end
+    local put, put_trouble = Fs.put(output, chunk)
+    if not put then
+      ok, trouble = false, to .. ": " .. put_trouble
+      break
+    end
+  end
+  -- A read-only source has nothing to lose in closing.
+  local _, _ = Fs.close(input)
+  local closed, close_trouble = Fs.close(output)
+  if not ok then return false, trouble end
+  if not closed then return false, to .. ": " .. close_trouble end
+  return true, ""
+end
+
+--- Copies the tree at `from` to `to`: each regular file's bytes, each
+--- directory, and each symbolic link as a link to the same target, never
+--- followed. Every permission bit is kept, the umask not applied, except
+--- setuid and setgid: the copy belongs to whoever makes it, so they are
+--- dropped. Each modification time is kept to the second. `to` must not
+--- exist yet; each listing is read before its copy is made, so a tree
+--- copied into itself is not copied again. Anything else in the tree (a
+--- device, a socket, a named pipe) stops the copy with its path, and a
+--- copy that stops leaves what it made so far in place.
+-- TODO: keep what `cp -a` also keeps -- nanosecond times (once
+-- sys.utimens takes them), the access time, hard links as links (Stat has
+-- ino, dev and nlink), and the owner when run as root (once cosmic.sys
+-- carries lchown).
+function Fs.copy_tree(from: string, to: string): boolean, string
+  local present, present_trouble, number = sys.lstat(to)
+  if present ~= nil then
+    return false, to .. ": already exists"
+  elseif number ~= sys.ENOENT then
+    return false, to .. ": " .. present_trouble
+  end
+  local function copy(source: string, target: string): boolean, string
+    local st, trouble = sys.lstat(source)
+    if st == nil then return false, source .. ": " .. trouble end
+    local permissions = st.mode & 0x3ff
+    if st.kind == "link" then
+      local target_of, link_trouble = Fs.readlink(source)
+      if target_of == nil then return false, link_trouble end
+      local linked, symlink_trouble = Fs.symlink(target_of, target)
+      if not linked then return false, symlink_trouble end
+    elseif st.kind == "file" then
+      local copied, copy_trouble = copy_bytes(source, target)
+      if not copied then return false, copy_trouble end
+      local changed, chmod_trouble = sys.chmod(target, permissions)
+      if not changed then return false, target .. ": " .. chmod_trouble end
+    elseif st.kind == "dir" then
+      local entries, list_trouble = sys.readdir(source)
+      if entries == nil then return false, source .. ": " .. list_trouble end
+      local made, mkdir_trouble = sys.mkdir(target, 0x1c0)
+      if not made then return false, target .. ": " .. mkdir_trouble end
+      for _, name in ipairs(sorted_names(entries)) do
+        local copied, why = copy(source .. "/" .. name, target .. "/" .. name)
+        if not copied then return false, why end
+      end
+      -- The directory's own mode last, so a read-only one still took
+      -- its entries.
+      local changed, chmod_trouble = sys.chmod(target, permissions)
+      if not changed then return false, target .. ": " .. chmod_trouble end
+    else
+      return false, source .. ": not a file, directory or symbolic link"
+    end
+    return Fs.set_mtime(target, st.mtime, st.mtime)
+  end
+  return copy(from, to)
+end
+
+--- `path` without its trailing slashes, scanned back from the end: a
+--- pattern anchored at `$` would retry at every slash of a long run.
+local function unslashed(path: string): string
+  local to = #path
+  while to > 0 and path:byte(to) == 47 do to = to - 1 end
+  return path:sub(1, to)
+end
+
+--- The last component of a path, as basename(1) names it: trailing
+--- slashes are ignored, "/" is itself, and "" stays "". Lexical: nothing
+--- is read from disk.
+function Fs.basename(path: string): string
+  if path == "" then return "" end
+  local trimmed = unslashed(path)
+  if trimmed == "" then return "/" end
+  local at = #trimmed
+  while at > 0 and trimmed:byte(at) ~= 47 do at = at - 1 end
+  return trimmed:sub(at + 1)
+end
+
+--- The directory a path names its last component in, as dirname(1)
+--- answers: trailing slashes are ignored, a bare name is in ".", and
+--- "/" and a component directly under it are in "/". Lexical: nothing
+--- is read from disk, and "a/.." is in "a".
+function Fs.dirname(path: string): string
+  local trimmed = unslashed(path)
+  if trimmed == "" then
+    return path == "" and "." or "/"
+  end
+  local at = #trimmed
+  while at > 0 and trimmed:byte(at) ~= 47 do at = at - 1 end
+  if at == 0 then return "." end
+  local directory = unslashed(trimmed:sub(1, at))
+  if directory == "" then return "/" end
+  return directory
+end
+
+--- Whether `path` is `directory` or lies under it, comparing the text
+--- component by component: "a/bc" is not within "a/b". Trailing slashes
+--- on either are ignored. Lexical, so both should be written the same
+--- way (absolute, or relative to one place, with no "." or ".."); an
+--- empty directory holds nothing.
+function Fs.within(path: string, directory: string): boolean
+  if directory == "" then return false end
+  local base = unslashed(directory)
+  if base == "" then return path:sub(1, 1) == "/" end
+  return unslashed(path) == base or path:sub(1, #base + 1) == base .. "/"
+end
+
+--- `path` relative to `directory`, lexically: "." when they are the same,
+--- the rest after the directory's "/" when `path` is within it, and nil
+--- with a reason when it is not.
+function Fs.relative(path: string, directory: string): string | nil, string
+  if not Fs.within(path, directory) then
+    return nil, path .. ": not within " .. directory
+  end
+  local base = unslashed(directory)
+  local from = #base + 1
+  while path:byte(from) == 47 do from = from + 1 end
+  local rest = unslashed(path:sub(from))
+  if rest == "" then return ".", "" end
+  return rest, ""
 end
 
 Fs.stdin = 0

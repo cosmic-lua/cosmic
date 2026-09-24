@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS operation_events (
 CREATE INDEX IF NOT EXISTS operation_completion ON operation_events(start_id);
 ]]
 
+-- TODO: Fs.dirname, Fs.within and Fs.basename in place of `parent`,
+-- `inside` and the leaf match in `external_path` once ci/cosmic-driver.pin
+-- names a cosmic carrying them.
 local function parent(path: string): string
   local directory = path:match("^(.*)/[^/]+$")
   if directory == "" then return "/" end

@@ -54,6 +54,8 @@ local record Vendor
   end
 end
 
+-- TODO: Log.new("vendor"):complain once ci/cosmic-driver.pin names a cosmic
+-- carrying cosmic.log: this file runs on the pinned bootstrap.
 local function complain(line: string)
   local _, _ = Fs.put(Fs.stderr, "vendor: " .. line .. "\n")
 end

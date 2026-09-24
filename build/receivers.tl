@@ -214,6 +214,20 @@ local function reporter_for(state: receivers.State): any
   }
 end
 
+--- The record `path` names inside `module`'s own record, as the
+--- checker holds it in `env` (`"cosmic.log"`, `"Logger"`); nil when
+--- `env` has not loaded the module or it declares no such record.
+function receivers.record_named(env: compiler.Env, module: string,
+                                path: string): receivers.Type | nil
+  local at = record_of(env.modules[module] as receivers.Type) -- cast: tl's type object
+  for name in path:gmatch("[^.]+") do
+    local fields = at ~= nil and at.fields or nil
+    if fields == nil then return nil end
+    at = record_of(fields[name])
+  end
+  return at
+end
+
 --- Turns the checker's type reporting on for `env`, answering into a
 --- fresh state that `references` then reads.
 function receivers.install(env: compiler.Env): receivers.State

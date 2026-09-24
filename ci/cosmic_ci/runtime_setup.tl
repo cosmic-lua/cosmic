@@ -9,7 +9,9 @@ end
 
 -- Copies a whole directory tree with the standard `cp -R`, matching
 -- identity_test.tl's own `copy_tree`.
--- TODO: copy in this process once cosmic.fs carries a recursive copy.
+-- TODO: copy in this process with Fs.copy_tree once ci/cosmic-driver.pin
+-- names a cosmic carrying it. Unlike `cp -R` it keeps the source's times
+-- and modes with no umask applied, rather than fresh times and the umask's.
 local function copy_tree(label: string, from: string, to: string, cwd: string,
     diagnostics: string)
   Fixture.run(label, { "/usr/bin/env", "cp", "-R", from, to }, cwd, diagnostics)

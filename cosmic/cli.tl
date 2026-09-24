@@ -3,8 +3,8 @@
 --- build, fix, db, docs, uses, todos, help, run, standalone) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
---- arguments as a plain array and dispatches on them itself -- see
---- argv.
+--- arguments as a plain array, and `Flags.parse(argv, 1, spec)` from
+--- cosmic.flags reads its options -- see argv.
 ---
 --- `cosmic help` is generated from these fields (`cmd/cosmic/main.tl`'s
 --- `verb_help`), in the order `order` gives, rather than keeping a

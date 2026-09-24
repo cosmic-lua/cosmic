@@ -2,7 +2,10 @@
 --- sequence on every run and every target, so a run that depends on
 --- chance can be replayed by naming its seed. The generator is
 --- xoshiro256**, its state filled from the seed by splitmix64. It is not
---- cryptographic: never derive a key, token or nonce from it.
+--- cryptographic: never derive a key, token or nonce from it; draw those
+--- from `Rand.entropy`.
+
+local sys = require("cosmic.sys")
 
 local record Rand
   --- A generator and its state. Each source draws its own sequence;
@@ -112,6 +115,20 @@ function Rand.new(seed: integer): Rand.Source
   end
 
   return source
+end
+
+--- `count` bytes from the operating system's entropy source, fit for a
+--- key, token or nonce: unlike a `Source`, never the same twice and never
+--- replayable. Raises when `count` is negative or past 1 MiB.
+--- @param count integer How many bytes
+--- @return string | nil The bytes
+--- @return string Why none were drawn, or "" when they were
+function Rand.entropy(count: integer): string | nil, string
+  local bytes, trouble = sys.entropy(count)
+  if bytes == nil then
+    return nil, "rand: entropy: " .. trouble
+  end
+  return bytes, ""
 end
 
 return Rand

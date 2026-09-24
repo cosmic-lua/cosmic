@@ -16,7 +16,8 @@
 ---    call standing alone as a statement drops it too. A failure to be
 ---    ignored on purpose (a cleanup on a path that is already failing,
 ---    a diagnostic written to stderr) says so by binding both slots to
----    `_`: `local _, _ = Fs.remove(path)`.
+---    `_`: `local _, _ = Fs.remove(path)`. A method of a record
+---    `contracts.quiet` names (`cosmic.log`'s Logger) may stand alone.
 --- 2. A failure carries no value: in a fallible function, a `return a,
 ---    b` whose `b` is not the literal `""` has a literal `nil` (`false`,
 ---    for an effect) as `a`. So `local v, err = f(); return v, err` is
@@ -41,6 +42,7 @@
 
 local ast = require("build.ast")
 local receivers = require("build.receivers")
+local type compiler = require("build.compiler")
 
 local type Node = ast.Node
 local type Type = receivers.Type
@@ -48,6 +50,8 @@ local type Type = receivers.Type
 local record contracts
   --- `"file:function"` to the reason rules 2 to 4 do not hold it.
   exempt: {string: string}
+  --- `"module Record"` to the reason a statement may ignore its methods.
+  quiet: {string: string}
 end
 
 contracts.exempt = {
@@ -57,6 +61,29 @@ contracts.exempt = {
     "a finished handle comes back with its group's lingering-member " ..
     "trouble, which a caller reports beside the handle's result",
 }
+
+--- The records whose methods' failures a statement may ignore without
+--- saying so, with the reason: a diagnostic written to a stream has
+--- nowhere else to report that the write failed, as `cosmic.log` says.
+--- Only a call standing alone as a statement is let through; a result
+--- used any other way is held to rule 1 like any other.
+contracts.quiet = {
+  ["cosmic.log Logger"] = "a line written for a person; its failure has nowhere to go",
+}
+
+--- The type ids of `contracts.quiet`'s records, as the checker in `env`
+--- holds them: what `check` takes as `quiet`.
+function contracts.quiet_records(env: compiler.Env): {integer: boolean}
+  local out: {integer: boolean} = {}
+  for key in pairs(contracts.quiet) do
+    local module, path = key:match("^(%S+) (%S+)$")
+    if module ~= nil and path ~= nil then
+      local found = receivers.record_named(env, module, path)
+      if found ~= nil and found.typeid ~= nil then out[found.typeid] = true end
+    end
+  end
+  return out
+end
 
 --- Whether a module is held to the discipline: every module and main
 --- of cosmic's own tree, not its tests, examples, declarations, or
@@ -377,19 +404,31 @@ end
 --- @param file the module's path in the tree, for messages
 --- @param root the checked AST
 --- @param typed the checker's types, as `build.receivers` kept them
-function contracts.check(file: string, root: Node, typed: receivers.State): {string}
+--- @param quiet `quiet_records`' answer, when the caller has an environment
+function contracts.check(file: string, root: Node, typed: receivers.State,
+                         quiet?: {integer: boolean}): {string}
   local problems: {string} = {}
   local types, callees = typed.every, typed.callees
+  local records = typed.types
+  --- Whether a statement calls a method of a quiet record.
+  local function is_quiet(e1: Node): boolean
+    local receiver = e1.e1
+    if quiet == nil or receiver == nil or e1.kind ~= "op" then return false end
+    local record = records[position(receiver.y, receiver.x)]
+    return record ~= nil and quiet[record.typeid] == true
+  end
   local kept, statements = keeping(root, callees), standing(root)
   ast.walk(root, function(n: Node)
     local e1 = n.e1
     if is_call(n) and not kept[n] and e1 ~= nil
         and fallible_type(callees[position(e1.y, e1.x)]) then
       if statements[n] then
-        problems[#problems + 1] = string.format(
-          "%s:%d: %s: its failure is ignored; handle it, or discard both "
-            .. "results on purpose: local _, _ = ...",
-          file, n.y, spelled(e1))
+        if not is_quiet(e1) then
+          problems[#problems + 1] = string.format(
+            "%s:%d: %s: its failure is ignored; handle it, or discard both "
+              .. "results on purpose: local _, _ = ...",
+            file, n.y, spelled(e1))
+        end
       else
         problems[#problems + 1] = string.format(
           "%s:%d: %s: its error slot is dropped; bind both results, wrap it "

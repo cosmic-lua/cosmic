@@ -5,6 +5,7 @@
 --- anything or discovers anything, both stay `build.test`'s and
 --- `build.positions`'s jobs.
 local markdown = require("build.doctest.markdown")
+local String = require("cosmic.string")
 
 local type Block = markdown.Block
 
@@ -159,7 +160,7 @@ end
 --- so the generated source reads like a function body -- Teal itself
 --- does not care, but a build failure quoting this file should.
 local function emit_indented(out: {string}, text: string)
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in String.lines(text) do
     if line == "" then
       out[#out + 1] = ""
     else

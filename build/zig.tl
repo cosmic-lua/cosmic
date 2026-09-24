@@ -66,6 +66,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
+local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
@@ -76,6 +77,8 @@ local record Zig
   end
 end
 
+-- TODO: Log.new("bin/zig"):complain once ci/cosmic-driver.pin names a cosmic
+-- carrying cosmic.log: this file runs on the pinned bootstrap.
 local function complain(line: string)
   local _, _ = Fs.put(Fs.stderr, "bin/zig: " .. line .. "\n")
 end
@@ -280,32 +283,19 @@ end
 
 --- Where `name` runs from: itself when it holds a slash, else the
 --- first executable file of that name on `path` (an empty entry is the
---- working directory). Nothing runnable is nil and why: "not found"
---- for none at all, "permission denied" for one that is there but not
---- executable -- a shell's 127 and 126, which `status_of` gives.
--- TODO: call Proc.find, which does this, once ci/cosmic-driver.pin names
--- a cosmic carrying it: this runs standalone on the pinned release.
+--- working directory). Nothing runnable is nil and why, as Proc.find
+--- says it; `status_of` gives a shell's status for it: 126 for one
+--- that is there but not executable, 127 for none at all.
 function Zig.resolve(name: string, path: string): string | nil, string
-  if name:find("/", 1, true) ~= nil then
-    return name, ""
-  end
-  local why = "not found"
-  for dir in (path .. ":"):gmatch("([^:]*):") do
-    local candidate = (dir == "" and "." or dir) .. "/" .. name
-    local st, _ = sys.stat(candidate)
-    if st ~= nil and st.kind == "file" then
-      if st.mode & 0x49 ~= 0 then
-        return candidate, ""
-      end
-      why = "permission denied"
-    end
-  end
-  return nil, why
+  return Proc.find(name, path)
 end
 
 --- The exit status a shell gives for what `resolve` could not find.
+-- TODO: tell none from not executable by something other than
+-- Proc.find's message, once it reports which case it hit apart from
+-- the text.
 local function status_of(why: string): integer
-  return why == "permission denied" and 126 or 127
+  return String.ends_with(why, ": not executable") and 126 or 127
 end
 
 --- The zig to run and its first trouble: `COSMIC_ZIG` when set,
@@ -423,7 +413,7 @@ function Zig.watches(path: string): boolean
   end
   local first = path:match("^([^/]+)/")
   if first == nil then
-    return path:sub(-3) == ".tl"
+    return String.ends_with(path, ".tl")
   end
   if watched_trees[first] then
     return true
@@ -432,7 +422,7 @@ function Zig.watches(path: string): boolean
       path:match("^doc/guides/[^/]+%.md$") ~= nil then
     return true
   end
-  return first ~= "bin" and first ~= "doc" and path:sub(-3) == ".tl"
+  return first ~= "bin" and first ~= "doc" and String.ends_with(path, ".tl")
 end
 
 --- What a build reads under `root`, by relative path, each as its
@@ -600,8 +590,9 @@ function Zig.main(argv: {integer:string}): integer
   end
   local program, unresolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
   if program == nil then
-    complain(zig .. ": " .. unresolved)
-    return status_of(unresolved)
+    local status = status_of(unresolved)
+    complain(zig .. ": " .. (status == 127 and "not found" or "permission denied"))
+    return status
   end
 
   local given: {string} = {}

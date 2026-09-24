@@ -15,7 +15,9 @@
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
 --- builds the tool.
 
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Log = require("cosmic.log")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Time = require("cosmic.time")
@@ -28,15 +30,9 @@ local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
 
+local log = Log.new("cosmic")
+
 local record embed
-end
-
-local function report(line: string)
-  local _, _ = Fs.put(Fs.stdout, line .. "\n")
-end
-
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, "cosmic: " .. line .. "\n")
 end
 
 local function text(value: string): Sqlite.Value
@@ -360,28 +356,26 @@ end
 --- was written, or says why nothing was.
 function embed.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local host = false
-  local slot = 2
-  while argv[slot] ~= nil do
-    if argv[slot] == "--host" then
-      host = true
-    else
-      complain("build: no such option: " .. argv[slot])
-      report("build: FAIL")
-      return 2
-    end
-    slot = slot + 1
+  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--host"] = false })
+  if parsed ~= nil and #parsed.words > 0 then
+    parsed, parse_trouble = nil, "no such option: " .. parsed.words[1]
   end
+  if parsed == nil then
+    log:complain("build: " .. parse_trouble)
+    log:verdict("build", false)
+    return 2
+  end
+  local host = parsed.set["--host"] == true
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
-    report("build: FAIL")
+    log:complain(root_trouble)
+    log:verdict("build", false)
     return 1
   end
   local names, trouble = embed.tree(root, host)
   if names == nil then
-    complain(trouble)
-    report("build: FAIL")
+    log:complain(trouble)
+    log:verdict("build", false)
     return 1
   end
   local outputs: {string} = {}
@@ -390,7 +384,7 @@ function embed.run(argv: {integer:string}): integer
   end
   local wrote = #outputs > 0 and table.concat(outputs, ", ") or
     "no executable: no cmd/<name>/main.tl in the tree"
-  report("build: PASS (" .. wrote .. ", " .. clock.elapsed_ms(started) .. " ms)")
+  log:verdict("build", true, wrote .. ", " .. clock.elapsed_ms(started) .. " ms")
   return 0
 end
 
