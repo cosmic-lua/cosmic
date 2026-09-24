@@ -158,7 +158,13 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
     pos = stop + 1
     local word = rest:match("^ (%S+)", pos)
     if word ~= nil and is_position(word) then
-      located(at, word)
+      -- A declaration that begins with a system header's macro, `bool`
+      -- (<stdbool.h>) above all, is placed at its name, where this
+      -- tree spelled it, rather than in the header.
+      local f, l, c = located(at, word)
+      if not tree.own(file) and tree.own(f) then
+        file, line, col = f, l, c
+      end
       pos = pos + #word + 1
     end
   end

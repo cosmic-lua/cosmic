@@ -20,21 +20,21 @@ const char *const *cosmic_startup_test_environment (void) {
   return hook_environment;
 }
 
-int cosmic_startup_test_pause (const struct cosmic_startup *startup,
-                               const char **error) {
-  if (startup->kind != COSMIC_STARTUP_PORTABLE) return 1;
+bool cosmic_startup_test_pause (const struct cosmic_startup *startup,
+                                const char **error) {
+  if (startup->kind != COSMIC_STARTUP_PORTABLE) return true;
   const char *ready = getenv(hook_environment[0]);
   const char *go = getenv(hook_environment[1]);
-  if (ready == NULL && go == NULL) return 1;
+  if (ready == NULL && go == NULL) return true;
   if (ready == NULL || go == NULL) {
     if (error != NULL) *error = "startup test hook is incomplete";
-    return 0;
+    return false;
   }
   int ready_fd = open(ready, O_WRONLY);
   if (ready_fd < 0 || write(ready_fd, "ready\n", 6) != 6) {
     if (ready_fd >= 0) close(ready_fd);
     if (error != NULL) *error = "startup test hook cannot signal readiness";
-    return 0;
+    return false;
   }
   close(ready_fd);
   int go_fd = open(go, O_RDONLY);
@@ -43,9 +43,9 @@ int cosmic_startup_test_pause (const struct cosmic_startup *startup,
   if (go_fd >= 0) close(go_fd);
   if (got != 1) {
     if (error != NULL) *error = "startup test hook was not released";
-    return 0;
+    return false;
   }
-  return 1;
+  return true;
 }
 
 void cosmic_startup_test_phase (const struct cosmic_startup *startup,

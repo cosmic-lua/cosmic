@@ -16,7 +16,7 @@ extern char **environ;
 #define COSMIC_PORTABLE_ENV_PREFIX "COSMIC_PORTABLE_"
 #define COSMIC_PORTABLE_ENV_CACHE "COSMIC_PORTABLE_CACHE"
 
-int cosmic_environment_clear_reserved (const char *const *keep) {
+bool cosmic_environment_clear_reserved (const char *const *keep) {
   const size_t prefix_length = strlen(COSMIC_PORTABLE_ENV_PREFIX);
   for (;;) {
     const char *found = NULL;
@@ -45,13 +45,13 @@ int cosmic_environment_clear_reserved (const char *const *keep) {
       found_length = name_length;
       break;
     }
-    if (found == NULL) return 1;
+    if (found == NULL) return true;
     char *name = malloc(found_length + 1);
-    if (name == NULL) return 0;
+    if (name == NULL) return false;
     memcpy(name, found, found_length);
     name[found_length] = '\0';
     const int cleared = unsetenv(name) == 0;
     free(name);
-    if (!cleared) return 0;
+    if (!cleared) return false;
   }
 }

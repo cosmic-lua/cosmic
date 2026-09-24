@@ -12,22 +12,22 @@
 #include <mach-o/dyld.h>
 #endif
 
-int cosmic_executable_path (char *into, size_t room) {
+bool cosmic_executable_path (char *into, size_t room) {
 #if defined(__APPLE__)
   char raw[PATH_MAX];
   uint32_t size = sizeof raw;
-  if (_NSGetExecutablePath(raw, &size) != 0) return 0;
+  if (_NSGetExecutablePath(raw, &size) != 0) return false;
   char resolved[PATH_MAX];
-  if (realpath(raw, resolved) == NULL) return 0;
+  if (realpath(raw, resolved) == NULL) return false;
   size_t len = strlen(resolved);
-  if (len + 1 > room) return 0;
+  if (len + 1 > room) return false;
   memcpy(into, resolved, len + 1);
-  return 1;
+  return true;
 #else
   ssize_t len = readlink("/proc/self/exe", into, room - 1);
-  if (len < 0) return 0;
+  if (len < 0) return false;
   into[len] = '\0';
-  return 1;
+  return true;
 #endif
 }
 
