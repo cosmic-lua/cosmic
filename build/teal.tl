@@ -59,14 +59,9 @@ local function make_handle(fd: integer): teal.Handle
 
   handle.write = function(self: teal.Handle, ...: any): teal.Handle | nil, string
     for index = 1, select("#", ...) do
-      local piece = tostring((select(index, ...)))
-      local at = 1
-      while at <= #piece do
-        local put, trouble = Fs.put(self.fd, piece:sub(at))
-        if not put then
-          return nil, trouble
-        end
-        at = #piece + 1
+      local put, trouble = Fs.put(self.fd, tostring((select(index, ...))))
+      if not put then
+        return nil, trouble
       end
     end
     return self

@@ -26,6 +26,7 @@ local type raw_store = require("cosmic.internal.store")
 local importer = require("build.importer")
 local schema = require("build.schema")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local work = require("build.work")
 local writer = require("build.writer")
 
@@ -62,22 +63,10 @@ end
 --- read as. `columns` names the destination columns in `sql`'s order.
 local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
                          table_name: string, columns: {string},
-                         sql: string, values?: {Sqlite.Value}): boolean, string
+                         sql: string): boolean, string
   local statement, trouble = from:prepare(sql)
   if statement == nil then
     return false, table_name .. ": " .. trouble
-  end
-  for index, value in ipairs(values or {}) do
-    local bound, bind_trouble: boolean, string
-    if value.text ~= nil then
-      bound, bind_trouble = statement:bind_text(index, value.text)
-    else
-      bound, bind_trouble = statement:bind_null(index)
-    end
-    if not bound then
-      statement:finalize()
-      return false, table_name .. ": " .. bind_trouble
-    end
   end
   local slots: {string} = {}
   for index = 1, #columns do
@@ -261,7 +250,7 @@ end
 --- which the kernel runs directly, with no launcher, only where this core
 --- runs. Returns the names written, none for a tree with no `cmd/`.
 function embed.tree(root: string, host?: boolean): {string} | nil, string
-  local own_tree, own_trouble = importer.is_own_tree(root)
+  local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return nil, own_trouble end
   if own_tree then
     return nil, "this is cosmic's own tree, which bin/zig build boot builds"

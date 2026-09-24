@@ -80,7 +80,6 @@ local record Tar
 end
 
 local BLOCK <const> = 512
-local EIGHT_GIB <const> = 1 << 33
 local OCTAL_11_LIMIT <const> = 1 << 33 -- 8^11, what 11 octal digits hold
 --- The largest `L`/`K`/`x`/`g` body read into memory. Real ones are a
 --- path or a handful of records; a header claiming more is refused
@@ -641,7 +640,7 @@ function Tar.writer(w: Stream.Writer, opts?: Tar.WriterOptions): Tar.TarWriter
     local uid, gid, uname, gname = 0, 0, "", ""
     local prefix, name, fits = split_ustar(path)
     local link_fits = #linkname <= 100
-    local size_fits = size < EIGHT_GIB
+    local size_fits = size < OCTAL_11_LIMIT
     local mtime_fits = mtime >= 0 and mtime < OCTAL_11_LIMIT
     if not (fits and link_fits and size_fits and mtime_fits) then
       local records: {string} = {}

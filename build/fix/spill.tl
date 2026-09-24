@@ -22,6 +22,7 @@ local Store = require("cosmic.store")
 local ast = require("build.ast")
 local importer = require("build.importer")
 local teal = require("build.teal")
+local tree = require("build.tree")
 local work = require("build.work")
 local String = require("cosmic.string")
 local type compiler = require("build.compiler")
@@ -90,7 +91,7 @@ end
 -- answering none, so `cosmic fix` does not pass a tree `cosmic test`
 -- then refuses; until then the build, not fix, is the gate for those.
 function spill.check(root: string): spill.Sites, string
-  local own_tree, own_trouble = importer.is_own_tree(root)
+  local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then return {}, own_trouble end
   local handle, open_trouble = work.open(root)
   if handle == nil then return {}, open_trouble end

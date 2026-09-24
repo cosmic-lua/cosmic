@@ -37,9 +37,6 @@ local record compiler
   record Env
     globals: {string:any}
     modules: {string:any}
-    module_filenames: {string:string}
-    loaded: {string:any}
-    defaults: Defaults
     -- When set, the checker hands every node's type to `reporter`'s
     -- collector as it checks; see `build.receivers`.
     report_types: boolean | nil

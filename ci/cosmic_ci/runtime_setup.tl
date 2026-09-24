@@ -135,14 +135,11 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   Fixture.write(out .. "/sanitized-target", target .. "\n")
   Fixture.write(out .. "/sanitized-core-name", sanitized_name .. "\n")
 
-  -- Every raw core gets a single deterministic byte flip at 0-indexed
-  -- offset 128, mirroring the shell's `printf X | dd ... bs=1 seek=128
-  -- conv=notrunc`: `bs=1 seek=128` skips 128 one-byte blocks of the output
-  -- before writing, i.e. it overwrites the byte at 0-indexed offset 128 (the
-  -- 129th byte); `printf X` supplies exactly one replacement byte (0x58) and
-  -- `conv=notrunc` leaves every other byte alone. In 1-indexed Lua substring
-  -- terms, the untouched prefix is indices 1..128, the replaced byte is
-  -- index 129, and the untouched suffix resumes at index 130.
+  -- Every raw core gets a single deterministic byte flip: the byte at
+  -- 0-indexed offset 128 becomes "X" (0x58) and every other byte is left
+  -- alone. In 1-indexed Lua substring terms, the untouched prefix is
+  -- indices 1..128, the replaced byte is index 129, and the untouched
+  -- suffix resumes at index 130.
   Fixture.mkdir(out .. "/incompatible-cores")
   for _, one in ipairs(targets) do
     local from = out .. "/hooked-build/core/" .. one.name .. "/cosmic-core"

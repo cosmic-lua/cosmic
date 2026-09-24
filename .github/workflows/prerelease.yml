@@ -31,7 +31,6 @@ jobs:
           PRODUCTS: ${{ runner.temp }}/products
           RELEASE: ${{ runner.temp }}/release
           SOURCE_COMMIT: ${{ github.sha }}
-          SOURCE_RUN_PREFIX: ${{ github.server_url }}/${{ github.repository }}/actions/runs/
           SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

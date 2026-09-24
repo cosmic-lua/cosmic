@@ -25,7 +25,7 @@ local help_prefix = "cosmic -- a runtime for self-contained command-line softwar
 --- The one-line-per-verb usage block `cosmic help` prints, generated
 --- from `cosmic.cli`'s own fields (`Cli.run`, `Cli.test`, ...) so this
 --- wording is never a second, hand-kept copy of what `cosmic docs
---- build` (or fix, db, docs, uses, help, run, test) already answers.
+--- build` (or any verb `Cli.order` names) already answers.
 --- Falls back to naming the lookup that failed, rather than silently
 --- dropping a verb from its own help, if `cosmic.cli`'s own database
 --- row is ever missing.
@@ -173,6 +173,7 @@ local function run(file: string, argv: {integer:string}): integer
   local importer = require("build.importer")
   local reboot = require("build.reboot")
   local teal = require("build.teal")
+  local tree = require("build.tree")
   local work = require("build.work")
   local writer = require("build.writer")
   local root, trouble = root_of(file)
@@ -187,7 +188,7 @@ local function run(file: string, argv: {integer:string}): integer
   end
 
   local started = Time.monotonic_ns()
-  local own_tree, own_trouble = importer.is_own_tree(root)
+  local own_tree, own_trouble = tree.is_own(root)
   if own_tree == nil then
     complain("cosmic: " .. own_trouble)
     return 1

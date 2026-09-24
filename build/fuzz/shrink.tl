@@ -35,7 +35,8 @@ local function simpler(a: {Shrink.Draw}, b: {Shrink.Draw}): boolean
   return false
 end
 
-local function values_of(draws: {Shrink.Draw}): {integer}
+--- The value of each draw, in order: the input to replay them.
+function Shrink.values_of(draws: {Shrink.Draw}): {integer}
   local out: {integer} = {}
   for i, d in ipairs(draws) do out[i] = d.value end
   return out
@@ -71,7 +72,7 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
     for _, size in ipairs({ 8, 4, 2, 1 }) do
       local i = #best - size + 1
       while i >= 1 and tries < max_tries do
-        local values = values_of(best)
+        local values = Shrink.values_of(best)
         for _ = 1, size do table.remove(values, i) end
         if try(values) then
           improved = true
@@ -87,21 +88,21 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
       local d = best[i]
       local delta = offset(d)
       if delta ~= 0 then
-        local values = values_of(best)
+        local values = Shrink.values_of(best)
         values[i] = d.min
         if try(values) then
           improved = true
         else
           local half = delta >> 1
           while half ~= 0 and tries < max_tries do
-            values = values_of(best)
+            values = Shrink.values_of(best)
             values[i] = d.min + half
             if not try(values) then break end
             improved = true
             half = half >> 1
           end
           if i <= #best and offset(best[i]) ~= 0 then
-            values = values_of(best)
+            values = Shrink.values_of(best)
             values[i] = best[i].value - 1
             if try(values) then improved = true end
           end

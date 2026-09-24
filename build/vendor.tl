@@ -39,6 +39,7 @@ local Archive = require("cosmic.archive")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 
 local record Vendor
@@ -54,11 +55,7 @@ local record Vendor
   end
 end
 
--- TODO: Log.new("vendor"):complain once ci/cosmic-driver.pin names a cosmic
--- carrying cosmic.log: this file runs on the pinned bootstrap.
-local function complain(line: string)
-  local _, _ = Fs.put(Fs.stderr, "vendor: " .. line .. "\n")
-end
+local log = Log.new("vendor")
 
 --- `vendor/<name>/PIN`'s text, as `key value` lines. A value is the
 --- line's second word, so trailing blanks or a `\r` never become part
@@ -389,16 +386,16 @@ function Vendor.main(argv: {integer:string}): integer
     local tree = (argv[1]):gsub("/+$", "")
     local count, trouble = Vendor.rewrite(tree, argv[2])
     if count == nil then
-      complain(trouble)
+      log:complain(trouble)
       return 1
     end
-    local _, _ = Fs.put(Fs.stdout, "vendor: " .. tree .. " (" .. count .. " files)\n")
+    log:say("vendor: " .. tree .. " (" .. count .. " files)")
     return 0
   end
 
   local root, root_trouble = Vendor.repo_root(argv[0])
   if root == nil then
-    complain(root_trouble)
+    log:complain(root_trouble)
     return 2
   end
 
@@ -411,7 +408,7 @@ function Vendor.main(argv: {integer:string}): integer
   if #names == 0 then
     local found, trouble = Vendor.all_names(root)
     if found == nil then
-      complain(trouble)
+      log:complain(trouble)
       return 1
     end
     names = found
@@ -419,7 +416,7 @@ function Vendor.main(argv: {integer:string}): integer
 
   local cache, ctrouble = Fs.cache_dir("vendor")
   if cache == nil then
-    complain(ctrouble)
+    log:complain(ctrouble)
     return 1
   end
 
@@ -427,10 +424,10 @@ function Vendor.main(argv: {integer:string}): integer
   for _, name in ipairs(names) do
     local count, trouble = fetch_and_rewrite(root, cache, name)
     if count == nil then
-      complain(name .. ": " .. trouble)
+      log:complain(name .. ": " .. trouble)
       failed = true
     else
-      local _, _ = Fs.put(Fs.stdout, "vendor: vendor/" .. name .. " (" .. count .. " files)\n")
+      log:say("vendor: vendor/" .. name .. " (" .. count .. " files)")
     end
   end
   return failed and 1 or 0
