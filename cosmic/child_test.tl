@@ -160,12 +160,9 @@ end
     { env = nested_cosmic_environment(), stdout = fd, stderr = fd,
       process_group = false }))
   -- The driver is a nested cosmic that compiles its fixture before it
-  -- starts the shell, which on the checked core, with every processor
-  -- busy under CI's deep fuzz rerun, took past 3 s. The loop leaves as
-  -- soon as the file appears, so the deadline costs nothing when fast;
-  -- it stays under the runner's 30 s per test so this assertion, not a
-  -- bare timeout, is what reports a driver that never started.
-  local deadline = assert(Time.monotonic_ns()) + 20 * 1000 * 1000 * 1000
+  -- spawns anything; on the checked core, on a loaded runner, that has
+  -- taken more than 3 s. The wait ends as soon as it is ready.
+  local deadline = assert(Time.monotonic_ns()) + 30 * 1000 * 1000 * 1000
   while (not path_exists(ready) or Fs.read(ready) ~= "ready") and
       assert(Time.monotonic_ns()) < deadline do
     Time.sleep_ns(10 * 1000 * 1000)
