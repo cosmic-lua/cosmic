@@ -102,6 +102,13 @@ const lua_sources = [_][]const u8{
     "lundump.c",  "lutf8lib.c", "lvm.c",      "lzio.c",
 };
 
+/// The checked core also turns on Lua's own internal assertions and its C
+/// API checks, which catch a binding that misuses the Lua stack -- a buffer
+/// popped out from under itself, a pointer to a string no longer on the
+/// stack -- where UBSan sees nothing wrong. Lua's headers change with
+/// them, so the core's own C gets them too.
+const lua_checks = [_][]const u8{ "-DLUAI_ASSERT", "-DLUA_USE_APICHECK" };
+
 /// The warnings every C file of this tree's own is held to, as errors.
 /// Past -Wall and -Wextra: a shadowed name, an implicit narrowing or
 /// change of sign, an undefined macro in an #if, a string literal
@@ -626,14 +633,15 @@ pub fn build(b: *std.Build) void {
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
-        const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources);
+        const vendor = vendorLibrary(b, t, release_configuration, resolved, sources);
+        const exe = observedCore(b, mapper, cores, t, release_configuration, resolved, sources, vendor);
         const out = b.addInstallFile(
             exe.getEmittedBin(),
             b.fmt("core/{s}/cosmic-core", .{t.name}),
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson, true, .off);
+        const hooked = core(b, t, release_configuration, resolved, sources, vendor, true, .off);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -669,7 +677,8 @@ pub fn build(b: *std.Build) void {
     sanitized.dependOn(analyzed);
     const checked_target = hostTarget(b);
     const checked_host = baselineHostTarget(b);
-    const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources);
+    const checked_vendor = vendorLibrary(b, checked_target, sanitized_configuration, checked_host, sources);
+    const checked = observedCore(b, mapper, sanitized, checked_target, sanitized_configuration, checked_host, sources, checked_vendor);
     const checked_install = b.addInstallFile(
         checked.getEmittedBin(),
         "sanitized/cosmic-core",
@@ -908,14 +917,15 @@ fn observedCore(
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
     sources: Sources,
+    vendor: *std.Build.Step.Compile,
 ) *std.Build.Step.Compile {
-    const first = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, false, .first_link);
+    const first = core(b, target_record, configuration, target, sources, vendor, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
     write_map.addFileArg(first.getEmittedBin());
     write_map.addArg(b.pathFromRoot("."));
     const map = write_map.addOutputFileArg("coverage_map.c");
-    const second = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, false, .{ .map = map });
+    const second = core(b, target_record, configuration, target, sources, vendor, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
     check_map.addFileArg(first.getEmittedBin());
@@ -924,34 +934,38 @@ fn observedCore(
     return second;
 }
 
-fn core(
+/// The vendored libraries of one core, compiled once for a target and
+/// configuration and linked by every core built from them: both links of
+/// an observed core, and the test fixture's hooked core. They are never
+/// instrumented, and never carry debug information even where the core's
+/// own C does (a first link), so no core's build compiles them again.
+fn vendorLibrary(
     b: *std.Build,
     target_record: Target,
     configuration: Configuration,
     target: std.Build.ResolvedTarget,
-    lua: std.Build.LazyPath,
-    sqlite: std.Build.LazyPath,
-    miniz: std.Build.LazyPath,
-    mbedtls: std.Build.LazyPath,
-    bzip2: std.Build.LazyPath,
-    xz: std.Build.LazyPath,
-    cares: std.Build.LazyPath,
-    curl: std.Build.LazyPath,
-    yyjson: std.Build.LazyPath,
-    portable_startup_test_hooks: bool,
-    native_coverage: NativeCoverage,
+    sources: Sources,
 ) *std.Build.Step.Compile {
     const mod = b.createModule(.{
         .target = target,
-        .optimize = if (configuration.sanitize) .ReleaseSafe else .ReleaseFast,
+        .optimize = coreOptimize(configuration),
         .link_libc = true,
-        // Stripping is what makes two builds at different paths produce
-        // the same bytes: debug info carries the absolute path.
-        // A first link keeps its debug information for the block map to
-        // read; it is never installed.
-        .strip = !configuration.sanitize and native_coverage != .first_link,
+        .strip = !configuration.sanitize,
         .sanitize_c = if (configuration.sanitize) .full else .off,
     });
+    vendorIncludes(b, mod, target_record, sources);
+    // Last, as in the core's own module: mbedtls and curl read their
+    // configuration (`mbedtls_config`) from core/.
+    mod.addIncludePath(b.path("core"));
+    const lua = sources.lua;
+    const sqlite = sources.sqlite;
+    const miniz = sources.miniz;
+    const mbedtls = sources.mbedtls;
+    const bzip2 = sources.bzip2;
+    const xz = sources.xz;
+    const cares = sources.cares;
+    const curl = sources.curl;
+    const yyjson = sources.yyjson;
 
     // LUA_USE_LINUX and LUA_USE_MACOSX both drag in LUA_USE_DLOPEN (and
     // macOS's also readline); POSIX is the whole of what the core needs
@@ -974,12 +988,6 @@ fn core(
     // neither ever assigns an undeclared global -- so there is nothing
     // to trade for the safety.
     const lua_base = [_][]const u8{ "-std=c11", "-DLUA_USE_POSIX", "-DLUA_COMPAT_GLOBAL=0" };
-    // The checked core also turns on Lua's own internal assertions and
-    // its C API checks, which catch a binding that misuses the Lua stack
-    // -- a buffer popped out from under itself, a pointer to a string no
-    // longer on the stack -- where UBSan sees nothing wrong. Lua's
-    // headers change with them, so the core's own C gets them too.
-    const lua_checks = [_][]const u8{ "-DLUAI_ASSERT", "-DLUA_USE_APICHECK" };
     const lua_checked = lua_base ++ lua_checks;
     const lua_flags: []const []const u8 =
         if (configuration.sanitize) &lua_checked else &lua_base;
@@ -988,7 +996,6 @@ fn core(
         .files = &lua_sources,
         .flags = lua_flags,
     });
-    mod.addIncludePath(lua.path(b, "src"));
 
     // SQLite's compile-time configuration, as flags rather than a
     // configuration header: a flag is part of the compile's cache key,
@@ -1025,7 +1032,6 @@ fn core(
         .files = &.{"sqlite3.c"},
         .flags = sqlite_flags,
     });
-    mod.addIncludePath(sqlite);
 
     // miniz reaches for fseeko/ftello, which are POSIX rather than C11.
     // Its zlib-compatible aliases are off: the core calls the mz_ names,
@@ -1039,7 +1045,6 @@ fn core(
             "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
         },
     });
-    mod.addIncludePath(miniz);
 
     // yyjson reads JSON for cosmic.json, and writes each number's
     // shortest form for its encoder. What the core never calls is
@@ -1056,7 +1061,6 @@ fn core(
             "-DYYJSON_DISABLE_UTILS=1",
         },
     });
-    mod.addIncludePath(yyjson.path(b, "src"));
 
     // bzip2's decompressor is a true push-streaming API (bz_stream's
     // next_in/avail_in/next_out), which is what the Compress.Stream
@@ -1077,7 +1081,6 @@ fn core(
         },
         .flags = &.{ "-std=c11", "-DBZ_NO_STDIO" },
     });
-    mod.addIncludePath(bzip2);
 
     // xz's liblzma, a decoder-only subset (LZMA1/LZMA2, the delta and
     // x86/arm64 BCJ filters, and the CRC-32/CRC-64/SHA-256 checks) --
@@ -1122,16 +1125,6 @@ fn core(
             "-D_DEFAULT_SOURCE", "-DHAVE_CONFIG_H",
         },
     });
-    mod.addIncludePath(b.path("core/xz_config"));
-    mod.addIncludePath(xz.path(b, "src/common"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/api"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/common"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/check"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/lzma"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/lz"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/rangecoder"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
-    mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
 
     // mbedtls: the PSA crypto subtree, then the TLS 1.2/1.3 client and
     // X.509 layer above it, all under the one configuration header (see
@@ -1203,16 +1196,11 @@ fn core(
         },
         .flags = &mbedtls_flags,
     });
-    for (crypto_include_dirs) |dir| {
-        mod.addIncludePath(crypto.path(b, dir));
-    }
     mod.addCSourceFiles(.{
         .root = mbedtls.path(b, "library"),
         .files = &mbedtls_tls_sources,
         .flags = &mbedtls_flags,
     });
-    mod.addIncludePath(mbedtls.path(b, "include"));
-    mod.addIncludePath(mbedtls.path(b, "library"));
 
     // c-ares: DNS resolution for the `fetch`/`http` module, on every
     // target -- including macOS, where AGENTS.md's usual "dynamic
@@ -1232,12 +1220,6 @@ fn core(
         .files = &cares_sources,
         .flags = &cares_flags,
     });
-    mod.addIncludePath(cares.path(b, "include"));
-    mod.addIncludePath(cares.path(b, "src/lib"));
-    mod.addIncludePath(cares.path(b, "src/lib/include"));
-    if (target_record.query.os_tag == .macos) {
-        mod.addIncludePath(b.path("core/darwin-compat"));
-    }
 
     // curl: HTTP and HTTPS only (every other protocol's sources are
     // already gone from vendor/curl's PIN), DNS through the c-ares just
@@ -1257,8 +1239,86 @@ fn core(
         .files = &curl_sources,
         .flags = &curl_flags,
     });
-    mod.addIncludePath(curl.path(b, "lib"));
-    mod.addIncludePath(curl.path(b, "include"));
+
+    const lib = b.addLibrary(.{
+        .name = "cosmic-vendor",
+        .linkage = .static,
+        .root_module = mod,
+    });
+    // See the core's own, at the end of `core`.
+    lib.link_function_sections = true;
+    lib.link_data_sections = true;
+    return lib;
+}
+
+/// Every include directory of the vendored libraries: the library's own
+/// compile reads them, and so does the core's C, which calls into them.
+fn vendorIncludes(
+    b: *std.Build,
+    mod: *std.Build.Module,
+    target_record: Target,
+    sources: Sources,
+) void {
+    mod.addIncludePath(sources.lua.path(b, "src"));
+    mod.addIncludePath(sources.sqlite);
+    mod.addIncludePath(sources.miniz);
+    mod.addIncludePath(sources.yyjson.path(b, "src"));
+    mod.addIncludePath(sources.bzip2);
+    // xz's own config.h stands in for autoconf's; see `vendorLibrary`.
+    const xz_src = sources.xz.path(b, "src");
+    mod.addIncludePath(b.path("core/xz_config"));
+    mod.addIncludePath(sources.xz.path(b, "src/common"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/api"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/common"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/check"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/lzma"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/lz"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/rangecoder"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/delta"));
+    mod.addIncludePath(xz_src.path(b, "liblzma/simple"));
+    const crypto = sources.mbedtls.path(b, "tf-psa-crypto");
+    for (crypto_include_dirs) |dir| {
+        mod.addIncludePath(crypto.path(b, dir));
+    }
+    mod.addIncludePath(sources.mbedtls.path(b, "include"));
+    mod.addIncludePath(sources.mbedtls.path(b, "library"));
+    mod.addIncludePath(sources.cares.path(b, "include"));
+    mod.addIncludePath(sources.cares.path(b, "src/lib"));
+    mod.addIncludePath(sources.cares.path(b, "src/lib/include"));
+    if (target_record.query.os_tag == .macos) {
+        mod.addIncludePath(b.path("core/darwin-compat"));
+    }
+    mod.addIncludePath(sources.curl.path(b, "lib"));
+    mod.addIncludePath(sources.curl.path(b, "include"));
+}
+
+fn coreOptimize(configuration: Configuration) std.builtin.OptimizeMode {
+    return if (configuration.sanitize) .ReleaseSafe else .ReleaseFast;
+}
+
+fn core(
+    b: *std.Build,
+    target_record: Target,
+    configuration: Configuration,
+    target: std.Build.ResolvedTarget,
+    sources: Sources,
+    vendor: *std.Build.Step.Compile,
+    portable_startup_test_hooks: bool,
+    native_coverage: NativeCoverage,
+) *std.Build.Step.Compile {
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = coreOptimize(configuration),
+        .link_libc = true,
+        // Stripping is what makes two builds at different paths produce
+        // the same bytes: debug info carries the absolute path.
+        // A first link keeps its debug information for the block map to
+        // read; it is never installed.
+        .strip = !configuration.sanitize and native_coverage != .first_link,
+        .sanitize_c = if (configuration.sanitize) .full else .off,
+    });
+    vendorIncludes(b, mod, target_record, sources);
+    mod.linkLibrary(vendor);
 
     // The Mozilla CA bundle, embedded as the two symbols core/cacert.h
     // declares by a one-file Zig object (core/cacert.zig) that reads it
