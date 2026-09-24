@@ -22,6 +22,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local todo_scan = require("build.todo_scan")
+local bind = require("build.bind")
 
 local record work
   --- An open working database, for one run. A run is one transaction
@@ -74,13 +75,11 @@ local record work
   --- EXISTS` because this file is opened again and again across runs
   --- rather than built fresh every time.
   schema: {string}
-
-  --- The shape of the schema above. A file of another shape holds
-  --- nothing the tree cannot produce again, so it is thrown away.
-  version: string
 end
 
-work.version = "22"
+--- The shape of the schema. A file of another shape holds nothing the
+--- tree cannot produce again, so it is thrown away.
+local version <const> = "22"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -130,14 +129,14 @@ work.version = "22"
 --- spaces (e.g. "1 3 4 9"), rather than one row per line, since a
 --- caller always wants the whole set back at once. A row is a
 --- function of the bytes and of that module's rule for what counts as
---- executable, so a change to the rule bumps `work.version`, as a
+--- executable, so a change to the rule bumps `version`, as a
 --- change to what a parse records does for `parsed`.
 ---
 --- `todos` is every `TODO:` comment `build.todo_scan` finds in one
 --- staged file, keyed by the file's content hash like `parsed`: staging
 --- scans a file in the same moment it reads it, so an unchanged file
 --- costs nothing, and a row is a function of the bytes and the scan's
---- rule alone -- a change to the rule bumps `work.version`. A row no
+--- rule alone -- a change to the rule bumps `version`. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
@@ -401,13 +400,9 @@ work.schema = {
                                                  PRIMARY KEY (ran_at_ns, test))]],
 }
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
-local function integer(value: integer): Sqlite.Value
-  return { integer = value }
-end
+local integer = bind.integer
 
 --- One column of one row, read as the integer it was written as.
 local function integer_of(rows: {{string}}): integer
@@ -458,7 +453,7 @@ function work.open(root: string): work.Handle | nil, string
     local _, _ = db:close()
     return nil, path .. ": " .. version_trouble
   end
-  if #versions > 0 and versions[1][1] ~= work.version then
+  if #versions > 0 and versions[1][1] ~= version then
     local _, _ = db:close()
     local removed, remove_trouble = Fs.remove(path)
     if not removed then
@@ -477,7 +472,7 @@ function work.open(root: string): work.Handle | nil, string
   end
   local stamped, stamp_trouble = Sqlite.run(db,
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
-    "ON CONFLICT (key) DO NOTHING", { text(work.version) })
+    "ON CONFLICT (key) DO NOTHING", { text(version) })
   if not stamped then
     local _, _ = db:close()
     return nil, path .. ": " .. stamp_trouble
@@ -743,15 +738,7 @@ local puts: {string:string} = {
 --- The largest file `scanned` reads for TODOs.
 local scanned_limit = 1024 * 1024
 
---- Runs a statement that yields no rows, once, and readies it to run
---- again with other parameters.
-local function once(statement: Sqlite.Statement): boolean, string
-  local state, trouble = statement:step()
-  if state == nil then
-    return false, trouble
-  end
-  return statement:reset()
-end
+local once = bind.once
 
 --- How long a file's modification time has to be in the past before
 --- a stat is trusted to stand for its bytes.

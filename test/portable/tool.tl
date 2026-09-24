@@ -3,6 +3,7 @@
 --- v1 reader/writer-input library. Run as:
 ---   cosmic test/portable/tool.tl SUBCOMMAND ARGS...
 
+local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -33,7 +34,7 @@ local function entry(argv: {string}): integer
   local read_artifact = assert(fixture.read(argv[1]))
   local found = assert(fixture.entry(read_artifact, target, configuration),
     "identity fixture: selected manifest entry is missing")
-  print(found.offset, found.length, Hash.hex(found.digest))
+  print(found.offset, found.length, Codec.hex(found.digest))
   return 0
 end
 
@@ -365,7 +366,7 @@ local function retained_prefix_probe(argv: {string}): integer
   phase("prefix entering")
   local prefix = assert(artifact.trusted_prefix())
   phase("prefix read")
-  assert(Hash.hex(Hash.sha256(prefix)) == expected_prefix)
+  assert(Codec.hex(Hash.sha256(prefix)) == expected_prefix)
   phase("prefix hashed")
   assert(Store.meta("retained_fixture") == expected_marker)
   phase("fixture metadata read")

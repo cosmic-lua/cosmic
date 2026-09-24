@@ -58,15 +58,10 @@ function Hash.sha256(data: string): string
   return sys.digest("sha256", data)
 end
 
---- A digest as lowercase hexadecimal characters: `Codec.hex`.
-function Hash.hex(digest: string): string
-  return Codec.hex(digest)
-end
-
 --- The hexadecimal SHA-256 of some bytes, as `sha256sum` prints it,
 --- which is the form the build writes into keys.
 function Hash.hex_sha256(data: string): string
-  return Hash.hex(sys.digest("sha256", data))
+  return Codec.hex(sys.digest("sha256", data))
 end
 
 --- An incremental hasher over an algorithm, for data that arrives in
@@ -83,6 +78,10 @@ end
 --- header checksum adds them up. Raises when `first` is below 1, `last`
 --- is past the end, or `first` is more than one past `last`; an empty
 --- range sums to 0.
+-- TODO: a tar header checksum is no hash, and `cosmic.tar` is this
+-- function's one caller: move it there once a module can be handed
+-- another module's `cosmic.internal.` table, as this one is handed its
+-- own (the C sum is what keeps a header's 512 bytes off the Lua loop).
 function Hash.byte_sum(data: string, first?: integer, last?: integer): integer
   return raw.byte_sum(data, first, last)
 end

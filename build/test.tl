@@ -38,11 +38,16 @@
 --- never touched.
 ---
 --- A test function receives one argument: the path of a fresh,
---- writable directory `Fs.mkdtemp` made just for it, which the runner
---- does not remove afterward, so a failing test's own files stay
---- around to look at. A test that ignores the argument -- the ordinary
---- shape, a bare `assert()` -- is called with it anyway, and Lua drops
---- an argument nobody asked for.
+--- writable directory made just for it, reached through a symbolic
+--- link -- `<scratch>/tmp`, a link to `<scratch>/real`, in a scratch
+--- directory `Fs.mkdtemp` made -- so that code resolving one path with
+--- `Fs.absolute` and not another compares them wrongly on every
+--- platform, as it would under macOS's `/var`, a link to `/private/var`.
+--- The runner removes the scratch directory once the test passes, and
+--- leaves a failing test's behind, so its own files stay around to look
+--- at. A test that ignores the argument -- the ordinary shape, a bare
+--- `assert()` -- is called with it anyway, and Lua drops an argument
+--- nobody asked for.
 ---
 --- Every file `cosmic.fs` opens goes through `cosmic.sys`'s shared
 --- `open` field, so the worker wraps it, and the other queries a
@@ -75,6 +80,7 @@ local worker = require("build.test_worker")
 local type compiler = require("build.compiler")
 
 local log = require("build.verdict").log
+local bind = require("build.bind")
 
 local record test
   --- What the last run recorded about one test: what it read, which
@@ -140,9 +146,7 @@ function test.matches(selector: string, path: string, file: string): boolean
   return Fs.within(file, selector)
 end
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 local function record_run(handle: Sqlite.Handle, path: string, name: string,
                           passed: boolean, message: string, ran_at_ns: integer,
@@ -253,21 +257,67 @@ local function staged_hashes(handle: Sqlite.Handle): {string:string} | nil, stri
   return out
 end
 
+--- Whether a path names a ".." component, which `Fs.within` and
+--- `Fs.relative`, being lexical, cannot follow: "<root>/../out/L" is not
+--- within the root, and nor, once through a link, need "a/../b" be.
+local function climbs(path: string): boolean
+  return ("/" .. path .. "/"):find("/%.%./") ~= nil
+end
+
 --- A recorded read as a path under the root, or nil when it is not
 --- one: a test's own scratch directory, or anything else outside the
---- tree, is not an input to it, and nor is the build's own output.
-local function under_root(root: string, path: string): string | nil
+--- tree, is not an input to it, and nor is the build's own output. An
+--- absolute path outside the root as written, or that climbs with "..",
+--- is under it when what it resolved to -- `resolutions`, by path, from
+--- its "r" or "t" observation -- is, and is keyed by that resolved name,
+--- so the file's own line is the same for every spelling of it; with no
+--- resolution it is outside.
+-- TODO: a path under the root as written is keyed by its name there,
+-- though it may cross a link in the tree that leads out (proj/x to
+-- /out/L to proj/a/f): a test that retargets /out/L after reading
+-- proj/x keys proj/x by where it leads at the end. Resolve an in-tree
+-- read whose path crosses a link as it is read, noting an "r" for it
+-- as for one outside the tree, once that costs less than a realpath
+-- per in-tree read (a set of the tree's links, from the stage).
+local function under_root(root: string, path: string,
+                          resolutions: {string:string}): string | nil
   local relative = path
   local rest, _ = Fs.relative(path, root)
-  if rest ~= nil then
+  if rest ~= nil and not climbs(path) then
     relative = rest
-  elseif path:sub(1, 1) == "/" then
-    return nil
+  elseif climbs(path) or path:sub(1, 1) == "/" then
+    local real = resolutions[path]
+    if real == nil or real == "" then return nil end
+    local resolved, _ = Fs.relative(real, root)
+    if resolved == nil then return nil end
+    relative = resolved
   end
   if relative == "o" or relative:sub(1, 2) == "o/" then
     return nil
   end
   return relative
+end
+
+--- What each "r" or "t" observation in `reads` says its path resolved
+--- to: the answer the test's own read recorded, or, for an "r" a stored
+--- run gives back without its answer, what the path resolves to now. An
+--- "r" that resolves into the root enters the key itself, so one that
+--- resolves elsewhere since keys differently. A "t", a path under the
+--- test's own directory, is stored with its answer and never enters
+--- the key: that directory's name is new in every run, and gone after.
+local function resolutions_of(reads: {observations.Observation}): {string:string}
+  local out: {string:string} = {}
+  for _, observation in ipairs(reads) do
+    local kind = observation.kind
+    if (kind == "r" or kind == "t") and out[observation.path] == nil then
+      local answer = observation.answer
+      if kind == "r" and answer == "" then
+        answer = observations.resolution(observation.path)
+      end
+      out[observation.path] = answer
+    end
+  end
+  return out
 end
 
 --- What one test's verdict is a function of: the test itself, its
@@ -288,13 +338,19 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
                           reads: {observations.Observation},
                           key_parts: {string:string}):
                           string, boolean
+  local resolutions = resolutions_of(reads)
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
   local stable = true
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if kind == "e" then
+    local keyed = kind == "e"
+    if kind == "r" then
+      local real = resolutions[observation.path]
+      keyed = real ~= "" and Fs.within(real, root)
+    end
+    if keyed then
       local identified = kind .. " " .. observation.path
       if not seen[identified] then
         seen[identified] = true
@@ -306,7 +362,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         answers[identified] = observation.answer
       end
     elseif kind == "o" or kind == "s" or kind == "d" then
-      local relative = under_root(root, observation.path)
+      local relative = under_root(root, observation.path, resolutions)
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
         seen[identified] = true
@@ -336,13 +392,17 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- test in the same process loaded, so no earlier verdict describes one.
   -- Generation 5 refuses a run that reached the network or changed its
   -- working directory, which generation 4 recorded without either.
-  local lines: {string} = { "recording-5", "module-load-reads-v1",
+  -- Generation 6 keys a read outside the tree that resolved into it
+  -- (an "r" observation), which generation 5 never let stand.
+  local lines: {string} = { "recording-6", "module-load-reads-v1",
     observations.key_part("i", id, observations.key_part("m", module_key, runtime)) }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
     if kind == "e" then
       current = observations.getenv_current(relative)
+    elseif kind == "r" then
+      current = observations.resolution(relative)
     elseif kind == "o" then
       current = hashes[relative]
       if current == nil then
@@ -382,12 +442,17 @@ end
 --- `Fs.mkdirs` stats a directory to see whether it is already there
 --- before the "m" observation that creates it, so the existence check
 --- for a directory a test is about to make of its own would otherwise
---- count as a foreign read). An environment read is keyable: its
---- answer enters the verdict key like a file's hash does. Exposed
---- alongside `test.verdict_key` so `test_test.tl` can exercise it
---- directly.
+--- count as a foreign read). A path with an "r" or "t" observation is
+--- judged by what it resolved to as the test read it (see
+--- `under_root`), so a link in the test's own directory leading out of
+--- it is outside; one that climbs with ".." and has none is outside. An
+--- environment
+--- read is keyable: its answer enters the verdict key like a file's
+--- hash does. Exposed alongside `test.verdict_key` so `test_test.tl`
+--- can exercise it directly.
 function test.keyable(root: string, scratch: string,
                       reads: {observations.Observation}): boolean
+  local resolutions = resolutions_of(reads)
   local function under(dir: string, path: string): boolean
     return Fs.within(path, dir)
   end
@@ -403,10 +468,15 @@ function test.keyable(root: string, scratch: string,
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" then
       local path = observation.path
-      if path:sub(1, 1) == "/" and not under(root, path) and not under(scratch, path) then
+      local real = resolutions[path]
+      if real == "" or (real == nil and climbs(path)) then return false end
+      local judged = real or path
+      if judged:sub(1, 1) == "/" and not under(root, judged) and
+          not under(scratch, judged) then
         local made_here = false
         for _, dir in ipairs(made) do
-          if under(dir, path) then
+          if under(dir, judged) or (real ~= nil and
+              under(observations.resolution(dir), judged)) then
             made_here = true
             break
           end
@@ -509,11 +579,7 @@ local function insert_coverage(statement: Sqlite.Statement, run_at_ns: integer,
   if not ok then
     return false, trouble
   end
-  local state, failure = statement:step()
-  if state == nil then
-    return false, failure
-  end
-  return statement:reset()
+  return bind.once(statement)
 end
 
 --- How many rows one multi-row INSERT carries before it steps. Modest
@@ -790,7 +856,11 @@ local record Job
   m: importer.Module
   name: string
   id: string
+  --- The directory the runner made for the test, holding `real` and
+  --- `tmp`, a link to it; removed once the test passes.
+  scratch: string
   tmp: string
+  passed: boolean
   handle: Child.Handle
   started_ns: integer
   deadline_ns: integer
@@ -889,7 +959,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     passed, message = reported.passed, reported.message
     reads = observations.join(reported.load_reads, reported.test_reads)
     elapsed = reported.elapsed_ns
-    cacheable = reported.loaded and test.keyable(rec.root, job.tmp, reads)
+    cacheable = reported.loaded and test.keyable(rec.root, job.scratch, reads)
     local hit: Coverage.Hits = {}
     merge_hits(hit, reported.load_hits)
     merge_hits(hit, reported.test_hits)
@@ -913,7 +983,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   if not saved then
     rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
   end
+  job.passed = passed
   if not passed then
+    if job.scratch ~= nil then
+      message = message .. "\n  its directory is kept: " .. job.scratch .. "/real"
+    end
     rec.failures[#rec.failures + 1] = id .. ": " .. message
     if result ~= nil and result.stdout ~= nil and result.stdout ~= "" then
       rec.outputs[id] = result.stdout
@@ -952,21 +1026,68 @@ local function worker_start(environment: {string:string}): Proc.Relaunch | nil, 
   return { argv = { executable }, env = env, fds = {} }, ""
 end
 
+--- A fresh scratch directory for one test, resolved (so nothing in
+--- its own path is a link, even where the system temp directory is
+--- one), holding `real`, an empty directory, and `tmp`, a link to it
+--- by the relative name `real`: the test is handed `<scratch>/tmp`.
+--- The worker makes `children` there for the coverage its test's
+--- processes report.
+--- Removing the scratch directory with `Fs.remove_tree` removes the
+--- link without following it, and the real directory beside it.
+function test.scratch(): string | nil, string
+  local made, trouble = Fs.mkdtemp("cosmic-test-")
+  if made == nil then return nil, trouble end
+  local scratch, absolute_trouble = Fs.absolute(made)
+  if scratch == nil then
+    local _, _ = Fs.remove_tree(made)
+    return nil, absolute_trouble
+  end
+  local ok, why = Fs.mkdirs(scratch .. "/real")
+  if ok then ok, why = Fs.symlink("real", scratch .. "/tmp") end
+  if not ok then
+    local _, _ = Fs.remove_tree(scratch)
+    return nil, why
+  end
+  return scratch, ""
+end
+
+--- Removes the scratch directory of each job in `jobs` whose test
+--- finished and passed; a failing one's is left to look at, and one
+--- still running is not finished. A directory that cannot be removed
+--- (a test left something in it it may not delete) is an error of the
+--- run, naming the directory; `Fs.remove_tree` stops at the first entry
+--- it cannot remove, so the rest of that directory stays too.
+local function sweep(rec: Recording, jobs: {Job})
+  for _, job in ipairs(jobs) do
+    if job.passed and job.scratch ~= nil then
+      local gone, trouble = Fs.remove_tree(job.scratch)
+      if not gone then
+        rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
+          job.scratch .. ": " .. trouble
+      end
+      job.scratch = nil
+    end
+  end
+end
+
 --- Starts one job's worker. False when it could not start, which is
 --- recorded as that test's failure.
 local function launch(rec: Recording, job: Job, start: Proc.Relaunch,
                       limits: test.Limits): boolean
-  local tmp, tmp_trouble = Fs.mkdtemp("cosmic-test-")
-  if tmp == nil then
+  local scratch, tmp_trouble = test.scratch()
+  if scratch == nil then
     finish(rec, job, nil, "could not make a temporary directory: " .. tmp_trouble, limits)
     return false
   end
+  job.scratch = scratch
+  local tmp = scratch .. "/tmp"
   job.tmp = tmp
   job.started_ns = Time.monotonic_ns()
   job.deadline_ns = job.started_ns + limits.timeout_ms * 1000 * 1000
   local argv: {string} = {}
   for i, value in ipairs(start.argv) do argv[i] = value end
-  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp }) do
+  for _, value in ipairs({ "test", "--worker", rec.root, job.m.path, job.name, tmp,
+                           scratch .. "/children" }) do
     argv[#argv + 1] = value
   end
   local fds: {integer:integer | string} = { [worker.report_fd] = "capture" }
@@ -1038,8 +1159,16 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits): integ
     if #still < #running then
       -- A worker that is gone may have left processes of its own
       -- behind, outside the group its end reached; this process
-      -- adopted them, and ends them before the next test starts.
+      -- adopted them, and ends them before the next test starts,
+      -- and, on Linux, before what they could still write into is
+      -- removed.
+      -- TODO: a stray still writing into a passing test's directory
+      -- can race its removal: end_strays is a no-op on macOS and on
+      -- Linux gives up on a stray that outlives it by a second. Remove
+      -- the directory only once no stray is left, once end_strays can
+      -- end or wait for strays on macOS and report the ones it gave up on.
       Child.end_strays()
+      sweep(rec, running)
     end
     running = still
   end

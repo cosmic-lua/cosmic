@@ -62,7 +62,7 @@ end
 --- Whether `file`, as the dump names it, is C of this tree's own rather
 --- than a system header, a vendored library, or a position the compiler
 --- made up (`<built-in>`, `<scratch space>`).
-function tree.own(file: string): boolean
+local function own(file: string): boolean
   if file == nil or file == "" then return false end
   local first = file:sub(1, 1)
   if first == "/" or first == "<" then return false end
@@ -162,7 +162,7 @@ local function header(at: Cursor, rest: string): string, string, integer, intege
       -- (<stdbool.h>) above all, is placed at its name, where this
       -- tree spelled it, rather than in the header.
       local f, l, c = located(at, word)
-      if not tree.own(file) and tree.own(f) then
+      if not own(file) and own(f) then
         file, line, col = f, l, c
       end
       pos = pos + #word + 1
@@ -188,7 +188,7 @@ function tree.parse(dump: string, root?: string): {tree.Node}
     local kind = content:match("^(%S+)") or ""
     local id, file, line, col, text = header(at, content:sub(#kind + 1))
     if depth == 1 then
-      keeping = tree.own(file)
+      keeping = own(file)
     end
     if depth >= 1 and keeping then
       local parent = open[depth - 1]
@@ -252,7 +252,7 @@ end
 --- The first node under `node`, itself included, that was spelled in
 --- this tree's own C.
 local function own_within(node: tree.Node): tree.Node
-  if tree.own(node.file) then return node end
+  if own(node.file) then return node end
   for _, child in ipairs(node.children) do
     local found = own_within(child)
     if found ~= nil then return found end
@@ -269,7 +269,7 @@ function tree.place(node: tree.Node): string, integer
   if within ~= nil then return within.file, within.line end
   local at = node.parent
   while at ~= nil do
-    if tree.own(at.file) then return at.file, at.line end
+    if own(at.file) then return at.file, at.line end
     at = at.parent
   end
   return nil, nil

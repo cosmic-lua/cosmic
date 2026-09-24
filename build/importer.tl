@@ -34,6 +34,7 @@ local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
 local type compiler = require("build.compiler")
+local bind = require("build.bind")
 
 local type Module = positions.Module
 
@@ -61,8 +62,8 @@ end
 --- parse call: with the importer itself, the roots of
 --- `importer.analyzer_modules`.
 local analyzer_roots: {string} = {
-  "build.ast", "build.compiler", "build.doctest", "build.gen_syscalls",
-  "build.positions",
+  "build.ast", "build.bind", "build.compiler", "build.doctest",
+  "build.gen_syscalls", "build.positions",
 }
 
 --- The modules whose code decides what the analysis tables record: the
@@ -110,9 +111,7 @@ local bytecode_header =
   "\8\136\169\255\255\255\255\255\255" ..
   "\8\0\0\0\0\0\40\119\192"
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: `doc/guides/quickstart.md` compiles as
@@ -999,15 +998,7 @@ end
 --- it.
 local kept_runs = 100
 
---- Runs a statement that yields no rows, once, and readies it to run
---- again with other parameters.
-local function once(statement: Sqlite.Statement): boolean, string
-  local state, trouble = statement:step()
-  if state == nil then
-    return false, trouble
-  end
-  return statement:reset()
-end
+local once = bind.once
 
 --- The cached Lua under `key`, marked as used by this run, or nil
 --- when nothing is cached there.

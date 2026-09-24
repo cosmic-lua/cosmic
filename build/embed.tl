@@ -32,13 +32,12 @@ local work = require("build.work")
 local writer = require("build.writer")
 
 local log = require("build.verdict").log
+local bind = require("build.bind")
 
 local record embed
 end
 
-local function text(value: string): Sqlite.Value
-  return { text = value }
-end
+local text = bind.text
 
 --- One column of the row a statement is standing on, bound as what it
 --- was: a blob stays a blob, a null stays a null.

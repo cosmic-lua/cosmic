@@ -1,6 +1,6 @@
 --- One test, run in a process of its own: the other half of
 --- `build.test`, which starts this as `cosmic test --worker <root>
---- <module> <test> <tmp>` and alone records what it reports.
+--- <module> <test> <tmp> <children>` and alone records what it reports.
 ---
 --- The worker never opens the build database. It attaches the tree's
 --- compiled modules, loads the test's module, calls the one test with
@@ -57,6 +57,12 @@ local function unhex(data: string): string | nil
   end))
 end
 
+-- TODO: a report longer than Child's capture limit (16 MB) loses its
+-- head, and its test fails as one that never reported: an archive
+-- fuzz test's reads overran it under FUZZ_ITERS=2000 while every read
+-- of the test's own directory was noted twice. Drop repeated
+-- observations here, as
+-- `observations.join` does on the runner's side, or stream the report.
 local function encode_reads(lines: {string}, tag: string, found: {observations.Observation})
   for _, observation in ipairs(found) do
     lines[#lines + 1] = tag .. " " ..
@@ -181,12 +187,16 @@ end
 --- Runs the one test the command line names and writes its report.
 --- Exits 0 once the report is written, whatever the verdict; anything
 --- else means there is no report to read.
---- @param argv `cosmic test --worker <root> <module> <test> <tmp>`
+--- @param argv `cosmic test --worker <root> <module> <test> <tmp> <children>`,
+--- `children` a directory, not yet there, to collect the coverage of
+--- the processes the test starts in.
 function worker.run(argv: {integer:string}): integer
   local root, module_path, name, tmp = argv[3], argv[4], argv[5], argv[6]
-  if root == nil or module_path == nil or name == nil or tmp == nil then
+  local children_path = argv[7]
+  if root == nil or module_path == nil or name == nil or tmp == nil or
+      children_path == nil then
     local _, _ = Fs.put(Fs.stderr,
-      "cosmic: test --worker needs a root, a module, a test and a directory\n")
+      "cosmic: test --worker needs a root, a module, a test and two directories\n")
     return 2
   end
   local attached, attach_trouble = Store.attach(root .. "/o/cosmic.db")
@@ -200,12 +210,19 @@ function worker.run(argv: {integer:string}): integer
   }
   -- Processes the test starts report the core's C they ran here, so it
   -- counts for the test like the C it runs itself.
-  local children, _ = Fs.mkdtemp("cosmic-test-children-")
+  local made, _ = sys.mkdir(children_path, 0x1c0)
+  local children = made and children_path or nil
   if children ~= nil then Coverage.children(children) end
   local load_session, _ = Coverage.start()
+  -- A read outside the tree is resolved as it is read, in case it
+  -- names a file of the tree through a link: the test's own directory's
+  -- links included.
+  local resolving: observations.Resolving = { tree = root, own = { tmp } }
+  local resolved_tmp, _ = Fs.absolute(tmp)
+  if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
   local loaded, produced, load_reads = observations.capture(function(): any
     return require(module_path)
-  end)
+  end, resolving)
   if load_session ~= nil then
     local hits, _ = Coverage.stop(load_session)
     report.load_hits = hits
@@ -221,7 +238,7 @@ function worker.run(argv: {integer:string}): integer
     else
       local test_session, _ = Coverage.start()
       local started = Time.monotonic_ns()
-      local run = observations.call(fn, tmp)
+      local run = observations.call(fn, tmp, resolving)
       local finished = Time.monotonic_ns()
       if test_session ~= nil then
         local hits, _ = Coverage.stop(test_session)

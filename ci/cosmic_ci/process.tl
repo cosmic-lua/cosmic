@@ -16,6 +16,7 @@ local record Process
     handle: Child.Handle
     out_fd: integer
     err_fd: integer
+    input_fd: integer | nil
     out: string
     err: string
     closed: boolean
@@ -35,27 +36,53 @@ function Process.host_uname(work: string, diagnostics: string, flag: string,
     "uname " .. flag .. " produced no output"))
 end
 
+-- Starts `argv`, its streams in files under `diagnostics` named for
+-- `label`, and its stdin read from the file `input` when one is given.
 function Process.start(label: string, argv: {string}, cwd: string,
-    values: {string:string}, diagnostics: string): Process.Running
+    values: {string:string}, diagnostics: string,
+    input?: string): Process.Running
   local out = diagnostics .. "/" .. label .. ".out"
   local err = diagnostics .. "/" .. label .. ".err"
   local out_fd = assert(Fs.open_write(out))
-  local err_fd = assert(Fs.open_write(err))
+  local err_fd, err_trouble = Fs.open_write(err)
+  if err_fd == nil then
+    Fs.close(out_fd)
+    error(label .. ": " .. err_trouble)
+  end
+  local input_fd: integer | nil = nil
+  if input then
+    local opened, input_trouble = Fs.open_read(input)
+    if opened == nil then
+      Fs.close(out_fd); Fs.close(err_fd)
+      error(label .. ": " .. input_trouble)
+    end
+    input_fd = opened
+  end
   local options: Child.Options = { cwd = cwd, env = values,
     stdout = out_fd, stderr = err_fd, process_group = false }
+  if input_fd then options.stdin = input_fd end
   local handle, trouble = Child.start(argv, options)
   if handle == nil then
+    if input_fd then Fs.close(input_fd) end
     Fs.close(out_fd); Fs.close(err_fd)
     error(label .. ": " .. trouble)
   end
   return { label = label, handle = handle, out_fd = out_fd, err_fd = err_fd,
-    out = out, err = err, closed = false }
+    input_fd = input_fd, out = out, err = err, closed = false }
 end
 
 local function close_descriptors(running: Process.Running)
   if not running.closed then
-    assert(Fs.close(running.out_fd)); assert(Fs.close(running.err_fd))
     running.closed = true
+    local input_closed, input_trouble = true, ""
+    if running.input_fd then
+      input_closed, input_trouble = Fs.close(running.input_fd)
+    end
+    local out_closed, out_trouble = Fs.close(running.out_fd)
+    local err_closed, err_trouble = Fs.close(running.err_fd)
+    assert(input_closed, input_trouble)
+    assert(out_closed, out_trouble)
+    assert(err_closed, err_trouble)
   end
 end
 

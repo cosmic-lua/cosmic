@@ -324,8 +324,40 @@ end
 --- it there (`os.getenv` names `Env.get`), or `module not found: 'io'`
 --- for a `require`. `cosmic.removed`'s `message` says it, the same
 --- words `core/surface.c` raises with when a running program reaches
---- for the name. Nil for every other message.
+--- for the name. For `invalid key 'hex' in record 'Digest' of type
+--- Hash`, where `source` binds the type's own name, `Hash`, to
+--- `require("cosmic.hash")` (`local Hash <const> = require(...)`: the
+--- checker names a module's record after the local its `require` was
+--- first bound to, whatever alias reads it now) and `cosmic.removed`'s
+--- `members` names `cosmic.hash.hex`, what to write instead of that
+--- member. A record of the program's own, or a type bound to more than
+--- one module, has no answer; nor does a module bound among several
+--- names (`local A, Hash = ...`) or by a line that does not start with
+--- its `local` (`do local Hash = ...`). Scope is not read: a `require`
+--- in a nested block counts as if it were the file's own. Nil for every
+--- other message.
 function teal.replacement(msg: string, source: string, y: integer, x: integer): string | nil
+  local key, alias, typename = msg:match(
+    "^invalid key '([%a_][%w_]*)' in record '([%a_][%w_]*)' of type ([%a_][%w_]*)$")
+  if key ~= nil then
+    local module: string | nil = nil
+    local head = "^%s*local%s+" .. typename
+    local tail = "%s*=%s*require%(%s*[\"']([%w_.]+)[\"']%s*%)"
+    for line in source:gmatch("[^\n]+") do
+      local named = line:match(head .. tail) or line:match(head .. "%s*<%s*%a+%s*>" .. tail)
+      if named ~= nil then
+        if module ~= nil and module ~= named then
+          return nil
+        end
+        module = named
+      end
+    end
+    local instead = module ~= nil and Removed.members[module .. "." .. key] or nil
+    if instead == nil then
+      return nil
+    end
+    return alias .. "." .. key .. " was removed: " .. instead
+  end
   local name = msg:match("^unknown variable: ([%a_][%w_]*)$")
   local field: string | nil = nil
   if name ~= nil then

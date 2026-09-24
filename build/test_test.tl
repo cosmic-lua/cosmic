@@ -217,3 +217,85 @@ local function test_a_changed_environment_answer_is_unstable(tmp: string)
   local _, stable = test.verdict_key(tmp, {}, "path name", "modkey", "runtime", reads, {})
   assert(not stable)
 end
+
+--- A file of the tree named through a link from outside it, present or
+--- not, is the tree's file, keyed by what the read resolved
+--- to as the test made it (its "r" observation); a link inside the tree
+--- to a file outside it is still outside once resolved, and a read with
+--- no resolution recorded is outside.
+local function test_a_tree_path_through_a_link_keys_as_the_tree_path(tmp: string)
+  local root = assert(Fs.absolute(tmp)) .. "/root"
+  local elsewhere = assert(Fs.absolute(tmp)) .. "/elsewhere"
+  assert(Fs.mkdirs(root .. "/sub"))
+  assert(Fs.mkdirs(elsewhere))
+  assert(Fs.write(root .. "/sub/a.txt", "hello"))
+  assert(Fs.write(elsewhere .. "/b.txt", "outside"))
+  assert(Fs.symlink(root, elsewhere .. "/in"))
+  assert(Fs.symlink(elsewhere .. "/b.txt", root .. "/out"))
+  local scratch = tmp .. "/scratch"
+  for _, name in ipairs({ "sub/a.txt", "sub/missing/c.txt" }) do
+    local direct: {observations.Observation} = { { kind = "s", path = root .. "/" .. name,
+      answer = observations.stat_answer(root .. "/" .. name) } }
+    local through = elsewhere .. "/in/" .. name
+    local unresolved: {observations.Observation} = { { kind = "s",
+      path = through, answer = direct[1].answer } }
+    assert(not test.keyable(root, scratch, unresolved), name)
+    local linked: {observations.Observation} = { unresolved[1],
+      { kind = "r", path = through, answer = observations.resolution(through) } }
+    assert(test.keyable(root, scratch, linked), name)
+    local key1, stable1 = test.verdict_key(root, {}, "p n", "m", "r", direct, {})
+    local key2, stable2 = test.verdict_key(root, {}, "p n", "m", "r", linked, {})
+    assert(stable1 and stable2 and key1 ~= key2, name)
+    -- A later run looks the verdict up from the stored reads, which
+    -- carry no answers: it finds the key the run recorded.
+    local stored: {observations.Observation} = {
+      { kind = "s", path = through, answer = "" },
+      { kind = "r", path = through, answer = "" },
+    }
+    local later, stable3 = test.verdict_key(root, {}, "p n", "m", "r", stored, {})
+    assert(stable3 and later == key2, name)
+  end
+  local out = elsewhere .. "/in/out"
+  assert(not test.keyable(root, scratch, { { kind = "o", path = out, answer = "" },
+    { kind = "r", path = out, answer = observations.resolution(out) } }))
+  -- A path that climbs is judged by what it resolved to, and without a
+  -- resolution (a relative one has none) it is outside.
+  local climbing = root .. "/sub/../sub/a.txt"
+  assert(observations.resolution(climbing) == root .. "/sub/a.txt")
+  assert(not test.keyable(root, scratch, { { kind = "o", path = climbing, answer = "" } }))
+  assert(test.keyable(root, scratch, { { kind = "o", path = climbing, answer = "" },
+    { kind = "r", path = climbing, answer = observations.resolution(climbing) } }))
+  assert(not test.keyable(root, scratch, { { kind = "o", path = "../a.txt", answer = "" } }))
+  assert(observations.resolution(root .. "/gone/../sub/a.txt") ==
+    root .. "/gone/../sub/a.txt")
+end
+
+--- A read through a link outside the tree keys by where the link led
+--- when the test read it: a link retargeted since, or during the run,
+--- keys differently, or does not stand at all.
+local function test_a_retargeted_link_does_not_stand(tmp: string)
+  local base = assert(Fs.absolute(tmp))
+  local root = base .. "/root"
+  assert(Fs.mkdirs(root .. "/a"))
+  assert(Fs.mkdirs(root .. "/b"))
+  assert(Fs.write(root .. "/a/f", "good"))
+  assert(Fs.write(root .. "/b/f", "good"))
+  assert(Fs.symlink(root .. "/a", base .. "/link"))
+  local read = base .. "/link/f"
+  local reads: {observations.Observation} = {
+    { kind = "o", path = read, answer = "" },
+    { kind = "r", path = read, answer = observations.resolution(read) },
+  }
+  local before, stable = test.verdict_key(root, {}, "p n", "m", "r", reads, {})
+  assert(stable)
+  assert(Fs.remove(base .. "/link"))
+  assert(Fs.symlink(root .. "/b", base .. "/link"))
+  local _, still = test.verdict_key(root, {}, "p n", "m", "r", reads, {})
+  assert(not still)
+  local stored: {observations.Observation} = {
+    { kind = "o", path = read, answer = "" },
+    { kind = "r", path = read, answer = "" },
+  }
+  local after, _ = test.verdict_key(root, {}, "p n", "m", "r", stored, {})
+  assert(after ~= before)
+end

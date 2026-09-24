@@ -793,6 +793,10 @@ local function test_a_familiar_command_finds_its_stand_in()
   -- Read from this tree's own o/cosmic.db, which the build rewrites
   -- before any test runs: a doc comment edit changes that file, and
   -- so this test's verdict key, and the test runs again.
+  -- TODO: SQLite opens that file in C, which the verdict key does not
+  -- observe, so this test stands across a rewrite of it; open it
+  -- through `Fs` first, as build/exports_test.tl does, or have
+  -- build.filesystem_observations see an `Sqlite.open`.
   local handles = docs.databases()
   local public: {boolean} = {}
   for index = 1, #handles do public[index] = true end

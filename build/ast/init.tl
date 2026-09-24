@@ -22,8 +22,7 @@ local record AstModule
   type Hit = Hit
   type Refusal = Refusal
   type RewriteResult = RewriteResult
-  parse: function(built: compiler, source: string, name: string,
-                  lang?: string): Parsed | nil, string
+  parse: function(built: compiler, source: string, name: string): Parsed | nil, string
   walk: function(node: Node, visit: function(Node))
   children: function(node: Node, skipped?: {string: boolean}): {Node}
   span_start: function(node: Node): integer, integer

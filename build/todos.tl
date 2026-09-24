@@ -493,11 +493,8 @@ function todos.run(argv: {integer:string}): integer
   -- (or refuses, under COSMIC_AUTO_BOOT=0). A read-only verb could go
   -- on once the Teal side is fresh, which reboot.state would have to
   -- tell apart from both.
-  local code, reboot_trouble = reboot.ensure(root, argv)
+  local code = reboot.stale_exit(argv)
   if code ~= nil then
-    if reboot_trouble ~= "" then
-      log:complain(reboot_trouble)
-    end
     return code
   end
   local parsed, parse_trouble = Flags.parse(argv, 2, { ["--oldest"] = false })

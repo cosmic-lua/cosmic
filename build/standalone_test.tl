@@ -41,6 +41,38 @@ local function test_a_removed_field_names_its_replacement()
     "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text)", 1, true) ~= nil, trouble)
 end
 
+--- A member a `cosmic.*` module no longer has is told, under the alias
+--- the file gave the module, what to write instead.
+local function test_a_removed_member_names_its_replacement()
+  local chunk, trouble = standalone.compile("old.tl",
+    'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:2:15: invalid key 'hex' in record 'Digest' of type Digest " ..
+    "-- Digest.hex was removed: use Codec.hex(digest)", 1, true) ~= nil, trouble)
+end
+
+--- A `<const>` binding, and a second alias of it, are the module still.
+local function test_a_removed_member_is_named_through_const_and_alias()
+  local chunk, trouble = standalone.compile("old.tl",
+    'local Zip <const> = require("cosmic.zip")\nlocal Z = Zip\n' ..
+    'return Z.list("a.zip")\n')
+  assert(chunk == nil)
+  assert(trouble:find("old.tl:3:10: invalid key 'list' in record 'Z' of type Zip " ..
+    "-- Z.list was removed: use Archive.list(path)", 1, true) ~= nil, trouble)
+end
+
+--- A record of the file's own named like a module's alias is not that
+--- module: no replacement is offered for its missing field.
+local function test_a_shadowing_record_is_not_told_a_replacement()
+  local chunk, trouble = standalone.compile("old.tl",
+    'local Zip = require("cosmic.zip")\nlocal record R\n  x: integer\nend\n' ..
+    'local function f(Zip: R): integer\n  return Zip.list\nend\n' ..
+    'return { f = f, zip = Zip }\n')
+  assert(chunk == nil)
+  assert(trouble:find("invalid key 'list' in record 'Zip' of type R", 1, true) ~= nil, trouble)
+  assert(trouble:find("was removed", 1, true) == nil, trouble)
+end
+
 local function test_a_record_with_main_is_an_entry_point()
   local function main(): integer
     return 7

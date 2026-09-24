@@ -60,4 +60,41 @@ function Example.one_of()
   assert(err == '$: expected one of "debug", "info", "warn", got "loud"', err)
 end
 
+--- A map from names to numbers: `map` checks every value, and `number`
+--- takes an integer and a float alike.
+function Example.map()
+  local WEIGHTS <const> = Shape.map(Shape.number)
+  local weights, err: {string: number} | nil, string =
+    Shape.into(Json.decode('{"lua": 2, "teal": 0.5}'), WEIGHTS)
+  assert(weights ~= nil, err)
+  print(weights.lua, weights.teal)
+  assert(weights.lua == 2 and weights.teal == 0.5)
+end
+
+--- A field that may be one string or a list of them: `either` tries
+--- each shape in turn. `any` takes a value as it is, unchecked.
+function Example.either()
+  local record Target
+    names: string | {string}
+    extra: any
+  end
+  local TARGET <const> = Shape.record({
+    names = Shape.either(Shape.string, Shape.list(Shape.string)),
+    extra = Shape.any,
+  })
+  local one, err: Target | nil, string =
+    Shape.into(Json.decode('{"names": "a", "extra": [1, {}]}'), TARGET)
+  assert(one ~= nil, err)
+  assert(one.names == "a")
+  local many, many_err: Target | nil, string =
+    Shape.into(Json.decode('{"names": ["a", "b"], "extra": true}'), TARGET)
+  assert(many ~= nil, many_err)
+  local names = many.names
+  assert(names is {string} and #names == 2)
+  local _, why: Target | nil, string =
+    Shape.into(Json.decode('{"names": 3, "extra": true}'), TARGET)
+  print(why)
+  assert(why ~= "")
+end
+
 return Example
