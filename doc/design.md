@@ -106,7 +106,7 @@ kernel                               Linux; macOS
     mbedtls, miniz, argon2,          vendored pristine
     a regex engine
     bzip2, xz, c-ares, curl,         vendored pristine
-    yyjson, Mozilla's CA roots
+    yyjson, vec1, Mozilla's CA roots
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
@@ -543,7 +543,8 @@ patched copy to `o/vendor/<name>`; a record whose anchor no longer
 matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
-xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, and tl;
+xz's liblzma decoder, c-ares, curl, yyjson, SQLite's vec1 extension,
+Mozilla's CA bundle, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
 hand-written one under `core/` (`curl_config.h`, `ares_config.h`,

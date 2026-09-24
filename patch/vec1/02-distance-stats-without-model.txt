@@ -1,0 +1,19 @@
+file: vec1.c
+note: Reading every column of a row a scan (not a nearest-neighbour
+  query) found -- which an UPDATE of a vec1 table does -- computes the
+  hidden `distance` column's statistics, and on a table with no trained
+  model (index "none" or "flat") that transforms the vector into
+  aTmpVec, a buffer only a trained model allocates: memcpy into NULL,
+  and a crash. Upstream trunk only transforms when there is a model to
+  transform with; this is that part of trunk's vec1DistanceStats,
+  taken back onto 0.7 (03-distance-stats-zero-norm is the rest). Drop
+  it once the PIN names a release past 0.7 that carries it.
+--- find
+      aTransform = vec1TransformInputVector(pMod, pTab->aTmpVec, aVec); 
+      fNorm = vec1VectorNorm2(aTransform, nElem);
+--- replace
+      if( pMod->hdr.nBucket>1 || pMod->hdr.nCodebook>0 ){
+        aTransform = vec1TransformInputVector(pMod, pTab->aTmpVec, aVec); 
+        fNorm = vec1VectorNorm2(aTransform, nElem);
+      }
+--- end

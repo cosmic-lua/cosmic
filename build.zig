@@ -445,6 +445,7 @@ pub fn build(b: *std.Build) void {
     const cares = patched(b, applier, "cares");
     const curl = patched(b, applier, "curl");
     const yyjson = patched(b, applier, "yyjson");
+    const vec1 = patched(b, applier, "vec1");
 
     // The patched copies land under o/vendor, which is where the boot
     // bridge reads the Teal compiler from.
@@ -455,6 +456,7 @@ pub fn build(b: *std.Build) void {
         .{ "mbedtls", mbedtls }, .{ "bzip2", bzip2 },
         .{ "xz", xz },           .{ "cares", cares },
         .{ "curl", curl },       .{ "yyjson", yyjson },
+        .{ "vec1", vec1 },
     }) |pair| {
         const install = b.addInstallDirectory(.{
             .source_dir = pair[1],
@@ -622,7 +624,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
-    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson };
+    const sources: Sources = .{ .lua = lua, .sqlite = sqlite, .miniz = miniz, .mbedtls = mbedtls, .bzip2 = bzip2, .xz = xz, .cares = cares, .curl = curl, .yyjson = yyjson, .vec1 = vec1 };
 
     for (targets) |t| {
         const resolved = b.resolveTargetQuery(t.query);
@@ -633,7 +635,7 @@ pub fn build(b: *std.Build) void {
         );
         cores.dependOn(&out.step);
 
-        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson, true, .off);
+        const hooked = core(b, t, release_configuration, resolved, lua, sqlite, miniz, mbedtls, bzip2, xz, cares, curl, yyjson, vec1, true, .off);
         const hooked_out = b.addInstallFile(
             hooked.getEmittedBin(),
             b.fmt("portable-fixture/core/{s}/cosmic-core", .{t.name}),
@@ -893,6 +895,7 @@ const Sources = struct {
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
+    vec1: std.Build.LazyPath,
 };
 
 /// A core that observes its own C: linked first with an empty block table
@@ -909,13 +912,13 @@ fn observedCore(
     target: std.Build.ResolvedTarget,
     sources: Sources,
 ) *std.Build.Step.Compile {
-    const first = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, false, .first_link);
+    const first = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, sources.vec1, false, .first_link);
     const write_map = b.addRunArtifact(mapper);
     write_map.addArg("write");
     write_map.addFileArg(first.getEmittedBin());
     write_map.addArg(b.pathFromRoot("."));
     const map = write_map.addOutputFileArg("coverage_map.c");
-    const second = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, false, .{ .map = map });
+    const second = core(b, target_record, configuration, target, sources.lua, sources.sqlite, sources.miniz, sources.mbedtls, sources.bzip2, sources.xz, sources.cares, sources.curl, sources.yyjson, sources.vec1, false, .{ .map = map });
     const check_map = b.addRunArtifact(mapper);
     check_map.addArg("check");
     check_map.addFileArg(first.getEmittedBin());
@@ -938,6 +941,7 @@ fn core(
     cares: std.Build.LazyPath,
     curl: std.Build.LazyPath,
     yyjson: std.Build.LazyPath,
+    vec1: std.Build.LazyPath,
     portable_startup_test_hooks: bool,
     native_coverage: NativeCoverage,
 ) *std.Build.Step.Compile {
@@ -1026,6 +1030,41 @@ fn core(
         .flags = sqlite_flags,
     });
     mod.addIncludePath(sqlite);
+
+    // vec1, the SQLite project's vector search extension, compiled into
+    // the core and registered on every connection core/sqlite.c opens
+    // (loading extensions is compiled out above). Its worker threads are
+    // off, as SQLite's own are. Its entry point is renamed from the
+    // loadable-extension name every extension shares. On x86_64 it is
+    // built twice, scalar and AVX2, and chooses between them when a
+    // connection opens: the baseline core cannot assume AVX2. aarch64
+    // always has NEON, which vec1 uses unconditionally there. The
+    // sanitized core keeps its assertions.
+    // TODO: no test enters the scalar x86_64 build on a host with AVX2,
+    // which every CI runner has. A way to force it (an environment
+    // variable vec1HasAvx2 reads, as a patch record) would let
+    // core/vec1_test.tl run both.
+    const vec1_base = [_][]const u8{
+        "-std=c11",
+        "-DVEC1_STATIC",
+        "-DVEC1_THREADS=0",
+        "-Dsqlite3_extension_init=cosmic_vec1_init",
+    };
+    const vec1_release = vec1_base ++ [_][]const u8{"-DNDEBUG"};
+    const vec1_flags: []const []const u8 =
+        if (configuration.sanitize) &vec1_base else &vec1_release;
+    if (target.result.cpu.arch == .x86_64) {
+        mod.addCSourceFile(.{
+            .file = vec1.path(b, "vec1.c"),
+            .flags = std.mem.concat(b.allocator, []const u8, &.{ vec1_flags, &.{"-DVEC1SIMD=SCALAR"} }) catch @panic("OOM"),
+        });
+        mod.addCSourceFile(.{
+            .file = vec1.path(b, "vec1.c"),
+            .flags = std.mem.concat(b.allocator, []const u8, &.{ vec1_flags, &.{ "-DVEC1SIMD=AVX2", "-mavx2", "-mfma" } }) catch @panic("OOM"),
+        });
+    } else {
+        mod.addCSourceFile(.{ .file = vec1.path(b, "vec1.c"), .flags = vec1_flags });
+    }
 
     // miniz reaches for fseeko/ftello, which are POSIX rather than C11.
     // Its zlib-compatible aliases are off: the core calls the mz_ names,

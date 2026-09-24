@@ -1,0 +1,11 @@
+file: vec1.c
+note: With no model to transform with (02-distance-stats-without-model),
+  the norm vec1DistanceStats divides by stays 0, and its errors would be
+  0/0. Upstream trunk reports them as 0; drop this with 02.
+--- find
+          iBucket, sqrt(fCoarseError/fNorm), sqrt(fReconError/fNorm)
+--- replace
+          iBucket,
+          fNorm==0.0 ? 0.0 : sqrt(fCoarseError/fNorm),
+          fNorm==0.0 ? 0.0 : sqrt(fReconError/fNorm)
+--- end

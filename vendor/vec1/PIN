@@ -1,0 +1,5 @@
+version 0.7
+url https://sqlite.org/vec1/tarball/8fc7b115a4724ffe89a370deefbee3baadcf195ecb5e69dc89ec4c7b0b401447/vec1.tar.gz
+sha256 5f82bbe6472e5293eef20a40274e31f9360482cf8037abf050b9bc1a886637fc
+strip vec1/
+keep vec1.c

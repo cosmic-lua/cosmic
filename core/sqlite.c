@@ -161,6 +161,12 @@ static const struct function functions[] = {
   {"hmac", 3, hmac_function},
 };
 
+/* vec1, the SQLite project's vector search extension, built into the core
+ * under this name (build.zig); it adds the `vec1` virtual table and its
+ * functions to a connection. */
+int cosmic_vec1_init (sqlite3 *db, char **message,
+                      const sqlite3_api_routines *api);
+
 static int sqlite_open (lua_State *L) {
   size_t path_len;
   const char *path = luaL_checklstring(L, 1, &path_len);
@@ -192,6 +198,11 @@ static int sqlite_open (lua_State *L) {
         h->db, functions[i].name, functions[i].arity,
         SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL,
         functions[i].call, NULL, NULL);
+  }
+  if (rc == SQLITE_OK) {
+    char *message = NULL;
+    rc = cosmic_vec1_init(h->db, &message, NULL);
+    sqlite3_free(message);
   }
   if (rc != SQLITE_OK) {
     int result = failed(L, h->db, rc);

@@ -77,7 +77,11 @@ end
 --- the algorithm A names (the names `cosmic.hash` takes), and
 --- `hmac(A, K, X)`, the HMAC of X under key K over A; a NULL argument
 --- gives NULL. `lower(hex(sha256(X)))` is the form the build writes
---- into keys.
+--- into keys. Every handle also has vec1, the SQLite project's vector
+--- search (https://sqlite.org/vec1): `CREATE VIRTUAL TABLE t USING
+--- vec1(vector, meta...)`, then `SELECT rowid, distance FROM t(?1, k)`
+--- for the k nearest to a vector, which is a blob of 32-bit floats in
+--- the machine's order (`string.pack("=fff", x, y, z)`).
 function Sqlite.open(path: string, writable?: boolean): Sqlite.Handle | nil, string
   return sqlite.open(path, writable)
 end

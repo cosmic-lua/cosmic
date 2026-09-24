@@ -1,0 +1,27 @@
+file: vec1.c
+note: vec1 chooses its AVX2 build at run time with GCC and clang's
+  __builtin_cpu_supports, which reads __cpu_model, a variable libgcc and
+  LLVM's compiler-rt set up at startup. Zig's compiler-rt has neither it
+  nor __cpu_indicator_init, so the x86_64 core fails to link. Ask the
+  processor instead: cpuid for AVX, FMA and AVX2, and xgetbv for the
+  operating system saving the YMM registers. FMA is checked too, since
+  the AVX2 build is compiled with -mfma and vec1 checks AVX2 alone.
+--- find
+static int vec1HasAvx2(){
+  /* Clang/GCC */
+  __builtin_cpu_init();
+  return __builtin_cpu_supports("avx2");
+}
+--- replace
+#  include <cpuid.h>
+static int vec1HasAvx2(void){
+  unsigned int a, b, c, d, lo, hi;
+  if( !__get_cpuid(1, &a, &b, &c, &d) ) return 0;
+  if( !(c & bit_OSXSAVE) || !(c & bit_AVX) || !(c & bit_FMA) ) return 0;
+  __asm__ __volatile__("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+  (void)hi;
+  if( (lo & 0x6)!=0x6 ) return 0;
+  if( !__get_cpuid_count(7, 0, &a, &b, &c, &d) ) return 0;
+  return (b & bit_AVX2)!=0;
+}
+--- end

@@ -25,6 +25,10 @@
  * matches or more than one is an error naming the record.
  *
  * A missing patch directory is not an error; the copy is then pristine.
+ *
+ * TODO: bytes after a record's `--- end` are ignored without a word, so a
+ * second find/replace pair written into one record is silently dropped.
+ * Refuse trailing content, or accept several pairs per record.
  */
 
 #define _XOPEN_SOURCE 700
