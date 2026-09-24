@@ -17,9 +17,13 @@ permissions:
 
 # A newer push supersedes a branch's run, but every main run finishes: its
 # zig build cache is the one every other branch can restore, and its
-# prerelease is published only from a completed run.
+# prerelease is published only from a completed run. So each main commit
+# is a group of its own: one shared group would queue each main run behind
+# the last (minutes, with the merge queue landing back to back), and
+# GitHub keeps only one pending run per group, cancelling the one queued
+# before it when a third arrives.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -157,14 +161,18 @@ jobs:
           # outside the checkout; the driver seeds and saves only the
           # project cache, which bin/zig keeps under o/.
           echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
+          # Where the zig-build cache above was restored, for the driver's
+          # build and cache-save phases. Spelled from $RUNNER_TEMP, not
+          # `runner.temp`: in the alpine job container the expression is
+          # the host's path, which does not exist there, so the seed was
+          # never found and that leg recompiled vendor/ and core/ each run.
+          echo "COSMIC_ZIG_CACHE_SEED=$RUNNER_TEMP/zig-build" >> "$GITHUB_ENV"
 
       - name: check the pinned CI driver
         run: cosmic-driver test cosmic_ci
 
       - name: build release Cosmic and run its native suite
         id: release-suite
-        env:
-          COSMIC_ZIG_CACHE_SEED: ${{ runner.temp }}/zig-build
         run: cosmic-driver cosmic_ci/driver.tl platform build
 
       - name: verify the delayed native database boundary
@@ -181,8 +189,6 @@ jobs:
       # content addressing makes restored entries safe to validate and reuse.
       - name: save zig build outputs for next run
         if: always() && steps.driver.outcome == 'success'
-        env:
-          COSMIC_ZIG_CACHE_SEED: ${{ runner.temp }}/zig-build
         run: cosmic-driver cosmic_ci/driver.tl platform cache-save
 
       - name: run the product suite from fresh tracked source
