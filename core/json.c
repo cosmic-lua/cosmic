@@ -28,9 +28,6 @@
  * level, on the C stack. */
 #define DEFAULT_DEPTH 64
 #define MAX_DEPTH 1000
-/* TODO: cosmic/json.tl's docs spell this range out again ("1 to 1000");
- * put MAX_DEPTH and DEFAULT_DEPTH in the raw module's table so the Teal
- * side reads them rather than repeating them. */
 
 /* An array with holes whose highest index is past this and past twice
  * its count of values is refused even with `sparse_as_null`: a table
@@ -798,5 +795,9 @@ int cosmic_open_json (lua_State *L) {
   luaL_newlib(L, module);
   lua_insert(L, -2);
   lua_setfield(L, -2, "null");
+  lua_pushinteger(L, DEFAULT_DEPTH);
+  lua_setfield(L, -2, "default_depth");
+  lua_pushinteger(L, MAX_DEPTH);
+  lua_setfield(L, -2, "depth_limit");
   return 1;
 }
