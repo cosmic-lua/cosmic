@@ -17,6 +17,11 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 
 local record Notes
+  --- How many tests and examples passed.
+  record Evidence
+    tests: integer
+    examples: integer
+  end
 end
 
 local function say(line: string)
@@ -88,14 +93,14 @@ end
 
 --- How many tests and examples passed in the runs a build database
 --- records; a doctest is an example.
-function Notes.evidence(path: string): integer | nil, integer, string
+function Notes.evidence(path: string): Notes.Evidence | nil, string
   local present, trouble = Fs.exists(path)
   if not present then
-    return nil, 0, present == nil and trouble or path .. ": no build database"
+    return nil, present == nil and trouble or path .. ": no build database"
   end
   local db, otrouble = Sqlite.open(path)
   if db == nil then
-    return nil, 0, otrouble
+    return nil, otrouble
   end
   local rows, rtrouble = Sqlite.text_rows(db, [[
     select i.kind, i.origin, count(*)
@@ -107,7 +112,7 @@ function Notes.evidence(path: string): integer | nil, integer, string
   -- answer is the one that counts.
   local _, _ = Sqlite.close(db)
   if rows == nil then
-    return nil, 0, rtrouble
+    return nil, rtrouble
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do
@@ -119,7 +124,7 @@ function Notes.evidence(path: string): integer | nil, integer, string
       examples = examples + n
     end
   end
-  return tests, examples, ""
+  return { tests = tests, examples = examples }, ""
 end
 
 --- One grading run: where it writes its logs, and whether anything
@@ -312,13 +317,14 @@ function Notes.grade(dir: string): integer
   end)
   command_step(g, { cosmic, "test" }, project)
   step(g, "evidence check " .. db, function(out: integer): boolean
-    local tests, examples, trouble = Notes.evidence(db)
-    if tests == nil then
+    local evidence, trouble = Notes.evidence(db)
+    if evidence == nil then
       local _, _ = Fs.put(out, trouble .. "\n")
       return false
     end
-    local _, _ = Fs.put(out, "evidence: " .. tests .. " tests, " .. examples .. " examples\n")
-    return tests > 0 and examples > 0
+    local _, _ = Fs.put(out, "evidence: " .. evidence.tests .. " tests, " ..
+      evidence.examples .. " examples\n")
+    return evidence.tests > 0 and evidence.examples > 0
   end)
   command_step(g, { cosmic, "fix", "--check" }, project)
   local built = command_step(g, { cosmic, "build" }, project)

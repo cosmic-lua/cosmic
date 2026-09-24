@@ -229,6 +229,28 @@ local function served(text: string): Served
   }
 end
 
+--- A `cosmic.*` module from this binary's own sources, under the name
+--- it would have on disk below `at`; nil for any other name.
+local function standard(name: string, at: string): string | nil, any
+  if name:sub(1, 7) ~= "cosmic." then
+    return nil
+  end
+  local source, _ = Store.source(name)
+  if source == nil then
+    return nil
+  end
+  return at .. name:gsub("%.", "/") .. ".tl", served(source)
+end
+
+--- Points the checker at this binary's own `cosmic.*` sources and
+--- nothing else: no path is searched, and any other name is not found.
+function teal.serve_standard(built: compiler)
+  built.path = ""
+  built.search_module = function(name: string, _search_all: boolean): string | nil, any
+    return standard(name, "")
+  end
+end
+
 --- Points the checker at a staged tree: every module it asks for by
 --- name is answered from the working database's `inputs`, a
 --- declaration ahead of a source of the same name, under the name the
@@ -253,13 +275,7 @@ local function serve(built: compiler, handle: work.Handle)
       return root .. "/" .. stem .. (kind == "decl" and ".d.tl" or ".tl"),
         served(source)
     end
-    if name:sub(1, 7) == "cosmic." then
-      local source, _ = Store.source(name)
-      if source ~= nil then
-        return root .. "/" .. stem .. ".tl", served(source)
-      end
-    end
-    return nil
+    return standard(name, root .. "/")
   end
 end
 

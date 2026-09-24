@@ -50,6 +50,9 @@ local record TypeNode
   --- A tuple type's members: a function's argument or return types, and
   --- the type list a `local` declaration carries after its names.
   tuple: {TypeNode} | nil
+  --- A tuple whose last member repeats (`...: T`, or `T...` in a
+  --- function's results).
+  is_va: boolean | nil
   --- A union's alternatives.
   types: {TypeNode} | nil
 
