@@ -16,6 +16,7 @@
 #include "json.h"
 #include "guard.h"
 #include "memory.h"
+#include "observed.h"
 #include "portable.h"
 #include "sqlite.h"
 #include "startup.h"

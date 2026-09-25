@@ -10,7 +10,6 @@
 #include <limits.h>
 #include <poll.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +42,7 @@ extern long syscall (long, ...);
 #include "fault.h"
 #include "guard.h"
 #include "memory.h"
+#include "observed.h"
 #include "lauxlib.h"
 #include "executable.h"
 #include "crypto.h"
@@ -68,6 +68,14 @@ const char *cosmic_path (lua_State *L, int index) {
 }
 
 COSMIC_SYSCALL(executable, 0) {
+  if (cosmic_observing) {
+    return cosmic_observed_call(L, COSMIC_OBSERVED_EXECUTABLE,
+                                cosmic_query_executable);
+  }
+  return cosmic_query_executable(L);
+}
+
+int cosmic_query_executable (lua_State *L) {
   lua_getfield(L, LUA_REGISTRYINDEX, COSMIC_LOGICAL_EXECUTABLE);
   if (lua_isstring(L, -1)) return 1;
   lua_pop(L, 1);
@@ -1511,15 +1519,14 @@ COSMIC_SYSCALL(cancelled_child_signal, 0) {
   return 1;
 }
 
-/* What the table's queries answered while observing is on: the log
- * build.filesystem_observations drains, with `observed`, into the reads
- * of the test running, and turns on and off with `observe`. Every call
- * of `cosmic.sys` comes through its dispatch (`dispatch_<name>` below),
- * which, observing off, costs a branch; on, it logs what the call was
- * asked and answered, whoever called it -- a module that took the call
- * before a capture began, or a Teal function over it -- in one buffer
- * on the core's own heap. Nothing here calls Lua: a record is bytes,
- * turned into Lua values only when drained. */
+/* What the table's queries answered while observing is on
+ * (core/observed.h): the log build.filesystem_observations drains, with
+ * `observed`, into the reads of the test running, and turns on and off
+ * with `observe`. Each record is of what a query was asked and
+ * answered, whoever called it -- a module that took the call before a
+ * capture began, or a Teal function over it -- in one buffer on the
+ * core's own heap. Nothing here calls Lua: a record is bytes, turned
+ * into Lua values only when drained. */
 
 /* The calls a record is kept of, each a query that changes nothing and
  * answers `value|nil, error, errno`: one whose record cannot be kept
@@ -1535,25 +1542,6 @@ static const struct observed_call {
   {"readlink", true},   {"realpath", true},
 };
 
-/* Every entry of core/syscalls.h, numbered -- a byte each, so an
- * entry's number is its member's offset (entries end in `;`, which a
- * member declaration takes and an enumerator does not) -- and, by that
- * number, which of `observed_calls` it is, one past its index, or 0 for
- * a call no record is kept of: a constant each dispatch reads at
- * compile time. */
-#undef COSMIC_SYSCALL
-#undef COSMIC_CONSTANT
-#define COSMIC_SYSCALL(name, arity) char name
-#define COSMIC_CONSTANT(name)
-struct syscall_entries {
-#include "syscalls.h"
-};
-#define CALL(name) offsetof(struct syscall_entries, name)
-static const unsigned char observed_of[sizeof(struct syscall_entries)] = {
-  [CALL(getcwd)] = 1,   [CALL(executable)] = 2, [CALL(lstat)] = 3,
-  [CALL(readlink)] = 4, [CALL(realpath)] = 5,
-};
-
 /* A record is the call's index and its count of answers, then its path
  * when it takes one, then each answer, each value a tag and its bytes:
  * `n` nil, `b` a boolean, `i` an integer, `s` a string (its length,
@@ -1565,8 +1553,9 @@ static struct {
   size_t length;
   size_t room;
   size_t last;
-  bool on;
 } observing;
+
+bool cosmic_observing;
 
 static bool log_put (const void *data, size_t size) {
   if (size == 0) return true;
@@ -1652,10 +1641,9 @@ static bool log_path (lua_State *L) {
          log_put(here, prefix) && log_put("/", 1) && log_put(path, length);
 }
 
-/* Keeps the record of `observed_calls[call]`, which answered the
- * `count` values on top of the stack. Answers the count the call
- * answers: its own, or a failure's when its record cannot be kept. */
-static int observe_call (lua_State *L, size_t call, int count) {
+int cosmic_observed_call (lua_State *L, enum cosmic_observed_call call,
+                          lua_CFunction query) {
+  int count = query(L);
   size_t start = observing.length;
   unsigned char header[2] = {(unsigned char)call, (unsigned char)count};
   bool kept = log_put(header, sizeof header);
@@ -1682,7 +1670,7 @@ static int observe_call (lua_State *L, size_t call, int count) {
 /* Turns the log on or off; what it holds stays until drained. */
 static int observe (lua_State *L) {
   luaL_checktype(L, 1, LUA_TBOOLEAN);
-  observing.on = lua_toboolean(L, 1);
+  cosmic_observing = lua_toboolean(L, 1);
   return 0;
 }
 
@@ -1781,35 +1769,20 @@ int cosmic_open_observed (lua_State *L) {
   lua_setfield(L, -2, "observe");
   lua_pushcfunction(L, observed);
   lua_setfield(L, -2, "observed");
-  /* The calls themselves, past the dispatch: the observer's own
+  /* The queries themselves, past the log: the observer's own
    * questions are none of the test's. */
-  lua_pushcfunction(L, cosmic_sys_getcwd);
+  lua_pushcfunction(L, cosmic_query_getcwd);
   lua_setfield(L, -2, "getcwd");
-  lua_pushcfunction(L, cosmic_sys_executable);
+  lua_pushcfunction(L, cosmic_query_executable);
   lua_setfield(L, -2, "executable");
-  lua_pushcfunction(L, cosmic_sys_lstat);
+  lua_pushcfunction(L, cosmic_query_lstat);
   lua_setfield(L, -2, "lstat");
-  lua_pushcfunction(L, cosmic_sys_readlink);
+  lua_pushcfunction(L, cosmic_query_readlink);
   lua_setfield(L, -2, "readlink");
-  lua_pushcfunction(L, cosmic_sys_realpath);
+  lua_pushcfunction(L, cosmic_query_realpath);
   lua_setfield(L, -2, "realpath");
   return 1;
 }
-
-/* The dispatch every call of `cosmic.sys` comes through, one per entry
- * of core/syscalls.h, each on its entry's own line there. Whether a
- * call is one a record is kept of is a constant here, so a call no
- * record is kept of passes straight through. */
-#undef COSMIC_SYSCALL
-#undef COSMIC_CONSTANT
-#define COSMIC_SYSCALL(name, arity)                                      \
-  static int dispatch_##name (lua_State *L) {                            \
-    int count = cosmic_sys_##name(L);                                    \
-    if (observed_of[CALL(name)] == 0 || !observing.on) return count;     \
-    return observe_call(L, observed_of[CALL(name)] - 1u, count);         \
-  }
-#define COSMIC_CONSTANT(name)
-#include "syscalls.h"
 
 /* The modules are filled from the headers' own entries (core/syscalls.h's
  * X-macros), each a statement here: an entry there is a function or a
@@ -1831,13 +1804,9 @@ int cosmic_open_process (lua_State *L) {
   return 1;
 }
 
-/* The calls, each through its dispatch, and the numbers a caller passes
- * back in, which come from this libc, so a Teal module never carries a
- * platform's constant of its own. */
-#undef COSMIC_SYSCALL
-#define COSMIC_SYSCALL(name, arity)                                      \
-  lua_pushcfunction(L, dispatch_##name);                                 \
-  lua_setfield(L, -2, #name)
+/* The calls, and the numbers a caller passes back in, which come from
+ * this libc, so a Teal module never carries a platform's constant of its
+ * own. */
 int cosmic_open_syscalls (lua_State *L) {
   lua_newtable(L);
 #include "syscalls.h"
