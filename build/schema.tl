@@ -81,6 +81,23 @@ local tables: {{string}} = {
                    source TEXT NOT NULL,
                    UNIQUE (module, name))]] },
 
+  -- The bill of materials (`build.bom`): filled in cosmic's own
+  -- projection, carried by the tool and copied into every executable
+  -- `cosmic build` writes; empty in a project's projection.
+  { "components", [[(name TEXT PRIMARY KEY,
+                     kind TEXT NOT NULL,
+                     version TEXT NOT NULL,
+                     license TEXT NOT NULL,
+                     url TEXT NOT NULL,
+                     sha256 TEXT NOT NULL,
+                     patches TEXT NOT NULL) WITHOUT ROWID]] },
+
+  { "notices", [[(component TEXT NOT NULL,
+                  ordinal INTEGER NOT NULL,
+                  file TEXT NOT NULL,
+                  text TEXT NOT NULL,
+                  PRIMARY KEY (component, ordinal)) WITHOUT ROWID]] },
+
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,
                   module TEXT NOT NULL,

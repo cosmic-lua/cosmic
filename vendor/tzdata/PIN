@@ -7,3 +7,5 @@ drop **/__init__.py
 drop zoneinfo/tzdata.zi
 drop zoneinfo/leapseconds
 drop zoneinfo/*.tab
+kind data
+license LicenseRef-Public-Domain

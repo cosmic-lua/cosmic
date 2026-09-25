@@ -13,7 +13,9 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
+local bom = require("build.bom")
 local schema = require("build.schema")
+local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
 
@@ -248,6 +250,20 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
+    -- cosmic's own tree describes the binary it builds: its bill of
+    -- materials (`build.bom`), read from the pins and records beside the
+    -- code. They are all tool files, so `boot_hash`, which the signature
+    -- covers, moves when one does. A project's tables stay empty.
+    local own, own_trouble = tree.is_own(handle.root)
+    if own == nil then
+      return false, own_trouble
+    end
+    if own then
+      local filled, fill_trouble = bom.fill(db, handle.root, "out.")
+      if not filled then
+        return false, fill_trouble
+      end
+    end
     local carried_main, main_trouble = Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
       { text(result.main or "") })
@@ -333,6 +349,8 @@ local carry: {string} = {
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",
+  "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
+  "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
     "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..

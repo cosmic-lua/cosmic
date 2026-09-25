@@ -604,11 +604,21 @@ hand-written one under `core/` (`curl_config.h`, `ares_config.h`,
 by the library's own configure step.
 
 each tree keeps its upstream license file (`vendor/<name>/COPYING`,
-`LICENSE`, `LICENSE.md`). one vendored file carries a license of its
+`LICENSE`, `LICENSE.md`). a few vendored files carry a license of their
 own: c-ares' `src/lib/thirdparty/apple/dnsinfo.h`, Apple's declarations
 for reading macOS's DNS configuration, is under the Apple Public Source
-License 2.0 (APSL-2.0), not c-ares' MIT license. only the macOS core
-includes it.
+License 2.0 (APSL-2.0), not c-ares' MIT license, and only the macOS core
+includes it; c-ares' `ares_sortaddrinfo.c` is BSD-3-Clause, and its
+`inet_ntop.c` and `inet_net_pton.c`, like curl's `curlx/inet_ntop.c`
+and `inet_pton.c`, carry ISC's text.
+
+each PIN also names its component's SPDX license and the notices a copy
+must travel with (`license`, `notice`); what the build links without
+vendoring -- zig's runtime, musl -- has a record of the same grammar
+under `build/bom/`. the tool's database carries them as a bill of
+materials (`build/bom.tl`), every executable `cosmic build` writes
+carries the same rows, and `cosmic bom` prints them, their notices, or
+a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 

@@ -4,3 +4,4 @@ sha256 1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d
 strip sqlite-amalgamation-3530400/
 keep sqlite3.c
 keep sqlite3.h
+license blessing

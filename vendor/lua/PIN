@@ -10,3 +10,5 @@ drop src/linit.c
 drop src/liolib.c
 drop src/loslib.c
 drop src/ldblib.c
+license MIT
+notice src/lua.h:524-543

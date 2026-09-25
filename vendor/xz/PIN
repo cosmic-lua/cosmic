@@ -65,3 +65,5 @@ keep src/liblzma/simple/simple_decoder.c
 keep src/liblzma/simple/simple_decoder.h
 keep src/liblzma/simple/simple_private.h
 keep src/liblzma/simple/x86.c
+license 0BSD
+notice COPYING.0BSD

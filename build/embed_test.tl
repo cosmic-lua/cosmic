@@ -116,6 +116,11 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
   assert(zones[1][1] == carried[1][1] and tonumber(zones[1][1]) > 500 and zones[1][2] == "1",
     "every zone the binary carries is in")
+  local materials = rows_of(path,
+    "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
+    "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
+  assert(materials[1][1] == "1" and materials[1][2] == "1",
+    "the program carries the bill of materials its cores ship under")
 end
 
 --- A project's tests and examples stay with the project: the program
