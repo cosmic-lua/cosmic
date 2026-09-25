@@ -339,9 +339,18 @@ COSMIC_SYSCALL(entropy, 1);
 COSMIC_SYSCALL(execve, 3);
 
 /*
+ * --- The paths a sandbox unveils, each absolute; at most 64 in all.
+ * ---@class Unveil
+ * ---@field reads {string} the files and directories the child has, read-only
+ * ---@field writes {string} the ones it has to change too
+ */
+
+/*
  * --- What `spawn` holds a child to from its exec on, with every process it starts.
  * ---@class Sandbox
  * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none
+ * ---@field unveil Unveil what alone the child has of the filesystem, or nil for all of it: a root of its own, in namespaces of its own, holding those paths at the names they resolve to, each given through a link a link there too, and nothing else, so a path outside them is not there to stat any more than to open. A ruleset with it names paths as the child sees them: a rule on a directory above an unveiled path does not reach into it, since each is a mount of its own, so name the unveiled paths themselves. Linux, where unprivileged user namespaces are allowed; ENOSYS elsewhere, and EPERM or the like where they are not
+ * ---@field offline boolean a network namespace of its own, with nothing but a loopback that is down
  * ---@field pledge {string} the promises the child may keep, or nil for no filter: with one, a socket may be only of a family promised -- "unix" for AF_UNIX, "inet" for AF_INET and AF_INET6 -- and the calls that reach past the process (ptrace, pidfd_getfd, mounting, bpf, loading modules, io_uring and the like) fail with EPERM; keeping a child from another process's /proc/<pid>/mem takes a ruleset too. Linux on x86_64 and aarch64; ENOSYS elsewhere
  */
 
@@ -667,6 +676,7 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@field ENOSYS integer this platform has no such call
  * ---@field EOPNOTSUPP integer the kernel has the call but it is turned off
  * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
+ * ---@field ENOSPC integer no room is left, as when no more user namespaces may be made
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal

@@ -478,6 +478,64 @@ local function test_a_pledge_holds_a_child_and_what_it_starts(tmp: string)
   assert(plain == "Seccomp: " .. own .. " Seccomp: " .. own .. " ", plain)
 end
 
+--- An unveiled child has a root of its own holding only the paths it was
+--- given, at their own names once resolved: a path outside them is not
+--- there to stat, one given to read is read-only, one given to write is
+--- written, it keeps no capability, and an offline one has no network
+--- but a loopback. An empty unveiling leaves it nothing, not even a
+--- program to run. Where unprivileged namespaces are refused, spawning
+--- one says so.
+local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
+  local standard = { "/bin", "/usr", "/lib", "/lib64", "/etc", "/proc" }
+  local shell = sys.realpath("/bin/sh")
+  local reachable = false
+  for _, dir in ipairs(standard) do
+    if shell ~= nil and shell:sub(1, #dir + 1) == dir .. "/" then reachable = true end
+  end
+  if not reachable then return end -- a /bin/sh from elsewhere (/nix/store)
+  local inside, outside, out = tmp .. "/in", tmp .. "/out", tmp .. "/w"
+  for _, dir in ipairs({ inside, outside, out }) do assert(sys.mkdir(dir, 0x1c0)) end
+  local written = create(inside .. "/f")
+  assert(sys.write(written, "in") == 2)
+  sys.close(written)
+  sys.close(create(outside .. "/f"))
+  assert(sys.symlink(inside, tmp .. "/link"))
+  -- Given through a link, a path is had under the name it resolves to and,
+  -- as a link to that, under the name given; a file can be given as well
+  -- as a directory: /dev/null alone of /dev.
+  local reads: {string} = { tmp .. "/link", "/dev/null" }
+  for _, dir in ipairs(standard) do
+    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
+  end
+  local report = create(tmp .. "/report")
+  local pid, trouble, errno = sys.spawn("/bin/sh", { "sh", "-c",
+    "cat link/f; echo; test -e out/f && echo outside-seen || echo outside-absent; " ..
+    "cat " .. assert(sys.realpath(inside)) .. "/f; echo; " ..
+    "(echo x > link/g) 2>/dev/null || echo read-only; echo w > w/f && cat w/f; " ..
+    "grep CapEff: /proc/self/status | tr -d ' \\t'; " ..
+    "if test -r /proc/self/net/dev; then grep -c : /proc/self/net/dev; else echo 1; fi" },
+    nil, tmp, nil, report, report, false, nil,
+    { unveil = { reads = reads, writes = { out } }, offline = true })
+  if pid == nil then
+    sys.close(report)
+    assert(errno == sys.ENOSYS or errno == sys.EPERM or errno == sys.EACCES or
+      errno == sys.EINVAL or errno == sys.ENOSPC, trouble)
+    return
+  end
+  assert(assert(sys.waitpid(pid, false)).code == 0)
+  local said = assert(sys.pread(report, 4096, 0))
+  sys.close(report)
+  assert(said == "in\noutside-absent\nin\nread-only\nw\n" ..
+    "CapEff:0000000000000000\n1\n", said)
+  -- The parent is not held.
+  assert(sys.stat(outside .. "/f") ~= nil)
+  local nothing, _, nothing_errno = sys.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
+    nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
+  assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")
+  assert(not pcall(sys.spawn, "/bin/sh", { "sh" }, nil, nil, nil, nil, nil, false, nil,
+    { unveil = { reads = { "relative" } } }), "an unveiled path must be absolute")
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)
