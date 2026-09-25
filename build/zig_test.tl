@@ -162,6 +162,36 @@ local function test_exec_status_is_the_shells()
   assert(Zig.exec_status(sys.EACCES) == 126)
 end
 
+local SHA_A <const> = "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+local SHA_B <const> = "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17"
+
+local function test_install_name_holds_the_version_host_and_a_sha_prefix()
+  local pin: Zig.Pin = { version = "0.16.0", shas = { ["x86_64-linux"] = SHA_A } }
+  assert(Zig.install_name(pin, "x86_64-linux") == "0.16.0-x86_64-linux-70e49664a74374b4")
+  local none, trouble = Zig.install_name(pin, "aarch64-linux")
+  assert(none == nil and trouble == "names no sha256 for aarch64-linux", trouble)
+  pin.shas["aarch64-linux"] = "../../etc"
+  local bad, why = Zig.install_name(pin, "aarch64-linux")
+  assert(bad == nil and why:find("64 hex digits", 1, true) ~= nil, why)
+end
+
+--- A root holding only a `bin/zig.pin` naming `sha256` for this host.
+local function pinned_root(dir: string, version: string, sha256: string): string
+  local names = assert(sys.uname())
+  local host = assert(Zig.host(names.sysname, names.machine))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.write(dir .. "/bin/zig.pin", "version " .. version .. "\n" .. host .. " " .. sha256 .. "\n"))
+  return dir
+end
+
+local function test_a_pin_whose_sha256_alone_changed_names_another_install(tmp: string)
+  local old = assert(Zig.pinned_install(pinned_root(tmp .. "/old", "0.16.0", SHA_A), "/cache"))
+  local new = assert(Zig.pinned_install(pinned_root(tmp .. "/new", "0.16.0", SHA_B), "/cache"))
+  assert(old.path ~= new.path, old.path)
+  local again = assert(Zig.pinned_install(pinned_root(tmp .. "/again", "0.16.0", SHA_A), "/cache"))
+  assert(again.path == old.path, again.path)
+end
+
 local function test_ensure_installed_is_a_cache_hit_when_zig_is_already_there(tmp: string)
   local install = tmp .. "/cache/0.16.0-x86_64-linux"
   assert(Fs.mkdirs(install))
