@@ -402,6 +402,23 @@ static int statement_columns (lua_State *L) {
   return 1;
 }
 
+/* The name of the column argument 2 counts from zero: its AS alias, or
+ * what SQLite calls it without one. Known once the statement is
+ * prepared, row or none. */
+static int statement_name (lua_State *L) {
+  struct statement *s = checked_statement(L);
+  int index = cosmic_checkint(L, 2);
+  luaL_argcheck(L, index >= 0 && index < sqlite3_column_count(s->stmt), 2,
+                "no such column in the statement");
+  const char *name = sqlite3_column_name(s->stmt, index);
+  if (name == NULL) {
+    /* SQLite could not make the name: out of memory, not a value. */
+    return luaL_error(L, "not enough memory");
+  }
+  lua_pushstring(L, name);
+  return 1;
+}
+
 /* The column argument 2 names, refused unless the statement is on a
  * row that has it. SQLite leaves a column read out of range, or read
  * when the last step did not return a row, undefined; sqlite3_data_count
@@ -506,6 +523,7 @@ static const luaL_Reg statement_methods[] = {
   {"bind_blob", statement_bind_blob},
   {"step", statement_step},
   {"columns", statement_columns},
+  {"name", statement_name},
   {"kind", statement_kind},
   {"integer", statement_integer},
   {"number", statement_number},
