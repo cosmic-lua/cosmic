@@ -493,3 +493,17 @@ local function test_truncate_cuts_and_extends(tmp: string)
   local failed, trouble = Fs.truncate(fd, 0)
   assert(not failed and trouble ~= "", "a closed descriptor was truncated")
 end
+
+local function test_walk_neither_lists_nor_follows_a_link(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/sub"))
+  assert(Fs.write(root .. "/sub/f", "f"))
+  assert(Fs.write(root .. "/g", "g"))
+  assert(Fs.symlink("g", root .. "/to_file"))
+  assert(Fs.symlink("sub", root .. "/to_dir"))
+  assert(Fs.symlink(".", root .. "/loop"))
+  assert(Fs.symlink("missing", root .. "/dangling"))
+  local found, trouble = Fs.walk(root)
+  assert(found ~= nil, trouble)
+  assert(table.concat(found, " ") == "g sub/f", "as find -type f lists: " .. table.concat(found, " "))
+end

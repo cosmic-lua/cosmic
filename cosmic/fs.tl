@@ -345,7 +345,8 @@ function Fs.list(path: string): {string} | nil, string
 end
 
 --- Every file under a root, sorted, as paths relative to that root, as
---- `find root -type f` lists them.
+--- `find root -type f` lists them: a link is neither listed nor
+--- walked into, whatever it leads to.
 --- `skip` is asked about each entry's relative path, and its bare name
 --- second, and may refuse a whole directory. The listing says what
 --- each entry is, so nothing here is stat'd.
@@ -363,12 +364,6 @@ function Fs.walk(root: string,
     for _, name in ipairs(sorted_names(entries)) do
       local entry = relative == "" and name or (relative .. "/" .. name)
       if skip == nil or not skip(entry, name) then
-        -- TODO: readdir answers a link as the kind it leads to, so a
-        -- link to a file is listed as a file and a link to a directory
-        -- is walked into (`loop -> .` fails the walk with ELOOP), unlike
-        -- `find -type f`; walk should lstat the entries that are links,
-        -- once readdir says which ones are, or its doc should say links
-        -- are followed.
         local kind = entries[name]
         if kind == "dir" then
           pending[#pending + 1] = entry

@@ -227,7 +227,7 @@ COSMIC_SYSCALL(rename, 2);
 COSMIC_SYSCALL(chmod, 2);
 
 /*
- * --- Lists a directory's entries, without `.` and `..`, each with what it is: "dir", "file", or "other", a link counted as what it points at.
+ * --- Lists a directory's entries, without `.` and `..`, each with what it is, as `lstat` names it: "dir", "file", "link" for a symbolic link (never followed), or "other".
  * ---@param path string the directory to list
  * ---@return {string:string}|nil entries each entry's kind by its name, or nil on failure
  * ---@return string error what went wrong, when entries is nil

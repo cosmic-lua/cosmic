@@ -252,6 +252,20 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(next((assert(sys.readdir(tmp .. "/d/sub")))) == nil)
 end
 
+local function test_readdir_names_a_link_as_a_link_whatever_it_leads_to(tmp: string)
+  assert(sys.mkdir(tmp .. "/d"))
+  sys.close(create(tmp .. "/d/file"))
+  assert(sys.mkdir(tmp .. "/d/sub"))
+  assert(sys.symlink("file", tmp .. "/d/to_file"))
+  assert(sys.symlink("sub", tmp .. "/d/to_dir"))
+  assert(sys.symlink("missing", tmp .. "/d/dangling"))
+  local entries = assert(sys.readdir(tmp .. "/d"))
+  assert(entries["file"] == "file" and entries["sub"] == "dir")
+  assert(entries["to_file"] == "link", "a link to a file: " .. tostring(entries["to_file"]))
+  assert(entries["to_dir"] == "link", "a link to a directory: " .. tostring(entries["to_dir"]))
+  assert(entries["dangling"] == "link", "a dangling link: " .. tostring(entries["dangling"]))
+end
+
 local function test_readdir_refuses_a_missing_path_and_a_file(tmp: string)
   failed_with(sys.ENOENT, sys.readdir(tmp .. "/missing"))
   sys.close(create(tmp .. "/a"))
