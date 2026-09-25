@@ -234,9 +234,13 @@ local function checked_suite(c: Context, target: string, work: string): integer
   local diagnostics = work .. "/checked-diagnostics"; mkdir(diagnostics)
   -- c.root/o is not cleared: the sanitized binary's runtime identity
   -- differs from the release one's, so no release verdict can stand.
+  -- Bounded at twice what it takes: about 150 s of tests on four
+  -- workers, 90 to 100 s whole on a 4-core host under ci/run-local,
+  -- no one test past 7 s -- a suite grown to 1400 tests, which 90 s
+  -- no longer held.
   s = logged(c, "checked suite", { cosmic, "test" },
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    90000, c.root, environment())
+    180000, c.root, environment())
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   return s
 end
