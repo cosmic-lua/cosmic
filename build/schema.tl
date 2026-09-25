@@ -165,4 +165,22 @@ function schema.settings(qualifier: string): {string}
   return out
 end
 
+--- The statement that records in `meta`, as `tables`, one digest of
+--- the data tables a binary carries that `cosmic refresh` replaces
+--- without moving its runtime identity (core/store.c, `runtime`): every
+--- zone by name and bytes, every CA root by digest, label and bytes, in
+--- key order, under the schema `qualifier` names. `cosmic test` keys
+--- each verdict on it (`build.test`), so a test that read a zone or a
+--- root runs again on a binary that carries others. Written wherever
+--- those tables are: by the writer, by `build.embed` and by a refresh.
+function schema.record_tables(qualifier: string): string
+  return "INSERT OR REPLACE INTO " .. qualifier .. "meta (key, value) " ..
+    "SELECT 'tables', lower(hex(sha256('zoneinfo' || char(10) || " ..
+    "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
+    "char(10) ORDER BY name) FROM " .. qualifier .. "zoneinfo), '') || char(10) || " ..
+    "'ca_roots' || char(10) || coalesce((SELECT group_concat(lower(hex(sha256)) || " ..
+    "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))), char(10) " ..
+    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), ''))))"
+end
+
 return schema

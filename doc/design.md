@@ -629,9 +629,10 @@ are closed:
 - [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
   `under_root`): keyed by where the link leads at the end, not when read.
   resolve such a read as it is made, from a set of the tree's links.
-- [ ] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
-  changes `zoneinfo` and `ca_roots` without the runtime identity. write a digest
-  of them into `meta` and key on it.
+- [x] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
+  changes `zoneinfo` and `ca_roots` without the runtime identity. the build,
+  `build.embed` and a refresh write a digest of them into `meta` as `tables`
+  (`schema.record_tables`), and every verdict is keyed on it.
 
 `cosmic build` and `cosmic test` will fence themselves with the sandbox core, so
 a build cannot read outside its tree and a test cannot reach the network by

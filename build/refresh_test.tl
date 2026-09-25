@@ -6,8 +6,10 @@
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
 local Compress = require("cosmic.compress")
+local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
@@ -185,6 +187,51 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   assert(want:close())
   assert(Fs.remove(out))
   assert(not Fs.exists(out))
+end
+
+--- A verdict of a test that read a zone does not stand on a refreshed
+--- binary, whose runtime identity is the one it was: its tables are
+--- not, and the test, run again, fails for the zone it lacks.
+local function test_a_refreshed_binary_runs_again_a_test_that_read_a_zone(tmp: string)
+  local tree = tmp .. "/tree"
+  assert(Fs.mkdirs(tree .. "/suite"))
+  assert(Fs.write(tree .. "/suite/zone_test.tl", [[
+local Time = require("cosmic.time")
+
+local function test_reads_a_zone()
+  assert(Time.zone("Europe/Paris"))
+end
+]]))
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  local function run(binary: string, name: string): boolean, string
+    local output = tmp .. "/" .. name .. ".out"
+    local fd = assert(Fs.open_write(output))
+    local result, trouble = Child.run({ binary, "test" }, {
+      cwd = tree, env = env, stdout = fd, stderr = fd,
+      process_group = true, timeout_ms = 60000,
+    })
+    assert(Fs.close(fd))
+    local text = assert(Fs.read(output))
+    assert(result ~= nil, tostring(trouble) .. text)
+    return result.ok, text
+  end
+  local itself = assert(Proc.executable())
+  local ok, text = run(itself, "first")
+  assert(ok and text:find("1 ran, 0 stood", 1, true), text)
+  ok, text = run(itself, "again")
+  assert(ok and text:find("0 ran, 1 stood", 1, true), text)
+
+  -- A release of one zone, Paris not among them.
+  local archive = tmp .. "/tzdata-2099.1.tar.gz"
+  sdist(archive, "2099.1", {
+    ["zoneinfo/Etc/GMT"] = assert(Fs.read(zones .. "/Etc/GMT")),
+  })
+  local refreshed = tmp .. "/refreshed"
+  assert(refresh.binary(itself, refreshed, { datasets.tzdata }, { tzdata = archive }))
+  ok, text = run(refreshed, "refreshed")
+  assert(not ok and text:find("1 of 1 failed", 1, true) and text:find("Europe/Paris", 1, true), text)
 end
 
 --- What is not an artifact is refused by name, before anything is read

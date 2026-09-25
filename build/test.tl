@@ -1131,6 +1131,7 @@ local record Recording
   records: Sqlite.Handle
   root: string
   hashes: {string:string}
+  -- The binary's runtime identity and the digest of its data tables.
   runtime: string
   run_at_ns: integer
   run: integer
@@ -1859,19 +1860,28 @@ function test.run(argv: {integer:string}): integer
   -- Both identities are read before the project's database is attached
   -- ahead of the binary's: they name this binary, and a project's own
   -- projection carries the ones of whichever binary wrote it.
-  -- TODO: key verdicts on the data tables the running binary carries
-  -- (`zoneinfo`, `ca_roots`) as well as on `runtime`, which `cosmic
-  -- refresh` leaves as it was: a verdict of a test that read a zone or
-  -- a root stands on a refreshed binary that would now fail it. A
-  -- digest of those rows, written into `meta` by the build and by a
-  -- refresh, would do.
   local tool = Store.meta("compiler") or ""
-  local runtime = Store.meta("runtime")
-  if runtime == nil or runtime == "" then
+  local identity = Store.meta("runtime")
+  if identity == nil or identity == "" then
     local _, _ = work.close(handle)
     log:complain("the running binary names no runtime identity")
     return 1
   end
+  -- Every verdict is keyed on the data tables the binary carries too
+  -- (`schema.record_tables`): `cosmic refresh` replaces its zones and
+  -- roots without moving its runtime identity, and a test that read one
+  -- could fail on the refreshed binary. Every test, not only one that
+  -- read a table: that read goes through `Store`'s own connection, which
+  -- no observation sees, and a refresh is rare enough that running
+  -- everything once after one costs little. Read from the binary's own
+  -- database alone, since a projection's `meta` names the tables of the
+  -- binary that wrote it. One carrying no digest (written before there
+  -- was one) keys on none.
+  local tables = ""
+  Store.alone(function()
+    tables = Store.meta("tables") or ""
+  end)
+  local runtime = identity .. " tables " .. tables
   local database = root .. "/o/cosmic.db"
 
   local result, compile_trouble = importer.compile(handle, built, tool)

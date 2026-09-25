@@ -43,6 +43,7 @@ local artifact = require("build.artifact")
 local bind = require("build.bind")
 local clock = require("build.clock")
 local roots = require("build.roots")
+local schema = require("build.schema")
 local work = require("build.work")
 
 local log = require("build.verdict").log
@@ -493,6 +494,12 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
         return done(dataset.name .. ": " .. apply_trouble)
       end
       lines[#lines + 1] = line
+    end
+    -- What the binary's verdicts are keyed on (`schema.record_tables`)
+    -- follows the rows it now carries.
+    local digested, record_trouble = db:exec(schema.record_tables(""))
+    if not digested then
+      return done(record_trouble)
     end
     -- Vacuumed, as every database a build writes is, so the file is a
     -- function of its rows. A vacuum writes the schema cookie one past
