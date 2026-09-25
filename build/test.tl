@@ -396,17 +396,54 @@ local function climbs(path: string): boolean
   return ("/" .. path .. "/"):find("/%.%./") ~= nil
 end
 
---- The tree's shipped database, the one file of the build's output a
---- test may read as an input: a whole-tree check (build/exports_test.tl)
---- asks it what the build found, so its verdict must fall when a build
---- rewrites it. Only an open of it is keyed, by its bytes' hash.
-local shipped <const> = "o/cosmic.db"
+--- Whether a path under the root names the build's own output, o/:
+--- the databases it projects (`o/cosmic.db`, which a whole-tree check
+--- such as build/exports_test.tl asks what the build found, and
+--- `o/carried.db`), the tool it writes (`o/bin/cosmic`), and whatever
+--- else a build or a test leaves there. None of it is staged, so a read
+--- of it is keyed by its bytes (`output_hash`), as any file the stage
+--- does not hold is.
+local function output(relative: string): boolean
+  return relative == "o" or relative:sub(1, 2) == "o/"
+end
+
+--- The working database, and SQLite's files beside it: every run
+--- rewrites it (its verdicts, its runs), so no key over what a test
+--- read of it holds is ever reached again, and a verdict that read it
+--- is not kept (`stable` false) rather than hashing it to no purpose.
+local function working_database(relative: string): boolean
+  return relative == "o/build.db" or relative:sub(1, 11) == "o/build.db-"
+end
+
+--- The hash of a file under o/ a test opened, for its line in a key:
+--- its bytes', as a build writes the same bytes from the same tree in
+--- every checkout (the projections are vacuumed, the tool is the core
+--- and its carried database), so a sibling's matches. The build keeps
+--- no record of these bytes a run could read instead: `boot_hash` and
+--- `image_hash` name what the running tool was built from, which need
+--- not be the tool at o/bin/cosmic (o/sanitized's runs the checked
+--- suite). What is read here once a run -- o/bin/cosmic, 12 MB, most
+--- of all -- is remembered in `key_parts` by what `stat` says of the
+--- file, so a test pays a stat and a file rewritten since is read again.
+local function output_hash(root: string, relative: string,
+                           key_parts: {string:string}): string
+  local path = root .. "/" .. relative
+  local stat = observations.stat_answer(path)
+  local memo_key = "\4o\0" .. relative
+  local memo = key_parts[memo_key]
+  if memo ~= nil and memo:sub(1, #stat + 1) == stat .. "\0" then
+    return memo:sub(#stat + 2)
+  end
+  local data, _ = Fs.read(path)
+  local hash = data ~= nil and Hash.hex_sha256(data) or "missing"
+  key_parts[memo_key] = stat .. "\0" .. hash
+  return hash
+end
 
 --- A recorded read as a path under the root, or nil when it is not
 --- one: a test's own scratch directory, or anything else outside the
---- tree, is not an input to it, and nor is the build's own output but
---- `shipped`. An absolute path outside the root as written, or that
---- climbs with "..", is under it when what it resolved to --
+--- tree, is not an input to it. An absolute path outside the root as
+--- written, or that climbs with "..", is under it when what it resolved to --
 --- `resolutions`, by path, from its "r" or "t" observation -- is, and
 --- is keyed by that resolved name, so the file's own line is the same
 --- for every spelling of it; with no resolution it is outside.
@@ -429,18 +466,6 @@ local function under_root(root: string, path: string,
     local resolved, _ = Fs.relative(real, root)
     if resolved == nil then return nil end
     relative = resolved
-  end
-  if relative == shipped then
-    return relative
-  end
-  -- TODO: what o/ holds beyond `shipped` is keyed nowhere -- o/build.db,
-  -- o/bin/cosmic, o/carried.db -- so a test that reads it stands on a
-  -- sibling checkout's verdict whose o/ held something else (a stale
-  -- build, a different carried set). Key a read of each by what the
-  -- build says it is (its meta hashes: `image_hash`, `boot_hash`), as
-  -- `shipped` is by its bytes, rather than dropping it.
-  if relative == "o" or relative:sub(1, 2) == "o/" then
-    return nil
   end
   return relative
 end
@@ -479,12 +504,13 @@ local worker_view: function(): {string:string}
 --- given are no part of what the tree holds, and would keep a verdict
 --- from standing in any checkout but the one that reached it; a
 --- checkout's own key keeps them, so a file touched there runs what
---- stat'd it again.
+--- stat'd it again -- but for one under o/, which the build rewrites.
 -- TODO: a test whose verdict turns on an in-tree file's times or inode
 -- (a staleness check comparing a file of the tree against another)
--- stands on a sibling's verdict where they differ. Key such a test's
--- stats whole in the shared key too, once a test can declare it reads
--- them (as `observations.confine` declares what its processes read).
+-- stands on a sibling's verdict where they differ, and, for a file
+-- under o/, on its own checkout's. Key such a test's stats whole in
+-- both keys, once a test can declare it reads them (as
+-- `observations.confine` declares what its processes read).
 local function held_stat(answer: string): string
   local size, mode, kind = answer:match("^ok (%S+) (%S+) (%S+)")
   if size == nil then return answer end
@@ -547,7 +573,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       end
     elseif kind == "o" or kind == "s" or kind == "d" then
       local relative = under_root(root, observation.path, resolutions)
-      if relative == shipped and kind ~= "o" then relative = nil end
+      if relative ~= nil and working_database(relative) then stable = false end
       local identified = kind .. " " .. (relative or "")
       if relative ~= nil and not seen[identified] then
         seen[identified] = true
@@ -610,7 +636,9 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
-      if current == nil then
+      if current == nil and output(relative) then
+        current = output_hash(root, relative, key_parts)
+      elseif current == nil then
         local data, _ = Fs.read(root .. "/" .. relative)
         current = data ~= nil and Hash.hex_sha256(data) or "missing"
       end
@@ -633,6 +661,11 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
+    elseif kind == "s" and output(relative) then
+      -- When the build last wrote a file is its own, not the tree's:
+      -- held as the shared key holds it here too, lest a test that
+      -- stats o/cosmic.db run again after every edit rewrites it.
+      answer = held_stat(answer)
     elseif kind == "s" then
       shared_answer = held_stat(answer)
     elseif kind == "r" then
