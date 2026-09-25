@@ -299,4 +299,112 @@ function writer.write_result(handle: work.Handle, out: string,
   return Fs.rename(out .. ".building", out)
 end
 
+--- The modules a projection holds that the tool built from it does
+--- not carry: its tests and examples. One a carried module requires is
+--- carried anyway, since the tool could not load without it; a
+--- module's kind is only its file name. Each statement below names
+--- `dropped` from this, so a row is left out only for being about one.
+local dropped_modules <const> =
+  "WITH RECURSIVE carried(path) AS (" ..
+  "SELECT path FROM whole.modules WHERE kind NOT IN ('test', 'example') " ..
+  "UNION SELECT i.requires FROM whole.imports i " ..
+  "JOIN carried c ON i.path = c.path), " ..
+  "dropped(path) AS (SELECT path FROM whole.modules " ..
+  "EXCEPT SELECT path FROM carried) "
+
+--- Copies a projection's rows into a fresh schema of the same shape --
+--- both come from `build.schema`, so `*` names the same columns in the
+--- same order -- leaving out each row `dropped_modules` names. A
+--- rowid table's `id` is assigned again, in the projection's own order.
+local carry: {string} = {
+  "INSERT INTO main.meta SELECT * FROM whole.meta ORDER BY key",
+  dropped_modules .. "INSERT INTO main.modules SELECT * FROM whole.modules " ..
+    "WHERE path NOT IN dropped ORDER BY path",
+  dropped_modules .. "INSERT INTO main.imports SELECT * FROM whole.imports " ..
+    "WHERE path NOT IN dropped AND requires NOT IN dropped " ..
+    "ORDER BY path, requires",
+  "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
+  "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
+  dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
+    "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
+    "source_symbol, exported, kind, signature, text, file, line " ..
+    "FROM whole.docs WHERE module NOT IN dropped ORDER BY id",
+  dropped_modules .. "INSERT INTO main.uses SELECT * FROM whole.uses " ..
+    "WHERE module NOT IN dropped AND from_module NOT IN dropped " ..
+    "ORDER BY module, symbol, from_module, line",
+  dropped_modules .. "INSERT INTO main.examples (module, name, text, file, " ..
+    "line, source) SELECT module, name, text, file, line, source " ..
+    "FROM whole.examples WHERE module NOT IN dropped ORDER BY id",
+  dropped_modules .. "INSERT INTO main.catalog (kind, module, symbol, " ..
+    "message, text, file, line) SELECT kind, module, symbol, message, " ..
+    "text, file, line FROM whole.catalog WHERE module NOT IN dropped " ..
+    "ORDER BY id",
+}
+
+--- Writes at `out` the database the tool built from the projection at
+--- `whole` carries: the projection without the tree's own tests and
+--- examples, which `cosmic test` loads from the projection itself and a
+--- release has no use for. Like the projection, it is a function of
+--- its input alone: a fresh schema, filled in one order, vacuumed.
+--- Its `meta` is the projection's, `projected` included: that signs the
+--- projection it came from, not these rows.
+function writer.carried(whole: string, out: string): boolean, string
+  local function fill(db: Sqlite.Handle): boolean, string
+    local statements: {string} = {}
+    for _, statement in ipairs(schema.settings("")) do
+      statements[#statements + 1] = statement
+    end
+    for _, statement in ipairs(schema.create("")) do
+      statements[#statements + 1] = statement
+    end
+    for _, statement in ipairs(statements) do
+      local ok, failure = db:exec(statement)
+      if not ok then
+        return false, failure
+      end
+    end
+    local attached, attach_trouble = Sqlite.run(db,
+      "ATTACH DATABASE ?1 AS whole", { text(whole) })
+    if not attached then
+      return false, attach_trouble
+    end
+    local made, refused = Sqlite.transact(db, function(): boolean, string
+      for _, statement in ipairs(carry) do
+        local ok, failure = db:exec(statement)
+        if not ok then
+          return false, failure
+        end
+      end
+      for _, statement in ipairs(rebuild_fts) do
+        local ok, failure = db:exec((statement:gsub("out%.", "main.")))
+        if not ok then
+          return false, failure
+        end
+      end
+      return true, ""
+    end)
+    local _, _ = db:exec("DETACH whole")
+    if not made then
+      return false, refused
+    end
+    local _, _ = Fs.remove(out .. ".building")
+    local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1",
+      { text(out .. ".building") })
+    if not vacuumed then
+      return false, vacuum_trouble
+    end
+    return Fs.rename(out .. ".building", out)
+  end
+  local db, open_trouble = Sqlite.memory()
+  if db == nil then
+    return false, open_trouble
+  end
+  local ok, trouble = fill(db)
+  local _, _ = db:close()
+  if not ok then
+    return false, trouble
+  end
+  return true, ""
+end
+
 return writer

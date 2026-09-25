@@ -154,6 +154,89 @@ local function test_a_declaration_ships_its_docs(tmp: string)
     rows[1][3] == "3", table.concat(rows[1], " "))
 end
 
+--- What the tool carries is the projection without the tree's own
+--- tests and examples, and without a row about one -- but with a test
+--- or example file a carried module requires, which the tool could not
+--- load without -- written the same bytes every time.
+local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "local function greeting(): string | nil, string",
+    '  if greet.hello() ~= "hello, world" then',
+    '    return nil, "greet_test: the greeting changed"',
+    "  end",
+    '  return greet.hello(), ""',
+    "end",
+    "--- Checks the greeting.",
+    "local function test_hello()",
+    "  assert(greeting())",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/greet_example.tl", table.concat({
+    'local greet = require("greet")',
+    "local record Example",
+    "end",
+    "--- Greets.",
+    "function Example.hello()",
+    '  assert(greet.hello() == "hello, world")',
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/shared.tl", table.concat({
+    'local fixture = require("fixture_test")',
+    "local record shared",
+    "end",
+    "function shared.name(): string",
+    "  return fixture.name",
+    "end",
+    "return shared",
+    "",
+  }, "\n")))
+  assert(Fs.write(root .. "/fixture_test.tl", 'return { name = "x" }\n'))
+  local handle = build_and_write(root, "world", tmp .. "/whole.db")
+  assert(work.close(handle))
+  assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
+  assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
+  assert(Fs.read(tmp .. "/carried.db") == Fs.read(tmp .. "/again.db"),
+    "the carried database is a function of the projection")
+
+  local function rows(path: string, sql: string): {{string}}
+    local db = assert(Sqlite.open(path, false))
+    local found = assert(Sqlite.text_rows(db, sql))
+    assert(db:close())
+    return found
+  end
+  local whole = rows(tmp .. "/whole.db",
+    "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
+  assert(whole[1][1] ==
+    "cmd.hello.main fixture_test greet greet_example greet_test shared",
+    whole[1][1])
+  local carried = rows(tmp .. "/carried.db",
+    "SELECT group_concat(path, ' ') FROM (SELECT path FROM modules ORDER BY path)")
+  assert(carried[1][1] == "cmd.hello.main fixture_test greet shared", carried[1][1])
+  local about_dropped = rows(tmp .. "/carried.db",
+    "SELECT (SELECT count(*) FROM docs WHERE module IN ('greet_test', 'greet_example')) " ..
+    "+ (SELECT count(*) FROM uses WHERE from_module IN ('greet_test', 'greet_example')) " ..
+    "+ (SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example') " ..
+    "OR requires IN ('greet_test', 'greet_example')) " ..
+    "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
+  local in_whole = rows(tmp .. "/whole.db",
+    "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
+  assert(in_whole[1][1] == "1", "the projection holds the test's catalog row")
+  assert(about_dropped[1][1] == "0", "a row about a dropped module is carried")
+  local kept = rows(tmp .. "/carried.db",
+    "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
+    "(SELECT count(*) FROM docs_fts WHERE docs_fts MATCH 'hello'), " ..
+    "(SELECT value FROM meta WHERE key = 'main')")
+  assert(kept[1][1] == "1", "the example's documentation for greet is kept")
+  assert(tonumber(kept[1][2]) > 0, "the docs index is rebuilt")
+  assert(kept[1][3] == "cmd.hello.main", "meta is carried")
+end
+
 --- A projection ships what a reader of it loads -- each module's
 --- bytecode and its Teal source -- and not the Lua tl generated on the
 --- way, which only the working database's `compiled` needs.

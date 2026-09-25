@@ -1,4 +1,4 @@
---- What the two databases under `o/` hold, table by table: rows,
+--- What the databases under `o/` hold, table by table: rows,
 --- pages and bytes, from SQLite's own `dbstat` table, and how the
 --- last few builds went. This is how growth gets named rather than
 --- noticed, and how a change to what the build stores is judged by
@@ -221,9 +221,10 @@ local function describe_under(path: string, about: function(string): boolean): i
   return kept
 end
 
---- `cosmic db [path...]`: describes `o/cosmic.db` and `o/build.db` under
---- the working directory, printing a verdict line and returning the exit
---- code. Paths narrow it to the rows about the sources under them: each
+--- `cosmic db [path...]`: describes `o/cosmic.db`, `o/carried.db` (what
+--- the tool built from cosmic's own tree carries) and `o/build.db` under
+--- the working directory, each one there is, printing a verdict line and
+--- returning the exit code. Paths narrow it to the rows about the sources under them: each
 --- table's count of those rows, and the slowest of those tests. The
 --- coverage rows counted are every kept run's, not only the latest.
 --- @param argv the command line, re-entered if this binary embeds a
@@ -266,7 +267,7 @@ function databases.run(argv: {integer:string}): integer
   local seen = 0
   local tables = 0
   local rows = 0
-  for _, name in ipairs({ "o/cosmic.db", "o/build.db" }) do
+  for _, name in ipairs({ "o/cosmic.db", "o/carried.db", "o/build.db" }) do
     local path = root .. "/" .. name
     local present, present_trouble = Fs.exists(path)
     if present == nil then
