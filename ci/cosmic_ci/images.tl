@@ -125,6 +125,11 @@ function Images.build(env: {string:string}): integer, string
   return code, trouble
 end
 
+--- `text` added to the end of the file at `path`, created if missing:
+--- the step summary other steps also write to.
+-- TODO: use cosmic.fs's own append once it carries one; until then
+-- this opens the file with O_APPEND itself (driver.tl's summarize reads
+-- and rewrites the whole file instead).
 local function append(path: string, text: string): boolean, string
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND,
     0x1a4)
