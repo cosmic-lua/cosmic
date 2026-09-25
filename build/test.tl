@@ -143,14 +143,65 @@ local function normalized(selector: string): string
   return selector
 end
 
+--- A selector's module part and the one test it names, if any. A
+--- selector whose last `:` has something before it and a Lua name
+--- after it names that test, as the runner identifies it -- `test_*`,
+--- or an example's name, with or without `Example.` -- in the one
+--- module the part before names by its module name or source path; any
+--- other selector, `C:\dir` or `a:b/c` among them, is a path or module
+--- whole.
+local function split(selector: string): string, string
+  local module, name = selector:match("^(.+):Example%.([%a_][%w_]*)$")
+  if module == nil then module, name = selector:match("^(.+):([%a_][%w_]*)$") end
+  if module == nil then return selector, nil end
+  return module, name
+end
+
+--- How many of a module's test names a refused name is shown beside.
+local shown_names = 10
+
+--- The names of `names` a mistyped `name` most likely meant, at most
+--- `shown_names` of them: the longest prefix shared with it first,
+--- then in order by name.
+function test.nearest(name: string, names: {string}): {string}
+  local function shared(other: string): integer
+    local length = 0
+    while length < #name and length < #other and
+      name:byte(length + 1) == other:byte(length + 1) do
+      length = length + 1
+    end
+    return length
+  end
+  local ranked: {string} = {}
+  for i, other in ipairs(names) do ranked[i] = other end
+  table.sort(ranked, function(a: string, b: string): boolean
+    local left, right = shared(a), shared(b)
+    if left ~= right then return left > right end
+    return a < b
+  end)
+  local out: {string} = {}
+  for i = 1, math.min(#ranked, shown_names) do out[i] = ranked[i] end
+  return out
+end
+
 --- Whether one test module is named by a selector. A module name and its
 --- source path match exactly; a directory matches only at a `/` boundary.
---- This keeps `test foo` from also selecting `foobar_test.tl`.
+--- This keeps `test foo` from also selecting `foobar_test.tl`. A selector
+--- naming one test (`split`) matches its module only exactly.
 function test.matches(selector: string, path: string, file: string): boolean
-  selector = normalized(selector)
-  if selector == "." then return true end
+  local module, name = split(selector)
+  selector = normalized(module)
   if selector == path or selector == file then return true end
+  if name ~= nil then return false end
+  if selector == "." then return true end
   return Fs.within(file, selector)
+end
+
+--- Whether a selector chooses the test `name` of one test module: every
+--- test of a module it matches, or only the one it names.
+function test.selects(selector: string, path: string, file: string, name: string): boolean
+  local _, named = split(selector)
+  return test.matches(selector, path, file) and (named == nil or named == name)
 end
 
 local text = bind.text
@@ -1289,7 +1340,8 @@ local function limits_of(values: {string:string}): test.Limits | nil, string
 end
 
 --- Builds the tree in the working directory and runs every test it
---- discovered, printing a verdict line and returning the exit code: 0
+--- discovered that its selectors choose (`test.selects`), printing a
+--- verdict line and returning the exit code: 0
 --- when every test passed.
 --- @param argv the command line, which a stale tool re-enters after
 ---   rebuilding itself
@@ -1316,7 +1368,8 @@ function test.run(argv: {integer:string}): integer
   end
   local selectors: {string} = {}
   for _, word in ipairs(parsed.words) do
-    local selector = normalized(word)
+    local module, name = split(word)
+    local selector = normalized(module)
     local absolute, _ = Fs.absolute(selector)
     if absolute == root then
       selector = "."
@@ -1327,6 +1380,7 @@ function test.run(argv: {integer:string}): integer
     if rest ~= nil then
       selector = rest
     end
+    if name ~= nil then selector = selector .. ":" .. name end
     selectors[#selectors + 1] = selector
   end
   local started = Time.monotonic_ns()
@@ -1392,32 +1446,59 @@ function test.run(argv: {integer:string}): integer
     clock.elapsed_ms(started) .. " ms")
 
   -- Each selector must match a test module on its own: one mistyped
-  -- among good ones would otherwise narrow the run without a word.
+  -- among good ones would otherwise narrow the run without a word, and
+  -- one naming a test must find it there.
   local selected_modules: {importer.Module} = {}
+  -- The tests each selected module runs, by its module name.
+  local selected_tests: {string:{string}} = {}
   local matched: {string:boolean} = {}
+  local found: {string:boolean} = {}
+  -- The module each selector matched, for a named test it lacks.
+  local module_of: {string:importer.Module} = {}
   for _, m in ipairs(result.modules) do
     if (m.kind == "test" or m.kind == "example") and #m.tests > 0 then
-      local chosen = #selectors == 0
-      for _, selector in ipairs(selectors) do
-        if test.matches(selector, m.path, m.file) then
-          matched[selector] = true
-          chosen = true
+      local chosen: {string} = {}
+      for _, name in ipairs(m.tests) do
+        local wanted = #selectors == 0
+        for _, selector in ipairs(selectors) do
+          if test.matches(selector, m.path, m.file) then
+            matched[selector] = true
+            module_of[selector] = m
+          end
+          if test.selects(selector, m.path, m.file, name) then
+            found[selector] = true
+            wanted = true
+          end
         end
+        if wanted then chosen[#chosen + 1] = name end
       end
-      if chosen then
+      if #chosen > 0 then
         selected_modules[#selected_modules + 1] = m
+        selected_tests[m.path] = chosen
       end
     end
   end
   local unmatched: {string} = {}
+  local unfound: {string} = {}
   for _, selector in ipairs(selectors) do
     if not matched[selector] then
       unmatched[#unmatched + 1] = selector
+    elseif not found[selector] then
+      unfound[#unfound + 1] = selector
     end
   end
-  if #unmatched > 0 then
+  if #unmatched > 0 or #unfound > 0 then
     local _, _ = work.close(handle)
-    log:complain("no test module matches: " .. table.concat(unmatched, ", "))
+    if #unmatched > 0 then
+      log:complain("no test module matches: " .. table.concat(unmatched, ", "))
+    end
+    for _, selector in ipairs(unfound) do
+      local m = module_of[selector]
+      local _, name = split(selector)
+      local near = test.nearest(name, m.tests)
+      log:complain("no test in " .. m.path .. " is named " .. name .. "; it has " ..
+        table.concat(near, ", ") .. (#m.tests > #near and ", ..." or ""))
+    end
     return 1
   end
 
@@ -1479,7 +1560,7 @@ function test.run(argv: {integer:string}): integer
   }
   local jobs: {Job} = {}
   for _, m in ipairs(selected_modules) do
-    for _, name in ipairs(m.tests) do
+    for _, name in ipairs(selected_tests[m.path]) do
       local id = m.path .. " " .. name
       local stood, reads, key = standing(rec, previous, verdicts, m, id)
       if stood ~= nil then
@@ -1584,6 +1665,9 @@ function test.run(argv: {integer:string}): integer
   end
   table.sort(failures)
   for _, failure in ipairs(failures) do
+    -- TODO: a failing test's line names it `<module> <name>`; it could
+    -- also name its `<file>:<name>` selector, so the line can be pasted
+    -- into a rerun of that one test.
     log:say("test: FAIL  " .. failure)
     local id = failure:match("^(%S+ %S+):")
     local printed = id ~= nil and rec.outputs[id] or nil

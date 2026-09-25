@@ -26,6 +26,49 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
 end
 
+local function test_a_selector_can_name_one_test_of_one_module()
+  local path, file = "build.test_test", "build/test_test.tl"
+  assert(test.selects("build/test_test.tl:test_a", path, file, "test_a"))
+  assert(test.selects("./build/test_test.tl:test_a", path, file, "test_a"))
+  assert(test.selects("build.test_test:test_a", path, file, "test_a"))
+  assert(not test.selects("build/test_test.tl:test_a", path, file, "test_b"))
+  assert(not test.selects("build/test_test.tl:test_a", path, file, "test_ab"))
+  assert(test.selects("build/test_test.tl", path, file, "test_b"))
+  -- A named test is looked for in one module, never under a directory.
+  assert(not test.matches("build:test_a", path, file))
+  assert(not test.matches(".:test_a", path, file))
+  assert(test.matches("build/test_test.tl:test_a", path, file))
+  assert(test.selects("cosmic/hash_example.tl:hex_sha256", "cosmic.hash_example",
+    "cosmic/hash_example.tl", "hex_sha256"))
+  assert(test.selects("cosmic/hash_example.tl:Example.hex_sha256", "cosmic.hash_example",
+    "cosmic/hash_example.tl", "hex_sha256"))
+  assert(not test.selects("cosmic/hash_example.tl:Example.hex_sha256",
+    "cosmic.hash_example", "cosmic/hash_example.tl", "digest"))
+end
+
+local function test_only_a_name_after_the_last_colon_names_a_test()
+  assert(test.selects("a:b/c_test.tl:test_a", "a:b.c_test", "a:b/c_test.tl", "test_a"))
+  assert(not test.selects("a:b/c_test.tl:test_a", "a:b.c_test", "a:b/c_test.tl", "test_b"))
+  -- Anything else after the last `:` leaves the selector a path whole:
+  -- each one selects the module it spells, and not another's.
+  for _, whole in ipairs({ "C:\\dir\\x_test.tl", "a:b/c_test.tl", ":test_a",
+                           "x_test.tl:", "x_test.tl:Other.a", "x_test.tl:1a" }) do
+    assert(test.selects(whole, "x_test", whole, "test_a"), whole)
+    assert(not test.matches(whole, "x_test", "x_test.tl"), whole)
+  end
+end
+
+local function test_a_refused_name_is_shown_the_nearest_names_first()
+  local near = test.nearest("test_rows", { "test_b", "test_rows_escaped", "test_a",
+    "test_row" })
+  assert(table.concat(near, " ") == "test_rows_escaped test_row test_a test_b",
+    table.concat(near, " "))
+  local many: {string} = {}
+  for i = 1, 12 do many[i] = string.format("test_%02d", i) end
+  near = test.nearest("test_12x", many)
+  assert(#near == 10 and near[1] == "test_12" and near[2] == "test_10", near[2])
+end
+
 local function test_identical_inputs_produce_the_same_stable_key(tmp: string)
   local path = tmp .. "/a.txt"
   assert(Fs.write(path, "hello"))
