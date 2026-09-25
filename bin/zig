@@ -13,22 +13,11 @@
 # has booted yet, or a broken file elsewhere in the tree, cannot stop
 # the tool that rebuilds them:
 #
-#   - $COSMIC_BOOTSTRAP, when set, names that cosmic. It must be an
-#     executable file; anything else is an error, never a silent
-#     fallback.
-#   - Otherwise bin/cosmic-bootstrap fetches, verifies and runs the
-#     release ci/cosmic-driver.pin names.
+#   bin/cosmic-bootstrap fetches, verifies and runs the release
+#   ci/cosmic-driver.pin names, or $COSMIC_BOOTSTRAP when set (see it).
 #
 # zig itself always runs in the caller's working directory.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-
-if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
-  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
-    printf 'bin/zig: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
-    exit 1
-  fi
-  exec "$COSMIC_BOOTSTRAP" --standalone "$root/build/zig.tl" "$@"
-fi
 exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/zig.tl" "$@"

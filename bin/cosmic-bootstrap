@@ -4,8 +4,14 @@
 # or run it with the arguments given. Every other build script is Teal
 # this binary runs standalone -- build/zig.tl behind bin/zig,
 # build/vendor.tl behind bin/vendor, build/actionlint.tl behind
-# bin/actionlint -- against its own embedded
+# bin/actionlint, build/verify_codesign.tl behind bin/verify-codesign,
+# each a one-line `exec` of this script -- against its own embedded
 # standard library, so neither the tree's state nor o/ matters to it.
+#
+# COSMIC_BOOTSTRAP, when set, names another cosmic to stand in for the
+# pin's -- a tree-built o/bin/cosmic, say -- for every one of them, and
+# for CI's driver. It must be an executable file; anything else is an
+# error, never a silent fallback to the pin. Nothing is fetched then.
 #
 # The pin is ci/cosmic-driver.pin, the release CI runs as its driver
 # too: a commit, that commit's release URL, and the binary's sha256, one
@@ -33,6 +39,17 @@ die() {
   printf 'bin/cosmic-bootstrap: %s\n' "$1" >&2
   exit 1
 }
+
+if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
+  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
+    die "COSMIC_BOOTSTRAP=$COSMIC_BOOTSTRAP is not an executable file"
+  fi
+  if [ "$#" -eq 0 ]; then
+    printf '%s\n' "$COSMIC_BOOTSTRAP"
+    exit 0
+  fi
+  exec "$COSMIC_BOOTSTRAP" "$@"
+fi
 
 [ -f "$pin" ] || die "no pin at $pin"
 [ "$(wc -l < "$pin" | tr -d ' ')" = 3 ] || die "$pin is not three lines"

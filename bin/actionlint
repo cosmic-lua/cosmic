@@ -10,19 +10,9 @@
 # ~/.cache/cosmic/actionlint).
 #
 # The logic is build/actionlint.tl, run with `cosmic --standalone` on
-# the same cosmic bin/zig runs on: $COSMIC_BOOTSTRAP when set (it must
-# be an executable file), else the pinned release bin/cosmic-bootstrap
-# fetches.
+# the same cosmic bin/zig runs on, bin/cosmic-bootstrap's: the pinned
+# release, or $COSMIC_BOOTSTRAP when set.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-script=$root/build/actionlint.tl
-
-if [ -n "${COSMIC_BOOTSTRAP:-}" ]; then
-  if [ ! -f "$COSMIC_BOOTSTRAP" ] || [ ! -x "$COSMIC_BOOTSTRAP" ]; then
-    printf 'bin/actionlint: COSMIC_BOOTSTRAP=%s is not an executable file\n' "$COSMIC_BOOTSTRAP" >&2
-    exit 1
-  fi
-  exec "$COSMIC_BOOTSTRAP" --standalone "$script" "$@"
-fi
-exec "$root/bin/cosmic-bootstrap" --standalone "$script" "$@"
+exec "$root/bin/cosmic-bootstrap" --standalone "$root/build/actionlint.tl" "$@"
