@@ -339,6 +339,21 @@ function generator.read(header: string): Declarations | nil, string
   if #calls == 0 then
     return nil, "the header declares no calls"
   end
+  -- core/syscalls.c registers every COSMIC_CONSTANT in the header, so
+  -- one anywhere but after the `Constants` block, where
+  -- `constants_follow` holds it to a field, would be set undeclared.
+  local declared = 0
+  for _, class in ipairs(classes) do
+    if class.name == "Constants" then
+      declared = declared + #class.fields
+    end
+  end
+  local _, written = header:gsub("\n%s*COSMIC_CONSTANT%(", "")
+  if written ~= declared then
+    return nil, "Constants: the header writes " .. tostring(written) ..
+      " COSMIC_CONSTANT lines for " .. tostring(declared) ..
+      " fields; one stands outside the block after `Constants`"
+  end
   return { calls = calls, classes = classes }
 end
 

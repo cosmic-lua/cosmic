@@ -167,6 +167,10 @@ local function test_constants_are_held_to_their_class()
     { entries = { "COSMIC_CONSTANT(A)", "COSMIC_CONSTANT(B)", "COSMIC_CONSTANT(C)" },
       refusal = "COSMIC_CONSTANT(C) names no field" },
   }
+  local stray = with({ "COSMIC_CONSTANT(A)", "COSMIC_CONSTANT(B)" }):gsub(
+    "COSMIC_SYSCALL%(close, 1%);", "COSMIC_SYSCALL(close, 1);\nCOSMIC_CONSTANT(C)")
+  local refused, refusal = gen_syscalls.read(stray)
+  assert(refused == nil and refusal:find("one stands outside", 1, true), refusal)
   for _, case in ipairs(cases) do
     local read, trouble = gen_syscalls.read(with(case.entries))
     assert(read == nil and trouble:find(case.refusal, 1, true), trouble)
