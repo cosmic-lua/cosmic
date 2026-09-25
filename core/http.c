@@ -157,7 +157,9 @@ static bool add_cert_file (void) {
  * running binary: the last one the store searches, as it trusts for the
  * standard library, so a project's database never adds a root. Returns
  * NULL, or why not, leaving `roots` empty: a binary with no roots
- * refuses every TLS connection rather than trusting some other set. */
+ * refuses every request, plain http too, rather than trusting some
+ * other set -- one whose own database is missing or holds none is
+ * broken, and says so at its first request. */
 static const char *load_roots (lua_State *L) {
   int count = cosmic_store_count(L);
   sqlite3 *db = count > 0 ? cosmic_store_database(L, count) : NULL;
@@ -176,6 +178,12 @@ static const char *load_roots (lua_State *L) {
     const unsigned char *der = sqlite3_column_blob(stmt, 0);
     int len = sqlite3_column_bytes(stmt, 0);
     if (der == NULL || len <= 0) continue;
+    /* TODO: tell an allocation failure inside mbedtls from a certificate
+     * it cannot read -- some come back as X509_INVALID_EXTENSIONS plus
+     * ASN1_ALLOC_FAILED, or a PSA error -- and refuse on the first, once
+     * mbedtls allocates through core/memory.h so core/allocation_test.tl
+     * can walk it; today such a failure drops that one root for the life
+     * of the process. add_cert_file's parse has the same gap. */
     int parsed = mbedtls_x509_crt_parse_der(&roots, der, (size_t)len);
     if (parsed == 0) {
       trusted++;
@@ -209,6 +217,8 @@ static const char *load_roots (lua_State *L) {
 static CURLcode use_roots (CURL *easy, void *config, void *data) {
   (void)easy;
   (void)data;
+  /* No CRL: curl's own is empty, as cosmic sets no CURLOPT_CRLFILE; one
+   * that did would have to be passed here too. */
   mbedtls_ssl_conf_ca_chain(config, &roots, NULL);
   return CURLE_OK;
 }
@@ -886,8 +896,8 @@ static CURLcode configure_script (struct transfer *t, const char **which) {
   SET(CURLOPT_SOCKOPTFUNCTION, script_sockopt);
   SET(CURLOPT_CONNECT_TO, t->connect_to);
   SET(CURLOPT_PROXY, "");
-  /* https too: the reply is then what the server sends before any TLS
-   * handshake, which is how a test reaches `use_roots`. */
+  /* https too: the reply is then the server's side of the handshake,
+   * which is how a test sees a certificate verified by `use_roots`. */
   SET(CURLOPT_PROTOCOLS_STR, "http,https");
   SET(CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
   SET(CURLOPT_FRESH_CONNECT, 1L);

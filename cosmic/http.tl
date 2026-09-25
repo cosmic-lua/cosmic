@@ -52,8 +52,8 @@ local record Http
   --- connection curl opens (one request each) reads `script[N]` as the
   --- server's whole reply, and `Response:sent` returns what curl wrote.
   --- Over https that reply is the server's side of the TLS handshake,
-  --- which a canned one cannot complete: it shows a connection refused
-  --- for want of a server the binary's CA roots trust.
+  --- which a canned one cannot complete, but it can carry a certificate
+  --- to see how it is verified.
   ---
   --- An option of the wrong shape is a bug, and `Http.open` raises
   --- for it, naming the option: a value of the wrong Lua type (the

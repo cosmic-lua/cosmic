@@ -4,9 +4,12 @@
 --- (`Options.script`), where each connection curl opens reads a canned
 --- reply and records what curl sent.
 
+local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
 
 local url = "http://cosmic.test/"
 
@@ -258,15 +261,44 @@ local function test_a_script_without_enough_connections_fails_cleanly()
   assert(trouble ~= "")
 end
 
---- An https connection is verified against the binary's own CA roots
---- (core/http.c's `use_roots`): a peer that is no TLS server at all is
---- refused in the handshake, as a server none of them vouches for is,
---- and nothing of the request is sent in the clear.
-local function test_an_https_peer_that_speaks_no_tls_is_refused()
-  local response, trouble = Http.open("https://cosmic.test/",
-    { script = { reply("200 OK", "", "not over TLS") } })
-  assert(response == nil, "a reply in the clear passed for a TLS handshake")
-  assert(trouble:find("SSL", 1, true) or trouble:find("TLS", 1, true), trouble)
+--- A TLS 1.2 server's first flight, as a script can send it: a
+--- ServerHello choosing ECDHE-RSA with AES-128-GCM, then its
+--- Certificate message holding `der` alone. The client verifies the
+--- certificate the moment it reads the message, so nothing more of the
+--- handshake is needed to see what it made of it.
+local function first_flight(der: string): string
+  local function message(kind: integer, body: string): string
+    return string.char(kind) .. string.pack(">I3", #body) .. body
+  end
+  local hello = message(2, "\3\3" .. string.rep("B", 32) .. "\0" .. "\192\47" .. "\0")
+  local certificate = message(11, string.pack(">I3", #der + 3) .. string.pack(">I3", #der) .. der)
+  local records = hello .. certificate
+  return "\22\3\3" .. string.pack(">I2", #records) .. records
+end
+
+--- A root the binary's own database carries (`ca_roots`), as DER.
+local function carried_root(label: string): string
+  local databases = Store.databases()
+  local rows = assert(Sqlite.text_rows(databases[#databases],
+    "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
+  assert(#rows == 1, label .. " is not among the binary's CA roots")
+  return (assert(Codec.unhex(rows[1][1])))
+end
+
+--- An https connection is verified against the CA roots the binary's
+--- own database carries (core/http.c's `use_roots`): a server
+--- presenting one of them is trusted -- and refused only because the
+--- root names another host -- while the same certificate with its
+--- signature broken is not.
+local function test_an_https_peer_is_verified_against_the_carried_roots()
+  local root = carried_root("ISRG Root X1")
+  local _, trusted = Http.open("https://cosmic.test/", { script = { first_flight(root) } })
+  assert(trusted:find("Common Name", 1, true), trusted)
+  assert(not trusted:find("not correctly signed", 1, true),
+    "a carried root is not trusted: " .. trusted)
+  local broken = root:sub(1, -2) .. string.char(root:byte(-1) ~ 1)
+  local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) } })
+  assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
 end
 
 local function test_a_non_string_option_throws()
