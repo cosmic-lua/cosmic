@@ -895,6 +895,9 @@ function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, 
   -- A link is taken for what it leads to, so a project whose modules
   -- or tests are reached through one (`lib -> ../shared/lib`) builds
   -- them; a loop of links ends its branch rather than the stage.
+  -- TODO: refuse, or warn on, a link that leads above the root (`sub/ws
+  -- -> ../..`): the walk stages everything above it, which `skip`, asked
+  -- only about paths under the root, does not stop.
   local walked, walk_trouble =
     Fs.walk_following(root, own_tree and skip_in_own_tree or skip_input)
   if walked == nil then

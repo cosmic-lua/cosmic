@@ -428,8 +428,11 @@ end
 --- a device, a socket or a pipe) is not listed. A directory already
 --- being walked, reached again through a link (`loop -> .`), is not
 --- walked a second time, so a loop ends the walk of that branch rather
---- than failing it. `skip` is asked as `Fs.walk` asks it. Each
---- directory, and each link, is stat'd.
+--- than failing it. As with `find -L`, a file reached along several
+--- paths (a diamond of links) is listed once per path, and a link to a
+--- directory above the root is walked in full, but for the directories
+--- the walk is already inside. `skip` is asked as `Fs.walk` asks it.
+--- Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
                            skip?: function(string, string): boolean): {string} | nil, string
   return walk(root, skip, true)
