@@ -70,9 +70,9 @@ local tables: {{string}} = {
                    source TEXT NOT NULL,
                    UNIQUE (module, name))]] },
 
-  -- The bill of materials (`build.bom`): filled in the tool's own
-  -- database and copied into every executable `cosmic build` writes,
-  -- empty in a project's projection.
+  -- The bill of materials (`build.bom`): filled in cosmic's own
+  -- projection, carried by the tool and copied into every executable
+  -- `cosmic build` writes; empty in a project's projection.
   { "components", [[(name TEXT PRIMARY KEY,
                      kind TEXT NOT NULL,
                      version TEXT NOT NULL,

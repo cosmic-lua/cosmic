@@ -14,6 +14,7 @@ local Store = require("cosmic.store")
 local importer = require("build.importer")
 local bom = require("build.bom")
 local schema = require("build.schema")
+local tree = require("build.tree")
 local work = require("build.work")
 local bind = require("build.bind")
 
@@ -243,6 +244,20 @@ local function project(handle: work.Handle, path: string,
         return false, failure
       end
     end
+    -- cosmic's own tree describes the binary it builds: its bill of
+    -- materials (`build.bom`), read from the pins and records beside the
+    -- code. They are all tool files, so `boot_hash`, which the signature
+    -- covers, moves when one does. A project's tables stay empty.
+    local own, own_trouble = tree.is_own(handle.root)
+    if own == nil then
+      return false, own_trouble
+    end
+    if own then
+      local filled, fill_trouble = bom.fill(db, handle.root, "out.")
+      if not filled then
+        return false, fill_trouble
+      end
+    end
     local carried_main, main_trouble = Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
       { text(result.main or "") })
@@ -326,6 +341,8 @@ local carry: {string} = {
     "ORDER BY path, requires",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
+  "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
+  "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
     "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..
@@ -348,10 +365,8 @@ local carry: {string} = {
 --- release has no use for. Like the projection, it is a function of
 --- its input alone: a fresh schema, filled in one order, vacuumed.
 --- Its `meta` is the projection's, `projected` included: that signs the
---- projection it came from, not these rows. It alone carries the bill
---- of materials, read from the tree at `root` (`build.bom`): that
---- describes the binary, which a projection of Teal modules is not.
-function writer.carried(whole: string, out: string, root: string): boolean, string
+--- projection it came from, not these rows.
+function writer.carried(whole: string, out: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: {string} = {}
     for _, statement in ipairs(schema.settings("")) do
@@ -377,10 +392,6 @@ function writer.carried(whole: string, out: string, root: string): boolean, stri
         if not ok then
           return false, failure
         end
-      end
-      local filled, fill_trouble = bom.fill(db, root, "main.")
-      if not filled then
-        return false, fill_trouble
       end
       for _, statement in ipairs(rebuild_fts) do
         local ok, failure = db:exec((statement:gsub("out%.", "main.")))

@@ -199,13 +199,14 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.write(root .. "/fixture_test.tl", 'return { name = "x" }\n'))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
-  assert(Fs.mkdirs(root .. "/vendor/zlib"))
-  assert(Fs.mkdirs(root .. "/build/bom"))
-  assert(Fs.write(root .. "/vendor/zlib/PIN",
-    "version 1.3\nurl https://zlib.net/zlib-1.3.tar.gz\nlicense Zlib\nnotice LICENSE\n"))
-  assert(Fs.write(root .. "/vendor/zlib/LICENSE", "(C) 1995 Jean-loup Gailly and Mark Adler\n"))
-  assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db", root))
-  assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db", root))
+  -- A bill of materials, as cosmic's own tree's projection holds one.
+  local whole_db = assert(Sqlite.open(tmp .. "/whole.db", true))
+  assert(whole_db:exec("INSERT INTO components VALUES ('zlib', 'library', '1.3', 'Zlib', " ..
+    "'https://zlib.net/z.tar.gz', '', ''); INSERT INTO notices VALUES ('zlib', 1, " ..
+    "'LICENSE', '(C) 1995 Jean-loup Gailly and Mark Adler' || char(10))"))
+  assert(whole_db:close())
+  assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
+  assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
   assert(Fs.read(tmp .. "/carried.db") == Fs.read(tmp .. "/again.db"),
     "the carried database is a function of the projection")
 
@@ -244,7 +245,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
   assert(#materials == 1 and materials[1][1] == "zlib" and materials[1][2] == "Zlib" and
     materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
-    "the tool carries the tree's bill of materials")
+    "the tool carries the projection's bill of materials")
 end
 
 --- A projection ships what a reader of it loads -- each module's

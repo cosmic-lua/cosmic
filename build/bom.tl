@@ -211,11 +211,24 @@ local function patches_of(root: string, name: string): string | nil, string
   return table.concat(lines, "\n")
 end
 
+--- The entries of `directory`, or none when there is no such directory:
+--- a tree shaped like cosmic's own need not vendor anything.
+local function entries(directory: string): {string} | nil, string
+  local exists, trouble = Fs.exists(directory)
+  if exists == nil then
+    return nil, trouble
+  end
+  if not exists then
+    return {}
+  end
+  return Fs.list(directory)
+end
+
 --- Where the records sit, as `{name, record path, notice directory}`,
 --- sorted by name: every `vendor/*/PIN`, then every `build/bom/*.pin`.
 local function records(root: string): {{string}} | nil, string
   local found: {{string}} = {}
-  local vendored, trouble = Fs.list(root .. "/vendor")
+  local vendored, trouble = entries(root .. "/vendor")
   if vendored == nil then
     return nil, trouble
   end
@@ -229,7 +242,7 @@ local function records(root: string): {{string}} | nil, string
       found[#found + 1] = { name, directory .. "/PIN", directory }
     end
   end
-  local linked, linked_trouble = Fs.list(root .. "/build/bom")
+  local linked, linked_trouble = entries(root .. "/build/bom")
   if linked == nil then
     return nil, linked_trouble
   end
