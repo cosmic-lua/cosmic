@@ -151,6 +151,55 @@ return Example
   assert(text:find("1 tests, 1 modules; 0 ran, 1 stood", 1, true), text)
 end
 
+--- A failing test's report names the selector that reruns it, quoted
+--- for a shell when its path needs it, on the line after its FAIL block;
+--- that selector, given back to `cosmic test`, runs that one test and no
+--- other.
+local function test_a_failure_names_the_selector_that_reruns_it(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  local failing = [[
+local function test_unrelated()
+  error("unrelated test executed")
+end
+local function test_sibling()
+  error("sibling test executed")
+end
+]]
+  assert(Fs.write(root .. "/suite/unrelated_test.tl", failing))
+  assert(Fs.mkdirs(root .. "/suite/two words"))
+  assert(Fs.write(root .. "/suite/two words/spaced_test.tl", failing))
+  local output = tmp .. "/all.out"
+  local result = invoke(program, root, output, ".")
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  for _, case in ipairs({
+    { module = "suite.unrelated_test", selector = "suite/unrelated_test.tl:test_unrelated",
+      printed = "suite/unrelated_test.tl:test_unrelated" },
+    { module = "suite.two words.spaced_test",
+      selector = "suite/two words/spaced_test.tl:test_unrelated",
+      printed = "'suite/two words/spaced_test.tl:test_unrelated'" },
+  }) do
+    -- The FAIL line keeps its `<module> <name>: <message>` shape, and
+    -- the rerun line follows its block: the message, then the kept
+    -- directory.
+    local block = "\ntest: FAIL  " .. case.module .. " test_unrelated: " ..
+      case.module .. ":2: unrelated test executed\n  its directory is kept: "
+    local at = text:find(block, 1, true)
+    assert(at ~= nil, text)
+    local line_end = assert(text:find("\n", at + #block, true))
+    local rerun = "  rerun: cosmic test " .. case.printed .. "\n"
+    assert(text:sub(line_end + 1, line_end + #rerun) == rerun, text)
+    output = tmp .. "/rerun.out"
+    result = invoke(program, root, output, case.selector)
+    local again = assert(Fs.read(output))
+    assert(not result.ok, again)
+    assert(again:find("unrelated test executed", 1, true), again)
+    assert(not again:find("sibling test executed", 1, true), again)
+    assert(again:find("1 of 1 failed", 1, true), again)
+  end
+end
+
 local function test_cli_fails_when_no_module_matches(tmp: string)
   local program = assert(Proc.executable())
   for index, selector in ipairs({ "suite/missing_test.tl", "", "/" }) do
