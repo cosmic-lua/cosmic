@@ -282,6 +282,11 @@ end
 
 --- The errnos a confined spawn fails with where the kernel cannot
 --- confine a process at all: no user namespaces, or none for this user.
+-- TODO: fall back only on a failure of the sandbox's own setup, once
+-- `sys.spawn` says which step failed (the status pipe carrying it beside
+-- the errno): an EACCES or EINVAL from exec, or an unreadable path
+-- declared, falls back unconfined too, and the test runs uncached where
+-- it should fail.
 local unconfinable: {integer:boolean} = {
   [sys.ENOSYS] = true, [sys.EPERM] = true, [sys.EACCES] = true, [sys.EINVAL] = true,
   [sys.ENOSPC] = true,
