@@ -369,6 +369,69 @@ local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
   sys.close(ends.writer)
 end
 
+--- A child held to a ruleset reads and runs only what it names, and what
+--- it starts is held too; the process that made the ruleset is not. Where
+--- there is no Landlock, making one says so.
+local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: string)
+  local inside, outside = tmp .. "/in", tmp .. "/out"
+  assert(sys.mkdir(inside, 0x1c0) and sys.mkdir(outside, 0x1c0))
+  local written = create(inside .. "/f")
+  assert(sys.write(written, "in") == 2)
+  sys.close(written)
+  written = create(outside .. "/f")
+  assert(sys.write(written, "out") == 3)
+  sys.close(written)
+  local reads: {string} = { inside }
+  for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc" }) do
+    if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
+  end
+  local ruleset, trouble, errno = sys.landlock_ruleset(reads, {})
+  if ruleset == nil then
+    -- No Landlock: not built in, turned off, or refused by a filter (a
+    -- container's seccomp profile).
+    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
+    return
+  end
+  local output = create(tmp .. "/said")
+  local pid = assert(sys.spawn("/bin/sh", { "sh", "-c",
+    "cat in/f; echo; sh -c 'cat out/f' || echo refused; echo x > in/g || echo unwritten" },
+    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
+  sys.close(ruleset)
+  local status = assert(sys.waitpid(pid, false))
+  assert(status.code == 0, tostring(status.code))
+  local said = assert(sys.pread(output, 4096, 0))
+  sys.close(output)
+  assert(said:find("^in\n") and said:find("refused\n", 1, true) and
+    said:find("unwritten\n", 1, true), said)
+  assert(not said:find("\nout\n", 1, true), said)
+  local mine = assert(sys.open(outside .. "/f", sys.O_RDONLY))
+  assert(sys.read(mine, 16) == "out")
+  sys.close(mine)
+  -- A directory given to write is written; a ruleset whose descriptor is
+  -- the one just above the child's own -- where the exec status goes --
+  -- still holds it.
+  assert(sys.mkdir(tmp .. "/w", 0x1c0))
+  local writing = assert(sys.landlock_ruleset(reads, { tmp .. "/w" }))
+  local report = create(tmp .. "/report")
+  -- A free descriptor a shell can name (at most 9 is the child's own).
+  local free = 10
+  while free > 4 and sys.fstat(free) ~= nil do free = free - 1 end
+  assert(sys.fstat(free) == nil, "no descriptor from 4 to 10 is free")
+  assert(sys.dup2(writing, free))
+  sys.close(writing)
+  local own = tostring(free - 1)
+  local wrote = assert(sys.spawn("/bin/sh", { "sh", "-c",
+    "echo w > w/f && cat w/f >&" .. own .. "; echo x > in/h 2>/dev/null || echo held >&" .. own },
+    nil, tmp, nil, nil, nil, false, { [free - 1] = report }, { ruleset = free }))
+  sys.close(free)
+  assert(assert(sys.waitpid(wrote, false)).code == 0)
+  local reported = assert(sys.pread(report, 4096, 0))
+  sys.close(report)
+  assert(reported == "w\nheld\n", reported)
+  local bad, bad_trouble = sys.landlock_ruleset({ tmp .. "/nowhere" }, {})
+  assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
+end
+
 local function test_cpu_count_is_at_least_one()
   local count = sys.cpu_count()
   assert(math.type(count) == "integer" and count >= 1)
