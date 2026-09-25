@@ -241,8 +241,6 @@ static struct {
   bool on;
 } observing;
 
-#define OBSERVED_VFS_NAME "cosmic-observed"
-
 /* Keeps `name` among the paths observed, unless recording is off or it
  * is there already. False when it could not be kept: the caller refuses
  * the file rather than let SQLite read one no key will hold. */
@@ -318,13 +316,14 @@ static int observed_last_error (sqlite3_vfs *vfs, int room, char *out) {
   return observed_base(vfs)->xGetLastError(observed_base(vfs), room, out);
 }
 
-/* Registers the VFS every connection `open` makes goes through: the
- * default one, but that each file it opens or asks after is observed.
- * Not the default itself, so the store's own connections, and every
- * other VFS registered over the default, are left as they are. Forwards
- * SQLite's status. */
+/* Registers the VFS every connection `open` makes goes through, and
+ * every database the store's `attach` opens: the default one, but that
+ * each file it opens or asks after is observed. Not the default itself,
+ * so the binary's own database (core/vfs.c's), and every other VFS
+ * registered over the default, are left as they are. Forwards SQLite's
+ * status. */
 static int register_observed_vfs (void) {
-  if (sqlite3_vfs_find(OBSERVED_VFS_NAME) != NULL) return SQLITE_OK;
+  if (sqlite3_vfs_find(COSMIC_SQLITE_OBSERVED_VFS) != NULL) return SQLITE_OK;
   sqlite3_vfs *base = sqlite3_vfs_find(NULL);
   if (base == NULL || base->iVersion < 2 || base->xCurrentTimeInt64 == NULL) {
     return SQLITE_ERROR;
@@ -335,7 +334,7 @@ static int register_observed_vfs (void) {
     .iVersion = 2,
     .szOsFile = base->szOsFile,
     .mxPathname = base->mxPathname,
-    .zName = OBSERVED_VFS_NAME,
+    .zName = COSMIC_SQLITE_OBSERVED_VFS,
     .pAppData = base,
     .xOpen = observed_open,
     .xDelete = observed_delete,
@@ -395,7 +394,7 @@ static int sqlite_open (lua_State *L) {
   h->borrowed = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 
-  int rc = sqlite3_open_v2(path, &h->db, flags, OBSERVED_VFS_NAME);
+  int rc = sqlite3_open_v2(path, &h->db, flags, COSMIC_SQLITE_OBSERVED_VFS);
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
