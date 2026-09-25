@@ -219,7 +219,7 @@ local function test_transform_writer_drains_a_decoder_in_bounded_writes()
   -- 16 MiB of zeros compresses to a few KiB; a writer that never
   -- drained `pending()` handed all 16 MiB to `finish` at close.
   local plain_size = 16 * 1024 * 1024
-  local packed = assert(Compress.deflate(string.rep("\0", plain_size)))
+  local packed = assert(Compress.deflate("zlib", string.rep("\0", plain_size)))
   local total, largest = 0, 0
   local sink: Stream.Writer = {
     write = function(_s: Stream.Writer, d: string): boolean, string

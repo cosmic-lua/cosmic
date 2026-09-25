@@ -57,7 +57,7 @@ function State.start(path: string, worker: string, run: string, attempt: string,
     (event,worker,run,attempt,phase,monotonic_ns)
     VALUES('start',?1,?2,?3,?4,?5)]],
     { text(worker), text(run), text(attempt), text(phase), integer(at) }))
-  local id = Sqlite.last_insert_rowid(db); assert(db:close()); return id
+  local id = db:last_insert_rowid(); assert(db:close()); return id
 end
 
 function State.complete(path: string, id: integer, worker: string, run: string,

@@ -611,15 +611,47 @@ end
 
 local function test_one_shot_deflate_and_inflate_round_trip()
   local plain = string.rep("cosmic one-shot ", 1000)
-  local packed = assert(Compress.deflate(plain))
+  local packed = assert(Compress.deflate("zlib", plain, 9))
   assert(#packed < #plain)
-  assert(Compress.inflate(packed) == plain)
-  assert(Compress.inflate(packed, #plain) == plain)
-  local out, trouble = Compress.inflate(packed, #plain - 1)
+  assert(Compress.inflate("zlib", packed) == plain)
+  assert(Compress.inflate("zlib", packed, #plain) == plain)
+  local out, trouble = Compress.inflate("zlib", packed, #plain - 1)
   assert(out == nil and trouble:find("larger than", 1, true), trouble)
-  out, trouble = Compress.inflate(packed .. "x")
+  out, trouble = Compress.inflate("zlib", packed .. "x")
   assert(out == nil and trouble:find("trailing", 1, true), trouble)
-  out, trouble = Compress.inflate(packed:sub(1, -2))
+  out, trouble = Compress.inflate("zlib", packed:sub(1, -2))
   assert(out == nil and trouble == "truncated compressed stream", trouble)
-  assert(Compress.inflate((assert(Compress.deflate("")))) == "")
+  assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", "")))) == "")
+end
+
+--- Each one-shot call frames its bytes as `format` says, the same
+--- framing the streaming codec for that format writes and reads.
+local function test_one_shot_deflate_frames_as_its_format_says()
+  local plain = string.rep("framed ", 200)
+  local gz = assert(Compress.deflate("gzip", plain))
+  assert(gz:sub(1, 2) == "\31\139", "no gzip magic")
+  local raw = assert(Compress.deflate("raw", plain))
+  local zl = assert(Compress.deflate("zlib", plain))
+  assert(zl:byte(1) & 0x0F == 8, "no zlib header")
+  for format, packed in pairs({ gzip = gz, raw = raw, zlib = zl } as {Compress.Format: string}) do
+    assert(Compress.inflate(format, packed) == plain, format)
+    local dec = assert(Compress.inflater(format))
+    local out = assert(dec:update(packed))
+    assert(out .. assert(dec:finish()) == plain, format)
+  end
+  -- A framing is not guessed: zlib bytes are neither a raw deflate
+  -- stream nor a gzip one.
+  assert(Compress.inflate("raw", zl) == nil)
+  assert(Compress.inflate("gzip", zl) == nil)
+  assert(not pcall(Compress.deflate, "lz4" as Compress.Format, plain))
+end
+
+--- Without a level, the one-shot deflate compresses as a streaming
+--- deflater does without one.
+local function test_one_shot_deflate_defaults_to_the_deflater_level()
+  local plain = ("the quick brown fox jumps over the lazy dog "):rep(400) ..
+    string.rep("0123456789", 300)
+  local enc = assert(Compress.deflater("zlib"))
+  local streamed = assert(enc:update(plain)) .. assert(enc:finish())
+  assert(Compress.deflate("zlib", plain) == streamed)
 end

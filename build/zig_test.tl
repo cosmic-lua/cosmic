@@ -410,9 +410,9 @@ end
 
 local function test_a_file_whose_mtime_alone_changed_is_named(tmp: string)
   local root = sources(tmp)
-  assert(Fs.set_mtime(root .. "/vendor/lua/lua.c", 1000000000, 1000000000))
+  assert(Fs.set_mtime(root .. "/vendor/lua/lua.c", 1000000000))
   local before = assert(Zig.snapshot(root))
-  assert(Fs.set_mtime(root .. "/vendor/lua/lua.c", 1000000000, 1000000001))
+  assert(Fs.set_mtime(root .. "/vendor/lua/lua.c", 1000000001))
   local moved = Zig.changed(before, (assert(Zig.snapshot(root))))
   assert(#moved == 1 and moved[1] == "vendor/lua/lua.c", table.concat(moved, " "))
 end

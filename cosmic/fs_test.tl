@@ -228,13 +228,31 @@ local function test_symlink_and_readlink_round_trip(tmp: string)
   assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true))
 end
 
-local function test_set_mtime_changes_the_stat(tmp: string)
+--- The modification time is set to the nanosecond, and the access
+--- time is left as it was.
+local function test_set_mtime_sets_nanoseconds_and_leaves_the_access_time(tmp: string)
   local path = tmp .. "/file"
   assert(Fs.write(path, "contents"))
-  local set, trouble = Fs.set_mtime(path, 1000, 2000)
+  assert(sys.utimensat(path, 1000, 7))
+  local set, trouble = Fs.set_mtime(path, 2000, 123456789)
   assert(set and trouble == "")
   local st = assert(sys.stat(path))
-  assert(st.mtime == 2000)
+  assert(st.mtime == 2000 and st.mtime_ns == 123456789, st.mtime .. "." .. st.mtime_ns)
+  assert(st.atime == 1000 and st.atime_ns == 7, st.atime .. "." .. st.atime_ns)
+end
+
+--- A whole second is the default, and nanoseconds out of range are a
+--- mistake that raises rather than a time to set.
+local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: string)
+  local path = tmp .. "/file"
+  assert(Fs.write(path, "contents"))
+  assert(Fs.set_mtime(path, 3000, 5))
+  assert(Fs.set_mtime(path, 4000))
+  local st = assert(sys.stat(path))
+  assert(st.mtime == 4000 and st.mtime_ns == 0, st.mtime .. "." .. st.mtime_ns)
+  local ok, why = pcall(Fs.set_mtime, path, 4000, 1000000000)
+  assert(not ok and tostring(why):find("#3 to 'set_mtime'", 1, true), tostring(why))
+  assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 
 local function test_fsync_reports_bad_descriptor(tmp: string)
@@ -312,18 +330,33 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   assert(Fs.write(from .. "/sub/secret", "s", 0x180))
   assert(Fs.symlink("../big", from .. "/sub/link"))
   assert(Fs.symlink("nowhere", from .. "/dangling"))
-  assert(Fs.set_mtime(from .. "/big", 1000000000, 1000000000))
+  assert(Fs.set_mtime(from .. "/big", 1000000000, 123456789))
+  assert(Fs.set_mtime(from .. "/sub/link", 1500000000, 5))
+  -- 2300-01-01, past the last time nanoseconds since the epoch can count.
+  assert(sys.utimensat(from .. "/sub/secret", 1000000000, 42, 10413792000, 7))
   assert(sys.chmod(from .. "/sub", 0x16d))
   local to = tmp .. "/to"
   local copied, trouble = Fs.copy_tree(from, to)
   assert(copied, trouble)
   assert(assert(Fs.read(to .. "/big")) == big)
-  assert(assert(Fs.stat(to .. "/big")).mtime == 1000000000)
+  local big_st = assert(Fs.stat(to .. "/big"))
+  assert(big_st.mtime == 1000000000 and big_st.mtime_ns == 123456789,
+    big_st.mtime .. "." .. big_st.mtime_ns)
   assert(assert(Fs.stat(to .. "/sub/run")).mode & 0xfff == 0x1e8)
-  assert(assert(Fs.stat(to .. "/sub/secret")).mode & 0xfff == 0x180)
+  local secret = assert(Fs.stat(to .. "/sub/secret"))
+  assert(secret.mode & 0xfff == 0x180)
+  -- What the filesystem kept of 2300: itself where it counts seconds
+  -- (ext4), its own last time where it counts nanoseconds (APFS).
+  local kept = assert(Fs.stat(from .. "/sub/secret"))
+  assert(secret.mtime == kept.mtime and secret.mtime_ns == kept.mtime_ns,
+    secret.mtime .. "." .. secret.mtime_ns)
+  assert(secret.atime == 1000000000 and secret.atime_ns == 42, secret.atime .. "." .. secret.atime_ns)
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
   assert(assert(Fs.is_dir(to .. "/sub/empty")))
   assert(assert(Fs.readlink(to .. "/sub/link")) == "../big")
+  local link_st = assert(sys.lstat(to .. "/sub/link"))
+  assert(link_st.mtime == 1500000000 and link_st.mtime_ns == 5,
+    link_st.mtime .. "." .. link_st.mtime_ns)
   assert(assert(Fs.readlink(to .. "/dangling")) == "nowhere")
   assert(sys.chmod(from .. "/sub", 0x1ed) and sys.chmod(to .. "/sub", 0x1ed))
 end

@@ -153,7 +153,7 @@ function sql.open(source: sql.Source): sql.Opened | nil, string
   -- SQLite has created the empty file it names; and ATTACH of an existing
   -- file or ':memory:' answers PASS, inert only because the one statement
   -- a call prepares leaves nothing after it to use the attachment.
-  local ok, pragma_trouble = Sqlite.exec(db, "PRAGMA query_only = 1")
+  local ok, pragma_trouble = db:exec("PRAGMA query_only = 1")
   if not ok then
     local _, _ = db:close()
     return nil, pragma_trouble

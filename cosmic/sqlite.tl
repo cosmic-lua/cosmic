@@ -10,10 +10,10 @@
 --- order; a result cell carries its `kind` and the matching field:
 ---
 ---     local db = assert(Sqlite.open("notes.db", true))
----     assert(Sqlite.exec(db, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
+---     assert(db:exec("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, body TEXT)"))
 ---     assert(Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "hi" } }))
 ---     local rows = assert(Sqlite.rows(db, "SELECT id, body FROM t WHERE id = ?1",
----       { { integer = Sqlite.last_insert_rowid(db) } }))
+---       { { integer = db:last_insert_rowid() } }))
 ---     print(rows[1][1].integer, rows[1][2].text) -- 1  hi
 ---
 --- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
@@ -86,15 +86,6 @@ end
 --- before writing it out.
 function Sqlite.memory(): Sqlite.Handle | nil, string
   return sqlite.open(":memory:", true)
-end
-
---- Runs sql against handle directly, with no parameter binding: schema
---- DDL, PRAGMAs, or several `;`-separated statements in one call --
---- the one thing `run`/`rows`/`text_rows` cannot do, since each of
---- those prepares exactly one statement. Yields no rows and binds no
---- values; reach for `Sqlite.run` instead once a value needs one.
-function Sqlite.exec(handle: Sqlite.Handle, sql: string): boolean, string
-  return handle:exec(sql)
 end
 
 --- Binds SQLite parameters positionally. Parameter keys must be
@@ -277,26 +268,6 @@ function Sqlite.transact(handle: Sqlite.Handle,
     return false, failure
   end
   return true, ""
-end
-
---- Closes the handle. Idempotent: closing an already-closed handle
---- still returns true.
-function Sqlite.close(handle: Sqlite.Handle): boolean, string
-  return handle:close()
-end
-
---- Rows changed by the most recent INSERT, UPDATE, or DELETE on this
---- connection -- not the whole database, and not other statements
---- that happened to touch the same table concurrently.
-function Sqlite.changes(handle: Sqlite.Handle): integer
-  return handle:changes()
-end
-
---- The rowid SQLite assigned the most recent successful INSERT on this
---- connection. 0 before any INSERT has ever run on it; a table
---- declared `WITHOUT ROWID` never changes it.
-function Sqlite.last_insert_rowid(handle: Sqlite.Handle): integer
-  return handle:last_insert_rowid()
 end
 
 Sqlite.version = sqlite.version
