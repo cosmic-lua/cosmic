@@ -222,6 +222,8 @@ function worker.run(argv: {integer:string}): integer
   local resolving: observations.Resolving = { tree = root, own = { tmp } }
   local resolved_tmp, _ = Fs.absolute(tmp)
   if resolved_tmp ~= nil then resolving.own[#resolving.own + 1] = resolved_tmp end
+  -- A confined process writes its coverage beside the test's own.
+  if children ~= nil then resolving.own[#resolving.own + 1] = children end
   local captured = observations.capture(function(): any
     return require(module_path)
   end, resolving)

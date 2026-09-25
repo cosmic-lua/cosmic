@@ -4,6 +4,21 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
+local type raw_process = require("cosmic.internal.process")
+
+local type Searcher = function(string): any, any
+
+--- The raw process table the observations stand in for the spawn of,
+--- as `require` hands it their loader.
+local function raw_process_table(): raw_process
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("build.filesystem_observations")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_process -- cast: the table core/process.h declares
+    end
+  end
+  error("build.filesystem_observations is handed no raw table")
+end
 
 local function test_round_trips_every_path_byte()
   local path = "a b\n" .. string.char(0) .. "z"
@@ -224,4 +239,144 @@ local function test_a_declared_process_is_noted_apart()
   end
   local text = table.concat(kinds, "\n")
   assert(text == "h /bin/sh\nx not held\np /bin/sh", text)
+end
+
+--- What a confined process ran with, seen from the run's reads: "p"
+--- when it ran unconfined.
+local function confined_notes(run: observations.Run): string, boolean
+  local notes: {string} = {}
+  local unconfined = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "p" then unconfined = true end
+    if observation.kind == "u" or observation.kind == "x" or observation.kind == "p" or
+        (observation.kind == "e" and observation.path == "\0environ") then
+      notes[#notes + 1] = observation.kind .. " " .. observation.path
+    end
+  end
+  return table.concat(notes, "\n") .. "\n", unconfined
+end
+
+--- A process a test declared what it needs for has that and the
+--- system's own, noted "u" each, and its test's own directory besides,
+--- which is not noted and where it starts; a path it was not given is
+--- not there at all; the environment it inherits is noted whole.
+local function test_a_confined_process_is_noted_by_what_it_was_given(tmp: string)
+  local given, own, hidden = tmp .. "/given", tmp .. "/own", tmp .. "/hidden"
+  for _, dir in ipairs({ given, own, hidden }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.write(given .. "/f", "in"))
+  assert(Fs.write(hidden .. "/f", "secret"))
+  local code: integer = nil
+  local run = observations.call(function()
+    observations.confine({ reads = { given } })
+    local r = assert(Child.run({ "/bin/sh", "-c",
+      "test -e " .. hidden .. "/f && exit 3; cat " .. given .. "/f > out" }))
+    observations.confine(nil)
+    code = r.code
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  assert(run.passed, run.message)
+  local notes, unconfined = confined_notes(run)
+  if unconfined then
+    -- Unconfined, it sees what it was not given, and says so.
+    assert(notes == "p /bin/sh\n", notes)
+    assert(code == 3, "an unconfined shell sees everything: " .. tostring(code))
+    return
+  end
+  assert(code == 0, "the confined shell exited " .. tostring(code))
+  assert(assert(Fs.read(own .. "/out")) == "in")
+  assert(notes:find("u " .. given .. "\n", 1, true), notes)
+  assert(notes:find("u /usr\n", 1, true), notes)
+  assert(notes:find("e \0environ\n", 1, true), notes)
+  assert(not notes:find(own, 1, true), notes)
+  assert(not notes:find("p ", 1, true), notes)
+  assert(not notes:find("x ", 1, true), notes)
+end
+
+--- Where the kernel cannot confine a process it starts as it would have,
+--- in the same directory, and the run is noted "p"; so too a process
+--- given more paths than a sandbox holds.
+local function test_an_unconfinable_process_starts_unconfined(tmp: string)
+  local own = tmp .. "/own"
+  assert(Fs.mkdirs(own))
+  local process = raw_process_table()
+  local spawn = process.spawn
+  local sandboxed = 0
+  process.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
+                       cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
+                       stderr: integer | nil, process_group: boolean,
+                       fds?: {integer:integer}, sandbox?: raw_process.Sandbox):
+                       integer | nil, string, integer
+    if sandbox ~= nil then
+      sandboxed = sandboxed + 1
+      return nil, "Operation not permitted", sys.EPERM
+    end
+    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
+  end
+  local many: {string} = {}
+  for i = 1, 70 do many[i] = tmp .. "/many" .. tostring(i) end
+  local run = observations.call(function()
+    observations.confine({})
+    assert(Child.run({ "/bin/sh", "-c", "pwd > where" }))
+    observations.confine({ reads = many })
+    assert(Child.run({ "/bin/sh", "-c", "true" }))
+    observations.confine(nil)
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  process.spawn = spawn
+  assert(run.passed, run.message)
+  assert(sandboxed == 1, "only the first was tried confined: " .. tostring(sandboxed))
+  local notes, _ = confined_notes(run)
+  assert(notes == "p /bin/sh\np /bin/sh\n", notes)
+  assert(assert(Fs.read(own .. "/where")) == assert(Fs.absolute(own)) .. "\n")
+end
+
+--- What a confined process may change outside its test's own directory
+--- is no input a key holds, nor is a directory it is handed open.
+local function test_a_confined_write_or_descriptor_outside_the_test_is_unkeyable(tmp: string)
+  local own, elsewhere = tmp .. "/own", tmp .. "/elsewhere"
+  for _, dir in ipairs({ own, elsewhere }) do assert(Fs.mkdirs(dir)) end
+  local directory = assert(sys.open(elsewhere, sys.O_RDONLY))
+  local run = observations.call(function()
+    observations.confine({ writes = { elsewhere } })
+    assert(Child.run({ "/bin/sh", "-c", "echo x > " .. elsewhere .. "/f" }))
+    assert(Child.run({ "/bin/sh", "-c", "true" }, { fds = { [3] = directory } }))
+    observations.confine(nil)
+  end, nil, { tree = tmp .. "/tree", own = { own } })
+  sys.close(directory)
+  assert(run.passed, run.message)
+  local notes, unconfined = confined_notes(run)
+  assert(assert(Fs.read(elsewhere .. "/f")) == "x\n")
+  if unconfined then return end
+  assert(notes:find("x " .. elsewhere .. "\n", 1, true), notes)
+  assert(notes:find("x fd ", 1, true), notes)
+end
+
+--- A confined process's path is keyed by its contents under the tree,
+--- and by what `lstat` says of everything beneath it elsewhere, links
+--- included; a FIFO beneath it answers from past the root.
+local function test_an_unveiled_answer_follows_what_the_path_holds(tmp: string)
+  local tree, outside = tmp .. "/tree", tmp .. "/outside"
+  for _, dir in ipairs({ tree, outside }) do assert(Fs.mkdirs(dir)) end
+  assert(Fs.write(tree .. "/f", "one"))
+  assert(Fs.write(outside .. "/f", "one"))
+  local inside = observations.unveiled_answer(tree, tree)
+  local beyond = observations.unveiled_answer(outside, tree)
+  assert(inside == observations.unveiled_answer(tree, tree), "the same tree answers the same")
+  assert(beyond == observations.unveiled_answer(outside, tree))
+  assert(inside:sub(1, #assert(Fs.absolute(tree)) + 1) == assert(Fs.absolute(tree)) .. " ",
+    inside)
+  assert(Fs.write(tree .. "/f", "two"))
+  assert(observations.unveiled_answer(tree, tree) ~= inside, "contents under the tree")
+  assert(Fs.write(outside .. "/f", "three"))
+  local rewritten = observations.unveiled_answer(outside, tree)
+  assert(rewritten ~= beyond, "a file rewritten outside")
+  assert(Fs.symlink("f", outside .. "/link"))
+  local linked = observations.unveiled_answer(outside, tree)
+  assert(linked ~= rewritten, "a link added outside")
+  assert(observations.unveiled_answer(tmp .. "/missing", tree) == "missing")
+  assert(observations.unveiled_answer(outside, tree):sub(1, 10) ~= "unkeyable ")
+  assert(assert(Child.run({ "/bin/sh", "-c", "mkfifo " .. outside .. "/fifo" })).ok)
+  assert(observations.unveiled_answer(outside, tree):sub(1, 10) == "unkeyable ")
+  local decoded = assert(observations.decode(observations.encode({
+    { kind = "u", path = tree, answer = "" },
+  })))
+  assert(#decoded == 1 and decoded[1].kind == "u" and decoded[1].path == tree)
 end

@@ -573,6 +573,23 @@ local function test_an_unveiled_child_has_only_what_it_was_given(tmp: string)
     "CapEff:0000000000000000\n1\n", said)
   -- The parent is not held.
   assert(sys.stat(outside .. "/f") ~= nil)
+  -- With /proc, /dev/fd leads into it; a directory made above a given
+  -- path has the mode of the one it stands for, as a cache that checks
+  -- its own directory's mode needs.
+  local private = tmp .. "/private"
+  assert(sys.mkdir(private, 0x1c0))
+  assert(sys.mkdir(private .. "/inner", 0x1ed))
+  local mirrored: {string} = { "/proc", private .. "/inner" }
+  for _, path in ipairs(reads) do mirrored[#mirrored + 1] = path end
+  local second = create(tmp .. "/second")
+  local again = assert(process.spawn("/bin/sh", { "sh", "-c",
+    "test -e /dev/fd/0 && echo fd; stat -c %a " .. assert(sys.realpath(private)) },
+    nil, "/", nil, second, second, false, nil,
+    { unveil = { reads = mirrored }, offline = true }))
+  assert(assert(process.waitpid(again, false)).code == 0)
+  local seen = assert(sys.pread(second, 4096, 0))
+  sys.close(second)
+  assert(seen == "fd\n700\n", seen)
   local nothing, _, nothing_errno = process.spawn("/bin/sh", { "sh", "-c", "true" }, nil, tmp,
     nil, nil, nil, false, nil, { unveil = { reads = {}, writes = {} } })
   assert(nothing == nil and nothing_errno == sys.ENOENT, "an empty unveiling leaves no program")

@@ -8,6 +8,7 @@
 
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Time = require("cosmic.time")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 
@@ -337,4 +338,33 @@ local function test_a_retargeted_link_does_not_stand(tmp: string)
   }
   local after = test.verdict_key(root, {}, "p n", "m", "r", stored, {}).key
   assert(after ~= before)
+end
+
+--- A path a confined process was given is keyable, and its key follows
+--- what it holds.
+local function test_a_confined_process_is_keyable_by_what_it_was_given(tmp: string)
+  local given = tmp .. "/given"
+  assert(Fs.mkdirs(given))
+  assert(Fs.write(given .. "/f", "one"))
+  local reads: {observations.Observation} = {
+    { kind = "u", path = given, answer = "" },
+    { kind = "o", path = "/dev/null", answer = "" },
+  }
+  assert(test.keyable(tmp, tmp .. "/scratch", reads))
+  local before = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, {})
+  assert(before.stable)
+  assert(Fs.write(given .. "/f", "two"))
+  local after = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, {})
+  assert(after.key ~= before.key, "a changed file the process was given changes the key")
+  -- A path first walked after the test started may be of what it became
+  -- since: that verdict is not kept.
+  local late = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, {},
+    Time.monotonic_ns())
+  assert(not late.stable, "a path walked after the test started")
+  local walked: {string:string} = {}
+  local first = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, walked)
+  local started = Time.monotonic_ns()
+  local again = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, walked,
+    started)
+  assert(again.stable and again.key == first.key, "a path walked before it started")
 end
