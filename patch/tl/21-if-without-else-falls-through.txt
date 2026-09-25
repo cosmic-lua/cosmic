@@ -1,4 +1,4 @@
-file: tl.lua
+file: tl.tl
 note: an `if` whose every block ends in a return still falls through when it has no `else`, so it does not itself end the block holding it. Marking it as ending one let an outer guard narrow past an inner branch that could fall through: `if e == nil then if flag() then return end end` narrowed e below it, e nil and flag() false notwithstanding. Below such an `if` the negation of its conditions still holds -- that is the only way past it -- so that narrow stays; only the claim that nothing follows it goes. 22 through 25 add more ways for a block to end, which would each inherit the same hole
 --- find
             if all_return then

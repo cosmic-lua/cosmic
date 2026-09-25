@@ -1,7 +1,7 @@
-file: tl.lua
+file: tl.tl
 note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers every record-field narrowing patch below shares
 --- find
-   function TypeChecker:type_check_index(anode, bnode, a, b)
+   function TypeChecker:type_check_index(anode: Node, bnode: Node, a: Type, b: Type): Type
 --- replace
    -- A fact key for record-field narrowing. A bare variable's key is
    -- its own name; `x.field`'s key is "varname.fieldname" -- a string
@@ -10,7 +10,7 @@ note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers ever
    -- table a plain variable's narrow already lives in, and gets that
    -- table's shadowing, widening, and end-of-scope cleanup for free.
    -- Only a bare-variable base is tracked; `a.b.c` does not chain.
-   local function fact_key(n)
+   local function fact_key(n: Node): string
       if n.kind == "variable" then
          return n.tk
       end
@@ -34,7 +34,7 @@ note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers ever
    -- itself -- it hands nil plus a message back to its caller to
    -- report -- so a base that turns out not to carry this field after
    -- all just answers nil here, the same as an unknown variable would.
-   function TypeChecker:fact_base_type(f)
+   function TypeChecker:fact_base_type(f: IsFact | EqFact): Type
       local typ = self:find_var_type(f.var, "check_only")
       if typ then
          return typ
@@ -48,7 +48,7 @@ note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers ever
          return nil
       end
       local fname = string.sub(f.var, dot + 1)
-      return (self:match_record_key(base, f.w, fname))
+      return (self:match_record_key(base, f.w as Node, fname))
    end
 
    -- A write to `x` or to `x.field` drops any narrow recorded for that
@@ -56,7 +56,7 @@ note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers ever
    -- rule a bare variable's own fact already follows. `prefix` is
    -- "x." to drop every field of x, or the exact field key itself to
    -- drop only that one.
-   function TypeChecker:drop_field_narrows(prefix)
+   function TypeChecker:drop_field_narrows(prefix: string)
       for i = #self.st, 1, -1 do
          local scope = self.st[i]
          for name in pairs(scope.vars) do
@@ -67,5 +67,5 @@ note: fact_key, fact_base_type, and drop_field_narrows -- the three helpers ever
       end
    end
 
-   function TypeChecker:type_check_index(anode, bnode, a, b)
+   function TypeChecker:type_check_index(anode: Node, bnode: Node, a: Type, b: Type): Type
 --- end
