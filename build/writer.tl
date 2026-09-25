@@ -275,7 +275,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if not committed then
     return false, commit_trouble
   end
-  local identities, identity_trouble = work.put_identities(handle)
+  local identities, identity_trouble = work.record_identities(handle)
   if identities == nil then
     return false, identity_trouble
   end

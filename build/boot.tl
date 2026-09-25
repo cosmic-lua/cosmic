@@ -136,7 +136,7 @@ local function boot(root: string, argv: {integer:string}): integer
     log:verdict("boot", false, stage_trouble)
     return 1
   end
-  local fingerprint, print_trouble = work.put_fingerprint(handle)
+  local fingerprint, print_trouble = work.record_fingerprint(handle)
   if fingerprint == nil then
     local _, _ = work.close(handle)
     log:verdict("boot", false, print_trouble)
@@ -158,7 +158,7 @@ local function boot(root: string, argv: {integer:string}): integer
     log:verdict("boot", false, derive_trouble)
     return 1
   end
-  local identities, identity_trouble = work.put_identities(handle)
+  local identities, identity_trouble = work.record_identities(handle)
   if identities == nil then
     local _, _ = work.close(handle)
     log:verdict("boot", false, identity_trouble)

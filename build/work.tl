@@ -972,11 +972,11 @@ end
 --- `patch/tl/*` needs it too, the same as every other vendored tree.
 --- `build/launcher.tl` also belongs to the retained portable prefix: a
 --- database-only rebuild reuses its existing shell bytes.
---- Both are written into `meta` -- hence `put_`, beside `put_compiler`
---- -- for the projection to carry into the binary, which is how a
---- binary knows what it was built from, so a project reads them rather
---- than computing any; the fingerprint written is also answered.
-function work.put_fingerprint(handle: work.Handle): work.Fingerprint | nil, string
+--- Both are written into `meta` for the projection to carry into the
+--- binary, which is how a binary knows what it was built from, so a
+--- project reads them rather than computing any. Returns the
+--- fingerprint written; `work.recorded_boot_hash` reads it back.
+function work.record_fingerprint(handle: work.Handle): work.Fingerprint | nil, string
   local db = handle.db
   local boot, boot_trouble = hash_over(db, "1")
   if boot == nil then
@@ -1002,7 +1002,7 @@ function work.put_fingerprint(handle: work.Handle): work.Fingerprint | nil, stri
   return { boot = boot, image = image }
 end
 
---- The `boot` fingerprint `work.put_fingerprint` wrote into `meta` at the
+--- The `boot` fingerprint `work.record_fingerprint` wrote into `meta` at the
 --- last stage, read back rather than recomputed: for a caller that
 --- only wants to know whether the tool it is already running still
 --- matches the tree -- paired with `work.tool_moved` to know the
@@ -1021,13 +1021,13 @@ function work.recorded_boot_hash(handle: work.Handle): string | nil, string
   return rows[1][1]
 end
 
---- The identities, computed over the tree, written into `meta` for the
---- projections to carry, and answered. See `Identities` for what each is over.
+--- The identities, computed over the tree and written into `meta` for
+--- the projections to carry. Returns them. See `Identities` for what each is over.
 --- The compiler's closes over `requires`, so the tree must be parsed
 --- (`build.importer.derive`) first: on a fresh working database the
 --- closure would otherwise stop at `build.importer` itself, and keys
 --- made under that identity would match no later build's.
-function work.put_identities(handle: work.Handle): work.Identities | nil, string
+function work.record_identities(handle: work.Handle): work.Identities | nil, string
   local db = handle.db
   local pins =
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..

@@ -426,11 +426,12 @@ end
 --- the run's transaction: a derived row whose file changed or vanished goes, and
 --- only what is new is extracted, generated, or parsed. The compiler's
 --- row has no file and is Lua, so it is neither dropped nor parsed
---- here; the plan carries it. What no input refers to any more is dropped, so the tables
---- describe this tree and nothing older. `compile` does this itself;
---- a caller that reads the tree's identities before compiling calls it
---- first, since `work.put_identities` closes over `requires`, and a fresh
---- working database has none until the tree is parsed.
+--- here; the plan carries it. What no input refers to any more is
+--- dropped, so the tables describe this tree and nothing older.
+--- `compile` does this itself; a caller that reads the tree's
+--- identities before compiling calls it first, since the compiler
+--- identity `work.record_identities` computes closes over `requires`,
+--- and a fresh working database has none until the tree is parsed.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
 --- @param built the compiler, loaded and ready
