@@ -90,3 +90,13 @@ step summary gets the seed, and on a failure the failing tests' lines
 and the reports beneath them. `fuzz-cancelled` appends the last 40 lines
 of `$RUNNER_TEMP/fuzz.out`, if there is one, to the step summary. Both
 write the summary where `summarize` does.
+
+`image-build` and `image-publish` are ci-images.yml's: they run `docker`,
+found on `PATH`, from `GITHUB_WORKSPACE`, record no operations and need no
+`RUNNER_TEMP` state. `image-build` builds `ci/images/$IMAGE` for `ARCH` as
+`ghcr.io/<GITHUB_REPOSITORY>-ci-<IMAGE>:<GITHUB_SHA>-<ARCH>`, lowercase,
+with `UBUNTU_SNAPSHOT` as a build argument, and pushes it when `PUBLISH` is
+`true`. `image-publish` logs in to GHCR as `GITHUB_ACTOR` with `TOKEN` on
+the login's stdin (and in no argument, message or docker environment),
+joins each of `ARCHES` (blank-separated) under `<GITHUB_SHA>`, prints the
+index's `name@digest`, and appends it to `GITHUB_STEP_SUMMARY`.
