@@ -408,7 +408,7 @@ function todos.date(seconds: integer): string
   if seconds < math.mininteger // 1000000000 + 1 or seconds > math.maxinteger // 1000000000 then
     return "??????????"
   end
-  return Time.format_rfc3339(seconds * 1000000000):sub(1, 10)
+  return Time.format_date(seconds * 1000000000)
 end
 
 --- One TODO as `todos` lists it: where, when, which commit, and what.

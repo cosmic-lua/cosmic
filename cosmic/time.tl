@@ -264,51 +264,81 @@ local function digits_at(text: string, at: integer, count: integer): integer
   return n
 end
 
+--- The integer the `count` digits at `at` in `text` spell, or nil and
+--- that the field `name` is not there.
+local function field(text: string, at: integer, count: integer, name: string): integer | nil, string
+  local n = digits_at(text, at, count)
+  if n == nil then
+    return nil, ("%s: expected %d digits at byte %d"):format(name, count, at)
+  end
+  return n, ""
+end
+
+--- Nil when `text` holds `want` at `at`, where `t` stands for `T`, or
+--- why not.
+local function byte_is(text: string, at: integer, want: string, name: string): string
+  local got = text:sub(at, at + #want - 1)
+  if got ~= want and not (want == "T" and got == "t") then
+    return ("expected %q %s at byte %d"):format(want, name, at)
+  end
+  return nil
+end
+
+--- The index in `names` of the name at `at` in `text`, or nil and that
+--- `what` is not there.
+local function name_at(text: string, at: integer, names: {string}, what: string): integer | nil, string
+  for i, name in ipairs(names) do
+    if text:sub(at, at + #name - 1) == name then return i, "" end
+  end
+  return nil, ("expected %s at byte %d"):format(what, at)
+end
+
+--- `YYYY-MM-DD` at the start of `text` into `c`, or why not.
+local function date_into(text: string, c: Time.Civil): string
+  local why: string
+  c.year, why = field(text, 1, 4, "year")
+  if c.year == nil then return why end
+  why = byte_is(text, 5, "-", "after the year")
+  if why ~= nil then return why end
+  c.month, why = field(text, 6, 2, "month")
+  if c.month == nil then return why end
+  why = byte_is(text, 8, "-", "after the month")
+  if why ~= nil then return why end
+  c.day, why = field(text, 9, 2, "day")
+  if c.day == nil then return why end
+  return nil
+end
+
+--- `hh:mm:ss` at `at` in `text` into `c`, or why not.
+local function clock_into(text: string, at: integer, c: Time.Civil): string
+  local why: string
+  c.hour, why = field(text, at, 2, "hour")
+  if c.hour == nil then return why end
+  why = byte_is(text, at + 2, ":", "after the hour")
+  if why ~= nil then return why end
+  c.minute, why = field(text, at + 3, 2, "minute")
+  if c.minute == nil then return why end
+  why = byte_is(text, at + 5, ":", "after the minute")
+  if why ~= nil then return why end
+  c.second, why = field(text, at + 6, 2, "second")
+  if c.second == nil then return why end
+  if c.second == 60 then return "second 60 is not 0 through 59: cosmic time has no leap seconds" end
+  return nil
+end
+
 --- The nanoseconds an RFC 3339 timestamp names, as
 --- `2026-09-25T04:09:21.5+05:30`: `T` or `t` between date and time, one
 --- to nine digits of fraction, and `Z`, `z` or a numeric offset, where
 --- `-00:00` is UTC too. Nil and why for anything else, a leap second, or
 --- a moment outside the range.
 function Time.parse_rfc3339(text: string): integer | nil, string
-  local function field(at: integer, count: integer, name: string): integer | nil, string
-    local n = digits_at(text, at, count)
-    if n == nil then
-      return nil, ("%s: expected %d digits at byte %d"):format(name, count, at)
-    end
-    return n, ""
-  end
-  local function byte_is(at: integer, want: string, name: string): string
-    local got = text:sub(at, at)
-    if got ~= want and not (want == "T" and got == "t") then
-      return ("expected %q %s at byte %d"):format(want, name, at)
-    end
-    return nil
-  end
   local c: Time.Civil = {}
-  local why: string
-  c.year, why = field(1, 4, "year")
-  if c.year == nil then return nil, why end
-  why = byte_is(5, "-", "after the year")
+  local why = date_into(text, c)
   if why ~= nil then return nil, why end
-  c.month, why = field(6, 2, "month")
-  if c.month == nil then return nil, why end
-  why = byte_is(8, "-", "after the month")
+  why = byte_is(text, 11, "T", "between the date and the time")
   if why ~= nil then return nil, why end
-  c.day, why = field(9, 2, "day")
-  if c.day == nil then return nil, why end
-  why = byte_is(11, "T", "between the date and the time")
+  why = clock_into(text, 12, c)
   if why ~= nil then return nil, why end
-  c.hour, why = field(12, 2, "hour")
-  if c.hour == nil then return nil, why end
-  why = byte_is(14, ":", "after the hour")
-  if why ~= nil then return nil, why end
-  c.minute, why = field(15, 2, "minute")
-  if c.minute == nil then return nil, why end
-  why = byte_is(17, ":", "after the minute")
-  if why ~= nil then return nil, why end
-  c.second, why = field(18, 2, "second")
-  if c.second == nil then return nil, why end
-  if c.second == 60 then return nil, "second 60 is not 0 through 59: cosmic time has no leap seconds" end
   c.nanosecond = 0
   local at = 20
   if text:sub(at, at) == "." then
@@ -328,11 +358,11 @@ function Time.parse_rfc3339(text: string): integer | nil, string
     at = at + 1
   elseif zone == "+" or zone == "-" then
     local hours, minutes: integer, integer
-    hours, why = field(at + 1, 2, "offset hour")
+    hours, why = field(text, at + 1, 2, "offset hour")
     if hours == nil then return nil, why end
-    why = byte_is(at + 3, ":", "in the offset")
+    why = byte_is(text, at + 3, ":", "in the offset")
     if why ~= nil then return nil, why end
-    minutes, why = field(at + 4, 2, "offset minute")
+    minutes, why = field(text, at + 4, 2, "offset minute")
     if minutes == nil then return nil, why end
     why = outside("offset hour", hours, 0, 23) or outside("offset minute", minutes, 0, 59)
     if why ~= nil then return nil, why end
@@ -346,6 +376,130 @@ function Time.parse_rfc3339(text: string): integer | nil, string
     return nil, ("unexpected text at byte %d"):format(at)
   end
   return moment(c, offset)
+end
+
+--- `ns`'s UTC date, `2026-09-25`.
+function Time.format_date(ns: integer): string
+  -- TODO: UTC only. A zone parameter names the date in a zone, once
+  -- cosmic.time reads zones.
+  local c = Time.civil(ns)
+  return ("%04d-%02d-%02d"):format(c.year, c.month, c.day)
+end
+
+--- The nanoseconds of 00:00:00Z on the date `YYYY-MM-DD` names, as
+--- `2026-09-25`. Nil and why for anything else, a day its month does
+--- not have, or a date whose midnight is outside the range, as the
+--- range's first, 1677-09-21.
+function Time.parse_date(text: string): integer | nil, string
+  -- TODO: UTC only. A zone parameter takes the midnight in a zone, once
+  -- cosmic.time reads zones.
+  local c: Time.Civil = { hour = 0, minute = 0, second = 0, nanosecond = 0 }
+  local why = date_into(text, c)
+  if why ~= nil then return nil, why end
+  if #text > 10 then return nil, "unexpected text at byte 11" end
+  return moment(c, 0)
+end
+
+local SHORT_DAYS <const> = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
+local LONG_DAYS <const> = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+  "Sunday" }
+local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
+  "Nov", "Dec" }
+
+--- `ns` as an HTTP date, RFC 9110's IMF-fixdate: `Fri, 25 Sep 2026
+--- 05:22:21 GMT`, the fraction of a second cut toward the past. A cut
+--- in the range's first second names a moment before it, which
+--- `parse_http` refuses.
+function Time.format_http(ns: integer): string
+  local c = Time.civil(ns)
+  return ("%s, %02d %s %04d %02d:%02d:%02d GMT"):format(SHORT_DAYS[c.weekday], c.day,
+    MONTHS[c.month], c.year, c.hour, c.minute, c.second)
+end
+
+--- The nanoseconds an HTTP date names, in any of RFC 9110's three forms
+--- (section 5.6.7): IMF-fixdate, `Sun, 06 Nov 1994 08:49:37 GMT`; the
+--- obsolete RFC 850 form, `Sunday, 06-Nov-94 08:49:37 GMT`; and
+--- asctime's, `Sun Nov  6 08:49:37 1994`, whose day is two digits or
+--- a space and one. Names are case-sensitive, as the grammar has them.
+--- The day name must be one of the seven, in its form's length, but
+--- need not be the date's: `Mon, 26 Jul 1997 05:00:00 GMT`, a Saturday,
+--- is read as its date says, as recipients commonly do. An RFC 850 year
+--- of 69 through 99 is 1969 through 1999 and one of 00 through 68 is
+--- 2000 through 2068, as POSIX's `%y`, so the answer does not hang on
+--- the clock as RFC 9110's fifty years ahead would. Nil and why for
+--- anything else, a leap second, or a moment outside the range.
+function Time.parse_http(text: string): integer | nil, string
+  local c: Time.Civil = { nanosecond = 0 }
+  local day_name, why: integer, string
+  local stop: integer
+  local separator = text:sub(4, 4)
+  if separator == "," then
+    day_name, why = name_at(text, 1, SHORT_DAYS, "a day name")
+    if day_name == nil then return nil, why end
+    why = byte_is(text, 4, ", ", "after the day name")
+    if why ~= nil then return nil, why end
+    c.day, why = field(text, 6, 2, "day")
+    if c.day == nil then return nil, why end
+    why = byte_is(text, 8, " ", "after the day")
+    if why ~= nil then return nil, why end
+    c.month, why = name_at(text, 9, MONTHS, "a month name")
+    if c.month == nil then return nil, why end
+    why = byte_is(text, 12, " ", "after the month")
+    if why ~= nil then return nil, why end
+    c.year, why = field(text, 13, 4, "year")
+    if c.year == nil then return nil, why end
+    why = byte_is(text, 17, " ", "after the year")
+      or clock_into(text, 18, c)
+      or byte_is(text, 26, " GMT", "after the time")
+    if why ~= nil then return nil, why end
+    stop = 29
+  elseif separator == " " then
+    day_name, why = name_at(text, 1, SHORT_DAYS, "a day name")
+    if day_name == nil then return nil, why end
+    c.month, why = name_at(text, 5, MONTHS, "a month name")
+    if c.month == nil then return nil, why end
+    why = byte_is(text, 8, " ", "after the month")
+    if why ~= nil then return nil, why end
+    if text:sub(9, 9) == " " then
+      c.day, why = field(text, 10, 1, "day")
+    else
+      c.day, why = field(text, 9, 2, "day")
+    end
+    if c.day == nil then return nil, why end
+    why = byte_is(text, 11, " ", "after the day")
+      or clock_into(text, 12, c)
+      or byte_is(text, 20, " ", "after the time")
+    if why ~= nil then return nil, why end
+    c.year, why = field(text, 21, 4, "year")
+    if c.year == nil then return nil, why end
+    stop = 24
+  else
+    day_name, why = name_at(text, 1, LONG_DAYS, "a day name")
+    if day_name == nil then return nil, why end
+    local at = #LONG_DAYS[day_name] + 1
+    why = byte_is(text, at, ", ", "after the day name")
+    if why ~= nil then return nil, why end
+    c.day, why = field(text, at + 2, 2, "day")
+    if c.day == nil then return nil, why end
+    why = byte_is(text, at + 4, "-", "after the day")
+    if why ~= nil then return nil, why end
+    c.month, why = name_at(text, at + 5, MONTHS, "a month name")
+    if c.month == nil then return nil, why end
+    why = byte_is(text, at + 8, "-", "after the month")
+    if why ~= nil then return nil, why end
+    c.year, why = field(text, at + 9, 2, "year")
+    if c.year == nil then return nil, why end
+    c.year = c.year + (c.year >= 69 and 1900 or 2000)
+    why = byte_is(text, at + 11, " ", "after the year")
+      or clock_into(text, at + 12, c)
+      or byte_is(text, at + 20, " GMT", "after the time")
+    if why ~= nil then return nil, why end
+    stop = at + 23
+  end
+  if #text > stop then
+    return nil, ("unexpected text at byte %d"):format(stop + 1)
+  end
+  return moment(c, 0)
 end
 
 --- The wall clock in nanoseconds, which can step backwards when the host

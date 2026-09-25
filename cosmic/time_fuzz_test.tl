@@ -3,8 +3,9 @@
 --- to the moment it came from; and `parse_rfc3339` is total -- whatever
 --- bytes it is handed, it answers a moment or a failure and never
 --- raises, and a moment it accepts formats back to text naming the same
---- one. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
---- (build/fuzz/init.tl).
+--- one. The same holds for the date-only text and the HTTP dates, in
+--- all three of RFC 9110's forms. `FUZZ_SEED` and `FUZZ_ITERS` pick the
+--- inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
 local Time = require("cosmic.time")
@@ -120,5 +121,111 @@ local function test_parse_is_total(tmp: string)
     end,
     check = parse_holds,
     requires = { "parsed", "refused" },
+  })
+end
+
+local DAY_NS <const> = 86400 * NS
+local MONTHS <const> = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
+  "Nov", "Dec" }
+local DAYS <const> = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+  "Sunday" }
+
+--- `ns` cut toward the past to a multiple of `unit`, or nil when that
+--- is before the range.
+local function cut(ns: integer, unit: integer): integer
+  if ns < math.mininteger + ns % unit then return nil end
+  return ns - ns % unit
+end
+
+--- Whether `text` parses as `want` (nil for a refusal), and why not.
+local function parses_as(parse: function(string): (integer | nil, string), text: string,
+    want: integer, ns: integer): boolean, string
+  local back, why = parse(text)
+  if back ~= want then
+    return false, ("%d wrote %q, which parsed as %s, not %s: %s"):format(ns, text,
+      tostring(back), tostring(want), why)
+  end
+  return true, ""
+end
+
+local function http_round_trips(input: string): boolean, string
+  local ns = string.unpack("<i8", input)
+  local second = cut(ns, NS)
+  if second == nil then Fuzz.label("second before the range") end
+  local ok, why = parses_as(Time.parse_http, Time.format_http(ns), second, ns)
+  if not ok then return false, why end
+  ok, why = parses_as(Time.parse_date, Time.format_date(ns), cut(ns, DAY_NS), ns)
+  if not ok then return false, why end
+  if second == nil then return true, "" end
+  local c = Time.civil(ns)
+  local day = (" %d"):format(c.day):sub(-2)
+  if c.day < 10 then Fuzz.label("one-digit day") end
+  local clock = ("%02d:%02d:%02d"):format(c.hour, c.minute, c.second)
+  ok, why = parses_as(Time.parse_http, ("%s %s %s %s %04d"):format(DAYS[c.weekday]:sub(1, 3),
+    MONTHS[c.month], day, clock, c.year), second, ns)
+  if not ok then return false, why end
+  if c.year >= 1969 and c.year <= 2068 then
+    Fuzz.label("rfc850")
+    ok, why = parses_as(Time.parse_http, ("%s, %02d-%s-%02d %s GMT"):format(DAYS[c.weekday],
+      c.day, MONTHS[c.month], c.year % 100, clock), second, ns)
+    if not ok then return false, why end
+  end
+  return true, ""
+end
+
+local function test_http_and_date_text_round_trip(tmp: string)
+  Fuzz.run({
+    name = "http date round trip",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string return string.pack("<i8", gen_moment(src)) end,
+    check = http_round_trips,
+    requires = { "rfc850", "one-digit day" },
+  })
+end
+
+--- HTTP dates and plain dates to mutate: each form, and the range's
+--- edges.
+local TEXT_SAMPLES <const> = {
+  "Sun, 06 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMT", "Sun Nov  6 08:49:37 1994",
+  "Fri Sep 25 05:22:21 2026", "Tue, 21 Sep 1677 00:12:44 GMT", "Fri, 11 Apr 2262 23:47:16 GMT",
+  "2026-09-25", "2000-02-29", "1677-09-22", "2262-04-11",
+}
+
+local function text_parse_holds(input: string): boolean, string
+  local ok, ns, why = pcall(Time.parse_http, input)
+  if not ok then return false, "parse_http raised: " .. tostring(ns) end
+  if ns ~= nil then
+    Fuzz.label("http parsed")
+    if why ~= "" then return false, "parse_http parsed with a reason: " .. why end
+    if ns % NS ~= 0 or Time.parse_http(Time.format_http(ns)) ~= ns then
+      return false, ("%q parsed as %d, which does not come back"):format(input, ns)
+    end
+  elseif why == "" then
+    return false, "parse_http refused without a reason"
+  end
+  ok, ns, why = pcall(Time.parse_date, input)
+  if not ok then return false, "parse_date raised: " .. tostring(ns) end
+  if ns ~= nil then
+    Fuzz.label("date parsed")
+    if why ~= "" then return false, "parse_date parsed with a reason: " .. why end
+    if ns % DAY_NS ~= 0 or Time.parse_date(Time.format_date(ns)) ~= ns then
+      return false, ("%q parsed as %d, which does not come back"):format(input, ns)
+    end
+  elseif why == "" then
+    return false, "parse_date refused without a reason"
+  end
+  return true, ""
+end
+
+local function test_http_and_date_parse_are_total(tmp: string)
+  Fuzz.run({
+    name = "http date parse total",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string
+      if src:int(0, 3) == 0 then return Fuzz.bytes(src, 40) end
+      return Fuzz.mutate(src, Fuzz.pick(src, TEXT_SAMPLES), 3)
+    end,
+    check = text_parse_holds,
+    requires = { "http parsed", "date parsed" },
   })
 end

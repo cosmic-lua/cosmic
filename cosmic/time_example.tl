@@ -51,4 +51,31 @@ function Example.add_calendar()
   assert(Time.days_between(jan31, feb) == 29 and Time.months_between(jan31, feb) == 0)
 end
 
+--- A moment's UTC date, and a date read back as its midnight.
+function Example.parse_date()
+  local ns = assert(Time.parse_rfc3339("2026-09-25T05:22:21Z"))
+  print(Time.format_date(ns))
+  local midnight, why = Time.parse_date("2026-09-25")
+  assert(midnight ~= nil, why)
+  print(Time.format_rfc3339(midnight))
+  assert(Time.format_rfc3339(midnight) == "2026-09-25T00:00:00Z")
+  print(Time.parse_date("2026-02-29"))
+end
+
+--- An HTTP date written as IMF-fixdate, RFC 9110's three forms read
+--- back as the same moment, and a date read whatever its day name says.
+function Example.parse_http()
+  local ns = assert(Time.parse_rfc3339("1994-11-06T08:49:37.25Z"))
+  print(Time.format_http(ns))
+  for _, text in ipairs({ "Sun, 06 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMT",
+      "Sun Nov  6 08:49:37 1994" }) do
+    local got = assert(Time.parse_http(text))
+    print(Time.format_rfc3339(got))
+    assert(got == ns - 250000000)
+  end
+  local saturday = assert(Time.parse_http("Mon, 26 Jul 1997 05:00:00 GMT"))
+  print(Time.format_http(saturday))
+  assert(Time.format_http(saturday) == "Sat, 26 Jul 1997 05:00:00 GMT")
+end
+
 return Example
