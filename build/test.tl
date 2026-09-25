@@ -1109,9 +1109,10 @@ function test.scratch(): string | nil, string
 end
 
 --- Removes the scratch directory of each job in `jobs` whose test
---- finished and passed, or, with `ended`, of every job, each one a
---- worker a cancelled run ended; a failing one's is left to look at,
---- and one still running is not finished. A directory that cannot be
+--- finished and passed; a failing one's is left to look at, and one
+--- still running is not finished. With `ended`, every job's goes: each
+--- is a worker a cancelled run ended before its result was collected,
+--- so nothing reports on it, pass or fail. A directory that cannot be
 --- removed (a test left something in it it may not delete) is an error
 --- of the run, naming the directory; `Fs.remove_tree` stops at the
 --- first entry it cannot remove, so the rest of that directory stays
@@ -1236,12 +1237,20 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: test.Limits,
     end
     running = still
   end
-  for _, job in ipairs(running) do local _, _ = job.handle:close() end
+  for _, job in ipairs(running) do
+    local closed, trouble = job.handle:close()
+    if not closed and job.scratch ~= nil then
+      -- A member of its group may still be writing into it.
+      rec.errors[#rec.errors + 1] = job.id .. ": its directory is kept: " ..
+        job.scratch .. ": " .. trouble
+      job.scratch = nil
+    end
+  end
   Child.end_strays()
-  -- Only a cancelled run ends here with workers running: each one's
-  -- test never finished, so there is nothing to look at in its
-  -- directory. A stray can race this removal as it can the one
-  -- above (see the TODO there).
+  -- Only a cancelled run ends here with workers running, none of them
+  -- collected, so nothing reports on what is in their directories. A
+  -- stray can race this removal as it can the one above (see the TODO
+  -- there).
   sweep(rec, running, true)
   if guard == nil then return 0 end
   return guard:cancelled()
@@ -1507,6 +1516,9 @@ function test.run(argv: {integer:string}): integer
       local guard <close> = opened
       if run_jobs(rec, jobs, limits, guard) ~= 0 then
         local _, _ = work.abort(handle)
+        -- TODO: name the directories a cancelled run kept for the tests
+        -- that failed before the signal, as a finished run's report does;
+        -- only the run's errors are said here.
         for _, line in ipairs(errors) do log:complain("test: ERROR  " .. line) end
         log:complain("test: cancelled; every running test was ended")
         return 130
