@@ -163,9 +163,15 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.mkdirs(root))
   assert(Fs.write(root .. "/greet_test.tl", table.concat({
     'local greet = require("greet")',
+    "local function greeting(): string | nil, string",
+    '  if greet.hello() ~= "hello, world" then',
+    '    return nil, "greet_test: the greeting changed"',
+    "  end",
+    '  return greet.hello(), ""',
+    "end",
     "--- Checks the greeting.",
     "local function test_hello()",
-    '  assert(greet.hello() == "hello, world")',
+    "  assert(greeting())",
     "end",
     "",
   }, "\n")))
@@ -215,7 +221,12 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   local about_dropped = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM docs WHERE module IN ('greet_test', 'greet_example')) " ..
     "+ (SELECT count(*) FROM uses WHERE from_module IN ('greet_test', 'greet_example')) " ..
-    "+ (SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example'))")
+    "+ (SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example') " ..
+    "OR requires IN ('greet_test', 'greet_example')) " ..
+    "+ (SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example'))")
+  local in_whole = rows(tmp .. "/whole.db",
+    "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
+  assert(in_whole[1][1] == "1", "the projection holds the test's catalog row")
   assert(about_dropped[1][1] == "0", "a row about a dropped module is carried")
   local kept = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..

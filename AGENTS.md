@@ -17,8 +17,11 @@
    test a fresh checkout. zig's caches are shared by every checkout
    (`zig-project` and `zig-global` under `~/.cache/cosmic`, see
    `build/zig.tl`), so a fresh worktree compiles only the core's own C;
-   delete them to reclaim the space. `o/bin/cosmic db` says what both
-   databases under `o/` hold and how the last few builds went;
+   delete them to reclaim the space. `o/bin/cosmic db` says what the
+   databases under `o/` hold -- `o/cosmic.db`, the tree's projection;
+   `o/carried.db`, that projection less the tree's own tests and
+   examples, which the tool carries; `o/build.db`, the working
+   database -- and how the last few builds went;
    `o/bin/cosmic sql [--build|--store|--db <path>] '<statement>'` runs one
    read-only query against one of them, with no script and no build;
    `o/bin/cosmic docs <symbol>`

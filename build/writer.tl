@@ -346,6 +346,8 @@ local carry: {string} = {
 --- examples, which `cosmic test` loads from the projection itself and a
 --- release has no use for. Like the projection, it is a function of
 --- its input alone: a fresh schema, filled in one order, vacuumed.
+--- Its `meta` is the projection's, `projected` included: that signs the
+--- projection it came from, not these rows.
 function writer.carried(whole: string, out: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: {string} = {}

@@ -184,8 +184,8 @@ local function boot(root: string, argv: {integer:string}): integer
     return 1
   end
 
-  -- The tool carries the projection without the tree's own tests,
-  -- which `cosmic test` reads from `o/cosmic.db` itself.
+  -- The tool carries the projection without the tree's own tests and
+  -- examples, which `cosmic test` reads from `o/cosmic.db` itself.
   local carried_path = output .. "/carried.db"
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then
