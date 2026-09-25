@@ -10,6 +10,7 @@
 #include <limits.h>
 #include <poll.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +40,7 @@ extern long syscall (long, ...);
 #include "check.h"
 #include "coverage.h"
 #include "fail.h"
+#include "fault.h"
 #include "guard.h"
 #include "memory.h"
 #include "lauxlib.h"
@@ -1532,7 +1534,25 @@ static const struct observed_call {
   {"getcwd", false},    {"executable", false}, {"lstat", true},
   {"readlink", true},   {"realpath", true},
 };
-#define OBSERVED_CALL_COUNT (sizeof observed_calls / sizeof *observed_calls)
+
+/* Every entry of core/syscalls.h, numbered -- a byte each, so an
+ * entry's number is its member's offset (entries end in `;`, which a
+ * member declaration takes and an enumerator does not) -- and, by that
+ * number, which of `observed_calls` it is, one past its index, or 0 for
+ * a call no record is kept of: a constant each dispatch reads at
+ * compile time. */
+#undef COSMIC_SYSCALL
+#undef COSMIC_CONSTANT
+#define COSMIC_SYSCALL(name, arity) char name
+#define COSMIC_CONSTANT(name)
+struct syscall_entries {
+#include "syscalls.h"
+};
+#define CALL(name) offsetof(struct syscall_entries, name)
+static const unsigned char observed_of[sizeof(struct syscall_entries)] = {
+  [CALL(getcwd)] = 1,   [CALL(executable)] = 2, [CALL(lstat)] = 3,
+  [CALL(readlink)] = 4, [CALL(realpath)] = 5,
+};
 
 /* A record is the call's index and its count of answers, then its path
  * when it takes one, then each answer, each value a tag and its bytes:
@@ -1555,7 +1575,9 @@ static bool log_put (const void *data, size_t size) {
   if (need > observing.room) {
     size_t room = observing.room == 0 ? 256 : observing.room;
     while (room < need) room = room > SIZE_MAX / 2 ? need : room * 2;
-    char *grown = cosmic_realloc(observing.bytes, room);
+    char *grown = COSMIC_FAULT("observed_log")
+                      ? NULL
+                      : cosmic_realloc(observing.bytes, room);
     if (grown == NULL) return false;
     observing.bytes = grown;
     observing.room = room;
@@ -1630,17 +1652,10 @@ static bool log_path (lua_State *L) {
          log_put(here, prefix) && log_put("/", 1) && log_put(path, length);
 }
 
-/* Keeps the record of a call named `name` that answered the `count`
- * values on top of the stack, when it is one of `observed_calls`.
- * Answers the count the call answers: its own, or a failure's when its
- * record cannot be kept. */
-static int observe_call (lua_State *L, const char *name, int count) {
-  size_t call = 0;
-  while (call < OBSERVED_CALL_COUNT &&
-         strcmp(observed_calls[call].name, name) != 0) {
-    call++;
-  }
-  if (call == OBSERVED_CALL_COUNT) return count;
+/* Keeps the record of `observed_calls[call]`, which answered the
+ * `count` values on top of the stack. Answers the count the call
+ * answers: its own, or a failure's when its record cannot be kept. */
+static int observe_call (lua_State *L, size_t call, int count) {
   size_t start = observing.length;
   unsigned char header[2] = {(unsigned char)call, (unsigned char)count};
   bool kept = log_put(header, sizeof header);
@@ -1782,14 +1797,16 @@ int cosmic_open_observed (lua_State *L) {
 }
 
 /* The dispatch every call of `cosmic.sys` comes through, one per entry
- * of core/syscalls.h. */
+ * of core/syscalls.h, each on its entry's own line there. Whether a
+ * call is one a record is kept of is a constant here, so a call no
+ * record is kept of passes straight through. */
 #undef COSMIC_SYSCALL
 #undef COSMIC_CONSTANT
 #define COSMIC_SYSCALL(name, arity)                                      \
   static int dispatch_##name (lua_State *L) {                            \
     int count = cosmic_sys_##name(L);                                    \
-    if (!observing.on) return count;                                     \
-    return observe_call(L, #name, count);                                \
+    if (observed_of[CALL(name)] == 0 || !observing.on) return count;     \
+    return observe_call(L, observed_of[CALL(name)] - 1u, count);         \
   }
 #define COSMIC_CONSTANT(name)
 #include "syscalls.h"

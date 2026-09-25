@@ -352,20 +352,17 @@ local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails
 end
 
 --- What the syscall table's queries answer while observed is kept on
---- the C heap until drained: a record refused fails the call as memory
---- does, rather than let it answer what no record keeps; a drain refused
---- keeps every record; and nothing is left once drained.
+--- the C heap until drained: under every refusal, no call answers what
+--- the log did not keep, a drain refused keeps every record, and nothing
+--- is left once drained. A refusal here raises where Lua asks next, so
+--- the answer a call gives when its record alone is refused is
+--- `test_a_query_whose_record_is_refused_fails_as_memory_does`'s.
 local function test_observing_the_syscall_table_leaves_nothing_whenever_an_allocation_fails(
     tmp: string)
   if not checked then return end
   local raw = observations_table().syscalls
   local link = tmp .. "/link"
   assert(sys.symlink("target", link))
-  local enomem = 0
-  for number = 1, 255 do
-    if sys.errno_name(number) == "ENOMEM" then enomem = number end
-  end
-  assert(enomem > 0, "no errno is named ENOMEM")
   raw.observed()
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
@@ -389,15 +386,11 @@ local function test_observing_the_syscall_table_leaves_nothing_whenever_an_alloc
       recorded[call] = false
     end
     raw.observe(true)
-    local st, _, stat_number = sys.lstat(link)
-    local target, _, target_number = sys.readlink(link)
+    local st, _ = sys.lstat(link)
+    if st ~= nil then answered.lstat = true end
+    local target, _ = sys.readlink(link)
+    if target ~= nil then answered.readlink = true end
     raw.observe(false)
-    if st ~= nil then answered.lstat = true elseif stat_number ~= enomem then
-      broken = "lstat failed other than as memory does"
-    end
-    if target ~= nil then answered.readlink = true elseif target_number ~= enomem then
-      broken = "readlink failed other than as memory does"
-    end
     local drained = raw.observed()
     for i = 1, #drained do
       if drained[i].path == link then recorded[drained[i].call] = true end
@@ -413,6 +406,29 @@ local function test_observing_the_syscall_table_leaves_nothing_whenever_an_alloc
   assert(broken == nil, broken)
   assert(ended > 0, "observing allocates")
   assert_c_heap(bytes, blocks, "observing the syscall table under refusal")
+end
+
+--- A query whose record the log cannot keep fails as memory does,
+--- having kept nothing, rather than answer what no key will hold; the
+--- next is kept as ever.
+local function test_a_query_whose_record_is_refused_fails_as_memory_does(tmp: string)
+  if not checked then return end
+  local raw = observations_table().syscalls
+  local link = tmp .. "/link"
+  assert(sys.symlink("target", link))
+  raw.observed()
+  raw.observe(true)
+  testing.fail_at("observed_log")
+  local target, trouble, number = sys.readlink(link)
+  local unfired = testing.fail_at()
+  local again = sys.readlink(link)
+  raw.observe(false)
+  local drained = raw.observed()
+  assert(not unfired, "the log never grew")
+  assert(target == nil and sys.errno_name(number) == "ENOMEM", tostring(target) .. trouble)
+  assert(again == "target")
+  assert(#drained == 1 and drained[1].call == "readlink" and drained[1].path == link and
+    drained[1][1] == "target", tostring(#drained))
 end
 
 --- The C heap counts what the core's C allocates and frees, and a

@@ -155,7 +155,7 @@ end
 --- it is in, with its last name after it as written. That of the whole
 --- path for one whose last name is "." or "..", or that ends in "/",
 --- which the call follows. "" for a relative path.
-local function link_resolution(path: string): string
+function observations.link_resolution(path: string): string
   if path:sub(1, 1) ~= "/" then return "" end
   local name = Fs.basename(path)
   local parent = Fs.dirname(path)
@@ -174,16 +174,18 @@ end
 --- by the time a later run could resolve the path again. The syscall
 --- table's queries (see `start`) came later, each a kind no earlier
 --- reader decodes: "l" an lstat, "k" a readlink, "a" a realpath, "c"
---- the working directory and "b" the program's own path.
+--- the working directory and "b" the program's own path, and "v" and
+--- "w", an lstat's or a readlink's resolution, as "r" and "t" are
+--- another read's.
 function observations.encode(found: {observations.Observation}): string
   local lines: {string} = { "filesystem-observations-v2" }
   for _, observation in ipairs(found) do
     local kind = observation.kind
     if kind == "o" or kind == "s" or kind == "d" or kind == "e" or kind == "r" or
         kind == "u" or kind == "l" or kind == "k" or kind == "a" or kind == "c" or
-        kind == "b" then
+        kind == "b" or kind == "v" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path)
-    elseif kind == "t" then
+    elseif kind == "t" or kind == "w" then
       lines[#lines + 1] = kind .. " " .. Codec.hex(observation.path) .. " " ..
         Codec.hex(observation.answer)
     end
@@ -213,7 +215,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
   for line in encoded:gmatch("[^\n]+") do
     if line ~= "filesystem-observations-v2" then
       local kind, encoded_path, encoded_answer =
-        line:match("^([osdertulkacb]) ([0-9a-f]*) ?([0-9a-f]*)$")
+        line:match("^([osdertulkacbvw]) ([0-9a-f]*) ?([0-9a-f]*)$")
       local path: string = nil
       local answer: string = nil
       if encoded_path ~= nil then
@@ -222,7 +224,7 @@ function observations.decode(encoded: string): {observations.Observation} | nil
         local decoded_answer, _ = Codec.unhex(encoded_answer)
         answer = decoded_answer
       end
-      if kind == nil or path == nil or answer == nil or (kind ~= "t" and answer ~= "") then
+      if kind == nil or path == nil or answer == nil or (kind ~= "t" and kind ~= "w" and answer ~= "") then
         return nil
       end
       found[#found + 1] = { kind = kind, path = path, answer = answer }
@@ -604,9 +606,11 @@ end
 --- table's dispatch (core/syscalls.c), whoever calls them, and noted
 --- when it ends (see `drain_syscalls`): an lstat, a readlink or a
 --- realpath as a stat is -- an lstat's and a readlink's path resolved,
---- given `resolving`, only as far as its last name (`link_resolution`)
---- -- and the working directory and the program's own path as an
---- environment read is.
+--- given `resolving`, only as far as its last name
+--- (`observations.link_resolution`) and noted "v", or "w" under the
+--- test's own directory, as "r" and "t" are another read's -- and the
+--- working directory and the program's own path as an environment read
+--- is.
 -- TODO: move the calls still observed by standing in for them here --
 -- `open`, `stat`, `readdir`, `getenv`, `environ`, `mkdtemp`, `mkdir`
 -- and `chdir` of `cosmic.sys`, `spawn` and `Http.open` -- onto the
@@ -678,16 +682,20 @@ local function start(resolving: observations.Resolving | nil):
             kind == "a") and
           path:sub(1, 1) == "/" and (not Fs.within(path, resolving.tree) or
             ("/" .. path .. "/"):find("/%.%./") ~= nil) then
-        local noted = "r"
+        -- An lstat's or a readlink's is kept apart, as "v" or "w": it
+        -- stops short of a link its path ends in, which a stat's of the
+        -- same path follows.
+        local link = kind == "l" or kind == "k"
+        local noted = link and "v" or "r"
         for _, directory in ipairs(resolving.own) do
-          if Fs.within(path, directory) then noted = "t" end
+          if Fs.within(path, directory) then noted = link and "w" or "t" end
         end
         -- TODO: resolve by the call itself, not beside it (the path an
         -- opened descriptor names, once cosmic.sys carries one): another
         -- process retargeting a link between the two goes unseen.
-        local resolved = (kind == "l" or kind == "k") and
-          link_resolution(path) or observations.resolution(path)
-        if noted == "t" and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
+        local resolved = link and observations.link_resolution(path) or
+          observations.resolution(path)
+        if (noted == "t" or noted == "w") and resolved ~= "" and ("/" .. path .. "/"):find("/%.%./") == nil then
           -- Most of a test's reads are of its own directory; only one
           -- that leads out of it, or that climbs (which only its
           -- resolution can place), is worth a line.
@@ -956,15 +964,17 @@ local tree_marker <const> = "\0tree"
 --- below it after a marker no path holds, and any other as it is. The
 --- tree's own location is no input to what a test does there, so two
 --- checkouts of the same content key the same read alike.
--- TODO: a test whose verdict turns on where the tree is (a path length
--- limit, a name it prints and compares) still stands on a sibling
--- checkout's verdict at another path: the working directory, a
--- realpath, a readlink and the program's own path it read are keyed
--- whole in a checkout's own key but by `tree_name` in the shared one,
--- lest every test that reads them stand only where it ran. Key them
--- whole in the shared key too for a test that declares it turns on
--- where the tree is (as `observations.confine` declares what its
--- processes read).
+---
+--- That is a rule, not an accident of keying: a test may not turn on
+--- where the tree is -- a path length limit, a name it prints and
+--- compares. The answers that name it which a capture observes (the
+--- working directory, a realpath, a readlink, `Proc.executable`, a
+--- path under the tree read or given) are keyed by `tree_name` in the
+--- shared key and whole only in a checkout's own; one it does not (the
+--- artifact path `Proc.relaunch` and the process table's `relaunch`
+--- answer) is keyed nowhere. Nothing here can see a test break the
+--- rule: CI, which checks the tree out at a path of its own each run,
+--- is what catches one that does.
 function observations.tree_name(path: string, tree: string): string
   if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
   local rest, _ = Fs.relative(path, tree)

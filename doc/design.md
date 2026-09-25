@@ -612,11 +612,12 @@ the key leaves out is a way for a sibling's pass to answer for a failure. each
 gap has a `TODO:` where its fix goes; CI can stand on shared verdicts once all
 are closed:
 
-- [ ] *the tree's location* (`build/filesystem_observations.tl`, above
-  `tree_name`): the working directory, a realpath, a readlink and the program's
-  own path are keyed whole in a checkout's own key but by `tree_name` in the
-  shared one, so a test that turns on where the tree is stands on a sibling's
-  verdict. key them whole in both for a test that declares it turns on them.
+- [x] *the tree's location*: no input to a test, by rule. a test may not turn
+  on where the tree is; the working directory, a realpath, a readlink and the
+  program's own path it reads are keyed by `tree_name` in the shared key (whole
+  in a checkout's own), and `Proc.relaunch`'s artifact path is keyed nowhere.
+  CI checks the tree out at a path of its own each run, which is what catches a
+  test that breaks the rule.
 - [x] *`o/` beyond `o/cosmic.db`* (`build/test.tl`, `output_hash`): a read of
   anything under `o/` is keyed by its bytes, hashed once a run while its stat
   holds; a read of the working database, which every run rewrites, is never

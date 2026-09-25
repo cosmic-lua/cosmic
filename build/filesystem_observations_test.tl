@@ -656,7 +656,7 @@ local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_lea
   assert(own.passed, own.message)
   assert(noted(own.reads, "a", tmp .. "/f") ~= nil)
   for _, observation in ipairs(own.reads) do
-    assert(observation.kind ~= "x" and observation.kind ~= "t",
+    assert(observation.kind ~= "x" and observation.kind ~= "t" and observation.kind ~= "w",
       observation.kind .. " " .. observation.path)
   end
   local out = observations.call(function()
@@ -666,6 +666,6 @@ local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_lea
   assert(out.passed, out.message)
   local link = assert(noted(out.reads, "t", tmp .. "/out"))
   assert(link.answer == "/", link.answer)
-  local through = assert(noted(out.reads, "t", tmp .. "/out/etc"))
+  local through = assert(noted(out.reads, "w", tmp .. "/out/etc"))
   assert(through.answer == "/etc", through.answer)
 end
