@@ -410,41 +410,6 @@ COSMIC_SYSCALL(cpu_count, 0);
  */
 COSMIC_SYSCALL(uname, 0);
 
-/* TODO: move the three child-signal calls below into core/process.h,
- * behind `Child.guard`, in a follow-up: nothing that runs on the release
- * ci/cosmic-driver.pin names calls them by these names any more (build/
- * zig.tl's `Zig.run` holds its signals with `Child.guard`, which that
- * release carries), so only cosmic/child.tl reads them now. */
-
-/*
- * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
- * --- A signal this process ignores stays ignored, and is never caught.
- * --- Only one guard may be active; callers must restore it when done.
- * ---@return boolean ok false on failure
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
- */
-COSMIC_SYSCALL(guard_child_signals, 0);
-
-/*
- * --- Restores dispositions and returns the last signal delivered since
- * --- the last take.
- * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
- * ---@return string error what went wrong, when signal is nil
- * ---@return integer errno the error number, when signal is nil
- */
-COSMIC_SYSCALL(unguard_child_signals, 0);
-
-/*
- * --- Takes the last supervised SIGINT or SIGTERM delivered since the last
- * --- take, or zero when none arrived. Two pending together are delivered
- * --- in the kernel's order, not the order they were sent.
- * ---@return integer|nil signal the pending signal number, zero, or nil on failure
- * ---@return string error what went wrong, when signal is nil
- * ---@return integer errno the error number, when signal is nil
- */
-COSMIC_SYSCALL(cancelled_child_signal, 0);
-
 /*
  * --- Reads a clock, in nanoseconds.
  * ---@param clock integer one of `syscalls.CLOCK_REALTIME`, `_MONOTONIC`
