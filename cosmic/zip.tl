@@ -489,12 +489,18 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
   elseif unix_type == S_IFLNK then
     kind = "symlink"
   end
-  if bare and kind ~= "symlink" then return CHECKED, "" end
-  local name = buf:sub(name_start, name_end)
+  -- Checked on the pass `open` makes too, so an entry with a zip64
+  -- value no Lua integer holds -- 2^63 or more reads negative -- is
+  -- refused there rather than listed with a negative size.
   if extra_len > 0 and (usize == U32_MAX or csize == U32_MAX or local_offset == U32_MAX) then
     local extra = buf:sub(name_end + 1, name_end + extra_len)
     usize, csize, local_offset = apply_zip64_extra(extra, usize, csize, local_offset)
+    if usize < 0 or csize < 0 or local_offset < 0 then
+      return nil, "zip: a zip64 extra field's size or offset is past 2^63"
+    end
   end
+  if bare and kind ~= "symlink" then return CHECKED, "" end
+  local name = buf:sub(name_start, name_end)
   local entry: Zip.Entry = setmetatable({
     path = name,
     kind = kind,

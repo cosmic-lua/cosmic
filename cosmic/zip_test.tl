@@ -248,6 +248,22 @@ local function test_a_huge_zip64_central_directory_size_is_refused()
   assert(r == nil and trouble:find("outside", 1, true) ~= nil, trouble)
 end
 
+local function test_a_zip64_size_past_2_63_is_refused_at_open()
+  -- One empty stored entry whose central header's uncompressed size is
+  -- the sentinel, and whose zip64 field holds 2^63: no size a Lua
+  -- integer can hold, so it would read back negative.
+  local lfh = "PK\3\4" .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) .. le32(0) ..
+    le32(0) .. le32(0) .. le16(1) .. le16(0) .. "a"
+  local extra = le16(1) .. le16(8) .. le64(1 << 63)
+  local cdfh = "PK\1\2" .. le16(20) .. le16(20) .. le16(0) .. le16(0) .. le16(0) .. le16(0) ..
+    le32(0) .. le32(0) .. le32(0xFFFFFFFF) .. le16(1) .. le16(#extra) .. le16(0) .. le16(0) ..
+    le16(0) .. le32(0) .. le32(0) .. "a" .. extra
+  local eocd = "PK\5\6" .. le16(0) .. le16(0) .. le16(1) .. le16(1) .. le32(#cdfh) ..
+    le32(#lfh) .. le16(0)
+  local r, trouble = Zip.open_string(lfh .. cdfh .. eocd)
+  assert(r == nil and trouble:find("zip64", 1, true) ~= nil, trouble)
+end
+
 local function test_a_forged_end_record_inside_the_comment_is_not_taken_for_the_real_one()
   local raw = three_entry_zip()
   local fake = "PK\5\6" .. le16(0) .. le16(0) .. le16(0) .. le16(0) .. le32(0) .. le32(0) ..
