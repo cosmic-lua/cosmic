@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,9 +38,12 @@
 
 #include <curl/curl.h>
 
-#include "cacert.h"
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+
 #include "fault.h"
 #include "memory.h"
+#include "store.h"
 
 #define HANDLE_TYPE "cosmic.http.handle"
 
@@ -111,53 +115,119 @@ struct transfer {
 static int curl_ready;
 static CURLM *shared_multi;
 static struct script *live_scripts;
-static char *ca_blob;
-static size_t ca_blob_len;
+/* The trust store: every CA root the binary's own database carries
+ * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus
+ * the certificates in $SSL_CERT_FILE when it names a readable file --
+ * which is how a TLS-intercepting proxy's own CA gets trusted. Parsed
+ * once and kept for the life of the process: `use_roots` hands it to
+ * every TLS connection, a proxy's included. */
+static mbedtls_x509_crt roots;
+static int roots_ready;
 
-/* The trust store: the embedded Mozilla bundle, plus the contents of
- * $SSL_CERT_FILE when it names a readable file -- which is how a
- * TLS-intercepting proxy's own CA gets trusted. NUL-terminated, so
- * mbedtls can parse it in place. */
-static char *build_ca_blob (size_t *out_len) {
-  const char *extra_path = getenv("SSL_CERT_FILE");
-  char *extra = NULL;
-  size_t extra_len = 0;
-  FILE *f = extra_path != NULL && extra_path[0] != '\0'
-                ? fopen(extra_path, "rb")
-                : NULL;
-  if (f != NULL) {
-    if (fseek(f, 0, SEEK_END) == 0) {
-      long size = ftell(f);
-      if (size > 0 && fseek(f, 0, SEEK_SET) == 0 &&
-          (extra = cosmic_malloc((size_t)size)) != NULL) {
-        extra_len = fread(extra, 1, (size_t)size, f);
+/* Adds the certificates in $SSL_CERT_FILE, when it names a readable
+ * file, to `roots`. A certificate there that does not parse is left
+ * out, trusted no more than one missing. False only when there was no
+ * memory to read the file into. */
+static bool add_cert_file (void) {
+  const char *path = getenv("SSL_CERT_FILE");
+  FILE *f = path != NULL && path[0] != '\0' ? fopen(path, "rb") : NULL;
+  if (f == NULL) return true;
+  bool ok = true;
+  if (fseek(f, 0, SEEK_END) == 0) {
+    long size = ftell(f);
+    if (size > 0 && fseek(f, 0, SEEK_SET) == 0) {
+      /* NUL-terminated: mbedtls reads PEM only from such a buffer, its
+       * length counting the NUL. */
+      unsigned char *text = cosmic_malloc((size_t)size + 1);
+      if (text == NULL) {
+        ok = false;
+      } else {
+        size_t got = fread(text, 1, (size_t)size, f);
+        text[got] = '\0';
+        (void)mbedtls_x509_crt_parse(&roots, text, got + 1);
+        cosmic_free(text);
       }
     }
-    fclose(f);
   }
+  fclose(f);
+  return ok;
+}
 
-  size_t total = cosmic_cacert_pem_len + 1 + extra_len + 1;
-  char *blob = cosmic_malloc(total);
-  if (blob == NULL) {
-    cosmic_free(extra);
-    return NULL;
+/* Fills `roots` from the `ca_roots` rows of the database attached to the
+ * running binary: the last one the store searches, as it trusts for the
+ * standard library, so a project's database never adds a root. Returns
+ * NULL, or why not, leaving `roots` empty: a binary with no roots
+ * refuses every request, plain http too, rather than trusting some
+ * other set -- one whose own database is missing or holds none is
+ * broken, and says so at its first request. */
+static const char *load_roots (lua_State *L) {
+  int count = cosmic_store_count(L);
+  sqlite3 *db = count > 0 ? cosmic_store_database(L, count) : NULL;
+  if (db == NULL) return "no CA roots: this binary carries no database";
+  sqlite3_stmt *stmt = NULL;
+  if (sqlite3_prepare_v2(db, "SELECT der FROM main.ca_roots", -1, &stmt,
+                         NULL) != SQLITE_OK) {
+    sqlite3_finalize(stmt);
+    return "no CA roots: the binary's database has no ca_roots table";
   }
-  memcpy(blob, cosmic_cacert_pem, cosmic_cacert_pem_len);
-  size_t at = cosmic_cacert_pem_len;
-  blob[at++] = '\n';
-  if (extra_len > 0) memcpy(blob + at, extra, extra_len);
-  at += extra_len;
-  blob[at++] = '\0';
-  cosmic_free(extra);
-  *out_len = at;
-  return blob;
+  mbedtls_x509_crt_init(&roots);
+  const char *trouble = NULL;
+  int trusted = 0;
+  int rc = SQLITE_DONE;
+  while (trouble == NULL && (rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    const unsigned char *der = sqlite3_column_blob(stmt, 0);
+    int len = sqlite3_column_bytes(stmt, 0);
+    if (der == NULL || len <= 0) continue;
+    /* TODO: tell an allocation failure inside mbedtls from a certificate
+     * it cannot read -- some come back as X509_INVALID_EXTENSIONS plus
+     * ASN1_ALLOC_FAILED, or a PSA error -- and refuse on the first, once
+     * mbedtls allocates through core/memory.h so core/allocation_test.tl
+     * can walk it; today such a failure drops that one root for the life
+     * of the process. add_cert_file's parse has the same gap. */
+    int parsed = mbedtls_x509_crt_parse_der(&roots, der, (size_t)len);
+    if (parsed == 0) {
+      trusted++;
+    } else if (parsed == MBEDTLS_ERR_X509_ALLOC_FAILED) {
+      trouble = "no memory for the CA roots";
+    }
+  }
+  if (trouble == NULL && rc != SQLITE_DONE) {
+    trouble = "no CA roots: reading the binary's database failed";
+  }
+  sqlite3_finalize(stmt);
+  if (trouble == NULL && trusted == 0) {
+    trouble = "no CA roots: the binary's database holds none";
+  }
+  if (trouble == NULL && !add_cert_file()) {
+    trouble = "no memory for $SSL_CERT_FILE";
+  }
+  if (trouble != NULL) {
+    mbedtls_x509_crt_free(&roots);
+    return trouble;
+  }
+  roots_ready = 1;
+  return NULL;
+}
+
+/* The CURLOPT_SSL_CTX_FUNCTION of every transfer: curl's mbedtls backend
+ * calls it with the configuration of each TLS connection it sets up,
+ * the origin's or a proxy's, after its own set up and before the
+ * handshake; the chain given here is the one the peer is verified
+ * against. */
+static CURLcode use_roots (CURL *easy, void *config, void *data) {
+  (void)easy;
+  (void)data;
+  /* No CRL: curl's own is empty, as cosmic sets no CURLOPT_CRLFILE; one
+   * that did would have to be passed here too. */
+  mbedtls_ssl_conf_ca_chain(config, &roots, NULL);
+  return CURLE_OK;
 }
 
 /* Initializes curl, the trust store and the shared multi handle, the
  * first time any request needs them. Returns NULL, or why not. Each
  * piece is made once: a later call after a failure picks up where the
  * last one stopped, so nothing made is leaked or made twice. */
-static const char *http_ready (void) {
+static const char *http_ready (lua_State *L) {
   if (shared_multi != NULL) return NULL;
   if (!curl_ready) {
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
@@ -165,9 +235,9 @@ static const char *http_ready (void) {
     }
     curl_ready = 1;
   }
-  if (ca_blob == NULL) {
-    ca_blob = build_ca_blob(&ca_blob_len);
-    if (ca_blob == NULL) return "no memory for the CA bundle";
+  if (!roots_ready) {
+    const char *trouble = load_roots(L);
+    if (trouble != NULL) return trouble;
   }
   shared_multi = COSMIC_FAULT("curl_multi_init") ? NULL : curl_multi_init();
   if (shared_multi == NULL) return "curl_multi_init failed";
@@ -814,9 +884,7 @@ static CURLcode configure (struct transfer *t, const struct request *r,
   SET(CURLOPT_LOW_SPEED_LIMIT, r->low_speed_bytes);
   SET(CURLOPT_LOW_SPEED_TIME, r->low_speed_seconds);
   SET(CURLOPT_VERBOSE, r->verbose ? 1L : 0L);
-  struct curl_blob ca = {ca_blob, ca_blob_len, CURL_BLOB_NOCOPY};
-  SET(CURLOPT_CAINFO_BLOB, &ca);
-  SET(CURLOPT_PROXY_CAINFO_BLOB, &ca);
+  SET(CURLOPT_SSL_CTX_FUNCTION, use_roots);
   return set_method(easy, r, which);
 }
 
@@ -828,8 +896,10 @@ static CURLcode configure_script (struct transfer *t, const char **which) {
   SET(CURLOPT_SOCKOPTFUNCTION, script_sockopt);
   SET(CURLOPT_CONNECT_TO, t->connect_to);
   SET(CURLOPT_PROXY, "");
-  SET(CURLOPT_PROTOCOLS_STR, "http");
-  SET(CURLOPT_REDIR_PROTOCOLS_STR, "http");
+  /* https too: the reply is then the server's side of the handshake,
+   * which is how a test sees a certificate verified by `use_roots`. */
+  SET(CURLOPT_PROTOCOLS_STR, "http,https");
+  SET(CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
   SET(CURLOPT_FRESH_CONNECT, 1L);
   SET(CURLOPT_FORBID_REUSE, 1L);
   return CURLE_OK;
@@ -967,7 +1037,7 @@ static int http_open (lua_State *L) {
     }
     lua_pop(L, 1);
   }
-  const char *trouble = http_ready();
+  const char *trouble = http_ready(L);
   if (trouble != NULL) return failed(L, trouble);
 
   /* The body's one uservalue keeps it alive for as long as curl may

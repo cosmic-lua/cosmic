@@ -6,10 +6,10 @@
 --- external-content mode needs a real rowid to join against, so each
 --- is keyed on one instead -- ordinary INSERTs still run in one
 --- deterministic order (see `build/writer.tl`), which is what keeps the
---- file byte-identical, not the rowid's absence. `zoneinfo` keeps its
---- rowid too, for its size: a WITHOUT ROWID row lives in an index
---- page, where a blob past about a kilobyte spills into overflow pages
---- of its own, and it is written in name order.
+--- file byte-identical, not the rowid's absence. `ca_roots` and
+--- `zoneinfo` are ones too, for their size: a WITHOUT ROWID row lives in
+--- an index page, where a blob past about a kilobyte spills into
+--- overflow pages of its own; see below. Each is written in key order.
 
 local record schema
 end
@@ -97,6 +97,17 @@ local tables: {{string}} = {
                   file TEXT NOT NULL,
                   text TEXT NOT NULL,
                   PRIMARY KEY (component, ordinal)) WITHOUT ROWID]] },
+
+  -- The CA roots the binary trusts (`build.roots`), one DER
+  -- certificate a row: filled and carried as the bill of materials is.
+  -- A rowid table, unlike the rest: a row of a WITHOUT ROWID table
+  -- past about a thousand bytes spills onto an overflow page of its
+  -- own, which more than doubled this one's size. Rows go in in
+  -- `sha256` order, which keeps the file the same on every build, and
+  -- `build.roots` never writes one certificate twice.
+  { "ca_roots", [[(sha256 BLOB NOT NULL,
+                   label TEXT NOT NULL,
+                   der BLOB NOT NULL)]] },
 
   { "catalog", [[(id INTEGER PRIMARY KEY,
                   kind TEXT NOT NULL,

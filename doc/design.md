@@ -113,13 +113,14 @@ kernel                               Linux; macOS
     mbedtls, miniz, argon2,          vendored pristine
     a regex engine
     bzip2, xz, c-ares, curl,         vendored pristine
-    yyjson, Mozilla's CA roots
+    yyjson
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
     teal compiler + checker          vendored tl, carried patches
     cosmic.* stdlib in teal          typed wrappers, honest returns
     docs                             rows in the same database
+    Mozilla's CA roots               DER rows, once for every core
     three raw cores                  manifest ranges before the database
 ```
 
@@ -348,6 +349,8 @@ input to the build, never to the runtime. one database holds:
   assertion mechanism for code, not a second, output-diffing one only
   doc guides need.
 - **payload**: for an embed-built executable, the user's files.
+- **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
+  which `core/http.c` reads from the binary's own database alone.
 - **zoneinfo**: the IANA time zone database (`vendor/tzdata`), one
   TZif file per zone name, which `cosmic.time` reads where the host
   has no zone files of its own. A boot reads it from the tree, a
@@ -373,13 +376,10 @@ input to the build, never to the runtime. one database holds:
   came from, so the line a Lua error names is a line of the module's
   own source, read straight out of `modules`.
 
-Mozilla's CA bundle is not among them: `core/cacert.zig` compiles
-`vendor/cacert` into the core itself.
-
 every table is `WITHOUT ROWID` on a natural key, except `docs` and
 `catalog`, which FTS5's external-content mode joins by rowid and
 which are therefore keyed on an integer assigned in one deterministic
-insertion order instead, and `zoneinfo`, for its size. everything a build
+insertion order instead, and `ca_roots` and `zoneinfo`, for their size. everything a build
 does on one host lives in a second database beside it, `o/build.db`,
 the working database: the tree as it was last read, staged whole
 before anything transforms it; what a stat said about each file, so
@@ -685,8 +685,10 @@ comes from the same library and the same configuration: one header,
 mbedtls header is compiled against, curl's included. it keeps
 certificate expiry checks, extended master secret and TLS 1.3
 middlebox compatibility on, and renegotiation and session tickets
-off. Mozilla's root bundle is embedded in the core, identical on
-every machine, moved only by a pinned bump; `SSL_CERT_FILE` adds
+off. Mozilla's root bundle ships in the binary's own database, one
+row per certificate, identical on every machine, moved only by a
+pinned bump; the core parses it once, and every TLS connection, a
+proxy's too, verifies against that chain. `SSL_CERT_FILE` adds
 certificates for the corporate-proxy case without making per-machine
 trust the default.
 
