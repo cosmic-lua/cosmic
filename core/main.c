@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
 #include "boot.h"
 #include "check.h"
@@ -55,255 +54,37 @@ static sqlite3 *open_artifact (const char *path, int retained_fd,
   return db;
 }
 
-/* A word too common to mean anything on its own: matching one proves
- * nothing about two messages being related (a real report, found by
- * hand, of "not"/"are"/"and" alone coincidentally matching an unrelated
- * row's own short message -- "Not a directory" shares "not" with
- * anything that happens to say "is not available"). Deliberately short:
- * this is english function words cosmic's own messages actually use,
- * not a general-purpose stopword list. */
-static const char *const stopwords[] = {
-  "a",    "an",   "the",  "is",   "are",  "was",  "were", "be",
-  "to",   "of",   "in",   "on",   "at",   "for",  "and",  "or",
-  "not",  "no",   "this", "that", "it",   "its",  "as",   "by",
-  "with", "from", "own",  NULL,
-};
-
-static bool is_stopword (const char *word, size_t len) {
-  for (const char *const *s = stopwords; *s != NULL; s++) {
-    if (strlen(*s) == len && strncasecmp(*s, word, len) == 0) {
-      return true;
-    }
-  }
-  return false;
+/* Answers what `cosmic.errors`'s `guidance` says beneath the uncaught
+ * error at 1: the catalog's guidance for it, as lines to print, or
+ * nothing. */
+static int ask_guidance (lua_State *L) {
+  lua_getglobal(L, "require");
+  lua_pushliteral(L, "cosmic.errors");
+  lua_call(L, 1, 1);
+  lua_getfield(L, -1, "guidance");
+  lua_pushvalue(L, 1);
+  lua_call(L, 1, 1);
+  return 1;
 }
 
-/* `message`'s alphanumeric words, minus `stopwords`, as an FTS5 query
- * restricted to the `message` column and matching a `catalog` row
- * sharing any of them: `message: ("word1" OR "word2" OR ...)`, each
- * word double-quoted so it reads as an FTS5 string literal rather than
- * syntax -- a word built only from `isalnum` bytes can never itself
- * contain the quote that would need escaping. The column filter
- * matters: `catalog_fts` also indexes `text`, the guidance PROSE, and
- * an unfiltered query matches there too -- a real message merely
- * sharing an ordinary word with some unrelated row's own guidance
- * ("something", "path", ...) would otherwise surface that guidance for
- * an error it has nothing to do with. The catalog's own text is a
- * short, literal SUBSET of a real runtime message (a static prefix
- * ahead of whatever was interpolated in), so matching is this direction
- * -- the message's words against the catalog's indexed text -- rather
- * than a phrase match of the whole message, which the catalog's shorter
- * text could never satisfy. `bm25` ranks a catalog row sharing more, or
- * rarer, words above one sharing only a common word like "parameter". */
-static void catalog_query (const char *message, char *out, size_t outsz) {
-  size_t used = 0;
-  int terms = 0;
-  out[0] = '\0';
-  if (outsz < 12) {
+/* Prints the guidance `Errors.guidance` finds for the uncaught error on
+ * top of the stack, the one policy of a report that is more than its
+ * message and line, and leaves the stack as it was. The state is sound
+ * after the failed call that raised it; anything that goes wrong asking
+ * -- memory, a catalog that will not answer -- prints nothing more. */
+static void print_guidance (lua_State *L) {
+  int top = lua_gettop(L);
+  if (!lua_checkstack(L, 2)) {
     return;
   }
-  memcpy(out, "message: (", 10);
-  used = 10;
-  const char *p = message;
-  while (*p != '\0' && terms < 16 && used + 4 < outsz) {
-    while (*p != '\0' && !isalnum((unsigned char)*p)) {
-      p++;
-    }
-    const char *start = p;
-    while (isalnum((unsigned char)*p)) {
-      p++;
-    }
-    size_t len = (size_t)(p - start);
-    if (len == 0) {
-      break;
-    }
-    if (is_stopword(start, len)) {
-      continue;
-    }
-    size_t needed = len + 3 + (terms > 0 ? 4 : 0);
-    if (used + needed + 1 >= outsz) {
-      break;
-    }
-    if (terms > 0) {
-      memcpy(out + used, " OR ", 4);
-      used += 4;
-    }
-    out[used++] = '"';
-    memcpy(out + used, start, len);
-    used += len;
-    out[used++] = '"';
-    out[used] = '\0';
-    terms++;
-  }
-  if (terms == 0) {
-    out[0] = '\0';
-  } else {
-    out[used++] = ')';
-    out[used] = '\0';
-  }
-}
-
-/* The next alphanumeric word of `*at`, advancing past it: its start,
- * and its length in `*len`, 0 at the end of the text. */
-static const char *next_word (const char **at, size_t *len) {
-  const char *p = *at;
-  while (*p != '\0' && !isalnum((unsigned char)*p)) {
-    p++;
-  }
-  const char *start = p;
-  while (isalnum((unsigned char)*p)) {
-    p++;
-  }
-  *at = p;
-  *len = (size_t)(p - start);
-  return start;
-}
-
-/* Whether `text` holds `word` as a whole word, case-insensitively:
- * "os" is not in "cosmic", and "cosmic" is one word of "cosmic.time". */
-static bool has_word (const char *text, const char *word, size_t len) {
-  const char *at = text;
-  for (;;) {
-    size_t found_len = 0;
-    const char *found = next_word(&at, &found_len);
-    if (found_len == 0) {
-      return false;
-    }
-    if (found_len == len && strncasecmp(found, word, len) == 0) {
-      return true;
-    }
-  }
-}
-
-/* How many DISTINCT significant (non-stopword) words of `message`
- * appear as whole words in `candidate`, case-insensitively -- a cheap
- * confirmation pass over the ONE row `catalog_guidance` already chose,
- * not a second search. FTS5's own ranking already prefers a row sharing
- * more, or rarer, words, but bm25 alone does not reliably separate a
- * real match from one accidental shared word (found by hand: an "io is
- * not available" message and an unrelated row about "too many open
- * files" share nothing meaningful except the word "files", and nothing
- * in `stopwords` catches an ordinary content word like that one). The
- * caller requires at least two before trusting the match. Distinct and
- * whole, because one word said three times is still one word (found by
- * hand: "os is not available: time is cosmic.time, the environment is
- * cosmic.env, and processes are cosmic.proc" met the bar against a row
- * about "cosmic's own tree" on "cosmic" alone, counted per mention,
- * and on "os" found inside "cosmic"). */
-static int count_shared_words (const char *message, const char *candidate) {
-  int shared = 0;
-  const char *at = message;
-  for (;;) {
+  lua_pushcfunction(L, ask_guidance);
+  lua_pushvalue(L, top);
+  if (lua_pcall(L, 1, 1, 0) == LUA_OK && lua_type(L, -1) == LUA_TSTRING) {
     size_t len = 0;
-    const char *word = next_word(&at, &len);
-    if (len == 0) {
-      break;
-    }
-    if (is_stopword(word, len) || !has_word(candidate, word, len)) {
-      continue;
-    }
-    /* Already counted, as an earlier word of the message? */
-    bool seen = false;
-    const char *before = message;
-    for (;;) {
-      size_t earlier_len = 0;
-      const char *earlier = next_word(&before, &earlier_len);
-      if (earlier == word || earlier_len == 0) {
-        break;
-      }
-      if (earlier_len == len && strncasecmp(earlier, word, len) == 0) {
-        seen = true;
-        break;
-      }
-    }
-    if (!seen) {
-      shared++;
-    }
+    const char *text = lua_tolstring(L, -1, &len);
+    fwrite(text, 1, len, stderr);
   }
-  return shared;
-}
-
-/* Prints `text` beneath an uncaught error, one `cosmic: ` line per
- * line of it, the first opening with `head` (`ENOENT (core/fail.h)`,
- * `Fs.read (cosmic/fs.tl:212)`) so a reader knows where the words come
- * from. Guidance is a doc comment's own lines, already wrapped; its
- * `@param`/`@return` lines describe the signature, not the failure,
- * and are left out here. */
-static void print_guidance (const char *head, const char *text) {
-  const char *p = text;
-  bool first = true;
-  while (*p != '\0') {
-    const char *nl = strchr(p, '\n');
-    size_t len = nl == NULL ? strlen(p) : (size_t)(nl - p);
-    if (len > 0 && p[0] == '@') {
-      /* a tag line: skip it */
-    } else if (first) {
-      fprintf(stderr, "cosmic: %s: %.*s\n", head, (int)len, p);
-      first = false;
-    } else {
-      fprintf(stderr, "cosmic:   %.*s\n", (int)len, p);
-    }
-    p = nl == NULL ? p + len : nl + 1;
-  }
-}
-
-/* The best-matching `catalog` row for `message` in `db`, printed as
- * guidance: true when one was, false when `db` carries no catalog (a
- * boot run, with no database attached), nothing in it shares
- * two or more significant words with `message` (see
- * `count_shared_words`), or the FTS5 query itself carried no
- * significant word at all. A row's own text is the hand-authored
- * guidance a seed row carries; an extracted row has none, and prints
- * the doc comment of the function it was found in instead, joined from
- * `docs` by symbol. Read straight off the connection, through the same
- * `sqlite3_prepare_v2`/`step`/`column` shape `store.c` uses -- an
- * uncaught error is exactly the one path with no Lua state left in
- * working order to ask instead. */
-static bool catalog_guidance (sqlite3 *db, const char *message) {
-  if (db == NULL || message == NULL || message[0] == '\0') {
-    return false;
-  }
-  char query[1024];
-  catalog_query(message, query, sizeof query);
-  if (query[0] == '\0') {
-    return false;
-  }
-  sqlite3_stmt *stmt = NULL;
-  const char *sql =
-      "SELECT coalesce(catalog.text, (SELECT d.text FROM main.docs d "
-      "WHERE d.module = catalog.module AND "
-      "d.source_symbol = catalog.symbol)), "
-      "catalog.message, catalog.symbol, catalog.file, catalog.line "
-      "FROM main.catalog_fts JOIN main.catalog "
-      "ON catalog.id = catalog_fts.rowid "
-      "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1";
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    return false;
-  }
-  sqlite3_bind_text(stmt, 1, query, -1, SQLITE_STATIC);
-  bool printed = false;
-  if (sqlite3_step(stmt) == SQLITE_ROW) {
-    const char *text = (const char *)sqlite3_column_text(stmt, 0);
-    const char *candidate = (const char *)sqlite3_column_text(stmt, 1);
-    const char *symbol = (const char *)sqlite3_column_text(stmt, 2);
-    const char *file = (const char *)sqlite3_column_text(stmt, 3);
-    int line = sqlite3_column_int(stmt, 4);
-    if (text != NULL && text[0] != '\0' && candidate != NULL &&
-        count_shared_words(message, candidate) >= 2) {
-      char head[512];
-      if (line > 0) {
-        snprintf(head, sizeof head, "%s (%s:%d)", symbol == NULL ? "" : symbol,
-                 file == NULL ? "" : file, line);
-      } else {
-        snprintf(head, sizeof head, "%s (%s)", symbol == NULL ? "" : symbol,
-                 file == NULL ? "" : file);
-      }
-      print_guidance(head, text);
-      printed = true;
-    }
-  }
-  sqlite3_finalize(stmt);
-  return printed;
+  lua_settop(L, top);
 }
 
 /* Where an uncaught error's message says it was raised, as the source
@@ -395,20 +176,13 @@ static bool source_position (lua_State *L, const char *message) {
 }
 
 /* An uncaught error: its message, then where in the Teal source it was
- * raised, then the guidance the first database in search order (a
- * project's own ahead of the binary's) holds for it. `db` is the
- * binary's own connection, the last one searched. */
-static int failed (lua_State *L, sqlite3 *db) {
+ * raised, then the guidance the catalog holds for it. */
+static int failed (lua_State *L) {
   const char *message = lua_tostring(L, -1);
   fprintf(stderr, "cosmic: %s\n", message == NULL ? "failed" : message);
   source_position(L, message);
-  int count = cosmic_store_count(L);
-  bool guided = false;
-  for (int index = 1; index <= count && !guided; index++) {
-    guided = catalog_guidance(cosmic_store_database(L, index), message);
-  }
-  if (!guided && count == 0) {
-    catalog_guidance(db, message);
+  if (message != NULL) {
+    print_guidance(L);
   }
   return 1;
 }
@@ -456,9 +230,8 @@ static int enter_main (lua_State *L) {
   return 0;
 }
 
-/* Runs the main module the build recorded. `db` is threaded through
- * only for an uncaught failure's own catalog lookup. */
-static int run_main (lua_State *L, sqlite3 *db, int argc, char **argv) {
+/* Runs the main module the build recorded. */
+static int run_main (lua_State *L, int argc, char **argv) {
   char main_name[256];
   if (!cosmic_store_meta(L, "main", main_name, sizeof main_name) ||
       main_name[0] == '\0') {
@@ -469,7 +242,7 @@ static int run_main (lua_State *L, sqlite3 *db, int argc, char **argv) {
   lua_pushcfunction(L, enter_main);
   lua_pushlightuserdata(L, &entry);
   if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-    return failed(L, db);
+    return failed(L);
   }
   return entry.status;
 }
@@ -560,7 +333,7 @@ int cosmic_runtime_entry (const struct cosmic_startup *startup, int argc,
   }
 
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_ENTERING);
-  int status = run_main(L, db, argc, argv);
+  int status = run_main(L, argc, argv);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_MAIN_RETURNED);
   cosmic_surface_close(L);
   cosmic_startup_test_phase(startup, COSMIC_STARTUP_TEST_LUA_CLOSED);

@@ -130,7 +130,7 @@ symbol.
   coverage.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
-- an uncaught error's guidance (`catalog_guidance` in `core/main.c`) is
+- an uncaught error's guidance (`Errors.guidance` in `cosmic/errors.tl`) is
   chosen by word overlap between the message and the catalog's messages, and
   two shared ordinary words are enough to attach an entry about something
   else: #2008 reworded two `removed` messages to get out of its way. Match a

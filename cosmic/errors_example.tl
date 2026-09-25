@@ -15,4 +15,15 @@ function Example.trace()
   assert(text:find("traceback", 1, true) ~= nil, text)
 end
 
+--- What cosmic prints beneath an error nothing caught: the doc comment
+--- of the function the message came from, found in the error catalog by
+--- the words the two share.
+function Example.guidance()
+  local text = Errors.guidance("coverage collection is already active")
+  print(text)
+  assert(text ~= nil and text:find("Coverage.start (cosmic/coverage.tl:", 1, true) ~= nil,
+    tostring(text))
+  assert(Errors.guidance("nothing whatever like any message") == nil)
+end
+
 return Example

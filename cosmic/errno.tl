@@ -11,7 +11,7 @@
 --- guidance: `build/analyzer.tl`'s `catalog_of` records a module's
 --- literal failures, not these fields, so no catalog row holds them.
 --- Have it record each field's value as a row joined to its doc
---- comment; `core/main.c`'s `catalog_guidance` would then print it
+--- comment; `Errors.guidance` would then find it
 --- beneath an uncaught error whose own message matches.
 local record Errno
   --- the path does not exist -- check it is spelled right, and that
@@ -38,7 +38,7 @@ local record Errno
 end
 
 --- Each field's own value is the exact message text it stands
---- for -- the thing `catalog_guidance` actually matches an uncaught
+--- for -- the thing `Errors.guidance` actually matches an uncaught
 --- error's message against, not a description of it.
 local errno: Errno = {
   ENOENT = "No such file or directory",
