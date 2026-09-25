@@ -25,10 +25,9 @@ end
 
 --- The database `sql.source` picks for a command line, or nil and why.
 local function source(root: string, words: {string}): sql.Source | nil, string
-  local argv = argv_of(words)
-  local parsed = assert(Flags.parse(argv, 2, { ["--db"] = true, ["--build"] = false,
+  local parsed = assert(Flags.parse(argv_of(words), 2, { ["--db"] = true, ["--build"] = false,
     ["--store"] = false }))
-  return sql.source(root, parsed, sql.options_given(argv))
+  return sql.source(root, parsed)
 end
 
 --- What one run wrote, stream by stream.
@@ -188,6 +187,8 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
   assert(chosen.path == root .. "/x.db")
   local refused, why = source(root, { "--db", "x.db", "--store" })
   assert(refused == nil and why == "name one database, not --db and --store", why)
+  refused, why = source(root, { "--store", "--store" })
+  assert(refused == nil and why == "name one database, not --store and --store", why)
 
   assert(Fs.remove(root .. "/o/cosmic.db"))
   chosen = assert(source(root, {}))
