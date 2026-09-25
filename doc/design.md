@@ -570,7 +570,9 @@ that does run runs in a worker process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, and the compiler identity. a test
-  verdict adds the runtime identity and its supported observations. an unchanged
+  verdict adds the runtime identity, a digest of the zones and CA roots the
+  running binary carries (which `cosmic refresh` replaces without moving that
+  identity), and its supported observations. an unchanged
   key
   is a stat; a changed one recompiles and re-records only what
   depended on it. observations come through the syscall table, where the runner
@@ -632,9 +634,10 @@ are closed:
 - [ ] *an in-tree path crossing a link out* (`build/test.tl`, above
   `under_root`): keyed by where the link leads at the end, not when read.
   resolve such a read as it is made, from a set of the tree's links.
-- [ ] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
-  changes `zoneinfo` and `ca_roots` without the runtime identity. write a digest
-  of them into `meta` and key on it.
+- [x] *the binary's data tables* (`build/test.tl`, in `test.run`): a refresh
+  changes `zoneinfo` and `ca_roots` without the runtime identity. every verdict
+  is keyed on a digest of them (`schema.tables_digest`), computed from the
+  running binary's own rows as `cosmic test` starts.
 
 `cosmic build` and `cosmic test` will fence themselves with the sandbox core, so
 a build cannot read outside its tree and a test cannot reach the network by

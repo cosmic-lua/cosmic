@@ -165,4 +165,20 @@ function schema.settings(qualifier: string): {string}
   return out
 end
 
+--- The query answering one digest of the data tables a binary carries
+--- that `cosmic refresh` replaces without moving its runtime identity
+--- (core/store.c, `runtime`): every zone by name and bytes, every CA
+--- root by digest, label and bytes, in key order, under the schema
+--- `qualifier` names. `cosmic test` keys each verdict on it, computed
+--- from the running binary's own rows (`build.test`), so a test that
+--- read a zone or a root runs again on a binary that carries others.
+function schema.tables_digest(qualifier: string): string
+  return "SELECT lower(hex(sha256('zoneinfo' || char(10) || " ..
+    "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
+    "char(10) ORDER BY name) FROM " .. qualifier .. "zoneinfo), '') || char(10) || " ..
+    "'ca_roots' || char(10) || coalesce((SELECT group_concat(lower(hex(sha256)) || " ..
+    "' ' || lower(hex(label)) || ' ' || lower(hex(sha256(der))), char(10) " ..
+    "ORDER BY sha256, label, der) FROM " .. qualifier .. "ca_roots), ''))))"
+end
+
 return schema

@@ -2,6 +2,7 @@ local Context = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Images = require("cosmic_ci.images")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
@@ -99,6 +100,10 @@ local commands: {string:Command} = {
     usage = "", handler = Prerelease.stage_command },
   ["prerelease-publish"] = { about = "publish the staged prerelease, or verify the one there",
     usage = "", handler = Prerelease.publish_command },
+  ["image-build"] = { about = "build one of ci/images/ for one architecture",
+    usage = "", handler = Images.build_command },
+  ["image-publish"] = { about = "join one image's architectures under one tag",
+    usage = "", handler = Images.publish_command },
 }
 
 return function(argv: {integer:string}): integer
