@@ -1,6 +1,7 @@
 #include "store.h"
 
 #include <limits.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,6 +38,12 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
   exit(2); /* exits: a database this broken has no well-formed answer to
               return, honest or otherwise */
 }
+
+/* Whether a prepare or a step failed for memory rather than for the
+ * database: SQLite's own, or the observed VFS (core/sqlite.c) refused a
+ * record of a file it read. That is the process out of memory, which
+ * raises like any allocation, not a database to die of. */
+static bool out_of_memory (int rc) { return (rc & 0xff) == SQLITE_NOMEM; }
 
 /* Where the raw `cosmic.internal.*` values live: never in
  * package.preload and never a name `require` resolves on its own, so
@@ -169,18 +176,28 @@ static int load_from (lua_State *L, sqlite3 *db, const char *name,
   static const char *query =
     "SELECT bytecode, kind FROM main.modules WHERE path = ?1";
   sqlite3_stmt *stmt = NULL;
-  if (sqlite3_prepare_v2(db, query, -1, &stmt, NULL) != SQLITE_OK) {
+  int rc = sqlite3_prepare_v2(db, query, -1, &stmt, NULL);
+  if (rc != SQLITE_OK) {
+    sqlite3_finalize(stmt);
+    if (out_of_memory(rc)) {
+      lua_pushliteral(L, "not enough memory");
+      return -1;
+    }
     die_unreadable(db);
   }
   sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
 
-  int rc = sqlite3_step(stmt);
+  rc = sqlite3_step(stmt);
   if (rc == SQLITE_DONE) {
     sqlite3_finalize(stmt);
     return 0;
   }
   if (rc != SQLITE_ROW) {
     sqlite3_finalize(stmt);
+    if (out_of_memory(rc)) {
+      lua_pushliteral(L, "not enough memory");
+      return -1;
+    }
     die_unreadable(db);
   }
 
@@ -363,15 +380,18 @@ static int lookup (lua_State *L, sqlite3 *db, const char *sql,
   struct cosmic_guard *guard = cosmic_guard_push(L, release_statement);
   int slot = lua_gettop(L);
   sqlite3_stmt *stmt = NULL;
-  if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    die_unreadable(db);
-  }
+  int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
   guard->resource = stmt;
-  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
-  int rc = sqlite3_step(stmt);
-  if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
-    die_unreadable(db);
+  if (rc != SQLITE_OK && out_of_memory(rc)) {
+    return luaL_error(L, "not enough memory");
   }
+  if (rc != SQLITE_OK) die_unreadable(db);
+  sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+  rc = sqlite3_step(stmt);
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE && out_of_memory(rc)) {
+    return luaL_error(L, "not enough memory");
+  }
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) die_unreadable(db);
   int found = rc == SQLITE_ROW;
   if (found) {
     /* The blob first, then its length; a NULL pointer with a length is
