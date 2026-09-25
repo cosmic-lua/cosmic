@@ -256,6 +256,16 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
   return lines
 end
 
+--- The options `spec` names, one line each as `Flags.help` lists them:
+--- indented two spaces, sorted, what each does in a column. "" when it
+--- names none. For help of another shape that still lists options the
+--- same way.
+--- @param spec {string:boolean|Option} The options
+--- @return string The lines, without a newline after the last
+function Flags.options(spec: {string:boolean | Flags.Option}): string
+  return table.concat(option_lines(spec), "\n")
+end
+
 --- A program's help, written from its spec: the usage line, `about`
 --- when given, and each option the spec names with its value's name and
 --- what it does, as a `Flags.Option` describes it: one named `false`

@@ -719,7 +719,7 @@ which rows it reads; and `help`, which takes a verb. every verb ends
 in a verdict line
 and an exit code; a file run, `--standalone` and `-e` are programs,
 not verbs, and print only what they print and exit with what they
-return. `cosmic help <verb>` prints that verb's line, and `cosmic
+return. `cosmic help <verb>` prints that verb's line and its options, and `cosmic
 help` all of them: the whole discovery surface. no other
 stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.

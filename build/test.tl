@@ -55,6 +55,7 @@
 --- calling the test; see `build.filesystem_observations`.
 
 local Child = require("cosmic.child")
+local Cli = require("cosmic.cli")
 local Coverage = require("cosmic.coverage")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
@@ -1276,7 +1277,7 @@ function test.run(argv: {integer:string}): integer
     log:complain(root_trouble)
     return 1
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--timeout"] = true, ["--jobs"] = true })
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.test)
   if parsed == nil then
     log:complain("test: " .. parse_trouble)
     return 2

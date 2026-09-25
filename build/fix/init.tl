@@ -28,6 +28,7 @@
 --- `build.c` holds, where a finding is a file refused and is fixed by
 --- hand. A header is held to them through the files that include it.
 
+local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
@@ -313,7 +314,7 @@ end
 --- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--check"] = false })
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.fix)
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2

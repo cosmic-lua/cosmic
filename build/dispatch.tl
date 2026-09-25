@@ -65,6 +65,10 @@ local function verb_help(verbs: {string}): string
       lines[#lines + 1] = "(cosmic.cli." .. symbol .. ": not found)"
     else
       lines[#lines + 1] = text
+      local options = Flags.options(Cli.options[verb] or {})
+      if options ~= "" then
+        lines[#lines + 1] = options
+      end
     end
     lines[#lines + 1] = ""
   end
@@ -493,6 +497,22 @@ local function detail_of(code: integer): string
   return ""
 end
 
+--- Whether a verb's command line asks for its help: "--help" or "-h"
+--- anywhere after the verb, before a "--", that its options do not
+--- name -- as `Flags.dispatch` reads a command's.
+local function asks_help(argv: {integer:string},
+    options: {string:boolean | Flags.Option}): boolean
+  local slot = 2
+  while argv[slot] ~= nil and argv[slot] ~= "--" do
+    local word = argv[slot]
+    if (word == "--help" or word == "-h") and options[word] == nil then
+      return true
+    end
+    slot = slot + 1
+  end
+  return false
+end
+
 local dispatch = {}
 
 --- Runs the command line and answers its exit code.
@@ -528,7 +548,7 @@ function dispatch.main(argv: {integer:string}): integer
     verb = "help"
   end
   local chosen = verbs[verb]
-  if chosen ~= nil and verb ~= "help" and (argv[2] == "-h" or argv[2] == "--help") then
+  if chosen ~= nil and verb ~= "help" and asks_help(argv, Cli.options[verb] or {}) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
     verb = "help"

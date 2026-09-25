@@ -25,6 +25,7 @@
 --- build/verbs_test.tl), so a pipe that wants only the rows drops the
 --- first line and the last; complaints go to stderr.
 
+local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -68,7 +69,7 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec: {string:boolean} = { ["--db"] = true, ["--build"] = false, ["--store"] = false }
+local spec = Cli.options.sql
 
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (o/build.db), `--store` (the
