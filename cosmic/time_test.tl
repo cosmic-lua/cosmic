@@ -266,3 +266,105 @@ local function test_months_between_counts_whole_months()
   local age = Time.months_between(at("1990-06-15T00:00:00Z"), at("2026-06-14T00:00:00Z")) // 12
   assert(age == 35, tostring(age))
 end
+
+local function test_format_date_is_the_utc_date()
+  assert(Time.format_date(0) == "1970-01-01")
+  assert(Time.format_date(-1) == "1969-12-31")
+  assert(Time.format_date(951782400 * NS + 86399 * NS) == "2000-02-29")
+  assert(Time.format_date(math.mininteger) == "1677-09-21")
+  assert(Time.format_date(math.maxinteger) == "2262-04-11")
+end
+
+local function test_parse_date_is_its_midnight()
+  assert(Time.parse_date("1970-01-01") == 0)
+  assert(Time.parse_date("2000-02-29") == 951782400 * NS)
+  assert(Time.parse_date("1969-12-31") == -86400 * NS)
+  assert(Time.parse_date("1677-09-22") == (math.mininteger // NS // 86400 + 1) * 86400 * NS)
+  assert(Time.parse_date("2262-04-11") == math.maxinteger // NS // 86400 * 86400 * NS)
+end
+
+local function test_parse_date_refuses_what_is_not_a_date()
+  for _, text in ipairs({
+    "", "2026-09-25T00:00:00Z", "2026-09-25 ", " 2026-09-25", "2026-9-25", "26-09-25",
+    "2026/09/25", "2026-02-29", "1900-02-29", "2026-13-01", "2026-00-01", "2026-09-00",
+    "2026-09-31", "1677-09-21", "2262-04-12", "0000-01-01", "9999-12-31", "2026-09-2a",
+  }) do
+    local got, why = Time.parse_date(text)
+    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+  end
+end
+
+local function test_format_http_is_imf_fixdate()
+  assert(Time.format_http(784111777 * NS) == "Sun, 06 Nov 1994 08:49:37 GMT")
+  assert(Time.format_http(1790313741 * NS + 999999999) == "Fri, 25 Sep 2026 05:22:21 GMT")
+  assert(Time.format_http(-1) == "Wed, 31 Dec 1969 23:59:59 GMT")
+  assert(Time.format_http(math.maxinteger) == "Fri, 11 Apr 2262 23:47:16 GMT")
+end
+
+local function test_parse_http_reads_rfc_9110s_three_forms()
+  for _, text in ipairs({
+    "Sun, 06 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMT",
+    "Sun Nov  6 08:49:37 1994", "Sun Nov 06 08:49:37 1994",
+  }) do
+    local got, why = Time.parse_http(text)
+    assert(got == 784111777 * NS, ("%s: got %s: %s"):format(text, tostring(got), why))
+  end
+  assert(Time.parse_http("Fri, 25 Sep 2026 05:22:21 GMT") == 1790313741 * NS)
+  assert(Time.parse_http("Fri Sep 25 05:22:21 2026") == 1790313741 * NS)
+  assert(Time.parse_http("Wednesday, 31-Dec-69 23:59:59 GMT") == -NS)
+  assert(Time.parse_http("Thursday, 01-Jan-70 00:00:00 GMT") == 0)
+end
+
+local function test_parse_http_reads_two_digit_years_as_posix_does()
+  local function year(text: string): integer
+    return Time.civil((assert(Time.parse_http(text)))).year
+  end
+  assert(year("Wednesday, 01-Jan-69 00:00:00 GMT") == 1969)
+  assert(year("Friday, 31-Dec-99 00:00:00 GMT") == 1999)
+  assert(year("Saturday, 01-Jan-00 00:00:00 GMT") == 2000)
+  assert(year("Monday, 31-Dec-68 00:00:00 GMT") == 2068)
+end
+
+local function test_parse_http_reads_the_date_whatever_its_weekday_name()
+  for _, text in ipairs({
+    "Mon, 26 Jul 1997 05:00:00 GMT", "Monday, 26-Jul-97 05:00:00 GMT", "Mon Jul 26 05:00:00 1997",
+  }) do
+    local got, why = Time.parse_http(text)
+    assert(got == 869893200 * NS, ("%s: got %s: %s"):format(text, tostring(got), why))
+  end
+  for _, text in ipairs({
+    "Mox, 26 Jul 1997 05:00:00 GMT", "Mon., 26 Jul 1997 05:00:00 GMT",
+    "Monday, 26 Jul 1997 05:00:00 GMT", "Mon, 26-Jul-97 05:00:00 GMT",
+    "Mond, 26-Jul-97 05:00:00 GMT", "mon Jul 26 05:00:00 1997", "Monday Jul 26 05:00:00 1997",
+  }) do
+    local got, why = Time.parse_http(text)
+    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+  end
+end
+
+local function test_parse_http_refuses_what_rfc_9110_does_not_say()
+  for _, text in ipairs({
+    "", "Sun", "Sun,", "Sun, 06 Nov 1994 08:49:37", "Sun, 06 Nov 1994 08:49:37 UTC",
+    "Sun, 06 Nov 1994 08:49:37 GMT ", " Sun, 06 Nov 1994 08:49:37 GMT",
+    "Sun, 6 Nov 1994 08:49:37 GMT", "Sun, 06 nov 1994 08:49:37 GMT", "sun, 06 Nov 1994 08:49:37 GMT",
+    "Sun, 06 Nov 94 08:49:37 GMT", "Sun, 06 Nov 1994 8:49:37 GMT", "Sun, 06-Nov-1994 08:49:37 GMT",
+    "Sun,  06 Nov 1994 08:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 +0000",
+    "Sun, 06 Nov 1994 24:00:00 GMT", "Sun, 06 Nov 1994 08:60:37 GMT",
+    "Sun, 06 Nov 1994 08:49:60 GMT", "Sun, 31 Nov 1994 08:49:37 GMT",
+    "Sun, 2026-09-25T04:09:21Z", "2026-09-25T04:09:21Z", "Sunday, 06 Nov 1994 08:49:37 GMT",
+    "Sun, 06-Nov-94 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37", "Sunday, 6-Nov-94 08:49:37 GMT",
+    "Sundays, 06-Nov-94 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMTx",
+    "Sun Nov 6 08:49:37 1994", "Sun Nov  6 08:49:37 94", "Sun Nov  6 08:49:37 1994 ",
+    "Sun Nov  6 08:49:37 1994 GMT", "Sun  Nov 6 08:49:37 1994", "Sun Nov  x 08:49:37 1994",
+    "Tue, 21 Sep 1677 00:12:43 GMT", "Sat, 12 Apr 2262 00:00:00 GMT",
+    "Sat, 01 Jan 0000 00:00:00 GMT",
+  }) do
+    local got, why = Time.parse_http(text)
+    assert(got == nil and why ~= "", ("%q: got %s"):format(text, tostring(got)))
+  end
+end
+
+local function test_parse_http_reaches_the_ranges_edges()
+  assert(Time.parse_http("Fri, 11 Apr 2262 23:47:16 GMT") == math.maxinteger - math.maxinteger % NS)
+  assert(Time.parse_http("Tue, 21 Sep 1677 00:12:44 GMT") == (math.mininteger // NS + 1) * NS)
+end
