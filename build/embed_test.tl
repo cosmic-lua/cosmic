@@ -113,6 +113,99 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(about_build[1][1] == "0", "guidance about the build is not")
 end
 
+--- A project's tests and examples stay with the project: the program
+--- never runs them, so its executable carries neither, nor an import
+--- edge or a catalog row about one. The test's `checked` returns a
+--- literal failure, which is what puts a row about it in the catalog.
+local function test_the_carried_database_leaves_tests_and_examples_out(tmp: string)
+  write_project(tmp)
+  assert(Fs.write(tmp .. "/greet_test.tl", table.concat({
+    'local greet = require("greet")',
+    "local function checked(name: string): string | nil, string",
+    '  if greet.hello(name) ~= "hello, " .. name then',
+    '    return nil, "greet_test: hello said something else"',
+    "  end",
+    '  return name, ""',
+    "end",
+    "local function test_hello()",
+    '  assert(checked("x"))',
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/greet_example.tl", table.concat({
+    'local greet = require("greet")',
+    "local record Example",
+    "end",
+    "--- Greets.",
+    "function Example.hello()",
+    '  assert(greet.hello("x") == "hello, x")',
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp))
+  local projected = rows_of(tmp .. "/o/cosmic.db",
+    "SELECT count(*) FROM modules WHERE path IN ('greet_test', 'greet_example')")
+  assert(projected[1][1] == "2", "the project's own projection keeps both")
+  local database = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+
+  local modules = rows_of(path,
+    "SELECT path FROM modules WHERE path IN ('greet', 'greet_test', 'greet_example')")
+  assert(#modules == 1 and modules[1][1] == "greet",
+    "the module is in and its test and example are not")
+  local imports = rows_of(path,
+    "SELECT count(*) FROM imports WHERE path IN ('greet_test', 'greet_example')")
+  assert(imports[1][1] == "0", "no import edge from a test or example")
+  local catalog = rows_of(path,
+    "SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example')")
+  assert(catalog[1][1] == "0", "no catalog row about a test or example")
+end
+
+--- A test or example file is only a kind by its name: one the program
+--- itself requires, directly or through another module, is carried,
+--- or the executable would build and then fail to load it.
+local function test_a_test_or_example_the_program_requires_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/hello"))
+  assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
+    'local shared = require("shared_example")',
+    "return function(): integer",
+    "  print(shared.hi())",
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/shared_example.tl", table.concat({
+    'local fixture = require("fixture_test")',
+    "local record shared",
+    "end",
+    "function shared.hi(): string",
+    "  return fixture.greeting",
+    "end",
+    "return shared",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/fixture_test.tl", table.concat({
+    'return { greeting = "hi" }',
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp))
+  local database = assert(embed.database(tmp .. "/o/cosmic.db", "cmd.hello.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+
+  local modules = rows_of(path,
+    "SELECT path FROM modules WHERE path IN ('shared_example', 'fixture_test') " ..
+    "ORDER BY path")
+  assert(#modules == 2, "a required example and test are carried, and " ..
+    "only " .. #modules .. " were")
+  local imports = rows_of(path,
+    "SELECT count(*) FROM imports WHERE path = 'shared_example' " ..
+    "AND requires = 'fixture_test'")
+  assert(imports[1][1] == "1", "the edge between them is carried")
+end
+
 local function test_a_tree_without_a_main_builds_and_writes_nothing(tmp: string)
   assert(Fs.write(tmp .. "/greet.tl", greet_source))
   local names, trouble = embed.tree(tmp)
