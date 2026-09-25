@@ -1,0 +1,8 @@
+file: sqlite3.c
+note: json5Whitespace's comment names the `#` comments the records before this one add.
+--- find
+** from '/', '/' to end-of-line are also considered to be whitespace.
+--- replace
+** from '/', '/' to end-of-line are also considered to be whitespace,
+** as, in cosmic's copy, are comments from '#' to end-of-line.
+--- end

@@ -1,0 +1,27 @@
+file: sqlite3.c
+note: cosmic.json reads `#` line comments when asked (`hash_comments`, patch/yyjson/), so a text can be both JSON5 and YAML's flow style. SQLite's JSON functions read JSON5 always, with no flags to ask by, so its reader takes `#` comments always too: `#` is never valid JSON outside a string, so no text that read before reads differently. A `#` comment ends where SQLite's own `//` comment does: a line feed, a carriage return, U+2028, U+2029 or the text's end. This record teaches json5Whitespace, which every JSON5 whitespace run is measured by, to skip one; the next sends the parser to it on a `#`.
+--- find
+        goto whitespace_done;
+      }
+      case 0xc2: {
+--- replace
+        goto whitespace_done;
+      }
+      case '#': {
+        int j;
+        char c;
+        for(j=n+1; (c = z[j])!=0; j++){
+          if( c=='\n' || c=='\r' ) break;
+          if( 0xe2==(u8)c && 0x80==(u8)z[j+1]
+           && (0xa8==(u8)z[j+2] || 0xa9==(u8)z[j+2])
+          ){
+            j += 2;
+            break;
+          }
+        }
+        n = j;
+        if( z[n] ) n++;
+        break;
+      }
+      case 0xc2: {
+--- end

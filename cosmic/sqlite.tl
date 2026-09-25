@@ -18,6 +18,10 @@
 ---
 --- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
 --- bind those types; `{}` binds NULL.
+---
+--- SQLite's JSON functions read JSON5 always, and in cosmic's copy `#`
+--- line comments too, as `cosmic.json` does given `hash_comments`: a
+--- text in YAML's flow style reads the same through either.
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace, which never satisfies an ordinary
