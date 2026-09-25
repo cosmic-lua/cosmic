@@ -262,7 +262,7 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.fingerprint(handle))
+  local fingerprint = assert(work.put_fingerprint(handle))
   work.close(handle)
   return fingerprint.boot
 end
@@ -271,7 +271,7 @@ end
 local function image_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.fingerprint(handle))
+  local fingerprint = assert(work.put_fingerprint(handle))
   work.close(handle)
   return fingerprint.image
 end
@@ -311,7 +311,7 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local function identities(): {string}
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
-    local found = assert(work.identities(handle))
+    local found = assert(work.put_identities(handle))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
   end
@@ -591,7 +591,7 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
     assert(importer.derive(handle, true, built))
-    local found = assert(work.identities(handle))
+    local found = assert(work.put_identities(handle))
     work.close(handle)
     return found.compiler
   end

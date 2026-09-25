@@ -111,7 +111,7 @@ end
 
 --- Compares the tree's fingerprints with the running binary's.
 local function state_of(handle: work.Handle): reboot.State | nil, string
-  local fingerprint, trouble = work.fingerprint(handle)
+  local fingerprint, trouble = work.put_fingerprint(handle)
   if fingerprint == nil then
     return nil, trouble
   end
@@ -166,7 +166,7 @@ local function into(handle: work.Handle, built: compiler,
   if not derived then
     return closing(handle, derive_trouble)
   end
-  local identities, identity_trouble = work.identities(handle)
+  local identities, identity_trouble = work.put_identities(handle)
   if identities == nil then
     return closing(handle, identity_trouble)
   end

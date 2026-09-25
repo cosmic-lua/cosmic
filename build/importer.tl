@@ -429,7 +429,7 @@ end
 --- here; the plan carries it. What no input refers to any more is dropped, so the tables
 --- describe this tree and nothing older. `compile` does this itself;
 --- a caller that reads the tree's identities before compiling calls it
---- first, since `work.identities` closes over `requires`, and a fresh
+--- first, since `work.put_identities` closes over `requires`, and a fresh
 --- working database has none until the tree is parsed.
 --- @param self_tree whether the tree is cosmic's own, where the
 ---   `cosmic.` namespace is not reserved against the tree itself
