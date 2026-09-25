@@ -92,3 +92,54 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local result = assert(second:wait(60000))
   assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
 end
+
+--- The bytes `files` holds for one staged path.
+local function staged_bytes(db: Sqlite.Handle, path: string): string
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT CAST(data AS TEXT) FROM files WHERE path = ?1", { { text = path } }))
+  return rows[1][1]
+end
+
+--- A file staged within the settle window is read again next time even
+--- when a same-size rewrite in place then stamps it with the epoch, a
+--- time a tool normalizing times writes: an unsettled row's time must
+--- not match any stat, the epoch's included.
+local function test_an_unsettled_row_is_read_again_at_the_epoch(tmp: string)
+  local path = tmp .. "/probe.tl"
+  assert(Fs.write(path, "return 1\n"))
+  -- An hour ahead, so it is unsettled however long staging takes.
+  assert(Fs.set_mtime(path, Time.now_ns() // 1000000000 + 3600, 0))
+  local handle = assert(work.open(tmp))
+  assert(work.stage(handle, false))
+  assert(staged_bytes(handle.db, "probe.tl") == "return 1\n")
+  local unsettled = assert(Sqlite.text_rows(handle.db,
+    "SELECT mtime_ns IS NULL FROM files WHERE path = 'probe.tl'"))
+  assert(unsettled[1][1] == "1", "the first stage must leave the row unsettled")
+  local before = assert(Fs.stat(path))
+
+  local fd = assert(Fs.open_write(path))
+  assert(Fs.put(fd, "return 2\n"))
+  assert(Fs.close(fd))
+  assert(Fs.set_mtime(path, 0, 0))
+  local after = assert(Fs.stat(path))
+  assert(after.ino == before.ino and after.size == before.size)
+
+  local staged = assert(work.stage(handle, false))
+  assert(staged.read == 1, "an unsettled row must count as moved")
+  assert(staged_bytes(handle.db, "probe.tl") == "return 2\n")
+  assert(work.close(handle))
+end
+
+--- A file whose time is the epoch has settled, and its row is trusted:
+--- staging it again reads nothing.
+local function test_a_settled_epoch_time_is_trusted(tmp: string)
+  local path = tmp .. "/probe.tl"
+  assert(Fs.write(path, "return 1\n"))
+  assert(Fs.set_mtime(path, 0, 0))
+  local handle = assert(work.open(tmp))
+  local first = assert(work.stage(handle, false))
+  assert(first.read == 1)
+  local second = assert(work.stage(handle, false))
+  assert(second.read == 0, "a settled epoch row must stand")
+  assert(work.close(handle))
+end

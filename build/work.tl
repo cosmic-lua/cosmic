@@ -80,15 +80,16 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "23"
+local version <const> = "24"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
 --- the tree is a row gone from the table. A file written within the
---- last two seconds of being staged is recorded with no modification
---- time, so the next run reads it again rather than trusting a stat
---- that a second write inside one timestamp tick could leave
---- unchanged -- the rule zig's cache applies to its own inputs.
+--- last two seconds of being staged is recorded with a NULL modification
+--- time, which no stat matches, not even the epoch a tool normalizing
+--- times writes. The next run reads it again rather than trusting a
+--- stat that a second write inside one timestamp tick could leave
+--- unchanged: the rule zig's cache applies to its own inputs.
 ---
 --- `tool` is what the tool itself is made of, fingerprinted the same
 --- way but without the bytes: every source input to the embedded
@@ -231,20 +232,20 @@ work.schema = {
                                      value BLOB NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,
                                       size INTEGER NOT NULL,
-                                      mtime_ns INTEGER NOT NULL,
+                                      mtime_ns INTEGER,
                                       ino INTEGER NOT NULL,
                                       dev INTEGER NOT NULL,
                                       sha256 TEXT NOT NULL,
                                       data BLOB NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS tool (path TEXT PRIMARY KEY,
                                      size INTEGER NOT NULL,
-                                     mtime_ns INTEGER NOT NULL,
+                                     mtime_ns INTEGER,
                                      ino INTEGER NOT NULL,
                                      dev INTEGER NOT NULL,
                                      sha256 TEXT NOT NULL) WITHOUT ROWID]],
   [[CREATE TABLE IF NOT EXISTS scanned (path TEXT PRIMARY KEY,
                                         size INTEGER NOT NULL,
-                                        mtime_ns INTEGER NOT NULL,
+                                        mtime_ns INTEGER,
                                         ino INTEGER NOT NULL,
                                         dev INTEGER NOT NULL,
                                         sha256 TEXT NOT NULL) WITHOUT ROWID]],
@@ -689,7 +690,8 @@ end
 --- a comparison and never a query.
 local record Known
   size: integer
-  mtime_ns: integer
+  --- nil for a row staged before its file settled, which no stat matches.
+  mtime_ns: integer | nil
   ino: integer
   dev: integer
 end
@@ -697,7 +699,7 @@ end
 local function known_in(db: Sqlite.Handle,
                         table_name: string): {string:Known} | nil, string
   local statement, trouble = db:prepare(
-    "SELECT path, size, mtime_ns, ino, dev FROM " .. table_name)
+    "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL FROM " .. table_name)
   if statement == nil then
     return nil, trouble
   end
@@ -713,7 +715,7 @@ local function known_in(db: Sqlite.Handle,
     end
     out[statement:bytes(0)] = {
       size = statement:integer(1),
-      mtime_ns = statement:integer(2),
+      mtime_ns = statement:integer(5) == 0 and statement:integer(2) or nil,
       ino = statement:integer(3),
       dev = statement:integer(4),
     }
@@ -753,7 +755,8 @@ local function moved(known: {string:Known}, file: string, st: sys.Stat,
                      mtime_ns: integer): boolean
   local was = known[file]
   known[file] = nil
-  return was == nil or was.size ~= st.size or was.mtime_ns ~= mtime_ns or
+  return was == nil or was.size ~= st.size or was.mtime_ns == nil or
+    was.mtime_ns ~= mtime_ns or
     was.ino ~= st.ino or was.dev ~= st.dev
 end
 
@@ -793,11 +796,13 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
                        data: string, sha256: string): boolean, string
   local bound, trouble = put:bind_text(1, file)
   if bound then bound, trouble = put:bind_integer(2, st.size) end
-  -- TODO: 0 stands for "not settled", but a file whose mtime really is
-  -- the epoch (a tool normalizing times to 0) matches it, so a same-size
-  -- rewrite in place within the settle window keeps stale bytes; store
-  -- NULL or a settled flag so an unsettled row always counts as moved.
-  if bound then bound, trouble = put:bind_integer(3, settled and mtime_ns or 0) end
+  if bound then
+    if settled then
+      bound, trouble = put:bind_integer(3, mtime_ns)
+    else
+      bound, trouble = put:bind_null(3)
+    end
+  end
   if bound then bound, trouble = put:bind_integer(4, st.ino) end
   if bound then bound, trouble = put:bind_integer(5, st.dev) end
   if bound then bound, trouble = put:bind_blob(6, data) end
