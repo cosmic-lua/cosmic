@@ -47,12 +47,15 @@ local record Cli
   --- this binary runs from -- the digest a release's SHA256SUMS names
   --- it by and its notes cite -- with nothing built or checked
   version: string
-  --- `cosmic test [options] [path...]`: builds the tree in the working
+  --- `cosmic test [options] [selector...]`: builds the tree in the working
   --- directory, then runs every test it defines -- see test, Example --
   --- which `cosmic docs` also shows under every symbol an example
-  --- calls. Each test runs in a process of its own, and fails if it
-  --- runs past its timeout; what a failing test printed is shown
-  --- beneath it
+  --- calls. A selector narrows the run to the modules it names, a file,
+  --- a module name, or a directory; `<file or module>:<name>` to the
+  --- one test of that name, `test_*` or an example's, and one no test
+  --- there has is refused. Each test runs
+  --- in a process of its own, and fails if it runs past its timeout;
+  --- what a failing test printed is shown beneath it
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as
