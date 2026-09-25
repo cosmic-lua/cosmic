@@ -287,6 +287,54 @@ local unconfinable: {integer:boolean} = {
   [sys.ENOSPC] = true,
 }
 
+--- The file types `lstat` and `fstat` tell apart by their mode's type
+--- bits, which `sys.Stat`'s `kind` folds into "other".
+local S_IFMT <const> = 0xf000
+local S_IFREG <const> = 0x8000
+local S_IFIFO <const> = 0x1000
+local S_IFCHR <const> = 0x2000
+
+--- Whether a device is one whose every answer is the same, or random,
+--- and so no input: /dev/null, /dev/zero or /dev/urandom.
+local function inert_device(st: sys.Stat): boolean
+  for _, name in ipairs({ "/dev/null", "/dev/zero", "/dev/urandom" }) do
+    local device, _ = sys.stat(name)
+    if device ~= nil and device.ino == st.ino and device.dev == st.dev then return true end
+  end
+  return false
+end
+
+--- Whether a descriptor a confined process is handed reaches nothing
+--- past its root but what the test itself opened and read: a file, a
+--- pipe, or an inert device -- not a directory, whose files it could
+--- read, nor a socket, onto the network.
+local function contained(fd: integer): boolean
+  local st, _ = sys.fstat(fd)
+  if st == nil then return true end -- nothing there to reach
+  local format = st.mode & S_IFMT
+  return format == S_IFREG or format == S_IFIFO or
+    (format == S_IFCHR and inert_device(st))
+end
+
+--- The most paths a sandbox unveils (core/syscalls.c's UNVEIL_MAX).
+local UNVEIL_MAX <const> = 64
+
+--- Whether a process can run confined to `reads` and `writes`: few
+--- enough of them, and its program among them -- where the system's
+--- own shell lives elsewhere (/nix/store), it starts unconfined.
+local function confinable(program: string, reads: {string}, writes: {string}): boolean
+  if #reads + #writes > UNVEIL_MAX then return false end
+  local real, _ = realpath(program)
+  if real == nil then return true end -- its own failure to report
+  for _, list in ipairs({ reads, writes }) do
+    for _, given in ipairs(list) do
+      local where, _ = realpath(given)
+      if where ~= nil and Fs.within(real, where) then return true end
+    end
+  end
+  return false
+end
+
 --- While a `declared` call runs, a process it starts is noted "h", not
 --- "p". `noting` holds every running capture's own `note` -- one wraps
 --- another when a test captures its own calls -- for a declaration that
@@ -436,7 +484,8 @@ local function start(resolving: observations.Resolving | nil):
     if sandbox == nil and confinement ~= nil and declaring == 0 then
       local declared: observations.Confinement = confinement
       -- The test's own: its directory, and every directory it made for
-      -- itself, which a key never holds either.
+      -- itself and that is a directory still -- one put back as a link
+      -- would lead elsewhere -- which a key never holds either.
       local own: {string} = {}
       for _, directory in ipairs(resolving ~= nil and resolving.own or {}) do
         own[#own + 1] = directory
@@ -447,7 +496,10 @@ local function start(resolving: observations.Resolving | nil):
           for _, directory in ipairs(own) do
             if Fs.within(observation.path, directory) then inside = true end
           end
-          if not inside then own[#own + 1] = observation.path end
+          local st, _ = sys.lstat(observation.path)
+          if not inside and st ~= nil and st.kind == "dir" then
+            own[#own + 1] = observation.path
+          end
         end
       end
       local function owned(given: string): boolean
@@ -470,29 +522,47 @@ local function start(resolving: observations.Resolving | nil):
       for _, given in ipairs(declared.writes) do writes[#writes + 1] = given end
       -- The directory a test runs in is the tree's root, which a confined
       -- process does not have: one given no directory starts in the
-      -- test's own.
+      -- test's own, confined or not, so it runs the same either way.
       local start_in = cwd
-      if start_in == nil and #writes > 0 then start_in = own[1] end
-      local pid, trouble, errno = spawn(path, argv, environment, start_in, stdin, stdout, stderr,
-        process_group, fds, { unveil = { reads = reads, writes = writes }, offline = true })
-      if pid ~= nil or not unconfinable[errno] then
-        for _, given in ipairs(reads) do
-          if given == "/proc" then
-            -- The system's own, above; any other path under it, or
-            -- under /sys, is the host's state and no input a key holds.
-          elseif Fs.within(given, "/proc") or Fs.within(given, "/sys") then
-            note("x", given, "")
-          elseif not owned(given) then
-            note("u", given, "")
+      if start_in == nil then start_in = writes[1] or "/" end
+      if confinable(path, reads, writes) then
+        local pid, trouble, errno = spawn(path, argv, environment, start_in, stdin, stdout,
+          stderr, process_group, fds, { unveil = { reads = reads, writes = writes },
+            offline = true })
+        if pid ~= nil or not unconfinable[errno] then
+          for _, given in ipairs(reads) do
+            if given == "/proc" then
+              -- The system's own, above; any other path under it, or
+              -- under /sys, is the host's state and no input a key holds.
+            elseif Fs.within(given, "/proc") or Fs.within(given, "/sys") then
+              note("x", given, "")
+            elseif not owned(given) then
+              note("u", given, "")
+            end
           end
+          -- What a process changed outside the test's own directory is
+          -- no input a key can hold.
+          for _, given in ipairs(declared.writes) do
+            if not owned(given) then note("x", given, "") end
+          end
+          -- The environment it inherits is an input like any other.
+          if environment == nil then
+            found[#found + 1] = { kind = "e", path = environ_path,
+              answer = environ_answer(environ()) }
+          end
+          -- A descriptor it is handed reaches past its root: a directory
+          -- opened on the tree, a socket onto the network.
+          local handed: {integer} = {
+            stdin == nil and 0 or stdin, stdout == nil and 1 or stdout,
+            stderr == nil and 2 or stderr }
+          for _, fd in pairs(fds or {}) do handed[#handed + 1] = fd end
+          for _, fd in ipairs(handed) do
+            if not contained(fd) then note("x", "fd " .. tostring(fd), "") end
+          end
+          return pid, trouble, errno
         end
-        -- What a process changed outside the test's own directory is
-        -- no input a key can hold.
-        for _, given in ipairs(declared.writes) do
-          if not owned(given) then note("x", given, "") end
-        end
-        return pid, trouble, errno
       end
+      cwd = start_in
     end
     note(declaring > 0 and "h" or "p", path, "")
     return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
@@ -581,7 +651,9 @@ end
 --- it and everything beneath it, links unfollowed -- each file's
 --- contents where it resolves under `tree`, and otherwise what `lstat`
 --- says of each entry, which a package installed or a file replaced
---- changes.
+--- changes. One that holds a socket, a FIFO or a device other than an
+--- inert one answers from past the root, and its answer starts
+--- "unkeyable ".
 -- TODO: the change time too, once `sys.Stat` carries it: a file
 -- rewritten in place with its old size and modification time put back
 -- is not seen outside the tree.
@@ -593,6 +665,7 @@ function observations.unveiled_answer(path: string, tree: string): string
   if real == nil then return "missing" end
   local contents = Fs.within(real, tree)
   local parts: {string} = {}
+  local unkeyable = false
   local function walk(at: string, name: string)
     local st, trouble = sys.lstat(at)
     if st == nil then
@@ -617,6 +690,11 @@ function observations.unveiled_answer(path: string, tree: string): string
     elseif st.kind == "link" then
       local target, why = sys.readlink(at)
       parts[#parts + 1] = name .. "\0link\0" .. (target or ("error " .. why))
+    elseif st.kind == "other" and not ((st.mode & S_IFMT) == S_IFCHR and inert_device(st)) then
+      -- A socket, a FIFO or a device answers from past the root -- a
+      -- daemon, another process -- which no digest of it can hold.
+      unkeyable = true
+      parts[#parts + 1] = name .. "\0" .. stamp
     elseif st.kind == "file" and contents then
       local data, why = Fs.read(at)
       parts[#parts + 1] = name .. "\0file\0" .. tostring(st.mode) .. " " ..
@@ -626,7 +704,8 @@ function observations.unveiled_answer(path: string, tree: string): string
     end
   end
   walk(real, "")
-  return real .. " " .. Hash.hex_sha256(table.concat(parts, "\n"))
+  return (unkeyable and "unkeyable " or "") .. real .. " " ..
+    Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
 function observations.stat_answer(path: string): string

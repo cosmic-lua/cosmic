@@ -347,11 +347,14 @@ end
 --- reach them through: that distinct inputs never collide on the same
 --- key, and that a read whose current answer differs from what was
 --- recorded turns `stable` false -- the two ways a wrong key could let
---- a verdict stand for a test it does not describe.
+--- a verdict stand for a test it does not describe. Given `started_ns`,
+--- when the test's run started, a path a confined process was given
+--- that is first walked after it turns `stable` false too.
 function test.verdict_key(root: string, hashes: {string:string}, id: string,
                           module_key: string, runtime: string,
                           reads: {observations.Observation},
-                          key_parts: {string:string}): test.VerdictKey
+                          key_parts: {string:string},
+                          started_ns?: integer): test.VerdictKey
   local resolutions = resolutions_of(reads)
   local seen: {string:boolean} = {}
   local answers: {string:string} = {}
@@ -427,7 +430,14 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       if current == nil then
         current = observations.unveiled_answer(relative, root)
         key_parts[memo_key] = current
+        key_parts["\2u\0" .. relative] = tostring(Time.monotonic_ns())
       end
+      -- Walked only after the test started, the answer may be of what
+      -- the path became since its process read it: such a verdict is
+      -- not kept, and the next run, which walks it first, keeps one.
+      local walked = math.tointeger(key_parts["\2u\0" .. relative]) or 0
+      if started_ns ~= nil and walked >= started_ns then stable = false end
+      if current:sub(1, 10) == "unkeyable " then stable = false end
     elseif kind == "o" then
       current = hashes[relative]
       if current == nil then
@@ -1008,7 +1018,7 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
     end
   end
   local verdict_reached = test.verdict_key(rec.root, rec.hashes, id, job.m.key,
-    rec.runtime, reads, rec.key_parts)
+    rec.runtime, reads, rec.key_parts, job.started_ns)
   local reached, stable = verdict_reached.key, verdict_reached.stable
   local saved, save_trouble = record_run(rec.records, job.m.path, job.name, passed,
     message, Time.now_ns(), reads, reached, rec.run_at_ns, elapsed,
