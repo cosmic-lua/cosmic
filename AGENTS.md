@@ -74,8 +74,8 @@ one input again (`FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reruns the way to it)
 Draw a collection's elements with `Fuzz.more` rather than a count drawn first,
 so shrinking can cut any one of them. CI's
 runs, which gate a merge, set `FUZZ_ITERS=0` and draw nothing; `fuzz.yml`
-fuzzes every property each night on the checked core with a seed of its own,
-and opens an issue (or comments on the open one) when it fails. Once a failure is fixed, keep its input in
+fuzzes every property each night on the checked core with a seed of its own;
+a failure is a red run whose summary lists what failed. Once a failure is fixed, keep its input in
 `testdata/fuzz/<property>/` as the report says: `run` checks that corpus
 before drawing anything. A check calls `Fuzz.label` for what an input reached
 (opened, read a body); a property `requires` the labels it exists to exercise,

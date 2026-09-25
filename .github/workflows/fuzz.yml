@@ -6,9 +6,9 @@ name: fuzz
 # fuzzes on the checked core, so the properties keep meeting inputs no
 # run has checked. A failure's report names the `FUZZ_CASE` that checks
 # its input again anywhere, the failing inputs are kept as an artifact
-# to add to testdata/fuzz/ once fixed (build/fuzz/init.tl), and a
-# scheduled run's failure opens an issue, or comments on the one still
-# open, so it is seen.
+# to add to testdata/fuzz/ once fixed (build/fuzz/init.tl), and the
+# run's summary lists what failed. A failed run is seen as a red run,
+# and in the mail GitHub sends whoever last edited the schedule below.
 on:
   schedule:
     - cron: '17 7 * * *'
@@ -21,10 +21,6 @@ on:
         description: FUZZ_ITERS
         required: false
         default: '2000'
-      report:
-        description: open or comment on the issue if this run fails, as a scheduled run does
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -46,8 +42,6 @@ jobs:
       contents: read
       packages: read
     timeout-minutes: 60
-    outputs:
-      failures: ${{ steps.fuzz.outputs.failures }}
     defaults:
       run:
         shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
@@ -88,7 +82,6 @@ jobs:
         run: XDG_CACHE_HOME="$RUNNER_TEMP/cache" bin/zig build sanitized
 
       - name: fuzz every property on the checked core
-        id: fuzz
         run: |
           {
             echo "FUZZ_SEED=$FUZZ_SEED FUZZ_ITERS=$FUZZ_ITERS"
@@ -103,16 +96,21 @@ jobs:
             o/sanitized/bin/cosmic test $(find . \( -path ./o -o -path ./vendor -o -path ./ci \) -prune \
               -o -name '*_fuzz_test.tl' -print | sort) > "$RUNNER_TEMP/fuzz.out" 2>&1 || status=$?
           cat "$RUNNER_TEMP/fuzz.out"
-          # What failed, for the report job's issue: every failing test's
+          # What failed, on the run's summary page: every failing test's
           # line first, then the reports beneath them, bounded.
-          delimiter="failures-$(od -An -tx8 -N8 /dev/urandom | tr -d ' ')"
-          {
-            echo "failures<<$delimiter"
-            grep '^test: FAIL' "$RUNNER_TEMP/fuzz.out" | cut -c1-300 | head -30 || true
-            echo
-            grep -v -e '^build:' -e '^test: ' "$RUNNER_TEMP/fuzz.out" | cut -c1-300 | head -60 || true
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            {
+              echo
+              echo "The shrunk inputs are the run's fuzz-inputs-$FUZZ_SEED artifact; once fixed," \
+                "keep each in testdata/fuzz/<property>/ as its report says."
+              echo
+              echo '~~~~'
+              grep '^test: FAIL' "$RUNNER_TEMP/fuzz.out" | cut -c1-300 | head -30 || true
+              echo
+              grep -v -e '^build:' -e '^test: ' "$RUNNER_TEMP/fuzz.out" | cut -c1-300 | head -60 || true
+              echo '~~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit "$status"
 
       - name: keep the failing inputs
@@ -122,60 +120,3 @@ jobs:
           name: fuzz-inputs-${{ env.FUZZ_SEED }}
           path: ${{ runner.temp }}/fuzz/*/real/*.input
           if-no-files-found: ignore
-
-  # A scheduled run's failure notifies only whoever last edited the
-  # schedule, so it opens an issue instead -- or comments on the one still
-  # open, so a failure that persists night after night is one thread. A
-  # run cancelled at its time limit reports too: a hang is a finding. On
-  # a hosted runner, whose `gh` the container image lacks.
-  report:
-    needs: fuzz
-    if: >-
-      (failure() || cancelled()) &&
-      needs.fuzz.result != 'success' && needs.fuzz.result != 'skipped' &&
-      (github.event_name == 'schedule' || inputs.report)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      issues: write
-    steps:
-      - name: open or comment on the nightly fuzz issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          FAILURES: ${{ needs.fuzz.outputs.failures }}
-          RESULT: ${{ needs.fuzz.result }}
-          SEED: ${{ inputs.seed || github.run_id }}
-          ITERS: ${{ inputs.iters || '2000' }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -eu
-          title='fuzz: the nightly run failed'
-          body=$(mktemp)
-          {
-            echo "The nightly fuzz run ended $RESULT: $RUN_URL"
-            echo
-            echo "\`FUZZ_SEED=$SEED FUZZ_ITERS=$ITERS\`"
-            echo
-            if [ -n "$FAILURES" ]; then
-              echo '~~~~'
-              printf '%s\n' "$FAILURES"
-              echo '~~~~'
-            elif [ "$RESULT" = cancelled ]; then
-              echo 'No test output: the run was cancelled, at its time limit or by hand, before' \
-                'fuzzing finished; a property that hangs is the likeliest cause. See the run.'
-            else
-              echo 'No test output: the run failed before fuzzing finished (the build, say); see the run.'
-            fi
-            echo
-            echo "Reproduce with the \`FUZZ_CASE=...\` each report names, \`o/bin/cosmic test <file>\`;" \
-              "the shrunk inputs are the run's \`fuzz-inputs-$SEED\` artifact. Once fixed, keep each" \
-              "in \`testdata/fuzz/<property>/\` as its report says, and close this issue."
-          } > "$body"
-          number=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
-            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
-          if [ -n "$number" ]; then
-            gh issue comment "$number" --body-file "$body"
-          else
-            gh issue create --title "$title" --body-file "$body"
-          fi
