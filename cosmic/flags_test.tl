@@ -284,3 +284,59 @@ local function test_help_after_a_double_dash_or_named_by_the_spec_is_not_help()
   assert(seen[1] == "true x" and seen[2] == "nil --help" and seen[3] == "own help 0",
     table.concat(seen, "|"))
 end
+
+local function test_a_one_dash_option_named_whole_takes_a_value_after_equals()
+  local whole: {string:boolean | Flags.Option} = { ["-std"] = true, ["-é"] = true, ["-n"] = true }
+  local got = assert(Flags.parse({ "-std=-x", "-é=c99", "-std", "c11" }, 1, whole))
+  assert(got.all["-std"][1] == "-x" and got.all["-std"][2] == "c11" and got.values["-é"] == "c99")
+  local _, why = Flags.parse({ "-std", "-x" }, 1, whole)
+  assert(why == "-std needs a value, not -x; give one that begins with \"-\" as -std=-x", why)
+  -- One letter is a cluster, as getopt reads it: the "=" is the value's.
+  assert(assert(Flags.parse({ "-n=3" }, 1, whole)).values["-n"] == "=3")
+end
+
+local function test_a_described_value_needs_a_name()
+  assert(not pcall(Flags.parse, {}, 1, { ["-o"] = { value = "" } }))
+end
+
+local function test_help_aligns_by_characters_not_bytes()
+  local described: {string:boolean | Flags.Option} = {
+    ["-é"] = { value = "n", about = "accented" },
+    ["--long"] = { about = "plain" },
+  }
+  assert(Flags.help("t", described) == table.concat({
+    "usage: t", "", "options:", "  --long  plain", "  -é <n>  accented",
+  }, "\n"), Flags.help("t", described))
+  local commands: {string:Flags.Command} = {
+    ["héllo"] = { about = "Greets.", run = function(_: Flags.Parsed): integer return 0 end },
+    build = { about = "Builds.", run = function(_: Flags.Parsed): integer return 0 end },
+  }
+  local done = assert(Flags.dispatch({ "--help" }, 1, commands, "p"))
+  assert(done.help == table.concat({
+    "usage: p <command>", "", "commands:", "  build  Builds.", "  héllo  Greets.",
+  }, "\n"), done.help)
+end
+
+local function test_help_of_help_and_help_of_too_much()
+  local done = assert(Flags.dispatch({ "help", "--help" }, 1, help_commands, "prog"))
+  assert(done.help:sub(1, 30) == "usage: prog <command> [options", done.help)
+  local refused, why = Flags.dispatch({ "help", "build", "extra" }, 1, help_commands, "prog")
+  assert(refused == nil and why == "help: one command at a time", why)
+  -- "-h" where a value would go is still help: parse would refuse it.
+  local asked = assert(Flags.dispatch({ "build", "-j", "-h" }, 1, help_commands, "prog"))
+  assert(asked.help == build_help, asked.help)
+end
+
+local function test_the_program_is_named_from_argv_zero()
+  local names: {{string}} = {
+    { "C:\\x\\prog.exe", "prog.exe" },
+    { "dir/", "program" },
+    { "p", "p" },
+  }
+  for _, case in ipairs(names) do
+    local done = assert(Flags.dispatch({ [0] = case[1], "--help" }, 1, help_commands))
+    assert(done.help:sub(1, 7 + #case[2]) == "usage: " .. case[2], done.help)
+  end
+  local bare = assert(Flags.dispatch({ "--help" }, 1, help_commands))
+  assert(bare.help:sub(1, 14) == "usage: program", bare.help)
+end

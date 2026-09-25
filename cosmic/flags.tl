@@ -80,12 +80,13 @@ end
 
 --- Reads `argv` from slot `from` on: 1 for a program's own `argv`, 2
 --- for a verb's, whose slot 1 is the verb. `spec` maps each option,
---- written as it is typed ("--check", "-v"), to whether it takes a value
---- -- `true` or `false`, or a `Flags.Option` that takes one when it
---- names its `value` --: the next word, or for a "--" option also what
---- follows "=" in the same word ("--jobs=4"). A lone "-" is a word, and "--" ends the options:
---- every word after it is a word even when it begins with "-", as a
---- negative number must.
+--- written as it is typed ("--check", "-v"), to whether it takes a
+--- value: `true` or `false`, or a `Flags.Option`, which takes one when
+--- it names its `value`. The value is the next word, or what follows
+--- "=" in the same word for a "--" option or a one-dash option named
+--- whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and "--" ends
+--- the options: every word after it is a word even when it begins with
+--- "-", as a negative number must.
 ---
 --- A word with one "-" that the spec does not name whole is a cluster of
 --- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
@@ -98,11 +99,12 @@ end
 --- Answers nil and why for an option the spec does not name, a value
 --- given to one that takes none, or one whose value is missing: the end
 --- of the line, or a next word that looks like an option -- one that
---- begins with "-" and is not a lone "-" or a number -- so a mistyped
---- option ("--jobs --chek") is never read as a value. A value that
---- begins with "-" is given in the same word: "--jobs=--x", "-n--x". A spec
---- key that is not an option ("x", "-", "--"), or that holds an "=" no
---- word could reach ("--a=b"), raises.
+--- begins with "-" and is not a lone "-" or a number `tonumber` reads
+--- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
+--- is never read as a value. A value that begins with "-" is given in
+--- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
+--- not an option ("x", "-", "--"), or that holds an "=" no word could
+--- reach ("--a=b"), raises, as does an `Option` whose `value` is "".
 --- @param argv {integer:string} The command line
 --- @param from integer The first slot to read
 --- @param spec {string:boolean|Option} Each option, and whether it takes a value
@@ -113,6 +115,10 @@ function Flags.parse(argv: {integer:string}, from: integer,
   for name in pairs(spec) do
     if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) then
       error("flags: " .. name .. " is not an option a spec can name", 2)
+    end
+    local entry = spec[name]
+    if entry is Flags.Option and entry.value == "" then
+      error("flags: " .. name .. "'s value needs a name, not \"\"", 2)
     end
   end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
@@ -145,6 +151,13 @@ function Flags.parse(argv: {integer:string}, from: integer,
     parsed.given[#parsed.given + 1] = name
     return ""
   end
+  -- Whether `word` is a one-dash option the spec names whole, of more
+  -- than one letter, with its value after "=" ("-std=c99"): not a
+  -- cluster, as "-n=3" is.
+  local function whole(word: string): boolean
+    local name = word:match("^(%-[^=]+)=")
+    return name ~= nil and #name > 2 and spec[name] ~= nil
+  end
   local options = true
   while argv[slot] ~= nil do
     local word = argv[slot]
@@ -152,14 +165,14 @@ function Flags.parse(argv: {integer:string}, from: integer,
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
       options = false
-    elseif word:sub(2, 2) == "-" or spec[word] ~= nil then
-      local name, value = word:match("^(%-%-[^=]+)=(.*)$")
+    elseif word:sub(2, 2) == "-" or spec[word] ~= nil or whole(word) then
+      local name, value = word:match("^(%-%-?[^=]+)=(.*)$")
       if name == nil then name = word end
       local entry = spec[name]
       if entry == nil then
         return nil, "no such option: " .. name
       elseif takes_value(entry) then
-        local trouble = valued(name, value, word:sub(2, 2) == "-" and "=" or "")
+        local trouble = valued(name, value, #name > 2 and "=" or "")
         if trouble ~= "" then
           return nil, trouble
         end
@@ -199,6 +212,12 @@ function Flags.parse(argv: {integer:string}, from: integer,
   return parsed, ""
 end
 
+--- How many characters `text` shows as: its UTF-8 characters, or its
+--- bytes when it is not UTF-8.
+local function columns(text: string): integer
+  return utf8.len(text) or #text
+end
+
 --- Each option `spec` names, as help shows it -- its name and the name
 --- of its value -- beside what it does, in a column: sorted by name
 --- without its dashes, each line indented two spaces.
@@ -221,14 +240,14 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
       head = name .. " <value>"
     end
     heads[index] = head
-    if #head > width then width = #head end
+    if columns(head) > width then width = columns(head) end
   end
   local lines: {string} = {}
   for index, name in ipairs(names) do
     local entry = spec[name]
     local about = entry is Flags.Option and entry.about or nil
     if about ~= nil and about ~= "" then
-      lines[index] = "  " .. heads[index] .. string.rep(" ", width - #heads[index]) ..
+      lines[index] = "  " .. heads[index] .. string.rep(" ", width - columns(heads[index])) ..
         "  " .. about
     else
       lines[index] = "  " .. heads[index]
@@ -239,8 +258,9 @@ end
 
 --- A program's help, written from its spec: the usage line, `about`
 --- when given, and each option the spec names with its value's name and
---- what it does, as a `Flags.Option` describes it (an option named only
---- `true` or `false` is listed bare). It ends without a newline.
+--- what it does, as a `Flags.Option` describes it: one named `false`
+--- is listed bare, and one named `true` with "<value>". Columns are
+--- aligned by characters, not bytes. It ends without a newline.
 ---
 ---     usage: prog [options] <file>...
 ---
@@ -283,20 +303,27 @@ local function commands_help(program: string, commands: {string:Flags.Command}):
   local width = 0
   for name in pairs(commands) do
     names[#names + 1] = name
-    if #name > width then width = #name end
+    if columns(name) > width then width = columns(name) end
   end
   table.sort(names)
-  local lines: {string} = { "usage: " .. program .. " <command> [options]", "", "commands:" }
+  local any_options = false
+  for _, command in pairs(commands) do
+    if command.spec ~= nil and next(command.spec) ~= nil then any_options = true end
+  end
+  local usage = "usage: " .. program .. " <command>" .. (any_options and " [options]" or "")
+  local lines: {string} = { usage, "", "commands:" }
   for _, name in ipairs(names) do
     local about = commands[name].about
     if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. name .. string.rep(" ", width - #name) .. "  " .. about
+      lines[#lines + 1] = "  " .. name .. string.rep(" ", width - columns(name)) .. "  " .. about
     else
       lines[#lines + 1] = "  " .. name
     end
   end
-  lines[#lines + 1] = ""
-  lines[#lines + 1] = "Run `" .. program .. " <command> --help` for a command's options."
+  if any_options then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "Run `" .. program .. " <command> --help` for a command's options."
+  end
   return table.concat(lines, "\n")
 end
 
@@ -325,10 +352,12 @@ end
 --- Help is answered rather than run -- `code` 0 and `help` for the
 --- caller to print -- when the command is "--help" or "-h", or "help"
 --- and `commands` holds no command of that name (`prog help build`
---- answers build's), or when "--help" or "-h" comes after a command
---- whose spec does not name it, before any "--". Each command's help is `Flags.help`'s, from its
---- spec, `usage` and `about`; the program's lists every command's
---- `about`.
+--- answers build's; `prog help --help` the program's), or when
+--- "--help" or "-h" comes after a command whose spec does not name it,
+--- before any "--" -- even as what would be an option's value, which
+--- `Flags.parse` refuses anyway. Each command's help is `Flags.help`'s,
+--- from its spec, `usage` and `about`; the program's lists every
+--- command's `about`. `help` given more than one word is refused.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
 ---     if ran == nil then io.stderr:write("prog: ", why, "\n") return 2 end
@@ -338,7 +367,8 @@ end
 --- @param from integer The slot holding the command
 --- @param commands {string:Command} Each command, by the word that names it
 --- @param program string | nil What help calls the program: by default
----   the last part of `argv[0]`'s path, or "program" without one
+---   the last part of `argv[0]`'s path ("/" or "\\" apart), or
+---   "program" without one
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {integer:string}, from: integer,
@@ -347,11 +377,18 @@ function Flags.dispatch(argv: {integer:string}, from: integer,
     error("flags: dispatch needs a command to choose among", 2)
   end
   if program == nil then
-    program = argv[0] ~= nil and argv[0]:match("([^/]*)$") or "program"
+    local last = argv[0] ~= nil and argv[0]:match("([^/\\]*)$") or ""
+    program = last ~= "" and last or "program"
   end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then
     local asked = name == "help" and argv[from + 1] or nil
+    if asked == "--help" or asked == "-h" then
+      asked = nil
+    end
+    if asked ~= nil and argv[from + 2] ~= nil then
+      return nil, "help: one command at a time"
+    end
     if asked == nil then
       return { code = 0, help = commands_help(program, commands) }, ""
     elseif commands[asked] == nil then
