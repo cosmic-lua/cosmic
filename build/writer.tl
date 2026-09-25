@@ -4,7 +4,8 @@
 --- schema attached in memory, filled in one transaction by queries
 --- over rows the build already holds -- this run's plan joined to the inputs
 --- and compiles it names, the
---- declarations a checker needs to build a tree against this one --
+--- declarations a checker needs to build a tree against this one, the
+--- time zones the working database holds (cosmic's own tree's only) --
 --- and produced by `VACUUM INTO`, so a second build of the same tree
 --- is byte-identical.
 
@@ -160,7 +161,7 @@ local rebuild_fts: {string} = {
 
 --- What the shipped database is a function of: this run's plan with
 --- each module's file, the declarations, fingerprints, host-independent
---- identities, the main module, and the running binary's own boot hash,
+--- identities, the zones it carries, the main module, and the running binary's own boot hash,
 --- as one hash. The last is the writer itself: a stale tool rebuilding
 --- itself writes this file with its own, older code before the new tool
 --- re-enters, and the tree's fingerprints alone would let the new tool
@@ -182,7 +183,9 @@ local function signature_sql(): string
   "coalesce((SELECT group_concat(path || ' ' || source_hash, char(10) " ..
   "ORDER BY path) FROM inputs WHERE kind = 'decl'), '') || char(10) || " ..
   "coalesce((SELECT group_concat(key || ' ' || value, char(10) ORDER BY key) " ..
-  "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || ?1 || " ..
+  "FROM meta WHERE key IN " .. metadata .. "), '') || char(10) || " ..
+  "coalesce((SELECT group_concat(name || ' ' || lower(hex(sha256(data))), " ..
+  "char(10) ORDER BY name) FROM zoneinfo), '') || char(10) || ?1 || " ..
   "char(10) || ?2 || char(10) || ?3)))"
 end
 
@@ -219,6 +222,9 @@ local function project(handle: work.Handle, path: string,
     statements[#statements + 1] =
       "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
       "WHERE kind = 'decl' ORDER BY path"
+    statements[#statements + 1] =
+      "INSERT INTO out.zoneinfo (name, data) SELECT name, data FROM zoneinfo " ..
+      "ORDER BY name"
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)
       if not ok then
@@ -348,6 +354,8 @@ local carry: {string} = {
     "ORDER BY path, requires",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
+  "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
+    "ORDER BY name",
   "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
   "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
   "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",

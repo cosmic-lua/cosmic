@@ -118,8 +118,8 @@ end
 --- The database one executable carries, as bytes: the project's own
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
---- declaration, the error catalog -- the bill of materials it ships
---- under, and `main` naming the module the
+--- declaration, the error catalog, the time zones -- the bill of
+--- materials it ships under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
 function embed.database(project: string, main: string): string | nil, string
@@ -174,6 +174,13 @@ function embed.database(project: string, main: string): string | nil, string
     end
     copied, copy_trouble = copy_rows(binary, out, "decls",
       { "path", "source" }, "SELECT path, source FROM decls ORDER BY path")
+    if not copied then
+      return false, copy_trouble
+    end
+    -- The time zones `cosmic.time` falls back on where the host has
+    -- none of its own.
+    copied, copy_trouble = copy_rows(binary, out, "zoneinfo",
+      { "name", "data" }, "SELECT name, data FROM zoneinfo ORDER BY name")
     if not copied then
       return false, copy_trouble
     end

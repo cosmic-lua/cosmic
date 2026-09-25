@@ -13,7 +13,7 @@
 --- back to requiring it by name, which only boot's own preload answers.
 
 local type raw_store = require("cosmic.internal.store")
-local type Sqlite = require("cosmic.sqlite")
+local Sqlite = require("cosmic.sqlite")
 
 local extra: any = select(2, ...)
 local store: raw_store
@@ -62,6 +62,21 @@ end
 --- asks about the shipped tables (`docs`, `uses`, `catalog`) queries.
 function Store.databases(): {Sqlite.Handle}
   return store.databases()
+end
+
+--- One time zone's TZif file (RFC 8536), by IANA name, from the copy
+--- of the tz database the binary's own database carries: what
+--- `cosmic.time` reads where the host has no zone files of its own. Nil
+--- and why when it carries no such zone.
+function Store.zoneinfo(name: string): string | nil, string
+  local databases = store.databases()
+  local binary = databases[#databases]
+  if binary == nil then return nil, "the running binary has no database" end
+  local rows, trouble = Sqlite.rows(binary, "SELECT data FROM zoneinfo WHERE name = ?1",
+    { { text = name } })
+  if rows == nil then return nil, "the binary's zones: " .. trouble end
+  if #rows == 0 then return nil, "the binary carries no zone " .. name end
+  return rows[1][1].blob or rows[1][1].text, ""
 end
 
 --- Calls `fn` searching only the binary's own database, as a process

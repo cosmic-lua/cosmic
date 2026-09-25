@@ -1,0 +1,11 @@
+version 2026.4
+url https://files.pythonhosted.org/packages/e4/31/3d74fa778a63b98b7374323befcc0be5ab3bd94afd4096a0124e7379152c/tzdata-2026.4.tar.gz
+sha256 f1b8bd365d8d210c55353f4d7f8d6d8561c0ba50d704b700d195a9424bba0d79
+strip tzdata-2026.4/src/tzdata/
+keep zoneinfo/**
+drop **/__init__.py
+drop zoneinfo/tzdata.zi
+drop zoneinfo/leapseconds
+drop zoneinfo/*.tab
+kind data
+license LicenseRef-Public-Domain
