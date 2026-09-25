@@ -82,7 +82,8 @@ function Stream.from_string(s: string): Stream.Reader
   end
   r.skip = function(_self: Stream.Reader, n: integer): boolean, string
     if closed then return false, closed_message end
-    if at + n > #s + 1 then
+    -- Compared this way round, so a huge `n` cannot wrap `at + n`.
+    if n > #s + 1 - at then
       at = #s + 1
       return false, "stream: skip past the end of the data"
     end

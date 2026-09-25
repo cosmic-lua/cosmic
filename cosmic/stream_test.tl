@@ -48,6 +48,15 @@ local function test_from_string_empty_is_immediate_eof()
   assert(chunk == nil and trouble == "")
 end
 
+local function test_from_string_refuses_a_skip_so_large_it_would_wrap()
+  local r = Stream.from_string("abcdefgh")
+  assert(r:read(2) == "ab")
+  local skipped, why = r:skip(math.maxinteger)
+  assert(skipped == false and why ~= "", why)
+  local chunk, trouble = r:read()
+  assert(chunk == nil and trouble == "")
+end
+
 local function test_open_reads_a_file_and_closes_at_eof(tmp: string)
   local path = tmp .. "/data"
   assert(Fs.write(path, "some file contents"))
