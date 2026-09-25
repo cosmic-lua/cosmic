@@ -4,3 +4,5 @@ sha256 cb28402bb2af93bdc331b60d16807e89727d1712a2d0a7ba0cac79a3e406fe40
 keep LICENSE
 keep miniz.c
 keep miniz.h
+license MIT
+notice LICENSE

@@ -1,8 +1,8 @@
 --- Building a project into portable executables: one file each, the retained
 --- multi-core prefix with a database behind it that holds the project's modules
---- but not its tests or examples, the standard library, the error catalog, and
---- the name of the main module, so it runs on its own with no `cosmic` beside
---- it.
+--- but not its tests or examples, the standard library, the error catalog, the
+--- bill of materials, and the name of the main module, so it runs on its own
+--- with no `cosmic` beside it.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `o/bin/<name>` for
@@ -118,7 +118,8 @@ end
 --- The database one executable carries, as bytes: the project's own
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
---- declaration, the error catalog -- and `main` naming the module the
+--- declaration, the error catalog -- the bill of materials it ships
+--- under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
 function embed.database(project: string, main: string): string | nil, string
@@ -184,6 +185,30 @@ function embed.database(project: string, main: string): string | nil, string
     copied, copy_trouble = copy_rows(binary, out, "catalog", catalog_columns,
       "SELECT kind, module, symbol, message, " .. guidance_text .. ", file, " ..
       "line FROM catalog WHERE module LIKE 'cosmic.%' ORDER BY id")
+    if not copied then
+      return false, copy_trouble
+    end
+    -- The bill of materials (`build.bom`): the program runs on the same
+    -- cores, so it carries the same components and the notices their
+    -- licenses ask to travel with a copy.
+    -- TODO: name the project itself in it, as `cosmic bom` names cosmic,
+    -- once a project declares a name and version a build can read.
+    -- TODO: let `cosmic bom <executable>` print these rows: nothing a
+    -- program carries prints them, so its notices travel only inside the
+    -- database bytes. That waits on a way to open a portable file's
+    -- database from Teal, as the store opens its own (`build.artifact`
+    -- parses the prefix, not the trailer the database range hangs off).
+    copied, copy_trouble = copy_rows(binary, out, "components",
+      { "name", "kind", "version", "license", "url", "sha256", "patches" },
+      "SELECT name, kind, version, license, url, sha256, patches " ..
+      "FROM components ORDER BY name")
+    if not copied then
+      return false, copy_trouble
+    end
+    copied, copy_trouble = copy_rows(binary, out, "notices",
+      { "component", "ordinal", "file", "text" },
+      "SELECT component, ordinal, file, text FROM notices " ..
+      "ORDER BY component, ordinal")
     if not copied then
       return false, copy_trouble
     end

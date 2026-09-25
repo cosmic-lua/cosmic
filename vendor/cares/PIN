@@ -38,3 +38,9 @@ drop src/lib/event/ares_event_poll.c
 drop src/lib/event/ares_event_select.c
 drop src/lib/event/ares_event_wake_pipe.c
 drop src/lib/windows_port.c
+license MIT AND BSD-3-Clause AND ISC AND APSL-2.0
+notice LICENSE.md
+notice src/lib/ares_sortaddrinfo.c:6-36
+notice src/lib/inet_ntop.c:1-17
+notice src/lib/inet_net_pton.c:1-18
+notice src/lib/thirdparty/apple/dnsinfo.h:1-22

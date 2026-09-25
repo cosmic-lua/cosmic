@@ -1,6 +1,6 @@
 --- cosmic's own command-line verbs -- `cosmic test`, `cosmic build`
 --- and the rest -- one field per verb, so `cosmic docs test` (or build,
---- fix, db, sql, docs, uses, todos, help, run, standalone, eval,
+--- fix, db, sql, docs, uses, todos, bom, help, run, standalone, eval,
 --- version) answers
 --- with what that verb does. This is not an argument parser for a
 --- project's own command line: a project's cmd/<name>/main.tl gets its
@@ -114,6 +114,14 @@ local record Cli
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
   --- parse as that
   todos: string
+  --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
+  --- this binary ships under -- every third-party component its cores
+  --- and database carry, one line each: name, version, license, and
+  --- how many patches cosmic applies to it. `--licenses` prints the
+  --- notices those licenses ask a copy to travel with; `--json` writes
+  --- the list as a CycloneDX document instead. An executable `cosmic
+  --- build` writes carries the same rows
+  bom: string
   --- `cosmic help [verb]`: prints the whole discovery surface -- every
   --- verb, one line of prose each -- or, given a verb, only its line
   help: string
@@ -135,7 +143,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", help = "help",
+    db = "db", sql = "sql", docs = "docs", uses = "uses", todos = "todos", bom = "bom", help = "help",
   },
   options = {
     test = {
@@ -156,12 +164,16 @@ local module: Module = {
       ["--build"] = { about = "run against o/build.db" },
       ["--store"] = { about = "run against the binary's own; only PRAGMA data_version" },
     },
+    bom = {
+      ["--licenses"] = { about = "print each component's license notices" },
+      ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
+    },
     todos = {
       ["--oldest"] = { about = "list the oldest first, even when searching" },
     },
   },
   order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "sql", "docs", "uses", "todos",
-    "help" },
+    "bom", "help" },
 }
 
 return module

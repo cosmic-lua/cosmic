@@ -90,7 +90,7 @@ A verb takes paths to narrow it: `test` exact module names, source
 paths and directories; `fix`, `build` and `todos` the files or
 directories to act on; `uses` paths after its symbol; `db` the
 sources whose rows to count. `docs` takes words to search for instead,
-`sql` one statement, and `help` a verb.
+`sql` one statement, `help` a verb, and `bom` nothing.
 
 `fix` rebuilds each file from its own parsed tree. It decides everything a line holds -- every keyword,
 operator and bracket, the spacing around each, and two columns of
@@ -456,6 +456,15 @@ local verbs: {string: function({integer:string}): integer} = {
   end,
   todos = function(argv: {integer:string}): integer
     return require("build.todos").run(argv)
+  end,
+  -- The rows are the running binary's, so in cosmic's own tree a tool
+  -- older than the tree rebuilds first, as `docs` does.
+  bom = function(argv: {integer:string}): integer
+    local stale = require("build.reboot").stale_exit(argv)
+    if stale ~= nil then
+      return stale
+    end
+    return require("build.bom").run(argv)
   end,
   -- Never stale-checked, unlike `db`: a staleness check stages the tree,
   -- and this verb reads o/ and nothing else under it. It gives its own

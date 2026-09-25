@@ -111,6 +111,11 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
   assert(about_build[1][1] == "0", "guidance about the build is not")
+  local materials = rows_of(path,
+    "SELECT (SELECT count(*) FROM components WHERE name = 'lua'), " ..
+    "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
+  assert(materials[1][1] == "1" and materials[1][2] == "1",
+    "the program carries the bill of materials its cores ship under")
 end
 
 --- A project's tests and examples stay with the project: the program

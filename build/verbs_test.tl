@@ -39,6 +39,7 @@ local surplus: {string:{string} | string} = {
   todos = "takes any number of paths and words",
   sql = { "sql", "SELECT 1", "extra" },
   help = { "help", "test", "fix" },
+  bom = { "bom", "extra" },
 }
 
 --- One command line that passes and one that fails, each run in `tree`
@@ -60,6 +61,7 @@ local cases: {string:Case} = {
   todos = { pass = { "todos" }, fail = { "todos", "zzqqx_nothing_named" } },
   sql = { pass = { "sql", "SELECT 1" }, fail = { "sql", "SELECT * FROM zzqqx_no_table" } },
   help = { pass = { "help" }, fail = "help has nothing to fail on but its command line" },
+  bom = { pass = { "bom" }, fail = { "bom", "--json", "no/such/directory/bom.json" } },
 }
 
 local function write_tree(tmp: string): string

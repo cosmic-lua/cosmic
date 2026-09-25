@@ -1,0 +1,4 @@
+version 1.2.5
+url https://musl.libc.org/releases/musl-1.2.5.tar.gz
+license MIT
+notice musl.COPYRIGHT
