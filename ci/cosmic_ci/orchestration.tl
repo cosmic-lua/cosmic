@@ -112,6 +112,10 @@ local self_rebuild_per_test_timeout_s <const> = "120"
 -- alone on four cores), so each runs apart from the self-rebuild file's.
 local fixed_point_test_timeout_ms <const> = 300000
 local fixed_point_per_test_timeout_s <const> = "240"
+-- A boot the product drives from another path compiles the core's own C
+-- for every target again (about 110 s on four cores), then the tree.
+local self_driven_test_timeout_ms <const> = 600000
+local self_driven_per_test_timeout_s <const> = "480"
 local runtime_test_timeout_ms <const> = 180000
 local identity_test_timeout_ms <const> = 120000
 -- The sanitized cosmic's first, cold compile of the test tree, run
@@ -515,6 +519,12 @@ local function phase_fixtures(p: PlatformContext): integer
     COSMIC_FIXTURE_ROOT = root,
     COSMIC_FIXTURE_PRODUCT = product,
     COSMIC_TEST_TIMEOUT = fixed_point_per_test_timeout_s,
+  }); if s ~= 0 then return s end
+  s = fixture_test(c, work, "self-driven-regression", "self_driven",
+    self_driven_test_timeout_ms, {
+    COSMIC_FIXTURE_ROOT = root,
+    COSMIC_FIXTURE_PRODUCT = product,
+    COSMIC_TEST_TIMEOUT = self_driven_per_test_timeout_s,
   }); if s ~= 0 then return s end
   s = fixture_test(c, work, "runtime-regression", "runtime",
     runtime_test_timeout_ms, {
