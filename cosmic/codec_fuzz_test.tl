@@ -29,6 +29,9 @@ local function gen_text(src: Fuzz.Source): string
     return Fuzz.bytes(src, 64)
   end
   local out: {string} = {}
+  -- TODO: this file's collections draw their count first, so shrinking
+  -- cuts only their last element; `Fuzz.more` before each would let it
+  -- cut any (its labels' rates move with the change: measure them again).
   for i = 1, src:int(0, 64) do
     local at = src:int(1, #TEXT)
     out[i] = TEXT:sub(at, at)

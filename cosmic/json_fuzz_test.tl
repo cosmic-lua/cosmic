@@ -38,6 +38,9 @@ local TOKENS <const> = { "{", "}", "[", "]", ":", ",", '"', "\\", "\\u", "d8", "
 local function gen_text(src: Fuzz.Source): string
   if src:int(0, 2) == 0 then
     local parts: {string} = {}
+    -- TODO: this file's collections draw their count first, so shrinking
+    -- cuts only their last element; `Fuzz.more` before each would let it
+    -- cut any (its labels' rates move with the change: measure them again).
     for i = 1, src:int(0, 40) do
       parts[i] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
     end
@@ -123,7 +126,7 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
--- TODO: only 4 inputs of 64 decode: up to eight edits, or a soup of
+-- TODO: only 8 inputs of 64 decode (252 of 2000): edits, or a soup of
 -- tokens, leave little that parses, so the walk into Lua values and the
 -- re-encoding checks run rarely; fewer edits on some draws, or tokens
 -- drawn from a grammar, would reach them.
