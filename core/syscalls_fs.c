@@ -54,13 +54,15 @@ static void push_field (lua_State *L, const char *name, lua_Integer value) {
 }
 
 static void push_stat (lua_State *L, const struct stat *st) {
-  lua_createtable(L, 0, 12);
+  lua_createtable(L, 0, 14);
   push_field(L, "size", (lua_Integer)st->st_size);
   push_field(L, "mode", (lua_Integer)st->st_mode);
   push_field(L, "mtime", (lua_Integer)COSMIC_MTIME_SECONDS(*st));
   push_field(L, "mtime_ns", (lua_Integer)COSMIC_MTIME_NANOSECONDS(*st));
   push_field(L, "atime", (lua_Integer)COSMIC_ATIME_SECONDS(*st));
   push_field(L, "atime_ns", (lua_Integer)COSMIC_ATIME_NANOSECONDS(*st));
+  push_field(L, "ctime", (lua_Integer)COSMIC_CTIME_SECONDS(*st));
+  push_field(L, "ctime_ns", (lua_Integer)COSMIC_CTIME_NANOSECONDS(*st));
   push_field(L, "ino", (lua_Integer)st->st_ino);
   push_field(L, "dev", (lua_Integer)st->st_dev);
   push_field(L, "nlink", (lua_Integer)st->st_nlink);

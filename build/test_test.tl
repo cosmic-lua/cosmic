@@ -9,6 +9,7 @@
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 local test = require("build.test")
 
@@ -350,6 +351,24 @@ local function test_the_builds_output_is_read_again_once_rewritten(tmp: string)
   assert(rewritten.key ~= first.key, "a rewritten file answered from the first read")
   local fresh = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, {})
   assert(fresh.key == rewritten.key)
+  -- Rewritten to the same size and given its modification time back,
+  -- as `cp -p` leaves it: its change time still moved.
+  local before = assert(sys.stat(path))
+  local function changed(): string
+    local st = assert(sys.stat(path))
+    return st.ctime .. "." .. st.ctime_ns
+  end
+  local was = changed()
+  repeat
+    -- In place, as `cp -p` writes: the same inode.
+    local fd = assert(Fs.open_write(path))
+    assert(Fs.put(fd, "SECOND, LONGER"))
+    assert(Fs.close(fd))
+  until changed() ~= was
+  assert(assert(sys.stat(path)).ino == before.ino)
+  assert(sys.utimensat(path, nil, nil, before.mtime, before.mtime_ns))
+  local same_size = test.verdict_key(tmp, {}, "mod.tl name", "modkey", "runtime", reads, parts)
+  assert(same_size.key ~= rewritten.key, "a same-size rewrite answered from the memo")
 end
 
 local function test_a_relative_path_is_keyable(tmp: string)

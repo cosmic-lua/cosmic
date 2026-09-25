@@ -188,6 +188,11 @@ local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   raises(sys.utimensat, path, 1, 1000000000)
   raises(sys.utimensat, path, nil, nil, 1, -1)
   failed_with(sys.ENOENT, sys.utimensat(tmp .. "/missing", nil, nil, 0))
+  -- Setting a time is a change of status, which no call can set back:
+  -- the change time is the present's, not the modification time given.
+  st = assert(sys.stat(path))
+  assert(st.ctime > 0 and st.ctime_ns >= 0 and st.ctime_ns < 1000000000,
+    st.ctime .. "." .. st.ctime_ns)
 end
 
 local function test_mkdir_and_rmdir(tmp: string)

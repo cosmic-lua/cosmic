@@ -75,6 +75,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
+local sys = require("cosmic.sys")
 local clock = require("build.clock")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
@@ -429,6 +430,12 @@ local function output_hash(root: string, relative: string,
                            key_parts: {string:string}): string
   local path = root .. "/" .. relative
   local stat = observations.stat_answer(path)
+  -- The change time too, which no write can set back, unlike the
+  -- modification time `cp -p` or `touch -r` gives a same-size rewrite.
+  local st, _ = sys.stat(path)
+  if st ~= nil then
+    stat = stat .. " " .. tostring(st.ctime) .. " " .. tostring(st.ctime_ns)
+  end
   local memo_key = "\4o\0" .. relative
   local memo = key_parts[memo_key]
   if memo ~= nil and memo:sub(1, #stat + 1) == stat .. "\0" then
@@ -1537,15 +1544,27 @@ local function finish(rec: Recording, job: Job, result: Child.Result,
   end
 end
 
+--- What of this process's environment says how it was started and
+--- nothing a test is given: the marker a tool that rebuilt itself sets
+--- for the process it re-enters (`build.reboot`), which a run started
+--- after a rebuild holds and one started fresh does not, and the
+--- directory the invoking shell was in before its last `cd`. Kept, each
+--- would enter the key of every test that reads the whole environment,
+--- and such a test would run again after a rebuild or a `cd`.
+local launch_only: {string:boolean} = { COSMIC_REBOOTED = true, OLDPWD = true }
+
 --- The environment a worker starts with: this process's, less the
 --- private startup hooks (`COSMIC_PORTABLE_STARTUP_TEST_*`), which pause
 --- one startup of a fixture runtime for a handshake and belong to this
---- process's own launch, not to every worker it starts, and with the
---- shared verdict cache off (`COSMIC_VERDICT_CACHE=0`).
+--- process's own launch, not to every worker it starts, and less what
+--- `launch_only` names, and with the shared verdict cache off
+--- (`COSMIC_VERDICT_CACHE=0`).
 function test.worker_environment(environment: {string:string}): {string:string}
   local out: {string:string} = {}
   for name, value in pairs(environment) do
-    if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" then out[name] = value end
+    if name:sub(1, 29) ~= "COSMIC_PORTABLE_STARTUP_TEST_" and not launch_only[name] then
+      out[name] = value
+    end
   end
   -- A run of `cosmic test` a test starts neither reads nor writes the
   -- verdicts every checkout shares, unless the test names a cache of

@@ -99,6 +99,14 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   -- what the run that started it sees.
   local again = said("again", tmp .. "/second", "0 ran, 4 stood, 1 assumed")
   assert(not again:find("another checkout", 1, true), again)
+  -- Started after the tool rebuilt itself, from a shell that was
+  -- elsewhere before its last `cd`: nothing a test is given differs.
+  env.COSMIC_REBOOTED = "1"
+  env.OLDPWD = tmp .. "/elsewhere"
+  checkout(tmp .. "/rebooted", "one\n")
+  said("rebooted", tmp .. "/rebooted", "0 ran, 4 stood, 1 assumed")
+  env.COSMIC_REBOOTED = nil
+  env.OLDPWD = nil
   -- A file one test read differs: that test runs.
   checkout(tmp .. "/changed", "two\n")
   said("changed", tmp .. "/changed", "1 ran, 3 stood, 1 assumed")
