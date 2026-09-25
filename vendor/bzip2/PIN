@@ -12,3 +12,5 @@ keep decompress.c
 keep huffman.c
 keep crctable.c
 keep randtable.c
+license bzip2-1.0.6
+notice LICENSE

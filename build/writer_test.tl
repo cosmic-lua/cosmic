@@ -199,8 +199,13 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(Fs.write(root .. "/fixture_test.tl", 'return { name = "x" }\n'))
   local handle = build_and_write(root, "world", tmp .. "/whole.db")
   assert(work.close(handle))
-  assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
-  assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
+  assert(Fs.mkdirs(root .. "/vendor/zlib"))
+  assert(Fs.mkdirs(root .. "/build/bom"))
+  assert(Fs.write(root .. "/vendor/zlib/PIN",
+    "version 1.3\nurl https://zlib.net/zlib-1.3.tar.gz\nlicense Zlib\nnotice LICENSE\n"))
+  assert(Fs.write(root .. "/vendor/zlib/LICENSE", "(C) 1995 Jean-loup Gailly and Mark Adler\n"))
+  assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db", root))
+  assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db", root))
   assert(Fs.read(tmp .. "/carried.db") == Fs.read(tmp .. "/again.db"),
     "the carried database is a function of the projection")
 
@@ -235,6 +240,11 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(kept[1][1] == "1", "the example's documentation for greet is kept")
   assert(tonumber(kept[1][2]) > 0, "the docs index is rebuilt")
   assert(kept[1][3] == "cmd.hello.main", "meta is carried")
+  local materials = rows(tmp .. "/carried.db",
+    "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
+  assert(#materials == 1 and materials[1][1] == "zlib" and materials[1][2] == "Zlib" and
+    materials[1][3] == "(C) 1995 Jean-loup Gailly and Mark Adler\n",
+    "the tool carries the tree's bill of materials")
 end
 
 --- A projection ships what a reader of it loads -- each module's

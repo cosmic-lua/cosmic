@@ -186,7 +186,7 @@ local function into(handle: work.Handle, built: compiler,
     return closing(handle, write_trouble)
   end
   local carried_path = handle.root .. "/o/carried.db"
-  local carried, carry_trouble = writer.carried(database_path, carried_path)
+  local carried, carry_trouble = writer.carried(database_path, carried_path, handle.root)
   if not carried then
     return closing(handle, carry_trouble)
   end

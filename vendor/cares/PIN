@@ -38,3 +38,6 @@ drop src/lib/event/ares_event_poll.c
 drop src/lib/event/ares_event_select.c
 drop src/lib/event/ares_event_wake_pipe.c
 drop src/lib/windows_port.c
+license MIT AND APSL-2.0
+notice LICENSE.md
+notice src/lib/thirdparty/apple/dnsinfo.h:1-22

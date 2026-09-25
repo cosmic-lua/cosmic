@@ -110,3 +110,6 @@ drop tf-psa-crypto/platform/platform.c
 drop tf-psa-crypto/platform/threading.c
 drop tf-psa-crypto/utilities/CMakeLists.txt
 drop tf-psa-crypto/utilities/pkcs5.c
+license Apache-2.0 OR GPL-2.0-or-later
+notice LICENSE
+notice tf-psa-crypto/LICENSE

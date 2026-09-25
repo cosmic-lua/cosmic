@@ -143,3 +143,5 @@ drop lib/vtls/hostcheck.c
 drop lib/vtls/hostcheck.h
 drop lib/vtls/schannel_int.h
 drop lib/vtls/vtls_spack.c
+license curl
+notice COPYING

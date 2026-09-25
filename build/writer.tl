@@ -12,6 +12,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
+local bom = require("build.bom")
 local schema = require("build.schema")
 local work = require("build.work")
 local bind = require("build.bind")
@@ -347,8 +348,10 @@ local carry: {string} = {
 --- release has no use for. Like the projection, it is a function of
 --- its input alone: a fresh schema, filled in one order, vacuumed.
 --- Its `meta` is the projection's, `projected` included: that signs the
---- projection it came from, not these rows.
-function writer.carried(whole: string, out: string): boolean, string
+--- projection it came from, not these rows. It alone carries the bill
+--- of materials, read from the tree at `root` (`build.bom`): that
+--- describes the binary, which a projection of Teal modules is not.
+function writer.carried(whole: string, out: string, root: string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: {string} = {}
     for _, statement in ipairs(schema.settings("")) do
@@ -374,6 +377,10 @@ function writer.carried(whole: string, out: string): boolean, string
         if not ok then
           return false, failure
         end
+      end
+      local filled, fill_trouble = bom.fill(db, root, "main.")
+      if not filled then
+        return false, fill_trouble
       end
       for _, statement in ipairs(rebuild_fts) do
         local ok, failure = db:exec((statement:gsub("out%.", "main.")))

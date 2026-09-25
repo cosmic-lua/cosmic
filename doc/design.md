@@ -595,6 +595,14 @@ for reading macOS's DNS configuration, is under the Apple Public Source
 License 2.0 (APSL-2.0), not c-ares' MIT license. only the macOS core
 includes it.
 
+each PIN also names its component's SPDX license and the notices a copy
+must travel with (`license`, `notice`); what the build links without
+vendoring -- zig's runtime, musl -- has a record of the same grammar
+under `build/bom/`. the tool's database carries them as a bill of
+materials (`build/bom.tl`), every executable `cosmic build` writes
+carries the same rows, and `cosmic bom` prints them, their notices, or
+a CycloneDX document. a pin with no license fails the build.
+
 ### teal
 
 tl vendored, its changes carried as patches under `patch/tl/` and not

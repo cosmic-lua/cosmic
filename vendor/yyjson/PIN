@@ -5,3 +5,5 @@ strip yyjson-0.13.0/
 keep LICENSE
 keep src/yyjson.c
 keep src/yyjson.h
+license MIT
+notice LICENSE

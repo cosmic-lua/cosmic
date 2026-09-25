@@ -1,0 +1,4 @@
+version 0.16.0
+url https://ziglang.org/download/0.16.0/
+license MIT
+notice zig.LICENSE
