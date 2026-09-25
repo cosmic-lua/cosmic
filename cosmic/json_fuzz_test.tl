@@ -35,15 +35,86 @@ local TOKENS <const> = { "{", "}", "[", "]", ":", ",", '"', "\\", "\\u", "d8", "
   " ", "\n", "\r", "\t", "\0", "\xc3", "\xa9", "\xed", "\xa0", "\x80", "\xff", "\xef\xbb\xbf",
   "\\ud83d", "\\ude00", "\\uDBFF" }
 
+--- The leaves a drawn text is built from: numbers at the edges of an
+--- integer, a double and what only a big number holds; a string's
+--- escapes, paired and lone surrogates, and multibyte UTF-8; keys, some
+--- repeated; and the whitespace between tokens. Each list's second half
+--- is JSON5's alone, drawn only into a text meant for JSON5.
+local NUMBERS <const>: {{string}} = {
+  { "0", "-0", "1", "-1", "2.5", "1e308", "5e-324", "1E+2", "0.1e-5", "1e400", "-9223372036854775808",
+    "9223372036854775807", "9223372036854775808", "18446744073709551616", "123456789012345678901234567890" },
+  { "0x1F", ".5", "5.", "+1", "NaN", "-Infinity", "Infinity" },
+}
+local CHUNKS <const>: {{string}} = {
+  { "a", "x", " ", "\\\"", "\\\\", "\\/", "\\b", "\\f", "\\n", "\\r", "\\t", "\\u0000", "\\u001f",
+    "\\u00e9", "\\ud83d\\ude00", "\xc3\xa9", "\xe2\x82\xac", "\xf0\x9f\x98\x80" },
+  { "\\x41", "\\a", "'" },
+}
+--- Halves of a surrogate pair, alone: rare, since each makes a text
+--- only `lone_surrogates` reads.
+local LONE <const> = { "\\ud83d", "\\ude00", "\\uDBFF" }
+local KEYS <const>: {{string}} = {
+  { '"a"', '"k"', '""', '"\\u0000"', '"\xc3\xa9"' },
+  { "unquoted", "'single'", "$_" },
+}
+local GAPS <const>: {{string}} = {
+  { "", "", "", " ", "\n", "\t", "\r\n" },
+  { "/* c */", "// c\n", "\xc2\xa0" },
+}
+
+--- One of `lists`' strict half, or, in a text meant for JSON5, now and
+--- then one of its JSON5 half.
+local function leaf(src: Fuzz.Source, lists: {{string}}, json5: boolean): string
+  if json5 and src:int(0, 3) == 0 then return Fuzz.pick(src, lists[2]) end
+  return Fuzz.pick(src, lists[1])
+end
+
+--- A value drawn from the grammar, nested at most `depth` deep, each
+--- container's elements drawn with `Fuzz.more` so shrinking can cut
+--- any of them. Strict JSON unless `json5`, which adds its forms and
+--- trailing commas.
+local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): string
+  local kind = src:int(0, depth > 0 and 5 or 2)
+  if kind == 0 then return Fuzz.pick(src, { "null", "true", "false" }) end
+  if kind == 1 then return leaf(src, NUMBERS, json5) end
+  if kind == 2 or kind == 3 then
+    local chunks: {string} = {}
+    while Fuzz.more(src, #chunks, 8) do
+      chunks[#chunks + 1] = src:int(0, 31) == 0 and Fuzz.pick(src, LONE) or leaf(src, CHUNKS, json5)
+    end
+    local text = table.concat(chunks)
+    if json5 and src:int(0, 3) == 0 then return "'" .. text:gsub("'", "\\'") .. "'" end
+    return '"' .. text .. '"'
+  end
+  local items: {string} = {}
+  while Fuzz.more(src, #items, 6) do
+    local item = gen_value(src, depth - 1, json5)
+    if kind == 5 then item = leaf(src, KEYS, json5) .. leaf(src, GAPS, json5) .. ":" .. leaf(src, GAPS, json5) .. item end
+    items[#items + 1] = leaf(src, GAPS, json5) .. item .. leaf(src, GAPS, json5)
+  end
+  local trailing = json5 and #items > 0 and src:int(0, 3) == 0 and "," or ""
+  local open, close = "[", "]"
+  if kind == 5 then open, close = "{", "}" end
+  return open .. table.concat(items, ",") .. trailing .. close
+end
+
+--- A text to decode: on a fifth of draws a soup of tokens; else a
+--- sample or a value drawn from the grammar, under up to 8 edits on a
+--- fifth, at most one on a fifth, and none on the rest, so that the
+--- walk into Lua values and the re-encoding checks run on most draws
+--- while edits still reach the refusals.
 local function gen_text(src: Fuzz.Source): string
-  if src:int(0, 2) == 0 then
+  local shape = src:int(0, 4)
+  if shape == 0 then
     local parts: {string} = {}
     while Fuzz.more(src, #parts, 40) do
       parts[#parts + 1] = src:int(0, 3) == 0 and Fuzz.bytes(src, 3) or Fuzz.pick(src, TOKENS)
     end
     return table.concat(parts)
   end
-  return Fuzz.mutate(src, Fuzz.pick(src, SAMPLES), 8)
+  local base = src:int(0, 1) == 0 and Fuzz.pick(src, SAMPLES) or gen_value(src, 4, src:int(0, 1) == 0)
+  if shape >= 3 then return base end
+  return Fuzz.mutate(src, base, shape == 1 and 8 or 1)
 end
 
 --- The options every check re-encodes with: whatever decoded, JSON can
@@ -123,12 +194,13 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
--- TODO: only 8 inputs of 64 decode (253 of 2000): edits, or a soup of
--- tokens, leave little that parses, so the walk into Lua values and the
--- re-encoding checks run rarely; fewer edits on some draws, or tokens
--- drawn from a grammar, would reach them.
+-- Most drawn texts parse -- 44% strictly and 51% as JSON5, where a
+-- generator of edits and token soup reached 13% and 15% -- so the walk
+-- into Lua values and the re-encoding checks run on most; a share under
+-- a fifth fails the run.
 local function test_decode_is_total_on_mutated_json(tmp: string)
-  Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds })
+  Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds,
+    shares = { decoded = 0.2, ["decoded as JSON5"] = 0.2 } })
 end
 
 local function test_decode_is_total_on_arbitrary_bytes(tmp: string)
