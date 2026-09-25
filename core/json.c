@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
 #include "memory.h"
@@ -37,10 +38,12 @@
 
 /* yyjson allocates and frees through these, on the heap the core's own
  * C uses (core/memory.h), so the checked core counts its blocks and can
- * refuse one. */
+ * refuse one. The fault point refuses yyjson's allocation alone, as an
+ * allocation walk cannot: that refuses every one after too, so the
+ * message yyjson's refusal answers could never be built. */
 static void *json_malloc (void *ctx, size_t size) {
   (void)ctx;
-  return cosmic_malloc(size);
+  return COSMIC_FAULT("json_malloc") ? NULL : cosmic_malloc(size);
 }
 
 static void *json_realloc (void *ctx, void *block, size_t old_size,
@@ -178,17 +181,49 @@ static int push_value (struct decoding *d, yyjson_val *val, int depth) {
   }
 }
 
+/* How a decoded text is laid out in lines, for a failure to say where
+ * it is. */
+struct layout {
+  /* Whether the text is JSON5, which ends a line at U+2028 and U+2029
+   * too. */
+  bool json5;
+  /* 0 when the text is a whole, its own lines counted from 1; else the
+   * text is this one line of a larger one, a JSON Lines record, which
+   * nothing inside ends. */
+  lua_Integer record;
+};
+
 /* The line and column of byte `pos` of `text`, both counted from 1,
- * the column in bytes. */
-/* TODO: count a JSON5 line ended by a lone \r, U+2028 or U+2029 as a
- * line too, as yyjson reads one; only \n ends a line here, for syntax
- * errors and depth failures alike. */
-static void position (const char *text, size_t pos, size_t *line,
+ * the column in bytes. A line ends at \n, \r, or \r\n taken as one:
+ * the line ends JSON's whitespace holds. In JSON5, it ends at U+2028
+ * or U+2029 (E2 80 A8, E2 80 A9) too, as JSON5 reads each as a line
+ * terminator -- inside a quoted string as well, where JSON5 takes one
+ * raw, as an editor breaks the line there; RFC 8259 has either only
+ * inside a string, where it is a character like any other and adds
+ * its three bytes to the column. A record is one line whatever it
+ * holds. */
+static void position (const char *text, size_t pos,
+                      const struct layout *layout, size_t *line,
                       size_t *column) {
   *line = 1;
   *column = 1;
+  if (layout->record > 0) {
+    *line = (size_t)layout->record;
+    *column = pos + 1;
+    return;
+  }
+  bool json5 = layout->json5;
   for (size_t i = 0; i < pos; i++) {
-    if (text[i] == '\n') {
+    unsigned char c = (unsigned char)text[i];
+    if (c == '\r' && i + 1 < pos && text[i + 1] == '\n') i++;
+    if (c == 0xe2 && json5 && i + 2 < pos &&
+        (unsigned char)text[i + 1] == 0x80 &&
+        ((unsigned char)text[i + 2] == 0xa8 ||
+         (unsigned char)text[i + 2] == 0xa9)) {
+      i += 2;
+      c = '\n';
+    }
+    if (c == '\n' || c == '\r') {
       (*line)++;
       *column = 1;
     } else {
@@ -235,20 +270,31 @@ static size_t deep_offset (const char *text, size_t len, int max_depth) {
 }
 
 /* nil and where `text` stopped being JSON, as a line and a column of
- * bytes, both counted from 1. */
+ * bytes, both counted from 1; a record's line alone when it ran out
+ * of memory or holds no value (in JSON5, only a comment). */
 static int read_failure (lua_State *L, const char *text, size_t len,
+                         const struct layout *layout,
                          const yyjson_read_err *err) {
   lua_pushnil(L);
   if (err->code == YYJSON_READ_ERROR_MEMORY_ALLOCATION) {
-    lua_pushliteral(L, "out of memory");
+    if (layout->record > 0) {
+      lua_pushfstring(L, "line %I: out of memory", layout->record);
+    } else {
+      lua_pushliteral(L, "out of memory");
+    }
     return 2;
   }
   if (len == 0 || err->code == YYJSON_READ_ERROR_EMPTY_CONTENT) {
-    lua_pushliteral(L, "invalid JSON: the text is empty");
+    if (layout->record > 0) {
+      lua_pushfstring(L, "invalid JSON at line %I: the line holds no value",
+                      layout->record);
+    } else {
+      lua_pushliteral(L, "invalid JSON: the text is empty");
+    }
     return 2;
   }
   size_t line, column;
-  position(text, err->pos < len ? err->pos : len, &line, &column);
+  position(text, err->pos < len ? err->pos : len, layout, &line, &column);
   lua_pushfstring(L, "invalid JSON at line %I, column %I: %s",
                   (lua_Integer)line, (lua_Integer)column, err->msg);
   return 2;
@@ -305,12 +351,13 @@ static size_t repair_surrogates (char *s, size_t n) {
 }
 
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
- * lone_surrogates?): the value
+ * lone_surrogates?, record?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
  * value -- RFC 8259, or JSON5 when `json5` is true -- or nests past
  * `max_depth` (64 by default). JSON `null` is `null` when given, and
  * nil when not. With `big_as_string`, an integer past 64 bits, or a
- * number past a double's range, is its own text. */
+ * number past a double's range, is its own text. With `record`, the
+ * text is that line of a JSON Lines text, and a failure names it. */
 static int json_decode (lua_State *L) {
   size_t len;
   const char *text = luaL_checklstring(L, 1, &len);
@@ -318,12 +365,16 @@ static int json_decode (lua_State *L) {
   d.L = L;
   d.null_index = lua_isnoneornil(L, 2) ? 0 : 2;
   d.max_depth = checked_depth(L, 3);
-  yyjson_read_flag flags = lua_toboolean(L, 4) ? YYJSON_READ_JSON5
-                                               : YYJSON_READ_NOFLAG;
+  struct layout layout;
+  layout.json5 = lua_toboolean(L, 4);
+  layout.record = luaL_optinteger(L, 7, 0);
+  luaL_argcheck(L, layout.record >= 0, 7, "a record's line is not negative");
+  yyjson_read_flag flags =
+      layout.json5 ? YYJSON_READ_JSON5 : YYJSON_READ_NOFLAG;
   d.big_as_string = lua_toboolean(L, 5);
   if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
   int lone_surrogates = lua_toboolean(L, 6);
-  lua_settop(L, 6);
+  lua_settop(L, 7);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
@@ -342,12 +393,13 @@ static int json_decode (lua_State *L) {
       doc = yyjson_read_opts(copy, len, flags, &allocator, &err);
     }
   }
-  if (doc == NULL) return read_failure(L, text, len, &err);
+  if (doc == NULL) return read_failure(L, text, len, &layout, &err);
   guard->resource = doc;
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
     lua_pushnil(L);
     size_t line, column;
-    position(text, deep_offset(text, len, d.max_depth), &line, &column);
+    position(text, deep_offset(text, len, d.max_depth), &layout, &line,
+             &column);
     lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I",
                     d.max_depth, (lua_Integer)line, (lua_Integer)column);
     return 2;

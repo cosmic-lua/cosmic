@@ -135,6 +135,13 @@ Json.null = raw.null
 Json.default_depth = raw.default_depth
 Json.depth_limit = raw.depth_limit
 
+--- `raw.decode` of `text` under `opts`; `record`, when given, is the
+--- JSON Lines line `text` is, which a failure names.
+local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer): any | nil, string
+  return raw.decode(text, opts.null_value, opts.max_depth, opts.json5,
+    opts.big_numbers_as_strings, opts.lone_surrogates, record)
+end
+
 --- The value `text` holds, and "". nil and a message, naming the line
 --- and column, when the text is not one JSON value or nests past
 --- `max_depth`. The value is `any`: when the text is from outside,
@@ -144,8 +151,7 @@ function Json.decode(text: string, opts?: Json.DecodeOptions): any | nil, string
   if opts == nil then
     return raw.decode(text)
   end
-  return raw.decode(text, opts.null_value, opts.max_depth, opts.json5,
-    opts.big_numbers_as_strings, opts.lone_surrogates)
+  return decode_with(text, opts)
 end
 
 --- What JSON calls a decoded value, for a wrong-shape message.
@@ -212,20 +218,17 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
   local values = raw.array()
   local number = 0
   local count = 0
+  local line_opts: Json.DecodeOptions = opts or {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     number = number + 1
     if line:find("%S") then
       count = count + 1
-      local value, err = Json.decode(line, opts)
+      -- The record's own number names a failure's line: the decoder
+      -- would otherwise count a lone \r (or, in JSON5, U+2028 or
+      -- U+2029) inside it as a line end, which no record boundary is.
+      local value, err = decode_with(line, line_opts, number)
       if err ~= "" then
-        -- A line is its own text, so its error names line 1. Decoded
-        -- again below as many newlines as lines before it -- once, on
-        -- the way out -- the decoder names the line of the whole.
-        local _, located = Json.decode(string.rep("\n", number - 1) .. line, opts)
-        -- A failure with no place in the text ("out of memory") may not
-        -- come again: then the first answer is named by its line.
-        if located == "" then located = "line " .. number .. ": " .. err end
-        return nil, located
+        return nil, err
       end
       values[count] = value
     end
