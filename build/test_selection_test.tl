@@ -78,6 +78,75 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
   assert(credits[1][2]:find("suite.helper\t", 1, true), credits[1][2])
 end
 
+local function test_cli_runs_only_the_one_test_a_selector_names(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/selected_test.tl", [[
+local helper = require("suite.helper")
+local function test_selected()
+  assert(helper.answer == 42)
+end
+local function test_sibling()
+  error("sibling test executed")
+end
+]]))
+  for run, expected in ipairs({ "1 ran, 0 stood", "0 ran, 1 stood" }) do
+    local output = tmp .. "/named-" .. tostring(run) .. ".out"
+    local result = invoke(program, root, output, "./suite/selected_test.tl:test_selected")
+    local text = assert(Fs.read(output))
+    assert(result.ok, text)
+    assert(text:find("1 tests, 1 modules; " .. expected, 1, true), text)
+    assert(not text:find("executed", 1, true), text)
+  end
+  local output = tmp .. "/module.out"
+  local result = invoke(program, root, output, "suite.selected_test:test_selected")
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("0 ran, 1 stood", 1, true), text)
+  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local credits = assert(Sqlite.text_rows(db, "SELECT test FROM coverage_by_test"))
+  assert(db:close())
+  assert(#credits == 1 and credits[1][1] == "suite.selected_test test_selected",
+    "expected only the named test credited")
+end
+
+local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  local output = tmp .. "/missing.out"
+  local result = invoke(program, root, output, "suite/selected_test.tl:test_missing")
+  local text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("no test in suite.selected_test is named test_missing; " ..
+    "it has test_selected\n", 1, true), text)
+  assert(not text:find("no test module matches", 1, true), text)
+end
+
+local function test_cli_runs_one_example_by_its_name(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/answer_example.tl", [[
+local Example = {}
+function Example.answer()
+  assert(require("suite.helper").answer == 42)
+end
+function Example.other()
+  error("other example executed")
+end
+return Example
+]]))
+  local output = tmp .. "/example.out"
+  local result = invoke(program, root, output, "suite/answer_example.tl:answer")
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("1 tests, 1 modules; 1 ran", 1, true), text)
+  output = tmp .. "/prefixed.out"
+  result = invoke(program, root, output, "suite/answer_example.tl:Example.answer")
+  text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("1 tests, 1 modules; 0 ran, 1 stood", 1, true), text)
+end
+
 local function test_cli_fails_when_no_module_matches(tmp: string)
   local program = assert(Proc.executable())
   for index, selector in ipairs({ "suite/missing_test.tl", "", "/" }) do
