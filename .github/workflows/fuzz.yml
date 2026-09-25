@@ -105,6 +105,13 @@
           run: "chown -R runner \"$GITHUB_WORKSPACE\" \"$RUNNER_TEMP\"",
         },
 
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          "working-directory": "ci",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+
         # TODO: this compiles vendor/ and core/ cold each night; restoring
         # ci.yml's zig build cache for the linux-x86_64 leg would save it.
         {
@@ -114,14 +121,17 @@
 
         {
           name: "fuzz every property on the checked core",
-          run: "sh .github/scripts/fuzz.sh",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl fuzz",
         },
 
         {
           name: "say how far a cancelled run got",
-          # The checkout may not have happened.
-          if: "cancelled() && hashFiles('.github/scripts/fuzz-cancelled.sh') != ''",
-          run: "sh .github/scripts/fuzz-cancelled.sh",
+          # The checkout, and the driver it bootstraps, may not have
+          # happened.
+          if: "cancelled() && steps.driver.outcome == 'success'",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl fuzz-cancelled",
         },
 
         {

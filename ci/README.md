@@ -77,3 +77,16 @@ appends the operations table to the file named by
 operations database does not exist yet it appends a note that it is
 unavailable and exits 0: no operation ran, which means the self-check
 failed first.
+
+`fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
+`fuzz` runs `o/sanitized/bin/cosmic test --all` from `GITHUB_WORKSPACE`
+over every `*_fuzz_test.tl` outside its top-level `o/`, `vendor/` and
+`ci/`, with the environment it was given (`FUZZ_SEED` and `FUZZ_ITERS`
+among it), `TMPDIR` at `$RUNNER_TEMP/fuzz`, `COSMIC_AUTO_BOOT=0` and
+`COSMIC_TEST_TIMEOUT=1200`. Both its streams go to
+`$RUNNER_TEMP/fuzz.out`, copied to the job log as they are written; its
+status goes to `$RUNNER_TEMP/fuzz.status` and is the command's own. The
+step summary gets the seed, and on a failure the failing tests' lines
+and the reports beneath them. `fuzz-cancelled` appends the last 40 lines
+of `$RUNNER_TEMP/fuzz.out`, if there is one, to the step summary. Both
+write the summary where `summarize` does.

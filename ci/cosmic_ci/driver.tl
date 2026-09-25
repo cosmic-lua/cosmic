@@ -1,7 +1,7 @@
 local Context = require("cosmic_ci.context")
-local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Fuzz = require("cosmic_ci.fuzz")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
@@ -63,15 +63,7 @@ local function summarize(_argv: {string}): integer
       lines[#lines + 1] = "| " .. table.concat(cells, " | ") .. " |\n"
     end
   end
-  local text = table.concat(lines)
-  local output = Env.get("GITHUB_STEP_SUMMARY")
-  if output and output ~= "" then
-    local output_exists = Predicate.exists(output)
-    local existing = output_exists and assert(Fs.read(output)) or ""
-    assert(Fs.write(output, existing .. text))
-  else
-    assert(Fs.put(Fs.stdout, text))
-  end
+  Context.summarize(table.concat(lines))
   return 0
 end
 
@@ -94,6 +86,10 @@ local commands: {string:Command} = {
     usage = "PHASE [ARG]", handler = Orchestration.platform },
   provenance = { about = "check that every worker tested the same bytes",
     usage = "", handler = Orchestration.provenance },
+  fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",
+    usage = "", handler = Fuzz.fuzz },
+  ["fuzz-cancelled"] = { about = "say how far a cancelled fuzz run got",
+    usage = "", handler = Fuzz.cancelled },
 }
 
 return function(argv: {integer:string}): integer
