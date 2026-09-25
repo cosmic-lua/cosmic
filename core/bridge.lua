@@ -162,5 +162,31 @@ local function searcher_for(tl)
   end
 end
 
+-- The compiler the tree is built with and the tool carries: the
+-- vendored `tl.tl`, its patch records applied, compiled by `stage0`,
+-- the vendored `tl.lua` exactly as upstream generated it, and loaded in
+-- the compiler's environment. Answers the compiler and the Lua it was
+-- compiled to. The compiler compiles itself to the same Lua
+-- (build/compiler_test.tl), so which compiler compiled it does not show
+-- in what it is.
+local function bootstrap(stage0, tl_dir)
+  local file = tl_dir .. '/tl.tl'
+  local source, err = read_all(file)
+  if not source then error(file .. ': ' .. tostring(err), 0) end
+  local env = assert(stage0.new_env({ defaults = {
+    feat_lax = 'off', gen_compat = 'off', gen_target = '5.4',
+  } }))
+  local code, result = stage0.gen(source, env, nil, 'tl')
+  local trouble = complain(file, result and {
+    syntax_errors = result.syntax_errors, type_errors = result.type_errors,
+  })
+  if not code or trouble ~= '' then
+    error(file .. ': the vendored compiler refused it\n' .. trouble, 0)
+  end
+  local chunk, load_err = load(code, '@vendor.tl', 't', environment)
+  if not chunk then error(file .. ': ' .. load_err, 0) end
+  return chunk(), code
+end
+
 return { environment = environment, searcher_for = searcher_for,
-         declare = declare }
+         declare = declare, bootstrap = bootstrap }

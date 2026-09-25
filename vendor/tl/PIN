@@ -4,5 +4,6 @@ sha256 61a98433b83fb8ae708f8ed348f5deb35a476d09c20404ce321f49757f17c90e
 strip tl/
 keep LICENSE
 keep tl.lua
+keep tl.tl
 license MIT
 notice LICENSE

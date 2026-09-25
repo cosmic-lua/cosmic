@@ -1,21 +1,21 @@
-file: tl.lua
+file: tl.tl
 note: assert already applies its argument's facts to the statements that follow, but a bare-variable argument had no fact to give it -- this gives it one, the same fact a truthiness guard would carry, so `assert(r, "msg")` narrows r's nil union for the rest of the enclosing block
 --- find
-      ["assert"] = function(self, node, a, b, argdelta)
+      ["assert"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          node.known = FACT_TRUTHY
          local r = self:type_check_function_call(node, a, b, argdelta)
          self:apply_facts(node, node.e2[1].known)
          return r
       end,
 --- replace
-      ["assert"] = function(self, node, a, b, argdelta)
+      ["assert"] = function(self: TypeChecker, node: Node, a: Type, b: TupleType, argdelta?: integer): InvalidOrTupleType
          node.known = FACT_TRUTHY
          local r = self:type_check_function_call(node, a, b, argdelta)
          local arg1 = node.e2[1]
          if arg1 and arg1.kind == "variable" and not arg1.known and b.tuple[1] then
             local typ = without_nil(self, arg1, b.tuple[1], true)
             if typ then
-               arg1.known = IsFact({ var = arg1.tk, typ = typ, w = arg1 })
+               arg1.known = IsFact { var = arg1.tk, typ = typ, w = arg1 }
             end
          end
          self:apply_facts(node, node.e2[1].known)

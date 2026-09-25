@@ -1,4 +1,4 @@
-file: tl.lua
+file: tl.tl
 note: a short comment is recorded when the newline ending it is read, so input running out inside one -- a file with no final newline -- dropped it outright, and nothing downstream could notice: a comment reaching no token is absent from both sides of any comparison over tokens. a `--#...` run is the same comment read through the pragma states, and ended the same way here
 --- find
          else

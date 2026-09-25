@@ -805,12 +805,73 @@ end
 
 --- The current answer to an "e" observation, re-read live rather than
 --- trusted from the row: `sys.environ`'s hash for `environ_path`, or
---- `sys.getenv`'s answer for a named variable.
-function observations.getenv_current(path: string): string
+--- `sys.getenv`'s answer for a named variable -- or, given
+--- `environment`, what it answers, for the environment of a process
+--- other than this one.
+function observations.getenv_current(path: string, environment?: {string:string}): string
   if path == environ_path then
-    return environ_answer(sys.environ())
+    return environ_answer(environment or sys.environ())
   end
+  if environment ~= nil then return getenv_answer(environment[path]) end
   return getenv_answer(sys.getenv(path))
+end
+
+--- What names the tree's own root in `tree_name`: a NUL, which no
+--- path holds, so no path outside the tree is ever named as one inside.
+local tree_marker <const> = "\0tree"
+
+--- A path as a key names it, the same in every checkout of one tree:
+--- one under `tree` -- as written, not climbing with ".." -- by its name
+--- below it after a marker no path holds, and any other as it is. The
+--- tree's own location is no input to what a test does there, so two
+--- checkouts of the same content key the same read alike.
+-- TODO: the tree's location is keyed nowhere, yet a test can read it:
+-- `sys.getcwd`, `Fs.absolute`, `sys.realpath` and `Proc.executable` are
+-- not observed, so a test whose verdict turns on where the tree is (a
+-- path length limit, a name it prints and compares) stands on a
+-- sibling checkout's verdict at another path. Note each such answer
+-- as an observation, named by `tree_name` in the shared key and whole
+-- in a checkout's own, once the syscall table's dispatch observes them
+-- (see the TODO above `start`, on observing every call there).
+function observations.tree_name(path: string, tree: string): string
+  if ("/" .. path .. "/"):find("/%.%./") ~= nil then return path end
+  local rest, _ = Fs.relative(path, tree)
+  if rest == nil then return path end
+  if rest == "." then return tree_marker end
+  return tree_marker .. "/" .. rest
+end
+
+--- `observations.tree_name` undone: the path a name it gave stands for
+--- under `tree`, which may be another checkout's than the one it came
+--- from.
+function observations.tree_path(name: string, tree: string): string
+  if name == tree_marker then return tree end
+  if name:sub(1, #tree_marker + 1) == tree_marker .. "/" then
+    return tree .. name:sub(#tree_marker + 1)
+  end
+  return name
+end
+
+--- An "e" observation's answer as a key holds it, the same in every
+--- checkout of `tree`: a value that is a path under it -- the working
+--- directory in PWD, which a shell sets -- named by `tree_name`, in a
+--- variable read by name, or throughout the whole environment for a
+--- read of all of it, which `environment` (what the reading process
+--- had) answers.
+-- TODO: hold a path under the tree among others in one value, as a
+-- PATH entry of the checkout's own o/bin is, by its name there too:
+-- today such a value keys the checkout's location, and a test that reads
+-- the whole environment stands only in the checkout that ran it.
+function observations.held_variable(path: string, answer: string,
+                                    environment: {string:string}, tree: string): string
+  if path == environ_path then
+    local held: {string:string} = {}
+    for name, value in pairs(environment) do held[name] = observations.tree_name(value, tree) end
+    return environ_answer(held)
+  end
+  local value = answer:match("^ok (.*)$")
+  if value == nil then return answer end
+  return "ok " .. observations.tree_name(value, tree)
 end
 
 --- What a path given to a confined process holds now, for its "u"
@@ -820,10 +881,16 @@ end
 --- or a file replaced changes -- and the mode of each directory above
 --- it. One that holds a socket, a FIFO or a device other than an inert
 --- one answers from past the root, and its answer starts "unkeyable ".
+--- Under the tree, where it resolves and each directory between it and
+--- the tree are named by `tree_name`, and each directory above the tree
+--- by its mode alone, so every checkout of the tree answers alike.
 function observations.unveiled_answer(path: string, tree: string): string
   local real, _ = realpath(path)
   if real == nil then return "missing" end
-  local walked, trouble = sys.tree_digest(real, Fs.within(real, tree))
+  local real_tree, _ = realpath(tree)
+  real_tree = real_tree or tree
+  local inside = Fs.within(real, real_tree)
+  local walked, trouble = sys.tree_digest(real, inside)
   local parts: {string} = { walked ~= nil and walked.digest or ("error " .. trouble) }
   -- The modes of the directories above it, which the root it is bound
   -- into mirrors: a program may check them, as the launcher does its
@@ -831,12 +898,17 @@ function observations.unveiled_answer(path: string, tree: string): string
   local above = Fs.dirname(real)
   while true do
     local st, _ = sys.stat(above)
-    parts[#parts + 1] = above .. "\0above\0" .. (st ~= nil and tostring(st.mode) or "missing")
+    local name = above
+    if inside then
+      name = Fs.within(above, real_tree) and observations.tree_name(above, real_tree) or ""
+    end
+    parts[#parts + 1] = name .. "\0above\0" .. (st ~= nil and tostring(st.mode) or "missing")
     local parent = Fs.dirname(above)
     if parent == above then break end
     above = parent
   end
-  return ((walked ~= nil and walked.special) and "unkeyable " or "") .. real .. " " ..
+  return ((walked ~= nil and walked.special) and "unkeyable " or "") ..
+    (inside and observations.tree_name(real, real_tree) or real) .. " " ..
     Hash.hex_sha256(table.concat(parts, "\n"))
 end
 
