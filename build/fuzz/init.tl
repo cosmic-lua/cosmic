@@ -33,7 +33,9 @@
 --- body"); `run` prints how many inputs reached each label, and a
 --- property that `requires` a label fails when no input reached it, so
 --- a generator whose inputs all stop at the first refusal is found out
---- rather than passing while it checks nothing.
+--- rather than passing while it checks nothing; one whose `shares`
+--- names a label fails when too few did, so one whose inputs mostly
+--- stop there is found out too.
 
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
@@ -126,6 +128,13 @@ local record Fuzz
     --- `FUZZ_ITERS` asks for fewer inputs than the default 64, as
     --- reproducing one failure does.
     requires: {string}
+    --- The least share of the drawn inputs, above 0 and at most 1, that
+    --- must reach each label named, held when `requires` is: for a
+    --- property whose generator could come to reach what it exists to
+    --- exercise rarely rather than never. Set it well under the share
+    --- a run reaches, so that another seed does not fall under it by
+    --- chance.
+    shares: {string: number}
   end
 end
 
@@ -395,7 +404,16 @@ local function run(p: Fuzz.Property): integer
             or ("write the input above to " .. keep)), 0)
     end
   end
-  local line = label_counts(counts, p.requires, iters)
+  local named: {string} = {}
+  local is_named: {string: boolean} = {}
+  for _, name in ipairs(p.requires or {}) do named[#named + 1], is_named[name] = name, true end
+  local shared: {string} = {}
+  for name in pairs(p.shares or {}) do shared[#shared + 1] = name end
+  table.sort(shared)
+  for _, name in ipairs(shared) do
+    if not is_named[name] then named[#named + 1] = name end
+  end
+  local line = label_counts(counts, named, iters)
   if line ~= nil then print(("fuzz %s: labels: %s"):format(p.name, line)) end
   if whole and iters > 0 then
     for _, name in ipairs(p.requires or {}) do
@@ -404,6 +422,15 @@ local function run(p: Fuzz.Property): integer
         if kept ~= nil then local _, _ = Fs.remove(kept) end
         error(("fuzz %s: seed=%d: no input of %d reached %q, which the property requires: " ..
           "its inputs do not exercise what it is meant to"):format(p.name, seed, iters, name), 0)
+      end
+    end
+    for _, name in ipairs(shared) do
+      local reached_by = counts[name] or 0
+      if reached_by < p.shares[name] * iters then
+        if kept ~= nil then local _, _ = Fs.remove(kept) end
+        error(("fuzz %s: seed=%d: %d inputs of %d reached %q, under the share of %g the property " ..
+          "requires: its inputs exercise it too rarely"):format(p.name, seed, reached_by, iters, name,
+          p.shares[name]), 0)
       end
     end
   end

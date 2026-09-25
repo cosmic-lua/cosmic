@@ -239,6 +239,23 @@ local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
   assert(not Fs.exists(tmp .. "/never-long.input"))
 end
 
+-- A label the property requires a share of fails a run in which fewer
+-- inputs reached it, though some did, and passes one in which enough did.
+local function test_a_label_under_its_required_share_fails_the_run(tmp: string)
+  local function check(input: string): boolean, string
+    if #input % 4 == 0 then Fuzz.label("a quarter") end
+    return true, ""
+  end
+  local n = Fuzz.run({ name = "enough", iters = 64, gen = any_bytes, check = check,
+    shares = { ["a quarter"] = 0.1 } })
+  assert(n == 64)
+  local err = report({ name = "too rare", dir = tmp, iters = 64, gen = any_bytes, check = check,
+    shares = { ["a quarter"] = 0.6 } })
+  assert(err:find('^fuzz too rare: seed=1: %d+ inputs of 64 reached "a quarter", under the share of 0.6 ' ..
+    "the property requires: its inputs exercise it too rarely$"), err)
+  assert(not Fs.exists(tmp .. "/too-rare.input"))
+end
+
 -- A count the property names itself is a whole run: `requires` holds of
 -- it however few inputs it draws. (Only FUZZ_ITERS below the default,
 -- what reproducing one failure asks for, lets it go.)
