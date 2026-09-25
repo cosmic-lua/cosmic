@@ -507,6 +507,43 @@ local function test_json_lines()
   assert(encoded((Json.decode_lines(text))) == '[{"a":1},[]]', "a round trip")
 end
 
+--- `hash_comments` reads a `#` line comment, in RFC 8259 JSON and in
+--- JSON5 alike, and only where it is asked for; a `#` inside a string
+--- stays a character.
+local function test_hash_comments_are_read_when_asked()
+  local hash = { hash_comments = true }
+  local list = decoded('# lead\n[1, # one\n2] # end', hash) as {integer}
+  assert(#list == 2 and list[1] == 1 and list[2] == 2, "comments before, inside and after")
+  local strings = decoded('["#x", "# y"]', hash) as {string}
+  assert(strings[1] == "#x" and strings[2] == "# y", "a # in a string")
+  assert(decoded("1 # no newline", hash) == 1, "a comment the text ends in")
+  local five = { json5 = true, hash_comments = true }
+  local text = [[
+# the name GitHub shows
+{
+  name: "ci", # after a member
+  // JSON5's own comments still read
+  "runs-on": ["ubuntu-24.04",],
+}
+]]
+  local v = decoded(text, five) as {string: any}
+  assert(v.name == "ci" and (v["runs-on"] as {string})[1] == "ubuntu-24.04", "JSON5 with # comments")
+  assert(Json.decode_object(text, five) ~= nil, "decode_object takes hash_comments")
+  assert(decode_failure("# c\n1"):match("^invalid JSON at line 1, column 1"), "RFC 8259 has no # comment")
+  assert(decode_failure("# c\n1", { json5 = true }):match("^invalid JSON at line 1, column 1"),
+    "nor does JSON5")
+  assert(decode_failure("# only", hash) == "invalid JSON: the text is empty", "a comment is no value")
+  -- A # comment ends where a // one does: at U+2028 in JSON5, and
+  -- only at \n or \r outside it.
+  assert(decoded("# c\u{2028}1", five) == 1, "JSON5 ends it at U+2028")
+  assert(decode_failure("# c\u{2028}1", hash) == "invalid JSON: the text is empty",
+    "outside JSON5, U+2028 is inside it")
+  local values = assert(Json.decode_lines("1 # one\n3", hash))
+  assert(#values == 2 and values[2] == 3, "decode_lines takes hash_comments")
+  local _, only = Json.decode_lines("1\n# two", hash)
+  assert(only == "invalid JSON at line 2: the line holds no value", only)
+end
+
 --- A depth failure says where the refused array or object opens,
 --- counting past strings that hold brackets, and, in JSON5, past
 --- comments and single-quoted strings.
@@ -522,7 +559,13 @@ local function test_a_depth_failure_says_where()
   for _, eol in ipairs({ "\r", "\r\n", "\u{2028}", "\u{2029}" }) do
     local failure = decode_failure("// c" .. eol .. "[[1]]", { json5 = true, max_depth = 1 })
     assert(failure == "JSON nests deeper than 1 levels at line 2, column 2", failure)
+    local hashed = decode_failure("# c" .. eol .. "[[1]]", { json5 = true, hash_comments = true, max_depth = 1 })
+    assert(hashed == "JSON nests deeper than 1 levels at line 2, column 2", hashed)
   end
+  -- Outside JSON5, a # comment runs past U+2028 to the \n, and the
+  -- brackets it holds are no part of the count.
+  local past = decode_failure("# [ \u{2028} [\n[[1]]", { hash_comments = true, max_depth = 1 })
+  assert(past == "JSON nests deeper than 1 levels at line 2, column 2", past)
 end
 
 --- A syntax error's line counts every line end the text's grammar

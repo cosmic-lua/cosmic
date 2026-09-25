@@ -1,0 +1,27 @@
+file: src/yyjson.c
+note: skip_trivia skips a `#` comment when YYJSON_READ_ALLOW_HASH_COMMENTS is set, to the same line end as a `//` one: any of JSON5's line terminators with extended whitespace, else \n or \r. See 01-hash-comments-flag.txt.
+--- find
+                cur += 2;
+            }
+        }
+        if (cur == loop_begin) break;
+--- replace
+                cur += 2;
+            }
+        }
+        if (has_allow(HASH_COMMENTS) && cur[0] == '#') {
+            cur++;
+            if (has_allow(EXT_WHITESPACE)) {
+                while (cur < eof) {
+                    if (char_is_eol_ext(*cur)) {
+                        cur += (len = ext_eol_len(cur));
+                        if (len) break;
+                    }
+                    cur++;
+                }
+            } else {
+                while (cur < eof && !char_is_eol(*cur)) cur++;
+            }
+        }
+        if (cur == loop_begin) break;
+--- end

@@ -236,8 +236,13 @@ static void position (const char *text, size_t pos,
  * `max_depth` others already open around it: the one decode refuses.
  * yyjson keeps no offsets in its document, so this counts brackets in
  * the text, which read cleanly, skipping strings -- single-quoted ones
- * too, and comments, as JSON5 has them. */
-static size_t deep_offset (const char *text, size_t len, int max_depth) {
+ * too, and comments, as JSON5 has them, and `#` ones. Outside a string
+ * a text that read cleanly holds `//`, a block comment's opening or `#`
+ * only as a comment.
+ * A line comment ends where yyjson ends it: at \n or \r, and in JSON5
+ * (`json5`) at U+2028 or U+2029 too. */
+static size_t deep_offset (const char *text, size_t len, int max_depth,
+                           bool json5) {
   int open = 0;
   for (size_t i = 0; i < len; i++) {
     char c = text[i];
@@ -245,11 +250,10 @@ static size_t deep_offset (const char *text, size_t len, int max_depth) {
       for (i++; i < len && text[i] != c; i++) {
         if (text[i] == '\\') i++;
       }
-    } else if (c == '/' && i + 1 < len && text[i + 1] == '/') {
-      /* JSON5 ends a line comment at any line terminator: \n, \r,
-       * U+2028 or U+2029 (E2 80 A8, E2 80 A9). */
+    } else if (c == '#' || (c == '/' && i + 1 < len && text[i + 1] == '/')) {
+      /* U+2028 and U+2029 are E2 80 A8 and E2 80 A9. */
       while (i < len && text[i] != '\n' && text[i] != '\r' &&
-             !(i + 2 < len && (unsigned char)text[i] == 0xe2 &&
+             !(json5 && i + 2 < len && (unsigned char)text[i] == 0xe2 &&
                (unsigned char)text[i + 1] == 0x80 &&
                ((unsigned char)text[i + 2] == 0xa8 ||
                 (unsigned char)text[i + 2] == 0xa9))) {
@@ -271,7 +275,8 @@ static size_t deep_offset (const char *text, size_t len, int max_depth) {
 
 /* nil and where `text` stopped being JSON, as a line and a column of
  * bytes, both counted from 1; a record's line alone when it ran out
- * of memory or holds no value (in JSON5, only a comment). */
+ * of memory or holds no value (where comments are read, only a
+ * comment). */
 static int read_failure (lua_State *L, const char *text, size_t len,
                          const struct layout *layout,
                          const yyjson_read_err *err) {
@@ -350,10 +355,19 @@ static size_t repair_surrogates (char *s, size_t n) {
   return count;
 }
 
+/* The flag under which yyjson reads `#` line comments:
+ * patch/yyjson/01-hash-comments-flag.txt defines it in yyjson.c, on a
+ * bit upstream leaves unused.
+ * TODO: name YYJSON_READ_ALLOW_HASH_COMMENTS from yyjson.h once
+ * `cosmic fix` compiles the core against the patched vendor trees
+ * rather than vendor/ itself (build/c/init.tl's include_dirs). */
+#define READ_ALLOW_HASH_COMMENTS ((yyjson_read_flag)1 << 14)
+
 /* decode(text, null?, max_depth?, json5?, big_as_string?,
- * lone_surrogates?, record?): the value
+ * lone_surrogates?, record?, hash_comments?): the value
  * `text` holds, and "". nil and a message when it is not one JSON
- * value -- RFC 8259, or JSON5 when `json5` is true -- or nests past
+ * value -- RFC 8259, or JSON5 when `json5` is true, either with `#`
+ * line comments when `hash_comments` is -- or nests past
  * `max_depth` (64 by default). JSON `null` is `null` when given, and
  * nil when not. With `big_as_string`, an integer past 64 bits, or a
  * number past a double's range, is its own text. With `record`, the
@@ -374,7 +388,8 @@ static int json_decode (lua_State *L) {
   d.big_as_string = lua_toboolean(L, 5);
   if (d.big_as_string) flags |= YYJSON_READ_BIGNUM_AS_RAW;
   int lone_surrogates = lua_toboolean(L, 6);
-  lua_settop(L, 7);
+  if (lua_toboolean(L, 8)) flags |= READ_ALLOW_HASH_COMMENTS;
+  lua_settop(L, 8);
   /* Building the value allocates, and an allocation can raise: the
    * guard frees the document then, and on every return. */
   struct cosmic_guard *guard = cosmic_guard_push(L, release_doc);
@@ -398,7 +413,7 @@ static int json_decode (lua_State *L) {
   if (!push_value(&d, yyjson_doc_get_root(doc), 0)) {
     lua_pushnil(L);
     size_t line, column;
-    position(text, deep_offset(text, len, d.max_depth), &layout, &line,
+    position(text, deep_offset(text, len, d.max_depth, layout.json5), &layout, &line,
              &column);
     lua_pushfstring(L, "JSON nests deeper than %d levels at line %I, column %I",
                     d.max_depth, (lua_Integer)line, (lua_Integer)column);

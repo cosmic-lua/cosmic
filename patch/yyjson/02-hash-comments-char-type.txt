@@ -1,0 +1,7 @@
+file: src/yyjson.c
+note: `#` is marked a comment character (CHAR_TYPE_COMMENT, 0x20) in char_table1, so char_is_trivia sends the reader to skip_trivia at one. Where `#` comments are not allowed, skip_trivia skips nothing at a `#`, and the reader fails there as it did before. See 01-hash-comments-flag.txt.
+--- find
+    0x0F, 0x03, 0x02, 0x03, 0x03, 0x03, 0x03, 0x01,
+--- replace
+    0x0F, 0x03, 0x02, 0x23, 0x03, 0x03, 0x03, 0x01,
+--- end

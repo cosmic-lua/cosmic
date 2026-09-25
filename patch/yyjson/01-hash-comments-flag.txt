@@ -1,0 +1,14 @@
+file: src/yyjson.c
+note: cosmic.json reads `#` line comments when asked (`hash_comments`), so a text can be both JSON5 and YAML's flow style -- a GitHub workflow that cosmic.json can read back. yyjson has no such flag; this adds YYJSON_READ_ALLOW_HASH_COMMENTS on a bit upstream leaves unused (1 << 14), outside YYJSON_READ_JSON5, so JSON5 reads as before. It is defined here rather than in yyjson.h because `cosmic fix` compiles the core against vendor/'s own headers; core/json.c names the same bit. The reader looks for comments only where YYJSON_READ_ALLOW_TRIVIA allows any, so a `#` comment allowed alone counts as trivia too. The records after this one teach the reader what the flag means.
+--- find
+#define YYJSON_READ_ALLOW_TRIVIA (YYJSON_READ_ALLOW_COMMENTS | \
+                                  YYJSON_READ_ALLOW_EXT_WHITESPACE)
+--- replace
+/* Allow line comments that begin with `#`, as YAML and shells write
+   them; one ends where a `//` comment does. Not part of JSON5 (a cosmic
+   patch, not upstream). */
+static const yyjson_read_flag YYJSON_READ_ALLOW_HASH_COMMENTS = 1 << 14;
+#define YYJSON_READ_ALLOW_TRIVIA (YYJSON_READ_ALLOW_COMMENTS | \
+                                  YYJSON_READ_ALLOW_EXT_WHITESPACE | \
+                                  YYJSON_READ_ALLOW_HASH_COMMENTS)
+--- end

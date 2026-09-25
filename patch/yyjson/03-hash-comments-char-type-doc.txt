@@ -1,0 +1,7 @@
+file: src/yyjson.c
+note: CHAR_TYPE_COMMENT's own comment names the characters 02-hash-comments-char-type.txt gives it.
+--- find
+#define CHAR_TYPE_COMMENT   (1 << 5) /* Comment: [/] */
+--- replace
+#define CHAR_TYPE_COMMENT   (1 << 5) /* Comment: [/#] */
+--- end
