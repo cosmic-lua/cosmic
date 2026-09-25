@@ -7,6 +7,12 @@
 --- can rebuild it: the tool runs `bin/zig build boot` and re-enters the
 --- original argv on the tool that boot wrote, unless `COSMIC_AUTO_BOOT=0`
 --- says to refuse instead (`reboot.auto_boot`).
+---
+--- One rule for the working database's handle: a function here that is
+--- handed it and stops the command -- `into` on every path,
+--- `reboot.guard` whenever it answers an exit code -- closes it first;
+--- only `reboot.guard`'s nil, "go on", hands it back open. A function
+--- handed none, `reboot.boot_into`, needs it closed already.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -23,8 +29,6 @@ local log = require("build.verdict").log
 local type compiler = require("build.compiler")
 
 local record reboot
-  core_refusal: string
-  foreign_refusal: string
   --- How the tree stands against the running binary.
   enum State
     "fresh"
@@ -38,11 +42,11 @@ end
 local marker = "COSMIC_REBOOTED"
 
 --- What a tool stale against the core says when it does not boot.
-reboot.core_refusal = "the tool is stale; run bin/zig build boot"
+local core_refusal = "the tool is stale; run bin/zig build boot"
 
 --- What a stale cosmic that is not the tree's own tool says: it neither
 --- rebuilds itself nor boots the tree.
-reboot.foreign_refusal = "this cosmic is stale against the tree and is not " ..
+local foreign_refusal = "this cosmic is stale against the tree and is not " ..
   "the tree's own tool (under o/), so it will not rebuild itself; " ..
   "run bin/zig build boot and use o/bin/cosmic"
 
@@ -106,7 +110,7 @@ local function reentry(argv: {integer:string}): {string}
 end
 
 --- Compares the tree's fingerprints with the running binary's.
-function reboot.state(handle: work.Handle): reboot.State | nil, string
+local function state_of(handle: work.Handle): reboot.State | nil, string
   local fingerprint, trouble = work.fingerprint(handle)
   if fingerprint == nil then
     return nil, trouble
@@ -120,20 +124,28 @@ function reboot.state(handle: work.Handle): reboot.State | nil, string
   return "core"
 end
 
+--- Closes `handle`, which the caller is giving up, and answers `trouble`.
+local function closing(handle: work.Handle, trouble: string): string
+  local _, _ = work.close(handle)
+  return trouble
+end
+
 --- Rebuilds the tool from the tree and replaces this process with it,
---- running `argv` again. Returns only when it cannot, saying why.
-function reboot.into(handle: work.Handle, built: compiler,
+--- running `argv` again. Returns only when it cannot, saying why. It
+--- takes `handle`, open and staged, and closes it on every path: before
+--- it publishes the rebuilt tool, or on the way out of a failure.
+local function into(handle: work.Handle, built: compiler,
                      argv: {integer:string}): string
   if sys.getenv(marker) ~= nil then
-    return "the tool is still stale after a reboot"
+    return closing(handle, "the tool is still stale after a reboot")
   end
   local prefix, prefix_trouble = artifact.trusted_prefix()
   if prefix == nil then
-    return prefix_trouble
+    return closing(handle, prefix_trouble)
   end
   local out, executable_trouble = Proc.executable()
   if out == nil then
-    return executable_trouble
+    return closing(handle, executable_trouble)
   end
 
   -- A fresh checkout has no boot-populated compiler row in its working
@@ -141,22 +153,22 @@ function reboot.into(handle: work.Handle, built: compiler,
   -- artifact so the rebuilt Cosmic remains able to rebuild again.
   local compiler_source, compiler_trouble = Store.source("vendor.tl")
   if compiler_source == nil then
-    return "the compiler source is not in this binary: " .. compiler_trouble
+    return closing(handle, "the compiler source is not in this binary: " .. compiler_trouble)
   end
   local kept, keep_trouble = work.put_compiler(handle, compiler_source)
   if not kept then
-    return keep_trouble
+    return closing(handle, keep_trouble)
   end
 
   -- Compiled and keyed as the tree's own work: the tool that replaces this one
   -- carries the tree's compiler identity, never the stale tool's identity.
   local derived, derive_trouble = importer.derive(handle, true, built)
   if not derived then
-    return derive_trouble
+    return closing(handle, derive_trouble)
   end
   local identities, identity_trouble = work.identities(handle)
   if identities == nil then
-    return identity_trouble
+    return closing(handle, identity_trouble)
   end
   -- Unjudged: this tool's build.contracts, rules and exemptions alike,
   -- may be older than the tree's, so a module it refuses is built
@@ -165,17 +177,17 @@ function reboot.into(handle: work.Handle, built: compiler,
   local result, compile_trouble =
     importer.compile(handle, built, identities.compiler, true)
   if result == nil then
-    return compile_trouble
+    return closing(handle, compile_trouble)
   end
   local database_path = handle.root .. "/o/cosmic.db"
   local written, write_trouble =
     writer.write_result(handle, database_path, result)
   if not written then
-    return write_trouble
+    return closing(handle, write_trouble)
   end
   local database, read_trouble = Fs.read(database_path)
   if database == nil then
-    return read_trouble
+    return closing(handle, read_trouble)
   end
   local closed, close_trouble = work.close(handle)
   if not closed then
@@ -199,7 +211,8 @@ end
 --- Rebuilds the core with `root/bin/zig build boot`, whose output goes to
 --- stderr so a verb's own stdout stays its own, then replaces this process
 --- with the tool the boot wrote, `root/o/bin/cosmic`, running `argv` again.
---- The caller has closed its working database, which the boot writes.
+--- It is handed no handle: the caller closes its working database
+--- first, since the boot writes it (`reboot.guard` does).
 --- `environment` is what both run in, this process's by default.
 --- Returns only when it cannot, saying why.
 function reboot.boot_into(root: string, argv: {integer:string},
@@ -223,8 +236,63 @@ function reboot.boot_into(root: string, argv: {integer:string},
   return exec_trouble
 end
 
---- The staleness guard `cosmic <file.tl>` and `cosmic test` apply
---- before compiling, for a read-only verb -- `docs`, `uses`, `db`,
+--- The staleness guard every verb that builds the tree applies once
+--- it has staged it, before it compiles anything: `cosmic <file.tl>`,
+--- `cosmic test`, and through `reboot.stale_exit` the read-only verbs.
+--- A stale tool would check and compile the tree with a checker the
+--- tree no longer agrees with, and run embedded `cosmic.*` and `build.*`
+--- code from an old tree. When only Teal moved, the tool rebuilds itself
+--- and re-enters `argv`; when the C core moved, it has zig boot it,
+--- unless `COSMIC_AUTO_BOOT=0` says to refuse. Only the tree's own tool
+--- (`reboot.own_tool`) does either; another refuses with
+--- `foreign_refusal`, rebuilding nothing.
+---
+--- `handle` is the working database of `root`, which must be cosmic's
+--- own tree (`tree.is_own`), open and staged. Answers nil when the tool
+--- is fresh, handing `handle` back open for the caller to go on with.
+--- Otherwise it has said why on stderr and closed `handle`, and answers
+--- the exit code the caller returns at once: 3 for a refusal, or a
+--- rebuild or boot that failed, and 1 when the check itself failed.
+--- @param argv the command line, re-entered after a rebuild
+function reboot.guard(handle: work.Handle, root: string,
+                      argv: {integer:string}): integer | nil
+  local state, state_trouble = state_of(handle)
+  if state == nil then
+    log:complain(closing(handle, state_trouble))
+    return 1
+  end
+  if state == "fresh" then
+    return nil
+  end
+  local own, own_tool_trouble = reboot.own_tool(root)
+  if own == nil then
+    log:complain(closing(handle, own_tool_trouble))
+    return 1
+  end
+  if not own then
+    log:complain(closing(handle, foreign_refusal))
+    return 3
+  end
+  if state == "core" then
+    local closed, close_trouble = work.close(handle)
+    if not closed then
+      log:complain(close_trouble)
+      return 1
+    end
+    if not reboot.auto_boot() then
+      log:complain(core_refusal)
+      return 3
+    end
+    log:complain(reboot.boot_into(root, argv))
+    return 3
+  end
+  -- state == "teal"
+  log:complain("the tool is stale; rebuilding it from the tree")
+  log:complain(into(handle, teal.lazy(), argv))
+  return 3
+end
+
+--- The staleness guard for a read-only verb -- `docs`, `uses`, `db`,
 --- `help` -- that never compiles the tree itself but still runs
 --- `build.*` Teal that this binary embedded at its own boot. Inside
 --- cosmic's own tree, an edit to that Teal is otherwise invisible
@@ -244,111 +312,63 @@ end
 --- recomputed. Only when something did move, or the database has no
 --- recorded `boot_hash` yet (a fresh `o/`, or one nothing has staged
 --- for), does this fall back to `work.stage`'s directory walk and
---- `reboot.state`'s full check -- the same path `cosmic test` always
---- takes.
+--- `reboot.guard` -- the same path `cosmic test` always takes.
 ---
---- Returns an exit code the caller should return immediately, with
---- `trouble` to report first when it is not empty. Returns `nil` to
---- say the caller may proceed as normal: either the tree is not
---- cosmic's own, or the tool was found fresh, so no rebuild happened. A
---- stale tool that is not the tree's own (`reboot.own_tool`) returns 3
---- with `reboot.foreign_refusal`, rebuilding nothing.
+--- Answers as `reboot.guard` does for the tree in the working
+--- directory: nil to go on, when the tree is not cosmic's own or the
+--- tool is fresh, or an exit code to return at once, having said why.
 --- @param argv the command line, re-entered after a rebuild
--- TODO: answer a record (an exit code and its message) or nil, once the
--- callers are reworked around it: nil means "proceed" here, not a
--- failure, so this pair is not a value and its reason, and
--- build.contracts exempts it from the error-slot rules until then.
-local function ensure(root: string, argv: {integer:string}): integer | nil, string
-  local own_tree, own_trouble = tree.is_own(root)
-  if own_tree == nil then
-    return 1, own_trouble
-  end
-  if not own_tree then
-    return nil, ""
-  end
-  local handle, open_trouble = work.open(root)
-  if handle == nil then
-    return 1, open_trouble
-  end
-
-  local moved, moved_trouble = work.tool_moved(handle)
-  if moved == nil then
-    local _, _ = work.close(handle)
-    return 1, moved_trouble
-  end
-  if not moved then
-    local recorded, recorded_trouble = work.recorded_boot_hash(handle)
-    if recorded == nil and recorded_trouble ~= "" then
-      local _, _ = work.close(handle)
-      return 1, recorded_trouble
-    end
-    if recorded ~= nil and recorded == (Store.meta("boot_hash") or "") then
-      local closed, close_trouble = work.close(handle)
-      if not closed then
-        return 1, close_trouble
-      end
-      return nil, ""
-    end
-  end
-
-  local staged, stage_trouble = work.stage(handle, own_tree)
-  if staged == nil then
-    local _, _ = work.close(handle)
-    return 1, stage_trouble
-  end
-  local state, state_trouble = reboot.state(handle)
-  if state == nil then
-    local _, _ = work.close(handle)
-    return 1, state_trouble
-  end
-  if state == "fresh" then
-    local closed, close_trouble = work.close(handle)
-    if not closed then
-      return 1, close_trouble
-    end
-    return nil, ""
-  end
-  local own, own_tool_trouble = reboot.own_tool(root)
-  if own == nil then
-    local _, _ = work.close(handle)
-    return 1, own_tool_trouble
-  end
-  if not own then
-    local _, _ = work.close(handle)
-    return 3, reboot.foreign_refusal
-  end
-  if state == "core" then
-    local closed, close_trouble = work.close(handle)
-    if not closed then
-      return 1, close_trouble
-    end
-    if not reboot.auto_boot() then
-      return 3, reboot.core_refusal
-    end
-    return 3, reboot.boot_into(root, argv)
-  end
-  -- state == "teal"
-  local _, _ = Fs.put(Fs.stderr, "cosmic: the tool is stale; rebuilding it from the tree\n")
-  local built = teal.lazy()
-  local reboot_trouble = reboot.into(handle, built, argv)
-  return 3, reboot_trouble
-end
-
---- The exit code a verb returns at once when the tool is older than the
---- tree in the working directory -- after a rebuild that failed, or a
---- refused boot, having said why -- or nil to go on. When the tool can
---- rebuild itself it does, and runs `argv` again rather than returning.
 function reboot.stale_exit(argv: {integer:string}): integer | nil
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
     log:complain(root_trouble)
     return 1
   end
-  local code, trouble = ensure(root, argv)
-  if code ~= nil and trouble ~= "" then
-    log:complain(trouble)
+  local own_tree, own_trouble = tree.is_own(root)
+  if own_tree == nil then
+    log:complain(own_trouble)
+    return 1
   end
-  return code
+  if not own_tree then
+    return nil
+  end
+  local handle, open_trouble = work.open(root)
+  if handle == nil then
+    log:complain(open_trouble)
+    return 1
+  end
+
+  local moved, moved_trouble = work.tool_moved(handle)
+  if moved == nil then
+    log:complain(closing(handle, moved_trouble))
+    return 1
+  end
+  local fresh = false
+  if not moved then
+    local recorded, recorded_trouble = work.recorded_boot_hash(handle)
+    if recorded == nil and recorded_trouble ~= "" then
+      log:complain(closing(handle, recorded_trouble))
+      return 1
+    end
+    fresh = recorded ~= nil and recorded == (Store.meta("boot_hash") or "")
+  end
+  if not fresh then
+    local staged, stage_trouble = work.stage(handle, own_tree)
+    if staged == nil then
+      log:complain(closing(handle, stage_trouble))
+      return 1
+    end
+    local code = reboot.guard(handle, root, argv)
+    if code ~= nil then
+      return code
+    end
+  end
+  local closed, close_trouble = work.close(handle)
+  if not closed then
+    log:complain(close_trouble)
+    return 1
+  end
+  return nil
 end
 
 return reboot

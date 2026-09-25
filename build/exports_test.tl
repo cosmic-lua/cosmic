@@ -34,6 +34,12 @@ allowed["build.fix.spill.sites"] = "tested directly: the test hands it refusal "
   "text without a compile"
 allowed["build.importer.analyzer_modules"] = "tested directly: the test holds the " ..
   "list to every module the analysis requires"
+allowed["build.reboot.auto_boot"] = "tested directly: the test hands it an " ..
+  "environment rather than setting COSMIC_AUTO_BOOT on the whole run"
+allowed["build.reboot.boot_into"] = "tested directly: the test runs it on a tree " ..
+  "whose bin/zig is a stand-in, which no stale tool can reach"
+allowed["build.reboot.own_tool"] = "tested directly: the test hands it the path " ..
+  "a tool was started as, which the running one cannot change"
 allowed["build.test_worker.encode"] = "tested directly: the test checks that a " ..
   "report survives the trip through descriptor 3"
 allowed["build.writer.signature"] = "tested directly: the test signs a database " ..

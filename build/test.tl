@@ -1309,47 +1309,12 @@ function test.run(argv: {integer:string}): integer
 
   local built = teal.lazy()
 
-  -- Same staleness guard `cosmic <file.tl>` applies when the tree under
-  -- test is cosmic's own: a stale tool would check and compile it with
-  -- a checker the tree no longer agrees with, and execute embedded
-  -- cosmic.* implementations and tests from an old tree. When only
-  -- Teal moved, the tool rebuilds itself and re-enters this command
-  -- line; when the C core moved, it has zig boot it (`build.reboot`).
-  -- Only the tree's own tool does either; another refuses.
+  -- A stale tool refuses, or rebuilds itself or has zig boot the core
+  -- and re-enters this command line (`reboot.guard`).
   if own_tree then
-    local state, state_trouble = reboot.state(handle)
-    if state == nil then
-      local _, _ = work.close(handle)
-      log:complain(state_trouble)
-      return 1
-    end
-    if state ~= "fresh" then
-      local own, own_tool_trouble = reboot.own_tool(root)
-      if own == nil then
-        local _, _ = work.close(handle)
-        log:complain(own_tool_trouble)
-        return 1
-      end
-      if not own then
-        local _, _ = work.close(handle)
-        log:complain(reboot.foreign_refusal)
-        return 3
-      end
-    end
-    if state == "core" then
-      local _, _ = work.close(handle)
-      if not reboot.auto_boot() then
-        log:complain(reboot.core_refusal)
-        return 3
-      end
-      log:complain(reboot.boot_into(root, argv))
-      return 3
-    end
-    if state == "teal" then
-      log:complain("the tool is stale; rebuilding it from the tree")
-      local reboot_trouble = reboot.into(handle, built, argv)
-      log:complain(reboot_trouble)
-      return 3
+    local code = reboot.guard(handle, root, argv)
+    if code ~= nil then
+      return code
     end
   end
 

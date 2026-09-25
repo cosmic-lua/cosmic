@@ -151,8 +151,6 @@ local record contracts
 end
 
 local exempt: {string: string} = {
-  ["build/reboot.tl:ensure"] =
-    "nil means proceed; the integer is an exit code, not a value",
   ["cosmic/child.tl:Child.wait_any"] =
     "a finished handle comes back with its group's lingering-member " ..
     "trouble, which a caller reports beside the handle's result",
