@@ -179,7 +179,7 @@ local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
       stdout = "capture", stderr = "capture", timeout_ms = 30000,
     })))
   end
-  for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "three",
+  for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "\"three\"",
       ["1.5"] = "1.5" } as {string:string}) do
     local result = run(returned)
     assert(result.code == 2, returned .. " exited " .. tostring(result.code) .. ": " ..

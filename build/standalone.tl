@@ -187,7 +187,7 @@ function standalone.run(argv: {integer:string}): integer
     arguments[slot - 2] = argv[slot]
     slot = slot + 1
   end
-  return exit_status(file, main(arguments))
+  return exit_status.of(file, main(arguments))
 end
 
 return standalone

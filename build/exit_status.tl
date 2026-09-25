@@ -6,16 +6,20 @@
 
 local Fs = require("cosmic.fs")
 
+local record exit_status
+end
+
 --- nil is 0, and a whole number from 0 to 255 is itself. Anything else
 --- -- a boolean, text, a table, 1.5, -1, 256 -- is complained about on
 --- stderr as `what`'s (a file's name, or `-e`), and exits 2.
-local function exit_status(what: string, value: any): integer
+function exit_status.of(what: string, value: any): integer
   if value == nil then
     return 0
   end
   local whole = value is number and math.tointeger(value) or nil
   if whole == nil or whole < 0 or whole > 255 then
-    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. what .. " returned " .. tostring(value) ..
+    local _, _ = Fs.put(Fs.stderr, "cosmic: " .. what .. " returned " ..
+      (value is string and string.format("%q", value) or tostring(value)) ..
       ", not an exit status 0-255\n")
     return 2
   end

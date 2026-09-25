@@ -23,7 +23,9 @@ local record Cli
   --- project reaches the rest of it; the file's own directory
   --- otherwise -- then runs it: requires the file, and if what it
   --- returns is a function, calls it with one argument -- see argv --
-  --- and exits with the integer it returns, or 0
+  --- and exits with what it returns, as `eval` does: nothing is 0, a
+  --- whole number from 0 to 255 is itself, and anything else is
+  --- complained about and exits 2
   run: string
   --- `cosmic --standalone <file.tl>`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing
