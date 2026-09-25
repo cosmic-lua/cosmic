@@ -738,10 +738,11 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 function Zig.run(argv: {string}): integer
   -- TODO: hold the signals with `Child.guard` rather than sys.*'s
   -- guard_child_signals, cancelled_child_signal and unguard_child_signals
-  -- once ci/cosmic-driver.pin names a cosmic whose cosmic.child carries
-  -- Child.guard (this runs on that release), and once a Child.Guard can
-  -- close without delivering its caught signal again: this passes the
-  -- signal on to the child and re-raises only the one the child died of.
+  -- once a Child.Guard can close without delivering its caught signal
+  -- again, and ci/cosmic-driver.pin names a cosmic that carries that
+  -- (this runs on that release; the pinned one's Child.guard always
+  -- re-delivers): this passes the signal on to the child and re-raises
+  -- only the one the child died of.
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
     log:complain("signal guard: " .. guard_trouble)

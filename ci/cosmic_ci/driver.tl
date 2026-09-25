@@ -112,7 +112,9 @@ return function(argv: {integer:string}): integer
   end
   local ran, why = Flags.dispatch(argv, 1, dispatched, "driver.tl")
   if ran == nil then
-    local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. "\n")
+    local named = argv[1] ~= nil and commands[argv[1]] or nil
+    local usage = named ~= nil and "; usage: driver.tl " .. argv[1] .. " " .. named.usage or ""
+    local _, _ = Fs.put(Fs.stderr, "driver.tl: " .. why .. usage .. "\n")
     return 2
   end
   if ran.help ~= "" then

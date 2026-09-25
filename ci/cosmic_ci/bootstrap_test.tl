@@ -386,4 +386,11 @@ local function test_driver_answers_help_and_refuses_an_unknown_command(tmp: stri
     driver_timeout)
   local why = assert(Fs.read(tmp .. "/unknown.out"))
   assert(refused.code == 2 and why:find("no such command: platfrom", 1, true), why)
+  -- The form before "--" was needed is refused with the usage that
+  -- shows where it goes.
+  local old = call({ runner, driver, "run", "p", "100", "/bin/sh", "-c", "exit 0" }, project,
+    tmp .. "/old-run.out", env, driver_timeout)
+  local told = assert(Fs.read(tmp .. "/old-run.out"))
+  assert(old.code == 2 and told:find("usage: driver.tl run PHASE TIMEOUT_MS -- EXECUTABLE", 1, true),
+    told)
 end
