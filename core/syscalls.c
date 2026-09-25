@@ -15,6 +15,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #if defined(__linux__)
+#include <linux/landlock.h>
+#include <stddef.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 /* _XOPEN_SOURCE intentionally hides this libc escape hatch. It is used only
@@ -330,7 +332,112 @@ static void close_child_descriptors (int from, long limit) {
   for (int fd = from; fd < limit; fd++) close(fd);
 }
 
-COSMIC_SYSCALL(spawn, 9) {
+#if defined(__linux__)
+/* Fixed by the kernel's ABI; a libc or a header older than them may not
+ * name them. */
+#ifndef O_PATH
+#define O_PATH 010000000
+#endif
+#ifndef LANDLOCK_ACCESS_FS_IOCTL_DEV
+#define LANDLOCK_ACCESS_FS_IOCTL_DEV (1ULL << 15)
+#endif
+
+/* What a rule beneath a file, not a directory, may allow. */
+#define LANDLOCK_FILE_ACCESS                                                \
+  (LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_WRITE_FILE |             \
+   LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_TRUNCATE |             \
+   LANDLOCK_ACCESS_FS_IOCTL_DEV)
+#define LANDLOCK_READ_ACCESS                                                \
+  (LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_READ_FILE |              \
+   LANDLOCK_ACCESS_FS_READ_DIR)
+#endif
+
+/* TODO: hold a child's metadata reads too -- Landlock checks opening a
+ * file or listing a directory, never stat, access, readlink, statfs or
+ * chdir, so a confined child still learns whether a path outside the
+ * ruleset is there, and its size and times -- and its reach beyond: a
+ * unix socket named by a path, and UDP. A mount namespace holding only
+ * what the ruleset names would close the first; the others wait on a
+ * Landlock right for them (or a network namespace). */
+COSMIC_SYSCALL(landlock_ruleset, 2) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  luaL_checktype(L, 2, LUA_TTABLE);
+  for (int t = 1; t <= 2; t++) {
+    lua_Integer count = (lua_Integer)lua_rawlen(L, t);
+    for (lua_Integer i = 1; i <= count; i++) {
+      lua_rawgeti(L, t, i);
+      plain_string(L, -1, "path");
+      lua_pop(L, 1);
+    }
+  }
+#if defined(__linux__)
+  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+  if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
+  uint64_t handled = (LANDLOCK_ACCESS_FS_MAKE_SYM << 1) - 1;
+  if (abi >= 2) handled |= LANDLOCK_ACCESS_FS_REFER;
+  if (abi >= 3) handled |= LANDLOCK_ACCESS_FS_TRUNCATE;
+  if (abi >= 5) handled |= LANDLOCK_ACCESS_FS_IOCTL_DEV;
+  struct landlock_ruleset_attr attr;
+  memset(&attr, 0, sizeof attr);
+  attr.handled_access_fs = handled;
+  /* A kernel older than a field takes the struct only up to it. */
+  size_t size = sizeof attr.handled_access_fs;
+  if (abi >= 4) {
+    attr.handled_access_net = LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP;
+    size = offsetof(struct landlock_ruleset_attr, handled_access_net) +
+           sizeof attr.handled_access_net;
+  }
+#ifdef LANDLOCK_SCOPE_SIGNAL
+  if (abi >= 6) {
+    /* Nor may it reach a process outside it through an abstract unix
+     * socket or a signal. */
+    attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
+    size = offsetof(struct landlock_ruleset_attr, scoped) + sizeof attr.scoped;
+  }
+#endif
+  long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
+  if (made < 0) return cosmic_fail(L, errno);
+  int ruleset = (int)made;
+  /* One rule for each path, allowing what its table grants beneath it --
+   * as much of that as a file takes, when it is one. Nothing here can
+   * raise: every entry was checked to be a plain string above. */
+  for (int t = 1; t <= 2; t++) {
+    uint64_t access = t == 1 ? LANDLOCK_READ_ACCESS & handled : handled;
+    lua_Integer count = (lua_Integer)lua_rawlen(L, t);
+    for (lua_Integer i = 1; i <= count; i++) {
+      lua_rawgeti(L, t, i);
+      const char *path = lua_tostring(L, -1);
+      int fd = open(path, O_PATH | O_CLOEXEC);
+      lua_pop(L, 1);
+      struct stat st;
+      int number = 0;
+      if (fd < 0 || fstat(fd, &st) != 0) {
+        number = errno;
+      } else {
+        struct landlock_path_beneath_attr beneath = {
+          .allowed_access = S_ISDIR(st.st_mode) ? access : access & LANDLOCK_FILE_ACCESS,
+          .parent_fd = fd,
+        };
+        if (syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH,
+                    &beneath, 0) != 0) {
+          number = errno;
+        }
+      }
+      if (fd >= 0) close(fd);
+      if (number != 0) {
+        close(ruleset);
+        return cosmic_fail(L, number);
+      }
+    }
+  }
+  lua_pushinteger(L, ruleset);
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
+COSMIC_SYSCALL(spawn, 10) {
   const char *path = plain_string(L, 1, "path");
   luaL_checktype(L, 2, LUA_TTABLE);
   if (!lua_isnoneornil(L, 3)) luaL_checktype(L, 3, LUA_TTABLE);
@@ -370,6 +477,21 @@ COSMIC_SYSCALL(spawn, 9) {
   for (int t = 0; t <= top; t++) {
     if (source[t] >= 0 && fcntl(source[t], F_GETFD) < 0)
       return cosmic_fail(L, errno);
+  }
+  int confine = -1;
+  if (!lua_isnoneornil(L, 10)) {
+    luaL_checktype(L, 10, LUA_TTABLE);
+    lua_getfield(L, 10, "ruleset");
+    if (!lua_isnil(L, -1)) {
+      if (!lua_isinteger(L, -1))
+        return luaL_argerror(L, 10, "a ruleset must be a descriptor");
+      lua_Integer value = lua_tointeger(L, -1);
+      if (value < 0 || value > INT_MAX)
+        return luaL_argerror(L, 10, "the ruleset's descriptor is out of range");
+      confine = (int)value;
+    }
+    lua_pop(L, 1);
+    if (confine >= 0 && fcntl(confine, F_GETFD) < 0) return cosmic_fail(L, errno);
   }
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
@@ -474,6 +596,14 @@ COSMIC_SYSCALL(spawn, 9) {
         if (pinned[t] < 0) failure = errno;
       }
     }
+    /* The ruleset is pinned with them, before the exec-status descriptor
+     * takes top + 1 -- which the ruleset may be -- and before any mapping
+     * can land on it. */
+    int confined = -1;
+    if (!failure && confine >= 0) {
+      confined = fcntl(confine, F_DUPFD_CLOEXEC, top + 2);
+      if (confined < 0) failure = errno;
+    }
     /* The exec-status descriptor sits just above the child's own. */
     if (!failure && status_write != top + 1) {
       if (dup2(status_write, top + 1) < 0) failure = errno;
@@ -503,6 +633,16 @@ COSMIC_SYSCALL(spawn, 9) {
       } else {
         close(t);
       }
+    }
+    /* Confined last, just before exec: what the child and every process
+     * it starts may reach is the ruleset's, and nothing lets it off. */
+    if (!failure && confined >= 0) {
+#if defined(__linux__)
+      if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
+      else if (syscall(SYS_landlock_restrict_self, confined, 0) != 0) failure = errno;
+#else
+      failure = ENOSYS;
+#endif
     }
     close_child_descriptors(top + 2, descriptor_limit);
     if (!failure) execve(path, argv, given);
@@ -882,7 +1022,7 @@ static const luaL_Reg table[] = {
   ENTRY(getuid),   ENTRY(umask),         ENTRY(entropy),
   ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
   ENTRY(digest),   ENTRY(hmac),          ENTRY(execve),
-  ENTRY(spawn),
+  ENTRY(spawn),    ENTRY(landlock_ruleset),
   ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
   ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
   ENTRY(pipe),     ENTRY(dup),          ENTRY(dup2),
@@ -928,6 +1068,8 @@ static const struct constant constants[] = {
   {"ESRCH", ESRCH},
   {"EBADF", EBADF},
   {"ENOSYS", ENOSYS},
+  {"EOPNOTSUPP", EOPNOTSUPP},
+  {"EPERM", EPERM},
   {"EINVAL", EINVAL},
   {"SIGHUP", SIGHUP},
   {"SIGINT", SIGINT},

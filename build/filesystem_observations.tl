@@ -362,9 +362,11 @@ local function start(resolving: observations.Resolving | nil):
   sys.spawn = function(path: string, argv: {string}, environment: {string:string} | nil,
                        cwd: string | nil, stdin: integer | nil, stdout: integer | nil,
                        stderr: integer | nil, process_group: boolean,
-                       fds?: {integer:integer}): integer | nil, string, integer
+                       fds?: {integer:integer}, sandbox?: sys.Sandbox):
+                       integer | nil, string, integer
     note(declaring > 0 and "h" or "p", path, "")
-    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds)
+    return spawn(path, argv, environment, cwd, stdin, stdout, stderr, process_group, fds,
+      sandbox)
   end
   sys.mkdtemp = function(template: string): string | nil, string, integer
     local path, trouble, errno = mkdtemp(template)

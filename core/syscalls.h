@@ -339,6 +339,12 @@ COSMIC_SYSCALL(entropy, 1);
 COSMIC_SYSCALL(execve, 3);
 
 /*
+ * --- What `spawn` holds a child to from its exec on, with every process it starts.
+ * ---@class Sandbox
+ * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none
+ */
+
+/*
  * --- Starts one child with explicit arguments, environment, directory and
  * --- standard descriptors. The child is reported only after exec succeeds.
  * ---@param path string the executable path
@@ -350,11 +356,22 @@ COSMIC_SYSCALL(execve, 3);
  * ---@param stderr? integer the child's fd 2 source, or nil to inherit fd 2
  * ---@param process_group boolean put the child in a new process group
  * ---@param fds? {integer:integer} more descriptors the child gets, each child descriptor from 3 to 255 by the descriptor it copies; every other one above 2 is closed
+ * ---@param sandbox? Sandbox what the child, and every process it starts, is held to from its exec on
  * ---@return integer|nil pid the child process id, or nil when setup or exec failed
  * ---@return string error what went wrong, when pid is nil
  * ---@return integer errno the error number, when pid is nil
  */
-COSMIC_SYSCALL(spawn, 9);
+COSMIC_SYSCALL(spawn, 10);
+
+/*
+ * --- A Landlock ruleset a child can be held to (`spawn`'s `sandbox`): opening and running what is beneath each path of `reads`, and changing what is beneath each of `writes` too, and no other file or directory -- nor, where the kernel can hold it to these, a TCP connection or a bound port, an abstract unix socket or a signal to a process outside it. It does not hold what Landlock cannot: stat and the like of any path, a unix socket named by a path, UDP, or a descriptor the child is handed already open. Closed on exec. ENOSYS, EOPNOTSUPP or EPERM where there is no Landlock to be had: not built in, turned off, or refused by a filter.
+ * ---@param reads {string} the files and directories the child may read and run
+ * ---@param writes {string} the files and directories it may change too
+ * ---@return integer|nil ruleset the ruleset's descriptor, or nil on failure
+ * ---@return string error what went wrong, when ruleset is nil
+ * ---@return integer errno the error number, when ruleset is nil
+ */
+COSMIC_SYSCALL(landlock_ruleset, 2);
 
 /*
  * ---@class ChildStatus
@@ -646,6 +663,8 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@field ESRCH integer there is no such process or group
  * ---@field EBADF integer the descriptor is not open
  * ---@field ENOSYS integer this platform has no such call
+ * ---@field EOPNOTSUPP integer the kernel has the call but it is turned off
+ * ---@field EPERM integer the call is not permitted, as a seccomp filter refuses one
  * ---@field EINVAL integer an argument is invalid, such as a path holding a NUL byte
  * ---@field SIGHUP integer the terminal hung up
  * ---@field SIGINT integer interrupt, as from a terminal
