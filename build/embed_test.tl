@@ -116,6 +116,8 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
     "(SELECT count(*) FROM notices WHERE component = 'lua' AND text LIKE '%Lua.org%')")
   assert(materials[1][1] == "1" and materials[1][2] == "1",
     "the program carries the bill of materials its cores ship under")
+  local trusted = rows_of(path, "SELECT count(*) FROM ca_roots")
+  assert(tonumber(trusted[1][1]) > 100, "the program carries the CA roots its requests trust")
 end
 
 --- A project's tests and examples stay with the project: the program

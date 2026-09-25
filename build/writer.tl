@@ -13,6 +13,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local importer = require("build.importer")
 local bom = require("build.bom")
+local roots = require("build.roots")
 local schema = require("build.schema")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -246,8 +247,10 @@ local function project(handle: work.Handle, path: string,
     end
     -- cosmic's own tree describes the binary it builds: its bill of
     -- materials (`build.bom`), read from the pins and records beside the
-    -- code. They are all tool files, so `boot_hash`, which the signature
-    -- covers, moves when one does. A project's tables stay empty.
+    -- code, and the CA roots it trusts (`build.roots`). A change to
+    -- either comes with a pin's, a tool file, so `boot_hash`, which the
+    -- signature covers, moves when one does. A project's tables stay
+    -- empty.
     local own, own_trouble = tree.is_own(handle.root)
     if own == nil then
       return false, own_trouble
@@ -256,6 +259,10 @@ local function project(handle: work.Handle, path: string,
       local filled, fill_trouble = bom.fill(db, handle.root, "out.")
       if not filled then
         return false, fill_trouble
+      end
+      local trusted, trust_trouble = roots.fill(db, handle.root, "out.")
+      if not trusted then
+        return false, trust_trouble
       end
     end
     local carried_main, main_trouble = Sqlite.run(db,
@@ -343,6 +350,7 @@ local carry: {string} = {
   "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
   "INSERT INTO main.components SELECT * FROM whole.components ORDER BY name",
   "INSERT INTO main.notices SELECT * FROM whole.notices ORDER BY component, ordinal",
+  "INSERT INTO main.ca_roots SELECT * FROM whole.ca_roots ORDER BY sha256",
   dropped_modules .. "INSERT INTO main.docs (module, symbol, source_symbol, " ..
     "exported, kind, signature, text, file, line) SELECT module, symbol, " ..
     "source_symbol, exported, kind, signature, text, file, line " ..

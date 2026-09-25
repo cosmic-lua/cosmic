@@ -113,13 +113,14 @@ kernel                               Linux; macOS
     mbedtls, miniz, argon2,          vendored pristine
     a regex engine
     bzip2, xz, c-ares, curl,         vendored pristine
-    yyjson, Mozilla's CA roots
+    yyjson
     syscall table                    C, one function per syscall
   cosmic binary
     modules in a sqlite database     the only module source
     teal compiler + checker          vendored tl, carried patches
     cosmic.* stdlib in teal          typed wrappers, honest returns
     docs                             rows in the same database
+    Mozilla's CA roots               DER rows, once for every core
     three raw cores                  manifest ranges before the database
 ```
 
@@ -348,7 +349,8 @@ input to the build, never to the runtime. one database holds:
   assertion mechanism for code, not a second, output-diffing one only
   doc guides need.
 - **payload**: for an embed-built executable, the user's files.
-- **roots**: Mozilla's CA bundle.
+- **ca_roots**: Mozilla's CA bundle, one DER certificate a row,
+  which `core/http.c` reads from the binary's own database alone.
 - **the compiler**: `tl.lua`, one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
@@ -675,8 +677,10 @@ comes from the same library and the same configuration: one header,
 mbedtls header is compiled against, curl's included. it keeps
 certificate expiry checks, extended master secret and TLS 1.3
 middlebox compatibility on, and renegotiation and session tickets
-off. Mozilla's root bundle is embedded in the core, identical on
-every machine, moved only by a pinned bump; `SSL_CERT_FILE` adds
+off. Mozilla's root bundle ships in the binary's own database, one
+row per certificate, identical on every machine, moved only by a
+pinned bump; the core parses it once, and every TLS connection, a
+proxy's too, verifies against that chain. `SSL_CERT_FILE` adds
 certificates for the corporate-proxy case without making per-machine
 trust the default.
 

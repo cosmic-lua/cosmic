@@ -1359,26 +1359,6 @@ fn core(
     vendorIncludes(b, mod, target_record, sources);
     mod.linkLibrary(vendor);
 
-    // The Mozilla CA bundle, embedded as the two symbols core/cacert.h
-    // declares by a one-file Zig object (core/cacert.zig) that reads it
-    // with @embedFile; the file is that compile's input, tracked like
-    // any source. $SSL_CERT_FILE, when the environment sets one, is read
-    // and added at run time instead (core/http.c): it names a file the
-    // running machine provides, which is not this build's to see.
-    const cacert = b.addObject(.{
-        .name = "cacert",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("core/cacert.zig"),
-            .target = target,
-            .optimize = .ReleaseSmall,
-            .strip = true,
-        }),
-    });
-    cacert.root_module.addAnonymousImport("cacert.pem", .{
-        .root_source_file = b.path("vendor/cacert/cacert.pem"),
-    });
-    mod.addObject(cacert);
-
     // The core sees the library through the same configuration it was
     // built with, or the headers would describe another library.
     const core_flags = own_c ++ [_][]const u8{
