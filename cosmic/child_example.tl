@@ -38,8 +38,9 @@ end
 --- One child supervised as a shell supervises a command: each signal
 --- sent to this process alone is passed on to the child, and releasing
 --- the guard, rather than closing it, re-raises the last one only if
---- the child died of it -- a child that handled Ctrl-C and exited 0
---- leaves this process running.
+--- the child died of it or never got it -- a child that handled Ctrl-C
+--- and exited 0 leaves this process running. The last take follows the
+--- release, which keeps a signal that lands between them.
 function Example.release()
   local guard <close> = assert(Child.guard())
   local h = assert(Child.start({ "/bin/sh", "-c", "exit 0" }))
@@ -54,8 +55,8 @@ function Example.release()
       Time.sleep_ns(10 * 1000 * 1000)
     end
   end
-  local untaken = guard:take()
   local caught = assert(guard:release())
+  local untaken = guard:take()
   if caught ~= 0 and (untaken ~= 0 or result.signal == caught) then
     assert(sys.kill(sys.getpid(), caught))
   end

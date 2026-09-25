@@ -744,9 +744,12 @@ function Zig.run(argv: {string}): integer
   -- first signal). The port polls `g:take()` each round in place of
   -- sys.cancelled_child_signal, passing each signal taken on after
   -- PASS_ON_NS as today; it ends with `g:release()` in place of the
-  -- unguard and keeps this function's own re-raise rule below (a child
-  -- that died of SIGINT or SIGTERM re-raises that), adding one for a
-  -- taken signal never passed on.
+  -- unguard, then one more `g:take()` (after the release, so a signal
+  -- landing between them is kept), and keeps this function's own
+  -- re-raise rule below (a child that died of SIGINT or SIGTERM
+  -- re-raises that), adding one for a signal never passed on: taken
+  -- but still held back by PASS_ON_NS, or taken only after the child
+  -- ended.
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
     log:complain("signal guard: " .. guard_trouble)
