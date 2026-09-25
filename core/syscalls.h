@@ -31,12 +31,6 @@
  * after portable startup has adopted the artifact descriptor. */
 #define COSMIC_LOGICAL_EXECUTABLE "cosmic.logical_executable"
 
-/* `arity` is the number of parameters the annotation block just above
- * declares -- the generator cross-checks the two against each other, so
- * a `@param` line and this count can never drift apart unnoticed. It is
- * not part of the C signature, which is always `(lua_State *L)`: the
- * arguments come off the Lua stack, not a C parameter list. */
-#define COSMIC_SYSCALL(name, arity) int cosmic_sys_##name(lua_State *L)
 
 /* A path argument's bytes, or NULL when they hold a NUL byte. C reads a
  * path only up to its first NUL, so a call handed "a\0/../b" would act
@@ -49,6 +43,35 @@
  * raising before this rule, still does: `cosmic.child` depends on it,
  * and neither way truncates. */
 const char *cosmic_path (lua_State *L, int index);
+
+/* Opens the table as the `cosmic.sys` module. */
+int cosmic_open_syscalls (lua_State *L);
+
+#endif
+
+/*
+ * Everything below is entries, each an X-macro this header declares by
+ * default and core/syscalls.c expands again, defined its own way, into
+ * the statements that fill the table the module is opened with -- so an
+ * entry here is a function the table holds, and no second list can
+ * drift from this one. A definition opens with the same macro,
+ * `COSMIC_SYSCALL(open, 3) { ... }`.
+ *
+ * `arity` is the number of parameters the annotation block just above an
+ * entry declares -- the generator cross-checks the two against each
+ * other, so a `@param` line and this count can never drift apart
+ * unnoticed. It is not part of the C signature, which is always
+ * `(lua_State *L)`: the arguments come off the Lua stack, not a C
+ * parameter list. A COSMIC_CONSTANT names one of the `Constants` the
+ * table carries, each a field of that class's annotation, in its order
+ * (the generator holds the two to each other).
+ */
+#ifndef COSMIC_SYSCALL
+#define COSMIC_SYSCALL(name, arity) int cosmic_sys_##name(lua_State *L)
+#endif
+#ifndef COSMIC_CONSTANT
+#define COSMIC_CONSTANT(name)
+#endif
 
 /*
  * --- What `stat`, `lstat` and `fstat` report about a path.
@@ -555,8 +578,40 @@ COSMIC_SYSCALL(ftruncate, 2);
  * ---@field SIGTERM integer request termination
  * ---@field SIGUSR1 integer the first user-defined signal
  */
-
-/* Opens the table as the `cosmic.sys` module. */
-int cosmic_open_syscalls (lua_State *L);
-
-#endif
+COSMIC_CONSTANT(O_RDONLY)
+COSMIC_CONSTANT(O_WRONLY)
+COSMIC_CONSTANT(O_RDWR)
+COSMIC_CONSTANT(O_CREAT)
+COSMIC_CONSTANT(O_EXCL)
+COSMIC_CONSTANT(O_TRUNC)
+COSMIC_CONSTANT(O_APPEND)
+COSMIC_CONSTANT(SEEK_SET)
+COSMIC_CONSTANT(SEEK_CUR)
+COSMIC_CONSTANT(SEEK_END)
+COSMIC_CONSTANT(CLOCK_REALTIME)
+COSMIC_CONSTANT(CLOCK_MONOTONIC)
+COSMIC_CONSTANT(ENOENT)
+COSMIC_CONSTANT(EEXIST)
+COSMIC_CONSTANT(EACCES)
+COSMIC_CONSTANT(EINTR)
+COSMIC_CONSTANT(EISDIR)
+COSMIC_CONSTANT(ENOTDIR)
+COSMIC_CONSTANT(ENOTEMPTY)
+COSMIC_CONSTANT(EAGAIN)
+COSMIC_CONSTANT(EPIPE)
+COSMIC_CONSTANT(EXDEV)
+COSMIC_CONSTANT(ECHILD)
+COSMIC_CONSTANT(ESRCH)
+COSMIC_CONSTANT(EBADF)
+COSMIC_CONSTANT(ENOSYS)
+COSMIC_CONSTANT(EOPNOTSUPP)
+COSMIC_CONSTANT(EPERM)
+COSMIC_CONSTANT(ENOSPC)
+COSMIC_CONSTANT(EINVAL)
+COSMIC_CONSTANT(SIGHUP)
+COSMIC_CONSTANT(SIGINT)
+COSMIC_CONSTANT(SIGQUIT)
+COSMIC_CONSTANT(SIGKILL)
+COSMIC_CONSTANT(SIGPIPE)
+COSMIC_CONSTANT(SIGTERM)
+COSMIC_CONSTANT(SIGUSR1)

@@ -199,6 +199,9 @@ name, any function whose annotation is incomplete, whose parameter
 count disagrees with the arity, or whose returns are not one value
 or the fallible three, so a binding cannot exist without its type
 and the C surface cannot grow without a diff in one of those headers.
+the tables the modules are opened with are filled from those same
+entries, each an X-macro `core/syscalls.c` expands again, so there is
+no second list to drift from them.
 argument-shape errors raise; runtime failures return `nil, err,
 errno` for a value and `false, err, errno` for an effect, plain
 values, the convention the fork already uses at over a hundred sites.

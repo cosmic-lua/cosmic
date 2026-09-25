@@ -21,6 +21,20 @@
 #include "lua.h"
 #include "syscalls.h"
 
+/* Opens the table as the raw `cosmic.internal.process` module. */
+int cosmic_open_process (lua_State *L);
+
+#endif
+
+/* Entries, as core/syscalls.h's are: X-macros core/syscalls.c expands
+ * again into the table the module is opened with. */
+#ifndef COSMIC_SYSCALL
+#define COSMIC_SYSCALL(name, arity) int cosmic_sys_##name(lua_State *L)
+#endif
+#ifndef COSMIC_CONSTANT
+#define COSMIC_CONSTANT(name)
+#endif
+
 /*
  * --- The paths a sandbox unveils, each absolute; at most 64 in all.
  * ---@class Unveil
@@ -200,8 +214,8 @@ COSMIC_SYSCALL(cancelled_child_signal, 0);
  * ---@field POLLHUP integer the other end hung up
  * ---@field POLLNVAL integer the descriptor is not open
  */
-
-/* Opens the table as the raw `cosmic.internal.process` module. */
-int cosmic_open_process (lua_State *L);
-
-#endif
+COSMIC_CONSTANT(POLLIN)
+COSMIC_CONSTANT(POLLOUT)
+COSMIC_CONSTANT(POLLERR)
+COSMIC_CONSTANT(POLLHUP)
+COSMIC_CONSTANT(POLLNVAL)
