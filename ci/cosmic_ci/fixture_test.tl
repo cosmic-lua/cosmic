@@ -4,11 +4,11 @@ local Fixture = require("cosmic_ci.fixture")
 
 local function test_child_timeout_retains_diagnostics(tmp: string)
   local diagnostics = tmp .. "/timeout-logs"
-  local started = assert(Time.monotonic_ns())
+  local started = Time.monotonic_ns()
   local called, failure = pcall(Fixture.run, "timeout",
     { "/bin/sh", "-c", "printf 'before timeout\\n'; exec sleep 30" },
     tmp, diagnostics, nil, 500)
-  local elapsed = assert(Time.monotonic_ns()) - started
+  local elapsed = Time.monotonic_ns() - started
   assert(not called and elapsed < 5000 * 1000000,
     "fixture timeout did not remain bounded")
   local diagnostic = tostring(failure)

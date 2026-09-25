@@ -241,3 +241,10 @@ local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: str
   assert(Fs.write(dir .. "/repo/build/vendor.tl", ""))
   assert(Vendor.main({ [0] = dir .. "/repo/build/vendor.tl", [1] = "--dry-run" }) == 2)
 end
+
+local function test_help_is_answered_before_anything_is_fetched()
+  -- No script path at slot 0: without help first, this is exit 2 for a
+  -- repository it cannot find.
+  assert(Vendor.main({ [1] = "--help" }) == 0)
+  assert(Vendor.main({ [1] = "curl", [2] = "-h" }) == 0)
+end
