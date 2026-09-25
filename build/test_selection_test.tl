@@ -140,3 +140,19 @@ end
     assert(text:find("2 ran, 0 stood", 1, true), text)
   end
 end
+
+local function test_another_project_counts_none_of_the_cores_c(tmp: string)
+  local program = assert(Proc.executable())
+  local root = project(tmp)
+  local output = tmp .. "/project.out"
+  local result = invoke(program, root, output, "suite/selected_test.tl")
+  assert(result.ok, assert(Fs.read(output)))
+  local db = assert(Sqlite.open(root .. "/o/build.db", false))
+  local lines = assert(Sqlite.text_rows(db,
+    "SELECT COUNT(*) FROM coverage WHERE path LIKE 'core/%'"))
+  local credits = assert(Sqlite.text_rows(db,
+    "SELECT COUNT(*) FROM coverage_by_test WHERE hits LIKE '%core/%'"))
+  assert(db:close())
+  assert(lines[1][1] == "0", lines[1][1] .. " coverage rows name the core's C")
+  assert(credits[1][1] == "0", credits[1][1] .. " tests are credited the core's C")
+end
