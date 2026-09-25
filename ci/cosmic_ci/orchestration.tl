@@ -76,6 +76,7 @@ local function step(c: Context, phase: string,
   return Runner.step(runner, phase, work).code
 end
 
+-- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
 local function chmod(path: string, mode: integer): boolean, string
   local changed, trouble = sys.chmod(path, mode)
   return changed, trouble

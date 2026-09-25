@@ -28,6 +28,19 @@ function Example.readlink()
   assert(Fs.remove_tree(dir))
 end
 
+--- A script made executable by its owner alone, then read back from
+--- its stat: `chmod 700`, written 0x1c0 since Teal has no octal.
+function Example.chmod()
+  local dir = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local path = dir .. "/run.sh"
+  assert(Fs.write(path, "#!/bin/sh\necho hi\n"))
+  assert(Fs.chmod(path, 0x1c0))
+  local bits = assert(Fs.stat(path)).mode & 0xfff
+  print(string.format("%o", bits))
+  assert(bits == 0x1c0, bits)
+  assert(Fs.remove_tree(dir))
+end
+
 --- A file set to an exact size through a descriptor open for writing:
 --- shorter cuts it, longer pads it with zero bytes.
 function Example.truncate()

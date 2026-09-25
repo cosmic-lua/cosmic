@@ -3,6 +3,7 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 local sys = require("cosmic.sys")
 
+-- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
 local function chmod(path: string, mode: integer)
   assert(sys.chmod(path, mode))
 end

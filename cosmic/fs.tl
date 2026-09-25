@@ -395,6 +395,24 @@ function Fs.rename(from: string, to: string): boolean, string
   return true, ""
 end
 
+--- Sets a path's permission bits, following a link to its target:
+--- `chmod`. `mode` is the bits as an integer (0x1ed for 0755), setuid,
+--- setgid and sticky included; one outside 0 to 0xfff raises, since
+--- the kernel would silently drop the bits it does not hold.
+--- `Fs.stat(path).mode & 0xfff` reads them back.
+function Fs.chmod(path: string, mode: integer): boolean, string
+  if mode < 0 or mode > 0xfff then
+    local shown = (mode > 0 and math.tointeger(mode) ~= nil) and string.format("0x%x", mode) or
+      tostring(mode)
+    error("chmod: mode " .. shown .. " is outside 0 to 0xfff", 2)
+  end
+  local changed, trouble = sys.chmod(path, mode)
+  if not changed then
+    return false, path .. ": " .. trouble
+  end
+  return true, ""
+end
+
 --- The Lua io module and io.open handles are unavailable. This opens a file
 --- for reading and returns an integer descriptor instead. Most callers want
 --- `Fs.read`; use Fs.take and Fs.close when a file must be read in pieces.
@@ -571,8 +589,8 @@ function Fs.copy_tree(from: string, to: string): boolean, string
     elseif st.kind == "file" then
       local copied, copy_trouble = copy_bytes(source, target)
       if not copied then return false, copy_trouble end
-      local changed, chmod_trouble = sys.chmod(target, permissions)
-      if not changed then return false, target .. ": " .. chmod_trouble end
+      local changed, chmod_trouble = Fs.chmod(target, permissions)
+      if not changed then return false, chmod_trouble end
     elseif st.kind == "dir" then
       local entries, list_trouble = sys.readdir(source)
       if entries == nil then return false, source .. ": " .. list_trouble end
@@ -584,8 +602,8 @@ function Fs.copy_tree(from: string, to: string): boolean, string
       end
       -- The directory's own mode last, so a read-only one still took
       -- its entries.
-      local changed, chmod_trouble = sys.chmod(target, permissions)
-      if not changed then return false, target .. ": " .. chmod_trouble end
+      local changed, chmod_trouble = Fs.chmod(target, permissions)
+      if not changed then return false, chmod_trouble end
     else
       return false, source .. ": not a file, directory or symbolic link"
     end

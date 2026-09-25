@@ -255,6 +255,23 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(not pcall(Fs.set_mtime, path, 4000, -1))
 end
 
+local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
+  local path = tmp .. "/file"
+  assert(Fs.write(path, "contents", 0x1a4))
+  local set, trouble = Fs.chmod(path, 0x9c0)
+  assert(set and trouble == "", trouble)
+  assert(assert(Fs.stat(path)).mode & 0xfff == 0x9c0)
+  assert(Fs.chmod(path, 0))
+  assert(assert(Fs.stat(path)).mode & 0xfff == 0)
+
+  assert(not pcall(Fs.chmod, path, -1))
+  assert(not pcall(Fs.chmod, path, 0x1000))
+  assert(assert(Fs.stat(path)).mode & 0xfff == 0)
+
+  local missing, missing_trouble = Fs.chmod(tmp .. "/missing", 0x1a4)
+  assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true))
+end
+
 local function test_fsync_reports_bad_descriptor(tmp: string)
   local path = tmp .. "/file"
   local fd = assert(Fs.open_write(path))
