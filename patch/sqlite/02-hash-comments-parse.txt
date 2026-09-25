@@ -1,0 +1,10 @@
+file: sqlite3.c
+note: The parser reaches json5Whitespace only from the characters that can start JSON5 whitespace; a `#` joins them, so a `#` comment reads wherever a `//` one does, and marks the text non-standard as any comment does (json_valid(x, 1) refuses it).
+--- find
+  case '/':
+  case 0xc2:
+--- replace
+  case '/':
+  case '#':
+  case 0xc2:
+--- end
