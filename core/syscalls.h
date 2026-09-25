@@ -499,6 +499,7 @@ COSMIC_SYSCALL(uname, 0);
 
 /*
  * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
+ * --- A signal this process ignores stays ignored, and is never caught.
  * --- Only one guard may be active; callers must restore it when done.
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
