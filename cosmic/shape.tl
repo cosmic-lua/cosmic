@@ -502,7 +502,7 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
       if first ~= nil then return nil, first end
       return out, nil
     elseif kind == "list" then
-      local keys: {integer} = {}
+      local keys: {integer}
       if all == nil then
         local found, bad = indices(t)
         if found == nil then
@@ -514,6 +514,7 @@ walk = function(v: any, spec: Spec, path: string, all?: {Miss}): any, Miss
         -- key is listed, and no element looked at.
         local kept, refused = split_keys(t, is_index)
         if #refused > 0 then return nil, refuse_keys(refused, path, "list", all) end
+        keys = {}
         for _, k in ipairs(kept) do
           if k is integer then keys[#keys + 1] = k end
         end
@@ -609,12 +610,12 @@ end
 --- a list's elements by index, a map's keys in byte order -- so the
 --- same value always answers the same list. A value that fails where it
 --- stands is not looked inside: a record that is a string is one
---- failure, not one per field, and a list, map or `strict_record`
---- with a key it refuses lists each such key and none of its values. A
---- run of missing list
---- elements is one failure, at its first index, and an `either` answers
---- the failures of the first choice that got inside the value, or one
---- for the union. Raises only when `spec` is not a Spec.
+--- failure, not one per field, and a list, map or `strict_record` with
+--- a key it refuses lists each such key and none of its values. A run
+--- of missing list elements is one failure, at its first index, and an
+--- `either` answers the failures of the first choice that got inside
+--- the value, or one for the union. Raises only when `spec` is not a
+--- Spec.
 --- @param value any The decoded value
 --- @param spec Spec The shape it must have
 --- @return {Failure} Every value that did not fit

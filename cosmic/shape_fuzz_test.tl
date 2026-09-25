@@ -233,13 +233,6 @@ end
 --- A value that fits, encoded and decoded, with nulls kept or not:
 --- the decoded value still fits, its answer is its shape, and the answer
 --- re-encodes and reads back as itself.
--- TODO: this fails at FUZZ_SEED=12345 FUZZ_ITERS=1466 ("{"a":null}
--- read back as another answer"), on main before cosmic.shape grew
--- `failures` too: under `any`, decoded with `null_value`, the answer
--- keeps `Json.null`, which re-encodes as null and reads back as a
--- missing key, since the second decode passes no options. Decode the
--- answer's text with `opts` as well, and keep the input under
--- testdata/fuzz/shape-through-json/.
 local function check_json(input: string): boolean, string
   local r: Recipe = { bytes = input, at = 0 }
   local spec = gen_spec(r, 3)
@@ -255,7 +248,9 @@ local function check_json(input: string): boolean, string
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
   local again_text, aerr = Json.encode(out, { sparse_as_null = true })
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
-  local again, err2: any, string = Shape.into(Json.decode(again_text), spec)
+  -- Read back as it was first read: under `any` the answer keeps
+  -- `Json.null`, which only the same `null_value` reads back as itself.
+  local again, err2: any, string = Shape.into(Json.decode(again_text, opts), spec)
   if err2 ~= "" then return false, again_text .. " does not fit: " .. err2 end
   if not same(out, again) then return false, again_text .. " read back as another answer" end
   return true, ""
