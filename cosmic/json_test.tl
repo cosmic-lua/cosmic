@@ -479,6 +479,15 @@ local function test_json_lines()
   assert(bad == "invalid JSON at line 3, column 7: invalid literal, expected 'true'", bad)
   local _, deep = Json.decode_lines('1\n[[1]]', { max_depth = 1 })
   assert(deep == "JSON nests deeper than 1 levels at line 2, column 2", deep)
+  -- Records split on \n alone: a lone \r, or in JSON5 a U+2028,
+  -- inside an earlier record is no record boundary, and a failure's
+  -- column counts from its record's start.
+  local _, past_cr = Json.decode_lines('[1,\r2]\n{"a": tru}')
+  assert(past_cr == "invalid JSON at line 2, column 7: invalid literal, expected 'true'", past_cr)
+  local _, inside_cr = Json.decode_lines('1\n[1,\r x]')
+  assert(inside_cr:match("^invalid JSON at line 2, column 6: "), inside_cr)
+  local _, past_ls = Json.decode_lines('[1,\u{2028}2]\n[[1]]', { json5 = true, max_depth = 1 })
+  assert(past_ls == "JSON nests deeper than 1 levels at line 2, column 2", past_ls)
   local kept = Json.decode_lines("null\n1", { null_value = Json.null })
   assert(kept ~= nil and kept[1] == Json.null, "options apply to each line")
   assert(Json.encode_lines({ { b = 1, a = { 1 } }, "x", 3 }, { pretty = false }) ==
@@ -503,10 +512,30 @@ local function test_a_depth_failure_says_where()
   local five = "// [[[\n{'s': '[{', /* { */ a: [[0]]}"
   assert(decode_failure(five, { json5 = true, max_depth = 2 }) ==
     "JSON nests deeper than 2 levels at line 2, column 25", decode_failure(five, { json5 = true, max_depth = 2 }))
-  -- JSON5 ends a line comment at \r, U+2028 and U+2029 as well as \n.
-  for _, eol in ipairs({ "\r", "\u{2028}", "\u{2029}" }) do
+  -- JSON5 ends a line comment at \r, U+2028 and U+2029 as well as \n,
+  -- and the line it names counts each as a line end.
+  for _, eol in ipairs({ "\r", "\r\n", "\u{2028}", "\u{2029}" }) do
     local failure = decode_failure("// c" .. eol .. "[[1]]", { json5 = true, max_depth = 1 })
-    assert(failure == ("JSON nests deeper than 1 levels at line 1, column %d"):format(6 + #eol), failure)
+    assert(failure == "JSON nests deeper than 1 levels at line 2, column 2", failure)
+  end
+end
+
+--- A syntax error's line counts every line end the text's grammar
+--- has: \n, a lone \r, and \r\n as one; in JSON5, U+2028 and U+2029
+--- too. RFC 8259 has those two only inside a string, where they are
+--- characters, and the column counts their bytes.
+local function test_a_failure_counts_each_line_end()
+  for _, eol in ipairs({ "\n", "\r", "\r\n" }) do
+    for _, five in ipairs({ false, true }) do
+      local err = decode_failure("[1," .. eol .. eol .. "  x]", { json5 = five })
+      assert(err:match("^invalid JSON at line 3, column 3: "), err)
+    end
+  end
+  for _, eol in ipairs({ "\u{2028}", "\u{2029}" }) do
+    local err = decode_failure("[1," .. eol .. "  x]", { json5 = true })
+    assert(err:match("^invalid JSON at line 2, column 3: "), err)
+    local strict = decode_failure('["' .. eol .. '", x]')
+    assert(strict:match("^invalid JSON at line 1, column 9: "), strict)
   end
 end
 

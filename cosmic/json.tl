@@ -212,20 +212,18 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {any} | nil
   local values = raw.array()
   local number = 0
   local count = 0
+  local o: Json.DecodeOptions = opts or {}
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     number = number + 1
     if line:find("%S") then
       count = count + 1
-      local value, err = Json.decode(line, opts)
+      -- The record's own number names a failure's line: the decoder
+      -- would otherwise count a lone \r (or, in JSON5, U+2028 or
+      -- U+2029) inside it as a line end, which no record boundary is.
+      local value, err = raw.decode(line, o.null_value, o.max_depth, o.json5,
+        o.big_numbers_as_strings, o.lone_surrogates, number)
       if err ~= "" then
-        -- A line is its own text, so its error names line 1. Decoded
-        -- again below as many newlines as lines before it -- once, on
-        -- the way out -- the decoder names the line of the whole.
-        local _, located = Json.decode(string.rep("\n", number - 1) .. line, opts)
-        -- A failure with no place in the text ("out of memory") may not
-        -- come again: then the first answer is named by its line.
-        if located == "" then located = "line " .. number .. ": " .. err end
-        return nil, located
+        return nil, err
       end
       values[count] = value
     end

@@ -10,10 +10,13 @@ local record json
   -- `big_as_string`, an integer past 64 bits, or a number past a
   -- double's range, decodes as its text. With `lone_surrogates`, a lone
   -- surrogate escape decodes as U+FFFD. Raises when `max_depth` is
-  -- outside 1 to `depth_limit`.
+  -- outside 1 to `depth_limit`. With `record`, the text is that line
+  -- of a JSON Lines text: a failure names that line, its column
+  -- counted from the text's start, whatever line ends the text holds.
+  -- Raises when `record` is negative.
   decode: function(text: string, null?: any, max_depth?: integer,
                    json5?: boolean, big_as_string?: boolean,
-                   lone_surrogates?: boolean): any | nil, string
+                   lone_surrogates?: boolean, record?: integer): any | nil, string
   -- `value` as JSON text. nil and a message when it holds something
   -- JSON cannot say, naming where: `... at $.users[3].name`. Raises
   -- when `indent` is not spaces and tabs, or `max_depth` is outside 1
