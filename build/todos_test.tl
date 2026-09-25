@@ -4,6 +4,7 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local todo_scan = require("build.todo_scan")
 local todos = require("build.todos")
+local narrow = require("build.narrow")
 local work = require("build.work")
 
 --- Lines joined into one file's text, so no line of this file opens
@@ -314,5 +315,46 @@ local function test_search_takes_fts5_syntax_and_falls_back_to_words()
   assert(count("else") == 1)
   assert(handle.db:exec("INSERT INTO todos_fts (todos_fts) VALUES ('integrity-check')"))
   assert(work.close(handle))
+  assert(Fs.remove_tree(root))
+end
+
+local function test_a_path_naming_the_tree_or_a_directory_in_it_is_a_path()
+  local made = assert(Fs.mkdtemp("cosmic-todos-test-"))
+  local root = assert(Fs.absolute(made))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.write(root .. "/build/a.tl", ""))
+  -- Which of build/a.tl and core/b.tl the paths hold, then the words.
+  local function split(argv: {string}): string
+    local split_up = todos.arguments(root, argv)
+    local held: {string} = {}
+    for _, file in ipairs({ "build/a.tl", "core/b.tl" }) do
+      if narrow.holds(split_up.paths, file) then
+        held[#held + 1] = file
+      end
+    end
+    return table.concat(held, ",") .. "|" .. table.concat(split_up.words, ",")
+  end
+  local both = "build/a.tl,core/b.tl"
+  local cases: {{string}} = {
+    -- The tree itself, however written, holds everything.
+    { both .. "|", "." }, { both .. "|", "./" }, { both .. "|", root },
+    { both .. "|", ".", "build" }, { both .. "|ftruncate", ".", "ftruncate" },
+    -- A directory or file in it, however written, holds what is under it.
+    { "build/a.tl|", "build" }, { "build/a.tl|", "./build/" },
+    { "core/b.tl|", "build/../core" }, { "core/b.tl|", root .. "/core" },
+    { "build/a.tl|", "build/a.tl" },
+    -- A name nothing has is words; so is the empty word.
+    { both .. "|ftruncate,cosmic.sys", "ftruncate", "cosmic.sys" },
+    { both .. "|", "" },
+    -- A place outside the tree is a path all the same, holding nothing.
+    { "|", ".." },
+  }
+  for _, case in ipairs(cases) do
+    local argv = table.move(case, 2, #case, 1, {})
+    local got = split(argv)
+    assert(got == case[1], table.concat(argv, " ") .. ": " .. got)
+  end
+  assert(#todos.arguments(root, { "" }).words == 1)
   assert(Fs.remove_tree(root))
 end
