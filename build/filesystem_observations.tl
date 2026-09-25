@@ -53,6 +53,13 @@ local record observations
     writes: {string}
   end
 
+  --- A run no key could hold, as `encode_unstable` marks it: what it
+  --- was compiled from and ran under, and what it read.
+  record Unstable
+    identity: string
+    reads: {Observation}
+  end
+
   --- One test body's run: whether it passed, its failure as text (""
   --- when it passed), and what it read either way.
   record Run
@@ -157,18 +164,11 @@ end
 --- filesystem answer can represent what that run observed -- unless its
 --- `identity` (what it was compiled from and ran under) still holds and
 --- the caller lets it be assumed.
-function observations.encode_unstable(identity?: string): string
+function observations.encode_unstable(identity?: string,
+                                      found?: {observations.Observation}): string
   if identity == nil then return "filesystem-observations-unstable" end
-  return "filesystem-observations-unstable\n" .. Codec.hex(identity)
-end
-
---- The identity `encode_unstable` was given, or nil when it was given
---- none or `encoded` is no such mark.
-function observations.unstable_identity(encoded: string): string | nil
-  local hex = encoded:match("^filesystem%-observations%-unstable\n([0-9a-f]+)$")
-  if hex == nil then return nil end
-  local identity, _ = Codec.unhex(hex)
-  return identity
+  return "filesystem-observations-unstable\n" .. Codec.hex(identity) .. "\n" ..
+    observations.encode(found or {})
 end
 
 --- Old rows described opens only, or no resolutions, so they cannot
@@ -196,6 +196,17 @@ function observations.decode(encoded: string): {observations.Observation} | nil
     end
   end
   return found
+end
+
+--- The identity and observations `encode_unstable` was given, or nil
+--- when it was given none or `encoded` is no such mark.
+function observations.decode_unstable(encoded: string): observations.Unstable | nil
+  local hex, rest = encoded:match("^filesystem%-observations%-unstable\n([0-9a-f]+)\n(.*)$")
+  if hex == nil then return nil end
+  local identity, _ = Codec.unhex(hex)
+  local found = observations.decode(rest)
+  if identity == nil or found == nil then return nil end
+  return { identity = identity, reads = found }
 end
 
 --- One environment variable's value, or a marker no real value can equal.

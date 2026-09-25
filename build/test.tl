@@ -103,10 +103,13 @@ local record test
   record Previous
     --- Nil for a run no key could hold.
     reads: {observations.Observation}
-    --- For a run no key could hold: its verdict's key, and what it was
-    --- compiled from and ran under, for `--all`'s absence to assume it.
+    --- For a run no key could hold: its verdict's key, what it was
+    --- compiled from and ran under, whether it passed, and what of its
+    --- reads a key can hold, for `--all`'s absence to assume it on.
     key: string
     identity: string
+    passed: boolean
+    kept: {observations.Observation}
   end
 
   --- One verdict ever reached, by key.
@@ -232,13 +235,14 @@ local function record_run(handle: Sqlite.Handle, path: string, name: string,
     "reads, key, run_at_ns, elapsed_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     { text(path), text(name), { integer = passed and 1 or 0 }, text(message),
       { integer = ran_at_ns }, text(cacheable == false and
-        observations.encode_unstable(identity) or observations.encode(reads)), text(key),
+        observations.encode_unstable(identity, reads) or observations.encode(reads)), text(key),
       { integer = run_at_ns }, { integer = elapsed } })
 end
 
 --- What the last run left of every test, by "path name".
 local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | nil, string
-  local rows, trouble = Sqlite.text_rows(handle, "SELECT path, test, reads, key FROM runs")
+  local rows, trouble = Sqlite.text_rows(handle,
+    "SELECT path, test, reads, key, passed FROM runs")
   if rows == nil then
     return nil, trouble
   end
@@ -248,9 +252,10 @@ local function previous_runs(handle: Sqlite.Handle): {string:test.Previous} | ni
     if reads ~= nil then
       out[row[1] .. " " .. row[2]] = { reads = reads }
     else
-      local identity = observations.unstable_identity(row[3])
-      if identity ~= nil then
-        out[row[1] .. " " .. row[2]] = { key = row[4], identity = identity }
+      local unstable = observations.decode_unstable(row[3])
+      if unstable ~= nil then
+        out[row[1] .. " " .. row[2]] = { key = row[4], identity = unstable.identity,
+          passed = row[5] == "1", kept = unstable.reads }
       end
     end
   end
@@ -1034,7 +1039,9 @@ end
 --- What a test was compiled from and ran under: what a verdict no key
 --- could hold is assumed on, when it is.
 local function identity_of(rec: Recording, m: importer.Module): string
-  return m.key .. "\0" .. rec.runtime
+  -- The tool itself too, whole: a test that starts it unconfined
+  -- exercises all of it, not only what the test's module loads.
+  return m.key .. "\0" .. rec.runtime .. "\0" .. (Store.meta("boot_hash") or "")
 end
 
 --- A verdict from a stored one that still stands: what the test read
@@ -1080,6 +1087,7 @@ end
 local record Assumed
   verdict: test.Verdict
   key: string
+  kept: {observations.Observation}
 end
 
 --- The verdict to assume for a test no key could hold: its last run's,
@@ -1090,16 +1098,23 @@ local function assumable(rec: Recording, previous: {string:test.Previous},
                          id: string): Assumed | nil, string
   local was = previous[id]
   if was == nil or was.identity == nil then return nil, "no run no key could hold" end
+  if not was.passed then return nil, "did not pass" end
   if was.identity ~= identity_of(rec, m) then return nil, "changed since" end
+  -- What of its reads a key can hold -- files of the tree, the
+  -- environment -- must answer as they did.
+  local now = test.verdict_key(rec.root, rec.hashes, id, m.key, rec.runtime, was.kept,
+    rec.key_parts)
+  if not now.stable or now.key ~= was.key then return nil, "what it read changed" end
   local verdict = verdicts[was.key]
   if verdict == nil or not verdict.passed then return nil, "did not pass" end
-  return { verdict = verdict, key = was.key }, ""
+  return { verdict = verdict, key = was.key, kept = was.kept }, ""
 end
 
 --- Records one test answered from an assumed verdict, keeping that
 --- verdict, its coverage and the mark that lets it be assumed again.
 local function assume(rec: Recording, credited: test.Credited, m: importer.Module,
-                      name: string, id: string, verdict: test.Verdict, key: string)
+                      name: string, id: string, verdict: test.Verdict, key: string,
+                      reads: {observations.Observation})
   rec.tally.assumed = rec.tally.assumed + 1
   local owed = credited[verdict.run_at_ns]
   if owed == nil then
@@ -1108,7 +1123,7 @@ local function assume(rec: Recording, credited: test.Credited, m: importer.Modul
   end
   owed[#owed + 1] = id
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
-    Time.now_ns(), {}, key, verdict.run_at_ns, verdict.elapsed_ns, false, identity_of(rec, m))
+    Time.now_ns(), reads, key, verdict.run_at_ns, verdict.elapsed_ns, false, identity_of(rec, m))
   if not kept then
     rec.errors[#rec.errors + 1] = id .. ": record: " .. keep_trouble
   end
@@ -1496,10 +1511,11 @@ function test.run(argv: {integer:string}): integer
   end
   -- A test no key can hold is assumed to pass as it last did unless
   -- asked for: by --all, or by name -- a selector narrower than the
-  -- whole tree.
+  -- whole tree that chooses it.
   local everything = parsed.set["--all"] == true or Env.get("COSMIC_TEST_ALL") == "1"
+  local naming: {string} = {}
   for _, selector in ipairs(selectors) do
-    if selector ~= "." then everything = true end
+    if selector ~= "." then naming[#naming + 1] = selector end
   end
   local started = Time.monotonic_ns()
   local own_tree, own_trouble = tree.is_own(root)
@@ -1682,14 +1698,18 @@ function test.run(argv: {integer:string}): integer
       local id = m.path .. " " .. name
       local stood, reads, key = standing(rec, previous, verdicts, m, id)
       local assumed: Assumed = nil
-      if stood == nil and not everything then
+      local asked = everything
+      for _, selector in ipairs(naming) do
+        if test.selects(selector, m.path, m.file, name) then asked = true end
+      end
+      if stood == nil and not asked then
         local answer, _ = assumable(rec, previous, verdicts, m, id)
         assumed = answer
       end
       if stood ~= nil then
         stand(rec, credited, m, name, id, stood, reads, key)
       elseif assumed ~= nil then
-        assume(rec, credited, m, name, id, assumed.verdict, assumed.key)
+        assume(rec, credited, m, name, id, assumed.verdict, assumed.key, assumed.kept)
       else
         jobs[#jobs + 1] = { m = m, name = name, id = id }
       end

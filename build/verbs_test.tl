@@ -265,7 +265,8 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   local index = expect(tmp, "docs", { "docs" }, 0).stdout or ""
   assert(index:find("\ncosmic.fs  ", 1, true), index)
   local docs = expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
-  assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true), docs)
+  assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true) and
+    docs:find("\n    --all ", 1, true), docs)
   -- And a search finds a verb by what one of its options does, though
   -- no doc comment says it: "launcher" is only in `build --host`'s.
   local found = expect(tmp, "docs", { "docs", "native", "launcher" }, 0).stdout or ""
