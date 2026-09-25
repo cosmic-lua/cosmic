@@ -1,201 +1,60 @@
-name: publish next prerelease
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+{
+  name: "publish next prerelease",
 
-on:
-  workflow_call:
+  "on": {
+    workflow_call: {},
+  },
 
-# The caller and this workflow both restrict publication to cosmic-lua/cosmic's
-# main branch. The write permission exists only on the caller job that invokes
-# this workflow; the build and provenance jobs remain read-only.
-jobs:
-  publish:
-    if: >-
-      github.repository == 'cosmic-lua/cosmic' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    concurrency:
-      group: prerelease-${{ github.sha }}
-      cancel-in-progress: false
-    steps:
-      # This job deliberately has no checkout. Candidate bytes and repository
-      # scripts are data only: nothing downloaded here is executed.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: portable-product-*
-          path: ${{ runner.temp }}/products
+  # The caller and this workflow both restrict publication to cosmic-lua/cosmic's
+  # main branch. The write permission exists only on the caller job that invokes
+  # this workflow; the build and provenance jobs remain read-only.
+  jobs: {
+    publish: {
+      if: "github.repository == 'cosmic-lua/cosmic' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      concurrency: {
+        group: "prerelease-${{ github.sha }}",
+        "cancel-in-progress": false,
+      },
+      steps: [
+        # This job deliberately has no checkout. Candidate bytes and repository
+        # scripts are data only: nothing downloaded here is executed.
+        {
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            pattern: "portable-product-*",
+            path: "${{ runner.temp }}/products",
+          },
+        },
 
-      - name: verify and stage the tested product
-        shell: bash
-        env:
-          PRODUCTS: ${{ runner.temp }}/products
-          RELEASE: ${{ runner.temp }}/release
-          SOURCE_COMMIT: ${{ github.sha }}
-          SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          expected_lanes=(
-            alpine-x86_64
-            linux-aarch64
-            linux-x86_64
-            macos-aarch64
-          )
-          mapfile -t actual_lanes < <(
-            find "$PRODUCTS" -mindepth 1 -maxdepth 1 -type d \
-              -name 'portable-product-*' -printf '%f\n' | sort
-          )
-          test "${#actual_lanes[@]}" -eq 4
-          for i in "${!expected_lanes[@]}"; do
-            test "${actual_lanes[$i]}" = "portable-product-${expected_lanes[$i]}"
-          done
+        {
+          name: "verify and stage the tested product",
+          shell: "bash",
+          env: {
+            PRODUCTS: "${{ runner.temp }}/products",
+            RELEASE: "${{ runner.temp }}/release",
+            SOURCE_COMMIT: "${{ github.sha }}",
+            SOURCE_RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+          },
+          run: "set -euo pipefail\nexpected_lanes=(\n  alpine-x86_64\n  linux-aarch64\n  linux-x86_64\n  macos-aarch64\n)\nmapfile -t actual_lanes < <(\n  find \"$PRODUCTS\" -mindepth 1 -maxdepth 1 -type d \\\n    -name 'portable-product-*' -printf '%f\\n' | sort\n)\ntest \"${#actual_lanes[@]}\" -eq 4\nfor i in \"${!expected_lanes[@]}\"; do\n  test \"${actual_lanes[$i]}\" = \"portable-product-${expected_lanes[$i]}\"\ndone\n\ndigest=\nbaseline=\"$PRODUCTS/portable-product-linux-x86_64/cosmic\"\nfor lane in \"${expected_lanes[@]}\"; do\n  product=\"$PRODUCTS/portable-product-$lane\"\n  test -f \"$product/cosmic\"\n  test -f \"$product/executed-cosmic.sha256\"\n  test -f \"$product/expected-platforms\"\n  test \"$(cat \"$product/expected-platforms\")\" = 4\n  manifest=\"$(cat \"$product/executed-cosmic.sha256\")\"\n  [[ \"$manifest\" =~ ^[0-9a-f]{64}\\ \\ cosmic$ ]]\n  lane_digest=\"${manifest%% *}\"\n  test \"$lane_digest\" = \"$(sha256sum \"$product/cosmic\" | cut -d' ' -f1)\"\n  cmp \"$baseline\" \"$product/cosmic\"\n  if [ -z \"$digest\" ]; then\n    digest=\"$lane_digest\"\n  else\n    test \"$lane_digest\" = \"$digest\"\n  fi\ndone\n\nmkdir -p \"$RELEASE\"\ncp \"$PRODUCTS/portable-product-linux-x86_64/cosmic\" \"$RELEASE/cosmic\"\nprintf '%s  cosmic\\n' \"$digest\" > \"$RELEASE/SHA256SUMS\"\njq -n --arg commit \"$SOURCE_COMMIT\" --arg digest \"$digest\" \\\n  --arg run_url \"$SOURCE_RUN_URL\" \\\n  '{commit:$commit,digest:$digest,run_url:$run_url}' > \"$RELEASE/source.json\"\ncat > \"$RELEASE/notes.md\" <<EOF\nPrerelease of commit \\`$SOURCE_COMMIT\\` from [CI run]($SOURCE_RUN_URL).\n\nThe identical Cosmic bytes (SHA-256 \\`$digest\\`) were tested by all four native workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker uploaded its executed-byte attestation, and the provenance join verified all four hashes before publication.\nEOF\n",
+        },
 
-          digest=
-          baseline="$PRODUCTS/portable-product-linux-x86_64/cosmic"
-          for lane in "${expected_lanes[@]}"; do
-            product="$PRODUCTS/portable-product-$lane"
-            test -f "$product/cosmic"
-            test -f "$product/executed-cosmic.sha256"
-            test -f "$product/expected-platforms"
-            test "$(cat "$product/expected-platforms")" = 4
-            manifest="$(cat "$product/executed-cosmic.sha256")"
-            [[ "$manifest" =~ ^[0-9a-f]{64}\ \ cosmic$ ]]
-            lane_digest="${manifest%% *}"
-            test "$lane_digest" = "$(sha256sum "$product/cosmic" | cut -d' ' -f1)"
-            cmp "$baseline" "$product/cosmic"
-            if [ -z "$digest" ]; then
-              digest="$lane_digest"
-            else
-              test "$lane_digest" = "$digest"
-            fi
-          done
-
-          mkdir -p "$RELEASE"
-          cp "$PRODUCTS/portable-product-linux-x86_64/cosmic" "$RELEASE/cosmic"
-          printf '%s  cosmic\n' "$digest" > "$RELEASE/SHA256SUMS"
-          jq -n --arg commit "$SOURCE_COMMIT" --arg digest "$digest" \
-            --arg run_url "$SOURCE_RUN_URL" \
-            '{commit:$commit,digest:$digest,run_url:$run_url}' > "$RELEASE/source.json"
-          cat > "$RELEASE/notes.md" <<EOF
-          Prerelease of commit \`$SOURCE_COMMIT\` from [CI run]($SOURCE_RUN_URL).
-
-          The identical Cosmic bytes (SHA-256 \`$digest\`) were tested by all four native workers: Linux x86_64, Linux aarch64, macOS aarch64, and Alpine x86_64. Each worker uploaded its executed-byte attestation, and the provenance join verified all four hashes before publication.
-          EOF
-
-      - name: publish or verify the immutable prerelease
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          RELEASE: ${{ runner.temp }}/release
-          SOURCE_COMMIT: ${{ github.sha }}
-          SOURCE_RUN_PREFIX: ${{ github.server_url }}/${{ github.repository }}/actions/runs/
-        run: |
-          set -euo pipefail
-          tag="next-$SOURCE_COMMIT"
-          expected_digest="$(sha256sum "$RELEASE/cosmic" | cut -d' ' -f1)"
-
-          # Return 1 only for an authenticated HTTP 404. Transport errors and
-          # other API failures return 2, so they can never trigger creation.
-          api_probe() {
-            local endpoint=$1 response=$2 status
-            if gh api --include "$endpoint" > "$response"; then
-              return 0
-            fi
-            status="$(awk '/^HTTP\/[0-9.]+ [0-9]+/ { code=$2 } END { print code }' "$response")"
-            [ "$status" = 404 ] && return 1
-            return 2
-          }
-
-          verify_tag() {
-            local resolved
-            resolved="$(gh api "repos/$REPOSITORY/commits/$tag" --jq .sha)" || return
-            test "$resolved" = "$SOURCE_COMMIT"
-          }
-
-          ensure_tag() {
-            local result
-            if api_probe "repos/$REPOSITORY/git/ref/tags/$tag" "$RUNNER_TEMP/tag-response"; then
-              verify_tag
-            else
-              result=$?
-              test "$result" = 1
-              gh api --method POST "repos/$REPOSITORY/git/refs" \
-                -f ref="refs/tags/$tag" -f sha="$SOURCE_COMMIT" >/dev/null
-              verify_tag
-            fi
-          }
-
-          validate_source() {
-            local file=$1
-            jq -e --arg commit "$SOURCE_COMMIT" --arg digest "$expected_digest" \
-              --arg run_prefix "$SOURCE_RUN_PREFIX" \
-              '.commit == $commit and .digest == $digest and
-               (.run_url | type == "string" and startswith($run_prefix) and
-                (ltrimstr($run_prefix) | test("^[0-9]+$")))' \
-              "$file" >/dev/null
-          }
-
-          verify_assets() {
-            local destination=$1
-            mapfile -t names < <(gh release view "$tag" --repo "$REPOSITORY" \
-              --json assets --jq '.assets[].name' | sort)
-            test "${#names[@]}" -eq 3
-            test "${names[0]}" = SHA256SUMS
-            test "${names[1]}" = cosmic
-            test "${names[2]}" = source.json
-            mkdir -p "$destination"
-            gh release download "$tag" --repo "$REPOSITORY" --dir "$destination"
-            cmp "$RELEASE/cosmic" "$destination/cosmic"
-            cmp "$RELEASE/SHA256SUMS" "$destination/SHA256SUMS"
-            validate_source "$destination/source.json"
-          }
-
-          # The get-by-tag endpoint only promises published releases. Listing
-          # releases with authentication also finds an interrupted draft.
-          gh api --paginate --method GET "repos/$REPOSITORY/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"$tag\") | .id" \
-            > "$RUNNER_TEMP/release-ids"
-          mapfile -t release_ids < "$RUNNER_TEMP/release-ids"
-          test "${#release_ids[@]}" -le 1
-          if [ "${#release_ids[@]}" -eq 1 ]; then
-            verify_tag
-            is_draft="$(gh release view "$tag" --repo "$REPOSITORY" --json isDraft --jq .isDraft)"
-            is_prerelease="$(gh release view "$tag" --repo "$REPOSITORY" --json isPrerelease --jq .isPrerelease)"
-            test "$is_prerelease" = true
-            if [ "$is_draft" = false ]; then
-              verify_assets "$RUNNER_TEMP/published"
-              echo "prerelease already published and verified: $tag"
-              exit 0
-            fi
-          else
-            ensure_tag
-            gh release create "$tag" --repo "$REPOSITORY" --verify-tag \
-              --title "$tag" --notes-file "$RELEASE/notes.md" --prerelease --draft
-            verify_tag
-          fi
-
-          # Resume an interrupted draft by accepting only identical existing
-          # assets. source.json may name an earlier successful run for this SHA.
-          mapfile -t existing < <(gh release view "$tag" --repo "$REPOSITORY" \
-            --json assets --jq '.assets[].name' | sort)
-          for name in "${existing[@]}"; do
-            case "$name" in cosmic|SHA256SUMS|source.json) ;; *) exit 1 ;; esac
-            mkdir -p "$RUNNER_TEMP/existing-$name"
-            gh release download "$tag" --repo "$REPOSITORY" --pattern "$name" \
-              --dir "$RUNNER_TEMP/existing-$name"
-            if [ "$name" = source.json ]; then
-              validate_source "$RUNNER_TEMP/existing-$name/$name"
-            else
-              cmp "$RELEASE/$name" "$RUNNER_TEMP/existing-$name/$name"
-            fi
-          done
-          for name in cosmic SHA256SUMS source.json; do
-            if ! printf '%s\n' "${existing[@]}" | grep -Fxq "$name"; then
-              gh release upload "$tag" "$RELEASE/$name" --repo "$REPOSITORY"
-            fi
-          done
-          verify_assets "$RUNNER_TEMP/completed"
-          gh release edit "$tag" --repo "$REPOSITORY" --draft=false --prerelease
-          verify_tag
-          verify_assets "$RUNNER_TEMP/published"
-          test "$(gh release view "$tag" --repo "$REPOSITORY" --json isDraft --jq .isDraft)" = false
+        {
+          name: "publish or verify the immutable prerelease",
+          shell: "bash",
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            RELEASE: "${{ runner.temp }}/release",
+            SOURCE_COMMIT: "${{ github.sha }}",
+            SOURCE_RUN_PREFIX: "${{ github.server_url }}/${{ github.repository }}/actions/runs/",
+          },
+          run: "set -euo pipefail\ntag=\"next-$SOURCE_COMMIT\"\nexpected_digest=\"$(sha256sum \"$RELEASE/cosmic\" | cut -d' ' -f1)\"\n\n# Return 1 only for an authenticated HTTP 404. Transport errors and\n# other API failures return 2, so they can never trigger creation.\napi_probe() {\n  local endpoint=$1 response=$2 status\n  if gh api --include \"$endpoint\" > \"$response\"; then\n    return 0\n  fi\n  status=\"$(awk '/^HTTP\\/[0-9.]+ [0-9]+/ { code=$2 } END { print code }' \"$response\")\"\n  [ \"$status\" = 404 ] && return 1\n  return 2\n}\n\nverify_tag() {\n  local resolved\n  resolved=\"$(gh api \"repos/$REPOSITORY/commits/$tag\" --jq .sha)\" || return\n  test \"$resolved\" = \"$SOURCE_COMMIT\"\n}\n\nensure_tag() {\n  local result\n  if api_probe \"repos/$REPOSITORY/git/ref/tags/$tag\" \"$RUNNER_TEMP/tag-response\"; then\n    verify_tag\n  else\n    result=$?\n    test \"$result\" = 1\n    gh api --method POST \"repos/$REPOSITORY/git/refs\" \\\n      -f ref=\"refs/tags/$tag\" -f sha=\"$SOURCE_COMMIT\" >/dev/null\n    verify_tag\n  fi\n}\n\nvalidate_source() {\n  local file=$1\n  jq -e --arg commit \"$SOURCE_COMMIT\" --arg digest \"$expected_digest\" \\\n    --arg run_prefix \"$SOURCE_RUN_PREFIX\" \\\n    '.commit == $commit and .digest == $digest and\n     (.run_url | type == \"string\" and startswith($run_prefix) and\n      (ltrimstr($run_prefix) | test(\"^[0-9]+$\")))' \\\n    \"$file\" >/dev/null\n}\n\nverify_assets() {\n  local destination=$1\n  mapfile -t names < <(gh release view \"$tag\" --repo \"$REPOSITORY\" \\\n    --json assets --jq '.assets[].name' | sort)\n  test \"${#names[@]}\" -eq 3\n  test \"${names[0]}\" = SHA256SUMS\n  test \"${names[1]}\" = cosmic\n  test \"${names[2]}\" = source.json\n  mkdir -p \"$destination\"\n  gh release download \"$tag\" --repo \"$REPOSITORY\" --dir \"$destination\"\n  cmp \"$RELEASE/cosmic\" \"$destination/cosmic\"\n  cmp \"$RELEASE/SHA256SUMS\" \"$destination/SHA256SUMS\"\n  validate_source \"$destination/source.json\"\n}\n\n# The get-by-tag endpoint only promises published releases. Listing\n# releases with authentication also finds an interrupted draft.\ngh api --paginate --method GET \"repos/$REPOSITORY/releases?per_page=100\" \\\n  --jq \".[] | select(.tag_name == \\\"$tag\\\") | .id\" \\\n  > \"$RUNNER_TEMP/release-ids\"\nmapfile -t release_ids < \"$RUNNER_TEMP/release-ids\"\ntest \"${#release_ids[@]}\" -le 1\nif [ \"${#release_ids[@]}\" -eq 1 ]; then\n  verify_tag\n  is_draft=\"$(gh release view \"$tag\" --repo \"$REPOSITORY\" --json isDraft --jq .isDraft)\"\n  is_prerelease=\"$(gh release view \"$tag\" --repo \"$REPOSITORY\" --json isPrerelease --jq .isPrerelease)\"\n  test \"$is_prerelease\" = true\n  if [ \"$is_draft\" = false ]; then\n    verify_assets \"$RUNNER_TEMP/published\"\n    echo \"prerelease already published and verified: $tag\"\n    exit 0\n  fi\nelse\n  ensure_tag\n  gh release create \"$tag\" --repo \"$REPOSITORY\" --verify-tag \\\n    --title \"$tag\" --notes-file \"$RELEASE/notes.md\" --prerelease --draft\n  verify_tag\nfi\n\n# Resume an interrupted draft by accepting only identical existing\n# assets. source.json may name an earlier successful run for this SHA.\nmapfile -t existing < <(gh release view \"$tag\" --repo \"$REPOSITORY\" \\\n  --json assets --jq '.assets[].name' | sort)\nfor name in \"${existing[@]}\"; do\n  case \"$name\" in cosmic|SHA256SUMS|source.json) ;; *) exit 1 ;; esac\n  mkdir -p \"$RUNNER_TEMP/existing-$name\"\n  gh release download \"$tag\" --repo \"$REPOSITORY\" --pattern \"$name\" \\\n    --dir \"$RUNNER_TEMP/existing-$name\"\n  if [ \"$name\" = source.json ]; then\n    validate_source \"$RUNNER_TEMP/existing-$name/$name\"\n  else\n    cmp \"$RELEASE/$name\" \"$RUNNER_TEMP/existing-$name/$name\"\n  fi\ndone\nfor name in cosmic SHA256SUMS source.json; do\n  if ! printf '%s\\n' \"${existing[@]}\" | grep -Fxq \"$name\"; then\n    gh release upload \"$tag\" \"$RELEASE/$name\" --repo \"$REPOSITORY\"\n  fi\ndone\nverify_assets \"$RUNNER_TEMP/completed\"\ngh release edit \"$tag\" --repo \"$REPOSITORY\" --draft=false --prerelease\nverify_tag\nverify_assets \"$RUNNER_TEMP/published\"\ntest \"$(gh release view \"$tag\" --repo \"$REPOSITORY\" --json isDraft --jq .isDraft)\" = false\n",
+        },
+      ],
+    },
+  },
+}
