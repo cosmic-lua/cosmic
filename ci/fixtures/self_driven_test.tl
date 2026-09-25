@@ -20,15 +20,12 @@ local function test_the_product_boots_its_own_tree_to_itself(tmp: string)
     "git -C \"$1\" archive HEAD | tar -xf - -C \"$2\"", "sh", root, tree },
     root, diagnostics)
 
-  local outcome = Fixture.call_with_environment("self-driven-boot",
-    { tree .. "/bin/zig", "build", "boot" }, tree, diagnostics,
-    Fixture.environment({
+  Fixture.succeeded("self-driven-boot", Fixture.call_with_environment(
+    "self-driven-boot", { tree .. "/bin/zig", "build", "boot" }, tree,
+    diagnostics, Fixture.environment({
       COSMIC_BOOTSTRAP = product,
       COSMIC_PORTABLE_CACHE = tmp .. "/portable-cache",
-    }), boot_timeout_ms)
-  assert(outcome.result.code == 0, "a boot the product drove exited " ..
-    tostring(outcome.result.code) .. "; see " .. outcome.err)
-  Fixture.contains(outcome.err, "boot: PASS")
+    }), boot_timeout_ms))
   assert(Fixture.hash(tree .. "/o/bin/cosmic") == Fixture.hash(product),
     "the tool a boot the product drove wrote is not the product")
 end

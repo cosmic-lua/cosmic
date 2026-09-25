@@ -248,9 +248,11 @@ jobs:
         if: env.COSMIC_CI_SCOPE == 'full'
         run: cosmic-driver cosmic_ci/driver.tl platform assemble
 
-      # The last step above to invoke `bin/zig build` (the fixture steps,
-      # `sanitized`, and `portable-hook-cores`, inside the driver's `assemble`
-      # phase); nothing after this point builds native code. Runs even on
+      # The last step above to invoke `bin/zig build` for the candidate (the
+      # fixture steps, `sanitized`, and `portable-hook-cores`, inside the
+      # driver's `assemble` phase). The fixtures phase below boots a copy of
+      # the tree at a scratch path too; what that compiles is keyed by its
+      # throwaway path, so it is never saved. Runs even on
       # failure so the complete local cache is staged before diagnostics.
       # actions/cache publishes it only when the job succeeds; zig's own
       # content addressing makes restored entries safe to validate and reuse.
