@@ -337,20 +337,50 @@ local function directory(workflow: {string: any}, job: {string: any}, step: {str
   return "."
 end
 
+--- What an `actions/checkout` step brings in: nil for the whole tree,
+--- else the paths its `sparse-checkout` names, without their slashes at
+--- either end.
+local function checked_out(step: {string: any}): {string} | nil
+  local with = step.with
+  local sparse = with is {string: any} and with["sparse-checkout"] or nil
+  if not sparse is string then return nil end
+  local paths: {string} = {}
+  for line in sparse:gmatch("[^\n]+") do
+    paths[#paths + 1] = (line:gsub("^%s*/?", ""):gsub("/?%s*$", ""))
+  end
+  return paths
+end
+
 --- Every script under SCRIPTS a step of `workflow` runs, as the path from
---- the checkout's root its `run` resolves to from where it starts.
+--- the checkout's root its `run` resolves to from where it starts. A job
+--- that runs one must check out a tree holding it first: its script
+--- comes from the checkout, and a job that runs only on main would
+--- otherwise find it missing only there.
 local function scripts_run(path: string, workflow: {string: any}): {string}
   local out: {string} = {}
   local jobs = workflow.jobs
   assert(jobs is {string: {string: any}}, path .. ": no jobs")
-  for _, job in pairs(jobs) do
+  for name, job in pairs(jobs) do
     local steps = job.steps
     if steps is {{string: any}} then
+      local checkout = false
+      local sparse: {string} = nil
       for _, step in ipairs(steps) do
+        local uses = step.uses
+        if uses is string and uses:match("^actions/checkout@") then
+          checkout, sparse = true, checked_out(step)
+        end
         local run = step.run
         if run is string then
           for named in run:gmatch("[%w_./%-]*%.github/scripts/[%w_./%-]+") do
-            out[#out + 1] = normal(directory(workflow, job, step) .. "/" .. named)
+            local script = normal(directory(workflow, job, step) .. "/" .. named)
+            assert(checkout, path .. ": job " .. name .. " runs " .. script .. " before any checkout")
+            local held = sparse == nil
+            for _, prefix in ipairs(sparse or {}) do
+              if script == prefix or script:sub(1, #prefix + 1) == prefix .. "/" then held = true end
+            end
+            assert(held, path .. ": job " .. name .. "'s sparse checkout does not hold " .. script)
+            out[#out + 1] = script
           end
         end
       end

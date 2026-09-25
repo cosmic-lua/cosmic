@@ -9,7 +9,9 @@
   # manual run on main, also publishes them to GHCR as
   # ghcr.io/<repo>-ci-<image>:<commit> and writes each index's digest to the
   # run's summary. ci.yml names an image by that digest, so publishing a new
-  # one changes nothing until an edit to ci.yml moves the digest.
+  # one changes nothing until an edit to ci.yml moves the digest. The jobs
+  # run on the CI driver (ci/cosmic_ci/images.tl), so a change to it merged
+  # to main publishes both images again under that commit's tag.
   # TODO: rebuild on a schedule, so a security update in either base is a
   # published image waiting for its digest to move, not a build to start.
   # TODO: prune old tags from GHCR, keeping every digest ci.yml has ever
@@ -22,8 +24,11 @@
       paths: [
         "ci/images/**",
         ".github/workflows/ci-images.yml",
-        ".github/scripts/ci-image-build.sh",
-        ".github/scripts/ci-image-publish.sh",
+        # What the jobs run: the driver, the one CI pins, and what fetches it.
+        "ci/cosmic_ci/**",
+        "ci/cosmic-driver.pin",
+        "bin/cosmic-bootstrap",
+        ".github/scripts/cosmic-driver.sh",
       ],
     },
     workflow_dispatch: {},
@@ -63,6 +68,21 @@
         },
 
         {
+          name: "cache the pinned CI driver",
+          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+          },
+        },
+
+        {
+          name: "bootstrap the pinned CI driver",
+          "working-directory": "ci",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+
+        {
           name: "log in to GHCR",
           if: "env.PUBLISH == 'true'",
           env: {TOKEN: "${{ secrets.GITHUB_TOKEN }}"},
@@ -75,7 +95,8 @@
             IMAGE: "${{ matrix.image }}",
             ARCH: "${{ matrix.arch }}",
           },
-          run: "bash .github/scripts/ci-image-build.sh",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl image-build",
         },
       ],
     },
@@ -104,13 +125,29 @@
         },
 
         {
+          name: "cache the pinned CI driver",
+          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+          },
+        },
+
+        {
+          name: "bootstrap the pinned CI driver",
+          "working-directory": "ci",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+
+        {
           name: "join the architectures under one tag and report its digest",
           env: {
             IMAGE: "${{ matrix.image }}",
             ARCHES: "${{ matrix.arches }}",
             TOKEN: "${{ secrets.GITHUB_TOKEN }}",
           },
-          run: "bash .github/scripts/ci-image-publish.sh",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl image-publish",
         },
       ],
     },

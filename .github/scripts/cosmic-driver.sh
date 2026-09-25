@@ -50,15 +50,14 @@ if [ "${1-}" = zig-cache ]; then
   # TODO: stand on shared verdicts in CI (drop COSMIC_TEST_NO_SHARED
   # here and in ci/cosmic_ci/orchestration.tl) once the key holds
   # the tree's location (build/filesystem_observations.tl:863),
-  # what o/ holds beyond o/cosmic.db (build/test.tl:436), a stat's
-  # times and inode where a test turns on them (build/test.tl:485),
+  # what o/ holds beyond o/cosmic.db (build/test.tl:437), a stat's
+  # times and inode where a test turns on them (build/test.tl:486),
   # a database a connection opened before the test reads
   # (build/filesystem_observations.tl:529),
   # lstat, readlink, realpath and getcwd answers
   # (build/filesystem_observations.tl:534), a read resolved as it is
   # made (build/filesystem_observations.tl:577) and an in-tree path
-  # that crosses a link out (build/test.tl:413), and the binary's
-  # zoneinfo and ca_roots tables (build/test.tl:1864).
+  # that crosses a link out (build/test.tl:414).
   echo "COSMIC_TEST_NO_SHARED=1" >> "$GITHUB_ENV"
   # TODO: save what the product suite from fresh tracked source
   # reaches too: it runs after the zig-build cache is saved, so
