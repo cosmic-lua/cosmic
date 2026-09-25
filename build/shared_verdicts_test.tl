@@ -120,6 +120,41 @@ local function test_a_second_checkout_stands_on_the_first_ones_verdicts(tmp: str
   said("alone", tmp .. "/alone", "5 ran, 0 stood")
 end
 
+--- A database a test reads through `cosmic.sqlite` is read by SQLite
+--- in C, not through `cosmic.sys`: a checkout whose database holds
+--- something else runs the test again, and fails it, while one whose
+--- database is the same stands on the first one's verdict.
+local function test_a_database_sqlite_reads_is_keyed_by_its_contents(tmp: string)
+  local env = Env.all()
+  env.COSMIC_VERDICT_CACHE = tmp .. "/cache/verdicts.db"
+  env.COSMIC_TEST_ALL = nil
+  local function database_checkout(root: string, value: string)
+    assert(Fs.mkdirs(root .. "/suite"))
+    local db = assert(Sqlite.open(root .. "/suite/data.db", true))
+    assert(db:exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('" .. value .. "')"))
+    assert(db:close())
+    assert(Fs.write(root .. "/suite/database_test.tl", [[
+local Sqlite = require("cosmic.sqlite")
+
+local function test_reads_a_database()
+  local db = assert(Sqlite.open("suite/data.db", false))
+  local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
+  assert(db:close())
+  assert(rows[1][1] == "one", rows[1][1])
+end
+]]))
+  end
+  database_checkout(tmp .. "/first", "one")
+  local first = run(tmp .. "/first", tmp .. "/first.out", env)
+  assert(first:find("1 ran, 0 stood", 1, true), first)
+  database_checkout(tmp .. "/same", "one")
+  local same = run(tmp .. "/same", tmp .. "/same.out", env)
+  assert(same:find("0 ran, 1 stood", 1, true), same)
+  database_checkout(tmp .. "/changed", "two")
+  local changed = run(tmp .. "/changed", tmp .. "/changed.out", env, nil, true)
+  assert(changed:find("FAIL (1 of 1 failed", 1, true), changed)
+end
+
 --- A row stands only under the key this checkout reaches for it --
 --- which holds the runtime, the module and everything it read (see
 --- `test_distinct_runtimes_never_share_a_key` for the runtime): one

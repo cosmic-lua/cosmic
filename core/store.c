@@ -65,9 +65,11 @@ static _Noreturn void die_unreadable (sqlite3 *db) {
  * the others, a raw value shared by several wrappers once, at its first
  * entry. `build.fuzz` gets the instruction budget alone, which shares
  * the coverage collector's hook but none of its collection. The
- * process table is `cosmic.child`'s and `cosmic.proc`'s, and
- * `build.filesystem_observations`' too, which notes each child a test
- * starts by standing in for its `spawn`. */
+ * process table is `cosmic.child`'s and `cosmic.proc`'s;
+ * `build.filesystem_observations` is handed it and SQLite's together
+ * (`open_observations`). */
+static int open_observations (lua_State *L);
+
 static const struct raw_module {
   const char *wrapper;
   const char *raw;
@@ -80,7 +82,8 @@ static const struct raw_module {
   {"cosmic.hash", "cosmic.internal.hash", cosmic_open_hash},
   {"cosmic.child", "cosmic.internal.process", cosmic_open_process},
   {"cosmic.proc", "cosmic.internal.process", NULL},
-  {"build.filesystem_observations", "cosmic.internal.process", NULL},
+  {"build.filesystem_observations", "cosmic.internal.observations",
+    open_observations},
   {"cosmic.compress", "cosmic.internal.compress", cosmic_open_compress},
   {"cosmic.http", "cosmic.internal.http", cosmic_open_http},
   {"cosmic.json", "cosmic.internal.json", cosmic_open_json},
@@ -129,6 +132,18 @@ static int raw_value (lua_State *L, const char *name) {
     return 0;
   }
   lua_remove(L, -2);
+  return 1;
+}
+
+/* `build.filesystem_observations`' raw value: the process table, whose
+ * `spawn` it stands in for to note each child a test starts, and
+ * SQLite's, whose record of the files SQLite opens it drains. Both are
+ * registered by entries above its own in `raw_modules`, which
+ * `cosmic_store_open_raw` opens in order. */
+static int open_observations (lua_State *L) {
+  lua_createtable(L, 0, 2);
+  if (raw_value(L, "cosmic.internal.process")) lua_setfield(L, -2, "process");
+  if (raw_value(L, "cosmic.internal.sqlite")) lua_setfield(L, -2, "sqlite");
   return 1;
 }
 

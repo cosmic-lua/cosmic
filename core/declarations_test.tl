@@ -227,7 +227,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
 --- `test_every_raw_module_has_a_declaration` fails when the two part.
 local wrappers <const>: {string: string} = {
   ["build.artifact"] = "store",
-  ["build.filesystem_observations"] = "process",
+  ["build.filesystem_observations"] = "observations",
   ["build.fuzz"] = "budget",
   ["cosmic.child"] = "process",
   ["cosmic.compress"] = "compress",

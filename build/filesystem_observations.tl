@@ -8,17 +8,25 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
 --- The raw process table, whose `spawn` `cosmic.child` starts every
---- child with: this module is handed it (core/store.c's `raw_modules`)
---- to note each child a test starts by standing in for that call.
+--- child with, and SQLite's, which records the files SQLite opens in
+--- C: this module is handed both (core/store.c's `open_observations`)
+--- to note each child a test starts, by standing in for that call, and
+--- each file SQLite reads for it, by draining that record. Boot mode
+--- falls back to requiring each by name, which only boot's own preload
+--- answers.
 local type raw_process = require("cosmic.internal.process")
+local type Raw = require("cosmic.internal.observations")
 
 local extra: any = select(2, ...)
-local process: raw_process
+local raws: Raw
 if type(extra) == "table" then
-  process = extra as raw_process
+  raws = extra as Raw
 else
-  process = require("cosmic.internal.process")
+  raws = { process = require("cosmic.internal.process"),
+    sqlite = require("cosmic.internal.sqlite") }
 end
+local process = raws.process
+local sqlite = raws.sqlite
 
 -- What placing a path asks of the process, taken when this module
 -- loads -- before any test's module does -- so a test that stubs one
@@ -455,6 +463,17 @@ end
 local declaring = 0
 local noting: {function(string, any, string)} = {}
 
+--- Notes each file SQLite opened or asked after since the last drain as
+--- an open by every running capture: it read them in C, through
+--- `cosmic.sqlite`'s VFS, where no stand-in here sees it. What a
+--- capture that began later read is noted by it and by those around it;
+--- what none was running for is dropped.
+local function drain_sqlite()
+  for _, path in ipairs(sqlite.observed()) do
+    for _, note in ipairs(noting) do note("o", path, "") end
+  end
+end
+
 --- Calls `fn`, which starts processes whose every input it has read
 --- itself, through the calls observed here: a process started meanwhile
 --- is noted "h", a declared one, which a key can hold, rather than "p".
@@ -500,11 +519,11 @@ end
 --- `observations.resolution` of it then: a file of the tree may be
 --- named through a link outside it, and what the link led to when the
 --- test read it is what its verdict describes.
--- TODO: observe the files SQLite opens: `cosmic.sqlite` opens them in
--- C, through the VFS, where nothing here sees them, so a test that reads
--- a database under the tree (a verb run in-process by `build.invoke`
--- reading the tree's o/build.db, say) is keyed without it. The fix is a
--- VFS whose xOpen reports each path to the same notes.
+---
+--- A file SQLite opens through `cosmic.sqlite` -- a database, its
+--- journal or WAL, an attached one, or one it only asked after -- is
+--- noted an open too, as SQLite names it, when the capture ends (see
+--- `drain_sqlite`).
 -- TODO: observe every call at the syscall table's dispatch, as
 -- design.md's trace point promises, rather than by replacing fields of
 -- `cosmic.sys`, `cosmic.internal.process` and `cosmic.http` here: lstat, readlink, realpath and
@@ -512,6 +531,7 @@ end
 -- outside the tree can still stand.
 local function start(resolving: observations.Resolving | nil):
                      {observations.Observation}, function()
+  drain_sqlite()
   local found: {observations.Observation} = {}
   local open = sys.open
   local stat = sys.stat
@@ -764,10 +784,13 @@ local function start(resolving: observations.Resolving | nil):
     return http_open(url, opts)
   end
   noting[#noting + 1] = note
+  sqlite.observe(true)
   return found, function()
+    drain_sqlite()
     for at = #noting, 1, -1 do
       if noting[at] == note then table.remove(noting, at) break end
     end
+    if #noting == 0 then sqlite.observe(false) end
     sys.chdir = chdir
     Http.open = http_open
     sys.open = open

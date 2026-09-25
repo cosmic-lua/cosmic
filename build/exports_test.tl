@@ -15,7 +15,6 @@
 --- `require` alias (`build.analyzer`) or a value's checked type
 --- (`build.receivers`).
 
-local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 
@@ -371,12 +370,9 @@ end
 --- before any test runs: every one is earned or allowed, and every
 --- allowance still excuses something.
 local function test_every_export_in_the_tree_earns_its_place()
-  -- SQLite opens the file in C, which a verdict's key does not see:
-  -- opening it through `Fs` too puts its bytes in the key (build/test.tl
-  -- keys o/cosmic.db, alone of o/), so the test runs again whenever a
-  -- build rewrites it.
-  local fd = assert(Fs.open_read("o/cosmic.db"))
-  assert(Fs.close(fd))
+  -- SQLite's open of it puts its bytes in the key (build/test.tl keys
+  -- o/cosmic.db, alone of o/), so the test runs again whenever a build
+  -- rewrites it.
   local db = assert(Sqlite.open("o/cosmic.db", false))
   local refused, stale = judged(db, allowed)
   assert(db:close())

@@ -1,6 +1,7 @@
 #include "sqlite.h"
 
 #include <limits.h>
+#include <stdbool.h>
 #include <string.h>
 
 #include "check.h"
@@ -226,6 +227,153 @@ int cosmic_sqlite_functions (sqlite3 *db) {
   return rc;
 }
 
+/* The files SQLite opened or asked after through a connection `open`
+ * made, while `observe` has recording on: build.filesystem_observations
+ * drains them with `observed` and notes each as a read of the test that
+ * made it, since SQLite reads them here in C, where no field of
+ * `cosmic.sys` it stands in for sees them. They are kept here, each
+ * once, rather than handed to Lua as they happen: a Lua call from inside
+ * SQLite could raise, and unwind through SQLite's own frames. */
+static struct {
+  char **paths;
+  size_t count;
+  size_t room;
+  bool on;
+} observing;
+
+#define OBSERVED_VFS_NAME "cosmic-observed"
+
+/* Keeps `name` among the paths observed, unless recording is off or it
+ * is there already. False when it could not be kept: the caller refuses
+ * the file rather than let SQLite read one no key will hold. */
+static bool observe_path (const char *name) {
+  if (!observing.on || name == NULL) return true;
+  for (size_t i = 0; i < observing.count; i++) {
+    if (strcmp(observing.paths[i], name) == 0) return true;
+  }
+  if (observing.count == observing.room) {
+    size_t room = observing.room == 0 ? 8 : observing.room * 2;
+    char **grown = cosmic_realloc(observing.paths, room * sizeof *grown);
+    if (grown == NULL) return false;
+    observing.paths = grown;
+    observing.room = room;
+  }
+  size_t length = strlen(name);
+  char *copy = cosmic_malloc(length + 1);
+  if (copy == NULL) return false;
+  memcpy(copy, name, length + 1);
+  observing.paths[observing.count++] = copy;
+  return true;
+}
+
+static sqlite3_vfs *observed_base (sqlite3_vfs *vfs) {
+  return (sqlite3_vfs *)vfs->pAppData;
+}
+
+/* A file SQLite deletes when it is closed -- a temporary database or
+ * journal -- is the connection's own, never an input; any other it
+ * opens (the database, its journal, its WAL, an attached database) is. */
+static int observed_open (sqlite3_vfs *vfs, sqlite3_filename name,
+                          sqlite3_file *file, int flags, int *out_flags) {
+  if ((flags & SQLITE_OPEN_DELETEONCLOSE) == 0 && !observe_path(name)) {
+    file->pMethods = NULL;
+    return SQLITE_NOMEM;
+  }
+  sqlite3_vfs *base = observed_base(vfs);
+  return base->xOpen(base, name, file, flags, out_flags);
+}
+
+/* Whether a journal or a WAL is there turns what SQLite reads too. */
+static int observed_access (sqlite3_vfs *vfs, const char *name, int flags,
+                            int *out) {
+  if (!observe_path(name)) return SQLITE_NOMEM;
+  sqlite3_vfs *base = observed_base(vfs);
+  return base->xAccess(base, name, flags, out);
+}
+
+static int observed_delete (sqlite3_vfs *vfs, const char *name, int sync) {
+  return observed_base(vfs)->xDelete(observed_base(vfs), name, sync);
+}
+
+static int observed_full_pathname (sqlite3_vfs *vfs, const char *name,
+                                   int room, char *out) {
+  return observed_base(vfs)->xFullPathname(observed_base(vfs), name, room, out);
+}
+
+static int observed_randomness (sqlite3_vfs *vfs, int amount, char *out) {
+  return observed_base(vfs)->xRandomness(observed_base(vfs), amount, out);
+}
+
+static int observed_sleep (sqlite3_vfs *vfs, int micros) {
+  return observed_base(vfs)->xSleep(observed_base(vfs), micros);
+}
+
+/* The base's own xCurrentTime is NULL: the build omits what is
+ * deprecated, and SQLite asks a VFS of version 2 this instead. */
+static int observed_current_time (sqlite3_vfs *vfs, sqlite3_int64 *out) {
+  return observed_base(vfs)->xCurrentTimeInt64(observed_base(vfs), out);
+}
+
+static int observed_last_error (sqlite3_vfs *vfs, int room, char *out) {
+  return observed_base(vfs)->xGetLastError(observed_base(vfs), room, out);
+}
+
+/* Registers the VFS every connection `open` makes goes through: the
+ * default one, but that each file it opens or asks after is observed.
+ * Not the default itself, so the store's own connections, and every
+ * other VFS registered over the default, are left as they are. Forwards
+ * SQLite's status. */
+static int register_observed_vfs (void) {
+  if (sqlite3_vfs_find(OBSERVED_VFS_NAME) != NULL) return SQLITE_OK;
+  sqlite3_vfs *base = sqlite3_vfs_find(NULL);
+  if (base == NULL || base->iVersion < 2 || base->xCurrentTimeInt64 == NULL) {
+    return SQLITE_ERROR;
+  }
+  /* SQLite's registry holds the pointer for the life of the process. */
+  static sqlite3_vfs vfs;
+  vfs = (sqlite3_vfs){
+    .iVersion = 2,
+    .szOsFile = base->szOsFile,
+    .mxPathname = base->mxPathname,
+    .zName = OBSERVED_VFS_NAME,
+    .pAppData = base,
+    .xOpen = observed_open,
+    .xDelete = observed_delete,
+    .xAccess = observed_access,
+    .xFullPathname = observed_full_pathname,
+    .xRandomness = observed_randomness,
+    .xSleep = observed_sleep,
+    .xGetLastError = observed_last_error,
+    .xCurrentTimeInt64 = observed_current_time,
+  };
+  return sqlite3_vfs_register(&vfs, 0);
+}
+
+/* Turns recording on or off; what was recorded stays until drained. */
+static int sqlite_observe (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TBOOLEAN);
+  observing.on = lua_toboolean(L, 1);
+  return 0;
+}
+
+/* Every path recorded since the last drain, in the order first seen,
+ * forgotten once the list is made: a failure making it keeps them all. */
+static int sqlite_observed (lua_State *L) {
+  lua_createtable(L, 0, 0);
+  for (size_t i = 0; i < observing.count; i++) {
+    lua_pushstring(L, observing.paths[i]);
+    lua_rawseti(L, -2, (lua_Integer)i + 1);
+  }
+  for (size_t i = 0; i < observing.count; i++) {
+    cosmic_free(observing.paths[i]);
+  }
+  cosmic_free(observing.paths);
+  observing.paths = NULL;
+  observing.count = 0;
+  observing.room = 0;
+  return 1;
+}
+
 static int sqlite_open (lua_State *L) {
   size_t path_len;
   const char *path = luaL_checklstring(L, 1, &path_len);
@@ -247,7 +395,7 @@ static int sqlite_open (lua_State *L) {
   h->borrowed = 0;
   luaL_setmetatable(L, HANDLE_TYPE);
 
-  int rc = sqlite3_open_v2(path, &h->db, flags, NULL);
+  int rc = sqlite3_open_v2(path, &h->db, flags, OBSERVED_VFS_NAME);
   /* Another process may hold the file's lock: two builds of one tree, or a
    * reader meeting a writer's commit. Wait for it rather than failing. */
   if (rc == SQLITE_OK) rc = sqlite3_busy_timeout(h->db, 60000);
@@ -607,11 +755,16 @@ static void make_type (lua_State *L, const char *name, const luaL_Reg *methods,
 
 static const luaL_Reg module[] = {
   {"open", sqlite_open},
+  {"observe", sqlite_observe},
+  {"observed", sqlite_observed},
   {NULL, NULL},
 };
 
 int cosmic_open_sqlite (lua_State *L) {
   sqlite3_initialize();
+  if (register_observed_vfs() != SQLITE_OK) {
+    return luaL_error(L, "cannot register SQLite's observed VFS");
+  }
   make_type(L, HANDLE_TYPE, handle_methods, handle_gc);
   make_type(L, STATEMENT_TYPE, statement_methods, statement_gc);
   luaL_newlib(L, module);
