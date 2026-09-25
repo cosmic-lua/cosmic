@@ -427,10 +427,15 @@ local record Cursor
   --- central directory.
   fill: integer
   limit: integer
+  --- Where the central directory starts, before which every entry's
+  --- local header and body lie.
+  start: integer
 end
 
 local function cursor(pread: Pread, cd_offset: integer, cd_size: integer): Cursor
-  return { pread = pread, buf = "", at = 1, fill = cd_offset, limit = cd_offset + cd_size }
+  return {
+    pread = pread, buf = "", at = 1, fill = cd_offset, limit = cd_offset + cd_size, start = cd_offset,
+  }
 end
 
 --- Makes sure the window holds at least `n` unread bytes.
@@ -504,12 +509,21 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
       return nil, "zip: a zip64 extra field's size or offset is past 2^63"
     end
   end
-  -- TODO: refuse here too a local header offset or a compressed size
-  -- the archive cannot hold (`local_offset + 30` or `csize` past its
-  -- length): such an entry is listed and fails only when opened, and
-  -- through `Zip.open` an offset near 2^63 fails as pread's bare
-  -- "Invalid argument" rather than a bad local file header. `open`
-  -- would pass the archive's length down to this pass.
+  -- An entry's local header (30 bytes at least) and compressed body
+  -- come before the central directory (APPNOTE 4.3.6 lays out every
+  -- local header, body and data descriptor ahead of it, and the zip64
+  -- end records after it), which `open_reader` has already found
+  -- inside the file. One that does not fit there is refused on the
+  -- pass `open` makes rather than listed and failing only when opened
+  -- -- through `Zip.open`, an offset near 2^63 as pread's bare
+  -- "Invalid argument". Written as subtractions, which cannot overflow
+  -- for values already known not to be negative.
+  local cd_offset = c.start
+  if local_offset > cd_offset - 30 or csize > cd_offset - 30 - local_offset then
+    return nil, "zip: entry " .. buf:sub(name_start, name_end) .. " (offset " ..
+      tostring(local_offset) .. ", " .. tostring(csize) .. " compressed bytes) runs past " ..
+      "the start of the central directory at " .. tostring(cd_offset)
+  end
   if bare and kind ~= "symlink" then return CHECKED, "" end
   local name = buf:sub(name_start, name_end)
   local entry: Zip.Entry = setmetatable({
@@ -664,10 +678,15 @@ end
 --- A reader over the zip file at `path`, walked with positional reads
 --- rather than loaded whole into memory.
 function Zip.open(path: string): Zip.Reader | nil, string
-  local st, strouble = Fs.stat(path)
-  if st == nil then return nil, strouble end
   local fd, trouble = Fs.open_read(path)
   if fd == nil then return nil, trouble end
+  -- The length of the file `fd` opened, so it is the same file every
+  -- read goes to.
+  local st, strouble = sys.fstat(fd)
+  if st == nil then
+    local _, _ = Fs.close(fd)
+    return nil, "zip: " .. path .. ": " .. strouble
+  end
   local closed = false
   local pread: Pread = function(offset: integer, count: integer): string | nil, string
     -- Once closed, `fd` may already name some other file.
