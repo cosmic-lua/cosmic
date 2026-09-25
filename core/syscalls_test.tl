@@ -5,11 +5,30 @@
 ---
 --- Each test calls the C through `cosmic.sys` directly rather than
 --- through the typed modules above it, so a binding is held to its own
---- promise and not to whatever a wrapper makes of it. `sys.exit` is the
---- one binding with no test here: it ends the process the test runs in.
+--- promise and not to whatever a wrapper makes of it; so too core/process.h's
+--- calls and `digest` and `hmac`, through the raw tables the store hands
+--- `cosmic.child` and `cosmic.hash`. `sys.exit` is the one binding with
+--- no test here: it ends the process the test runs in.
 
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local type raw_hash = require("cosmic.internal.hash")
+local type raw_process = require("cosmic.internal.process")
+
+local type Searcher = function(string): any, any
+
+--- The raw table the store's searcher hands `wrapper`'s loader, as
+--- `require` would hand it.
+local function raw_behind(wrapper: string): any
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher(wrapper)
+    if type(loader) == "function" and type(extra) == "table" then return extra end
+  end
+  error(wrapper .. " is handed no raw table")
+end
+
+local process = raw_behind("cosmic.child") as raw_process -- cast: the table core/process.h declares
+local hash = raw_behind("cosmic.hash") as raw_hash -- cast: the table cosmic/internal/hash.d.tl declares
 
 --- Asserts `value, message, number` is the failure shape: `nil` or
 --- `false` first, a non-empty message, then a positive errno. The call
@@ -273,7 +292,7 @@ end
 --- A failed execve leaves this process as it was: SIGPIPE, which it hands
 --- the new program at the default, is ignored again here.
 local function test_a_failed_execve_keeps_sigpipe_ignored(tmp: string)
-  assert(sys.ignore_sigpipe())
+  assert(process.ignore_sigpipe())
   failed_with(sys.ENOENT, sys.execve(tmp .. "/missing", { "missing" }, {}))
   local fd = sys.open("/proc/self/status", sys.O_RDONLY)
   if fd == nil then return end -- no /proc to ask
@@ -299,7 +318,7 @@ local function test_a_read_of_a_huge_count_answers_what_there_is(tmp: string)
   assert(sys.read(fd, 1 << 50) == "")
   sys.close(fd)
 
-  local ends = assert(sys.pipe())
+  local ends = assert(process.pipe())
   assert(sys.write(ends.writer, "piped") == 5)
   assert(sys.read(ends.reader, 1 << 50) == "piped")
   sys.close(ends.reader)
@@ -333,7 +352,7 @@ end
 --- over its own standard output for a while: what `print` writes from C
 --- lands there too, and the descriptor stays open across exec.
 local function test_dup_and_dup2_redirect_a_descriptor(tmp: string)
-  local ends = assert(sys.pipe())
+  local ends = assert(process.pipe())
   local copy = assert(sys.dup(ends.writer))
   assert(copy ~= ends.writer)
   assert(sys.write(copy, "copied") == 6)
@@ -385,7 +404,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   for _, dir in ipairs({ "/bin", "/usr", "/lib", "/lib64", "/etc" }) do
     if sys.stat(dir) ~= nil then reads[#reads + 1] = dir end
   end
-  local ruleset, trouble, errno = sys.landlock_ruleset(reads, {})
+  local ruleset, trouble, errno = process.landlock_ruleset(reads, {})
   if ruleset == nil then
     -- No Landlock: not built in, turned off, or refused by a filter (a
     -- container's seccomp profile).
@@ -393,11 +412,11 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
     return
   end
   local output = create(tmp .. "/said")
-  local pid = assert(sys.spawn("/bin/sh", { "sh", "-c",
+  local pid = assert(process.spawn("/bin/sh", { "sh", "-c",
     "cat in/f; echo; sh -c 'cat out/f' || echo refused; echo x > in/g || echo unwritten" },
     nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
   sys.close(ruleset)
-  local status = assert(sys.waitpid(pid, false))
+  local status = assert(process.waitpid(pid, false))
   assert(status.code == 0, tostring(status.code))
   local said = assert(sys.pread(output, 4096, 0))
   sys.close(output)
@@ -411,7 +430,7 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   -- the one just above the child's own -- where the exec status goes --
   -- still holds it.
   assert(sys.mkdir(tmp .. "/w", 0x1c0))
-  local writing = assert(sys.landlock_ruleset(reads, { tmp .. "/w" }))
+  local writing = assert(process.landlock_ruleset(reads, { tmp .. "/w" }))
   local report = create(tmp .. "/report")
   -- A free descriptor a shell can name (at most 9 is the child's own).
   local free = 10
@@ -420,15 +439,15 @@ local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: strin
   assert(sys.dup2(writing, free))
   sys.close(writing)
   local own = tostring(free - 1)
-  local wrote = assert(sys.spawn("/bin/sh", { "sh", "-c",
+  local wrote = assert(process.spawn("/bin/sh", { "sh", "-c",
     "echo w > w/f && cat w/f >&" .. own .. "; echo x > in/h 2>/dev/null || echo held >&" .. own },
     nil, tmp, nil, nil, nil, false, { [free - 1] = report }, { ruleset = free }))
   sys.close(free)
-  assert(assert(sys.waitpid(wrote, false)).code == 0)
+  assert(assert(process.waitpid(wrote, false)).code == 0)
   local reported = assert(sys.pread(report, 4096, 0))
   sys.close(report)
   assert(reported == "w\nheld\n", reported)
-  local bad, bad_trouble = sys.landlock_ruleset({ tmp .. "/nowhere" }, {})
+  local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
   assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
 end
 
@@ -480,8 +499,8 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   raises(sys.execve, "/bin/sh", { "sh" }, { A = "b\0c" })
   -- spawn refused a NUL before this rule existed, by raising, and
   -- `cosmic.child` relies on that; it never truncates either way.
-  raises(sys.spawn, tmp .. "\0/sh", { "sh" }, nil, nil, nil, nil, nil, false)
-  raises(sys.spawn, "/bin/sh", { "sh" }, nil, tmp .. "\0x", nil, nil, nil, false)
+  raises(process.spawn, tmp .. "\0/sh", { "sh" }, nil, nil, nil, nil, nil, false)
+  raises(process.spawn, "/bin/sh", { "sh" }, nil, tmp .. "\0x", nil, nil, nil, false)
   -- The file the truncated paths name is exactly as it was.
   local st = assert(sys.stat(file))
   assert(st.kind == "file" and st.mode & 511 == 420)
@@ -575,11 +594,11 @@ local function test_digest_sha256_known_answers()
       "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0" },
   }
   for _, case in ipairs(cases) do
-    local digest = sys.digest("sha256", case[1])
+    local digest = hash.digest("sha256", case[1])
     assert(hex(digest) == case[2], #case[1] .. " bytes hashed to " .. hex(digest))
   end
   for _, len in ipairs({ 55, 56, 63, 64, 65 }) do
-    assert(#sys.digest("sha256", string.rep("x", len)) == 32)
+    assert(#hash.digest("sha256", string.rep("x", len)) == 32)
   end
 end
 
@@ -590,20 +609,46 @@ local function test_digest_sizes_by_algorithm()
     ["sha3-224"] = 28, ["sha3-256"] = 32, ["sha3-384"] = 48, ["sha3-512"] = 64,
   }
   for algorithm, size in pairs(sizes) do
-    assert(#sys.digest(algorithm, "abc") == size, algorithm)
+    assert(#hash.digest(algorithm, "abc") == size, algorithm)
   end
 end
 
 --- RFC 4231's second test case.
 local function test_hmac_sha256_known_answer()
-  local mac = sys.hmac("sha256", "Jefe", "what do ya want for nothing?")
+  local mac = hash.hmac("sha256", "Jefe", "what do ya want for nothing?")
   assert(hex(mac) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
     hex(mac))
 end
 
 local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
-  raises(sys.digest, "sha0", "abc")
-  raises(sys.hmac, "sha0", "key", "abc")
+  raises(hash.digest, "sha0", "abc")
+  raises(hash.hmac, "sha0", "key", "abc")
+end
+
+--- A pid past what an int holds is refused, not truncated, by the
+--- calls that take one, and so is pid 0, which would name this
+--- process's own group.
+local function test_a_pid_past_an_int_raises()
+  raises(sys.kill, 2147483648, 0)
+  raises(process.waitpid, 2147483648, true)
+  raises(process.waitpid, 0, true)
+end
+
+--- The calls that start and reap a child are the raw process table's,
+--- and not the public `cosmic.sys`'s: a public `waitpid(-1)` would take
+--- the status of a child a `Child` handle owns from under it.
+local function test_the_process_calls_are_off_the_public_table()
+  local public: {string: any} = sys as {string: any} -- cast: to look a member up by name
+  local raw: {string: any} = process as {string: any} -- cast: to look a member up by name
+  for _, name in ipairs({ "spawn", "waitpid", "subreaper", "relaunch", "pipe",
+      "set_nonblocking", "poll", "ignore_sigpipe", "landlock_ruleset" }) do
+    assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
+    assert(type(raw[name]) == "function", name .. " is not in the raw process table")
+  end
+  for _, name in ipairs({ "digest", "hmac" }) do
+    assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
+    assert(type((hash as {string: any})[name]) == "function", name .. " is not raw hash's")
+  end
 end
 
 --- A descriptor past what an int holds is refused, not truncated: 2^32

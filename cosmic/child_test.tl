@@ -196,7 +196,6 @@ local function test_invalid_inputs_do_not_poison_signal_guard()
   assert(not pcall(Child.run, { "/bin/sh" },
     { stdout = 2147483648 } as Child.Options))
   assert(not pcall(sys.kill, 2147483648, 0))
-  assert(not pcall(sys.waitpid, 2147483648, true))
   local result = assert(Child.run({ "/bin/sh", "-c", "exit 0" }))
   assert(result.ok)
 end

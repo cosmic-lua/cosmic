@@ -19,6 +19,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local ast = require("build.ast")
+local gen_syscalls = require("build.gen_syscalls")
 local teal = require("build.teal")
 local testing = require("cosmic.internal.testing")
 
@@ -226,12 +227,15 @@ local makers: {string: function(raw: {string: any}): Made} = {
 --- `test_every_raw_module_has_a_declaration` fails when the two part.
 local wrappers <const>: {string: string} = {
   ["build.artifact"] = "store",
+  ["build.filesystem_observations"] = "process",
   ["build.fuzz"] = "budget",
+  ["cosmic.child"] = "process",
   ["cosmic.compress"] = "compress",
   ["cosmic.coverage"] = "debug",
   ["cosmic.hash"] = "hash",
   ["cosmic.http"] = "http",
   ["cosmic.json"] = "json",
+  ["cosmic.proc"] = "process",
   ["cosmic.sqlite"] = "sqlite",
   ["cosmic.store"] = "store",
 }
@@ -256,6 +260,25 @@ local function raw_module(name: string): any
   return (assert(raw_behind(wrapper), wrapper .. " is handed no raw value"))
 end
 
+--- The raw modules whose declaration the build derives from a header
+--- (build/gen_syscalls.tl) rather than a cosmic/internal/*.d.tl, by
+--- name, and the target that derives it.
+local derived <const>: {string: gen_syscalls.Target} = {}
+for _, derivation in ipairs(gen_syscalls.targets) do
+  local name = derivation.path:match("^cosmic%.internal%.(.+)$")
+  if name ~= nil then derived[name] = derivation.target end
+end
+
+--- A raw module's declaration: its cosmic/internal/*.d.tl, or the one
+--- the build derives from its header.
+local function declaration_of(name: string): string
+  local target = derived[name]
+  if target ~= nil then
+    return (assert(gen_syscalls.declaration(assert(Fs.read(target.header)), target)))
+  end
+  return (assert(Fs.read("cosmic/internal/" .. name .. ".d.tl")))
+end
+
 local function test_every_declaration_is_what_the_core_registers()
   local problems: {string} = {}
   local names: {string} = {}
@@ -263,14 +286,15 @@ local function test_every_declaration_is_what_the_core_registers()
     local name = entry:match("^(.+)%.d%.tl$")
     if name ~= nil then names[#names + 1] = name end
   end
-  table.sort(names)
   assert(#names > 0, "no declarations under cosmic/internal")
+  for name in pairs(derived) do names[#names + 1] = name end
+  table.sort(names)
   for _, name in ipairs(names) do
     local raw = raw_module(name)
     local maker = makers[name]
     local made: Made = maker ~= nil and maker(members(raw))
       or { instances = {}, release = nothing }
-    local source = assert(Fs.read("cosmic/internal/" .. name .. ".d.tl"))
+    local source = declaration_of(name)
     for _, problem in ipairs(disagreements(name, source, raw, made.instances)) do
       problems[#problems + 1] = problem
     end

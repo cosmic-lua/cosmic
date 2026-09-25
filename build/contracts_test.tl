@@ -56,7 +56,7 @@ local function problems_in(source: string, exemptions?: contracts.Exemptions): {
     result.type_errors[1] ~= nil and result.type_errors[1].msg or "did not compile")
   local checked = result.ast as ast.Node -- cast: tl's checked AST
   return contracts.check("x.tl", checked, state, contracts.quiet_records(env),
-    receivers.record_named(env, "cosmic.sys", ""), exemptions, result.type)
+    contracts.binding_tables(env), exemptions, result.type)
 end
 
 --- Exemptions naming `keys` in the table `which` alone, in place of

@@ -8,7 +8,9 @@
  * turns it into the Teal declaration and the documentation row, and
  * refuses a function whose annotation is missing a slot. A binding
  * cannot exist without its type, and the C surface cannot grow without
- * a diff in this file.
+ * a diff in this file -- or in core/process.h, which declares, in the
+ * same grammar, the calls only `cosmic.child` and `cosmic.proc` are
+ * handed, as the raw `cosmic.internal.process`.
  *
  * Two shapes, and no third. An argument-shape error -- a degenerate
  * input no correct program passes -- raises. A failure a correct caller
@@ -43,9 +45,9 @@
  * the caller did not write (an archive entry, say), so every call that
  * takes one refuses such a path as a runtime failure, EINVAL, rather
  * than raising. A non-string still raises, as any argument-shape error
- * does. `spawn`, whose path and cwd refused a NUL by raising before
- * this rule, still does: `cosmic.child` depends on it, and neither way
- * truncates. */
+ * does. `spawn` (core/process.h), whose path and cwd refused a NUL by
+ * raising before this rule, still does: `cosmic.child` depends on it,
+ * and neither way truncates. */
 const char *cosmic_path (lua_State *L, int index);
 
 /*
@@ -339,58 +341,6 @@ COSMIC_SYSCALL(entropy, 1);
 COSMIC_SYSCALL(execve, 3);
 
 /*
- * --- What `spawn` holds a child to from its exec on, with every process it starts.
- * ---@class Sandbox
- * ---@field ruleset integer a ruleset from `landlock_ruleset`, or nil for none
- */
-
-/*
- * --- Starts one child with explicit arguments, environment, directory and
- * --- standard descriptors. The child is reported only after exec succeeds.
- * ---@param path string the executable path
- * ---@param argv {string} the arguments, the program's own name first
- * ---@param environment? {string:string} the exact environment, or nil to inherit
- * ---@param cwd? string the child's working directory, or nil to inherit
- * ---@param stdin? integer the child's fd 0 source, or nil to inherit fd 0
- * ---@param stdout? integer the child's fd 1 source, or nil to inherit fd 1
- * ---@param stderr? integer the child's fd 2 source, or nil to inherit fd 2
- * ---@param process_group boolean put the child in a new process group
- * ---@param fds? {integer:integer} more descriptors the child gets, each child descriptor from 3 to 255 by the descriptor it copies; every other one above 2 is closed
- * ---@param sandbox? Sandbox what the child, and every process it starts, is held to from its exec on
- * ---@return integer|nil pid the child process id, or nil when setup or exec failed
- * ---@return string error what went wrong, when pid is nil
- * ---@return integer errno the error number, when pid is nil
- */
-COSMIC_SYSCALL(spawn, 10);
-
-/*
- * --- A Landlock ruleset a child can be held to (`spawn`'s `sandbox`): opening and running what is beneath each path of `reads`, and changing what is beneath each of `writes` too, and no other file or directory -- nor, where the kernel can hold it to these, a TCP connection or a bound port, an abstract unix socket or a signal to a process outside it. It does not hold what Landlock cannot: stat and the like of any path, a unix socket named by a path, UDP, or a descriptor the child is handed already open. Closed on exec. ENOSYS, EOPNOTSUPP or EPERM where there is no Landlock to be had: not built in, turned off, or refused by a filter.
- * ---@param reads {string} the files and directories the child may read and run
- * ---@param writes {string} the files and directories it may change too
- * ---@return integer|nil ruleset the ruleset's descriptor, or nil on failure
- * ---@return string error what went wrong, when ruleset is nil
- * ---@return integer errno the error number, when ruleset is nil
- */
-COSMIC_SYSCALL(landlock_ruleset, 2);
-
-/*
- * ---@class ChildStatus
- * ---@field pid integer zero when a nonblocking wait found no finished child
- * ---@field code integer exit status, or -1 when the child was signaled or unfinished
- * ---@field signal integer terminating signal, or -1 when it exited or is unfinished
- */
-
-/*
- * --- Reaps a child, optionally returning immediately while it is running.
- * ---@param pid integer the child process id, -1 for any child, or a negated process group for any child in it
- * ---@param nohang boolean true to poll instead of block
- * ---@return ChildStatus|nil status the child's status, or nil on failure
- * ---@return string error what went wrong, when status is nil
- * ---@return integer errno the error number, when status is nil
- */
-COSMIC_SYSCALL(waitpid, 2);
-
-/*
  * --- Sends a signal to a process, or to a group when pid is negative.
  * ---@param pid integer the process id, negated for a process group
  * ---@param signal integer the signal number
@@ -399,42 +349,6 @@ COSMIC_SYSCALL(waitpid, 2);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(kill, 2);
-
-/*
- * --- How to start this same program again without its launcher: the physical core, given the private startup contract the launcher would give it.
- * ---@class Relaunch
- * ---@field path string the running core's own path, to execute
- * ---@field host boolean|nil true for a host program, which needs nothing but its path; the fields below are then absent
- * ---@field artifact string|nil the artifact's logical path, the core's `--artifact` argument
- * ---@field artifact_fd integer|nil this process's retained artifact descriptor, for the child's artifact descriptor
- * ---@field core_fd integer|nil a new descriptor on the running core, closed on exec, for the child's core descriptor
- * ---@field environment {string:string}|nil the private startup contract, naming the two child descriptors
- */
-
-/*
- * --- Describes starting this program again exactly: the same core, artifact and database, bypassing the launcher.
- * ---@param artifact_fd integer the descriptor the child sees the artifact as, 3 to 255
- * ---@param core_fd integer the descriptor the child sees its core as, 3 to 255
- * ---@return Relaunch|nil relaunch how to start it, or nil when this process has no portable artifact
- * ---@return string error what went wrong, when relaunch is nil
- * ---@return integer errno the error number, ENOSYS for a start without an artifact
- */
-COSMIC_SYSCALL(relaunch, 2);
-
-/*
- * --- The two ends of a new pipe, each closed on exec.
- * ---@class Pipe
- * ---@field reader integer the end to read from
- * ---@field writer integer the end to write to
- */
-
-/*
- * --- Makes a pipe whose ends are both closed on exec.
- * ---@return Pipe|nil pipe the two ends, or nil on failure
- * ---@return string error what went wrong, when pipe is nil
- * ---@return integer errno the error number, when pipe is nil
- */
-COSMIC_SYSCALL(pipe, 0);
 
 /*
  * --- A new descriptor for what `fd` names: the lowest one free, closed on exec.
@@ -454,43 +368,6 @@ COSMIC_SYSCALL(dup, 1);
  * ---@return integer errno the error number, when ok is false
  */
 COSMIC_SYSCALL(dup2, 2);
-
-/*
- * --- Turns a descriptor's nonblocking mode on or off.
- * ---@param fd integer the descriptor
- * ---@param on boolean true for nonblocking reads and writes
- * ---@return boolean ok false on failure
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
- */
-COSMIC_SYSCALL(set_nonblocking, 2);
-
-/*
- * --- Waits until a descriptor is ready or the timeout passes. A signal ends the wait early, as though nothing were ready.
- * ---@param fds {integer} the descriptors to watch, at most 1024
- * ---@param events {integer} the POLL* mask wanted for each descriptor
- * ---@param timeout_ms integer how long to wait, -1 for no limit
- * ---@return {integer}|nil revents the POLL* mask that happened for each descriptor, or nil on failure
- * ---@return string error what went wrong, when revents is nil
- * ---@return integer errno the error number, when revents is nil
- */
-COSMIC_SYSCALL(poll, 3);
-
-/*
- * --- Makes this process adopt the orphaned descendants of its children, so it can reap them; Linux only.
- * ---@return boolean ok false on failure, with ENOSYS where there is no such thing
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
- */
-COSMIC_SYSCALL(subreaper, 0);
-
-/*
- * --- Ignores SIGPIPE, so a write to a closed pipe fails with EPIPE instead of ending the process. A child started afterward gets the default back.
- * ---@return boolean ok false on failure
- * ---@return string error what went wrong, when ok is false
- * ---@return integer errno the error number, when ok is false
- */
-COSMIC_SYSCALL(ignore_sigpipe, 0);
 
 /*
  * --- How many processors are online, at least one.
@@ -513,6 +390,11 @@ COSMIC_SYSCALL(cpu_count, 0);
  * ---@return integer errno the error number, when uname is nil
  */
 COSMIC_SYSCALL(uname, 0);
+
+/* TODO: move the three child-signal calls below into core/process.h,
+ * behind `Child.guard`, once ci/cosmic-driver.pin names a cosmic whose
+ * cosmic.child carries Child.guard: build/zig.tl runs on that release
+ * and calls them by these names (see its own TODO in `Zig.run`). */
 
 /*
  * --- Temporarily catches SIGINT and SIGTERM for bounded child supervision.
@@ -564,23 +446,6 @@ COSMIC_SYSCALL(nanosleep, 1);
  * ---@return boolean tty true when the descriptor is a terminal
  */
 COSMIC_SYSCALL(isatty, 1);
-
-/*
- * --- Hashes bytes with a named algorithm and returns the raw digest.
- * ---@param algorithm string one of md5, sha1, sha224, sha256, sha384, sha512, sha3-224, sha3-256, sha3-384, sha3-512
- * ---@param data string the bytes to hash
- * ---@return string digest the raw digest, 16 to 64 bytes by algorithm
- */
-COSMIC_SYSCALL(digest, 2);
-
-/*
- * --- Authenticates bytes with HMAC over a named algorithm and returns the raw code.
- * ---@param algorithm string the digest algorithm, as for digest
- * ---@param key string the secret key, any length
- * ---@param data string the bytes to authenticate
- * ---@return string mac the raw authentication code, the algorithm's digest size
- */
-COSMIC_SYSCALL(hmac, 3);
 
 /*
  * --- Creates a symbolic link at `path` pointing at `target`. `target`

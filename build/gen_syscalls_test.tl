@@ -88,6 +88,22 @@ local function test_each_declaration_names_its_header_line()
   end
 end
 
+--- The raw process table's declaration is its own record, opened with
+--- its own summary and mapped to its own header, not the syscall
+--- table's.
+local function test_a_target_names_its_own_record_and_header()
+  local process: gen_syscalls.Target = nil
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    if derivation.path == "cosmic.internal.process" then process = derivation.target end
+  end
+  assert(process ~= nil and process.header == "core/process.h", "no process target")
+  local source = assert(gen_syscalls.declaration(header, process))
+  assert(source:find("\nlocal record process\n", 1, true), source)
+  assert(source:find("\nreturn process\n", 1, true), source)
+  assert(source:find("sits in core/process.h", 1, true), source)
+  assert(not source:find("syscall table", 1, true), source)
+end
+
 --- A header declaring one fallible call whose first return is `first`.
 local function fallible(first: string): string
   return lines({

@@ -1,4 +1,5 @@
-/* The syscall table's process, time and data half, and the module. */
+/* The syscall table's process, time and data half, the module, and the
+ * raw process table core/process.h declares. */
 
 #if defined(__APPLE__)
 #define _DARWIN_C_SOURCE
@@ -36,6 +37,7 @@ extern long syscall (long, ...);
 #include "crypto.h"
 #include "syscalls.h"
 #include "portable.h"
+#include "process.h"
 #include "startup.h"
 #include "store.h"
 
@@ -150,43 +152,6 @@ COSMIC_SYSCALL(isatty, 1) {
   int fd = cosmic_checkint(L, 1);
   lua_pushboolean(L, isatty(fd) == 1);
   return 1;
-}
-
-/* An algorithm nobody has heard of is an argument-shape error and
- * raises; the library refusing a hash it advertises is a bug, and
- * raises too. Neither is a runtime failure a caller could handle. */
-static int hashed (lua_State *L, int status, const unsigned char *digest,
-                   size_t len) {
-  if (status == -1) {
-    return luaL_argerror(L, 1, "no such digest algorithm");
-  }
-  if (status != 0) {
-    return luaL_error(L, "the digest failed with status %d", status);
-  }
-  lua_pushlstring(L, (const char *)digest, len);
-  return 1;
-}
-
-COSMIC_SYSCALL(digest, 2) {
-  const char *name = luaL_checkstring(L, 1);
-  size_t len;
-  const char *data = luaL_checklstring(L, 2, &len);
-  unsigned char digest[COSMIC_DIGEST_MAX];
-  size_t digest_len = 0;
-  int status = cosmic_digest(name, data, len, digest, &digest_len);
-  return hashed(L, status, digest, digest_len);
-}
-
-COSMIC_SYSCALL(hmac, 3) {
-  const char *name = luaL_checkstring(L, 1);
-  size_t key_len;
-  const char *key = luaL_checklstring(L, 2, &key_len);
-  size_t len;
-  const char *data = luaL_checklstring(L, 3, &len);
-  unsigned char mac[COSMIC_DIGEST_MAX];
-  size_t mac_len = 0;
-  int status = cosmic_hmac(name, key, key_len, data, len, mac, &mac_len);
-  return hashed(L, status, mac, mac_len);
 }
 
 COSMIC_SYSCALL(entropy, 1) {
@@ -1034,16 +999,21 @@ static const luaL_Reg table[] = {
   ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
   ENTRY(getuid),   ENTRY(umask),         ENTRY(entropy),
   ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty),
-  ENTRY(digest),   ENTRY(hmac),          ENTRY(execve),
-  ENTRY(spawn),    ENTRY(landlock_ruleset),
-  ENTRY(waitpid),  ENTRY(kill),          ENTRY(guard_child_signals),
+  ENTRY(execve),   ENTRY(kill),          ENTRY(guard_child_signals),
   ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
-  ENTRY(pipe),     ENTRY(dup),          ENTRY(dup2),
-  ENTRY(set_nonblocking),  ENTRY(poll),
-  ENTRY(subreaper), ENTRY(ignore_sigpipe),  ENTRY(cpu_count),
-  ENTRY(relaunch), ENTRY(uname),
+  ENTRY(dup),      ENTRY(dup2),          ENTRY(cpu_count),
+  ENTRY(uname),
   ENTRY(symlink), ENTRY(readlink), ENTRY(utimens), ENTRY(fsync),
   ENTRY(ftruncate),
+  {NULL, NULL},
+};
+
+/* core/process.h's calls, which only the raw `cosmic.internal.process`
+ * module holds. */
+static const luaL_Reg process_table[] = {
+  ENTRY(spawn),    ENTRY(landlock_ruleset), ENTRY(waitpid),
+  ENTRY(relaunch), ENTRY(pipe),             ENTRY(set_nonblocking),
+  ENTRY(poll),     ENTRY(subreaper),        ENTRY(ignore_sigpipe),
   {NULL, NULL},
 };
 
@@ -1098,6 +1068,11 @@ static const struct constant constants[] = {
   {"POLLNVAL", POLLNVAL},
   {NULL, 0},
 };
+
+int cosmic_open_process (lua_State *L) {
+  luaL_newlib(L, process_table);
+  return 1;
+}
 
 int cosmic_open_syscalls (lua_State *L) {
   luaL_newlib(L, table);

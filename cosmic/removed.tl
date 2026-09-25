@@ -69,6 +69,7 @@ local codec <const> = 'local Codec = require("cosmic.codec")'
 local archive <const> = 'local Archive = require("cosmic.archive")'
 local zip <const> = 'local Zip = require("cosmic.zip")'
 local tar <const> = 'local Tar = require("cosmic.tar")'
+local hash <const> = 'local Hash = require("cosmic.hash")'
 
 local module: Module = {
   fields = {
@@ -142,6 +143,33 @@ local module: Module = {
     ["cosmic.tar.TarWriter"] = "use Tar.Writer, the same record renamed (" .. tar .. ")",
     ["cosmic.archive.ArchiveReader"] = "use Archive.Reader, the same record renamed (" ..
       archive .. ")",
+    ["cosmic.sys.spawn"] = "use Child.start(argv, opts), or Child.run(argv, opts) to " ..
+      "run it to its end (" .. child .. ")",
+    ["cosmic.sys.waitpid"] = "use h:wait() or h:try_wait() on the handle Child.start " ..
+      "answers, or Child.wait_any(handles); only a handle reaps its child (" .. child .. ")",
+    ["cosmic.sys.subreaper"] = "Child.start makes this process a subreaper the first " ..
+      "time it starts a child in its own group (" .. child .. ")",
+    ["cosmic.sys.landlock_ruleset"] = "there is no public way to hold a child to a " ..
+      "ruleset yet; start one with Child.start(argv, opts) (" .. child .. ")",
+    ["cosmic.sys.Sandbox"] = "there is no public way to hold a child to a ruleset " ..
+      "yet; start one with Child.start(argv, opts) (" .. child .. ")",
+    ["cosmic.sys.ChildStatus"] = "use Child.Result, what h:wait() answers (" .. child .. ")",
+    ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
+      "or stdout = \"capture\" (" .. child .. ")",
+    ["cosmic.sys.Pipe"] = "use Child.start(argv, { stdin = \"pipe\" }) and h.stdin, " ..
+      "or stdout = \"capture\" (" .. child .. ")",
+    ["cosmic.sys.set_nonblocking"] = "Child services its pipes without blocking itself; " ..
+      "use Child.wait_any(handles, timeout_ms) (" .. child .. ")",
+    ["cosmic.sys.poll"] = "use Child.wait_any(handles, timeout_ms), which polls every " ..
+      "handle's streams (" .. child .. ")",
+    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { input = bytes }) ignores " ..
+      "SIGPIPE for this process, so a write to a child that has gone fails instead (" ..
+      child .. ")",
+    ["cosmic.sys.relaunch"] = "use Proc.relaunch() (" .. proc .. ")",
+    ["cosmic.sys.Relaunch"] = "use Proc.Relaunch, what Proc.relaunch() answers (" ..
+      proc .. ")",
+    ["cosmic.sys.digest"] = "use Hash.digest(algorithm, data) (" .. hash .. ")",
+    ["cosmic.sys.hmac"] = "use Hash.hmac(algorithm, key, data) (" .. hash .. ")",
   },
 }
 

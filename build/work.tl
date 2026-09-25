@@ -22,6 +22,7 @@ local String = require("cosmic.string")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 local todo_scan = require("build.todo_scan")
+local gen_syscalls = require("build.gen_syscalls")
 local bind = require("build.bind")
 
 local record work
@@ -644,8 +645,9 @@ end
 
 --- Whether a file the walk found is one the build consumes: Teal
 --- source and declarations, a doc guide, and, in cosmic's own tree,
---- the syscall header the declaration of `cosmic.sys` is generated
---- from. Never anything under the trees the tool alone is made of.
+--- the headers the declarations of `cosmic.sys` and the raw process
+--- table are generated from (`build.gen_syscalls`' targets). Never
+--- anything under the trees the tool alone is made of.
 local function is_input(file: string, own_tree: boolean): boolean
   local first = first_of(file)
   if not_input[first] or (own_tree and foreign_trees[first]) then
@@ -657,7 +659,15 @@ local function is_input(file: string, own_tree: boolean): boolean
   if first == "doc" then
     return is_doc_guide(file)
   end
-  return own_tree and file == "core/syscalls.h"
+  if not own_tree then
+    return false
+  end
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    if file == derivation.target.header then
+      return true
+    end
+  end
+  return false
 end
 
 --- Whether a file is one the tool is made of, in cosmic's own tree: a

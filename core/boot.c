@@ -75,11 +75,12 @@ static int slurp (lua_State *L, const char *path) {
   return 0;
 }
 
-/* The syscall table's declaration has to exist before any module that
- * requires it is compiled, so the generator runs first and on its own.
- * It imports nothing, which is what makes that possible. The result is
- * handed to the bridge, which serves it to the checker from memory;
- * nothing is written to disk. */
+/* The declarations derived from a header -- the syscall table's and
+ * the raw process table's, each of `build.gen_syscalls`' targets -- have
+ * to exist before any module that requires one is compiled, so the
+ * generator runs first and on its own. It imports nothing, which is
+ * what makes that possible. Each result is handed to the bridge, which
+ * serves it to the checker from memory; nothing is written to disk. */
 static int declare_syscalls (lua_State *L, const char *root, int bridge) {
   char path[4096];
 
@@ -88,28 +89,50 @@ static int declare_syscalls (lua_State *L, const char *root, int bridge) {
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
     return report(L, "build.gen_syscalls would not load");
   }
-  lua_getfield(L, -1, "declaration");
-
-  snprintf(path, sizeof path, "%s/core/syscalls.h", root);
-  if (slurp(L, path) != 0) {
+  int generator = lua_gettop(L);
+  lua_getfield(L, generator, "targets");
+  int targets = lua_gettop(L);
+  if (!lua_istable(L, targets)) {
+    fprintf(stderr, "cosmic boot: build.gen_syscalls names no targets\n");
     return 1;
   }
-  if (lua_pcall(L, 1, 2, 0) != LUA_OK) {
-    return report(L, "the declaration would not be made");
-  }
-  if (lua_isnil(L, -2)) {
-    fprintf(stderr, "cosmic boot: core/syscalls.h: %s\n",
-            lua_tostring(L, -1));
-    return 1;
-  }
+  lua_Integer count = (lua_Integer)lua_rawlen(L, targets);
+  for (lua_Integer i = 1; i <= count; i++) {
+    lua_rawgeti(L, targets, i);
+    int derivation = lua_gettop(L);
+    lua_getfield(L, derivation, "target");
+    int target = lua_gettop(L);
+    lua_getfield(L, target, "header");
+    const char *header = lua_tostring(L, -1);
+    if (!lua_istable(L, target) || header == NULL) {
+      fprintf(stderr, "cosmic boot: build.gen_syscalls target %lld names no header\n",
+              (long long)i);
+      return 1;
+    }
+    snprintf(path, sizeof path, "%s/%s", root, header);
 
-  lua_getfield(L, bridge, "declare");
-  lua_pushstring(L, "cosmic.sys");
-  lua_pushvalue(L, -4);
-  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-    return report(L, "the declaration would not be declared");
+    lua_getfield(L, generator, "declaration");
+    if (slurp(L, path) != 0) {
+      return 1;
+    }
+    lua_pushvalue(L, target);
+    if (lua_pcall(L, 2, 2, 0) != LUA_OK) {
+      return report(L, "the declaration would not be made");
+    }
+    if (lua_isnil(L, -2)) {
+      fprintf(stderr, "cosmic boot: %s: %s\n", header, lua_tostring(L, -1));
+      return 1;
+    }
+
+    lua_getfield(L, bridge, "declare");
+    lua_getfield(L, derivation, "path");
+    lua_pushvalue(L, -4);
+    if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+      return report(L, "the declaration would not be declared");
+    }
+    lua_settop(L, derivation - 1);
   }
-  lua_pop(L, 3);
+  lua_settop(L, generator - 1);
   return 0;
 }
 
