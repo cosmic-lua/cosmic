@@ -340,3 +340,13 @@ local function test_the_program_is_named_from_argv_zero()
   local bare = assert(Flags.dispatch({ "--help" }, 1, help_commands))
   assert(bare.help:sub(1, 14) == "usage: program", bare.help)
 end
+
+local function test_options_lists_them_as_help_does()
+  local described: {string:boolean | Flags.Option} = {
+    ["--out"] = { value = "path", about = "where to write" },
+    ["-q"] = { about = "say less" },
+  }
+  assert(Flags.options(described) == "  --out <path>  where to write\n  -q            say less",
+    Flags.options(described))
+  assert(Flags.options({}) == "")
+end

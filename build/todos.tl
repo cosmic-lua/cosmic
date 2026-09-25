@@ -13,6 +13,7 @@
 --- with no commit.
 
 local Child = require("cosmic.child")
+local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
@@ -493,7 +494,7 @@ function todos.run(argv: {integer:string}): integer
   if code ~= nil then
     return code
   end
-  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--oldest"] = false })
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.todos)
   if parsed == nil then
     log:complain("todos: " .. parse_trouble)
     return 2
