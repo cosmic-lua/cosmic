@@ -20,6 +20,7 @@ local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Time = require("cosmic.time")
 local clock = require("build.clock")
+local narrow = require("build.narrow")
 local reboot = require("build.reboot")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -61,6 +62,14 @@ local record todos
   record Listing
     todos: {Todo}
     blamed: integer
+  end
+
+  --- A command line split by `arguments`.
+  record Arguments
+    --- As `build.narrow.paths` answers them; none for the whole tree.
+    paths: {string}
+    --- What to search the TODOs' text for.
+    words: {string}
   end
 end
 
@@ -459,17 +468,26 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer} | nil
   return out
 end
 
---- Whether a TODO's file is one of the paths asked for, or under one.
-local function wanted(file: string, paths: {string}): boolean
-  if #paths == 0 then
-    return true
-  end
-  for _, path in ipairs(paths) do
-    if Fs.within(file, path) then
-      return true
+--- The command line's words split into paths, which narrow the listing
+--- as `build.narrow` reads them for every verb, and the words to search
+--- the TODOs for: a word is a path when it names one that can be looked
+--- at, relative to `root` (the working directory `run` resolves), or
+--- absolutely. `.` names the whole tree, so it narrows nothing.
+function todos.arguments(root: string, argv: {string}): todos.Arguments
+  local named: {string} = {}
+  local words: {string} = {}
+  for _, word in ipairs(argv) do
+    -- A path when it names one, and words to search for when not, as
+    -- `cosmic docs` takes a symbol first and words after.
+    local full = word:sub(1, 1) == "/" and word or root .. "/" .. word
+    local absolute, _ = Fs.absolute(full)
+    if word ~= "" and absolute ~= nil then
+      named[#named + 1] = full
+    else
+      words[#words + 1] = word
     end
   end
-  return false
+  return { paths = narrow.paths(root, named), words = words }
 end
 
 --- `cosmic todos [--oldest] [path...]`: stages the tree as a build
@@ -500,20 +518,8 @@ function todos.run(argv: {integer:string}): integer
     return 2
   end
   local oldest = parsed.set["--oldest"] == true
-  local paths: {string} = {}
-  local words: {string} = {}
-  for _, word in ipairs(parsed.words) do
-    -- A path when it names one, and words to search for when not, as
-    -- `cosmic docs` takes a symbol first and words after.
-    local path = (word:gsub("^%./", ""):gsub("/+$", ""))
-    -- A path that cannot be looked at is taken for words.
-    local exists, _ = Fs.exists(root .. "/" .. path)
-    if path ~= "" and exists then
-      paths[#paths + 1] = path
-    else
-      words[#words + 1] = word
-    end
-  end
+  local arguments = todos.arguments(root, parsed.words)
+  local paths, words = arguments.paths, arguments.words
   local query = table.concat(words, " ")
 
   local own_tree, own_trouble = tree.is_own(root)
@@ -557,7 +563,7 @@ function todos.run(argv: {integer:string}): integer
 
   local listed: {todos.Todo} = {}
   for _, todo in ipairs(all) do
-    if wanted(todo.file, paths) and (ranks == nil or ranks[todo.id] ~= nil) then
+    if narrow.holds(paths, todo.file) and (ranks == nil or ranks[todo.id] ~= nil) then
       listed[#listed + 1] = todo
     end
   end
