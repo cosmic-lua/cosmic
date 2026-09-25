@@ -1127,7 +1127,13 @@ end
 --- Puts the compiler in -- the Lua the vendored `tl.tl`, patched, was
 --- compiled to (core/bridge.lua's `bootstrap`) -- as the one input with
 --- no file behind it, for every later build to carry.
+--- It replaces whatever compiler row the database held before, under
+--- whatever file it named: there is only ever one.
 function work.put_compiler(handle: work.Handle, source: string): boolean, string
+  local cleared, trouble = handle.db:exec("DELETE FROM derived WHERE origin = 'vendor'")
+  if not cleared then
+    return false, trouble
+  end
   return Sqlite.run(handle.db,
     "INSERT OR REPLACE INTO derived (file, path, kind, origin, from_hash, " ..
     "source, source_hash) VALUES ('o/vendor/tl/tl.tl', 'vendor.tl', " ..
