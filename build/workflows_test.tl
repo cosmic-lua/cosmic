@@ -326,20 +326,56 @@ local function test_flow_actions_keep_to_the_shared_subset()
   assert(count > 0, "no action under " .. ACTIONS)
 end
 
---- Each `inputs.<name>` an action's expressions read is one it
---- declares: actionlint checks what a workflow passes an action, but
---- not the action's own steps, where a misspelt input reads as empty.
+--- The expressions in an action's text: each `${{ ... }}`, and each
+--- step's `if`, which is one whole without them.
+local function expressions(text: string, action: {string: any}): {string}
+  local out: {string} = {}
+  for expression in text:gmatch("%${{(.-)}}") do out[#out + 1] = expression end
+  local runs = action.runs
+  local steps = runs is {string: any} and runs.steps or nil
+  if steps is {{string: any}} then
+    for _, step in ipairs(steps) do
+      local condition = step["if"]
+      if condition is string and not condition:find("${{", 1, true) then out[#out + 1] = condition end
+    end
+  end
+  return out
+end
+
+--- The inputs `expression` reads, as `inputs.<name>` or
+--- `inputs['<name>']`.
+local function inputs_read(expression: string): {string}
+  local out: {string} = {}
+  for name in expression:gmatch("inputs%.([%w_%-]+)") do out[#out + 1] = name end
+  for name in expression:gmatch("inputs%[%s*['\"]([^'\"]+)['\"]%s*%]") do out[#out + 1] = name end
+  return out
+end
+
+--- Each input an action's expressions read is one it declares:
+--- actionlint checks what a workflow passes an action, but not the
+--- action's own steps, where a misspelt input reads as empty.
 local function test_an_action_reads_only_the_inputs_it_declares()
+  local count = 0
   for path, text in pairs(flow_files(action_paths())) do
     local action = assert(Json.decode_object(text, READ))
     local declared = action.inputs
     local names: {string: any} = declared is {string: any} and declared or {}
-    for expression in text:gmatch("%${{(.-)}}") do
-      for name in expression:gmatch("inputs%.([%w_%-]+)") do
+    for _, expression in ipairs(expressions(text, action)) do
+      for _, name in ipairs(inputs_read(expression)) do
+        count = count + 1
         assert(names[name] ~= nil, path .. " reads inputs." .. name .. ", which it does not declare")
       end
     end
   end
+  assert(count > 0, "no action reads an input")
+end
+
+local function test_an_input_is_read_however_it_is_written()
+  local action = { runs = { steps = { { ["if"] = "inputs.owner != ''" }, { ["if"] = "${{ inputs.a }}" } } } }
+  local got = expressions("${{ inputs['b'] }} ${{ inputs.a }}", action as {string: any})
+  assert(#got == 3 and got[3] == "inputs.owner != ''", table.concat(got, "|"))
+  local names = inputs_read([=[inputs.zig-cache == 'true' && inputs[ "x y" ] || inputs['z']]=])
+  assert(table.concat(names, ",") == "zig-cache,x y,z", table.concat(names, ","))
 end
 
 --- Each decoded flow-style workflow, by path.
@@ -383,11 +419,16 @@ end
 
 local SCRIPTS <const> = ".github/scripts"
 
---- `path` with its `.` and `..` segments resolved.
+--- `path` with its `.` and `..` segments resolved. One that climbs out
+--- of the checkout's root raises: a step that starts somewhere other
+--- than its author thought -- a composite action's step, which takes no
+--- job's `working-directory` -- would otherwise find a script there all
+--- the same.
 local function normal(path: string): string
   local parts: {string} = {}
   for part in path:gmatch("[^/]+") do
     if part == ".." then
+      if #parts == 0 then error(path .. " climbs out of the checkout", 0) end
       table.remove(parts)
     elseif part ~= "." then
       parts[#parts + 1] = part
@@ -601,6 +642,8 @@ end
 --- drops to an unprivileged user -- passes that shell to each local
 --- action it uses that takes one, since `defaults.run` does not reach a
 --- composite action's steps: its bootstrap would otherwise run as root.
+--- It names that user as the action's `owner` too, where it takes one,
+--- or what the action restores as root stays root's.
 local function test_a_job_passes_its_shell_to_its_actions()
   local count = 0
   for path, workflow in pairs(decoded_workflows()) do
@@ -626,6 +669,11 @@ local function test_a_job_passes_its_shell_to_its_actions()
               local given = with is {string: any} and with.shell or nil
               assert(given == shell, path .. ": job " .. name .. " runs its steps with " .. tostring(shell) ..
                 ", and passes " .. dir .. " the shell " .. tostring(given))
+              if inputs.owner ~= nil then
+                local owner = with is {string: any} and with.owner or nil
+                assert(owner is string and owner ~= "", path .. ": job " .. name .. " runs its steps with " ..
+                  tostring(shell) .. ", and names " .. dir .. " no owner to hand what it restores")
+              end
             end
           end
         end
@@ -633,6 +681,12 @@ local function test_a_job_passes_its_shell_to_its_actions()
     end
   end
   assert(count > 0, "no job with a shell of its own uses an action that takes one")
+end
+
+local function test_a_path_that_climbs_out_of_the_checkout_is_refused()
+  assert(normal("ci/../.github/scripts/cosmic-driver.sh") == ".github/scripts/cosmic-driver.sh")
+  local ok, err = pcall(normal, "./../.github/scripts/cosmic-driver.sh")
+  assert(not ok and tostring(err):find("climbs out of the checkout", 1, true), tostring(err))
 end
 
 local function test_a_local_action_is_one_there_is()

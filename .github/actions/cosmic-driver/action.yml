@@ -56,7 +56,7 @@
       },
 
       {
-        name: "hand the restored driver cache over to ${{ inputs.owner }}",
+        name: "hand the restored driver cache to the user the job runs as",
         if: "inputs.owner != ''",
         "working-directory": "/",
         shell: "sh",
