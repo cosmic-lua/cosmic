@@ -145,11 +145,6 @@ end
 --- `encode` is reachable: each JSON type, NaN and the infinities, bytes
 --- that are not UTF-8, holes, mixed and odd keys, functions, the null
 --- stand-in, marked arrays, and a table that contains itself.
--- TODO: a recipe's strings and tables read their count from one byte
--- first, as the generators here no longer do, so cutting a recipe's bytes
--- drops a middle element only by reshaping everything after it; a byte
--- before each element whose low values stop, as `Fuzz.more` draws, would
--- let shrinking drop any (measure "encoded" and "refused" again).
 local record Recipe
   bytes: string
   at: integer
@@ -169,6 +164,11 @@ end
 local CHARS <const> = { "a", "Z", "0", " ", '"', "\\", "/", "\n", "\t", "\r", "\b", "\f", "\0", "\31", "\127",
   "\xc3\xa9", "\xe2\x82\xac", "\xf0\x9f\x98\x80" }
 
+-- TODO: a recipe's strings and tables read their count from one byte
+-- first, as the generators here no longer do, so cutting a recipe's bytes
+-- drops a middle element only by reshaping everything after it; a byte
+-- before each element whose low values stop, as `Fuzz.more` draws, would
+-- let shrinking drop any (measure "encoded" and "refused" again).
 local function recipe_value(r: Recipe, depth: integer, parent: {any: any}): any
   local op = next_byte(r) % 13
   if depth > 6 and op >= 7 then op = op % 7 end
