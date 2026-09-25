@@ -603,7 +603,7 @@ url, the archive's sha256, and globs for which files are kept.
 fetches the archive with `cosmic.http`, verifies its sha256, unpacks
 it with `cosmic.archive`, and rewrites the tree to exactly the kept
 files -- no `curl`, `tar` or `unzip`, and from any directory, since a
-standalone run reads nothing of the tree but the one file.
+standalone run loads nothing of the tree but the one file.
 `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
 it exists. `bin/zig build` runs `build/patch.tl` standalone on the

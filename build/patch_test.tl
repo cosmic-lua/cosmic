@@ -1,6 +1,7 @@
 --- The patch applier (`build/patch.tl`), run on trees built here.
 local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
+local sys = require("cosmic.sys")
 
 --- A checkout at `root` with one vendored tree, `lib`, holding `files`,
 --- and the patch records `records` for it (none when nil).
@@ -165,4 +166,19 @@ local function test_names_are_the_pinned_trees(dir: string)
   assert(Fs.mkdirs(dir .. "/vendor/unpinned"))
   local names = assert(Patch.names(dir))
   assert(#names == 2 and names[1] == "a" and names[2] == "b")
+end
+
+--- A link is not upstream source: neither it nor what it names is
+--- copied, and a loop of them stops nothing. An empty directory is.
+local function test_links_are_left_out_and_empty_directories_kept(dir: string)
+  checkout(dir .. "/root", { ["a.h"] = "x\n" })
+  assert(Fs.write(dir .. "/outside", "not the tree's"))
+  assert(sys.symlink(dir .. "/outside", dir .. "/root/vendor/lib/linked.h"))
+  assert(sys.symlink(".", dir .. "/root/vendor/lib/loop"))
+  assert(Fs.mkdirs(dir .. "/root/vendor/lib/empty"))
+  assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
+  assert(Fs.exists(dir .. "/out/linked.h") == false)
+  assert(Fs.exists(dir .. "/out/loop") == false)
+  assert(assert(Fs.stat(dir .. "/out/empty")).kind == "dir")
+  assert(Fs.read(dir .. "/out/a.h") == "x\n")
 end

@@ -5,10 +5,12 @@
 ---
 --- This file runs standalone -- against the bootstrap binary's own
 --- embedded standard library, never against the tree it sits in -- so
---- it requires `cosmic.*` modules only, and everything it needs is in
---- this one file. A bootstrap older or newer than the tree, a core
---- edit nobody has booted yet, or a syntax error elsewhere in the tree
---- cannot stop zig from running, which is what rebuilds all of those.
+--- it requires `cosmic.*` modules only. Before a build it runs one more
+--- file the same way, `build/patch.tl`, which patches the vendored
+--- trees (`patch`); nothing else of the tree is loaded. A bootstrap
+--- older or newer than the tree, a core edit nobody has booted yet, or
+--- a syntax error elsewhere in the tree cannot stop zig from running,
+--- which is what rebuilds all of those; one in either file can.
 ---
 --- The pin is `bin/zig.pin`: a `version` line, then one line per host
 --- naming that host's release tarball's sha256. `COSMIC_ZIG` names an
@@ -180,7 +182,7 @@ end
 --- steps at once for `cpus` processors unless the caller passes `-j`;
 --- anything else passes through unchanged.
 function Zig.build_args(root: string, project: string, shared: string,
-    argv: {string}, cpus: integer): {string}
+    argv: {string}, cpus: integer, defines?: {string}): {string}
   local out: {string} = {}
   if argv[1] == "build" then
     out = {
@@ -189,6 +191,9 @@ function Zig.build_args(root: string, project: string, shared: string,
       "--global-cache-dir", shared,
       "--prefix", root .. "/o",
     }
+    for _, define in ipairs(defines or {}) do
+      out[#out + 1] = define
+    end
     local jobs_given = false
     for i = 2, #argv do
       if argv[i]:match("^%-j") then
@@ -874,8 +879,13 @@ end
 --- `build` between two snapshots of `root`: zig's own status, unless
 --- a source moved while it ran. A snapshot that cannot be taken first
 --- leaves the build unwatched rather than stopped.
-local function watched_build(root: string, argv: {string}): integer
+local function watched_build(root: string,
+    command: function(): {string} | nil): integer
   local before, _ = Zig.snapshot(root)
+  local argv = command()
+  if argv == nil then
+    return 1
+  end
   local status = Zig.run(argv)
   if before == nil or status > 128 then
     return status
@@ -953,21 +963,29 @@ function Zig.main(argv: {integer:string}): integer
     given[#given + 1] = argv[at]
     at = at + 1
   end
+  if given[1] == "build" then
+    -- The vendored trees are patched once the snapshot is taken, so a
+    -- vendored file edited while they are is caught as any source is.
+    return watched_build(root, function(): {string} | nil
+      local manifest, patch_trouble = patch(root, Zig.project_cache(root))
+      if manifest == nil then
+        log:complain(patch_trouble)
+        return nil
+      end
+      local build_argv: {string} = { program }
+      for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
+          Zig.global_cache(root), given, Proc.cpu_count(),
+          { "-Dpatched=" .. manifest })) do
+        build_argv[#build_argv + 1] = a
+      end
+      return build_argv
+    end)
+  end
   local exec_argv: {string} = { zig }
   for _, a in ipairs(Zig.build_args(root, Zig.project_cache(root),
       Zig.global_cache(root), given,
       Proc.cpu_count())) do
     exec_argv[#exec_argv + 1] = a
-  end
-  if given[1] == "build" then
-    local manifest, patch_trouble = patch(root, Zig.project_cache(root))
-    if manifest == nil then
-      log:complain(patch_trouble)
-      return 1
-    end
-    exec_argv[1] = program
-    exec_argv[#exec_argv + 1] = "-Dpatched=" .. manifest
-    return watched_build(root, exec_argv)
   end
   local _, trouble, number = sys.execve(program, exec_argv, Env.all())
   log:complain(program .. ": " .. tostring(trouble))

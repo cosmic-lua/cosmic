@@ -36,6 +36,11 @@
 --- files and directories, with their permission bits; a link or anything
 --- else is not upstream source and is left out.
 ---
+--- The applier's own source is part of every key, so an edit to this file
+--- -- a comment's included -- names every tree anew: zig compiles all of
+--- vendor/ again, and, since the file is in the image fingerprint
+--- (build/work.tl), the tool boots.
+---
 --- Like `build/zig.tl`, which runs it before every `zig build`, this runs
 --- standalone -- against the running binary's own standard library,
 --- never the tree it sits in -- so it requires `cosmic.*` modules only.
@@ -164,146 +169,212 @@ function Patch.apply(source: string, record: Patch.Record,
     source:sub(first + #record.find), ""
 end
 
---- The records for `name` under `root`, as paths in name order: every
---- `.txt` in `patch/<name>/`, none when there is no such directory.
-local function records(root: string, name: string): {string} | nil, string
-  local dir = root .. "/patch/" .. name
-  local present, trouble = Fs.exists(dir)
-  if present == nil then
-    return nil, trouble
-  end
-  if not present then
-    return {}, ""
-  end
-  local names, list_trouble = Fs.list(dir)
-  if names == nil then
-    return nil, list_trouble
-  end
-  local found: {string} = {}
-  for _, entry in ipairs(names) do
-    if #entry > 4 and entry:sub(-4) == ".txt" then
-      found[#found + 1] = dir .. "/" .. entry
-    end
-  end
-  return found, ""
+--- One file a patched tree is made of, as it was read: its path (under
+--- the vendored tree, or under the root for a record), its permission
+--- bits, and its bytes.
+local record Input
+  path: string
+  mode: integer
+  data: string
 end
 
---- Writes `vendor/<name>` under `root` into `out`, which must not exist,
---- with its records applied.
-function Patch.tree(root: string, name: string, out: string): boolean, string
-  local vendor = root .. "/vendor/" .. name
-  local files, trouble = Fs.walk(vendor)
-  if files == nil then
+--- Everything a patched tree is made of, each byte read once, so the
+--- name the tree is given (`key_of`) and what is written under it
+--- (`write_tree`) are of the same bytes whatever changes meanwhile: the
+--- vendored tree's directories and regular files, in path order, and its
+--- records, in name order.
+local record Inputs
+  dirs: {string}
+  files: {Input}
+  records: {Input}
+end
+
+--- Appends to `inputs` everything under `dir`, which is `relative` under
+--- the vendored tree: directories and regular files, never following a
+--- link, and nothing else -- a link, a device -- which is not upstream
+--- source.
+local function read_dir(dir: string, relative: string, inputs: Inputs): boolean, string
+  local names, trouble = Fs.list(dir)
+  if names == nil then
     return false, trouble
   end
-  local made, made_trouble = Fs.mkdirs(out)
-  if not made then
-    return false, made_trouble
-  end
-  for _, file in ipairs(files) do
-    local from = vendor .. "/" .. file
-    local st, st_trouble = Fs.stat(from)
-    if st == nil then
-      return false, st_trouble
-    end
-    local data, read_trouble = Fs.read(from)
-    if data == nil then
-      return false, read_trouble
-    end
-    local dir = file:match("^(.*)/[^/]+$")
-    if dir ~= nil then
-      local dirs, dirs_trouble = Fs.mkdirs(out .. "/" .. dir)
-      if not dirs then
-        return false, dirs_trouble
-      end
-    end
-    local written, write_trouble = Fs.write(out .. "/" .. file, data, st.mode & 0x1ff)
-    if not written then
-      return false, write_trouble
-    end
-  end
-  local paths, records_trouble = records(root, name)
-  if paths == nil then
-    return false, records_trouble
-  end
-  for _, path in ipairs(paths) do
-    local text, text_trouble = Fs.read(path)
-    if text == nil then
-      return false, text_trouble
-    end
-    local parsed, parse_trouble = Patch.parse(text, path)
-    if parsed == nil then
-      return false, parse_trouble
-    end
-    local target = out .. "/" .. parsed.file
-    local st, st_trouble = Fs.stat(target)
+  for _, entry in ipairs(names) do
+    local path = dir .. "/" .. entry
+    local under = relative == "" and entry or relative .. "/" .. entry
+    local st, st_trouble = sys.lstat(path)
     if st == nil then
       return false, path .. ": " .. st_trouble
     end
-    local source, read_trouble = Fs.read(target)
-    if source == nil then
-      return false, path .. ": " .. read_trouble
-    end
-    local patched, apply_trouble = Patch.apply(source, parsed, path)
-    if patched == nil then
-      return false, apply_trouble
-    end
-    local written, write_trouble = Fs.write(target, patched, st.mode & 0x1ff)
-    if not written then
-      return false, write_trouble
+    if st.kind == "dir" then
+      inputs.dirs[#inputs.dirs + 1] = under
+      local read, read_trouble = read_dir(path, under, inputs)
+      if not read then
+        return false, read_trouble
+      end
+    elseif st.kind == "file" then
+      local data, read_trouble = Fs.read(path)
+      if data == nil then
+        return false, read_trouble
+      end
+      inputs.files[#inputs.files + 1] = { path = under, mode = st.mode & 0x1ff, data = data }
     end
   end
   return true, ""
 end
 
---- The hash that names `name`'s patched tree: `applier`, the source doing
---- the patching, then every file of the vendored tree, with its
---- permission bits, and every record, each by its path and contents.
-local function key_of(root: string, name: string, applier: string): string | nil, string
-  local lines: {string} = {}
-  local function add(label: string, data: string)
-    lines[#lines + 1] = label .. " " .. Hash.hex_sha256(data) .. "\n"
+--- Reads what `name`'s patched tree under `root` is made of: the records
+--- are every `.txt` in `patch/<name>/`, none when there is no such
+--- directory.
+local function read_inputs(root: string, name: string): Inputs | nil, string
+  local inputs: Inputs = { dirs = {}, files = {}, records = {} }
+  local read, trouble = read_dir(root .. "/vendor/" .. name, "", inputs)
+  if not read then
+    return nil, trouble
   end
-  add("applier", applier)
-  local vendor = root .. "/vendor/" .. name
-  local files, walk_trouble = Fs.walk(vendor)
-  if files == nil then
-    return nil, walk_trouble
+  local dir = root .. "/patch/" .. name
+  local present, present_trouble = Fs.exists(dir)
+  if present == nil then
+    return nil, present_trouble
   end
-  for _, file in ipairs(files) do
-    local data, read_trouble = Fs.read(vendor .. "/" .. file)
-    if data == nil then
-      return nil, read_trouble
+  if not present then
+    return inputs, ""
+  end
+  local names, list_trouble = Fs.list(dir)
+  if names == nil then
+    return nil, list_trouble
+  end
+  for _, entry in ipairs(names) do
+    if #entry > 4 and entry:sub(-4) == ".txt" then
+      local data, data_trouble = Fs.read(dir .. "/" .. entry)
+      if data == nil then
+        return nil, data_trouble
+      end
+      inputs.records[#inputs.records + 1] = {
+        path = "patch/" .. name .. "/" .. entry, mode = 0, data = data }
     end
-    local st, st_trouble = Fs.stat(vendor .. "/" .. file)
-    if st == nil then
-      return nil, st_trouble
+  end
+  return inputs, ""
+end
+
+--- Writes `inputs` into `out`, which must not exist, with the records
+--- applied. Modes are set outright, whatever the umask.
+local function write_tree(inputs: Inputs, out: string): boolean, string
+  local dirs: {string} = { out }
+  for _, dir in ipairs(inputs.dirs) do
+    dirs[#dirs + 1] = out .. "/" .. dir
+  end
+  for _, dir in ipairs(dirs) do
+    local made, trouble = Fs.mkdirs(dir)
+    if not made then
+      return false, trouble
     end
-    add("vendor/" .. file .. " " .. tostring(st.mode & 0x1ff), data)
-  end
-  local paths, records_trouble = records(root, name)
-  if paths == nil then
-    return nil, records_trouble
-  end
-  for _, path in ipairs(paths) do
-    local data, read_trouble = Fs.read(path)
-    if data == nil then
-      return nil, read_trouble
+    local moded, mode_trouble = Fs.chmod(dir, 0x1ed)
+    if not moded then
+      return false, mode_trouble
     end
-    add(path:sub(#root + 2), data)
   end
-  return Hash.hex_sha256(table.concat(lines)), ""
+  local contents: {string:string} = {}
+  local modes: {string:integer} = {}
+  for _, file in ipairs(inputs.files) do
+    contents[file.path] = file.data
+    modes[file.path] = file.mode
+  end
+  for _, input in ipairs(inputs.records) do
+    local parsed, parse_trouble = Patch.parse(input.data, input.path)
+    if parsed == nil then
+      return false, parse_trouble
+    end
+    local source = contents[parsed.file]
+    if source == nil then
+      return false, input.path .. ": no file " .. parsed.file .. " to patch"
+    end
+    local patched, apply_trouble = Patch.apply(source, parsed, input.path)
+    if patched == nil then
+      return false, apply_trouble
+    end
+    contents[parsed.file] = patched
+  end
+  for _, file in ipairs(inputs.files) do
+    local path = out .. "/" .. file.path
+    local written, write_trouble = Fs.write(path, contents[file.path], modes[file.path])
+    if not written then
+      return false, write_trouble
+    end
+    local moded, mode_trouble = Fs.chmod(path, modes[file.path])
+    if not moded then
+      return false, mode_trouble
+    end
+  end
+  return true, ""
+end
+
+--- Writes `vendor/<name>` under `root` into `out`, which must not exist,
+--- with its records applied.
+function Patch.tree(root: string, name: string, out: string): boolean, string
+  local inputs, trouble = read_inputs(root, name)
+  if inputs == nil then
+    return false, trouble
+  end
+  return write_tree(inputs, out)
+end
+
+--- The hash that names a patched tree: `applier`, the source doing the
+--- patching, then every directory and file of the vendored tree, each
+--- file with its permission bits, and every record, each by its path and
+--- contents.
+local function key_of(inputs: Inputs, applier: string): string
+  local lines: {string} = { "applier " .. Hash.hex_sha256(applier) .. "\n" }
+  for _, dir in ipairs(inputs.dirs) do
+    lines[#lines + 1] = "dir " .. dir .. "\n"
+  end
+  for _, file in ipairs(inputs.files) do
+    lines[#lines + 1] = "file " .. file.path .. " " .. tostring(file.mode) ..
+      " " .. Hash.hex_sha256(file.data) .. "\n"
+  end
+  for _, input in ipairs(inputs.records) do
+    lines[#lines + 1] = "record " .. input.path .. " " ..
+      Hash.hex_sha256(input.data) .. "\n"
+  end
+  return Hash.hex_sha256(table.concat(lines))
+end
+
+--- Removes every `<tree>.work.<pid>` under `cache` whose process is gone:
+--- what a build killed partway left behind. A live process's own is left
+--- alone.
+local function sweep(cache: string)
+  local names, _ = Fs.list(cache)
+  if names == nil then
+    return
+  end
+  for _, entry in ipairs(names) do
+    local pid = math.tointeger(tonumber(entry:match("%.work%.(%d+)$")))
+    if pid ~= nil and pid ~= sys.getpid() then
+      local _, _, number = sys.kill(pid, 0)
+      if number == sys.ESRCH then
+        local _, _ = Fs.remove_tree(cache .. "/" .. entry)
+      end
+    end
+  end
 end
 
 --- The directory under `cache` holding `name`'s patched tree, written
 --- there first when it is not yet.
+-- TODO: nothing removes a tree no build names any more, and each edit to
+-- a vendored tree, a record or this file leaves one behind (tens of MB
+-- for every tree at once); remove the ones older than the newest of each
+-- name, or those no manifest (o/patched.tsv) names, as zig leaves its
+-- own cache to be deleted whole.
+-- TODO: the files are not synced before the rename, so after a crash of
+-- the machine (not of this process) a directory at its final name can
+-- hold empty files and be trusted; sync each file and the directory
+-- once cosmic.fs can (an fsync binding).
 function Patch.prepare(root: string, name: string, cache: string,
                        applier: string): string | nil, string
-  local key, trouble = key_of(root, name, applier)
-  if key == nil then
+  local inputs, trouble = read_inputs(root, name)
+  if inputs == nil then
     return nil, trouble
   end
-  local dir = cache .. "/" .. name .. "-" .. key
+  local dir = cache .. "/" .. name .. "-" .. key_of(inputs, applier)
   local present, present_trouble = Fs.exists(dir)
   if present == nil then
     return nil, present_trouble
@@ -315,9 +386,10 @@ function Patch.prepare(root: string, name: string, cache: string,
   if not made then
     return nil, made_trouble
   end
+  sweep(cache)
   local scratch = dir .. ".work." .. tostring(sys.getpid())
   local _, _ = Fs.remove_tree(scratch)
-  local written, write_trouble = Patch.tree(root, name, scratch)
+  local written, write_trouble = write_tree(inputs, scratch)
   if not written then
     local _, _ = Fs.remove_tree(scratch)
     return nil, write_trouble
