@@ -228,7 +228,12 @@ function sql.query(db: Sqlite.Handle, statement: string): {string} | nil, string
     lines[1] = table.concat(cells, "\t")
   end
   -- TODO: write each row as it is stepped rather than holding them all
-  -- here; `run` prints them only once the statement is done.
+  -- here, once `open` takes the database without locks (its immutable=1
+  -- TODO): until then a statement holds a shared lock until it is
+  -- finalized, so a reader of stdout that stalls (`| less`) would hold
+  -- off every build's write for as long as it waits, and past SQLite's
+  -- busy timeout fail it. `run` prints the rows once the statement is
+  -- done.
   while true do
     local state, trouble = prepared:step()
     if state == nil then
