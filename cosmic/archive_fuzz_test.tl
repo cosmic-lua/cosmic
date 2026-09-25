@@ -112,6 +112,10 @@ local function links_under(dir: string, found: {string})
   end
 end
 
+-- TODO: only 5 inputs of 64 extract anything: with up to six entries
+-- of up to three parts each, nearly every archive holds a path extract
+-- refuses whole, so the writes containment is about are rarely made;
+-- drawing one hostile entry among well-formed ones would reach them.
 local function test_extraction_stays_inside_its_destination(tmp: string)
   local base = Fs.absolute(tmp) or tmp
   local case = base .. "/case"
@@ -119,6 +123,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
     name = "archive extraction contained",
     dir = tmp,
     gen = gen_extraction,
+    requires = { "built" },
     check = function(input: string): boolean, string
       Fs.remove_tree(case)
       local outside = case .. "/outside"
@@ -128,6 +133,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       local fields = Fuzz.unpack(input)
       local archive = build(fields, outside)
       if archive == nil then return true, "" end
+      Fuzz.label("built")
       local file = case .. "/archive"
       assert(Fs.write(file, archive))
       local strip: string | integer = nil
@@ -136,6 +142,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       -- mode but "create" as "skip".
       local mode: Archive.Links = fields[2] == "create" and "create" or "skip"
       local written = Archive.extract(file, dest, { links = mode, strip = strip, mtimes = false })
+      if written ~= nil and #written > 0 then Fuzz.label("extracted") end
       for _, rel in ipairs(written or {}) do
         if rel:sub(1, 1) == "/" or ("/" .. rel .. "/"):find("/../", 1, true) then
           return false, "reported writing " .. rel
@@ -183,6 +190,7 @@ local function test_opening_any_bytes_is_total(tmp: string)
   Fuzz.run({
     name = "archive open total",
     dir = tmp,
+    requires = { "listed" },
     gen = function(src: Fuzz.Source): string
       local magic = Fuzz.pick(src, { "", "\31\139", "\253" .. "7zXZ\0", "BZh9", "PK\3\4", "PK\5\6" })
       local body = Fuzz.bytes(src, 600)
@@ -201,6 +209,7 @@ local function test_opening_any_bytes_is_total(tmp: string)
       assert(Fs.write(file, input))
       local entries, trouble = Archive.list(file)
       if entries == nil and trouble == "" then return false, "list: nil without a reason" end
+      if entries ~= nil then Fuzz.label("listed") end
       local reader = Archive.open(file)
       if reader ~= nil then
         for _ = 1, 10000 do
@@ -208,7 +217,7 @@ local function test_opening_any_bytes_is_total(tmp: string)
           if e == nil then break end
           local entry: Archive.Entry = e
           local body = entry:open()
-          if body ~= nil then Stream.read_all(body) end
+          if body ~= nil and Stream.read_all(body) ~= nil then Fuzz.label("body read") end
         end
         reader:close()
       end

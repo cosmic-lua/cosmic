@@ -82,6 +82,7 @@ local function decode_holds(input: string): boolean, string
         { null_value = Json.null, json5 = json5, big_numbers_as_strings = big }, where)
       if not ok then return false, err end
       if err == "" then
+        Fuzz.label(json5 and "decoded as JSON5" or "decoded")
         local text, why = canonical(value, where)
         if text == nil then return false, why end
         if not json5 and not big then
@@ -122,6 +123,10 @@ local function deepest(opens: string, n: integer): integer
   return at
 end
 
+-- TODO: only 4 inputs of 64 decode: up to eight edits, or a soup of
+-- tokens, leave little that parses, so the walk into Lua values and the
+-- re-encoding checks run rarely; fewer edits on some draws, or tokens
+-- drawn from a grammar, would reach them.
 local function test_decode_is_total_on_mutated_json(tmp: string)
   Fuzz.run({ name = "json decode total", dir = tmp, gen = gen_text, check = decode_holds })
 end
@@ -221,6 +226,7 @@ local function encode_holds(input: string): boolean, string
   local value = recipe_value(r, 0, nil)
   local ok, text, err = pcall(Json.encode, value, opts)
   if not ok then return false, "raised: " .. tostring(text) end
+  Fuzz.label(text ~= nil and "encoded" or "refused")
   if text == nil then
     if not (err is string) or err == "" then return false, "a failure without a message" end
     if err:find(" at ", 1, true) and not err:find(" at %$") then
@@ -253,6 +259,7 @@ local function test_encode_is_total_and_round_trips(tmp: string)
     dir = tmp,
     gen = function(src: Fuzz.Source): string return Fuzz.bytes(src, 200) end,
     check = encode_holds,
+    requires = { "encoded", "refused" },
   })
 end
 

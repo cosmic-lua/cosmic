@@ -235,47 +235,12 @@ local function run(file: string, argv: {integer:string}): integer
 
   local built = teal.lazy()
 
-  -- A stale tool: this binary's source inputs no longer match what
-  -- it was booted from. Running on would compile the tree with a
-  -- checker the tree no longer agrees with and run tests against
-  -- old code. When only Teal moved, the tool rebuilds itself and
-  -- re-enters this same command line; when the C core moved, it has
-  -- zig boot it (`build.reboot`). Only the tree's own tool does either;
-  -- another refuses.
+  -- A stale tool refuses, or rebuilds itself or has zig boot the core
+  -- and re-enters this command line (`reboot.guard`).
   if own_tree then
-    local state, state_trouble = reboot.state(handle)
-    if state == nil then
-      local _, _ = work.close(handle)
-      complain("cosmic: " .. state_trouble)
-      return 1
-    end
-    if state ~= "fresh" then
-      local own, own_tool_trouble = reboot.own_tool(root)
-      if own == nil then
-        local _, _ = work.close(handle)
-        complain("cosmic: " .. own_tool_trouble)
-        return 1
-      end
-      if not own then
-        local _, _ = work.close(handle)
-        complain("cosmic: " .. reboot.foreign_refusal)
-        return 3
-      end
-    end
-    if state == "core" then
-      local _, _ = work.close(handle)
-      if not reboot.auto_boot() then
-        complain("cosmic: " .. reboot.core_refusal)
-        return 3
-      end
-      complain("cosmic: " .. reboot.boot_into(root, argv))
-      return 3
-    end
-    if state == "teal" then
-      complain("cosmic: the tool is stale; rebuilding it from the tree")
-      local reboot_trouble = reboot.into(handle, built, argv)
-      complain("cosmic: " .. reboot_trouble)
-      return 3
+    local code = reboot.guard(handle, root, argv)
+    if code ~= nil then
+      return code
     end
   end
 

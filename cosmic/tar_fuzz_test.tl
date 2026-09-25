@@ -72,12 +72,15 @@ local function walk(input: string): boolean, string
     local e, trouble = tr:next()
     if e == nil then
       if trouble == nil then return false, "next: nil without a reason" end
+      Fuzz.label(trouble == "" and "ended" or "refused")
       return true, ""
     end
+    Fuzz.label("entry")
     if e.size < 0 then return false, "an entry of negative size: " .. e.size end
     local body = e:open()
     if body ~= nil then
       local data = Stream.read_all(body)
+      if data ~= nil then Fuzz.label("body read") end
       if data ~= nil and e.kind == "file" and #data ~= e.size then
         return false, ("%s: read %d bytes of a body of %d"):format(e.path, #data, e.size)
       end
@@ -95,9 +98,14 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
       return Fuzz.mutate(src, archive, 8)
     end,
     check = walk,
+    requires = { "entry", "body read" },
   })
 end
 
+-- TODO: no input of 2000 gets past the first header, whose checksum
+-- random bytes never match, so this checks only that refusal; drawing
+-- header fields and writing their checksum would reach the field
+-- parsing behind it.
 local function test_the_reader_is_total_on_arbitrary_bytes(tmp: string)
   Fuzz.run({
     name = "tar reader total on bytes",
@@ -120,10 +128,12 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
     gen = function(src: Fuzz.Source): string
       return Fuzz.pack(gen_entries(src))
     end,
+    requires = { "written" },
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local archive = write(fields)
       if archive == nil then return true, "" end
+      Fuzz.label("written")
       local tr = Tar.reader(Stream.from_string(archive))
       for i = 1, #fields, 3 do
         local kind, path, body = fields[i], fields[i + 1], fields[i + 2]

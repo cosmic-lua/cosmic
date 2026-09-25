@@ -172,3 +172,112 @@ local function test_max_iters_caps_the_count_but_not_a_named_one()
   local named = Fuzz.run({ name = "named", iters = 9, max_iters = 5, gen = any_bytes, check = holds })
   assert(named == 9, "ran " .. named)
 end
+
+-- A corpus is checked before anything is drawn: an input kept there
+-- fails the run whatever the seed would draw, and one that holds is
+-- checked and passed over.
+local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
+  local corpus = tmp .. "/corpus"
+  assert(Fs.mkdirs(corpus))
+  assert(Fs.write(corpus .. "/a.input", "fine"))
+  assert(Fs.write(corpus .. "/README", "not an input!"))
+  local checked: {string} = {}
+  local function no_bang(input: string): boolean, string
+    checked[#checked + 1] = input
+    return input:find("!", 1, true) == nil, "a bang"
+  end
+  local n = Fuzz.run({ name = "corpus holds", corpus = corpus, iters = 3,
+    gen = function(_src: Fuzz.Source): string return "drawn" end, check = no_bang })
+  assert(n == 3 and checked[1] == "fine" and #checked == 4, ("%d checked"):format(#checked))
+  assert(Fs.write(corpus .. "/b.input", "bang!"))
+  local err = report({ name = "corpus fails", corpus = corpus, dir = tmp, iters = 3,
+    gen = function(_src: Fuzz.Source): string return "drawn" end, check = no_bang })
+  assert(Fs.read(tmp .. "/corpus-fails.input") == "bang!")
+  assert(err:find("fuzz corpus fails: corpus input " .. corpus .. "/b.input: a bang", 1, true), err)
+  assert(err:find("input (hex, 5 bytes): 62616e6721", 1, true), err)
+end
+
+-- A report says where to keep the shrunk input so it stays fixed: the
+-- property's corpus, under a name its bytes decide.
+local function test_a_report_says_how_to_keep_the_input(tmp: string)
+  local err = report({
+    name = "keep me",
+    dir = tmp,
+    iters = 50,
+    gen = any_bytes,
+    check = function(input: string): boolean, string
+      return input:find("\0", 1, true) == nil, "a NUL"
+    end,
+  })
+  assert(err:find("mkdir -p testdata/fuzz/keep-me && cp " .. tmp .. "/keep-me.input " ..
+    "testdata/fuzz/keep-me/6e340b9cffb37a98.input", 1, true), err)
+end
+
+-- Labels count what the drawn inputs reached; a required label no input
+-- reached fails the run, and one some input reached lets it pass. What
+-- is kept then held, so it is not left to be taken for a failure.
+local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
+  local function check(input: string): boolean, string
+    Fuzz.label("checked")
+    if #input > 1000 then Fuzz.label("long") end
+    return true, ""
+  end
+  local n = Fuzz.run({ name = "labelled", iters = 64, gen = any_bytes, check = check,
+    requires = { "checked" } })
+  assert(n == 64)
+  local err = report({ name = "never long", dir = tmp, iters = 64, gen = any_bytes, check = check,
+    requires = { "checked", "long" } })
+  assert(err == 'fuzz never long: seed=1: no input of 64 reached "long", which the ' ..
+    "property requires: its inputs do not exercise what it is meant to", err)
+  assert(not Fs.exists(tmp .. "/never-long.input"))
+end
+
+-- A count the property names itself is a whole run: `requires` holds of
+-- it however few inputs it draws. (Only FUZZ_ITERS below the default,
+-- what reproducing one failure asks for, lets it go.)
+local function test_a_named_count_holds_requires()
+  local err = report({ name = "short", iters = 3, gen = any_bytes,
+    check = function(_input: string): boolean, string return true, "" end,
+    requires = { "never" } })
+  assert(err:find('no input of 3 reached "never"', 1, true), err)
+end
+
+-- A check that runs a property of its own leaves the enclosing run's
+-- labels counting: the inner run's are its own.
+local function test_a_nested_run_keeps_the_enclosing_labels()
+  local n = Fuzz.run({ name = "outer", iters = 64, gen = any_bytes,
+    check = function(_input: string): boolean, string
+      Fuzz.run({ name = "inner", iters = 2, gen = any_bytes,
+        check = function(_i: string): boolean, string
+          Fuzz.label("inner")
+          return true, ""
+        end })
+      Fuzz.label("outer")
+      return true, ""
+    end,
+    requires = { "outer" } })
+  assert(n == 64)
+  local err = report({ name = "outer only", iters = 64, gen = any_bytes,
+    check = function(_input: string): boolean, string
+      Fuzz.run({ name = "inner", iters = 1, gen = any_bytes,
+        check = function(_i: string): boolean, string
+          Fuzz.label("inner")
+          return true, ""
+        end })
+      return true, ""
+    end,
+    requires = { "inner" } })
+  assert(err:find('reached "inner"', 1, true), err)
+end
+
+-- A label outside a run's drawn inputs -- in a replay, or no run at all
+-- -- counts nothing and does not raise.
+local function test_a_label_outside_a_run_does_nothing()
+  Fuzz.label("stray")
+  local held = Fuzz.replay({ name = "replayed", gen = any_bytes,
+    check = function(_input: string): boolean, string
+      Fuzz.label("stray")
+      return true, ""
+    end }, "x")
+  assert(held)
+end
