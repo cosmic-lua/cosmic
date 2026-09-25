@@ -293,11 +293,17 @@ end
 --- An error a program's main module does not catch ends it through the
 --- core's own report: the message, then the guidance the carried error
 --- catalog holds for the one it matches -- its symbol's doc comment,
---- carried with the row since the docs themselves are not.
+--- carried with the row since the docs themselves are not. Before it
+--- fails, the program reads a time zone from the copy it carries.
 local function test_an_uncaught_error_is_reported_with_its_guidance(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/boom"))
   assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
+local Time = require("cosmic.time")
+
 return function(): integer
+  -- The zones the program carries, read where the host has none.
+  local zone = assert(Time.zone("Asia/Kolkata", { directories = {} }))
+  print(Time.format_rfc3339(0, { zone = zone, zone_name = true }))
   error("coverage collection is already active", 0)
 end
 ]]))
@@ -305,6 +311,8 @@ end
   assert(names ~= nil and names[1] == "boom", trouble)
   local r = run_program(tmp .. "/o/bin/boom")
   assert(r.code == 1, "exit " .. tostring(r.code))
+  assert(r.stdout == "1970-01-01T05:30:00+05:30[Asia/Kolkata]\n",
+    "a program reads the zones it carries: " .. tostring(r.stdout))
   local err = assert(r.stderr)
   assert(err:find("cosmic: coverage collection is already active", 1, true),
     "the message is reported: " .. err)
