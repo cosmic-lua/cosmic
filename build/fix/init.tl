@@ -28,6 +28,7 @@
 --- `build.c` holds, where a finding is a file refused and is fixed by
 --- hand. A header is held to them through the files that include it.
 
+local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local c_check = require("build.c")
@@ -38,7 +39,7 @@ local clock = require("build.clock")
 local ast = require("build.ast")
 local equiv = require("build.fix.equiv")
 local near = require("build.fix.near")
-local positions = require("build.positions")
+local analyzer = require("build.analyzer")
 local reboot = require("build.reboot")
 local render_mod = require("build.fix.render")
 local rule = require("build.fix.rule")
@@ -285,10 +286,10 @@ function fix.notes(built: compiler, root: string, files: {string}): {string}
       local read, _ = Fs.read(file)
       source = read
     end
-    local found: positions.Analysis | nil = nil
+    local found: analyzer.Analysis | nil = nil
     if source ~= nil then
-      local analysis, _ = positions.analyze(built, source, file)
-      found = analysis
+      local analyzed, _ = analyzer.analyze(built, source, file)
+      found = analyzed
     end
     if found ~= nil and relative ~= nil then
       local module = relative:gsub("%.tl$", ""):gsub("/init$", ""):gsub("/", ".")
@@ -313,7 +314,7 @@ end
 --- @return integer The exit code: 0 when nothing is left to fix
 function fix.run(argv: {integer:string}): integer
   local started = Time.monotonic_ns()
-  local parsed, parse_trouble = Flags.parse(argv, 2, { ["--check"] = false })
+  local parsed, parse_trouble = Flags.parse(argv, 2, Cli.options.fix)
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2

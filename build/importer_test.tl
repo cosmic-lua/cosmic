@@ -262,7 +262,7 @@ end
 local function boot_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.fingerprint(handle))
+  local fingerprint = assert(work.record_fingerprint(handle))
   work.close(handle)
   return fingerprint.boot
 end
@@ -271,7 +271,7 @@ end
 local function image_hash_of(root: string): string
   local handle = assert(work.open(root))
   assert(work.stage(handle, true))
-  local fingerprint = assert(work.fingerprint(handle))
+  local fingerprint = assert(work.record_fingerprint(handle))
   work.close(handle)
   return fingerprint.image
 end
@@ -311,7 +311,7 @@ local function test_compiler_identity_follows_the_compiler_not_the_stdlib()
   local function identities(): {string}
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
-    local found = assert(work.identities(handle))
+    local found = assert(work.record_identities(handle))
     work.close(handle)
     return { found.compiler, found.runtime_basis }
   end
@@ -591,7 +591,7 @@ local function test_compiler_identity_is_the_same_on_a_fresh_database()
     local handle = assert(work.open(root))
     assert(work.stage(handle, true))
     assert(importer.derive(handle, true, built))
-    local found = assert(work.identities(handle))
+    local found = assert(work.record_identities(handle))
     work.close(handle)
     return found.compiler
   end
@@ -1022,13 +1022,17 @@ end
 --- types over the core, not analysis.
 local function test_the_analyzer_modules_are_closed_under_require()
   local ast = require("build.ast")
-  local analyzer = assert(importer.analyzer_modules())
+  local modules = assert(importer.analyzer_modules())
   local listed: {string:boolean} = {}
-  for _, name in ipairs(analyzer) do listed[name] = true end
+  for _, name in ipairs(modules) do listed[name] = true end
   assert(listed["build.importer"] and listed["build.ast.match"] and
-    listed["cosmic.fs"], table.concat(analyzer, ", "))
+    listed["cosmic.string"], table.concat(modules, ", "))
   assert(not listed["build.test"] and not listed["build.receivers"],
-    table.concat(analyzer, ", "))
+    table.concat(modules, ", "))
+  -- The source analyzer is in the set; the privacy-by-position check,
+  -- which only the importer calls, is not.
+  assert(listed["build.analyzer"] and not listed["build.positions"],
+    table.concat(modules, ", "))
   local function file_of(name: string): string
     local base = name:gsub("%.", "/")
     for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl", base .. ".d.tl" }) do
@@ -1037,7 +1041,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     return nil
   end
   local missing: {string} = {}
-  for _, name in ipairs(analyzer) do
+  for _, name in ipairs(modules) do
     local file = file_of(name)
     assert(file ~= nil, name .. " is listed but is no module of the tree's")
     assert(Store.source(name) ~= nil, name .. " has no source in the running binary, " ..

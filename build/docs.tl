@@ -9,6 +9,7 @@
 --- its qualifier offers, and a search ranks first the functions whose
 --- documentation names its first word as what they stand in for.
 
+local Cli = require("cosmic.cli")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -774,6 +775,18 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
   end
   for line in (entry.text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
+  end
+  -- A verb's options are data, `Cli.options`, not prose: shown under
+  -- its field as `cosmic help` shows them.
+  -- TODO: index each option's `about` with its verb's field, so
+  -- `cosmic docs <words>` finds a verb by what one of its options does;
+  -- the search reads doc comments only, and these are not one.
+  local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
+  if verb ~= nil and Cli.options[verb] ~= nil then
+    lines[#lines + 1] = "  options:"
+    for line in (Flags.options(Cli.options[verb]) .. "\n"):gmatch("(.-)\n") do
+      lines[#lines + 1] = "  " .. line
+    end
   end
   if entry.symbol == "" then
     local declared, declared_trouble = across(view,

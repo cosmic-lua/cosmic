@@ -33,7 +33,8 @@ file run gets none.
 ## help for one verb
 
 `cosmic help` prints every verb. `cosmic help <verb>` prints only that
-verb's line, then a verdict line.
+verb's line and its options, then a verdict line; `--help` or `-h`
+anywhere on a verb's line, before a `--`, does the same.
 
 ```teal
 local Child = require("cosmic.child")

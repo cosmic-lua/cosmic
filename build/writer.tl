@@ -67,7 +67,7 @@ local insert_imports =
   "JOIN requires r ON r.source_hash = i.source_hash " ..
   "WHERE r.name IN (SELECT path FROM plan) ORDER BY p.path, r.ordinal"
 
---- The documented symbols `build.positions.docs_of` found while parsing
+--- The documented symbols (`build.analyzer.DocEntry`) found while parsing
 --- each planned module and each declaration -- `cosmic.sys`'s only
 --- source is the C header it is generated from -- in module order and
 --- then source order. Which of them a reader sees is `build.docs`'s
@@ -83,7 +83,7 @@ local insert_docs =
   "JOIN inputs i ON i.path = m.path " ..
   "JOIN docs d ON d.source_hash = i.source_hash ORDER BY m.path, d.ordinal"
 
---- The uses `build.positions.references_of` found: each
+--- The uses (`build.analyzer.Reference`) found: each
 --- `alias.member` resolved against the module the alias names, as the
 --- canonical member path. Targets need not be in this build plan: bundled and
 --- external definitions are selected from the effective database view later.
@@ -106,7 +106,7 @@ local insert_typed_uses =
   "JOIN typed_refs r ON r.key = p.key " ..
   "ORDER BY r.module, r.member, p.path, r.line"
 
---- The worked examples `build.positions.examples_of` found: a
+--- The worked examples (`build.analyzer.ExampleEntry`) found: a
 --- `<module>_example.tl`'s own `function Example.<name>()`, shipped
 --- against the module its file name pairs with (the `_example` suffix
 --- stripped), which is a planned module or a declaration, as
@@ -130,7 +130,7 @@ local insert_examples =
   "WHERE t.path IN (SELECT path FROM plan) OR t.kind = 'decl' " ..
   "ORDER BY t.path, e.line"
 
---- The catalog entries `build.positions.catalog_of` found while parsing
+--- The catalog entries (`build.analyzer.CatalogEntry`) found while parsing
 --- each planned module: every literal `return nil, ...` under a
 --- top-level function. The guidance a match prints is that function's
 --- own documentation, joined from `docs` at lookup, so `text` is left
@@ -275,7 +275,7 @@ function writer.write_result(handle: work.Handle, out: string,
   if not committed then
     return false, commit_trouble
   end
-  local identities, identity_trouble = work.identities(handle)
+  local identities, identity_trouble = work.record_identities(handle)
   if identities == nil then
     return false, identity_trouble
   end
