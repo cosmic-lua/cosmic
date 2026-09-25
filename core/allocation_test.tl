@@ -60,6 +60,20 @@ local function sqlite_table(): raw_sqlite
   error("cosmic.sqlite is handed no raw table")
 end
 
+local type raw_observations = require("cosmic.internal.observations")
+
+--- The raw tables the store's searcher hands
+--- `build.filesystem_observations`' loader.
+local function observations_table(): raw_observations
+  for _, searcher in ipairs(package.searchers as {Searcher}) do -- cast: searchers' loaders take an extra
+    local loader, extra = searcher("build.filesystem_observations")
+    if type(loader) == "function" and type(extra) == "table" then
+      return extra as raw_observations -- cast: the table core/store.c's open_observations makes
+    end
+  end
+  error("build.filesystem_observations is handed no raw table")
+end
+
 local checked = testing.configuration == "sanitized"
 
 --- Runs `work` once per allocation it makes, refusing that allocation,
@@ -335,6 +349,70 @@ local function test_observing_sqlite_leaves_nothing_whenever_an_allocation_fails
   end)
   assert(ended > 0, "observing allocates")
   assert_c_heap(bytes, blocks, "observing SQLite's files under refusal")
+end
+
+--- What the syscall table's queries answer while observed is kept on
+--- the C heap until drained: a record refused fails the call as memory
+--- does, rather than let it answer what no record keeps; a drain refused
+--- keeps every record; and nothing is left once drained.
+local function test_observing_the_syscall_table_leaves_nothing_whenever_an_allocation_fails(
+    tmp: string)
+  if not checked then return end
+  local raw = observations_table().syscalls
+  local link = tmp .. "/link"
+  assert(sys.symlink("target", link))
+  local enomem = 0
+  for number = 1, 255 do
+    if sys.errno_name(number) == "ENOMEM" then enomem = number end
+  end
+  assert(enomem > 0, "no errno is named ENOMEM")
+  raw.observed()
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  -- Made outside the work, which a refusal ends wherever it is, and
+  -- only set there, which allocates nothing: which calls answered,
+  -- which the log kept, and what went wrong.
+  local answered: {string:boolean} = { lstat = false, readlink = false }
+  local recorded: {string:boolean} = { lstat = false, readlink = false }
+  local broken: string = nil
+  -- A numeric loop, which calls nothing: a call can itself allocate
+  -- (a frame, more stack), and a refusal there, after a drain, would
+  -- lose what the drain handed over.
+  local function kept(calls: {raw_observations.Call})
+    for i = 1, #calls do
+      if calls[i].path == link then recorded[calls[i].call] = true end
+    end
+  end
+  local ended = under_every_failure(function()
+    for call in pairs(answered) do
+      answered[call] = false
+      recorded[call] = false
+    end
+    raw.observe(true)
+    local st, _, stat_number = sys.lstat(link)
+    local target, _, target_number = sys.readlink(link)
+    raw.observe(false)
+    if st ~= nil then answered.lstat = true elseif stat_number ~= enomem then
+      broken = "lstat failed other than as memory does"
+    end
+    if target ~= nil then answered.readlink = true elseif target_number ~= enomem then
+      broken = "readlink failed other than as memory does"
+    end
+    local drained = raw.observed()
+    for i = 1, #drained do
+      if drained[i].path == link then recorded[drained[i].call] = true end
+    end
+    assert(st ~= nil and st.kind == "link" and target == "target")
+  end, function()
+    raw.observe(false)
+    kept(raw.observed())
+    for call, answer in pairs(answered) do
+      if answer and not recorded[call] then broken = call .. " answered what no record kept" end
+    end
+  end)
+  assert(broken == nil, broken)
+  assert(ended > 0, "observing allocates")
+  assert_c_heap(bytes, blocks, "observing the syscall table under refusal")
 end
 
 --- The C heap counts what the core's C allocates and frees, and a

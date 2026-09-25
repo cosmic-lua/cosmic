@@ -563,3 +563,109 @@ local function test_an_unveiled_sandbox_is_read_as_the_core_reads_it(tmp: string
     notes:find("x /bin/sh\n", 1, true), notes)
   assert(not notes:find("u //proc", 1, true), notes)
 end
+
+--- The observation of `kind` of `path` in `found`, or nil.
+local function noted(found: {observations.Observation}, kind: string,
+                     path: string): observations.Observation | nil
+  for _, observation in ipairs(found) do
+    if observation.kind == kind and observation.path == path then return observation end
+  end
+  return nil
+end
+
+--- `lstat`, `readlink`, `realpath`, `getcwd` and `executable` are
+--- logged at the syscall table's dispatch, whoever calls them: a
+--- reference taken before the capture began is observed too, each call
+--- noted with what it answered, and none once the capture ends.
+local function test_a_query_of_the_syscall_table_is_noted_whoever_made_it(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  assert(Fs.write(real .. "/f", "x"))
+  assert(Fs.symlink("f", real .. "/link"))
+  local lstat, readlink, realpath = sys.lstat, sys.readlink, sys.realpath
+  local getcwd, executable = sys.getcwd, sys.executable
+  local c = observations.capture(function()
+    assert(lstat(real .. "/link"))
+    assert(readlink(real .. "/link") == "f")
+    assert(realpath(real .. "/link") == real .. "/f")
+    local missing, _ = lstat(real .. "/missing")
+    assert(missing == nil)
+    assert(getcwd())
+    assert(executable())
+  end)
+  assert(c.ok, tostring(c.produced))
+  local function answer(kind: string, path: string): string
+    local found = noted(c.reads, kind, path)
+    assert(found ~= nil, kind .. " " .. path .. " is not noted")
+    return found.answer
+  end
+  assert(answer("l", real .. "/link") == observations.lstat_answer(real .. "/link"))
+  assert(answer("l", real .. "/link"):find(" link ", 1, true), answer("l", real .. "/link"))
+  assert(answer("l", real .. "/missing") == observations.lstat_answer(real .. "/missing"))
+  assert(answer("l", real .. "/missing"):sub(1, 6) == "error ")
+  assert(answer("k", real .. "/link") == "ok f")
+  assert(answer("k", real .. "/link") == observations.readlink_answer(real .. "/link"))
+  assert(answer("a", real .. "/link") == "ok " .. real .. "/f")
+  assert(answer("a", real .. "/link") == observations.realpath_answer(real .. "/link"))
+  -- The working directory is keyed as the run started in it, whatever
+  -- it answered.
+  assert(answer("c", "") == "")
+  assert(answer("b", "") == observations.executable_answer())
+  assert(lstat(real .. "/f"))
+  local after = observations.capture(function() end)
+  assert(noted(after.reads, "l", real .. "/f") == nil)
+end
+
+--- A logged query's relative path is noted as the absolute one it names
+--- from the working directory the call was made in, and a query is noted
+--- by every capture running when it was made: one made before an inner
+--- capture began by the outer one alone.
+local function test_a_logged_query_is_noted_by_every_capture_running(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  local here = assert(sys.getcwd())
+  local inner: observations.Captured
+  local outer = observations.capture(function()
+    local _ = sys.lstat(real .. "/before")
+    assert(sys.chdir(real))
+    inner = observations.capture(function()
+      local _ = sys.readlink("relative")
+    end)
+    assert(sys.chdir(here))
+  end)
+  assert(outer.ok, tostring(outer.produced))
+  assert(inner.ok, tostring(inner.produced))
+  assert(noted(outer.reads, "l", real .. "/before") ~= nil)
+  assert(noted(inner.reads, "l", real .. "/before") == nil)
+  assert(noted(inner.reads, "k", real .. "/relative") ~= nil)
+  assert(noted(outer.reads, "k", real .. "/relative") ~= nil)
+end
+
+--- Given the test's own directory, a realpath or an lstat of a path in
+--- it is resolved as a stat of one is, but an lstat only as far as its
+--- last name: of a link there, it is the test's own, and through one
+--- that leads out, it reads where the link leads.
+local function test_a_query_of_the_tests_own_directory_is_judged_by_where_it_leads(tmp: string)
+  local real = assert(sys.realpath(tmp))
+  assert(Fs.write(real .. "/f", "x"))
+  assert(Fs.symlink("/", real .. "/out"))
+  local resolving: observations.Resolving = { tree = real .. "/tree", own = { tmp, real } }
+  local own = observations.call(function()
+    assert(sys.realpath(tmp .. "/f"))
+    local _ = sys.realpath(tmp .. "/missing")
+    assert(sys.lstat(tmp .. "/out"))
+  end, nil, resolving)
+  assert(own.passed, own.message)
+  assert(noted(own.reads, "a", tmp .. "/f") ~= nil)
+  for _, observation in ipairs(own.reads) do
+    assert(observation.kind ~= "x" and observation.kind ~= "t",
+      observation.kind .. " " .. observation.path)
+  end
+  local out = observations.call(function()
+    assert(sys.realpath(tmp .. "/out"))
+    local _ = sys.lstat(tmp .. "/out/etc")
+  end, nil, resolving)
+  assert(out.passed, out.message)
+  local link = assert(noted(out.reads, "t", tmp .. "/out"))
+  assert(link.answer == "/", link.answer)
+  local through = assert(noted(out.reads, "t", tmp .. "/out/etc"))
+  assert(through.answer == "/etc", through.answer)
+end

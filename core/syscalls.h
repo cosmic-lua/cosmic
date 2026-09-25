@@ -47,6 +47,12 @@ const char *cosmic_path (lua_State *L, int index);
 /* Opens the table as the `cosmic.sys` module. */
 int cosmic_open_syscalls (lua_State *L);
 
+/* Opens the table build.filesystem_observations reads the table's
+ * calls through: `observe` turns on or off the log of what a few of
+ * them answer, whoever calls them, `observed` drains it, and the calls
+ * it asks for itself are there as themselves, logging nothing. */
+int cosmic_open_observed (lua_State *L);
+
 #endif
 
 /*

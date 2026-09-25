@@ -566,7 +566,7 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   local paths: {string} = {}
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    local keyed = kind == "e" or kind == "u"
+    local keyed = kind == "e" or kind == "u" or kind == "c" or kind == "b"
     if kind == "r" then
       local real = resolutions[observation.path]
       keyed = real ~= "" and Fs.within(real, root)
@@ -582,7 +582,8 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         if before ~= nil and before ~= observation.answer then stable = false end
         answers[identified] = observation.answer
       end
-    elseif kind == "o" or kind == "s" or kind == "d" then
+    elseif kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+        kind == "a" then
       local relative = under_root(root, observation.path, resolutions)
       if relative ~= nil and working_database(relative) then stable = false end
       local identified = kind .. " " .. (relative or "")
@@ -618,9 +619,12 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- (an "r" observation), which generation 5 never let stand.
   -- Generation 7 names nothing of where the tree is (see above), so
   -- every checkout of one tree computes the same key.
+  -- Generation 8 keys what the syscall table's queries answered -- an
+  -- lstat, a readlink, a realpath, the working directory, the program's
+  -- own path -- which generation 7 never observed.
   local header = observations.key_part("i", id, observations.key_part("m", module_key, runtime))
-  local lines: {string} = { "recording-7", "module-load-reads-v1", header }
-  local shared_lines: {string} = { "shared-recording-1", "module-load-reads-v1", header }
+  local lines: {string} = { "recording-8", "module-load-reads-v1", header }
+  local shared_lines: {string} = { "shared-recording-2", "module-load-reads-v1", header }
   for _, identified in ipairs(paths) do
     local kind, relative = identified:match("^(.) (.*)$")
     local current: string
@@ -655,6 +659,16 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
       end
     elseif kind == "s" then
       current = observations.stat_answer(root .. "/" .. relative)
+    elseif kind == "l" then
+      current = observations.lstat_answer(root .. "/" .. relative)
+    elseif kind == "k" then
+      current = observations.readlink_answer(root .. "/" .. relative)
+    elseif kind == "a" then
+      current = observations.realpath_answer(root .. "/" .. relative)
+    elseif kind == "c" then
+      current = observations.cwd_answer()
+    elseif kind == "b" then
+      current = observations.executable_answer()
     else
       current = observations.directory_answer(root .. "/" .. relative)
     end
@@ -672,13 +686,19 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
         key_parts[memo_held] = held
       end
       answer = held
-    elseif kind == "s" and output(relative) then
+    elseif (kind == "s" or kind == "l") and output(relative) then
       -- When the build last wrote a file is its own, not the tree's:
       -- held as the shared key holds it here too, lest a test that
       -- stats o/cosmic.db run again after every edit rewrites it.
       answer = held_stat(answer)
-    elseif kind == "s" then
+    elseif kind == "s" or kind == "l" then
       shared_answer = held_stat(answer)
+    elseif kind == "k" or kind == "a" or kind == "c" or kind == "b" then
+      -- A path a query answered names where the tree is: whole in the
+      -- checkout's own key, and by `tree_name` in the shared one, as
+      -- every checkout of the tree answers alike.
+      local value = answer:match("^ok (.*)$")
+      if value ~= nil then shared_answer = "ok " .. observations.tree_name(value, root) end
     elseif kind == "r" then
       answer = observations.tree_name(answer, root)
     elseif kind == "u" then
@@ -766,8 +786,8 @@ function test.keyable(root: string, scratch: string,
   end
   for _, observation in ipairs(reads) do
     local kind = observation.kind
-    if (kind == "o" or kind == "s" or kind == "d") and
-        not constant_devices[observation.path] and not own_process(observation.path) then
+    if (kind == "o" or kind == "s" or kind == "d" or kind == "l" or kind == "k" or
+        kind == "a") and not constant_devices[observation.path] and not own_process(observation.path) then
       local path = observation.path
       local real = resolutions[path]
       if real == "" or (real == nil and climbs(path)) then return false end

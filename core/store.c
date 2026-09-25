@@ -136,14 +136,18 @@ static int raw_value (lua_State *L, const char *name) {
 }
 
 /* `build.filesystem_observations`' raw value: the process table, whose
- * `spawn` it stands in for to note each child a test starts, and
- * SQLite's, whose record of the files SQLite opens it drains. Both are
+ * `spawn` it stands in for to note each child a test starts; SQLite's,
+ * whose record of the files SQLite opens it drains; and the syscall
+ * table's log of what its queries answered (core/syscalls.c's
+ * `cosmic_open_observed`), which it drains too. The first two are
  * registered by entries above its own in `raw_modules`, which
  * `cosmic_store_open_raw` opens in order. */
 static int open_observations (lua_State *L) {
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 3);
   if (raw_value(L, "cosmic.internal.process")) lua_setfield(L, -2, "process");
   if (raw_value(L, "cosmic.internal.sqlite")) lua_setfield(L, -2, "sqlite");
+  cosmic_open_observed(L);
+  lua_setfield(L, -2, "syscalls");
   return 1;
 }
 
