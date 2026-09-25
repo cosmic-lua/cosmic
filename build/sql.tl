@@ -33,8 +33,8 @@ local verdicts = require("build.verdict")
 local log = verdicts.log
 
 --- The `cosmic sql` verb: `run` is what `build/dispatch.tl` calls;
---- `options_given`, `source`, `open` and `query` are its steps, each
---- testable on its own.
+--- `source`, `open` and `query` are its steps, each testable on its
+--- own.
 local record sql
   --- Where a statement runs.
   record Source
@@ -67,33 +67,15 @@ end
 --- one may be given.
 local spec: {string:boolean} = { ["--db"] = true, ["--build"] = false, ["--store"] = false }
 
---- The options among `argv` from slot 2 up to a "--", each as often as
---- it was given: `Flags.parse` keeps only the last of a repeated one,
---- and a repeat here is refused rather than read as the last.
-function sql.options_given(argv: {integer:string}): {string}
-  local given: {string} = {}
-  local slot = 2
-  while argv[slot] ~= nil and argv[slot] ~= "--" do
-    local word = argv[slot]
-    local name = word:match("^(%-%-[^=]+)=") or word
-    if spec[name] ~= nil then
-      given[#given + 1] = name
-    end
-    slot = slot + 1
-  end
-  return given
-end
-
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (o/build.db), `--store` (the
 --- binary's own database), or, with none of them, the project's own
 --- o/cosmic.db when there is one and the binary's own otherwise. Nil
---- and why when `given` -- the options as `sql.options_given` counts them
---- -- names more than one, or `--db` names the empty path.
-function sql.source(root: string, parsed: Flags.Parsed,
-    given: {string}): sql.Source | nil, string
-  if #given > 1 then
-    return nil, "name one database, not " .. table.concat(given, " and ")
+--- and why when the line gives more than one of them, or one of them
+--- twice, or `--db` names the empty path.
+function sql.source(root: string, parsed: Flags.Parsed): sql.Source | nil, string
+  if #parsed.given > 1 then
+    return nil, "name one database, not " .. table.concat(parsed.given, " and ")
   end
   local chosen = parsed.values["--db"]
   if chosen ~= nil then
@@ -296,7 +278,7 @@ function sql.run(argv: {integer:string}, root?: string, output?: sql.Output): in
     end
     root = here
   end
-  local source, source_trouble = sql.source(root, parsed, sql.options_given(argv))
+  local source, source_trouble = sql.source(root, parsed)
   if source == nil then
     complain(source_trouble .. "; " .. usage)
     verdict(false, "usage: see `cosmic help sql`")
