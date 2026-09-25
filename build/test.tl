@@ -80,6 +80,7 @@ local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
 local importer = require("build.importer")
 local reboot = require("build.reboot")
+local schema = require("build.schema")
 local teal = require("build.teal")
 local tree = require("build.tree")
 local work = require("build.work")
@@ -565,10 +566,10 @@ function test.verdict_key(root: string, hashes: {string:string}, id: string,
   -- change. Generation 1 runners could commit a verdict without its coverage
   -- after an infrastructure error, so none of their verdicts can stand.
   -- Generation 2 framed this header as a raw `id .. " " .. module_key .. " "
-  -- .. runtime`: every caller today only ever passes a fixed-width hex
-  -- digest for module_key and runtime, so no real collision was reachable,
-  -- but nothing enforced that, and `id` (a test's own "path name") already
-  -- carries a raw space of its own. Framed instead through the same
+  -- .. runtime`: nothing kept a raw space out of any of them -- `id` (a
+  -- test's own "path name") carries one, and `runtime` is the runtime
+  -- identity and the digest of the binary's data tables joined by
+  -- " tables " (`test.run`). Framed instead through the same
   -- `key_part` hex-encoding every read line already uses, so two distinct
   -- (id, module_key, runtime) triples can never concatenate to the same
   -- string regardless of what future caller or identity format hands them.
@@ -1124,6 +1125,23 @@ local record Job
   handle: Child.Handle
   started_ns: integer
   deadline_ns: integer
+end
+
+--- The digest of the zones and CA roots the running binary's own
+--- database carries (`schema.tables_digest`), searched alone so no
+--- attached database stands in for it.
+local function binary_tables(): string | nil, string
+  local rows: {{string}} = nil
+  local trouble = "the running binary has no database"
+  Store.alone(function()
+    local databases = Store.databases()
+    local binary = databases[#databases]
+    if binary ~= nil then
+      rows, trouble = Sqlite.text_rows(binary, schema.tables_digest(""))
+    end
+  end)
+  if rows == nil then return nil, trouble end
+  return rows[1][1], ""
 end
 
 --- Everything a finished job's verdict is recorded into.
@@ -1868,19 +1886,21 @@ function test.run(argv: {integer:string}): integer
     return 1
   end
   -- Every verdict is keyed on the data tables the binary carries too
-  -- (`schema.record_tables`): `cosmic refresh` replaces its zones and
+  -- (`schema.tables_digest`): `cosmic refresh` replaces its zones and
   -- roots without moving its runtime identity, and a test that read one
   -- could fail on the refreshed binary. Every test, not only one that
   -- read a table: that read goes through `Store`'s own connection, which
   -- no observation sees, and a refresh is rare enough that running
-  -- everything once after one costs little. Read from the binary's own
-  -- database alone, since a projection's `meta` names the tables of the
-  -- binary that wrote it. One carrying no digest (written before there
-  -- was one) keys on none.
-  local tables = ""
-  Store.alone(function()
-    tables = Store.meta("tables") or ""
-  end)
+  -- everything once after one costs little. Computed here from the
+  -- binary's own rows rather than taken from anything it records of
+  -- them, which a refresh or a writer that did not know to update it
+  -- would leave stale.
+  local tables, tables_trouble = binary_tables()
+  if tables == nil then
+    local _, _ = work.close(handle)
+    log:complain("the running binary's data tables: " .. tables_trouble)
+    return 1
+  end
   local runtime = identity .. " tables " .. tables
   local database = root .. "/o/cosmic.db"
 

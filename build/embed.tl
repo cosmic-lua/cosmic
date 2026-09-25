@@ -268,10 +268,6 @@ function embed.database(project: string, main: string): string | nil, string
         return false, failure
       end
     end
-    local recorded, record_trouble = out:exec(schema.record_tables(""))
-    if not recorded then
-      return false, record_trouble
-    end
     local meta: {{string}} = {
       { "compiler", Store.meta("compiler") or "" },
       { "runtime_basis", basis },

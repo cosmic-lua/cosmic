@@ -286,11 +286,6 @@ local function project(handle: work.Handle, path: string,
         return false, trust_trouble
       end
     end
-    -- After the roots, which only this tree fills.
-    local recorded, record_trouble = db:exec(schema.record_tables("out."))
-    if not recorded then
-      return false, record_trouble
-    end
     local carried_main, main_trouble = Sqlite.run(db,
       "INSERT INTO out.meta (key, value) VALUES ('main', ?1)",
       { text(result.main or "") })
