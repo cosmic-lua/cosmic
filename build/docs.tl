@@ -641,10 +641,67 @@ local function lookup(entries: {docs.Entry}, exact: boolean, count: integer): do
   return out
 end
 
+--- `written` as FTS5's default tokenizer reads it, closely enough for a
+--- match: lowercased, each run of anything but letters and digits (`_`
+--- among them) one space, and a space at each end, so a phrase is found
+--- as " phrase " and never inside a longer word.
+local function tokens_of(written: string): string
+  local spaced = written:lower():gsub("[^%w]+", " ")
+  return " " .. spaced:match("^%s*(.-)%s*$") .. " "
+end
+
+--- The verbs whose symbol, prose and options together carry every word
+--- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
+--- and a verb's options are data (`Cli.options`), so what one does is
+--- matched here instead, against the options of the binary answering,
+--- as `render` shows them. Each word is a phrase, as `fts_query` quotes
+--- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
+--- come after what the index found, as the lesser match: most of what a
+--- verb's options say is said again, closer, by the code they drive. A
+--- verb `found` already holds is not repeated.
+local function by_options(view: docs.View, query: string,
+                          found: {docs.Entry}): {docs.Entry} | nil, string
+  local wanted: {string} = {}
+  for quoted in (fts_query(query) .. " "):gmatch('"([^"]*)" ') do
+    local phrase = tokens_of(quoted)
+    if phrase ~= "  " then wanted[#wanted + 1] = phrase end
+  end
+  if #wanted == 0 then
+    return {}
+  end
+  local names: {string} = {}
+  for verb in pairs(Cli.options) do names[#names + 1] = "Cli." .. verb end
+  table.sort(names)
+  local fields, trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
+      return named_all(db, public, names)
+    end, entry_module)
+  if fields == nil then
+    return nil, trouble
+  end
+  local held: {string:boolean} = {}
+  for _, entry in ipairs(found) do held[entry.module .. "\n" .. entry.symbol] = true end
+  local out: {docs.Entry} = {}
+  for _, entry in ipairs(fields) do
+    local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
+    if verb ~= nil and not held[entry.module .. "\n" .. entry.symbol] then
+      local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
+        entry.text .. "\n" .. Flags.options(Cli.options[verb]))
+      local all = true
+      for _, phrase in ipairs(wanted) do
+        if not spoken:find(phrase, 1, true) then all = false end
+      end
+      if all then out[#out + 1] = entry end
+    end
+  end
+  return out, ""
+end
+
 --- What `query` names, across `databases`: its exact matches when it
 --- names a symbol or a module; for a qualified name that names nothing,
 --- what its qualifier offers (see `scoped`); otherwise the
---- documentation that carries all its words.
+--- documentation that carries all its words, and the verbs whose
+--- options do (see `by_options`).
 function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
   local exact, exact_trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {docs.Entry} | nil, string
@@ -702,6 +759,11 @@ function docs.lookup(view: docs.View, query: string): docs.Lookup | nil, string
       return nil, search_trouble
     end
     found = searched_found
+    local verbs, verbs_trouble = by_options(view, query, found)
+    if verbs == nil then
+      return nil, verbs_trouble
+    end
+    for _, entry in ipairs(verbs) do found[#found + 1] = entry end
   end
   local counted, count_trouble = effective_counts(view, found)
   if not counted then
@@ -859,10 +921,8 @@ function docs.render(view: docs.View, entry: docs.Entry): {string} | nil, string
     lines[#lines + 1] = #line > 0 and "  " .. line or ""
   end
   -- A verb's options are data, `Cli.options`, not prose: shown under
-  -- its field as `cosmic help` shows them.
-  -- TODO: index each option's `about` with its verb's field, so
-  -- `cosmic docs <words>` finds a verb by what one of its options does;
-  -- the search reads doc comments only, and these are not one.
+  -- its field as `cosmic help` shows them, and searched by
+  -- `by_options`.
   local verb = entry.module == "cosmic.cli" and entry.symbol:match("^Cli%.(%w+)$") or nil
   if verb ~= nil and Cli.options[verb] ~= nil then
     lines[#lines + 1] = "  options:"

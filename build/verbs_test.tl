@@ -262,6 +262,22 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   assert(index:find("\ncosmic.fs  ", 1, true), index)
   local docs = expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout or ""
   assert(docs:find("\n  options:\n    --jobs <n> ", 1, true), docs)
+  -- And a search finds a verb by what one of its options does, though
+  -- no doc comment says it: "launcher" is only in `build --host`'s.
+  local found = expect(tmp, "docs", { "docs", "native", "launcher" }, 0).stdout or ""
+  assert(found:find("Cli.build", 1, true), found)
+  -- Its words may be split between the prose and the options.
+  local split = expect(tmp, "docs", { "docs", "timeout", "processor" }, 0).stdout or ""
+  assert(split:find("Cli.test", 1, true), split)
+  -- A word joined by "_" is those words in a row, as FTS5 reads it, and
+  -- the verb's own name counts, as it does in the index.
+  local joined = expect(tmp, "docs", { "docs", "COSMIC_TEST_TIMEOUT" }, 0).stdout or ""
+  assert(joined:find("Cli.test", 1, true), joined)
+  local named = expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout or ""
+  assert(named:find("Cli.build", 1, true), named)
+  -- A word neither holds finds no verb.
+  local none = expect(tmp, "docs", { "docs", "launcher", "zzzqqq" }, 1).stdout or ""
+  assert(not none:find("Cli.build", 1, true), none)
 end
 
 local function test_a_timeout_that_would_wrap_is_refused(tmp: string)
