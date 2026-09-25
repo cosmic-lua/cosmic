@@ -101,7 +101,7 @@ jobs:
           {
             status=0
             TMPDIR="$RUNNER_TEMP/fuzz" COSMIC_AUTO_BOOT=0 COSMIC_TEST_TIMEOUT=1200 \
-              o/sanitized/bin/cosmic test $(find . \( -path ./o -o -path ./vendor -o -path ./ci \) -prune \
+              o/sanitized/bin/cosmic test --all $(find . \( -path ./o -o -path ./vendor -o -path ./ci \) -prune \
                 -o -name '*_fuzz_test.tl' -print | sort) || status=$?
             echo "$status" > "$RUNNER_TEMP/fuzz.status"
           } 2>&1 | tee "$RUNNER_TEMP/fuzz.out"

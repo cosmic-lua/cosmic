@@ -139,6 +139,8 @@ local module: Module = {
   },
   options = {
     test = {
+      ["--all"] = { about = "run the tests no key can hold rather than assume they pass " ..
+        "as they last did (COSMIC_TEST_ALL=1)" },
       ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
       ["--timeout"] = { value = "seconds",
         about = "fail a test that runs longer (COSMIC_TEST_TIMEOUT, else 30)" },
