@@ -1,399 +1,453 @@
-name: ci
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+{
+  name: "ci",
 
-on:
-  # The merge queue's own gh-readonly-queue/ branches run as merge_group:
-  # a push run there too would share its concurrency group and cancel it,
-  # which the queue reads as a failed check.
-  push:
-    branches-ignore:
-      - 'gh-readonly-queue/**'
-  # main takes changes only through the merge queue, which waits on these
-  # checks for the queued merge commit before it lands.
-  merge_group:
-  workflow_dispatch:
+  "on": {
+    # The merge queue's own gh-readonly-queue/ branches run as merge_group:
+    # a push run there too would share its concurrency group and cancel it,
+    # which the queue reads as a failed check.
+    push: {
+      "branches-ignore": [
+        "gh-readonly-queue/**",
+      ],
+    },
+    # main takes changes only through the merge queue, which waits on these
+    # checks for the queued merge commit before it lands.
+    merge_group: {},
+    workflow_dispatch: {},
+  },
 
-permissions:
-  contents: read
+  permissions: {contents: "read"},
 
-# A newer push supersedes a branch's run, but every main run finishes: its
-# zig build cache is the one every other branch can restore, and its
-# prerelease is published only from a completed run. So each main commit
-# is a group of its own: one shared group would queue each main run behind
-# the last (minutes, with the merge queue landing back to back), and
-# GitHub keeps only one pending run per group, cancelling the one queued
-# before it when a third arrives.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # A newer push supersedes a branch's run, but every main run finishes: its
+  # zig build cache is the one every other branch can restore, and its
+  # prerelease is published only from a completed run. So each main commit
+  # is a group of its own: one shared group would queue each main run behind
+  # the last (minutes, with the merge queue landing back to back), and
+  # GitHub keeps only one pending run per group, cancelling the one queued
+  # before it when a third arrives.
+  concurrency: {
+    group: "${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}",
+    "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
+  },
 
-jobs:
-  # Every leg independently builds the complete product, executes the same
-  # Cosmic bytes in its platform environment, and uploads them for the join.
-  platform:
-    # The check is the leg's own name (linux-x86_64, ...), so rulesets can
-    # require it without spelling out the matrix.
-    name: ${{ matrix.name }}
-    defaults:
-      run:
-        working-directory: ci
-        shell: ${{ matrix.shell }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The Linux legs run in images ci-images.yml builds from
-          # ci/images/ and publishes to GHCR, named here by digest: the
-          # tools the actions and the build need are already installed, so
-          # a run installs nothing from a package mirror, and a runner image
-          # update changes only the kernel under them. The ubuntu digest is
-          # the multi-arch index's, which serves both x86_64 and aarch64;
-          # moving a digest is a deliberate edit, after ci-images.yml
-          # publishes a new one (its run summary gives it). The packages
-          # are private, so the pull logs in with this job's token, which
-          # needs packages: read (see the job's container and permissions).
-          # (macOS cannot be containerized; that leg takes the image
-          # macos-15 names.) --init and the unprivileged `runner` user are
-          # as for alpine-x86_64, below.
-          - name: linux-x86_64
-            runner: ubuntu-24.04
-            target: x86_64-linux-musl
-            image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
-            # useradd -o: the image's own `ubuntu` user may hold the uid.
-            prepare: useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
-            # setpriv, not su: util-linux su resets PATH, which drops the
-            # driver's directory that the bootstrap step adds to GITHUB_PATH;
-            # setpriv changes only the user and keeps the environment.
-            shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
-          - name: linux-aarch64
-            runner: ubuntu-24.04-arm
-            target: aarch64-linux-musl
-            image: ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a
-            prepare: useradd -m -o -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
-            shell: setpriv --reuid=runner --regid=runner --init-groups sh -e {0}
-          - name: macos-aarch64
-            runner: macos-15
-            target: aarch64-macos
-            image: ''
-            shell: sh
-          - name: alpine-x86_64
-            runner: ubuntu-24.04
-            target: x86_64-linux-musl
-            # --init puts a reaper at PID 1: a process-group kill leaves
-            # orphaned descendants, and the suite checks they are gone,
-            # not zombies nobody collects.
-            image: ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72
-            prepare: adduser -D -u "$(stat -c %u "$GITHUB_WORKSPACE")" runner
-            # The container's default user stays root -- the runner never
-            # passes --user to docker create/exec, and a default user whose
-            # uid differs from the host runner's breaks the checkout
-            # action's file commands (GITHUB_ENV, GITHUB_PATH, ... under
-            # RUNNER_TEMP, host-owned). Driver steps instead drop to the
-            # unprivileged `runner` user created below; only what needs
-            # root (creating that user, the hand-over) overrides this shell.
-            shell: su runner -c "sh -e {0}"
-    runs-on: ${{ matrix.runner }}
-    # An empty image (macOS) runs the job on the host. The login is here,
-    # not in the matrix: a matrix is expanded before the job has a token,
-    # so github.token there is empty, and secrets are not available there.
-    container:
-      image: ${{ matrix.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --init
-    permissions:
-      contents: read
-      # To pull the Linux legs' images from GHCR.
-      packages: read
-    timeout-minutes: 45
-    env:
-      COSMIC_WORKER: ${{ matrix.name }}
-      TARGET: ${{ matrix.target }}
-      # A branch push (a PR's run) is `light`: each leg builds, runs its
-      # native suite and the format check, and stops. The merge queue,
-      # main and a manual run are `full`: the checked core, the product and
-      # portable suites, the regressions, attestation and provenance, so
-      # nothing lands on main without all of it.
-      COSMIC_CI_SCOPE: ${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}
-      # The checked core's whole suite (about a minute a leg) runs on
-      # linux-x86_64 alone; every leg still builds and verifies the
-      # checked core. See orchestration.tl's checked_suite.
-      COSMIC_CI_CHECKED_SUITE: ${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}
-    steps:
-      - name: create the unprivileged builder
-        if: matrix.image
-        working-directory: /
-        shell: sh
-        # Creating the unprivileged builder (matrix.prepare) needs root,
-        # which is this container's default user. `runner`'s uid is read
-        # from the workspace directory the host runner already created
-        # (before this step, before checkout), so it matches the owner of
-        # the bind-mounted checkout, RUNNER_TEMP, and the runner's own
-        # file-command files. Every later step on this leg drops to
-        # `runner` (see matrix.shell); only this step and the hand-over
-        # below stay root, and say so explicitly.
-        run: ${{ matrix.prepare }}
+  jobs: {
+    # Every leg independently builds the complete product, executes the same
+    # Cosmic bytes in its platform environment, and uploads them for the join.
+    platform: {
+      # The check is the leg's own name (linux-x86_64, ...), so rulesets can
+      # require it without spelling out the matrix.
+      name: "${{ matrix.name }}",
+      defaults: {
+        run: {
+          "working-directory": "ci",
+          shell: "${{ matrix.shell }}",
+        },
+      },
+      strategy: {
+        "fail-fast": false,
+        matrix: {
+          include: [
+            # The Linux legs run in images ci-images.yml builds from
+            # ci/images/ and publishes to GHCR, named here by digest: the
+            # tools the actions and the build need are already installed, so
+            # a run installs nothing from a package mirror, and a runner image
+            # update changes only the kernel under them. The ubuntu digest is
+            # the multi-arch index's, which serves both x86_64 and aarch64;
+            # moving a digest is a deliberate edit, after ci-images.yml
+            # publishes a new one (its run summary gives it). The packages
+            # are private, so the pull logs in with this job's token, which
+            # needs packages: read (see the job's container and permissions).
+            # (macOS cannot be containerized; that leg takes the image
+            # macos-15 names.) --init and the unprivileged `runner` user are
+            # as for alpine-x86_64, below.
+            {
+              name: "linux-x86_64",
+              runner: "ubuntu-24.04",
+              target: "x86_64-linux-musl",
+              image: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
+              # useradd -o: the image's own `ubuntu` user may hold the uid.
+              prepare: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+              # setpriv, not su: util-linux su resets PATH, which drops the
+              # driver's directory that the bootstrap step adds to GITHUB_PATH;
+              # setpriv changes only the user and keeps the environment.
+              shell: "setpriv --reuid=runner --regid=runner --init-groups sh -e {0}",
+            },
+            {
+              name: "linux-aarch64",
+              runner: "ubuntu-24.04-arm",
+              target: "aarch64-linux-musl",
+              image: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a",
+              prepare: "useradd -m -o -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+              shell: "setpriv --reuid=runner --regid=runner --init-groups sh -e {0}",
+            },
+            {
+              name: "macos-aarch64",
+              runner: "macos-15",
+              target: "aarch64-macos",
+              image: "",
+              shell: "sh",
+            },
+            {
+              name: "alpine-x86_64",
+              runner: "ubuntu-24.04",
+              target: "x86_64-linux-musl",
+              # --init puts a reaper at PID 1: a process-group kill leaves
+              # orphaned descendants, and the suite checks they are gone,
+              # not zombies nobody collects.
+              image: "ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72",
+              prepare: "adduser -D -u \"$(stat -c %u \"$GITHUB_WORKSPACE\")\" runner",
+              # The container's default user stays root -- the runner never
+              # passes --user to docker create/exec, and a default user whose
+              # uid differs from the host runner's breaks the checkout
+              # action's file commands (GITHUB_ENV, GITHUB_PATH, ... under
+              # RUNNER_TEMP, host-owned). Driver steps instead drop to the
+              # unprivileged `runner` user created below; only what needs
+              # root (creating that user, the hand-over) overrides this shell.
+              shell: "su runner -c \"sh -e {0}\"",
+            },
+          ],
+        },
+      },
+      "runs-on": "${{ matrix.runner }}",
+      # An empty image (macOS) runs the job on the host. The login is here,
+      # not in the matrix: a matrix is expanded before the job has a token,
+      # so github.token there is empty, and secrets are not available there.
+      container: {
+        image: "${{ matrix.image }}",
+        credentials: {
+          username: "${{ github.actor }}",
+          password: "${{ secrets.GITHUB_TOKEN }}",
+        },
+        options: "--init",
+      },
+      permissions: {
+        contents: "read",
+        # To pull the Linux legs' images from GHCR.
+        packages: "read",
+      },
+      "timeout-minutes": 45,
+      env: {
+        COSMIC_WORKER: "${{ matrix.name }}",
+        TARGET: "${{ matrix.target }}",
+        # A branch push (a PR's run) is `light`: each leg builds, runs its
+        # native suite and the format check, and stops. The merge queue,
+        # main and a manual run are `full`: the checked core, the product and
+        # portable suites, the regressions, attestation and provenance, so
+        # nothing lands on main without all of it.
+        COSMIC_CI_SCOPE: "${{ (github.event_name != 'push' || github.ref == 'refs/heads/main') && 'full' || 'light' }}",
+        # The checked core's whole suite (about a minute a leg) runs on
+        # linux-x86_64 alone; every leg still builds and verifies the
+        # checked core. See orchestration.tl's checked_suite.
+        COSMIC_CI_CHECKED_SUITE: "${{ matrix.name == 'linux-x86_64' && 'run' || 'skip' }}",
+      },
+      steps: [
+        {
+          name: "create the unprivileged builder",
+          if: "matrix.image",
+          "working-directory": "/",
+          shell: "sh",
+          # Creating the unprivileged builder (matrix.prepare) needs root,
+          # which is this container's default user. `runner`'s uid is read
+          # from the workspace directory the host runner already created
+          # (before this step, before checkout), so it matches the owner of
+          # the bind-mounted checkout, RUNNER_TEMP, and the runner's own
+          # file-command files. Every later step on this leg drops to
+          # `runner` (see matrix.shell); only this step and the hand-over
+          # below stay root, and say so explicitly.
+          run: "${{ matrix.prepare }}",
+        },
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+        },
 
-      - name: cache the pinned CI driver
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/cache/cosmic/bootstrap
-          key: cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}
+        {
+          name: "cache the pinned CI driver",
+          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+          },
+        },
 
-      - name: cache the pinned zig
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/cache/cosmic/zig
-          # v2: installs are named by the pin's sha too (build/zig.tl's
-          # install_name); bump it when that name's shape changes again.
-          key: zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}
+        {
+          name: "cache the pinned zig",
+          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/zig",
+            # v2: installs are named by the pin's sha too (build/zig.tl's
+            # install_name); bump it when that name's shape changes again.
+            key: "zig-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/zig.pin') }}",
+          },
+        },
 
-      # The driver keeps the candidate's project cache under o/
-      # (cosmic_ci/orchestration.tl)
-      # so a fresh checkout starts cold: every leg recompiles vendor/ and
-      # core/ from nothing even when neither changed. This restores that
-      # cache from outside the checkout -- the driver build phase requires
-      # a checkout with no o/ yet, so COSMIC_ZIG_CACHE_SEED below only
-      # names where it landed; the driver seeds its zig-cache into o/
-      # itself, once its own guard has passed -- and saves it back once
-      # every native build this job runs has had a chance to update it.
-      # Its zig-global is zig's global cache, which bin/zig uses in place
-      # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below). The key
-      # includes `matrix.name`, one entry per leg, even though
-      # linux-x86_64 and alpine-x86_64 target the same
-      # `x86_64-linux-musl` triple: sharing a key between two legs that
-      # run in parallel means only one of them can ever win the save (the
-      # other fails with "another job may be creating this cache" and its
-      # own compile is discarded every time), leaving it permanently
-      # stuck restoring a cache some OTHER host produced, which zig
-      # reuses far less effectively than one it built itself. A key per
-      # leg costs a bit of duplicate cache storage in exchange for every
-      # leg reliably saving and reusing its own.
-      # A saved entry is never replaced under its own key, so every save
-      # takes a key of its own (the run's id), and a restore takes the
-      # newest entry for these exact inputs, else the newest for this leg.
-      # main saves after every run, so what every branch restores keeps
-      # up with main; other refs save only when nothing for these exact
-      # inputs was there to restore, as the single fixed key did, which
-      # keeps a branch's pushes from filling the repository's cache.
-      - name: name the zig build cache
-        id: zig-cache-key
-        shell: sh
-        run: echo "prefix=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**', 'build/patch.tl') }}-" >> "$GITHUB_OUTPUT"
+        # The driver keeps the candidate's project cache under o/
+        # (cosmic_ci/orchestration.tl)
+        # so a fresh checkout starts cold: every leg recompiles vendor/ and
+        # core/ from nothing even when neither changed. This restores that
+        # cache from outside the checkout -- the driver build phase requires
+        # a checkout with no o/ yet, so COSMIC_ZIG_CACHE_SEED below only
+        # names where it landed; the driver seeds its zig-cache into o/
+        # itself, once its own guard has passed -- and saves it back once
+        # every native build this job runs has had a chance to update it.
+        # Its zig-global is zig's global cache, which bin/zig uses in place
+        # (COSMIC_ZIG_GLOBAL_CACHE, set with XDG_CACHE_HOME below). The key
+        # includes `matrix.name`, one entry per leg, even though
+        # linux-x86_64 and alpine-x86_64 target the same
+        # `x86_64-linux-musl` triple: sharing a key between two legs that
+        # run in parallel means only one of them can ever win the save (the
+        # other fails with "another job may be creating this cache" and its
+        # own compile is discarded every time), leaving it permanently
+        # stuck restoring a cache some OTHER host produced, which zig
+        # reuses far less effectively than one it built itself. A key per
+        # leg costs a bit of duplicate cache storage in exchange for every
+        # leg reliably saving and reusing its own.
+        # A saved entry is never replaced under its own key, so every save
+        # takes a key of its own (the run's id), and a restore takes the
+        # newest entry for these exact inputs, else the newest for this leg.
+        # main saves after every run, so what every branch restores keeps
+        # up with main; other refs save only when nothing for these exact
+        # inputs was there to restore, as the single fixed key did, which
+        # keeps a branch's pushes from filling the repository's cache.
+        {
+          name: "name the zig build cache",
+          id: "zig-cache-key",
+          shell: "sh",
+          run: "echo \"prefix=zig-build-${{ matrix.name }}-${{ hashFiles('bin/zig.pin', 'build.zig', 'build.zig.zon', 'core/**', 'test/portable/*.c', 'vendor/**', 'patch/**', 'build/patch.tl') }}-\" >> \"$GITHUB_OUTPUT\"",
+        },
 
-      - name: restore zig build outputs
-        id: zig-cache-restore
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/zig-build
-          key: ${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            ${{ steps.zig-cache-key.outputs.prefix }}
-            zig-build-${{ matrix.name }}-
+        {
+          name: "restore zig build outputs",
+          id: "zig-cache-restore",
+          uses: "actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+            "restore-keys": "${{ steps.zig-cache-key.outputs.prefix }}\nzig-build-${{ matrix.name }}-\n",
+          },
+        },
 
-      - name: hand the checkout and restored caches over to the unprivileged builder
-        if: matrix.image
-        working-directory: /
-        shell: sh
-        # The checkout and the three cache restores above ran as root
-        # (actions run as the container's default user); everything from
-        # here on runs as `runner` (see matrix.shell), so it needs to own
-        # what it is about to read and write.
-        run: chown -R runner "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+        {
+          name: "hand the checkout and restored caches over to the unprivileged builder",
+          if: "matrix.image",
+          "working-directory": "/",
+          shell: "sh",
+          # The checkout and the three cache restores above ran as root
+          # (actions run as the container's default user); everything from
+          # here on runs as `runner` (see matrix.shell), so it needs to own
+          # what it is about to read and write.
+          run: "chown -R runner \"$GITHUB_WORKSPACE\" \"$RUNNER_TEMP\"",
+        },
 
-      - name: bootstrap the pinned CI driver
-        id: driver
-        run: |
-          # bin/cosmic-bootstrap fetches and verifies the pinned release
-          # into $XDG_CACHE_HOME/cosmic/bootstrap, where bin/zig finds it
-          # again, and checks a restored cache against the pin first.
-          driver=$(COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" \
-            sh ../bin/cosmic-bootstrap)
-          mkdir -p "$RUNNER_TEMP/bin"
-          if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
-            echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
-          fi
-          ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          echo "XDG_CACHE_HOME=$RUNNER_TEMP/cache" >> "$GITHUB_ENV"
-          # zig's global cache -- libc, compiler-rt and its standard library,
-          # keyed by content -- is used where actions/cache restored it,
-          # outside the checkout; the driver seeds and saves only the
-          # project cache, which the driver keeps under o/.
-          echo "COSMIC_ZIG_GLOBAL_CACHE=$RUNNER_TEMP/zig-build/zig-global" >> "$GITHUB_ENV"
-          # Where the zig-build cache above was restored, for the driver's
-          # build and cache-save phases. Spelled from $RUNNER_TEMP, not
-          # `runner.temp`: in the alpine job container the expression is
-          # the host's path, which does not exist there, so the seed was
-          # never found and that leg recompiled vendor/ and core/ each run.
-          echo "COSMIC_ZIG_CACHE_SEED=$RUNNER_TEMP/zig-build" >> "$GITHUB_ENV"
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          run: "sh ../.github/scripts/cosmic-driver.sh zig-cache",
+        },
 
-      - name: check the pinned CI driver
-        run: cosmic-driver test cosmic_ci
+        {
+          name: "check the pinned CI driver",
+          run: "cosmic-driver test cosmic_ci",
+        },
 
-      - name: build release Cosmic and run its native suite
-        id: release-suite
-        run: cosmic-driver cosmic_ci/driver.tl platform build
+        {
+          name: "build release Cosmic and run its native suite",
+          id: "release-suite",
+          run: "cosmic-driver cosmic_ci/driver.tl platform build",
+        },
 
-      - name: verify the delayed native database boundary
-        run: cosmic-driver cosmic_ci/driver.tl platform local-boundary
+        {
+          name: "verify the delayed native database boundary",
+          run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
+        },
 
-      - name: check the tree's format
-        if: env.COSMIC_CI_SCOPE == 'light'
-        run: cosmic-driver cosmic_ci/driver.tl platform format
+        {
+          name: "check the tree's format",
+          if: "env.COSMIC_CI_SCOPE == 'light'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform format",
+        },
 
-      - name: build local portable and checked artifacts
-        if: env.COSMIC_CI_SCOPE == 'full'
-        run: cosmic-driver cosmic_ci/driver.tl platform assemble
+        {
+          name: "build local portable and checked artifacts",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform assemble",
+        },
 
-      # The last step above to invoke `bin/zig build` for the candidate (the
-      # fixture steps, `sanitized`, and `portable-hook-cores`, inside the
-      # driver's `assemble` phase). The fixtures phase below boots a copy of
-      # the tree at a scratch path too; what that compiles is keyed by its
-      # throwaway path, so it is never saved. Runs even on
-      # failure so the complete local cache is staged before diagnostics.
-      # actions/cache publishes it only when the job succeeds; zig's own
-      # content addressing makes restored entries safe to validate and reuse.
-      - name: save zig build outputs for next run
-        id: cache-save
-        if: always() && steps.driver.outcome == 'success'
-        run: cosmic-driver cosmic_ci/driver.tl platform cache-save
+        # The last step above to invoke `bin/zig build` for the candidate (the
+        # fixture steps, `sanitized`, and `portable-hook-cores`, inside the
+        # driver's `assemble` phase). The fixtures phase below boots a copy of
+        # the tree at a scratch path too; what that compiles is keyed by its
+        # throwaway path, so it is never saved. Runs even on
+        # failure so the complete local cache is staged before diagnostics.
+        # actions/cache publishes it only when the job succeeds; zig's own
+        # content addressing makes restored entries safe to validate and reuse.
+        {
+          name: "save zig build outputs for next run",
+          id: "cache-save",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform cache-save",
+        },
 
-      - name: upload zig build outputs
-        if: >-
-          always() && steps.cache-save.outcome == 'success' &&
-          (github.ref == 'refs/heads/main' ||
-           !startsWith(steps.zig-cache-restore.outputs.cache-matched-key,
-                       steps.zig-cache-key.outputs.prefix))
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/zig-build
-          key: ${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+        {
+          name: "upload zig build outputs",
+          if: "always() && steps.cache-save.outcome == 'success' && (github.ref == 'refs/heads/main' || !startsWith(steps.zig-cache-restore.outputs.cache-matched-key, steps.zig-cache-key.outputs.prefix))",
+          uses: "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/zig-build",
+            key: "${{ steps.zig-cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}",
+          },
+        },
 
-      - name: run the product suite from fresh tracked source
-        id: portable-suite
-        if: env.COSMIC_CI_SCOPE == 'full'
-        run: cosmic-driver cosmic_ci/driver.tl platform portable
+        {
+          name: "run the product suite from fresh tracked source",
+          id: "portable-suite",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform portable",
+        },
 
-      - name: verify the delayed portable database boundary
-        if: always() && steps.portable-suite.outcome != 'skipped'
-        run: cosmic-driver cosmic_ci/driver.tl platform portable-boundary "${{ steps.portable-suite.outcome }}"
+        {
+          name: "verify the delayed portable database boundary",
+          if: "always() && steps.portable-suite.outcome != 'skipped'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform portable-boundary \"${{ steps.portable-suite.outcome }}\"",
+        },
 
-      - name: run runtime, launcher, rebuild, and identity regressions
-        if: env.COSMIC_CI_SCOPE == 'full'
-        run: cosmic-driver cosmic_ci/driver.tl platform fixtures
+        {
+          name: "run runtime, launcher, rebuild, and identity regressions",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform fixtures",
+        },
 
-      - name: attest the exact executed product bytes
-        if: env.COSMIC_CI_SCOPE == 'full'
-        run: cosmic-driver cosmic_ci/driver.tl platform attest "${{ strategy.job-total }}"
+        {
+          name: "attest the exact executed product bytes",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          run: "cosmic-driver cosmic_ci/driver.tl platform attest \"${{ strategy.job-total }}\"",
+        },
 
-      - name: summarize worker operations
-        if: always() && steps.driver.outcome == 'success'
-        run: cosmic-driver cosmic_ci/driver.tl summarize
+        {
+          name: "summarize worker operations",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl summarize",
+        },
 
-      - name: preserve CI driver database
-        if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: ci-driver-${{ matrix.name }}
-          path: ${{ runner.temp }}/cosmic-ci/operations.db
-          if-no-files-found: ignore
+        {
+          name: "preserve CI driver database",
+          if: "always()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "ci-driver-${{ matrix.name }}",
+            path: "${{ runner.temp }}/cosmic-ci/operations.db",
+            "if-no-files-found": "ignore",
+          },
+        },
 
-      - name: upload the attested product
-        if: env.COSMIC_CI_SCOPE == 'full'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: portable-product-${{ matrix.name }}
-          path: ${{ runner.temp }}/cosmic-ci/platform/product
-          if-no-files-found: error
+        {
+          name: "upload the attested product",
+          if: "env.COSMIC_CI_SCOPE == 'full'",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "portable-product-${{ matrix.name }}",
+            path: "${{ runner.temp }}/cosmic-ci/platform/product",
+            "if-no-files-found": "error",
+          },
+        },
 
-      - name: preserve platform failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: platform-diagnostics-${{ matrix.name }}
-          path: |
-            ${{ runner.temp }}/cosmic-ci/platform/local-diagnostics
-            ${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics
-            ${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics
-          if-no-files-found: ignore
+        {
+          name: "preserve platform failure diagnostics",
+          if: "failure()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "platform-diagnostics-${{ matrix.name }}",
+            path: "${{ runner.temp }}/cosmic-ci/platform/local-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/portable-diagnostics\n${{ runner.temp }}/cosmic-ci/platform/fixture-test-diagnostics\n",
+            "if-no-files-found": "ignore",
+          },
+        },
+      ],
+    },
 
-  # Every successful platform/environment execution must attest and upload
-  # identical Cosmic bytes. Local product tests retain manifest, range,
-  # application, and raw-core verification, so this join only proves the
-  # cross-platform byte identity.
-  provenance:
-    needs: platform
-    # Only a full run's legs attest and upload a product (COSMIC_CI_SCOPE).
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
-    defaults:
-      run:
-        working-directory: ci
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    env:
-      COSMIC_WORKER: provenance
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: cache the pinned CI driver
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/cache/cosmic/bootstrap
-          key: cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}
-      - name: bootstrap the pinned provenance driver
-        id: driver
-        run: |
-          driver=$(COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME="$RUNNER_TEMP/cache" \
-            sh ../bin/cosmic-bootstrap)
-          mkdir -p "$RUNNER_TEMP/bin"
-          if [ -e "$RUNNER_TEMP/bin/cosmic-driver" ] || [ -L "$RUNNER_TEMP/bin/cosmic-driver" ]; then
-            echo "$RUNNER_TEMP/bin/cosmic-driver already exists" >&2; exit 1
-          fi
-          ln -s "$driver" "$RUNNER_TEMP/bin/cosmic-driver"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: portable-product-*
-          path: ${{ runner.temp }}/cosmic-ci/products
-      - name: compare the Cosmic bytes executed on every native host
-        run: cosmic-driver cosmic_ci/driver.tl provenance
-      - name: summarize provenance operations
-        if: always() && steps.driver.outcome == 'success'
-        run: cosmic-driver cosmic_ci/driver.tl summarize
-      - name: preserve provenance operations
-        if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        with:
-          name: provenance-operations
-          path: ${{ runner.temp }}/cosmic-ci/operations.db
-          if-no-files-found: ignore
+    # Every successful platform/environment execution must attest and upload
+    # identical Cosmic bytes. Local product tests retain manifest, range,
+    # application, and raw-core verification, so this join only proves the
+    # cross-platform byte identity.
+    provenance: {
+      needs: "platform",
+      # Only a full run's legs attest and upload a product (COSMIC_CI_SCOPE).
+      if: "github.event_name != 'push' || github.ref == 'refs/heads/main'",
+      defaults: {
+        run: {"working-directory": "ci"},
+      },
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      env: {COSMIC_WORKER: "provenance"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+        },
+        {
+          name: "cache the pinned CI driver",
+          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+          },
+        },
+        {
+          name: "bootstrap the pinned provenance driver",
+          id: "driver",
+          run: "sh ../.github/scripts/cosmic-driver.sh",
+        },
+        {
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            pattern: "portable-product-*",
+            path: "${{ runner.temp }}/cosmic-ci/products",
+          },
+        },
+        {
+          name: "compare the Cosmic bytes executed on every native host",
+          run: "cosmic-driver cosmic_ci/driver.tl provenance",
+        },
+        {
+          name: "summarize provenance operations",
+          if: "always() && steps.driver.outcome == 'success'",
+          run: "cosmic-driver cosmic_ci/driver.tl summarize",
+        },
+        {
+          name: "preserve provenance operations",
+          if: "always()",
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "provenance-operations",
+            path: "${{ runner.temp }}/cosmic-ci/operations.db",
+            "if-no-files-found": "ignore",
+          },
+        },
+      ],
+    },
 
-  # One check a ruleset can require whatever a run's scope: it passes
-  # when every job it waits on passed or was skipped (provenance, on a
-  # branch push), and fails when any failed or was cancelled.
-  ci:
-    needs: [platform, provenance]
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: every job passed or was skipped
-        env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "results: $RESULTS"
-          for result in $RESULTS; do
-            case "$result" in success|skipped) ;; *) exit 1 ;; esac
-          done
+    # One check a ruleset can require whatever a run's scope: it passes
+    # when every job it waits on passed or was skipped (provenance, on a
+    # branch push), and fails when any failed or was cancelled.
+    ci: {
+      needs: ["platform", "provenance"],
+      if: "always()",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      steps: [
+        {
+          name: "every job passed or was skipped",
+          env: {RESULTS: "${{ join(needs.*.result, ' ') }}"},
+          run: "echo \"results: $RESULTS\"; for result in $RESULTS; do case \"$result\" in success|skipped) ;; *) exit 1 ;; esac; done",
+        },
+      ],
+    },
 
-  prerelease:
-    needs: provenance
-    if: >-
-      github.repository == 'cosmic-lua/cosmic' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    permissions:
-      contents: write
-    uses: ./.github/workflows/prerelease.yml
+    prerelease: {
+      needs: "provenance",
+      if: "github.repository == 'cosmic-lua/cosmic' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
+      permissions: {contents: "write"},
+      uses: "./.github/workflows/prerelease.yml",
+    },
+  },
+}
