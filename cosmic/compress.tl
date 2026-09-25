@@ -1,6 +1,6 @@
 --- Compression and expansion over the core's miniz, xz and bzip2
---- bindings: one-shot zlib deflate/inflate, and streaming codecs for
---- deflate/zlib/gzip, xz and bzip2.
+--- bindings: one-shot deflate/inflate in any deflate framing, and
+--- streaming codecs for deflate/zlib/gzip, xz and bzip2.
 
 --- The raw module behind the streaming codecs lives under the reserved
 --- `cosmic.internal.` namespace -- see cosmic/sqlite.tl for why this
@@ -74,9 +74,11 @@ local record Compress
   type Stream = raw_compress.Stream
 end
 
---- Compresses bytes into a zlib stream, at the best compression level.
-function Compress.deflate(data: string): string | nil, string
-  local enc, trouble = raw.deflater("zlib", 9)
+--- Compresses `data` whole in the `format` framing, at `level` as
+--- `deflater(format, level)` takes it; raises where that does.
+function Compress.deflate(format: Compress.Format, data: string, level?: integer):
+    string | nil, string
+  local enc, trouble = raw.deflater(format, level)
   if enc == nil then return nil, trouble end
   local head, update_trouble = enc:update(data)
   if head == nil then return nil, update_trouble end
@@ -85,11 +87,13 @@ function Compress.deflate(data: string): string | nil, string
   return head .. tail, ""
 end
 
---- Expands a zlib stream, such as `deflate` produced. When `max` is
---- given, more than `max` bytes of output is an error rather than an
---- answer. Bytes after the end of the stream are an error too.
-function Compress.inflate(data: string, max?: integer): string | nil, string
-  local dec, trouble = raw.inflater("zlib")
+--- Expands `data`, whole, from the `format` framing, such as `deflate`
+--- produced; raises on an unknown format. When `max` is given, more
+--- than `max` bytes of output is an error rather than an answer. Bytes
+--- after the end of the compressed data are an error too.
+function Compress.inflate(format: Compress.Format, data: string, max?: integer):
+    string | nil, string
+  local dec, trouble = raw.inflater(format)
   if dec == nil then return nil, trouble end
   local parts: {string} = {}
   local total = 0
