@@ -636,6 +636,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.rename(file, tmp .. "/moved\0x"))
   failed_with(sys.EINVAL, sys.chmod(nul, 511))
   failed_with(sys.EINVAL, sys.readdir(tmp .. "\0x"))
+  failed_with(sys.EINVAL, sys.tree_digest(tmp .. "\0x", false))
   failed_with(sys.EINVAL, sys.chdir(tmp .. "\0x"))
   failed_with(sys.EINVAL, sys.realpath(nul))
   failed_with(sys.EINVAL, sys.mkdtemp(tmp .. "/t\0-XXXXXX"))
@@ -821,6 +822,47 @@ end
 
 --- A directory listed and one refused both leave no descriptor behind:
 --- the listing's handle is released however the call ends.
+--- A tree's digest changes with any entry beneath it: its contents
+--- where asked for, and otherwise what `lstat` says of it -- even a
+--- file rewritten with its old size and modification time put back,
+--- whose change time moved. A link is digested as its target's name,
+--- unfollowed; a FIFO beneath it is special, and /dev/null is not.
+local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
+  local tree = tmp .. "/tree"
+  assert(sys.mkdir(tree, 0x1ed))
+  assert(sys.mkdir(tree .. "/sub", 0x1ed))
+  local fd = create(tree .. "/sub/f")
+  assert(sys.write(fd, "one") == 3)
+  sys.close(fd)
+  assert(sys.symlink("sub/f", tree .. "/link"))
+  local contents = assert(sys.tree_digest(tree, true))
+  local stamps = assert(sys.tree_digest(tree, false))
+  assert(#contents.digest == 64 and not contents.special)
+  assert(contents.digest ~= stamps.digest)
+  assert(assert(sys.tree_digest(tree, true)).digest == contents.digest, "the same tree")
+  assert(assert(sys.tree_digest(tree .. "/", false)).digest == stamps.digest,
+    "a trailing slash names the same tree")
+  local before = assert(sys.stat(tree .. "/sub/f"))
+  fd = create(tree .. "/sub/f")
+  assert(sys.write(fd, "two") == 3)
+  sys.close(fd)
+  assert(sys.utimensat(tree .. "/sub/f", nil, nil, before.mtime, before.mtime_ns))
+  local rewritten = assert(sys.tree_digest(tree, true))
+  assert(rewritten.digest ~= contents.digest, "contents rewritten")
+  local restamped = assert(sys.tree_digest(tree, false))
+  assert(restamped.digest ~= stamps.digest, "a change time moved")
+  assert(sys.unlink(tree .. "/link"))
+  assert(sys.symlink("elsewhere", tree .. "/link"))
+  assert(assert(sys.tree_digest(tree, true)).digest ~= rewritten.digest, "a link retargeted")
+  local fifo = assert(process.spawn("/bin/sh", { "sh", "-c", "mkfifo " .. tree .. "/sub/fifo" },
+    nil, nil, nil, nil, nil, false))
+  assert(assert(process.waitpid(fifo, false)).code == 0)
+  assert(assert(sys.tree_digest(tree, true)).special, "a FIFO answers from past the tree")
+  assert(not assert(sys.tree_digest("/dev/null", false)).special)
+  local missing, _, errno = sys.tree_digest(tmp .. "/missing", false)
+  assert(missing == nil and errno == sys.ENOENT)
+end
+
 local function test_readdir_leaves_no_descriptor_open(tmp: string)
   assert(sys.mkdir(tmp .. "/d"))
   local before = assert(sys.open(tmp .. "/probe", sys.O_CREAT | sys.O_RDWR, 420))
