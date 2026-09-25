@@ -127,15 +127,18 @@ local function is_yaml(file: string): boolean
   return String.ends_with(file, ".yml") or String.ends_with(file, ".yaml")
 end
 
---- The YAML files in flow style under `dir`'s `.github/`, as paths
---- relative to `dir`: none where it has no `.github/`.
+--- The YAML files in flow style `dir` covers, as paths relative to it:
+--- those under its `.github/`, or, for a directory that is `.github/`
+--- or lies under one, those under it; none where it has neither.
 local function workflow_sources(dir: string): {string} | nil, string
-  local github = dir .. "/.github"
-  local st, _ = Fs.stat(github)
+  local within = ("/" .. dir .. "/"):find("/.github/", 1, true) ~= nil
+  local base = within and dir or dir .. "/.github"
+  local prefix = within and "" or ".github/"
+  local st, _ = Fs.stat(base)
   if st == nil or st.kind ~= "dir" then
     return {}
   end
-  local files, trouble = Fs.walk(github, function(entry: string): boolean
+  local files, trouble = Fs.walk(base, function(entry: string): boolean
     return Fs.basename(entry):sub(1, 1) == "."
   end)
   if files == nil then
@@ -144,9 +147,12 @@ local function workflow_sources(dir: string): {string} | nil, string
   local out: {string} = {}
   for _, file in ipairs(files) do
     if is_yaml(file) then
-      local text, _ = Fs.read(github .. "/" .. file)
-      if text ~= nil and flow.is_flow(text) then
-        out[#out + 1] = ".github/" .. file
+      local text, read_trouble = Fs.read(base .. "/" .. file)
+      if text == nil then
+        return nil, read_trouble
+      end
+      if flow.is_flow(text) then
+        out[#out + 1] = prefix .. file
       end
     end
   end
@@ -309,6 +315,33 @@ function fix.chosen(root: string, paths: {string}): fix.Chosen | nil, string
   return { files = out, c_files = c_out, flow_files = flow_out, refused = refused }
 end
 
+--- Lays out each YAML file of `files` (`build.flow`), writing it back
+--- unless `checking`: each one that changes, or would, is appended to
+--- `changed`, and each one refused -- not in flow style, or not one
+--- `flow.format` takes -- to `failures`, with why.
+function fix.lay_out(files: {string}, checking: boolean, changed: {string}, failures: {string})
+  for _, file in ipairs(files) do
+    local source, read_trouble = Fs.read(file)
+    local out, flow_trouble: string, string
+    if source == nil then
+      flow_trouble = read_trouble
+    elseif not flow.is_flow(source) then
+      flow_trouble = "not in flow style: only a YAML file whose value opens with { or [ is laid out"
+    else
+      out, flow_trouble = flow.format(source)
+    end
+    if out == nil then
+      failures[#failures + 1] = file .. ": " .. flow_trouble
+    elseif out ~= source then
+      changed[#changed + 1] = file
+      if not checking then
+        local written, write_trouble = Fs.write(file, out)
+        if not written then failures[#failures + 1] = write_trouble end
+      end
+    end
+  end
+end
+
 --- `near`'s notes on the exported functions of `files`, each line
 --- prefixed with its file: a test, an example or a declaration file
 --- offers nothing to compare, nor does a file outside `root`. The module
@@ -460,26 +493,7 @@ function fix.run(argv: {integer:string}): integer
       end
     end
   end
-  for _, file in ipairs(picked.flow_files) do
-    local source, read_trouble = Fs.read(file)
-    local out, flow_trouble: string, string
-    if source == nil then
-      flow_trouble = read_trouble
-    elseif not flow.is_flow(source) then
-      flow_trouble = "not in flow style: only a YAML file whose value opens with { or [ is laid out"
-    else
-      out, flow_trouble = flow.format(source)
-    end
-    if out == nil then
-      failures[#failures + 1] = file .. ": " .. flow_trouble
-    elseif out ~= source then
-      changed[#changed + 1] = file
-      if not checking then
-        local written, write_trouble = Fs.write(file, out)
-        if not written then failures[#failures + 1] = write_trouble end
-      end
-    end
-  end
+  fix.lay_out(picked.flow_files, checking, changed, failures)
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then

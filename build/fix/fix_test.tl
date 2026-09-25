@@ -314,4 +314,29 @@ local function test_yaml_in_flow_style_is_taken(tmp: string)
   picked = assert(fix.chosen(tmp .. "/own", { tmp .. "/own" }))
   assert(#picked.flow_files == 1 and picked.flow_files[1] == tmp .. "/own/.github/actions/x/action.yml",
     table.concat(picked.flow_files, " "))
+  -- `.github/` named, or a directory under it, covers what it holds.
+  for _, dir in ipairs({ tmp .. "/own/.github", tmp .. "/own/.github/actions" }) do
+    picked = assert(fix.chosen(tmp .. "/own", { dir }))
+    assert(#picked.flow_files == 1 and picked.flow_files[1]:match("/%.github/actions/x/action%.yml$"),
+      dir .. ": " .. table.concat(picked.flow_files, " "))
+  end
+end
+
+--- A YAML file is laid out in place, not written under `--check`, and
+--- refused in block style.
+local function test_yaml_is_laid_out_in_place(tmp: string)
+  local path = tmp .. "/a.yml"
+  assert(Fs.write(path, "{a:  1,b: [1,2]}\n"))
+  assert(Fs.write(tmp .. "/b.yml", "a: 1\n"))
+  local changed, failures: {string}, {string} = {}, {}
+  fix.lay_out({ path }, true, changed, failures)
+  assert(#changed == 1 and #failures == 0 and Fs.read(path) == "{a:  1,b: [1,2]}\n", "--check writes nothing")
+  changed = {}
+  fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures)
+  assert(#changed == 1 and (Fs.read(path)) == "{a: 1, b: [1, 2]}\n", (Fs.read(path)))
+  assert(#failures == 1 and failures[1]:find("not in flow style", 1, true), failures[1])
+  assert(Fs.read(tmp .. "/b.yml") == "a: 1\n")
+  changed = {}
+  fix.lay_out({ path }, true, changed, {})
+  assert(#changed == 0, "a laid-out file is left alone")
 end
