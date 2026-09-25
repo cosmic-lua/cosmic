@@ -22,6 +22,13 @@ local refresh = require("build.refresh")
 observations.confine({ reads = observations.itself() })
 
 local bundle <const> = "vendor/cacert/cacert.pem"
+
+--- The version `vendor/<name>/PIN` names: what a binary built from the
+--- tree records.
+local function pinned(name: string): string
+  local text = assert(Fs.read("vendor/" .. name .. "/PIN"))
+  return (assert(("\n" .. text):match("\nversion (%S+)")))
+end
 local zones <const> = "vendor/tzdata/zoneinfo"
 
 local datasets: {string:refresh.Dataset} = {}
@@ -105,7 +112,7 @@ local function test_a_new_bundle_replaces_the_roots(tmp: string)
   local after = carried(out)
   assert(rows(after, "SELECT count(*) FROM ca_roots")[1][1] == tostring(count - 1))
   local component = rows(after, "SELECT version, url, sha256 FROM components WHERE name = 'cacert'")[1]
-  assert(component[1] == "2026-08-13", component[1])
+  assert(component[1] == pinned("cacert"), component[1])
   assert(component[2] == "file:smaller.pem", component[2])
   assert(component[3] == Hash.hex_sha256(smaller), component[3])
   assert(after:close())
@@ -154,11 +161,12 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   local lines, trouble = refresh.binary(path, out, { datasets.tzdata }, { tzdata = archive })
   assert(lines == nil and trouble:find("zone Bad/Zone", 1, true), trouble)
 
+  -- A DER sequence, `30 03 'abc'`, that is no certificate: a binary
+  -- carrying only it would trust nothing.
   local pem = tmp .. "/bad.pem"
-  -- Base64 of four bytes that are no DER sequence.
-  assert(Fs.write(pem, "Bad\n===\n-----BEGIN CERTIFICATE-----\nAQIDBA==\n-----END CERTIFICATE-----\n"))
+  assert(Fs.write(pem, "Bad\n===\n-----BEGIN CERTIFICATE-----\nMANhYmM=\n-----END CERTIFICATE-----\n"))
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem })
-  assert(lines == nil and trouble:find("not one DER sequence", 1, true), trouble)
+  assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true), trouble)
   assert(not Fs.exists(out))
 end
 
@@ -171,20 +179,22 @@ local function test_a_file_that_is_no_artifact_is_refused(tmp: string)
   assert(lines == nil and trouble:find("no artifact trailer", 1, true), trouble)
 end
 
---- The command line: -o is required, never the binary itself, and a
---- dataset it does not know is refused.
+--- The command line: -o is required, and a dataset it does not know is
+--- refused; -o naming the binary itself writes nothing.
 local function test_the_command_line_is_refused_by_name(tmp: string)
   local path = program(tmp)
   local pem = assert(Fs.absolute(bundle))
   local cases: {{string}} = {
     { "refresh", "--binary", path, "--cacert", pem },
-    { "refresh", "-o", path, "--binary", path, "--cacert", pem },
     { "refresh", "-o", tmp .. "/out", "--binary", path, "nosuch" },
   }
   for _, words in ipairs(cases) do
     local result = invoke.run(words, { cwd = tmp })
     assert(result.code == 2, table.concat(words, " ") .. ": exit " .. result.code)
   end
+  -- Not a usage error, but never done: the binary it reads is not written.
+  local itself = invoke.run({ "refresh", "-o", path, "--binary", path, "--cacert", pem }, { cwd = tmp })
+  assert(itself.code == 1 and itself.stderr:find("never written", 1, true), itself.stderr)
   local result = invoke.run({ "refresh", "-o", tmp .. "/out", "--binary", path, "--cacert", pem },
     { cwd = tmp })
   assert(result.code == 0, result.stderr)
@@ -210,30 +220,11 @@ local function test_every_dataset_is_an_option()
 end
 
 local function test_a_bundle_is_named_by_its_mozilla_date()
-  assert(refresh.cacert_date((assert(Fs.read(bundle)))) == "2026-08-13")
+  assert(refresh.cacert_date((assert(Fs.read(bundle)))) == pinned("cacert"))
   assert(refresh.cacert_date("##\n## Certificate data from Mozilla as of: Tue Sep  1 00:00:00 2026 GMT\n")
     == "2026-09-01")
   assert(refresh.cacert_date("no date here") == nil)
   assert(refresh.cacert_date("\n## Certificate data from Mozilla as of: Tue Foo  1 00:00:00 2026 GMT\n") == nil)
-end
-
-local function test_a_der_sequence_is_framed_exactly()
-  assert(refresh.is_sequence("\x30\x00"))
-  assert(refresh.is_sequence("\x30\x03abc"))
-  assert(refresh.is_sequence("\x30\x81\x80" .. ("x"):rep(0x80)))
-  assert(refresh.is_sequence("\x30\x82\x01\x00" .. ("x"):rep(0x100)))
-  assert(not refresh.is_sequence(""))
-  assert(not refresh.is_sequence("\x31\x00"))
-  assert(not refresh.is_sequence("\x30\x03ab"))
-  assert(not refresh.is_sequence("\x30\x03abcd"))
-  -- Indefinite, long form for a short length, a leading zero.
-  assert(not refresh.is_sequence("\x30\x80\x00\x00"))
-  assert(not refresh.is_sequence("\x30\x81\x03abc"))
-  assert(not refresh.is_sequence("\x30\x82\x00\x80" .. ("x"):rep(0x80)))
-  local vendored = assert(require("build.roots").parse((assert(Fs.read(bundle)))))
-  for _, one in ipairs(vendored) do
-    assert(refresh.is_sequence(one.der), one.label)
-  end
 end
 
 local function test_the_newest_sdist_is_read_from_pypi()

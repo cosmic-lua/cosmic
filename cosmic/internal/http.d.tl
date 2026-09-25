@@ -60,6 +60,12 @@ local record http
   -- header name or value holding CR, LF or NUL, an empty header name
   -- or one holding ':', a URL holding NUL.
   open: function(url: string, opts?: Options): Handle | nil, string
+
+  -- True and "" when the TLS stack reads `der` as one X.509
+  -- certificate, as it reads each CA root the binary carries; false
+  -- and its reason when it does not. Raises when there was no memory
+  -- to read it.
+  check_certificate: function(der: string): boolean, string
 end
 
 return http

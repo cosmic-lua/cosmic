@@ -18,8 +18,9 @@
 --- tree's own copy with (`roots.put`, `work.write_zones`,
 --- `Vendor.kept` under the PIN's rules), so a release refreshed in makes
 --- the table a build from that release would have. Every row is checked
---- before anything is written: a certificate that is not one DER
---- sequence, or a zone `cosmic.time` cannot read, refuses the release.
+--- before anything is written: a certificate the TLS stack cannot read
+--- (`Http.check_certificate`, as `core/http.c` reads each root), or a
+--- zone `cosmic.time` cannot read, refuses the release.
 ---
 --- The component's row records the release: its version, where it came
 --- from and its sha256. A release whose sha256 is the one already
@@ -121,35 +122,6 @@ function refresh.cacert_date(pem: string): string | nil
   return ("%s-%s-%02d"):format(year, months[month], math.tointeger(tonumber(day)))
 end
 
---- Whether `der` is one DER SEQUENCE and nothing more, as every
---- certificate is: a tag, a length in either form that fits, and
---- exactly that many bytes behind them. Checks the framing, not the
---- certificate inside it.
-function refresh.is_sequence(der: string): boolean
-  if #der < 2 or der:byte(1) ~= 0x30 then
-    return false
-  end
-  local first = der:byte(2)
-  local length, header = first, 2
-  if first >= 0x80 then
-    local count = first - 0x80
-    -- Indefinite length, or one too long for any certificate.
-    if count == 0 or count > 4 or #der < 2 + count then
-      return false
-    end
-    length = 0
-    for i = 3, 2 + count do
-      length = (length << 8) | der:byte(i)
-    end
-    -- DER takes the short form under 0x80 and no leading zero byte.
-    if length < 0x80 or der:byte(3) == 0 then
-      return false
-    end
-    header = 2 + count
-  end
-  return header + length == #der
-end
-
 --- What PyPI's JSON describes a package by, as far as a refresh reads it.
 local record Index
   record Info
@@ -183,6 +155,9 @@ function refresh.tzdata_release(text: string): refresh.Source | nil, string
   local index, shape_trouble: Index | nil, string = Shape.into(decoded, INDEX)
   if index == nil then
     return nil, "PyPI's description of tzdata: " .. shape_trouble
+  end
+  if not index.info.version:match("^[%w%.]+$") then
+    return nil, "PyPI's description of tzdata names an odd version: " .. index.info.version
   end
   for _, file in ipairs(index.urls) do
     local sha256 = file.digests["sha256"]
@@ -252,8 +227,9 @@ local cacert: refresh.Dataset = {
     local distinct: {string:boolean} = {}
     local count = 0
     for i, one in ipairs(found) do
-      if not refresh.is_sequence(one.der) then
-        return nil, ("%s: certificate %d (%s) is not one DER sequence"):format(path, i, one.label)
+      local readable, why = Http.check_certificate(one.der)
+      if not readable then
+        return nil, ("%s: certificate %d (%s): %s"):format(path, i, one.label, why)
       end
       local digest = Hash.sha256(one.der)
       if not distinct[digest] then
@@ -286,7 +262,7 @@ local tzdata: refresh.Dataset = {
     if source == nil then
       return nil, release_trouble
     end
-    source.path = scratch .. "/" .. Fs.basename(source.url)
+    source.path = scratch .. "/tzdata-sdist"
     local ok, download_trouble = Http.download(source.url, source.path, { sha256 = source.sha256 })
     if not ok then
       return nil, source.url .. ": " .. download_trouble
@@ -304,7 +280,11 @@ local tzdata: refresh.Dataset = {
     -- The sdist's one top directory names its version.
     local version: string = nil
     for _, entry in ipairs(entries) do
-      version = entry.path:gsub("^%./", ""):match("^tzdata%-([^/]+)/src/tzdata/zoneinfo/")
+      local path_in = entry.path
+      while path_in:sub(1, 2) == "./" do
+        path_in = path_in:sub(3):gsub("^/+", "")
+      end
+      version = path_in:match("^tzdata%-([%w%.]+)/src/tzdata/zoneinfo/")
       if version ~= nil then
         break
       end
@@ -339,8 +319,11 @@ local tzdata: refresh.Dataset = {
       if why ~= "" then
         return nil, ("%s: zone %s: %s"):format(path, name, why)
       end
+      -- `./a` and `a` in one archive land on one file: one zone.
+      if zones[name] == nil then
+        count = count + 1
+      end
       zones[name] = data
-      count = count + 1
     end
     return {
       version = version,
@@ -357,12 +340,16 @@ refresh.datasets = { cacert, tzdata }
 --- What the binary records of the release it carries of `name`.
 local function recorded(db: Sqlite.Handle, name: string): {string} | nil, string
   local rows, trouble = Sqlite.text_rows(db,
-    "SELECT version, url, sha256 FROM components WHERE name = ?1", { bind.text(name) })
+    "SELECT version, url, sha256, patches FROM components WHERE name = ?1", { bind.text(name) })
   if rows == nil then
     return nil, trouble
   end
   if #rows == 0 then
     return nil, "the binary records no " .. name .. " component"
+  end
+  -- A release as upstream publishes it would lose what cosmic changed.
+  if rows[1][4] ~= "" then
+    return nil, "the binary's " .. name .. " carries cosmic's patches, which a refresh cannot apply"
   end
   return rows[1], ""
 end
@@ -409,7 +396,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   if not made then
     return nil, made_trouble
   end
-  local change = version == was[1] and version .. " (as it was)" or was[1] .. " -> " .. version
+  local change = sha256 == was[3] and version .. " (as it was)" or was[1] .. " -> " .. version
   return ("%s %s, %d rows"):format(dataset.name, change, release.count), ""
 end
 
@@ -468,7 +455,10 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
       else
         local fetched, fetch_trouble = dataset.fetch(scratch)
         if fetched == nil then
-          return done(dataset.name .. ": " .. fetch_trouble)
+          -- The fetch trusts this binary's own roots, which may be the
+          -- stale data being replaced.
+          return done(("%s: %s; --%s <file> reads a release with no network"):format(
+            dataset.name, fetch_trouble, dataset.name))
         end
         source = fetched
       end
@@ -572,6 +562,11 @@ function refresh.run(argv: {integer:string}): integer
     end
   end
   local binary = parsed.values["--binary"]
+  -- TODO: read the running binary from the descriptor startup retained
+  -- rather than opening its path again, once the store offers the whole
+  -- file as it offers its core (trusted_core): a binary renamed over
+  -- this one after launch -- a package upgrade -- is refreshed in its
+  -- place. `cosmic --version` has the same gap (build/dispatch.tl).
   if binary == nil then
     local running, trouble = Proc.executable()
     if running == nil then
@@ -581,7 +576,8 @@ function refresh.run(argv: {integer:string}): integer
     binary = running
   end
   if same_file(binary, out) then
-    return refuse(out .. " is the binary it refreshes, which is never written")
+    log:complain("refresh: " .. out .. " is the binary it refreshes, which is never written")
+    return finish(1, "nothing written")
   end
   local lines, trouble = refresh.binary(binary, out, chosen, sources)
   if lines == nil then

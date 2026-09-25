@@ -1,6 +1,6 @@
 --- Fuzz properties for what `cosmic refresh` reads from upstream: a PEM
---- bundle (`roots.parse`), the DER framing each certificate is checked
---- for, and PyPI's description of tzdata. Each is total -- a refusal by
+--- bundle (`roots.parse`), the date curl names it by, and PyPI's
+--- description of tzdata. Each is total -- a refusal by
 --- name, never a raise -- and reads well-formed input back as written.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
@@ -57,8 +57,6 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
       local ders: {string} = {}
       for _, one in ipairs(found) do
         if one.der == "" then return false, "an empty certificate" end
-        -- What is framed is a sequence, whatever the bytes inside.
-        refresh.is_sequence(one.der)
         ders[#ders + 1] = one.der
       end
       if fields[2] ~= "" and table.concat(ders, "\0\0") ~= fields[2] then
@@ -70,26 +68,27 @@ local function test_a_bundle_parses_back_or_is_refused(tmp: string)
   })
 end
 
-local function test_der_framing_is_exact(tmp: string)
+local function test_a_mozilla_date_is_read_or_absent(tmp: string)
+  local sample = "##\n## Certificate data from Mozilla as of: Thu Aug 13 03:12:01 2026 GMT\n##\n"
   Fuzz.run({
-    name = "der framing",
+    name = "mozilla date",
     dir = tmp,
     gen = function(src: Fuzz.Source): string
-      local body = Fuzz.bytes(src, 40) .. ("x"):rep(src:int(0, 2) * 150)
-      local framed = sequence(body)
-      local mutated = Fuzz.mutate(src, framed, 2)
-      return Fuzz.pack({ mutated, mutated == framed and "1" or "" })
+      return Fuzz.mutate(src, sample, 3)
     end,
     check = function(input: string): boolean, string
-      local fields = Fuzz.unpack(input)
-      local framed = refresh.is_sequence(fields[1])
-      Fuzz.label(framed and "framed" or "unframed")
-      if fields[2] == "1" and not framed then
-        return false, "a well-framed sequence was refused"
+      local date = refresh.cacert_date(input)
+      if date == nil then
+        Fuzz.label("absent")
+        return true, ""
+      end
+      Fuzz.label("dated")
+      if not date:match("^%d%d%d%d%-%d%d%-%d%d+$") then
+        return false, "not a date: " .. date
       end
       return true, ""
     end,
-    requires = { "framed", "unframed" },
+    requires = { "dated", "absent" },
   })
 end
 
@@ -115,6 +114,9 @@ local function test_pypis_description_is_read_or_refused(tmp: string)
         return true, ""
       end
       Fuzz.label("found")
+      if not source.version:match("^[%w%.]+$") then
+        return false, "a version that is not plain: " .. source.version
+      end
       if #source.sha256 ~= 64 or not source.sha256:match("^[0-9a-f]+$") then
         return false, "a sha256 that is not 64 lowercase hex digits: " .. source.sha256
       end
