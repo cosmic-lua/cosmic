@@ -215,3 +215,126 @@ local function test_a_spec_not_built_here_raises()
   assert(not pcall(Shape.record, { a = { kind = "strig" } as Shape.Spec }))
   assert(not pcall(Shape.either))
 end
+
+--- Each failure `failures` lists, as its message, checked to start
+--- with its path and to hold `into`'s reason.
+local function all_fail(value: any, spec: Shape.Spec): {string}
+  local v, err: any, string = Shape.into(value, spec)
+  assert(v == nil, "expected a failure")
+  local messages: {string} = {}
+  local held = false
+  for i, f in ipairs(Shape.failures(value, spec)) do
+    assert(f.message:sub(1, #f.path + 2) == f.path .. ": ", f.message)
+    messages[i] = f.message
+    held = held or f.message == err
+  end
+  assert(held, "into's reason is not among the failures: " .. err)
+  return messages
+end
+
+local function same(got: {string}, want: {string})
+  local g, w = table.concat(got, "\n"), table.concat(want, "\n")
+  assert(g == w, ("wanted\n%s\ngot\n%s"):format(w, g))
+end
+
+-- A config file's author sees every mistake at once, in the order the
+-- walk meets them, while `into` still answers only the first.
+local function test_failures_names_every_value_that_does_not_fit()
+  local spec = Shape.record({
+    host = Shape.string,
+    port = Shape.integer,
+    level = Shape.one_of("debug", "info"),
+    rows = Shape.list(Shape.record({ id = Shape.string })),
+    tags = Shape.map(Shape.boolean),
+  })
+  local value: {string: any} = {
+    port = "8080", level = "warn",
+    rows = { { id = 1 }, { id = "b" }, { id = true } },
+    tags = { b = 1, a = "x", c = true },
+  }
+  same(all_fail(value, spec), {
+    "$.host: expected string, got nothing",
+    '$.level: expected one of "debug", "info", got "warn"',
+    "$.port: expected integer, got string",
+    "$.rows[1].id: expected string, got integer",
+    "$.rows[3].id: expected string, got boolean",
+    "$.tags.a: expected boolean, got string",
+    "$.tags.b: expected boolean, got integer",
+  })
+  fails(value, spec, "$.host: expected string, got nothing")
+  assert(Shape.failures(value, spec)[3].path == "$.port")
+end
+
+local function test_failures_is_empty_when_the_value_fits()
+  assert(#Shape.failures({ host = "h", port = 1.0 }, SERVER) == 0)
+  assert(not pcall(Shape.failures, {}, {} as Shape.Spec))
+end
+
+-- A value that fails where it stands is one failure, a run of holes
+-- is one, and an either answers the choice that got inside the value.
+local function test_failures_keeps_each_failure_to_one_per_value()
+  same(all_fail("text", SERVER), { "$: expected record, got string" })
+  same(all_fail({ [2] = "b", [3] = 3, [6] = "f" }, Shape.list(Shape.string)), {
+    "$[1]: expected string, got nothing",
+    "$[3]: expected string, got integer",
+    "$[4]: expected string, got nothing",
+  })
+  same(all_fail({ [1 << 40] = 1 }, Shape.list(Shape.string)), {
+    "$[1]: expected string, got nothing",
+    ("$[%d]: expected string, got integer"):format(1 << 40),
+  })
+  local names = Shape.either(Shape.string, Shape.list(Shape.string))
+  same(all_fail({ 1, "b", 3 }, names), {
+    "$[1]: expected string, got integer",
+    "$[3]: expected string, got integer",
+  })
+  same(all_fail(true, names), { "$: expected string or list, got boolean" })
+end
+
+-- A key a map or list refuses fails it where it stands: every such key
+-- is listed, in an order no address decides, and its values are not
+-- looked at, so an `either` over it tries its next choice just as
+-- `into` does.
+local function test_failures_lists_every_refused_key_and_no_value()
+  local bad: {any: any} = { a = 1, [{}] = true, [print] = true, [true] = 1, [10] = 1, [2] = 1, [1.5] = 1 }
+  same(all_fail(bad, Shape.map(Shape.string)), {
+    "$: expected map, got the float key 1.5",
+    "$: expected map, got the integer key 2",
+    "$: expected map, got the integer key 10",
+    "$: expected map, got the boolean key true",
+    "$: expected map, got a function key",
+    "$: expected map, got a table key",
+  })
+  same(all_fail({ "a", x = 1, [0] = 2 }, Shape.list(Shape.integer)), {
+    "$: expected list, got the integer key 0",
+    '$: expected list, got the string key "x"',
+  })
+  local either = Shape.either(Shape.map(Shape.string), Shape.record({ a = Shape.string }))
+  same(all_fail({ a = 1, [2] = "b" }, either), { "$.a: expected string, got integer" })
+  fails({ a = 1, [2] = "b" }, either, "$.a: expected string, got integer")
+  -- With no choice that gets inside, both answer the union, whichever
+  -- key `next` reaches first.
+  local loose = Shape.either(Shape.map(Shape.string), Shape.string)
+  same(all_fail({ a = 1, [2] = "b" }, loose), { "$: expected map or string, got table" })
+  fails({ a = 1, [2] = "b" }, loose, "$: expected map or string, got table")
+  fails({ [{}] = 1 }, Shape.map(Shape.string), "$: expected map, got a table key")
+end
+
+-- A strict record lists every key it does not name, in byte order, and
+-- none of its fields; a key that is not a string is refused where the
+-- record stands, before any unknown name.
+local function test_failures_lists_every_unknown_key_of_a_strict_record()
+  local spec = Shape.strict_record({ host = Shape.string, port = Shape.integer })
+  same(all_fail({ prot = 1, hots = "h", port = "x", zone = true }, spec), {
+    "$.hots: unknown key",
+    "$.prot: unknown key",
+    "$.zone: unknown key",
+  })
+  same(all_fail({ prot = 1, [2] = true, [1] = true }, spec), {
+    "$: expected record, got the integer key 1",
+    "$: expected record, got the integer key 2",
+  })
+  same(all_fail({ nested = { prot = 1, a = 2 } }, Shape.record({
+    nested = Shape.strict_record({ port = Shape.optional(Shape.integer) }),
+  })), { "$.nested.a: unknown key", "$.nested.prot: unknown key" })
+end

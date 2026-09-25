@@ -11,7 +11,7 @@
 --- be looked up, not passed around: every field of it is a documented
 --- `string` (`test: string` in `cosmic.cli`'s `Cli`), and no function
 --- or method in the public catalog takes or returns it. `cosmic.shape`'s
---- `Miss` has only strings too, but its functions hand it out, so its
+--- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
 ---
 --- It is a whole-tree question, asked of the shipped database

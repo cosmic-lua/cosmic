@@ -195,6 +195,29 @@ local function check_total(input: string): boolean, string
   local spec = gen_spec(r, 3)
   local value = gen_value(r, spec, 4, false)
   local out, err: any, string = Shape.into(value, spec)
+  -- `failures` is empty exactly when into succeeds, holds into's
+  -- reason when it fails, and is the same list every call.
+  local failures = Shape.failures(value, spec)
+  if (err == "") ~= (#failures == 0) then
+    return false, ("into answered %q, failures %d"):format(err, #failures)
+  end
+  local listed = {}
+  local held = false
+  for _, f in ipairs(failures) do
+    if f.message:sub(1, #f.path + 2) ~= f.path .. ": " then
+      return false, "a failure's message does not start with its path: " .. f.message
+    end
+    held = held or f.message == err
+    listed[#listed + 1] = f.path .. "\0" .. f.message
+  end
+  if err ~= "" and not held then return false, "into's reason is not among the failures: " .. err end
+  local again_listed = {}
+  for _, f in ipairs(Shape.failures(value, spec)) do
+    again_listed[#again_listed + 1] = f.path .. "\0" .. f.message
+  end
+  if table.concat(listed, "\n") ~= table.concat(again_listed, "\n") then
+    return false, "two calls answered two lists of failures"
+  end
   if err ~= "" then
     if out ~= nil then return false, "a failure answered a value" end
     if err:sub(1, 1) ~= "$" then return false, "a failure without a path: " .. err end
@@ -225,7 +248,9 @@ local function check_json(input: string): boolean, string
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
   local again_text, aerr = Json.encode(out, { sparse_as_null = true })
   if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
-  local again, err2: any, string = Shape.into(Json.decode(again_text), spec)
+  -- Read back as it was first read: under `any` the answer keeps
+  -- `Json.null`, which only the same `null_value` reads back as itself.
+  local again, err2: any, string = Shape.into(Json.decode(again_text, opts), spec)
   if err2 ~= "" then return false, again_text .. " does not fit: " .. err2 end
   if not same(out, again) then return false, again_text .. " read back as another answer" end
   return true, ""
