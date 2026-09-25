@@ -9,41 +9,77 @@ local Json = require("cosmic.json")
 local DIR <const> = ".github/workflows"
 local READ <const>: Json.DecodeOptions = { json5 = true, hash_comments = true }
 
---- Keys YAML 1.1 reads as booleans when bare, whatever their case.
-local BOOLEAN_KEYS <const>: {string: boolean} = {
+--- Bare keys YAML reads as something other than their text: YAML 1.1's
+--- booleans and both versions' null, whatever their case.
+local UNSAFE_KEYS <const>: {string: boolean} = {
   y = true, yes = true, n = true, no = true, on = true, off = true, ["true"] = true, ["false"] = true,
+  null = true,
+}
+
+--- The escapes a double-quoted string may hold, which the two read
+--- alike (`\u` takes four hex digits).
+local ESCAPES <const>: {string: boolean} = {
+  ['"'] = true, ["\\"] = true, ["/"] = true, b = true, f = true, n = true, r = true, t = true, u = true,
 }
 
 --- What in `text` either reader would read differently from the other,
---- or not at all, each as `line N: why`. Outside a string and a comment:
---- a single quote (YAML escapes one inside as `''`, JSON5 as `\'`); a
---- `//` or `/*` comment, which YAML lacks; a `#` right after a token,
---- which YAML reads as part of it; a `:` with nothing after it but a
---- token, which YAML reads as part of a word; a bare key YAML 1.1 reads
---- as a boolean; and a bare value other than true, false, null or a
---- decimal integer, which the two may read as different things. Inside
---- a double-quoted string: `\'`, which YAML lacks, and a line
---- continuation, which YAML folds differently.
+--- or not at all, each as `line N: why`. It holds a text to a subset
+--- narrower than the two share, where anything it cannot vouch for is
+--- refused:
+---
+--- - Anywhere: a line ends at `\n` or `\r\n` alone, since YAML 1.2 takes
+---   no U+2028 or U+2029 as a line end, which JSON5 does, and a lone
+---   `\r` ends a comment for one and not in every YAML reader.
+--- - Outside a string and a comment: only spaces, line ends,
+---   `{}[],:`, `#` and bare words; a `#` after a space or a line's
+---   start, since YAML reads one right after a token as part of it; a
+---   space after each `:`, and the `:` on its key's line; no `//` or
+---   `/*` comment and no single-quoted string, which YAML lacks or reads
+---   otherwise.
+--- - A bare key an identifier and none of UNSAFE_KEYS; a bare value
+---   true, false, null or a decimal integer of at most 15 digits, which
+---   both read as the same number.
+--- - In a double-quoted string, only ESCAPES.
+--- - No key twice in one object, which GitHub refuses.
 local function problems(text: string): {string}
   local found: {string} = {}
   local line = 1
   local function say(why: string)
     found[#found + 1] = ("line %d: %s"):format(line, why)
   end
+  --- For each open container, an object's keys seen, or false.
+  local open: {{string: boolean} | boolean} = {}
+  local function key(name: string)
+    local keys = open[#open]
+    if keys is {string: boolean} then
+      if keys[name] then say("the key " .. name .. " twice in one object") end
+      keys[name] = true
+    end
+  end
+  --- The line the last token ended on, which a `:` must share.
+  local token_line = 0
   local i = 1
   local n = #text
   while i <= n do
     local c = text:sub(i, i)
-    if c == "\n" then
+    if text:sub(i, i + 2) == "\u{2028}" or text:sub(i, i + 2) == "\u{2029}" then
+      say("U+2028 or U+2029, which JSON5 takes as a line end and YAML 1.2 does not")
+      i = i + 3
+    elseif c == "\r" then
+      if text:sub(i + 1, i + 1) ~= "\n" then say("a \\r alone: end a line with \\n") end
+      i = i + 1
+    elseif c == "\n" then
       line = line + 1
+      i = i + 1
+    elseif c == " " then
       i = i + 1
     elseif c == "#" then
       local before = i > 1 and text:sub(i - 1, i - 1) or "\n"
-      if not before:match("[ \t\n]") then say("a # right after a token: put a space before it") end
-      local stop = text:find("\n", i, true)
-      i = stop or n + 1
+      if before ~= " " and before ~= "\n" then say("a # right after a token: put a space before it") end
+      i = text:find("[\r\n\226]", i) or n + 1
     elseif c == '"' or c == "'" then
       if c == "'" then say("a single-quoted string: write it double-quoted") end
+      local first = i
       i = i + 1
       while i <= n and text:sub(i, i) ~= c do
         local d = text:sub(i, i)
@@ -51,13 +87,19 @@ local function problems(text: string): {string}
           line = line + 1
         elseif d == "\\" then
           local e = text:sub(i + 1, i + 1)
-          if e == "'" then say("\\' in a string, which YAML does not have: write ' alone") end
-          if e == "\n" or e == "\r" then say("a line continuation, which YAML folds differently: write \\n") end
+          if not ESCAPES[e] or (e == "u" and not text:sub(i + 2, i + 5):match("^%x%x%x%x$")) then
+            say("the escape \\" .. e .. ", which the two read differently: write \\uXXXX")
+          end
           i = i + 1
         end
         i = i + 1
       end
       i = i + 1
+      token_line = line
+      if text:match("^ *:", i) then
+        local name = Json.decode(text:sub(first, i - 1), READ)
+        if name is string then key(name) end
+      end
     elseif c == "/" and text:sub(i + 1, i + 1):match("[/*]") then
       local opening = text:sub(i, i + 1)
       say("a " .. opening .. " comment, which YAML does not have: write #")
@@ -69,21 +111,34 @@ local function problems(text: string): {string}
         i = close and close + 1 or n + 1
       end
     elseif c == ":" then
-      if not text:sub(i + 1, i + 1):match("^[ \t\r\n]") then say("a : with no space after it") end
+      if not text:sub(i + 1, i + 1):match("^[ \r\n]") then say("a : with no space after it") end
+      if token_line ~= line then say("a : on another line than its key") end
+      i = i + 1
+    elseif c == "{" or c == "[" then
+      open[#open + 1] = c == "{" and {} or false
+      i = i + 1
+    elseif c == "}" or c == "]" then
+      open[#open] = nil
+      token_line = line
+      i = i + 1
+    elseif c == "," then
       i = i + 1
     elseif c:match("[%w_$+.%-]") then
       local word = text:match("^[%w_$+.%-]+", i)
       i = i + #word
-      local after = text:match("^[ \t]*(.)", i)
-      if after == ":" then
-        if BOOLEAN_KEYS[word:lower()] then
-          say("the key " .. word .. ", which YAML 1.1 reads as a boolean: quote it")
+      token_line = line
+      if text:match("^ *:", i) then
+        if not word:match("^[%a_$][%w_$]*$") or UNSAFE_KEYS[word:lower()] then
+          say("the bare key " .. word .. ", which YAML reads otherwise: quote it")
+        else
+          key(word)
         end
-      elseif word ~= "true" and word ~= "false" and word ~= "null" and not word:match("^%-?[1-9]%d*$")
-          and word ~= "0" then
-        say("the bare value " .. word .. ": quote it, or write a decimal integer")
+      elseif word ~= "true" and word ~= "false" and word ~= "null" and
+          not (word:match("^%-?[1-9]%d*$") and #word:gsub("^%-", "") <= 15) and word ~= "0" then
+        say("the bare value " .. word .. ": quote it, or write a decimal integer of at most 15 digits")
       end
     else
+      say(("the character %q outside a string, which the two read differently"):format(c))
       i = i + 1
     end
   end
@@ -115,25 +170,39 @@ local function test_problems_names_what_the_readers_read_apart()
     ["{a: 1} // c"] = "// comment",
     ["{a: 1} /* c */"] = "/* comment",
     ["{a: 1}# c"] = "right after a token",
+    ["{a: 1}\t# c"] = 'the character "\\9"',
     ['{a:"x"}'] = "no space after",
-    ['{on: "x"}'] = "the key on",
+    ['{"a"\n: 1}'] = "another line than its key",
+    ['{on: "x"}'] = "the bare key on",
+    ['{NULL: "x"}'] = "the bare key NULL",
     ['{"a": x}'] = "the bare value x",
     ['{"a": 0x1F}'] = "the bare value 0x1F",
     ['{"a": NaN}'] = "the bare value NaN",
     ['{"a": 1.5}'] = "the bare value 1.5",
-    ['{"a": "\\\'"}'] = "\\' in a string",
-    ['{"a": "x\\\ny"}'] = "line continuation",
+    ['{"a": 1234567890123456}'] = "the bare value 1234567890123456",
+    ['{"a": "\\\'"}'] = "the escape \\'",
+    ['{"a": "x\\\ny"}'] = "the escape \\\n",
+    ['{"a": "\\N"}'] = "the escape \\N",
+    ['{"a": "\\U0001F600"}'] = "the escape \\U",
+    ['{"a": "\\u00"}'] = "the escape \\u",
+    ['{"a": 1, "a": 2}'] = "the key a twice",
+    ['{a: 1, "a": 2}'] = "the key a twice",
+    ["{\\u0061: 1}"] = 'the character "\\\\"',
+    ['{\t"a": 1}'] = 'the character "\\9"',
+    ['{"a": *x}'] = 'the character "*"',
+    ["{\n# c\r\"a\": 1}"] = "a \\r alone",
+    ["{\n# c\u{2028}\"a\": 1}"] = "U+2028",
   }
   for text, want in pairs(cases) do
     local got = problems(text)
-    assert(#got == 1 and got[1]:find(want, 1, true), text .. ": " .. table.concat(got, "; "))
+    assert(#got >= 1 and got[1]:find(want, 1, true), text .. ": " .. table.concat(got, "; "))
   end
-  local fine = '# lead\n{\n  "on": {push: {}}, # after\n  a: [true, false, null, 0, -12,],\n' ..
-    '  b: "it\'s # not a comment: //, \\"quoted\\"",\n  "c-d": {e: "x:y"},\n}\n'
+  local fine = '# lead\r\n{\n  "on": {push: {}}, # after\n  a: [true, false, null, 0, -12, 123456789012345,],\n' ..
+    '  b: "it\'s # not a comment: //, \\"quoted\\" \\u00e9\\n",\n  "c-d": {a: "x:y"},\n  e: [{a: 1}, {a: 2}],\n}\n'
   local none = problems(fine)
   assert(#none == 0, table.concat(none, "; "))
   local got = problems('{\n  a: 1,\n  b: x,\n}')
-  assert(got[1] == "line 3: the bare value x: quote it, or write a decimal integer", got[1])
+  assert(got[1] == "line 3: the bare value x: quote it, or write a decimal integer of at most 15 digits", got[1])
 end
 
 local function test_flow_workflows_keep_to_the_shared_subset()
@@ -155,11 +224,13 @@ end
 local function test_the_actionlint_path_filter_names_what_exists()
   local text = assert(flow_workflows()[DIR .. "/actionlint.yml"], "actionlint.yml is not in flow style")
   local workflow = assert(Json.decode_object(text, READ))
-  local on = workflow["on"] as {string: {string: {string}}}
-  local paths = assert(on.push.paths, "no push path filter")
+  local on = assert(workflow["on"], "no on") as {string: {string: {string}}}
+  local push = assert(on.push, "no push trigger")
+  local paths = assert(push.paths, "no push path filter")
   assert(#paths > 0, "an empty path filter")
   for _, path in ipairs(paths) do
-    local fixed = path:gsub("/%*%*$", "")
+    -- A `!` excludes what it names, which must exist all the same.
+    local fixed = path:gsub("^!", ""):gsub("/%*%*$", "")
     assert(not fixed:find("*", 1, true), path .. ": only a trailing /** is checked")
     assert(Fs.exists(fixed), path .. " is in actionlint.yml's path filter, and does not exist")
   end

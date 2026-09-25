@@ -18,8 +18,10 @@
 --- comments, which neither JSON nor JSON5 has, in either. With `json5`,
 --- it reads a text that YAML reads too, written in YAML's flow style:
 --- a GitHub workflow, say, with double-quoted strings, keys quoted
---- unless they are identifiers, a space after each `:`, and a space
---- before each `#`.
+--- unless they are identifiers YAML reads as their text (`on`, `no`
+--- and `null` it does not), a space after each `:`, and a space before
+--- each `#`. build/workflows_test.tl holds the tree's workflows to
+--- that subset.
 ---
 ---     local text = '{\n  # what GitHub shows\n  name: "ci",\n}'
 ---     local workflow = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
