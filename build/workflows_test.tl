@@ -1,8 +1,10 @@
---- The workflows under .github/workflows/ written in YAML's flow style:
---- each opens with `{` after its leading comments, and keeps to the
---- subset that YAML and JSON5 read with `#` comments
+--- The workflows under .github/workflows/, every one written in YAML's
+--- flow style: each opens with `{` after its leading comments, and keeps
+--- to the subset that YAML and JSON5 read with `#` comments
 --- (`cosmic.json`'s `hash_comments`) read alike, so the tree can read
---- what GitHub runs without a YAML parser.
+--- what GitHub runs without a YAML parser. A step's script longer than a
+--- line or two lives under .github/scripts/, where it reads as a script
+--- rather than as one string of `\n`-joined lines.
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 
@@ -256,19 +258,121 @@ local function test_flow_workflows_keep_to_the_shared_subset()
   assert(count > 0, "no workflow under " .. DIR .. " is in flow style")
 end
 
---- actionlint.yml runs only when a path its filter names changes, so a
---- path that no longer exists is a check that silently stops running.
-local function test_the_actionlint_path_filter_names_what_exists()
-  local text = assert(flow_workflows()[DIR .. "/actionlint.yml"], "actionlint.yml is not in flow style")
-  local workflow = assert(Json.decode_object(text, READ))
-  local on = assert(workflow["on"], "no on") as {string: {string: {string}}}
-  local push = assert(on.push, "no push trigger")
-  local paths = assert(push.paths, "no push path filter")
-  assert(#paths > 0, "an empty path filter")
-  for _, path in ipairs(paths) do
-    -- A `!` excludes what it names, which must exist all the same.
-    local fixed = path:gsub("^!", ""):gsub("/%*%*$", "")
-    assert(not fixed:find("*", 1, true), path .. ": only a trailing /** is checked")
-    assert(Fs.exists(fixed), path .. " is in actionlint.yml's path filter, and does not exist")
+--- Every workflow under DIR is in flow style, so none can drift back to
+--- a block style the subset check never sees.
+local function test_every_workflow_is_in_flow_style()
+  local flow = flow_workflows()
+  for _, name in ipairs((assert(Fs.list(DIR)))) do
+    local path = DIR .. "/" .. name
+    assert(flow[path] ~= nil, path .. " is not in flow style")
+  end
+end
+
+--- Each decoded flow-style workflow, by path.
+local function decoded_workflows(): {string: {string: any}}
+  local out: {string: {string: any}} = {}
+  for path, text in pairs(flow_workflows()) do
+    out[path] = assert(Json.decode_object(text, READ))
+  end
+  return out
+end
+
+--- A workflow runs only when a path its filters name changes, so a
+--- path that no longer exists is a check that silently stops running,
+--- or one that never stops: every trigger's `paths` and `paths-ignore`
+--- must name what exists.
+local function test_each_path_filter_names_what_exists()
+  local count = 0
+  for path, workflow in pairs(decoded_workflows()) do
+    local on = workflow["on"]
+    if on is {string: any} then
+      for trigger, spec in pairs(on) do
+        for _, field in ipairs({ "paths", "paths-ignore" }) do
+          local entries = spec is {string: any} and spec[field] or nil
+          if entries is {string} then
+            local where = path .. "'s " .. trigger .. "." .. field
+            assert(#entries > 0, where .. " is empty")
+            for _, entry in ipairs(entries) do
+              count = count + 1
+              -- A `!` excludes what it names, which must exist all the same.
+              local fixed = entry:gsub("^!", ""):gsub("/%*%*$", "")
+              assert(not fixed:find("*", 1, true), where .. ": " .. entry .. ": only a trailing /** is checked")
+              assert(Fs.exists(fixed), entry .. " is in " .. where .. ", and does not exist")
+            end
+          end
+        end
+      end
+    end
+  end
+  assert(count > 0, "no workflow has a path filter")
+end
+
+local SCRIPTS <const> = ".github/scripts"
+
+--- `path` with its `.` and `..` segments resolved.
+local function normal(path: string): string
+  local parts: {string} = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      table.remove(parts)
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
+  end
+  return table.concat(parts, "/")
+end
+
+--- The directory under the checkout a step's `run` starts in: the
+--- step's own `working-directory`, else its job's default, else the
+--- workflow's, else the checkout's root.
+local function directory(workflow: {string: any}, job: {string: any}, step: {string: any}): string
+  for _, holder in ipairs({ step, (job.defaults or {}) as {string: any}, (workflow.defaults or {}) as {string: any} }) do
+    local here = holder["working-directory"]
+    if here == nil then
+      local run = holder.run
+      here = run is {string: any} and run["working-directory"] or nil
+    end
+    if here is string then return here end
+  end
+  return "."
+end
+
+--- Every script under SCRIPTS a step of `workflow` runs, as the path from
+--- the checkout's root its `run` resolves to from where it starts.
+local function scripts_run(path: string, workflow: {string: any}): {string}
+  local out: {string} = {}
+  local jobs = workflow.jobs
+  assert(jobs is {string: {string: any}}, path .. ": no jobs")
+  for _, job in pairs(jobs) do
+    local steps = job.steps
+    if steps is {{string: any}} then
+      for _, step in ipairs(steps) do
+        local run = step.run
+        if run is string then
+          for named in run:gmatch("[%w_./%-]*%.github/scripts/[%w_./%-]+") do
+            out[#out + 1] = normal(directory(workflow, job, step) .. "/" .. named)
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- The scripts the workflows run are the ones under SCRIPTS: each one a
+--- step names is a file there, found from where the step starts, and
+--- each file there is one some step names.
+local function test_the_workflows_run_the_scripts_there_are()
+  local named: {string: boolean} = {}
+  for path, workflow in pairs(decoded_workflows()) do
+    for _, script in ipairs(scripts_run(path, workflow)) do
+      named[script] = true
+      local st = Fs.stat(script)
+      assert(st ~= nil and st.kind == "file", path .. " runs " .. script .. ", which is no file")
+    end
+  end
+  for _, name in ipairs((assert(Fs.list(SCRIPTS)))) do
+    local script = SCRIPTS .. "/" .. name
+    assert(named[script], script .. " is run by no workflow")
   end
 end

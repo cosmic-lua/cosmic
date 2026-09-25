@@ -643,6 +643,9 @@ local function skip_input(entry: string, name: string): boolean
 end
 
 local function skip_in_own_tree(entry: string, name: string): boolean
+  -- TODO: walk .github/ here too, for `scanned` alone, so `cosmic
+  -- todos` lists the TODOs its workflows and scripts carry (fuzz.yml's,
+  -- ci-images.yml's); the hidden-name rule below skips it whole.
   if name:sub(1, 1) == "." then
     return true
   end
