@@ -48,7 +48,7 @@ local insert_modules =
   "INSERT INTO out.modules (path, file, kind, source_hash, key, source, " ..
   "bytecode, tests) " ..
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), " ..
-  "CAST(p.key AS BLOB), i.source, c.bytecode, " ..
+  "CAST(p.key AS BLOB), deflate(i.source), c.bytecode, " ..
   "CASE WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
   "WHERE t.source_hash = i.source_hash), '') " ..
@@ -214,7 +214,7 @@ local function project(handle: work.Handle, path: string,
     statements[#statements + 1] = insert_modules
     statements[#statements + 1] = insert_imports
     statements[#statements + 1] =
-      "INSERT INTO out.decls (path, source) SELECT path, source FROM inputs " ..
+      "INSERT INTO out.decls (path, source) SELECT path, deflate(source) FROM inputs " ..
       "WHERE kind = 'decl' ORDER BY path"
     for _, statement in ipairs(statements) do
       local ok, failure = db:exec(statement)

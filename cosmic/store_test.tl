@@ -1,6 +1,7 @@
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
+local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local observations = require("build.filesystem_observations")
 
@@ -113,4 +114,16 @@ local function test_alone_searches_only_the_binarys_own_database()
   Store.alone(many)
   assert(#Store.databases() == before)
   assert(Store.meta("compiler") ~= nil)
+end
+
+--- The binary's own connection knows the functions every handle does,
+--- so a query reads a module's deflated source back the way
+--- `Store.source` does.
+local function test_the_binary_s_database_inflates_its_source()
+  local databases = Store.databases()
+  local binary = databases[#databases]
+  local rows = assert(Sqlite.text_rows(binary,
+    "SELECT CAST(inflate(source) AS TEXT) FROM modules WHERE path = 'cosmic.store'"))
+  assert(#rows == 1 and rows[1][1] == assert(Store.source("cosmic.store")),
+    "the query and Store.source read the same text")
 end
