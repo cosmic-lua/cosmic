@@ -31,8 +31,8 @@ the launcher, and tests. A release build requires all three release records.
 The `sanitized` step adds one configuration-2 core for the build host. That
 checked core is a test artifact, not a fourth shipped target.
 
-The `boot` step runs the new host core in bridge mode. The C bridge loads the
-vendored Teal compiler from the staged tree, then calls
+The `boot` step runs the new host core in bridge mode. It loads the bridge,
+`core/bridge.lua`, and the vendored Teal compiler from the staged tree, then calls
 [`build.boot`](../../build/boot.tl). This is the path that works when no older
 Cosmic executable exists.
 

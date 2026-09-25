@@ -1,9 +1,7 @@
 #include "boot.h"
 
 #include <stdio.h>
-#include <string.h>
 
-#include "bridge.lua.h"
 #include "check.h"
 #include "lauxlib.h"
 
@@ -14,11 +12,17 @@ static int report (lua_State *L, const char *what) {
   return 1;
 }
 
-/* Runs the bridge chunk and leaves its table on the stack. */
+/* Runs the tree's bridge chunk, core/bridge.lua, and leaves its table
+ * on the stack. */
 static int run_bridge (lua_State *L, const char *root) {
-  if (luaL_loadbufferx(L, cosmic_bridge_source, strlen(cosmic_bridge_source),
-                       "@cosmic:bridge", "t") != LUA_OK) {
-    return report(L, "the bridge would not compile");
+  char path[4096];
+  int written = snprintf(path, sizeof path, "%s/core/bridge.lua", root);
+  if (written < 0 || (size_t)written >= sizeof path) {
+    fprintf(stderr, "cosmic boot: the root's path is too long\n");
+    return 1;
+  }
+  if (luaL_loadfilex(L, path, "t") != LUA_OK) {
+    return report(L, "the bridge would not load");
   }
   lua_pushstring(L, root);
   if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
