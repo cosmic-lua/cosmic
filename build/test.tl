@@ -1479,8 +1479,10 @@ function test.run(argv: {integer:string}): integer
     end
   end
   if #jobs > 0 then
-    -- Nil when another guard is open -- a run inside a `Child.run` --
-    -- and the run goes unguarded: a signal acts as it would.
+    -- Nil when this process already holds a guard: `test.run` called
+    -- in-process under one (build.invoke runs verbs so, though not
+    -- `test` today). The run then goes unguarded, a signal acting as it
+    -- would, rather than taking the signals from the guard's owner.
     local opened, _ = Child.guard()
     if opened == nil then
       run_jobs(rec, jobs, limits, nil)

@@ -389,12 +389,25 @@ local function test_guard_keeps_a_signal_and_delivers_it_on_close()
   assert(Fs.write(fixture, [[
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
   do
     local guard <close> = assert(Child.guard())
     local timed = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
     local untimed = assert(Child.start({ "/bin/sh", "-c", "sleep 30" }))
+    local done = assert(Child.start({ "/bin/sh", "-c", "exit 3" }))
+    -- Until `done` has exited: Linux shows it as a zombie in /proc;
+    -- elsewhere, half a second is ample for `exit 3`.
+    local stat_path = "/proc/" .. tostring(done.pid) .. "/stat"
+    local on_proc = Fs.read(stat_path) ~= nil
+    local by = Time.monotonic_ns() + (on_proc and 5000 or 500) * 1000 * 1000
+    local zombie = false
+    while not zombie and Time.monotonic_ns() < by do
+      Time.sleep_ns(20 * 1000 * 1000)
+      local stat = Fs.read(stat_path)
+      zombie = stat ~= nil and stat:match("^%d+ %b() Z") ~= nil
+    end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
     local answers: {string} = {}
     for _, wait in ipairs({ function(): Child.Result | nil, string return timed:wait(0) end,
@@ -406,6 +419,8 @@ return function(argv: {string}): integer
     answers[#answers + 1] = tostring(not sys.kill(untimed.pid, 0))
     local later, _ = timed:wait()
     answers[#answers + 1] = tostring(later ~= nil)
+    local finished = assert(done:wait())
+    answers[#answers + 1] = tostring(finished.code) .. " " .. tostring(finished.timed_out)
     answers[#answers + 1] = tostring(guard:cancelled())
     assert(Fs.write(argv[1], table.concat(answers, "|")))
   end
@@ -416,7 +431,7 @@ end
     { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
   local cancelled = "true cancelled by signal " .. tostring(sys.SIGTERM)
   local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
-    tostring(sys.SIGTERM) }, "|")
+    "3 false", tostring(sys.SIGTERM) }, "|")
   local got = Fs.read(report)
   assert(got == expected, tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))

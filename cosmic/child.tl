@@ -104,7 +104,7 @@ local record Handle
   --- the Result says `timed_out`; `Child.wait_any`'s timeout instead
   --- leaves every child running. While a `Child.guard` is open, a
   --- SIGINT or SIGTERM it catches ends the wait, timed or not, the same
-  --- way: the child is ended and the wait answers nil and "cancelled
+  --- way: a child that has not exited is ended and the wait answers nil and "cancelled
   --- by signal N"; the guard keeps the signal, and a later wait answers
   --- the ended child's Result.
   wait: function(Handle, timeout_ms?: integer): Result | nil, string
@@ -378,18 +378,18 @@ end
 
 --- Waits for the child to exit until `deadline`, servicing its streams,
 --- and settles it when it does. Nil and "" at the deadline: no answer
---- yet, and no failure. When the open guard has caught a signal, fails
---- with it; the guard keeps it.
+--- yet, and no failure. When the open guard has caught a signal and the
+--- child has not exited, fails with it; the guard keeps it.
 local function poll_until(self: Handle, deadline?: integer,
     timed_out?: boolean, ignore_cancel?: boolean, killed?: boolean): Result | nil, string
   while true do
+    local status, trouble = exited(self)
+    if status ~= nil then return settled(self, timed_out or false, killed) end
+    if trouble ~= "" then return nil, trouble end
     if not ignore_cancel and active ~= nil then
       local cancelled = active:cancelled()
       if cancelled ~= 0 then return nil, cancelled_by(cancelled) end
     end
-    local status, trouble = exited(self)
-    if status ~= nil then return settled(self, timed_out or false, killed) end
-    if trouble ~= "" then return nil, trouble end
     local left = POLL_MS
     if deadline then
       local remaining = deadline - now()
@@ -491,11 +491,14 @@ local function make_handle(pid: integer, process_group: boolean): Handle
     if timeout_ms ~= nil then deadline = now() + timeout_ms * 1000000 end
     local r, trouble = poll_until(self, deadline)
     if r then return r, "" end
-    if active ~= nil and active:cancelled() ~= 0 then
-      -- A wait the guard's signal ended leaves no child running.
+    local cancelled = active ~= nil and active:cancelled() or 0
+    if cancelled ~= 0 then
+      -- A wait the guard's signal ended leaves no child running. The
+      -- signal may have landed after the deadline, so say so here.
+      local why = trouble ~= "" and trouble or cancelled_by(cancelled)
       local _, ended_trouble = terminate(self)
-      if ended_trouble ~= "" then return nil, trouble .. "; " .. ended_trouble end
-      return nil, trouble
+      if ended_trouble ~= "" then return nil, why .. "; " .. ended_trouble end
+      return nil, why
     end
     if trouble ~= "" then return nil, trouble end
     return terminate(self)
