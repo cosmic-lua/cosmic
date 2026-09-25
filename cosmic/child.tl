@@ -145,11 +145,17 @@ local DEFAULT_CAPTURE_LIMIT <const> = 16 * 1024 * 1024
 --- supervised; see `Child.guard`.
 local record Guard
   metamethod __close: function(Guard)
-  --- The signal caught, 0 until one is.
+  --- The signal delivered last, 0 until one is.
   _signal: integer
+  --- The signal delivered last since the last take, 0 when none was.
+  _fresh: integer
   _closed: boolean
+  --- Why the dispositions could not be restored, "" when they were.
+  _trouble: string
   cancelled: function(Guard): integer
+  take: function(Guard): integer
   close: function(Guard): boolean, string
+  release: function(Guard): integer | nil, string
 end
 
 --- The open guard, if any: at most one is, process-wide.
@@ -543,30 +549,71 @@ local guard_mt: metatable<Guard> = {
 --- The guard for signals `sys.guard_child_signals` has just begun to
 --- hold, made the open one.
 local function make_guard(): Guard
-  local g: Guard = { _signal = 0, _closed = false }
+  local g: Guard = { _signal = 0, _fresh = 0, _closed = false, _trouble = "" }
+
+  --- Moves the signal the core has held since its last read, if any,
+  --- into both what `cancelled` and what `take` answer, so neither
+  --- steals the other's.
+  local function read(self: Guard)
+    if self._closed then return end
+    -- The core keeps the last signal delivered since its last read.
+    -- Only a sigprocmask refused its own valid arguments could fail
+    -- this; it is read as no new signal.
+    local signal, _ = sys.cancelled_child_signal()
+    if signal ~= nil and signal ~= 0 then
+      self._signal, self._fresh = signal, signal
+    end
+  end
 
   function g:cancelled(): integer
-    if self._signal == 0 and not self._closed then
-      -- Only a sigprocmask refused its own valid arguments could fail
-      -- this; it is read as no signal yet.
-      local signal, _ = sys.cancelled_child_signal()
-      if signal ~= nil and signal ~= 0 then self._signal = signal end
-    end
+    read(self)
     return self._signal
   end
 
-  function g:close(): boolean, string
-    if self._closed then return true, "" end
+  function g:take(): integer
+    read(self)
+    local signal = self._fresh
+    self._fresh = 0
+    return signal
+  end
+
+  --- Restores the caller's dispositions, once, and keeps the last
+  --- signal delivered up to then: false and why when they could not be
+  --- restored, kept for every later close or release to answer again.
+  local function restore(self: Guard): boolean, string
     self._closed = true
     if active == self then active = nil end
     local late, trouble = sys.unguard_child_signals()
-    if late == nil then return false, trouble end
-    if self._signal == 0 then self._signal = late end
+    if late == nil then
+      self._trouble = trouble
+      return false, trouble
+    end
+    if late ~= 0 then self._signal, self._fresh = late, late end
+    return true, ""
+  end
+
+  function g:close(): boolean, string
+    if self._closed then
+      if self._trouble ~= "" then return false, self._trouble end
+      return true, ""
+    end
+    local restored, trouble = restore(self)
+    if not restored then return false, trouble end
     if self._signal ~= 0 then
       -- The caller's own dispositions are back: deliver it as it came.
       local _, _ = sys.kill(sys.getpid(), self._signal)
     end
     return true, ""
+  end
+
+  function g:release(): integer | nil, string
+    if self._closed then
+      if self._trouble ~= "" then return nil, self._trouble end
+      return self._signal, ""
+    end
+    local restored, trouble = restore(self)
+    if not restored then return nil, trouble end
+    return self._signal, ""
   end
 
   active = g
@@ -584,20 +631,33 @@ end
 --- Holds SIGINT and SIGTERM for this process while it supervises
 --- children, so it can end them before it is ended itself. Until the
 --- guard closes, either signal is caught rather than acted on:
---- `g:cancelled()` answers the one caught, 0 until one is. Only
---- `h:wait` reads the guard -- it ends its child and answers "cancelled
---- by signal N" once a signal is caught; `Child.wait_any` and
---- `h:try_wait` do not, so a loop over them asks `g:cancelled()` each
---- round. A signal this process ignores stays ignored.
+--- `g:cancelled()` answers the last one delivered, 0 until one is.
+--- Only `h:wait` reads the guard -- it ends its child and answers
+--- "cancelled by signal N" once a signal is caught; `Child.wait_any`
+--- and `h:try_wait` do not, so a loop over them asks `g:cancelled()`
+--- each round. `g:take()` answers the last signal delivered since the
+--- previous take, or 0, and clears it, so a caller that passes signals
+--- on to its child passes each one on, a repeat included; signals
+--- delivered between two takes answer as the last of them. A signal
+--- this process ignores stays ignored.
 --- Closing the guard -- `g:close()`, or leaving the scope of a
 --- `local g <close> = assert(Child.guard())` -- restores the
---- dispositions the process had and delivers the caught signal again,
---- so a process that would have died of it dies of it then, its
---- children already ended. One guard is open at a time, `Child.run`'s
---- included: another answers nil and why. `close` answers false and
---- why when the dispositions could not be restored; the signal is not
---- delivered then. A guard never closed holds the signals for the rest
---- of the process's life: hold it in a `<close>` variable.
+--- dispositions the process had and delivers the last signal caught
+--- again, so a process that would have died of it dies of it then,
+--- its children already ended. One guard is open at a time,
+--- `Child.run`'s included: another answers nil and why. `close`
+--- answers false and why when the dispositions could not be restored,
+--- and again on every later close; the signal is not delivered then.
+--- A guard never closed holds the signals for the rest of the
+--- process's life: hold it in a `<close>` variable.
+--- `g:release()` restores the dispositions as closing does but keeps
+--- the last signal caught rather than delivering it, and answers it,
+--- or 0: a caller that passed signals on to its child re-raises one
+--- only if the child died of it, or never got it. It answers nil and
+--- why when the dispositions could not be restored, and again on every
+--- later release. A released guard is closed: closing it again, or
+--- releasing it again, does nothing, and a release after a close
+--- answers the signal the close delivered.
 function Child.guard(): Guard | nil, string
   local guarded, trouble = sys.guard_child_signals()
   if not guarded then return nil, trouble end

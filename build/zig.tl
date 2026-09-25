@@ -738,11 +738,18 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 function Zig.run(argv: {string}): integer
   -- TODO: hold the signals with `Child.guard` rather than sys.*'s
   -- guard_child_signals, cancelled_child_signal and unguard_child_signals
-  -- once a Child.Guard can close without delivering its caught signal
-  -- again, and ci/cosmic-driver.pin names a cosmic that carries that
-  -- (this runs on that release; the pinned one's Child.guard always
-  -- re-delivers): this passes the signal on to the child and re-raises
-  -- only the one the child died of.
+  -- once ci/cosmic-driver.pin names a cosmic whose Child.Guard has
+  -- `take` and `release` (this runs on that release; the pinned one's
+  -- guard can only close, which always re-delivers, and keeps only its
+  -- first signal). The port polls `g:take()` each round in place of
+  -- sys.cancelled_child_signal, passing each signal taken on after
+  -- PASS_ON_NS as today; it ends with `g:release()` in place of the
+  -- unguard, then one more `g:take()` (after the release, so a signal
+  -- landing between them is kept), and keeps this function's own
+  -- re-raise rule below (a child that died of SIGINT or SIGTERM
+  -- re-raises that), adding one for a signal never passed on: taken
+  -- but still held back by PASS_ON_NS, or taken only after the child
+  -- ended.
   local guarded, guard_trouble = sys.guard_child_signals()
   if not guarded then
     log:complain("signal guard: " .. guard_trouble)
@@ -761,6 +768,11 @@ function Zig.run(argv: {string}): integer
         return nil, wait_trouble
       end
       if state.finished then
+        -- TODO: a `pending` signal the child exited before being passed
+        -- is swallowed here: its own Ctrl-C may have ended it cleanly,
+        -- but a signal sent to this process alone never reached it.
+        -- Answer it beside the result and re-raise it below when the
+        -- child did not die of a signal (the Child.guard port above).
         return state.result, ""
       end
       local now = Time.monotonic_ns()
