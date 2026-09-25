@@ -21,7 +21,11 @@ local log = Log.new("cosmic")
 --- @param argv the command line: slot 4 is the host target, slot 5 is the
 --- generated release target record file, and slots 6 through 8 optionally set
 --- the checked output directory, checked raw core, and four-entry record file
-local function boot(root: string, argv: {integer:string}): integer
+--- @param compiler_source the Lua the compiler running this was compiled
+--- to from the vendored `tl.tl` (core/bridge.lua's `bootstrap`): the
+--- compiler the tool carries
+local function boot(root: string, argv: {integer:string},
+                    compiler_source: string): integer
   local started = Time.monotonic_ns()
   local host = argv[4]
   if host == nil or host == "" then
@@ -119,12 +123,6 @@ local function boot(root: string, argv: {integer:string}): integer
     log:verdict("boot", false, mkdir_trouble)
     return 1
   end
-  local teal_source, teal_trouble = Fs.read(root .. "/o/vendor/tl/tl.lua")
-  if teal_source == nil then
-    log:verdict("boot", false, teal_trouble)
-    return 1
-  end
-
   local handle, open_trouble = work.open(root)
   if handle == nil then
     log:verdict("boot", false, open_trouble)
@@ -142,7 +140,7 @@ local function boot(root: string, argv: {integer:string}): integer
     log:verdict("boot", false, print_trouble)
     return 1
   end
-  local kept, keep_trouble = work.put_compiler(handle, teal_source)
+  local kept, keep_trouble = work.put_compiler(handle, compiler_source)
   if not kept then
     local _, _ = work.close(handle)
     log:verdict("boot", false, keep_trouble)

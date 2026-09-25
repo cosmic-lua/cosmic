@@ -364,7 +364,8 @@ input to the build, never to the runtime. one database holds:
   a rowid, written in name order: a WITHOUT ROWID row lives in an
   index page, where a zone file past about a kilobyte spills into
   overflow pages, and the table would take two thirds more room.
-- **the compiler**: `tl.lua`, one row, loaded with its own environment.
+- **the compiler**: the Lua the vendored `tl.tl`, patched, compiles to,
+  one row, loaded with its own environment.
 - **decls**: every declaration the tree holds, generated or written,
   so a checker building another tree against this binary can type
   what it requires.
@@ -496,7 +497,8 @@ database: compile, check, record, embed. `build.zig` owns the C.
 and `zig build` installs them under `o/vendor/` and produces the core
 for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
-importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
+importer with the compiler the vendored `tl.lua` compiles from the
+patched `tl.tl`, writes `o/cosmic.db`, and writes one
 portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone (and the doc rows
@@ -645,8 +647,13 @@ a CycloneDX document. a pin with no license fails the build.
 
 ### teal
 
-tl vendored, its changes carried as patches under `patch/tl/` and not
-proposed upstream.
+tl vendored, its Teal source `tl.tl` beside the `tl.lua` upstream
+generated from it. its changes are carried as patches to `tl.tl` under
+`patch/tl/`, typed and checked like any Teal, and not proposed upstream.
+the boot compiles the patched source with the upstream `tl.lua`, and the
+compiler that makes compiles its own source to exactly itself, which
+`build/compiler_test.tl` holds it to: the compiler is a function of its
+Teal source and records, not of what first compiled it.
 the planned cast restriction would allow `x as T` only from `any`, from a
 userdata record declared in a `.d.tl`, or from the enclosing
 generic's type variable. `any` is legal only where untrusted data
