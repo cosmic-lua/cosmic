@@ -170,9 +170,14 @@ local function test_install_name_holds_the_version_host_and_a_sha_prefix()
   assert(Zig.install_name(pin, "x86_64-linux") == "0.16.0-x86_64-linux-70e49664a74374b4")
   local none, trouble = Zig.install_name(pin, "aarch64-linux")
   assert(none == nil and trouble == "names no sha256 for aarch64-linux", trouble)
-  pin.shas["aarch64-linux"] = "../../etc"
-  local bad, why = Zig.install_name(pin, "aarch64-linux")
-  assert(bad == nil and why:find("64 hex digits", 1, true) ~= nil, why)
+  for _, malformed in ipairs({ "../../etc", SHA_A:sub(2), SHA_A .. "0" }) do
+    pin.shas["aarch64-linux"] = malformed
+    local bad, why = Zig.install_name(pin, "aarch64-linux")
+    assert(bad == nil and why:find("64 hex digits", 1, true) ~= nil, malformed .. ": " .. why)
+  end
+  -- A sha written in capitals names the same install.
+  pin.shas["aarch64-linux"] = SHA_A:upper()
+  assert(Zig.install_name(pin, "aarch64-linux") == "0.16.0-aarch64-linux-70e49664a74374b4")
 end
 
 --- A root holding only a `bin/zig.pin` naming `sha256` for this host.

@@ -536,9 +536,11 @@ local INSTALL_SHA_DIGITS <const> = 16
 --- place. Nil and why when the pin names no sha256 for `host`, or one
 --- that is not 64 hex digits.
 -- TODO: remove installs no pin names any more: each stays until it is
--- removed by hand, one per version and sha a cache has seen; that wants
--- a way to tell an install another checkout's pin still names (a
--- last-used stamp touched on each run, say) from one none does.
+-- removed by hand, one per version and sha a cache has seen, and one
+-- per version named `<version>-<host>` with no sha, as they were before
+-- the sha was part of the name; that wants a way to tell an install
+-- another checkout's pin still names (a last-used stamp touched on each
+-- run, say) from one none does.
 function Zig.install_name(pin: Zig.Pin, host: string): string | nil, string
   local sha256 = pin.shas[host]
   if sha256 == nil then
@@ -553,7 +555,8 @@ end
 --- Where the release `bin/zig.pin` names for this host is installed
 --- under `cache`, whether it is there yet or not: what was extracted
 --- from a download the pin's sha256 was checked against when it was
---- installed. Nil and why when the pin or the host cannot be read.
+--- installed. Nil and why when the pin or the host cannot be read, or
+--- the pin names no well-formed sha256 for the host (`install_name`).
 function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, string
   local text, ptrouble = Fs.read(root .. "/bin/zig.pin")
   if text == nil then
