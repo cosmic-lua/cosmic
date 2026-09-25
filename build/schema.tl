@@ -23,7 +23,10 @@ local tables: {{string}} = {
   -- every earlier one, so putting it first keeps a require from paging
   -- through the much larger source text to get there. The Lua tl
   -- generated is not here: nothing that reads this file loads it, and
-  -- the working database's `compiled` keeps it for the build.
+  -- the working database's `compiled` keeps it for the build. `source`
+  -- is stored raw-deflated (`deflate(X)`, `build.writer`), as is a
+  -- declaration's: only an uncaught error's line and `Store.source`
+  -- read it, and it is most of what a module's row weighs.
   { "modules", [[(path TEXT PRIMARY KEY,
                   file TEXT NOT NULL,
                   kind TEXT NOT NULL,
@@ -31,14 +34,14 @@ local tables: {{string}} = {
                   key BLOB NOT NULL,
                   bytecode BLOB NOT NULL,
                   tests TEXT NOT NULL,
-                  source TEXT NOT NULL) WITHOUT ROWID]] },
+                  source BLOB NOT NULL) WITHOUT ROWID]] },
 
   { "imports", [[(path TEXT NOT NULL,
                   requires TEXT NOT NULL,
                   PRIMARY KEY (path, requires)) WITHOUT ROWID]] },
 
   { "decls", [[(path TEXT PRIMARY KEY,
-                source TEXT NOT NULL) WITHOUT ROWID]] },
+                source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- TODO: nothing writes payload, which doc/design.md says holds an
   -- embed-built executable's own files: have build/embed.tl carry a

@@ -77,7 +77,10 @@ end
 --- the algorithm A names (the names `cosmic.hash` takes), and
 --- `hmac(A, K, X)`, the HMAC of X under key K over A; a NULL argument
 --- gives NULL. `lower(hex(sha256(X)))` is the form the build writes
---- into keys.
+--- into keys. `deflate(X)` is the raw deflate of X, as
+--- `Compress.deflate("raw", X)` writes it, and `inflate(X)` what such a
+--- stream decodes to, as a blob: the shipped database stores each
+--- module's source that way, so `CAST(inflate(source) AS TEXT)` reads it.
 function Sqlite.open(path: string, writable?: boolean): Sqlite.Handle | nil, string
   return sqlite.open(path, writable)
 end

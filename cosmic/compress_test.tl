@@ -4,6 +4,7 @@
 
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Sqlite = require("cosmic.sqlite")
 
 -- Feeds `data` through `stream` in pieces of `size` bytes (the whole of
 -- it in one piece when `size` is nil), draining each piece's held
@@ -654,4 +655,44 @@ local function test_one_shot_deflate_defaults_to_the_deflater_level()
   local enc = assert(Compress.deflater("zlib"))
   local streamed = assert(enc:update(plain)) .. assert(enc:finish())
   assert(Compress.deflate("zlib", plain) == streamed)
+end
+
+--- A query's `deflate(X)` and `inflate(X)` speak the same raw deflate
+--- `Compress` does, byte for byte, so the build can store text with one
+--- and any reader decode it with the other; and `inflate` refuses a
+--- stream that is damaged, cut short, or followed by more bytes, rather
+--- than answering with part of one.
+-- TODO: `inflate` refuses a stream that decodes past SQLite's length
+-- limit, which no test reaches: a handle cannot lower that limit from
+-- Teal. Test it once cosmic.sqlite carries sqlite3_limit.
+local function test_sql_deflate_and_inflate_speak_raw_deflate()
+  local db = assert(Sqlite.memory())
+  local text = string.rep("the quick brown fox jumps over the lazy dog\n", 200)
+  for _, input in ipairs({ text, "", "x" }) do
+    local rows = assert(Sqlite.rows(db,
+      "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
+    local stored = rows[1][1].blob
+    assert(stored == assert(Compress.deflate("raw", input)),
+      "SQL and Compress deflate alike")
+    assert(assert(Compress.inflate("raw", stored)) == input)
+    assert(rows[1][2].kind == "blob" and rows[1][2].blob == input)
+    local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
+      { { blob = assert(Compress.deflate("raw", input)) } }))
+    assert(back[1][1].blob == input, "SQL inflates what Compress deflated")
+  end
+  assert(#assert(Compress.deflate("raw", text)) < #text // 10)
+  local nulls = assert(Sqlite.text_rows(db,
+    "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
+  assert(nulls[1][1] == "1" and nulls[1][2] == "1")
+  local stream = assert(Compress.deflate("raw", text))
+  for _, case in ipairs({
+    { stream:sub(1, #stream - 4), "the deflate stream is truncated" },
+    { stream .. "\0", "the deflate stream is followed by more bytes" },
+    { "\xff\xff\xff\xff", "the deflate stream is damaged" },
+  }) do
+    local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case[1] } })
+    assert(rows == nil, case[2])
+    assert(trouble:find(case[2], 1, true) ~= nil, trouble)
+  end
+  assert(db:close())
 end

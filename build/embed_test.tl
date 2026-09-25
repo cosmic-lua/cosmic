@@ -320,6 +320,34 @@ end
     "and the guidance that matches it: " .. err)
 end
 
+--- An uncaught error names the Teal line it was raised on, read out of
+--- the module's source, which the executable stores deflated.
+local function test_an_uncaught_error_names_its_line_of_source(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/boom"))
+  assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
+local lib = require("lib")
+return function(): integer
+  lib.explode()
+  return 0
+end
+]]))
+  assert(Fs.write(tmp .. "/lib.tl", [[
+local record lib
+end
+function lib.explode()
+  error("kaboom from lib")
+end
+return lib
+]]))
+  local names, trouble = embed.tree(tmp)
+  assert(names ~= nil and names[1] == "boom", trouble)
+  local r = run_program(tmp .. "/o/bin/boom")
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local err = assert(r.stderr)
+  assert(err:find('cosmic: at lib.tl:4: error("kaboom from lib")', 1, true),
+    "the line is read back: " .. err)
+end
+
 --- A core started on its own, with no program inside and no tree to
 --- boot, says so and exits rather than running anything.
 local function test_a_bare_core_refuses_to_run(tmp: string)

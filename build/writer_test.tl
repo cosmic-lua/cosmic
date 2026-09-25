@@ -238,8 +238,9 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
 end
 
 --- A projection ships what a reader of it loads -- each module's
---- bytecode and its Teal source -- and not the Lua tl generated on the
---- way, which only the working database's `compiled` needs.
+--- bytecode and its Teal source, deflated -- and not the Lua tl
+--- generated on the way, which only the working database's `compiled`
+--- needs.
 local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
   assert(work.close(handle))
@@ -247,12 +248,15 @@ local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
   local columns = assert(Sqlite.text_rows(out,
     "SELECT name FROM pragma_table_info('modules') WHERE name = 'lua'"))
   local rows = assert(Sqlite.text_rows(out,
-    "SELECT length(bytecode) > 0, instr(source, 'hello, world') > 0 " ..
+    "SELECT length(bytecode) > 0, " ..
+    "instr(CAST(inflate(source) AS TEXT), 'hello, world') > 0, " ..
+    "instr(CAST(source AS TEXT), 'function greet.hello') = 0 " ..
     "FROM modules WHERE path = 'greet'"))
   assert(out:close())
   assert(#columns == 0, "the shipped modules table carries generated Lua")
   assert(#rows == 1 and rows[1][1] == "1" and rows[1][2] == "1",
     tostring(#rows))
+  assert(rows[1][3] == "1", "the source is stored deflated")
 end
 
 --- The zones the working database holds ship in the projection, and are

@@ -387,6 +387,31 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   assert(ended > 0, "decoding allocates")
 end
 
+--- `deflate` and `inflate` in a query, and the store's source lookup
+--- that inflates a row, leave no block on the C heap whenever an
+--- allocation fails, and give the whole text back when none does.
+local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fails()
+  if not checked then return end
+  local db = assert(Sqlite.memory())
+  local text = string.rep("deflated source, inflated again\n", 64)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = under_every_failure(function()
+    local rows = assert(Sqlite.rows(db, "SELECT inflate(deflate(?1))",
+      { { text = text } }))
+    assert(rows[1][1].blob == text)
+  end)
+  assert(ended > 0, "a query allocates")
+  assert_c_heap(bytes, blocks, "deflate and inflate under refusal")
+  ended = under_every_failure(function()
+    local source = assert(Store.source("cosmic.compress"))
+    assert(source:find("function Compress.deflate", 1, true) ~= nil)
+  end)
+  assert(ended > 0, "a source lookup allocates")
+  assert_c_heap(bytes, blocks, "the source lookup under refusal")
+  assert(db:close())
+end
+
 --- A hasher holds no C memory of the core's own, and a refusal while it
 --- updates or digests leaves none.
 local function test_hash_leaves_nothing_whenever_an_allocation_fails()
