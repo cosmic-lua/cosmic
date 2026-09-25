@@ -150,27 +150,34 @@ local function derive_doc_guides(db: Sqlite.Handle): boolean, string
   return true, ""
 end
 
---- The syscall table's declaration, generated from its header when the
---- header has no current `derived` row. Only cosmic's own tree has the
---- header; a project gets the declaration from the binary.
+--- The syscall table's declaration and the raw process table's, each
+--- generated from its header when the header has no current `derived`
+--- row. Only cosmic's own tree has the headers; a project gets the
+--- declarations from the binary.
 local function derive_syscalls(db: Sqlite.Handle): boolean, string
-  local headers, trouble = Sqlite.text_rows(db,
-    "SELECT data, sha256 FROM files WHERE path = 'core/syscalls.h' " ..
-    "AND path NOT IN (SELECT file FROM derived)")
-  if headers == nil then
-    return false, trouble
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    local file = derivation.target.header
+    local headers, trouble = Sqlite.text_rows(db,
+      "SELECT data, sha256 FROM files WHERE path = ? " ..
+      "AND path NOT IN (SELECT file FROM derived)", { text(file) })
+    if headers == nil then
+      return false, trouble
+    end
+    if #headers > 0 then
+      local header, from_hash = headers[1][1], headers[1][2]
+      local source, generate_trouble = gen_syscalls.declaration(header, derivation.target)
+      if source == nil then
+        return false, file .. ": " .. generate_trouble
+      end
+      local ok, insert_trouble = Sqlite.run(db, insert_derived,
+        { text(file), text(derivation.path), text("decl"),
+          text("syscalls"), text(from_hash), text(source) })
+      if not ok then
+        return false, insert_trouble
+      end
+    end
   end
-  if #headers == 0 then
-    return true, ""
-  end
-  local header, from_hash = headers[1][1], headers[1][2]
-  local source, generate_trouble = gen_syscalls.declaration(header)
-  if source == nil then
-    return false, "core/syscalls.h: " .. generate_trouble
-  end
-  return Sqlite.run(db, insert_derived,
-    { text("core/syscalls.h"), text("cosmic.sys"), text("decl"),
-      text("syscalls"), text(from_hash), text(source) })
+  return true, ""
 end
 
 --- Two files that would answer to one import path. The build refuses
@@ -1082,7 +1089,7 @@ local function generate(m: Module, built: compiler, env: compiler.Env,
   local refused = false
   if own_tree and contracts.applies(m.kind, m.generated) then
     local problems = contracts.check(m.file, checked, typed, contracts.quiet_records(env),
-      receivers.record_named(env, "cosmic.sys", ""), nil, result.type)
+      contracts.binding_tables(env), nil, result.type)
     if #problems > 0 and judged then
       return nil, table.concat(problems, "\n")
     end

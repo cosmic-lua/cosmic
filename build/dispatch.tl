@@ -8,8 +8,11 @@
 --- and building a project are one path.
 
 local Cli = require("cosmic.cli")
+local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
+local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Time = require("cosmic.time")
@@ -110,6 +113,7 @@ does not know; 3 when the tool is older than the tree and did not
 rebuild itself (`COSMIC_AUTO_BOOT=0`, or a boot that failed). A file
 run, `--standalone` and `-e` are not verbs of that kind: each prints
 only what its program prints and exits with what it returns.
+`--version` is not one either: it prints its one line.
 ]]
 
 local function say(line: string)
@@ -303,7 +307,57 @@ end
 local as_option: {string:string} = {
   ["--standalone"] = "standalone",
   ["-e"] = "eval",
+  ["--version"] = "version",
 }
+
+--- `cosmic --version`: the SHA-256 of the file this binary runs from,
+--- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
+local function version(argv: {integer:string}): integer
+  if argv[2] ~= nil then
+    complain("cosmic: --version takes nothing after it, not " .. argv[2])
+    return 2
+  end
+  local path, path_trouble = Proc.executable()
+  if path == nil then
+    complain("cosmic: --version: " .. path_trouble)
+    return 1
+  end
+  -- TODO: hash the artifact descriptor startup retained rather than
+  -- opening the path again, once the store offers the whole file as it
+  -- offers its core (trusted_core): a file renamed over this one after
+  -- launch is hashed in its place, and an unlinked one fails.
+  local fd, open_trouble = Fs.open_read(path)
+  if fd == nil then
+    complain("cosmic: --version: " .. path .. ": " .. open_trouble)
+    return 1
+  end
+  local hasher, hasher_trouble = Hash.hasher("sha256")
+  if hasher == nil then
+    local _, _ = Fs.close(fd)
+    complain("cosmic: --version: " .. hasher_trouble)
+    return 1
+  end
+  while true do
+    local piece, read_trouble = Fs.take(fd, 1 << 20)
+    if piece == nil then
+      local _, _ = Fs.close(fd)
+      complain("cosmic: --version: " .. path .. ": " .. read_trouble)
+      return 1
+    end
+    if piece == "" then
+      break
+    end
+    hasher:update(piece)
+  end
+  local _, _ = Fs.close(fd)
+  local digest, digest_trouble = hasher:digest()
+  if digest == nil then
+    complain("cosmic: --version: " .. digest_trouble)
+    return 1
+  end
+  say("cosmic " .. Codec.hex(digest))
+  return 0
+end
 
 --- `cosmic -e <chunk> [args...]`: runs `chunk` as Lua, the way `lua -e`
 --- does, against this binary's own standard library, with no tree around
@@ -455,6 +509,11 @@ function dispatch.main(argv: {integer:string}): integer
   if word == "-e" then
     -- Lua's one-liner idiom: like --standalone, no tree and no staleness.
     return evaluate(argv)
+  end
+  if word == "--version" then
+    -- Which build this is, with no tree and no staleness: the digest
+    -- the release that published it records.
+    return version(argv)
   end
   if word == "--standalone" then
     -- One file against this binary's own standard library: no tree is

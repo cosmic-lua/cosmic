@@ -21,7 +21,10 @@ return {
 ]]
 
 local gen_syscalls <const> = [[
-return { declaration = function() return "return {}" end }
+return {
+  targets = { { path = "cosmic.sys", target = { header = "core/syscalls.h" } } },
+  declaration = function() return "return {}" end,
+}
 ]]
 
 --- Reaches a raw module the core preloads for the tree, then ends as

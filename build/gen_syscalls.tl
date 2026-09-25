@@ -55,7 +55,24 @@ local record Declarations
   classes: {Class}
 end
 
+--- What one header declares a module of: the header, the record the
+--- declaration names, and the doc comment it opens with.
+local record Target
+  header: string
+  record_name: string
+  summary: {string}
+end
+
+--- A header, and the import path its declaration answers to.
+local record Derivation
+  path: string
+  target: Target
+end
+
 local record generator
+  Target: Target
+  Derivation: Derivation
+  targets: {Derivation}
   Parameter: Parameter
   Result: Result
   Call: Call
@@ -329,9 +346,39 @@ local function signature(call: Call): string
   return text
 end
 
---- The Teal declaration of the module the header describes.
---- @param header the whole text of core/syscalls.h
-function generator.declaration(header: string): string | nil, string
+--- The public syscall table, `cosmic.sys`.
+local syscalls_target: Target = {
+  header = "core/syscalls.h",
+  record_name = "syscalls",
+  summary = {
+    "The syscall table: one C function per call, the same on Linux",
+    "and on macOS. Derived from core/syscalls.h.",
+  },
+}
+
+--- The raw process table, `cosmic.internal.process`, which only the
+--- wrappers core/store.c's `raw_modules` names are handed.
+local process_target: Target = {
+  header = "core/process.h",
+  record_name = "process",
+  summary = {
+    "The raw process table, handed only to the wrappers core/store.c's",
+    "`raw_modules` names it for. Derived from core/process.h.",
+  },
+}
+
+--- Every header a declaration is derived from, and the import path each
+--- one's declaration answers to.
+generator.targets = {
+  { path = "cosmic.sys", target = syscalls_target },
+  { path = "cosmic.internal.process", target = process_target },
+}
+
+--- The Teal declaration of the module the header describes: `target`'s
+--- (by default the syscall table's, `cosmic.sys`).
+--- @param header the whole text of the target's header
+function generator.declaration(header: string, target?: Target): string | nil, string
+  target = target or syscalls_target
   local found, trouble = generator.read(header)
   if found == nil then
     return nil, trouble
@@ -339,12 +386,13 @@ function generator.declaration(header: string): string | nil, string
   local calls, classes = found.calls, found.classes
 
   local out: {string} = {}
-  out[#out + 1] = "--- The syscall table: one C function per call, the same on Linux"
-  out[#out + 1] = "--- and on macOS. Derived from core/syscalls.h."
+  for _, line in ipairs(target.summary) do
+    out[#out + 1] = "--- " .. line
+  end
   out[#out + 1] = ""
   out[#out + 1] = "-- Edit the header; this file is written by the build."
   out[#out + 1] = ""
-  out[#out + 1] = "local record syscalls"
+  out[#out + 1] = "local record " .. target.record_name
 
   for _, class in ipairs(classes) do
     if class.name ~= "Constants" then
@@ -379,9 +427,9 @@ function generator.declaration(header: string): string | nil, string
 
   out[#out + 1] = "end"
   out[#out + 1] = ""
-  out[#out + 1] = "return syscalls"
+  out[#out + 1] = "return " .. target.record_name
   out[#out + 1] = ""
-  out[#out + 1] = "-- Where each declaration above sits in core/syscalls.h, which"
+  out[#out + 1] = "-- Where each declaration above sits in " .. target.header .. ", which"
   out[#out + 1] = "-- `cosmic docs` shows in place of this file's own lines -- see"
   out[#out + 1] = "-- `build.importer`'s `origin_lines`."
   for _, class in ipairs(classes) do

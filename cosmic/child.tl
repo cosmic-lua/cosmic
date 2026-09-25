@@ -24,6 +24,22 @@
 local sys = require("cosmic.sys")
 local Time = require("cosmic.time")
 
+--- The calls that start, feed and reap a child live in the raw process
+--- table, under the reserved `cosmic.internal.` namespace -- see
+--- cosmic/sqlite.tl for why this indirection exists. It is off the
+--- public surface so that nothing but a handle reaps a child a handle
+--- owns: in an adopting process `collect` reaps every child with
+--- `waitpid(-1)`, and a public one would take a status from under it.
+local type raw_process = require("cosmic.internal.process")
+
+local handed: any = select(2, ...)
+local raw: raw_process
+if type(handed) == "table" then
+  raw = handed as raw_process
+else
+  raw = require("cosmic.internal.process")
+end
+
 local record Result
   code: integer | nil
   signal: integer | nil
@@ -45,7 +61,10 @@ local record Options
   cwd: string
   --- A descriptor, "inherit" (the default), "null", or "pipe". With
   --- "pipe" the handle's `stdin` is the writable end, the caller's to
-  --- write and to close with `close_stdin`.
+  --- write and to close with `close_stdin`. A pipe to stdin, this one
+  --- or `input`'s, makes this process ignore SIGPIPE from then on, so a
+  --- write to a child that has gone fails with EPIPE instead of ending
+  --- it.
   stdin: integer | string
   --- Bytes fed to the child's stdin, which is then closed. Excludes a
   --- `stdin` other than "pipe".
@@ -91,7 +110,7 @@ local record Handle
   --- `close_stdin`.
   stdin: integer | nil
   _result: Result
-  _status: sys.ChildStatus
+  _status: raw_process.ChildStatus
   _closed: boolean
   _streams: {Stream}
   _input_fd: integer | nil
@@ -147,7 +166,7 @@ local owned: {integer:boolean} = {}
 
 --- Exit statuses an adopting process collected for an owned pid before
 --- its handle asked; the handle takes its own out.
-local reaped: {integer:sys.ChildStatus} = {}
+local reaped: {integer:raw_process.ChildStatus} = {}
 
 --- Whether this process adopts orphaned descendants: nil until the
 --- first grouped start asks.
@@ -168,14 +187,14 @@ end
 local function collect()
   if not adopting then return end
   while true do
-    local status, _ = sys.waitpid(-1, true)
+    local status, _ = raw.waitpid(-1, true)
     if status == nil or status.pid == 0 then return end
     if owned[status.pid] then reaped[status.pid] = status end
   end
 end
 
 --- Files a status with its handle.
-local function claim(self: Handle, status: sys.ChildStatus): sys.ChildStatus
+local function claim(self: Handle, status: raw_process.ChildStatus): raw_process.ChildStatus
   self._status = status
   reaped[self.pid] = nil
   owned[self.pid] = nil
@@ -184,11 +203,11 @@ end
 
 --- This handle's child's exit status, once it has one. With `block`,
 --- waits for it.
-local function exited(self: Handle, block?: boolean): sys.ChildStatus | nil, string
+local function exited(self: Handle, block?: boolean): raw_process.ChildStatus | nil, string
   if self._status then return self._status, "" end
   collect()
   if reaped[self.pid] then return claim(self, reaped[self.pid]), "" end
-  local status, trouble = sys.waitpid(self.pid, not block)
+  local status, trouble = raw.waitpid(self.pid, not block)
   if not status then return nil, trouble end
   if status.pid == 0 then return nil, "" end
   return claim(self, status), ""
@@ -247,7 +266,7 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
       for index, stream in ipairs(h._streams) do
         if stream.fd ~= nil then
           fds[#fds + 1] = stream.fd
-          events[#events + 1] = sys.POLLIN
+          events[#events + 1] = raw.POLLIN
           owners[#owners + 1] = h
           which[#which + 1] = index
         end
@@ -255,7 +274,7 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
     end
     if h._input_fd ~= nil then
       fds[#fds + 1] = h._input_fd
-      events[#events + 1] = sys.POLLOUT
+      events[#events + 1] = raw.POLLOUT
       owners[#owners + 1] = h
       which[#which + 1] = 0
     end
@@ -264,7 +283,7 @@ local function pump(handles: {Handle}, timeout_ms: integer): boolean
     if timeout_ms > 0 then local _, _ = sys.nanosleep(timeout_ms * 1000 * 1000) end
     return false
   end
-  local revents, _ = sys.poll(fds, events, timeout_ms)
+  local revents, _ = raw.poll(fds, events, timeout_ms)
   if revents == nil then
     -- A descriptor that went bad under us cannot be serviced; close
     -- every stream rather than spin on it.
@@ -668,11 +687,11 @@ end
 --- A pipe whose read end is ours and whose write end the child gets
 --- as `child_fd`; the stream records it.
 local function capture(wiring: Wiring, child_fd: integer): integer | nil, string
-  local ends, trouble = sys.pipe()
+  local ends, trouble = raw.pipe()
   if ends == nil then return nil, trouble end
   wiring.child_ends[#wiring.child_ends + 1] = ends.writer
   wiring.ours[#wiring.ours + 1] = ends.reader
-  local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.reader, true)
+  local nonblocking, nonblocking_trouble = raw.set_nonblocking(ends.reader, true)
   if not nonblocking then return nil, nonblocking_trouble end
   wiring.streams[#wiring.streams + 1] = {
     fd = ends.reader, child_fd = child_fd, chunks = {}, size = 0, truncated = false,
@@ -693,15 +712,18 @@ local function wire(opts: Options, wiring: Wiring): {integer:integer} | nil, str
   local slots: {integer:integer} = {}
   local stdin = descriptor(opts.stdin, "stdin", STDIN_WORDS)
   if opts.input ~= nil or stdin == "pipe" then
-    local ends, trouble = sys.pipe()
+    local ends, trouble = raw.pipe()
     if ends == nil then return nil, trouble end
     wiring.child_ends[#wiring.child_ends + 1] = ends.reader
     wiring.ours[#wiring.ours + 1] = ends.writer
     slots[0] = ends.reader
+    -- A write to a child that has gone fails with EPIPE rather than
+    -- ending this process, whoever writes it: this module feeding
+    -- `input`, or the caller writing to `h.stdin`.
+    local ignored, ignore_trouble = raw.ignore_sigpipe()
+    if not ignored then return nil, ignore_trouble end
     if opts.input ~= nil then
-      local ignored, ignore_trouble = sys.ignore_sigpipe()
-      if not ignored then return nil, ignore_trouble end
-      local nonblocking, nonblocking_trouble = sys.set_nonblocking(ends.writer, true)
+      local nonblocking, nonblocking_trouble = raw.set_nonblocking(ends.writer, true)
       if not nonblocking then return nil, nonblocking_trouble end
       wiring.input_fd = ends.writer
     else
@@ -763,7 +785,7 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
   local grouped = opts.process_group
   if grouped == nil then grouped = true end
   if grouped and adopting == nil then
-    local subreaper, _ = sys.subreaper()
+    local subreaper, _ = raw.subreaper()
     adopting = subreaper
   end
   local wiring: Wiring = { child_ends = {}, ours = {}, streams = {} }
@@ -779,7 +801,12 @@ local function start(argv: {string}, opts: Options): Handle | nil, string
       extra[number] = fd
     end
   end
-  local pid, trouble = sys.spawn(argv[1], argv, opts.env, opts.cwd,
+  -- TODO: offer spawn's `sandbox` (a ruleset from raw.landlock_ruleset,
+  -- a pledge, an unveiled filesystem, no network) as a Child option
+  -- once a caller wants a child held to what it names -- the test
+  -- runner, holding a test to what it declares it reads, is the one
+  -- #2103 made it for; until then nothing public reaches it.
+  local pid, trouble = raw.spawn(argv[1], argv, opts.env, opts.cwd,
     slots[0], slots[1], slots[2], grouped, extra)
   unwire(wiring, pid ~= nil)
   if not pid then return nil, "start: " .. trouble end

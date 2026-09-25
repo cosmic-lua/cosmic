@@ -241,17 +241,22 @@ function c.sources(dir: string): {string} | nil, string
   return out
 end
 
---- What core/syscalls.h under `root` declares each binding returns, or
---- nothing when there is no such header to read.
+--- What the binding headers under `root` (core/syscalls.h and
+--- core/process.h) declare each binding returns; a header that is not
+--- there declares nothing.
 local function declared_in(root: string): {string: rules.Declared}
   local out: {string: rules.Declared} = {}
-  local header, _ = Fs.read(root .. "/core/syscalls.h")
-  if header == nil then return out end
-  local found, _ = gen_syscalls.read(header)
-  if found == nil then return out end
-  for _, call in ipairs(found.calls) do
-    out[call.name] = { count = #call.results, fallible = #call.results == 3,
-                       effect = #call.results > 0 and call.results[1].kind == "boolean" }
+  for _, derivation in ipairs(gen_syscalls.targets) do
+    local header, _ = Fs.read(root .. "/" .. derivation.target.header)
+    local found: gen_syscalls.Declarations | nil = nil
+    if header ~= nil then
+      local read, _ = gen_syscalls.read(header)
+      found = read
+    end
+    for _, call in ipairs(found ~= nil and found.calls or {}) do
+      out[call.name] = { count = #call.results, fallible = #call.results == 3,
+                         effect = #call.results > 0 and call.results[1].kind == "boolean" }
+    end
   end
   return out
 end

@@ -297,6 +297,18 @@ COSMIC_SYSCALL(entropy, 1) {
     "expected three failure-shape findings, found: " .. table.concat(said, ", "))
 end
 
+--- A binding declared in core/process.h, not core/syscalls.h, is held
+--- to its declaration the same way: subreaper is an effect.
+local function test_a_process_binding_is_held_to_its_declaration(tmp: string)
+  one(findings(tmp, header .. [[
+#include "process.h"
+#include "fail.h"
+COSMIC_SYSCALL(subreaper, 0) {
+  return cosmic_fail(L, ENOSYS);
+}
+]]), "failure-shape", 9)
+end
+
 --- A helper of the file that fails in one shape carries it: a wrapper,
 --- or a wrapper of one, is seen through.
 local function test_a_failure_through_a_helper_is_found(tmp: string)
