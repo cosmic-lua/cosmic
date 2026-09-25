@@ -115,6 +115,15 @@ struct transfer {
 static int curl_ready;
 static CURLM *shared_multi;
 static struct script *live_scripts;
+/* What a failure the carried roots may cause says after it: how to
+ * trust more, and how this binary, or a program built with it, gets
+ * newer ones -- from a file when the stale roots cannot reach curl.se. */
+#define STALE_ROOTS \
+  "the CA roots this binary carries may not include this peer's: " \
+  "$SSL_CERT_FILE names more to trust, and `cosmic refresh cacert " \
+  "--binary <this program> -o <copy>` writes a copy with newer ones " \
+  "(`--cacert <pem>` reads them from a file)"
+
 /* The trust store: every CA root the binary's own database carries
  * (`ca_roots`, which build/roots.tl fills from Mozilla's bundle), plus
  * the certificates in $SSL_CERT_FILE when it names a readable file --
@@ -123,12 +132,6 @@ static struct script *live_scripts;
  * every TLS connection, a proxy's included. */
 static mbedtls_x509_crt roots;
 
-/* What a failure the carried roots may cause says after it: how this
- * binary, or a program built with it, gets newer ones. */
-#define STALE_ROOTS \
-  "the CA roots this binary carries may be out of date: `cosmic refresh cacert " \
-  "--binary <this program> -o <copy>` writes a copy with newer ones, and " \
-  "$SSL_CERT_FILE names more to trust"
 static int roots_ready;
 
 /* Adds the certificates in $SSL_CERT_FILE, when it names a readable
@@ -203,7 +206,8 @@ static const char *load_roots (lua_State *L) {
   }
   sqlite3_finalize(stmt);
   if (trouble == NULL && trusted == 0) {
-    trouble = "no CA roots: the binary's database holds none; " STALE_ROOTS;
+    trouble = "no CA roots: the binary's database holds none; `cosmic refresh cacert " \
+      "--binary <this program> -o <copy>` writes a copy that has them";
   }
   if (trouble == NULL && !add_cert_file()) {
     trouble = "no memory for $SSL_CERT_FILE";
@@ -655,11 +659,13 @@ static const char *transfer_error (struct transfer *t) {
  * `mbedtls_x509_crt_verify_info` words them.
  * TODO: read the verify flags rather than their wording, once a record
  * under patch/curl/ has vendor/curl/lib/vtls/mbedtls.c's mbed_verify_cb
- * keep them where CURLINFO_SSL_VERIFYRESULT answers. */
+ * keep them where CURLINFO_SSL_VERIFYRESULT answers: that callback words
+ * them into 128 bytes, so a chain that is also expired and misnamed
+ * cuts the untrusted line short, and no hint is given. */
 static void push_transfer_error (lua_State *L, struct transfer *t) {
   const char *message = transfer_error(t);
   if (t->result == CURLE_PEER_FAILED_VERIFICATION &&
-      strstr(message, "not correctly signed by the trusted CA") != NULL) {
+      strstr(message, "certificate is not correctly signed by the trusted CA") != NULL) {
     lua_pushfstring(L, "%s; %s", message, STALE_ROOTS);
   } else {
     lua_pushstring(L, message);

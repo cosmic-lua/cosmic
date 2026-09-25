@@ -73,8 +73,8 @@ local record Cli
   --- cmd/<name>/main.tl it holds -- or only those under the paths --
   --- o/bin/<name>, which runs on its own, with nothing beside it -- see
   --- cmd. It runs on every supported system, and carries this binary's
-  --- CA roots and time zones, which `cosmic refresh --binary
-  --- o/bin/<name>` updates later
+  --- CA roots and time zones: `cosmic refresh --binary o/bin/<name> -o
+  --- <copy>` writes a copy with newer ones later
   build: string
   --- `cosmic db [path...]`: what the two databases under o/ hold,
   --- table by table -- rows, pages, bytes -- how the last few builds
@@ -119,15 +119,17 @@ local record Cli
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
   --- and database carry, one line each: name, version, license, and
-  --- how many patches cosmic applies to it. `--licenses` prints the
+  --- how many patches cosmic applies to it -- or, for data (the CA
+  --- roots, the time zones), that `cosmic refresh` updates it. `--licenses` prints the
   --- notices those licenses ask a copy to travel with; `--json` writes
   --- the list as a CycloneDX document instead. An executable `cosmic
   --- build` writes carries the same rows
   bom: string
   --- `cosmic refresh -o <path> [--binary <path>] [--<dataset> <file>...]
-  --- [dataset...]`: to update the CA certificates a binary trusts and
-  --- the time zone database it carries when they go out of date, with no
-  --- rebuild, writes to path a copy of this binary -- or of the
+  --- [dataset...]`: the way to update the CA certificates a binary
+  --- trusts and the time zone database it carries when they go out of
+  --- date, with no rebuild. It writes to path a copy of this binary -- or
+  --- of the
   --- one --binary names, a program `cosmic build` wrote, say -- whose
   --- data is replaced with a newer release: the CA roots it trusts
   --- (cacert, Mozilla's bundle as curl publishes it) and the time zones

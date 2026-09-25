@@ -703,3 +703,12 @@ local function test_a_missing_zone_names_the_way_to_a_newer_database()
   assert(why:find("no time zone Nowhere/Newly_Added", 1, true), why)
   assert(why:find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
 end
+
+--- A bare `TZ` written as a zone name the carried database lacks says
+--- the same: it may be a zone IANA added since.
+local function test_a_tz_naming_a_missing_zone_names_the_way_to_a_newer_database()
+  local missing, why = Time.local_zone({ tz = "Nowhere/Newly_Added" })
+  assert(missing == nil)
+  assert(why:find("TZ=Nowhere/Newly_Added names no zone this binary carries", 1, true), why)
+  assert(why:find("`cosmic refresh tzdata --binary <this program> -o <copy>`", 1, true), why)
+end
