@@ -164,6 +164,34 @@ local function test_the_compile_cache_is_kept_only_where_others_cannot_write(tmp
   assert(run({}) == 3)
 end
 
+--- What main returns is judged as a file run's is: a whole number
+--- outside 0-255, text or a float that is not whole exits 2, the
+--- complaint naming the file rather than cmd.cosmic.main; one that has
+--- a whole value is that value.
+local function test_a_main_that_returns_no_exit_status_is_refused(tmp: string)
+  local cosmic = assert(Proc.executable())
+  local function run(returned: string): Child.Result
+    local script = tmp .. "/script.tl"
+    assert(Fs.write(script, "return function(_argv: {string}): any\n  return " ..
+      returned .. "\nend\n"))
+    return (assert(Child.run({ cosmic, "--standalone", script }, {
+      env = { XDG_CACHE_HOME = tmp .. "/cache" },
+      stdout = "capture", stderr = "capture", timeout_ms = 30000,
+    })))
+  end
+  for returned, shown in pairs({ ["300"] = "300", ["\"three\""] = "three",
+      ["1.5"] = "1.5" } as {string:string}) do
+    local result = run(returned)
+    assert(result.code == 2, returned .. " exited " .. tostring(result.code) .. ": " ..
+      tostring(result.stderr))
+    local complaint = "cosmic: " .. tmp .. "/script.tl returned " .. shown ..
+      ", not an exit status 0-255"
+    assert(tostring(result.stderr):find(complaint, 1, true) ~= nil, tostring(result.stderr))
+  end
+  local whole = run("4.0")
+  assert(whole.code == 4, tostring(whole.stderr))
+end
+
 local function test_a_run_without_a_file_is_a_usage_error()
   local cosmic = assert(Proc.executable())
   local result = assert(Child.run({ cosmic, "--standalone" }, {
