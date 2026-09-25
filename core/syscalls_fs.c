@@ -463,36 +463,37 @@ COSMIC_SYSCALL(readlink, 1) {
   return 1;
 }
 
-/* Argument `index`, nanoseconds since the epoch, as a timespec, or
- * UTIME_OMIT when it is nil or absent. The seconds are floored, so the
- * nanoseconds part is never negative, as utimensat requires. */
+/* Arguments `index` (whole seconds since the epoch) and `index + 1`
+ * (the nanoseconds after them, 0 when absent) as a timespec, the shape
+ * a Stat reports a time in; UTIME_OMIT when the seconds are nil or
+ * absent. Nanoseconds outside [0, 1e9), or given without seconds,
+ * raise. */
 static struct timespec time_or_omit (lua_State *L, int index) {
   struct timespec at;
   if (lua_isnoneornil(L, index)) {
+    luaL_argcheck(L, lua_isnoneornil(L, index + 1), index + 1,
+                  "nanoseconds without seconds");
     at.tv_sec = 0;
     at.tv_nsec = UTIME_OMIT;
     return at;
   }
-  lua_Integer ns = luaL_checkinteger(L, index);
-  lua_Integer seconds = ns / 1000000000;
-  lua_Integer rest = ns % 1000000000;
-  if (rest < 0) {
-    seconds -= 1;
-    rest += 1000000000;
-  }
+  lua_Integer seconds = luaL_checkinteger(L, index);
+  lua_Integer ns = luaL_optinteger(L, index + 1, 0);
+  luaL_argcheck(L, ns >= 0 && ns < 1000000000, index + 1,
+                "nanoseconds outside [0, 1000000000)");
   at.tv_sec = (time_t)seconds;
-  at.tv_nsec = (long)rest;
+  at.tv_nsec = (long)ns;
   return at;
 }
 
-COSMIC_SYSCALL(utimens_ns, 3) {
+COSMIC_SYSCALL(utimensat, 5) {
   const char *path = cosmic_path(L, 1);
-  luaL_argcheck(L, !lua_isnoneornil(L, 2) || !lua_isnoneornil(L, 3), 2,
+  luaL_argcheck(L, !lua_isnoneornil(L, 2) || !lua_isnoneornil(L, 4), 2,
                 "neither an access nor a modification time");
-  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   struct timespec times[2];
   times[0] = time_or_omit(L, 2);
-  times[1] = time_or_omit(L, 3);
+  times[1] = time_or_omit(L, 4);
+  if (path == NULL) return cosmic_fail_effect(L, EINVAL);
   if (utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW) != 0) {
     return cosmic_fail_effect(L, errno);
   }

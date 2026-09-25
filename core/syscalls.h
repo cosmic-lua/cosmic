@@ -470,17 +470,22 @@ COSMIC_SYSCALL(symlink, 2);
 COSMIC_SYSCALL(readlink, 1);
 
 /*
- * --- Sets a path's access time, modification time, or both, each in
- * --- nanoseconds since the epoch; a nil one is left as it is, and
- * --- naming neither raises. The link itself is changed, not its target.
+ * --- Sets a path's access time, modification time, or both, each as
+ * --- whole seconds since the epoch and the nanoseconds after them, the
+ * --- shape a Stat reports (`mtime`, `mtime_ns`). Nil seconds leave that
+ * --- time as it is; nil nanoseconds are 0, and nanoseconds outside
+ * --- [0, 1e9), or given without seconds, raise, as naming neither time
+ * --- does. The link itself is changed, not its target.
  * ---@param path string the path to change
- * ---@param atime_ns? integer the access time to set, or nil to keep it
- * ---@param mtime_ns? integer the modification time to set, or nil to keep it
+ * ---@param atime_s? integer the access time's seconds, or nil to keep it
+ * ---@param atime_ns? integer the nanoseconds after atime_s, default 0
+ * ---@param mtime_s? integer the modification time's seconds, or nil to keep it
+ * ---@param mtime_ns? integer the nanoseconds after mtime_s, default 0
  * ---@return boolean ok false on failure
  * ---@return string error what went wrong, when ok is false
  * ---@return integer errno the error number, when ok is false
  */
-COSMIC_SYSCALL(utimens_ns, 3);
+COSMIC_SYSCALL(utimensat, 5);
 
 /*
  * --- Flushes a descriptor's data and metadata to storage.

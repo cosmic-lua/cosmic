@@ -463,12 +463,13 @@ function Fs.readlink(path: string): string | nil, string
   return target, ""
 end
 
---- Sets a path's modification time to `mtime_ns`, nanoseconds since
---- the epoch, leaving its access time as it is, as `touch -h -m -d`
---- does. Changes the link itself, not its target. A `Stat`'s whole
---- modification time is `st.mtime * 1000000000 + st.mtime_ns`.
-function Fs.set_mtime(path: string, mtime_ns: integer): boolean, string
-  local set, trouble = sys.utimens_ns(path, nil, mtime_ns)
+--- Sets a path's modification time to `seconds` since the epoch and
+--- `ns` nanoseconds after them (default 0), the shape a `Stat` reports
+--- it in (`st.mtime`, `st.mtime_ns`), leaving its access time as it
+--- is, as `touch -h -m -d` does. Changes the link itself, not its
+--- target. `ns` outside [0, 1e9) raises.
+function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, string
+  local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then
     return false, path .. ": " .. trouble
   end
@@ -537,15 +538,16 @@ end
 --- regular file's bytes, each directory, and each symbolic link as a link to the
 --- same target, never followed. Every permission bit is kept, the umask
 --- not applied, except setuid and setgid: the copy belongs to whoever
---- makes it, so they are dropped. Each modification time is kept to the
---- nanosecond. `to` must not exist yet; each listing is read before its copy
+--- makes it, so they are dropped. Each access and modification time is
+--- kept to the nanosecond, as the source's own `lstat` read it before
+--- the copy. `to` must not exist yet; each listing is read before its copy
 --- is made, so a tree copied into itself is not copied again. Anything
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
--- TODO: keep what `cp -a` also keeps -- the access time (Stat has
--- atime and atime_ns, and sys.utimens_ns sets one), hard links as links
--- (Stat has ino, dev and nlink), and the owner when run as root (once
+-- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
+-- ino, dev and nlink; it needs a map from (dev, ino) to the first copy
+-- and a binding for link(2)), and the owner when run as root (once
 -- cosmic.sys carries lchown).
 function Fs.copy_tree(from: string, to: string): boolean, string
   local present, present_trouble, number = sys.lstat(to)
@@ -584,7 +586,10 @@ function Fs.copy_tree(from: string, to: string): boolean, string
     else
       return false, source .. ": not a file, directory or symbolic link"
     end
-    return Fs.set_mtime(target, st.mtime * 1000000000 + st.mtime_ns)
+    local timed, time_trouble = sys.utimensat(target, st.atime, st.atime_ns,
+      st.mtime, st.mtime_ns)
+    if not timed then return false, target .. ": " .. time_trouble end
+    return true, ""
   end
   return copy(from, to)
 end

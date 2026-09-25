@@ -165,25 +165,29 @@ local function test_stat_and_lstat_refuse_a_missing_path(tmp: string)
   failed_with(sys.ENOENT, sys.lstat(tmp .. "/missing"))
 end
 
---- Each time is nanoseconds since the epoch, floored into seconds so a
---- time before the epoch keeps a nanoseconds part in [0, 1e9); a nil one
---- is left alone, and naming neither is a mistake that raises.
-local function test_utimens_ns_sets_either_time_to_the_nanosecond(tmp: string)
+--- Each time is whole seconds and the nanoseconds after them, as a
+--- Stat reports it; nil seconds leave that time alone, and naming
+--- neither, nanoseconds without seconds, or nanoseconds outside
+--- [0, 1e9) are mistakes that raise.
+local function test_utimensat_sets_either_time_to_the_nanosecond(tmp: string)
   local path = tmp .. "/f"
   assert(sys.close(create(path)))
-  assert(sys.utimens_ns(path, 5 * 1000000000 + 6, 7 * 1000000000 + 8))
+  assert(sys.utimensat(path, 5, 6, 7, 8))
   local st = assert(sys.stat(path))
   assert(st.atime == 5 and st.atime_ns == 6 and st.mtime == 7 and st.mtime_ns == 8)
-  assert(sys.utimens_ns(path, nil, -1))
+  assert(sys.utimensat(path, nil, nil, -1, 999999999))
   st = assert(sys.stat(path))
   assert(st.mtime == -1 and st.mtime_ns == 999999999, st.mtime .. "." .. st.mtime_ns)
   assert(st.atime == 5 and st.atime_ns == 6)
-  assert(sys.utimens_ns(path, 9, nil))
+  assert(sys.utimensat(path, 9))
   st = assert(sys.stat(path))
-  assert(st.atime == 0 and st.atime_ns == 9 and st.mtime == -1)
-  raises(sys.utimens_ns, path)
-  raises(sys.utimens_ns, path, nil, nil)
-  failed_with(sys.ENOENT, sys.utimens_ns(tmp .. "/missing", nil, 0))
+  assert(st.atime == 9 and st.atime_ns == 0 and st.mtime == -1)
+  raises(sys.utimensat, path)
+  raises(sys.utimensat, path, nil, nil, nil, nil)
+  raises(sys.utimensat, path, nil, 5, 7)
+  raises(sys.utimensat, path, 1, 1000000000)
+  raises(sys.utimensat, path, nil, nil, 1, -1)
+  failed_with(sys.ENOENT, sys.utimensat(tmp .. "/missing", nil, nil, 0))
 end
 
 local function test_mkdir_and_rmdir(tmp: string)
@@ -617,7 +621,7 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.symlink(nul, tmp .. "/link"))
   failed_with(sys.EINVAL, sys.symlink(file, tmp .. "/link\0x"))
   failed_with(sys.EINVAL, sys.readlink(nul))
-  failed_with(sys.EINVAL, sys.utimens_ns(nul, 0, 0))
+  failed_with(sys.EINVAL, sys.utimensat(nul, 0, 0))
   -- execve, like spawn, refuses a NUL by raising, before it allocates.
   raises(sys.execve, tmp .. "\0/sh", { "sh" }, {})
   raises(sys.execve, "/bin/sh", { "sh", "-c\0x" }, {})

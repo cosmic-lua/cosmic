@@ -116,9 +116,11 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local written = assert(Archive.extract(archive, tmp .. "/out", { strip_components = float(1.0) }))
   assert(#written == 2, table.concat(written, ","))
   assert(Fs.read(tmp .. "/out/tool") == "#!/bin/sh\necho hi\n")
-  for _, count in ipairs({ float(1.5), -1 }) do
+  local refusals: {{integer, string}} = { { float(1.5), "whole number" }, { -1, "negative" } }
+  for _, refusal in ipairs(refusals) do
+    local count, says = refusal[1], refusal[2]
     local ok, why = pcall(Archive.extract, archive, tmp .. "/bad", { strip_components = count })
-    assert(not ok and tostring(why):find("whole number", 1, true) ~= nil, tostring(why))
+    assert(not ok and tostring(why):find(says, 1, true) ~= nil, tostring(why))
     assert(Fs.exists(tmp .. "/bad") == false)
   end
 end
@@ -494,19 +496,17 @@ local function test_extract_restores_mtimes_unless_told_not_to(tmp: string)
   assert((assert(Fs.stat(dest2 .. "/d/f"))).mtime ~= 1200000000)
 end
 
---- A pax mtime too far from the epoch to count in nanoseconds is left
---- unset rather than wrapped around into some other time. This one is
---- chosen so the wrap lands on an ordinary one: (1e9 + 2^55) * 1e9 is
---- 1e18 + 5^9 * 2^64, so wrapped it is 1e9 seconds, in 2001.
-local function test_extract_leaves_an_mtime_past_nanosecond_range_unset(tmp: string)
+--- An archived time past 2262, when nanoseconds since the epoch no
+--- longer fit in an integer, is restored as it is (2300-01-01 here).
+local function test_extract_restores_an_mtime_past_2262(tmp: string)
   local archive = tmp .. "/t.tar"
   tar_of(archive, function(tw: Tar.Writer)
-    assert(tw:add_file("far", "x", { mtime = 1000000000 + (1 << 55) }))
+    assert(tw:add_file("far", "x", { mtime = 10413792000 }))
   end)
   local dest = tmp .. "/out"
   assert(Archive.extract(archive, dest))
   local far = assert(Fs.stat(dest .. "/far"))
-  assert(far.mtime ~= 1000000000, "the archived time wrapped around")
+  assert(far.mtime == 10413792000, tostring(far.mtime))
 end
 
 local function test_extract_stops_at_max_bytes_and_max_entries(tmp: string)

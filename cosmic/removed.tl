@@ -190,9 +190,10 @@ local module: Module = {
       proc .. ")",
     ["cosmic.sys.digest"] = "use Hash.digest(algorithm, data) (" .. hash .. ")",
     ["cosmic.sys.hmac"] = "use Hash.hmac(algorithm, key, data) (" .. hash .. ")",
-    ["cosmic.sys.utimens"] = "use sys.utimens_ns(path, atime_ns, mtime_ns), which " ..
-      "takes nanoseconds rather than seconds and leaves a nil time as it is (" ..
-      sys .. "), or Fs.set_mtime(path, mtime_ns) (" .. fs .. ")",
+    ["cosmic.sys.utimens"] = "use sys.utimensat(path, atime_s, atime_ns, mtime_s, " ..
+      "mtime_ns), which takes each time as seconds and nanoseconds and leaves one " ..
+      "whose seconds are nil as it is (" .. sys .. "), or Fs.set_mtime(path, " ..
+      "seconds, ns) (" .. fs .. ")",
     ["cosmic.sqlite.exec"] = "use db:exec(sql), the method on the handle Sqlite.open " ..
       "answers (" .. sqlite .. ")",
     ["cosmic.sqlite.close"] = "use db:close(), the method on the handle Sqlite.open " ..

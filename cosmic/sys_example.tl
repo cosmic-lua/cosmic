@@ -67,11 +67,12 @@ function Example.lstat()
   assert(gone == nil and errno == syscalls.ENOENT, tostring(errno))
 end
 
---- `syscalls.utimens_ns` sets an access time, a modification time or
---- both, in nanoseconds; a nil one is left as it was.
-function Example.utimens_ns()
+--- `syscalls.utimensat` sets an access time, a modification time or
+--- both, each as seconds and nanoseconds the way a Stat reports them;
+--- nil seconds leave that time as it was.
+function Example.utimensat()
   local dir, path = scratch()
-  assert(syscalls.utimens_ns(path, 86400 * 1000000000, nil))
+  assert(syscalls.utimensat(path, 86400, 0, nil, nil))
   local stat = assert(syscalls.stat(path))
   print(stat.atime)
   assert(stat.atime == 86400 and stat.atime_ns == 0)

@@ -1448,7 +1448,7 @@ static const luaL_Reg table[] = {
   ENTRY(unguard_child_signals), ENTRY(cancelled_child_signal),
   ENTRY(dup),      ENTRY(dup2),          ENTRY(cpu_count),
   ENTRY(uname),
-  ENTRY(symlink), ENTRY(readlink), ENTRY(utimens_ns), ENTRY(fsync),
+  ENTRY(symlink), ENTRY(readlink), ENTRY(utimensat), ENTRY(fsync),
   ENTRY(ftruncate),
   {NULL, NULL},
 };
