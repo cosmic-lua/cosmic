@@ -13,6 +13,9 @@ local sys = require("cosmic.sys")
 local record Images
 end
 
+--- `env[name]`, which must be set and not empty. Unlike the rest of the
+--- module, which answers a failing status, a missing one raises: it is
+--- the workflow's mistake, not docker's.
 local function required(env: {string:string}, name: string): string
   local value = env[name]
   assert(value and value ~= "", "missing required environment variable: " .. name)
@@ -95,6 +98,9 @@ local function docker(env: {string:string}, words: {string},
     input?: string, capture?: boolean): integer, string, string
   local found, missing = Proc.find("docker", env.PATH)
   if found == nil then return 127, "docker: " .. missing, "" end
+  -- A relative PATH entry names docker from the driver's cwd, not the
+  -- checkout's root it runs in.
+  found = assert(Fs.absolute(found))
   local argv: {string} = { found }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local options: Child.Options = { cwd = required(env, "GITHUB_WORKSPACE"),
