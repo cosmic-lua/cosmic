@@ -252,18 +252,43 @@ local function test_readdir_lists_entries_without_dot_and_dot_dot(tmp: string)
   assert(next((assert(sys.readdir(tmp .. "/d/sub")))) == nil)
 end
 
+--- A directory under `tmp` holding a file, a directory, and a link to
+--- each and to nothing.
+local function linked_directory(tmp: string): string
+  local d = tmp .. "/d"
+  assert(sys.mkdir(d))
+  sys.close(create(d .. "/file"))
+  assert(sys.mkdir(d .. "/sub"))
+  assert(sys.symlink("file", d .. "/to_file"))
+  assert(sys.symlink("sub", d .. "/to_dir"))
+  assert(sys.symlink("missing", d .. "/dangling"))
+  return d
+end
+
+--- Checks readdir's answer for `linked_directory`.
+local function names_links_as_links(entries: {string:string}, what: string)
+  assert(entries["file"] == "file" and entries["sub"] == "dir", what)
+  assert(entries["to_file"] == "link", what .. ": a link to a file: " .. tostring(entries["to_file"]))
+  assert(entries["to_dir"] == "link", what .. ": a link to a directory: " .. tostring(entries["to_dir"]))
+  assert(entries["dangling"] == "link", what .. ": a dangling link: " .. tostring(entries["dangling"]))
+end
+
 local function test_readdir_names_a_link_as_a_link_whatever_it_leads_to(tmp: string)
-  assert(sys.mkdir(tmp .. "/d"))
-  sys.close(create(tmp .. "/d/file"))
-  assert(sys.mkdir(tmp .. "/d/sub"))
-  assert(sys.symlink("file", tmp .. "/d/to_file"))
-  assert(sys.symlink("sub", tmp .. "/d/to_dir"))
-  assert(sys.symlink("missing", tmp .. "/d/dangling"))
-  local entries = assert(sys.readdir(tmp .. "/d"))
-  assert(entries["file"] == "file" and entries["sub"] == "dir")
-  assert(entries["to_file"] == "link", "a link to a file: " .. tostring(entries["to_file"]))
-  assert(entries["to_dir"] == "link", "a link to a directory: " .. tostring(entries["to_dir"]))
-  assert(entries["dangling"] == "link", "a dangling link: " .. tostring(entries["dangling"]))
+  names_links_as_links(assert(sys.readdir(linked_directory(tmp))), "readdir")
+end
+
+--- An entry whose type the filesystem leaves unknown is asked with an
+--- lstat, which answers a link as one too: the checked core's fault
+--- point makes each entry in turn unknown.
+local function test_readdir_names_an_entry_of_unknown_type_as_lstat_does(tmp: string)
+  if testing.configuration ~= "sanitized" then return end
+  local d = linked_directory(tmp)
+  for skip = 0, 4 do
+    testing.fail_at("readdir_d_type", skip)
+    local entries = assert(sys.readdir(d))
+    assert(not testing.fail_at(), "entry " .. skip .. " never reached readdir_d_type")
+    names_links_as_links(entries, "entry " .. skip .. " of unknown type")
+  end
 end
 
 local function test_readdir_refuses_a_missing_path_and_a_file(tmp: string)

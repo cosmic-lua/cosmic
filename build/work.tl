@@ -892,8 +892,11 @@ end
 function work.stage(handle: work.Handle, own_tree: boolean): work.Staged | nil, string
   local db = handle.db
   local root = handle.root
+  -- A link is taken for what it leads to, so a project whose modules
+  -- or tests are reached through one (`lib -> ../shared/lib`) builds
+  -- them; a loop of links ends its branch rather than the stage.
   local walked, walk_trouble =
-    Fs.walk(root, own_tree and skip_in_own_tree or skip_input)
+    Fs.walk_following(root, own_tree and skip_in_own_tree or skip_input)
   if walked == nil then
     return nil, walk_trouble
   end
@@ -1129,9 +1132,11 @@ function work.put_compiler(handle: work.Handle, source: string): boolean, string
 end
 
 --- Every TZif file under `dir`, a `zoneinfo` tree as `vendor/tzdata`
---- holds it, by zone name: its path under `dir`.
+--- holds it, by zone name: its path under `dir`. A zone that is a link
+--- to another (as a system zoneinfo's aliases are) is read as the zone
+--- it leads to, under its own name.
 function work.read_zoneinfo(dir: string): {string:string} | nil, string
-  local names, trouble = Fs.walk(dir)
+  local names, trouble = Fs.walk_following(dir)
   if names == nil then
     return nil, trouble
   end

@@ -76,7 +76,7 @@ end
 --- Every vendored zone, by its path under the sdist's `src/tzdata/`.
 local function vendored_zones(): {string:string}
   local files: {string:string} = {}
-  for _, name in ipairs((assert(Fs.walk(zones)))) do
+  for _, name in ipairs((assert(Fs.walk_following(zones)))) do
     files["zoneinfo/" .. name] = assert(Fs.read(zones .. "/" .. name))
   end
   return files
