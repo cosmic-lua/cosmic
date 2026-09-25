@@ -75,8 +75,10 @@ function Shrink.shrink(draws: {Shrink.Draw}, fails: Shrink.Fails,
   local improved = true
   while improved and tries < max_tries do
     improved = false
-    -- Cut runs of draws, longest first, from the end backward.
-    for _, size in ipairs({ 8, 4, 2, 1 }) do
+    -- Cut runs of draws, longest first, from the end backward: every
+    -- length to 8, so an element of any size up to it -- a `more` draw
+    -- and the draws after it -- can be cut whole.
+    for size = 8, 1, -1 do
       local i = #best - size + 1
       while i >= 1 and tries < max_tries do
         local values = Shrink.values_of(best)

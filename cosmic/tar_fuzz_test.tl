@@ -13,6 +13,9 @@ local PARTS <const> = { "a", "b", "dir", "x.txt", "é", "a b", "..", ".", "-", "
 
 local function gen_path(src: Fuzz.Source): string
   local parts: {string} = {}
+  -- TODO: this file's collections draw their count first, so shrinking
+  -- cuts only their last element; `Fuzz.more` before each would let it
+  -- cut any (its labels' rates move with the change: measure them again).
   for i = 1, src:int(1, 4) do
     if src:int(1, 8) == 1 then
       parts[i] = string.rep("n", src:int(90, 160))
@@ -102,7 +105,7 @@ local function test_the_reader_is_total_on_mutated_archives(tmp: string)
   })
 end
 
--- TODO: no input of 2000 gets past the first header, whose checksum
+-- TODO: no input of 2000 reads an entry: none gets past a header, whose checksum
 -- random bytes never match, so this checks only that refusal; drawing
 -- header fields and writing their checksum would reach the field
 -- parsing behind it.

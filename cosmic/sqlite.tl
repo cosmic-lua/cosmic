@@ -168,6 +168,22 @@ function Sqlite.run(handle: Sqlite.Handle, sql: string,
   return true, ""
 end
 
+--- The column at `index`, from zero, of the row `statement` was just
+--- stepped to, as a typed cell: SQL NULL is `kind = "null"`.
+function Sqlite.cell(statement: Sqlite.Statement, index: integer): Sqlite.Cell
+  local kind = statement:kind(index)
+  if kind == "integer" then
+    return { kind = kind, integer = statement:integer(index) }
+  elseif kind == "number" then
+    return { kind = kind, number = statement:number(index) }
+  elseif kind == "text" then
+    return { kind = kind, text = statement:bytes(index) }
+  elseif kind == "blob" then
+    return { kind = kind, blob = statement:bytes(index) }
+  end
+  return { kind = "null" }
+end
+
 --- Parameters follow the same complete-list contract as run.
 --- Every row a query yields, each row a dense list of typed cells in column
 --- order. SQL NULL is an explicit `kind = "null"` cell.
@@ -195,20 +211,7 @@ function Sqlite.rows(handle: Sqlite.Handle, sql: string,
     end
     local row: Sqlite.Row = {}
     for index = 0, width - 1 do
-      local kind = statement:kind(index)
-      local cell: Sqlite.Cell
-      if kind == "integer" then
-        cell = { kind = kind, integer = statement:integer(index) }
-      elseif kind == "number" then
-        cell = { kind = kind, number = statement:number(index) }
-      elseif kind == "text" then
-        cell = { kind = kind, text = statement:bytes(index) }
-      elseif kind == "blob" then
-        cell = { kind = kind, blob = statement:bytes(index) }
-      else
-        cell = { kind = "null" }
-      end
-      row[index + 1] = cell
+      row[index + 1] = Sqlite.cell(statement, index)
     end
     out[#out + 1] = row
   end
