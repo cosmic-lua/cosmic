@@ -11,7 +11,6 @@ local Runner = require("cosmic_ci.runner")
 local RuntimeSetup = require("cosmic_ci.runtime_setup")
 local State = require("cosmic_ci.state")
 local Time = require("cosmic.time")
-local sys = require("cosmic.sys")
 
 local record Orchestration
 end
@@ -74,12 +73,6 @@ local function step(c: Context, phase: string,
   local runner: Runner.Context = { database = c.db, worker = c.worker,
     run = c.run, attempt = c.attempt, candidate = c.root }
   return Runner.step(runner, phase, work).code
-end
-
--- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
-local function chmod(path: string, mode: integer): boolean, string
-  local changed, trouble = sys.chmod(path, mode)
-  return changed, trouble
 end
 
 local function checked(c: Context, phase: string, command: {string},
@@ -445,7 +438,7 @@ local function phase_assemble(p: PlatformContext): integer
   s = archive(c, fresh); if s ~= 0 then return s end
   mkdir(portable_d); write(portable_d .. "/cosmic-portable", read(product .. "/cosmic"));
   s = step(c, "portable executable mode", function(): boolean, string
-    return chmod(portable_d .. "/cosmic-portable", 0x1ed)
+    return Fs.chmod(portable_d .. "/cosmic-portable", 0x1ed)
   end)
   if s ~= 0 then return s end
   write(portable_d .. "/portable-artifact.before.sha256", hash(portable_d .. "/cosmic-portable") .. "\n"); return 0
@@ -486,12 +479,12 @@ local function phase_portable_boundary(p: PlatformContext): integer
     local executable = portable_d .. "/cosmic-portable"
     local cache = portable_d .. "/portable-full-suite-cache"
     local locked = step(portable_context, "portable cache read-only mode",
-      function(): boolean, string return chmod(cache, 0x140) end)
+      function(): boolean, string return Fs.chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end
     local help = checked(portable_context, "read-only cache execution",
       { executable, "help" }, 30000, fresh, environment({ COSMIC_PORTABLE_CACHE = cache }))
     local restored = step(portable_context, "portable cache restore mode",
-      function(): boolean, string return chmod(cache, 0x1c0) end)
+      function(): boolean, string return Fs.chmod(cache, 0x1c0) end)
     if help ~= 0 then return help end
     if restored ~= 0 then return restored end
   end

@@ -57,7 +57,9 @@
 --- The child stays in this terminal's process group, so a Ctrl-C
 --- reaches zig itself; this process catches SIGINT and SIGTERM while
 --- zig runs, passes on one zig has not answered, and waits for zig to
---- exit before it answers as zig did (`Zig.run`).
+--- exit before it answers as zig did (`Zig.run`): dying of the signal
+--- that ended zig, or of a SIGTERM zig never got, and otherwise
+--- exiting with zig's status.
 ---
 --- Exit codes follow the shell's: 127 when zig cannot be found, 126
 --- when it is found but cannot be run, 1 for anything else that stops
@@ -764,60 +766,69 @@ local PASS_ON_NS <const> = 250 * 1000 * 1000
 
 --- Runs `argv` (`argv[1]` an exact path) to its end in this process
 --- group, with the standard streams shared, and answers its status.
---- SIGINT and SIGTERM are caught here meanwhile, so this process
---- outlives the child whatever it is sent. A terminal's Ctrl-C reaches
---- the child directly, since it shares this group; a signal sent to
---- this process alone does not, so one the child has not answered by
---- exiting within a quarter second is passed on to it -- late enough
---- that a child the terminal already interrupted is not interrupted
---- twice. A child SIGINT or SIGTERM ended ends this process with the
---- same signal, as a shell expects of an interrupted command.
+--- SIGINT and SIGTERM are held by a `Child.guard` meanwhile, so this
+--- process outlives the child whatever it is sent. A terminal's Ctrl-C
+--- reaches the child directly, since it shares this group; a signal
+--- sent to this process alone does not, so one the child has not
+--- answered by exiting within a quarter second is passed on to it --
+--- late enough that a child the terminal already interrupted is not
+--- interrupted twice. A child SIGINT or SIGTERM ended ends this process
+--- with the same signal, as a shell expects of an interrupted command,
+--- and so does a SIGTERM the child never got: one it exited before
+--- being passed, or one that came after it ended. A SIGINT the child
+--- never got is answered by the child's status instead, as bash
+--- answers a Ctrl-C its command caught and exited from: a terminal's
+--- Ctrl-C reaches the child too, and one it caught cleanly within the
+--- quarter second looks here just like a SIGINT sent to this process
+--- alone. A terminal never sends SIGTERM.
 function Zig.run(argv: {string}): integer
-  -- TODO: hold the signals with `Child.guard` rather than sys.*'s
-  -- guard_child_signals, cancelled_child_signal and unguard_child_signals
-  -- once ci/cosmic-driver.pin names a cosmic whose Child.Guard has
-  -- `take` and `release` (this runs on that release; the pinned one's
-  -- guard can only close, which always re-delivers, and keeps only its
-  -- first signal). The port polls `g:take()` each round in place of
-  -- sys.cancelled_child_signal, passing each signal taken on after
-  -- PASS_ON_NS as today; it ends with `g:release()` in place of the
-  -- unguard, then one more `g:take()` (after the release, so a signal
-  -- landing between them is kept), and keeps this function's own
-  -- re-raise rule below (a child that died of SIGINT or SIGTERM
-  -- re-raises that), adding one for a signal never passed on: taken
-  -- but still held back by PASS_ON_NS, or taken only after the child
-  -- ended.
-  local guarded, guard_trouble = sys.guard_child_signals()
-  if not guarded then
+  local opened, guard_trouble = Child.guard()
+  if opened == nil then
     log:complain("signal guard: " .. guard_trouble)
     return 1
   end
+  -- Released below; closed, delivering what it holds, only if an error
+  -- leaves this scope first.
+  local g <close> = opened
+  -- The last signal taken but not yet passed on to the child, 0 when
+  -- none.
+  local pending = 0
   local function supervise(): Child.Result | nil, string
     local h, trouble = Child.start(argv, { process_group = false })
     if h == nil then
       return nil, trouble
     end
-    local pending = 0
     local pass_on_at = 0
     while true do
       local state, wait_trouble = h:try_wait()
       if state == nil then
+        -- End the child rather than leave it running unsupervised.
+        local _, _ = h:close()
         return nil, wait_trouble
       end
       if state.finished then
-        -- TODO: a `pending` signal the child exited before being passed
-        -- is swallowed here: its own Ctrl-C may have ended it cleanly,
-        -- but a signal sent to this process alone never reached it.
-        -- Answer it beside the result and re-raise it below when the
-        -- child did not die of a signal (the Child.guard port above).
         return state.result, ""
       end
       local now = Time.monotonic_ns()
-      local cancelled, _ = sys.cancelled_child_signal()
-      if pending == 0 and cancelled ~= nil and cancelled ~= 0 then
-        pending, pass_on_at = cancelled, now + PASS_ON_NS
+      local taken = g:take()
+      if taken ~= 0 then
+        -- A repeat within the window is passed on once, as the last.
+        if pending == 0 then
+          pass_on_at = now + PASS_ON_NS
+        end
+        pending = taken
       end
       if pending ~= 0 and now >= pass_on_at then
+        -- TODO: this reaches zig's own pid alone, so once zig build has
+        -- started its runner, the runner and its compile jobs outlive
+        -- zig, orphaned, and build on to the end (a SIGINT sent to
+        -- bin/zig alone mid-build leaves them). Pass it on to zig's
+        -- descendants as well -- or to this whole process group with
+        -- kill(0, signal), weighing that it also reaches the rest of a
+        -- pipeline such as `| tee`, and that this same guard catches
+        -- the signal sent to the group: such a fix must drop its own
+        -- reflected signal rather than take it as a new one and pass it
+        -- on again every PASS_ON_NS.
         local _, _ = h:stop(pending)
         pending = 0
       end
@@ -825,13 +836,36 @@ function Zig.run(argv: {string}): integer
     end
   end
   local result, trouble = supervise()
-  local _, _ = sys.unguard_child_signals()
+  local caught, release_trouble = g:release()
+  -- Taken after the release, so a signal landing between the last
+  -- round and the release is kept.
+  local untaken = g:take()
+  if caught == nil then
+    log:complain("signal guard: " .. release_trouble)
+  end
+  -- A signal the child never got: re-raised only when it is SIGTERM,
+  -- which a terminal never sends, so a child's own Ctrl-C it caught and
+  -- exited from cleanly is answered by its status, as bash answers it.
+  -- TODO: re-raise a never-passed SIGINT too, once the guard reports
+  -- whether a signal came from kill() or from the terminal (the
+  -- siginfo's si_code, which core/syscalls.c's catch_child_cancel would
+  -- record): only one sent to this process alone went unanswered.
+  local unpassed = untaken ~= 0 and untaken or pending
+  if unpassed ~= sys.SIGTERM then
+    unpassed = 0
+  end
   if result == nil then
     log:complain(argv[1] .. ": " .. trouble)
+    if caught ~= nil and unpassed ~= 0 then
+      local _, _ = sys.kill(sys.getpid(), unpassed)
+    end
     return 1
   end
   local signal = result.signal
-  if signal == sys.SIGINT or signal == sys.SIGTERM then
+  if signal ~= sys.SIGINT and signal ~= sys.SIGTERM then
+    signal = unpassed
+  end
+  if caught ~= nil and signal ~= nil and signal ~= 0 then
     local _, _ = sys.kill(sys.getpid(), signal)
   end
   return Zig.child_status(result)

@@ -511,3 +511,38 @@ local function test_run_passes_on_a_signal_sent_to_it_alone()
   assert(status == 42, tostring(status))
   assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end
+
+--- A Ctrl-C that reached zig and `bin/zig` both, which zig caught and
+--- exited cleanly from before `bin/zig` passed it on, is answered by
+--- zig's status, as bash answers it: `bin/zig` exits 0 rather than
+--- dying of the SIGINT. The stub signals its whole group, as a terminal
+--- does, and exits at once, well inside the pass-on window.
+local function test_run_answers_a_caught_ctrl_c_by_the_childs_status(tmp: string)
+  local script = assert(Fs.absolute("build/zig.tl"))
+  assert(Fs.write(tmp .. "/zig-for-test",
+    "#!/bin/sh\ntrap 'exit 0' INT\nkill -INT 0\nexit 0\n", 0x1ed))
+  -- Child.run starts it in a group of its own, so `kill -INT 0` stays
+  -- inside it.
+  local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script, "build" }, {
+    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
+      XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture", timeout_ms = 30000,
+  }))
+  assert(result.signal == nil and result.code == 0,
+    tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
+end
+
+--- A SIGTERM sent to `bin/zig` alone that its child exits before being
+--- passed is not swallowed: `bin/zig` ends of it, as it would have had
+--- it not been running a build.
+local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
+  local script = assert(Fs.absolute("build/zig.tl"))
+  assert(Fs.write(tmp .. "/zig-for-test", "#!/bin/sh\nkill -TERM $PPID\nexit 0\n", 0x1ed))
+  local result = assert(Child.run({ assert(Proc.executable()), "--standalone", script, "build" }, {
+    env = { COSMIC_ZIG = "zig-for-test", PATH = tmp .. ":/usr/bin:/bin",
+      XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture", timeout_ms = 30000,
+  }))
+  assert(result.signal == sys.SIGTERM,
+    tostring(result.code) .. " " .. tostring(result.signal) .. ": " .. tostring(result.stderr))
+end
