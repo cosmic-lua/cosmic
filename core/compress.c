@@ -918,6 +918,104 @@ static const luaL_Reg module[] = {
   {"crc32", compress_crc32},  {NULL, NULL},
 };
 
+/* ---- one-shot raw deflate, for bytes C keeps rather than Lua ---- */
+
+/* tdefl's output callback: appends a piece of the stream to a `bytes`. */
+static mz_bool put_bytes (const void *data, int len, void *user) {
+  return bytes_append(user, data, (size_t)len) == 0;
+}
+
+unsigned char *cosmic_deflate_raw (const void *data, size_t len,
+                                   size_t *out_len) {
+  tdefl_compressor *d = cosmic_malloc(sizeof *d);
+  if (d == NULL) return NULL;
+  struct bytes out = {NULL, 0, 0};
+  mz_uint flags = tdefl_create_comp_flags_from_zip_params(
+      MZ_DEFAULT_LEVEL, -15, MZ_DEFAULT_STRATEGY);
+  tdefl_status status = tdefl_init(d, put_bytes, &out, (int)flags);
+  if (status == TDEFL_STATUS_OKAY) {
+    status = tdefl_compress_buffer(d, data, len, TDEFL_FINISH);
+  }
+  cosmic_free(d);
+  /* Even no input ends in a final block, so a finished stream is never
+   * empty and `out.p` is never NULL beside it. */
+  if (status != TDEFL_STATUS_DONE || out.p == NULL) {
+    cosmic_free(out.p);
+    return NULL;
+  }
+  *out_len = out.len;
+  return out.p;
+}
+
+const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
+                                unsigned char **out, size_t *out_len) {
+  *out = NULL;
+  *out_len = 0;
+  if (max > SIZE_MAX / 2) max = SIZE_MAX / 2;
+  tinfl_decompressor *d = cosmic_malloc(sizeof *d);
+  if (d == NULL) return "not enough memory";
+  tinfl_init(d);
+  const unsigned char *in = data;
+  unsigned char *buffer = NULL;
+  size_t cap = 0;
+  size_t got = 0;
+  size_t in_pos = 0;
+  const char *why = NULL;
+  for (;;) {
+    size_t in_size = len - in_pos;
+    size_t out_size = cap - got;
+    /* The whole output is one growing buffer, so tinfl copies a match
+     * from anywhere in it; it is handed the buffer again after each
+     * growth, as miniz's own tinfl_decompress_mem_to_heap does. */
+    tinfl_status status = tinfl_decompress(
+        d, in + in_pos, &in_size, buffer,
+        buffer == NULL ? NULL : buffer + got, &out_size,
+        TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    in_pos += in_size;
+    got += out_size;
+    if (status == TINFL_STATUS_DONE) {
+      if (in_pos != len) why = "the deflate stream is followed by more bytes";
+      break;
+    }
+    if (status != TINFL_STATUS_HAS_MORE_OUTPUT) {
+      /* Told no more input follows, tinfl says it cannot make progress
+       * where the stream stops short. */
+      why = status == TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS ||
+                    status == TINFL_STATUS_NEEDS_MORE_INPUT
+                ? "the deflate stream is truncated"
+                : "the deflate stream is damaged";
+      break;
+    }
+    if (cap >= max) {
+      why = "the deflate stream decodes to more than the limit";
+      break;
+    }
+    size_t room = cap < 128 ? 128 : cap > max / 2 ? max : cap * 2;
+    if (room > max) room = max;
+    /* One byte past the room for the NUL the result carries. */
+    unsigned char *grown = cosmic_realloc(buffer, room + 1);
+    if (grown == NULL) {
+      why = "not enough memory";
+      break;
+    }
+    buffer = grown;
+    cap = room;
+  }
+  cosmic_free(d);
+  if (why == NULL && buffer == NULL) {
+    buffer = cosmic_malloc(1);
+    if (buffer == NULL) why = "not enough memory";
+  }
+  if (why != NULL) {
+    cosmic_free(buffer);
+    return why;
+  }
+  buffer[got] = '\0';
+  *out = buffer;
+  *out_len = got;
+  return NULL;
+}
+
 int cosmic_open_compress (lua_State *L) {
   luaL_newmetatable(L, STREAM_TYPE);
   lua_pushcfunction(L, stream_gc);
