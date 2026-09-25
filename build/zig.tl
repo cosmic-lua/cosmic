@@ -87,6 +87,14 @@ local record Zig
     sleep: function(ms: integer)
     now: function(): integer
   end
+
+  --- Where `bin/zig.pin`'s release for a host is installed: `path`,
+  --- whether it is there yet or not, with the pin and host that name it.
+  record Install
+    path: string
+    pin: Pin
+    host: string
+  end
 end
 
 local log = Log.new("bin/zig")
@@ -516,13 +524,14 @@ local function status_of(why: string): integer
   return String.ends_with(why, ": not executable") and 126 or 127
 end
 
---- The zig to run and its first trouble: `COSMIC_ZIG` when set,
---- otherwise the pinned release for this host, fetched if need be.
-local function locate(root: string): string | nil, string
-  local env_zig = Env.get("COSMIC_ZIG")
-  if env_zig ~= nil and env_zig ~= "" then
-    return env_zig, ""
-  end
+--- Where the release `bin/zig.pin` names for this host is installed
+--- under `cache`, whether it is there yet or not: what was extracted
+--- from a download the pin's sha256 was checked against when it was
+--- installed. Nil and why when the pin or the host cannot be read.
+-- TODO: name the install by the pin's sha256 as well as its version: a
+-- pin whose sha changes but whose version does not finds the old
+-- install in place and runs it.
+function Zig.pinned_install(root: string, cache: string): Zig.Install | nil, string
   local text, ptrouble = Fs.read(root .. "/bin/zig.pin")
   if text == nil then
     return nil, ptrouble
@@ -539,11 +548,25 @@ local function locate(root: string): string | nil, string
   if host == nil then
     return nil, htrouble
   end
+  return { path = cache .. "/" .. pin.version .. "-" .. host, pin = pin, host = host }, ""
+end
+
+--- The zig to run and its first trouble: `COSMIC_ZIG` when set,
+--- otherwise the pinned release for this host, fetched if need be.
+local function locate(root: string): string | nil, string
+  local env_zig = Env.get("COSMIC_ZIG")
+  if env_zig ~= nil and env_zig ~= "" then
+    return env_zig, ""
+  end
   local cache, ctrouble = Fs.cache_dir("zig")
   if cache == nil then
     return nil, ctrouble
   end
-  return Zig.ensure_installed(cache, cache .. "/" .. pin.version .. "-" .. host, pin, host)
+  local install, trouble = Zig.pinned_install(root, cache)
+  if install == nil then
+    return nil, trouble
+  end
+  return Zig.ensure_installed(cache, install.path, install.pin, install.host)
 end
 
 --- Where zig keeps its global cache: `COSMIC_ZIG_GLOBAL_CACHE` when

@@ -3,6 +3,7 @@
 
 local Fs = require("cosmic.fs")
 local c = require("build.c")
+local observations = require("build.filesystem_observations")
 local rules = require("build.c.rules")
 
 local root = assert(Fs.absolute("."))
@@ -536,4 +537,63 @@ local function test_an_unreadable_file_says_nothing_of_sharing(tmp: string)
   local outcomes = c.check(root, { "a.c", "b.c" }, tmp)
   assert(outcomes[2].findings == nil, "b.c was read")
   none(only(outcomes[1].findings, "single-file"))
+end
+
+--- Checking C starts its compilers as declared processes: what names the
+--- pinned zig is read, and every header a compiler read but the pinned
+--- zig's own -- one beside the file included -- so a test of it stands on
+--- them, and a header's change runs it again.
+local function test_checking_reads_what_the_compiler_read(tmp: string)
+  assert(Fs.write(tmp .. "/extra.h", "int extra(void);\n"))
+  local zig_cache = assert(Fs.cache_path("zig"))
+  local run = observations.call(function()
+    local _ = findings(tmp, header .. '#include "extra.h"\nint f(void) { return 0; }\n')
+  end, nil)
+  assert(run.passed, run.message)
+  local read: {string: boolean} = {}
+  local listed: {string: boolean} = {}
+  local whole_environment = false
+  local started: {string} = {}
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "o" then read[observation.path] = true end
+    if observation.kind == "d" then listed[observation.path] = true end
+    if observation.kind == "e" and observation.path == "\0environ" then
+      whole_environment = true
+    end
+    if observation.kind == "h" or observation.kind == "p" or observation.kind == "x" then
+      started[#started + 1] = observation.kind
+    end
+    assert(not Fs.within(observation.path, zig_cache), observation.path)
+  end
+  assert(#started > 0, "no compiler was started")
+  for _, kind in ipairs(started) do assert(kind == "h", table.concat(started, " ")) end
+  for _, path in ipairs({ root .. "/bin/zig.pin", root .. "/build/zig.tl",
+                          root .. "/core/guard.h", tmp .. "/extra.h" }) do
+    assert(read[path], path .. " was not read")
+  end
+  -- Where a header was looked for and not found is listed, so one added
+  -- there, which the compiler would find first, runs the test again.
+  for _, dir in ipairs({ root .. "/core", root .. "/vendor/lua/src", root .. "/vendor/sqlite",
+                         root .. "/vendor/mbedtls/include/mbedtls", tmp }) do
+    assert(listed[dir], dir .. " was not listed")
+  end
+  -- Only the variables the compiler is given are read: a key over the
+  -- whole environment would change with every `cd`.
+  assert(not whole_environment, "the whole environment was read")
+end
+
+--- A header whose path holds what a dependency file escapes -- a space, a
+--- `#`, a `$` -- is read under its own name.
+local function test_an_escaped_header_path_is_read_as_itself(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/d $x#y"))
+  assert(Fs.write(tmp .. "/d $x#y/h h.h", "int odd(void);\n"))
+  local run = observations.call(function()
+    local _ = findings(tmp, '#include "d $x#y/h h.h"\nint f(void) { return 0; }\n')
+  end, nil)
+  assert(run.passed, run.message)
+  local read = false
+  for _, observation in ipairs(run.reads) do
+    if observation.kind == "o" and observation.path == tmp .. "/d $x#y/h h.h" then read = true end
+  end
+  assert(read, "the header was not read under its own name")
 end

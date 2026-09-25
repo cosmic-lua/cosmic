@@ -133,6 +133,13 @@ local function test_a_spawned_process_is_not_keyable(tmp: string)
   assert(not test.keyable(tmp, tmp .. "/scratch", reads))
 end
 
+--- A declared process is: its caller read what it would.
+local function test_a_declared_process_is_keyable(tmp: string)
+  local reads: {observations.Observation} =
+    { { kind = "h", path = "/bin/true", answer = "" } }
+  assert(test.keyable(tmp, tmp .. "/scratch", reads))
+end
+
 local function test_a_network_request_is_not_keyable(tmp: string)
   local reads: {observations.Observation} =
     { { kind = "x", path = "https://example.com/", answer = "" } }
