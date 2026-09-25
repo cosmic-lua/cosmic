@@ -639,7 +639,19 @@ local function test_one_shot_deflate_frames_as_its_format_says()
     local out = assert(dec:update(packed))
     assert(out .. assert(dec:finish()) == plain, format)
   end
-  -- A framing is not guessed: zlib bytes are not a raw deflate stream.
+  -- A framing is not guessed: zlib bytes are neither a raw deflate
+  -- stream nor a gzip one.
+  assert(Compress.inflate("raw", zl) == nil)
   assert(Compress.inflate("gzip", zl) == nil)
   assert(not pcall(Compress.deflate, "lz4" as Compress.Format, plain))
+end
+
+--- Without a level, the one-shot deflate compresses as a streaming
+--- deflater does without one.
+local function test_one_shot_deflate_defaults_to_the_deflater_level()
+  local plain = ("the quick brown fox jumps over the lazy dog "):rep(400) ..
+    string.rep("0123456789", 300)
+  local enc = assert(Compress.deflater("zlib"))
+  local streamed = assert(enc:update(plain)) .. assert(enc:finish())
+  assert(Compress.deflate("zlib", plain) == streamed)
 end
