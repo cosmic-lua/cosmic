@@ -488,8 +488,9 @@ both databases costs in rows, pages, and bytes.
 
 the build is a cosmic program reading the tree by position into the
 database: compile, check, record, embed. `build.zig` owns the C.
-`zig build` produces the patch applier, the patched vendor tree
-under `o/vendor/`, and the core for each target. `zig build boot`
+`bin/zig build` patches the vendored trees first, in Teal (below),
+and `zig build` installs them under `o/vendor/` and produces the core
+for each target. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the vendored `tl.lua`, writes `o/cosmic.db`, and writes one
 portable `o/bin/cosmic`. the tool carries `o/carried.db`, that projection
@@ -605,9 +606,13 @@ files -- no `curl`, `tar` or `unzip`, and from any directory, since a
 standalone run reads nothing of the tree but the one file.
 `patch/<name>/` holds
 records, each an exact `find`, a `replace`, and a `note` saying why
-it exists. a ~400-line C applier that zig builds first writes the
-patched copy to `o/vendor/<name>`; a record whose anchor no longer
-matches fails the build by name.
+it exists. `bin/zig build` runs `build/patch.tl` standalone on the
+bootstrap cosmic before zig, which writes each patched copy whole into
+zig's project cache, in a directory named by a hash of the applier,
+the vendored files and the records -- the same path from every
+checkout, so zig, which keys a C object by its source's path, compiles
+a vendored file once for all of them -- and hands zig their manifest;
+a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation, mbedtls, miniz, bzip2,
 xz's liblzma decoder, c-ares, curl, yyjson, Mozilla's CA bundle, and tl;

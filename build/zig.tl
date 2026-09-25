@@ -677,7 +677,7 @@ end
 
 --- Whether a build reads the file at `path`, relative to the root:
 --- CI's cache key (`bin/zig.pin`, `build.zig`, `build.zig.zon`,
---- `core/`, `test/portable/*.c`, `vendor/`, `patch/`), plus what the
+--- `core/`, `test/portable/*.c`, `vendor/`, `patch/`, `build/patch.tl`), plus what the
 --- boot stages -- the tool's own trees whole, Teal anywhere else, and
 --- the doc guides whose examples it runs.
 local function watches(path: string): boolean
@@ -894,6 +894,39 @@ local function watched_build(root: string, argv: {string}): integer
   return status ~= 0 and status or 1
 end
 
+--- Writes every vendored tree with its patch records applied, as
+--- `build/patch.tl` does, into `project`'s `cosmic-vendor` directory, by
+--- running that script on this same binary standalone; and the manifest
+--- it prints, naming each tree's directory, to `root/o/patched.tsv`,
+--- which build.zig reads (`-Dpatched=`). Answers the manifest's path.
+--- build.zig compiles every vendored file from these directories, each
+--- named by its contents, so its path is the same from every checkout.
+local function patch(root: string, project: string): string | nil, string
+  local self, self_trouble = Proc.executable()
+  if self == nil then
+    return nil, self_trouble
+  end
+  local result, trouble = Child.run({ self, "--standalone",
+    root .. "/build/patch.tl", root, project .. "/cosmic-vendor" },
+    { stdout = "capture" })
+  if result == nil then
+    return nil, "build/patch.tl: " .. trouble
+  end
+  if not result.ok then
+    return nil, "build/patch.tl failed"
+  end
+  local made, made_trouble = Fs.mkdirs(root .. "/o")
+  if not made then
+    return nil, made_trouble
+  end
+  local manifest = root .. "/o/patched.tsv"
+  local written, write_trouble = Fs.write(manifest, result.stdout or "")
+  if not written then
+    return nil, write_trouble
+  end
+  return manifest, ""
+end
+
 --- The whole entry point, over `argv` as the entry-point contract
 --- hands it: `argv[0]` is this script's own path.
 function Zig.main(argv: {integer:string}): integer
@@ -927,7 +960,13 @@ function Zig.main(argv: {integer:string}): integer
     exec_argv[#exec_argv + 1] = a
   end
   if given[1] == "build" then
+    local manifest, patch_trouble = patch(root, Zig.project_cache(root))
+    if manifest == nil then
+      log:complain(patch_trouble)
+      return 1
+    end
     exec_argv[1] = program
+    exec_argv[#exec_argv + 1] = "-Dpatched=" .. manifest
     return watched_build(root, exec_argv)
   end
   local _, trouble, number = sys.execve(program, exec_argv, Env.all())
