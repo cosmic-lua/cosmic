@@ -202,7 +202,9 @@ end
 --- not even `getenv("")`.
 local environ_path = "\0environ"
 
---- Every field exposed by `sys.stat`, including an error result.
+--- Every field exposed by `sys.stat` but the access time, including an
+--- error result: a read moves `atime`, so keying on it would make every
+--- verdict that reads a file stale by reading it.
 local function stat_result_answer(st: sys.Stat | nil, trouble: string,
                                   errno: integer): string
   if st == nil then

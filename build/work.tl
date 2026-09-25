@@ -793,6 +793,10 @@ local function put_row(put: Sqlite.Statement, file: string, st: sys.Stat,
                        data: string, sha256: string): boolean, string
   local bound, trouble = put:bind_text(1, file)
   if bound then bound, trouble = put:bind_integer(2, st.size) end
+  -- TODO: 0 stands for "not settled", but a file whose mtime really is
+  -- the epoch (a tool normalizing times to 0) matches it, so a same-size
+  -- rewrite in place within the settle window keeps stale bytes; store
+  -- NULL or a settled flag so an unsettled row always counts as moved.
   if bound then bound, trouble = put:bind_integer(3, settled and mtime_ns or 0) end
   if bound then bound, trouble = put:bind_integer(4, st.ino) end
   if bound then bound, trouble = put:bind_integer(5, st.dev) end

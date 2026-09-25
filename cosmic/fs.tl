@@ -469,6 +469,9 @@ end
 --- is, as `touch -h -m -d` does. Changes the link itself, not its
 --- target. `ns` outside [0, 1e9) raises.
 function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, string
+  if ns ~= nil and (ns < 0 or ns >= 1000000000) then
+    error("bad argument #3 to 'set_mtime' (nanoseconds outside [0, 1e9))", 2)
+  end
   local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then
     return false, path .. ": " .. trouble
