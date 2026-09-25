@@ -94,4 +94,34 @@ function Example.max_depth()
   print(Json.depth_limit)
 end
 
+--- Read YAML without a YAML parser: a GitHub workflow written in YAML's
+--- flow style, kept to the subset JSON5 with `#` comments shares with
+--- it -- double-quoted strings, a space after each `:` and before each
+--- `#`, keys such as `on` that YAML reads as booleans quoted -- reads
+--- with `json5` and `hash_comments`, and GitHub reads the same text as
+--- YAML. build/workflows_test.tl holds the tree's own workflows to that
+--- subset.
+function Example.yaml_flow_style()
+  local workflow = [[
+# Runs on every push.
+{
+  name: "ci",
+  "on": {push: {}},
+  jobs: {
+    test: {
+      "runs-on": "ubuntu-24.04", # a hosted runner
+      steps: [
+        {run: "make test"},
+      ],
+    },
+  },
+}
+]]
+  local ci, err = Json.decode_object(workflow, { json5 = true, hash_comments = true })
+  assert(ci ~= nil, err)
+  local jobs = ci.jobs as {string: {string: any}}
+  print(ci.name, jobs.test["runs-on"])
+  assert(ci.name == "ci" and jobs.test["runs-on"] == "ubuntu-24.04")
+end
+
 return Example

@@ -14,6 +14,19 @@
 --- `infinity` in any case. Output is always RFC 8259, which every JSON5
 --- reader reads.
 ---
+--- `decode(text, { hash_comments = true })` also reads `#` line
+--- comments, which neither JSON nor JSON5 has, in either. With `json5`,
+--- it reads a text that YAML reads too, written in YAML's flow style:
+--- a GitHub workflow, say, with double-quoted strings, keys quoted
+--- unless they are identifiers YAML reads as their text (`on`, `no`
+--- and `null` it does not), a space after each `:`, and a space before
+--- each `#`. build/workflows_test.tl holds the tree's workflows to
+--- that subset.
+---
+---     local text = '{\n  # what GitHub shows\n  name: "ci",\n}'
+---     local workflow = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
+---     assert(workflow.name == "ci")
+---
 ---     local value, err = Json.decode('{"name": "cosmic", "tags": ["lua"]}')
 ---     if err ~= "" then error(err) end
 ---
@@ -101,6 +114,10 @@ local record Json
     --- Read JSON5 rather than RFC 8259 JSON (default false). NaN and
     --- Infinity decode to the float they name.
     json5: boolean
+    --- Read a line comment that begins with `#`, as YAML and shells
+    --- write one, besides whatever else the text is (default false). It
+    --- ends where a `//` comment would.
+    hash_comments: boolean
     --- Decode an integer that does not fit in 64 bits, or a number
     --- past a double's range, as its digits in a string rather than
     --- the nearest float (default false): `18446744073709551615` stays
@@ -139,7 +156,7 @@ Json.depth_limit = raw.depth_limit
 --- JSON Lines line `text` is, which a failure names.
 local function decode_with(text: string, opts: Json.DecodeOptions, record?: integer): any | nil, string
   return raw.decode(text, opts.null_value, opts.max_depth, opts.json5,
-    opts.big_numbers_as_strings, opts.lone_surrogates, record)
+    opts.big_numbers_as_strings, opts.lone_surrogates, record, opts.hash_comments)
 end
 
 --- The value `text` holds, and "". nil and a message, naming the line

@@ -125,6 +125,13 @@ local insert_typed_uses =
 --- one symbol. `OR IGNORE` guards `examples`'s `UNIQUE (module, name)`
 --- against a literal duplicate declaration; `<name>` is otherwise free
 --- -- there is no convention left for it to hold to.
+-- TODO: pair a `<module>_<topic>_example.tl` with `<module>` too, taking
+-- the longest planned module or declaration its name starts with, so a
+-- module's examples can be split by topic into smaller files
+-- (`cosmic/json_yaml_example.tl` beside `cosmic/json_example.tl`)
+-- rather than all living in one; the join below matches the path less
+-- `_example` exactly, and work.tl's `*_example.tl` glob already takes
+-- such a file as an example.
 local insert_examples =
   "INSERT OR IGNORE INTO out.examples (module, name, text, file, line, " ..
   "source) " ..

@@ -26,12 +26,13 @@ local SAMPLES <const> = {
   '{"k":{"k":{"k":{"k":{"k":{"k":[{"k":null}]}}}}}}',
   "// c\n{unquoted: 'single', trailing: [1, 2,], hex: 0x1F, lead: .5, nan: NaN, inf: -Infinity,}",
   "/* block */ ['\\a\\e\\x41', +1, 5.,]",
+  '# c\n{"a": [1, # two\n2], "#": "# not one"} # end',
   "null", "true", "0", '""', "[]", "{}",
 }
 
 --- Bytes JSON singles out, drawn more often than chance would.
 local TOKENS <const> = { "{", "}", "[", "]", ":", ",", '"', "\\", "\\u", "d8", "dc", "0", "1",
-  "-", "+", ".", "e", "E", "x", "true", "false", "null", "NaN", "Infinity", "/", "*", "'",
+  "-", "+", ".", "e", "E", "x", "true", "false", "null", "NaN", "Infinity", "/", "*", "'", "#",
   " ", "\n", "\r", "\t", "\0", "\xc3", "\xa9", "\xed", "\xa0", "\x80", "\xff", "\xef\xbb\xbf",
   "\\ud83d", "\\ude00", "\\uDBFF" }
 
@@ -98,6 +99,13 @@ local function gen_value(src: Fuzz.Source, depth: integer, json5: boolean): stri
   return open .. table.concat(items, ",") .. trailing .. close
 end
 
+--- A text drawn from the grammar with each `//` comment a `#` one and a
+--- `#` one ending each line. No drawn string holds a raw line end, so
+--- none lands inside one.
+local function hashed(text: string): string
+  return (text:gsub("// c\n", "# c\n"):gsub("\n", " # c\n"))
+end
+
 --- A text to decode: on a fifth of draws a soup of tokens; else a
 --- sample or a value drawn from the grammar, under up to 8 edits on a
 --- fifth, at most one on a fifth, and none on the rest, so that the
@@ -112,7 +120,15 @@ local function gen_text(src: Fuzz.Source): string
     end
     return table.concat(parts)
   end
-  local base = src:int(0, 1) == 0 and Fuzz.pick(src, SAMPLES) or gen_value(src, 4, src:int(0, 1) == 0)
+  local base: string
+  if src:int(0, 1) == 0 then
+    base = Fuzz.pick(src, SAMPLES)
+  else
+    base = gen_value(src, 4, src:int(0, 1) == 0)
+    -- On a third of drawn texts, `#` comments only `hash_comments`
+    -- reads.
+    if src:int(0, 2) == 0 then base = hashed(base) end
+  end
   if shape >= 3 then return base end
   return Fuzz.mutate(src, base, shape == 1 and 8 or 1)
 end
@@ -179,9 +195,73 @@ local function decode_holds(input: string): boolean, string
         local text, why = canonical(lone_value, where .. " lone_surrogates")
         if text == nil then return false, why end
       end
+      -- hash_comments is total too, and only widens what reads: a text
+      -- that read without it holds `#` only inside strings.
+      local hash_ok, hash_value, hash_err = decode_once(input, { null_value = Json.null, json5 = json5,
+        big_numbers_as_strings = big, hash_comments = true }, where .. " hash_comments")
+      if not hash_ok then return false, hash_err end
+      if err == "" then
+        if hash_err ~= "" then return false, where .. ": hash_comments refused what read: " .. hash_err end
+        if canonical(value, where) ~= canonical(hash_value, where) then
+          return false, where .. ": hash_comments read it differently"
+        end
+      elseif hash_err == "" then
+        Fuzz.label("decoded only with # comments")
+        local text, why = canonical(hash_value, where .. " hash_comments")
+        if text == nil then return false, why end
+      end
     end
   end
   return true, ""
+end
+
+--- `a` and `b`'s decodes under `a_opts` and `b_opts` agree: both fail,
+--- or both read the same value. Whether they read.
+local function same_reading(a: string, a_opts: Json.DecodeOptions, b: string,
+    b_opts: Json.DecodeOptions, where: string): boolean, boolean, string
+  local va, ea = Json.decode(a, a_opts)
+  local vb, eb = Json.decode(b, b_opts)
+  if (ea == "") ~= (eb == "") then
+    return false, false, where .. ": one read and one did not: " .. (ea ~= "" and ea or eb)
+  end
+  if ea ~= "" then return true, false, "" end
+  if canonical(va, where) ~= canonical(vb, where) then
+    return false, false, where .. ": read differently"
+  end
+  return true, true, ""
+end
+
+-- A `#` comment reads as a `//` one or a line end would: a text drawn
+-- from the grammar, made `hashed`, reads with `hash_comments` exactly
+-- as it read before as JSON5, and as RFC 8259 as it read with each
+-- `//` comment a bare line end; and one that gained a `#` comment
+-- reads without `hash_comments` as neither. About 70% of drawn texts
+-- read strictly, 88% as JSON5, and 22% gain a `#` comment; a share
+-- well under each fails the run.
+local function test_hash_comments_read_as_line_comments(tmp: string)
+  Fuzz.run({
+    name = "json hash comments",
+    dir = tmp,
+    gen = function(src: Fuzz.Source): string return gen_value(src, 4, src:int(0, 1) == 0) end,
+    check = function(input: string): boolean, string
+      local text = hashed(input)
+      for _, five in ipairs({ false, true }) do
+        local where = five and "JSON5" or "RFC 8259"
+        local before = five and input or (input:gsub("// c\n", "\n"))
+        local ok, read, why = same_reading(before, { null_value = Json.null, json5 = five }, text,
+          { null_value = Json.null, json5 = five, hash_comments = true }, where)
+        if not ok then return false, why end
+        if read then Fuzz.label(five and "read as JSON5" or "read") end
+        if text ~= input then
+          Fuzz.label("held a # comment")
+          local _, err = Json.decode(text, { json5 = five })
+          if err == "" then return false, where .. ": read a # comment without hash_comments" end
+        end
+      end
+      return true, ""
+    end,
+    shares = { read = 0.3, ["read as JSON5"] = 0.4, ["held a # comment"] = 0.05 },
+  })
 end
 
 --- The column of the `n`th `[` or `{` in `opens`, which holds nothing
