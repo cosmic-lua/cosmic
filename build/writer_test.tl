@@ -153,3 +153,21 @@ local function test_a_declaration_ships_its_docs(tmp: string)
   assert(rows[1][1] == "Seconds since the epoch." and rows[1][2] == "clock.d.tl" and
     rows[1][3] == "3", table.concat(rows[1], " "))
 end
+
+--- A projection ships what a reader of it loads -- each module's
+--- bytecode and its Teal source -- and not the Lua tl generated on the
+--- way, which only the working database's `compiled` needs.
+local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
+  local handle = build_and_write(tmp .. "/a", "world", tmp .. "/out.db")
+  assert(work.close(handle))
+  local out = assert(Sqlite.open(tmp .. "/out.db", false))
+  local columns = assert(Sqlite.text_rows(out,
+    "SELECT name FROM pragma_table_info('modules') WHERE name = 'lua'"))
+  local rows = assert(Sqlite.text_rows(out,
+    "SELECT length(bytecode) > 0, instr(source, 'hello, world') > 0 " ..
+    "FROM modules WHERE path = 'greet'"))
+  assert(out:close())
+  assert(#columns == 0, "the shipped modules table carries generated Lua")
+  assert(#rows == 1 and rows[1][1] == "1" and rows[1][2] == "1",
+    tostring(#rows))
+end

@@ -37,8 +37,8 @@ local function database(rows: {{string}}, uses: {{string}},
   end
   for module in pairs(members) do
     assert(Sqlite.run(db,
-      "INSERT INTO modules (path, file, kind, source_hash, key, source, lua, " ..
-      "bytecode, tests) VALUES (?1, ?2, 'module', '', '', '', '', '', '')",
+      "INSERT INTO modules (path, file, kind, source_hash, key, source, " ..
+      "bytecode, tests) VALUES (?1, ?2, 'module', '', '', '', '', '')",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
   for _, row in ipairs(rows) do
