@@ -16,6 +16,9 @@ local function path_exists(path: string): boolean
   return answer
 end
 
+-- TODO: make these under the test's own directory, handed to each
+-- test, rather than under TMPDIR: nothing removes them, so every run
+-- leaves its cosmic-child-* directories behind.
 local function temporary(): string
   return (assert(Fs.mkdtemp("cosmic-child-")))
 end

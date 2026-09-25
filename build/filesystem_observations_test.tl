@@ -384,6 +384,9 @@ end
 --- A confined process has a /tmp of its own to write in; a TMPDIR its
 --- test chose is kept, and one it inherits but may not change is the
 --- test's own directory instead.
+-- TODO: run the inherited-TMPDIR case wherever the host sets none, and
+-- one with no environment given, once cosmic.sys can set a variable of
+-- this process: today it runs only where the host's TMPDIR is set.
 local function test_a_confined_process_has_somewhere_to_write(tmp: string)
   local own = tmp .. "/own"
   assert(Fs.mkdirs(own))

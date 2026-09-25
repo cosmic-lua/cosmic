@@ -2,8 +2,8 @@ local Fs = require("cosmic.fs")
 local reboot = require("build.reboot")
 local observations = require("build.filesystem_observations")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+-- What these tests start is a stand-in for bin/zig the test writes.
+observations.confine({})
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 local function test_auto_boot_unless_told_not_to()

@@ -568,7 +568,12 @@ local function start(resolving: observations.Resolving | nil):
         local given_environment = environment
         local inherited = getenv("TMPDIR")
         local temporary = inherited
-        if environment ~= nil then temporary = environment.TMPDIR end
+        if environment ~= nil then
+          temporary = environment.TMPDIR
+          -- Whether its TMPDIR is replaced turns on the worker's own,
+          -- which an environment given whole does not otherwise key.
+          note("e", "TMPDIR", getenv_answer(inherited))
+        end
         local replace = temporary ~= nil and temporary == inherited
         for _, given in ipairs(writes) do
           if replace and Fs.within(temporary, given) then replace = false end
@@ -703,9 +708,9 @@ end
 --- it and everything beneath it, links unfollowed -- each file's
 --- contents where it resolves under `tree`, and otherwise what `lstat`
 --- says of each entry, which a package installed or a file replaced
---- changes. One that holds a socket, a FIFO or a device other than an
---- inert one answers from past the root, and its answer starts
---- "unkeyable ".
+--- changes, and the mode of each directory above it. One that holds a
+--- socket, a FIFO or a device other than an inert one answers from past
+--- the root, and its answer starts "unkeyable ".
 -- TODO: the change time too, once `sys.Stat` carries it: a file
 -- rewritten in place with its old size and modification time put back
 -- is not seen outside the tree.
@@ -756,6 +761,17 @@ function observations.unveiled_answer(path: string, tree: string): string
     end
   end
   walk(real, "")
+  -- The modes of the directories above it, which the root it is bound
+  -- into mirrors: a program may check them, as the launcher does its
+  -- cache's.
+  local above = Fs.dirname(real)
+  while true do
+    local st, _ = sys.stat(above)
+    parts[#parts + 1] = above .. "\0above\0" .. (st ~= nil and tostring(st.mode) or "missing")
+    local parent = Fs.dirname(above)
+    if parent == above then break end
+    above = parent
+  end
   return (unkeyable and "unkeyable " or "") .. real .. " " ..
     Hash.hex_sha256(table.concat(parts, "\n"))
 end

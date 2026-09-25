@@ -6,8 +6,8 @@ local VerifyCodesign = require("build.verify_codesign")
 local sys = require("cosmic.sys")
 local observations = require("build.filesystem_observations")
 
--- What these tests start is this very program.
-observations.confine({ reads = observations.itself() })
+-- What these tests start is a stand-in for codesign the test writes.
+observations.confine({})
 
 --- A codesign in `dir`, the PATH each test searches, that appends its
 --- arguments to `log` and exits `status`.
