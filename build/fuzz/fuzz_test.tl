@@ -300,7 +300,7 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
   end
   local err = report({ name = "one case", iters = 200, gen = any_bytes, check = no_nul })
   local case = assert(err:match("reproduce: FUZZ_CASE=(%S+)"), err)
-  local first = seen[#seen - 0]
+  local first: string
   for i = 1, #seen do
     if seen[i]:find("\0", 1, true) then first = seen[i]; break end
   end
@@ -317,10 +317,12 @@ local function test_a_case_checks_the_one_input_it_names(tmp: string)
 end
 
 local function test_a_case_that_is_not_one_raises()
-  local ok, err = pcall(Fuzz.run, { name = "p", gen = any_bytes, case = "p:x",
-    check = function(_input: string): boolean, string return true, "" end })
-  assert(not ok and tostring(err):find('FUZZ_CASE="p:x" is not <property>:<case seed>', 1, true),
-    tostring(err))
+  for _, case in ipairs({ "p:x", " p:5", "a:b:5", ":5", "p:5 " }) do
+    local ok, err = pcall(Fuzz.run, { name = "p", gen = any_bytes, case = case,
+      check = function(_input: string): boolean, string return true, "" end })
+    assert(not ok and tostring(err):find(("FUZZ_CASE=%q is not <property>:<case seed>"):format(case),
+      1, true), case .. ": " .. tostring(err))
+  end
 end
 
 -- A check that fails an input once and then holds for it depends on

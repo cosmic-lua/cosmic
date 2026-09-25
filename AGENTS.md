@@ -70,9 +70,10 @@ driving `build.fuzz`'s `run`: a generator draws each input from a seeded
 source and a check must hold for all of them. `FUZZ_SEED` and `FUZZ_ITERS`
 (64 by default) choose the inputs, a failure is shrunk and kept in the test's
 directory, and the `FUZZ_CASE=<property>:<case>` its report names checks that
-one input again (`FUZZ_SEED=<seed> FUZZ_ITERS=<iteration>` reruns the way to it).
-Draw a collection's elements with `Fuzz.more` rather than a count drawn first,
-so shrinking can cut any one of them. CI's
+one input again, run on that test's file (`FUZZ_SEED=<seed>
+FUZZ_ITERS=<iteration>` reruns the way to it). A new generator draws a
+collection's elements with `Fuzz.more` rather than a count drawn first, so
+shrinking can cut any one of them. CI's
 runs, which gate a merge, set `FUZZ_ITERS=0` and draw nothing; `fuzz.yml`
 fuzzes every property each night on the checked core with a seed of its own;
 a failure is a red run whose summary lists what failed. Once a failure is fixed, keep its input in

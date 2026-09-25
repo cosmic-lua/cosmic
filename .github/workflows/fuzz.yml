@@ -9,6 +9,9 @@ name: fuzz
 # to add to testdata/fuzz/ once fixed (build/fuzz/init.tl), and the
 # run's summary lists what failed. A failed run is seen as a red run,
 # and in the mail GitHub sends whoever last edited the schedule below.
+# TODO: once the repository has issues enabled, a job on a failed or
+# cancelled run could open one (or comment on the one still open), so a
+# failure reaches more than whoever last edited the schedule.
 on:
   schedule:
     - cron: '17 7 * * *'
@@ -91,11 +94,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/fuzz"
           # A failing test's directory is left under TMPDIR, holding the
           # shrunk input it kept (build/test.tl's sweep).
-          status=0
-          TMPDIR="$RUNNER_TEMP/fuzz" COSMIC_AUTO_BOOT=0 COSMIC_TEST_TIMEOUT=1200 \
-            o/sanitized/bin/cosmic test $(find . \( -path ./o -o -path ./vendor -o -path ./ci \) -prune \
-              -o -name '*_fuzz_test.tl' -print | sort) > "$RUNNER_TEMP/fuzz.out" 2>&1 || status=$?
-          cat "$RUNNER_TEMP/fuzz.out"
+          # Streamed to the log as it runs, and kept for the summary: a run
+          # cancelled at its time limit still shows how far it got.
+          {
+            status=0
+            TMPDIR="$RUNNER_TEMP/fuzz" COSMIC_AUTO_BOOT=0 COSMIC_TEST_TIMEOUT=1200 \
+              o/sanitized/bin/cosmic test $(find . \( -path ./o -o -path ./vendor -o -path ./ci \) -prune \
+                -o -name '*_fuzz_test.tl' -print | sort) || status=$?
+            echo "$status" > "$RUNNER_TEMP/fuzz.status"
+          } 2>&1 | tee "$RUNNER_TEMP/fuzz.out"
+          status=$(cat "$RUNNER_TEMP/fuzz.status")
           # What failed, on the run's summary page: every failing test's
           # line first, then the reports beneath them, bounded.
           if [ "$status" -ne 0 ]; then
@@ -112,6 +120,19 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
+
+      - name: say how far a cancelled run got
+        if: cancelled()
+        run: |
+          {
+            echo
+            echo 'Cancelled, at the time limit or by hand, before fuzzing finished: a property'
+            echo 'that hangs is the likeliest cause. The end of its output:'
+            echo
+            echo '~~~~'
+            tail -n 40 "$RUNNER_TEMP/fuzz.out" 2>/dev/null | cut -c1-300 || true
+            echo '~~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: keep the failing inputs
         if: failure() || cancelled()

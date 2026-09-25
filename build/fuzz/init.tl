@@ -117,7 +117,8 @@ local record Fuzz
     corpus: string
     --- One input to check in place of a run, as a report's `reproduce`
     --- line names it: `<property>:<case seed>`. `FUZZ_CASE` sets it for
-    --- every property; one whose name it does not match checks nothing,
+    --- every property run, so it is for the one test file a report
+    --- names: a property whose name it does not match checks nothing,
     --- its corpus included.
     case: string
     --- Labels (see `label`) at least one drawn input must reach, or the
@@ -301,7 +302,7 @@ local function named_case(p: Fuzz.Property): string, integer
   local name = text:match("^(.-):%-?%d+$")
   local digits = text:match(":(%-?%d+)$")
   local n: integer = digits ~= nil and math.tointeger(tonumber(digits)) or nil
-  if name == nil or name == "" or n == nil then
+  if name == nil or not name:match("^[%w%-]+$") or n == nil then
     error(("fuzz: FUZZ_CASE=%q is not <property>:<case seed>, as a report prints it"):format(raw), 0)
   end
   return name, n
@@ -310,6 +311,9 @@ end
 --- `run`'s work, with no labels being counted when it starts.
 local function run(p: Fuzz.Property): integer
   local case_name, case_seed = named_case(p)
+  -- TODO: a well-formed case naming no property in the file passes
+  -- silently, every property skipping it; the runner could fail a run in
+  -- which none matched, once a test can report such a thing to it.
   if case_name ~= nil and case_name ~= slug(p.name) then return 0 end
   local seed = nonnegative_env("FUZZ_SEED", DEFAULT_SEED)
   local iters = p.iters or nonnegative_env("FUZZ_ITERS", DEFAULT_ITERS)
@@ -336,8 +340,10 @@ local function run(p: Fuzz.Property): integer
     local case = case_seed or seeds:int(math.mininteger, math.maxinteger)
     local where = case_name ~= nil and ("FUZZ_CASE=%s:%d"):format(case_name, case) or
       ("seed=%d iteration=%d"):format(seed, i)
-    local reproduce = ("FUZZ_CASE=%s:%d (this input alone), or FUZZ_SEED=%d FUZZ_ITERS=%d"):
-      format(slug(p.name), case, seed, i)
+    local reproduce = ("FUZZ_CASE=%s:%d (this input alone)"):format(slug(p.name), case)
+    if case_name == nil then
+      reproduce = reproduce .. (", or FUZZ_SEED=%d FUZZ_ITERS=%d"):format(seed, i)
+    end
     reached = mine
     local ok, input = pcall(p.gen, recording(Rand.new(case), draws))
     if not ok then reached = nil; error(input, 0) end
@@ -443,8 +449,8 @@ end
 --- to it, so no element but the last could be cut; with a draw before
 --- each, cutting an element is cutting two adjacent draws, and lowering
 --- one to its low end cuts every element after it -- both of which
---- shrinking tries. The count is geometric, `max` / 2 on average
---- before the cap.
+--- shrinking tries. The count is geometric: before the cap its mean is
+--- `max` / 2 (at least 1), and the cap takes it lower (17 of 40).
 --- @param src Source The source
 --- @param have integer How many elements the collection holds so far
 --- @param max integer The most it may hold
