@@ -804,10 +804,13 @@ local function start(resolving: observations.Resolving | nil):
     sys.mkdtemp = mkdtemp
     sys.mkdir = mkdir
     -- Draining allocates, and can raise on memory: every wrapper is put
-    -- back first, and a drain that fails leaves its record in C for the
-    -- next and makes this run one no key holds.
+    -- back first. A drain that fails may have taken paths out of C before
+    -- noting them all, so every capture still running -- this one and
+    -- each that encloses it -- is made one no key holds.
     if not pcall(drain_sqlite) then
-      local _ = pcall(note, "x", "sqlite", "")
+      for _, each in ipairs(noting) do
+        local _ = pcall(each, "x", "sqlite", "")
+      end
     end
     for at = #noting, 1, -1 do
       if noting[at] == note then table.remove(noting, at) break end
