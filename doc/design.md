@@ -303,9 +303,10 @@ the checker accepts reaches it by accident.
 `require` reads the database and nothing else; a `.tl` on disk is
 input to the build, never to the runtime. one database holds:
 
-- **modules**: import path, source hash, Teal source, compiled Lua
-  and bytecode, declaration, kind (module, test, example, main), and
-  the test or example names the compile step found.
+- **modules**: import path, source hash, Teal source and bytecode,
+  kind (module, test, example, main), and the test or example names
+  the compile step found. the Lua tl generated on the way stays in
+  the working database: nothing that reads a shipped file loads it.
 - **docs**: one row per symbol a module declares at its top level --
   the module itself, each function, each record, enum or alias and
   every field and value under it, and each documented value -- with
