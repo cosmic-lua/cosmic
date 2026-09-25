@@ -38,27 +38,28 @@ end
 --- One child supervised as a shell supervises a command: a signal
 --- sent to this process alone is passed on to the child, and releasing
 --- the guard, rather than closing it, re-raises the signal only if the
---- child died of it -- a child that handled Ctrl-C and exited 0 leaves
---- this process running.
+--- child died of it or never got it -- a child that handled Ctrl-C and
+--- exited 0 leaves this process running.
 function Example.release()
   local guard <close> = assert(Child.guard())
   local h = assert(Child.start({ "/bin/sh", "-c", "exit 0" }))
-  local passed_on = false
+  local passed_on = 0
   local result: Child.Result
   while result == nil do
     local state = assert(h:try_wait())
     if state.finished then
       result = state.result
     else
-      if not passed_on and guard:cancelled() ~= 0 then
-        assert(h:stop(guard:cancelled()))
-        passed_on = true
+      local caught = guard:cancelled()
+      if caught ~= 0 and caught ~= passed_on then
+        assert(h:stop(caught))
+        passed_on = caught
       end
       Time.sleep_ns(10 * 1000 * 1000)
     end
   end
   local caught = assert(guard:release())
-  if caught ~= 0 and result.signal == caught then
+  if caught ~= 0 and (caught ~= passed_on or result.signal == caught) then
     assert(sys.kill(sys.getpid(), caught))
   end
   print(tostring(result.code))

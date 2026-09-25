@@ -1378,8 +1378,10 @@ static struct sigaction previous_term;
 static int int_caught;
 static int term_caught;
 
+/* The latest signal since the last read wins: a SIGTERM after a Ctrl-C
+   a supervised child handled must not be lost to the earlier one. */
 static void catch_child_cancel (int number) {
-  if (child_cancelled == 0) child_cancelled = number;
+  child_cancelled = number;
 }
 
 static void child_signal_set (sigset_t *set) {

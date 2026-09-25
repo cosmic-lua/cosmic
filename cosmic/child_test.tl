@@ -551,6 +551,41 @@ end
   assert(got == table.concat({ term, term, term, "true" }, "|"), tostring(got))
 end
 
+--- A guard keeps taking signals after its first: a SIGTERM after a
+--- Ctrl-C the child handled is what a supervisor must pass on next,
+--- and release answers the latest rather than losing it. The nested
+--- cosmic outlives both.
+local function test_guard_release_answers_the_latest_signal()
+  local dir = temporary()
+  local report = dir .. "/report"
+  local fixture = dir .. "/latest.tl"
+  assert(Fs.write(fixture, [[
+local Child = require("cosmic.child")
+local Fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+return function(argv: {string}): integer
+  local answers: {string} = {}
+  local guard = assert(Child.guard())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  answers[#answers + 1] = tostring(guard:cancelled())
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  answers[#answers + 1] = tostring(guard:cancelled())
+  assert(sys.kill(sys.getpid(), sys.SIGINT))
+  assert(sys.kill(sys.getpid(), sys.SIGTERM))
+  answers[#answers + 1] = tostring((guard:release()))
+  assert(Fs.write(argv[1], table.concat(answers, "|")))
+  return 0
+end
+]]))
+  local r = assert(Child.run({ assert(Proc.executable()), fixture, report },
+    { env = nested_cosmic_environment(), stderr = "capture", timeout_ms = 30000 }))
+  assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
+    " " .. tostring(r.stderr))
+  local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
+  local got = Fs.read(report)
+  assert(got == table.concat({ int, term, term }, "|"), tostring(got))
+end
+
 --- A signal this process ignores -- `cosmic test &` from a script, whose
 --- shell ignores SIGINT for it -- is not the guard's to catch.
 local function test_guard_leaves_an_ignored_signal_ignored()

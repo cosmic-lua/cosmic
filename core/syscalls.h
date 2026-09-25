@@ -410,7 +410,8 @@ COSMIC_SYSCALL(uname, 0);
 COSMIC_SYSCALL(guard_child_signals, 0);
 
 /*
- * --- Restores dispositions and returns a signal caught since the last take.
+ * --- Restores dispositions and returns the latest signal caught since the
+ * --- last take.
  * ---@return integer|nil signal the pending signal, zero when none, or nil on failure
  * ---@return string error what went wrong, when signal is nil
  * ---@return integer errno the error number, when signal is nil
@@ -418,7 +419,8 @@ COSMIC_SYSCALL(guard_child_signals, 0);
 COSMIC_SYSCALL(unguard_child_signals, 0);
 
 /*
- * --- Takes a pending supervised SIGINT or SIGTERM, or zero when none arrived.
+ * --- Takes the latest supervised SIGINT or SIGTERM since the last take,
+ * --- or zero when none arrived.
  * ---@return integer|nil signal the pending signal number, zero, or nil on failure
  * ---@return string error what went wrong, when signal is nil
  * ---@return integer errno the error number, when signal is nil
