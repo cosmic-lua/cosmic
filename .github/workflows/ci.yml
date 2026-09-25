@@ -164,15 +164,6 @@
         },
 
         {
-          name: "cache the pinned CI driver",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
-            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
-          },
-        },
-
-        {
           name: "cache the pinned zig",
           uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
@@ -234,17 +225,27 @@
           if: "matrix.image",
           "working-directory": "/",
           shell: "sh",
-          # The checkout and the three cache restores above ran as root
+          # The checkout and the two cache restores above ran as root
           # (actions run as the container's default user); everything from
           # here on runs as `runner` (see matrix.shell), so it needs to own
-          # what it is about to read and write.
+          # what it is about to read and write. The driver's cache, restored
+          # after this, the cosmic-driver action hands over itself.
           run: "chown -R runner \"$GITHUB_WORKSPACE\" \"$RUNNER_TEMP\"",
         },
 
+        # After the hand-over: the action's cache restore runs as root, and
+        # it hands what it restored to `runner` (owner) before bootstrapping
+        # as `runner` (matrix.shell), which a composite action's steps do
+        # not take from defaults.run.
         {
           name: "bootstrap the pinned CI driver",
           id: "driver",
-          run: "sh ../.github/scripts/cosmic-driver.sh zig-cache",
+          uses: "./.github/actions/cosmic-driver",
+          with: {
+            "zig-cache": true,
+            shell: "${{ matrix.shell }}",
+            owner: "${{ matrix.image && 'runner' || '' }}",
+          },
         },
 
         {
@@ -388,17 +389,9 @@
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
         },
         {
-          name: "cache the pinned CI driver",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
-            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
-          },
-        },
-        {
           name: "bootstrap the pinned provenance driver",
           id: "driver",
-          run: "sh ../.github/scripts/cosmic-driver.sh",
+          uses: "./.github/actions/cosmic-driver",
         },
         {
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8

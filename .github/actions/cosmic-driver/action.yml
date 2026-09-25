@@ -1,0 +1,75 @@
+# Flow-style YAML, held by build/workflows_test.tl to what YAML and
+# JSON5 read alike; a longer script lives under .github/scripts/.
+#
+# The pinned CI driver, for a job that runs it: restores the bootstrap
+# cache, keyed by ci/cosmic-driver.pin, then runs
+# .github/scripts/cosmic-driver.sh from ci/, which checks what was
+# restored against the pin, fetches it where it is missing and puts it
+# on the job's PATH as cosmic-driver. A job uses it after its checkout,
+# as one step with `id: driver`, whose outcome says the driver is there.
+#
+# Neither a job's `defaults.run` nor its `working-directory` reaches a
+# composite action's steps, so each says its own. A job whose steps run
+# as another user than the container's root (ci.yml's Linux legs,
+# fuzz.yml) passes its shell as `shell` and that user as `owner`, and
+# uses this action after its hand-over: the restore runs as root, like
+# every action in a job container, so what it restored is handed to
+# `owner` before the bootstrap runs as that user, which then owns the
+# driver's link and cache as it did when the job ran these steps itself.
+#
+# TODO: have bin/actionlint check these steps too once actionlint lints
+# a composite action's own steps: it checks what a workflow passes this
+# action, but not the expressions here, which build/workflows_test.tl
+# holds only to naming inputs declared above.
+{
+  name: "cosmic-driver",
+  description: "Restore, verify and put on PATH the CI driver ci/cosmic-driver.pin names",
+
+  inputs: {
+    "zig-cache": {
+      description: "true to also point the job's later steps at the zig caches ci.yml's platform job restores (cosmic-driver.sh zig-cache)",
+      required: false,
+      default: "false",
+    },
+    shell: {
+      description: "The shell the bootstrap runs under: the job's own, where its steps drop to an unprivileged user",
+      required: false,
+      default: "sh",
+    },
+    owner: {
+      description: "The user the restored cache is handed to, as the container's root, before the bootstrap runs as that user; empty for none",
+      required: false,
+      default: "",
+    },
+  },
+
+  runs: {
+    using: "composite",
+    steps: [
+      {
+        name: "cache the pinned CI driver",
+        uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
+        with: {
+          path: "${{ runner.temp }}/cache/cosmic/bootstrap",
+          key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
+        },
+      },
+
+      {
+        name: "hand the restored driver cache over to ${{ inputs.owner }}",
+        if: "inputs.owner != ''",
+        "working-directory": "/",
+        shell: "sh",
+        env: {OWNER: "${{ inputs.owner }}"},
+        run: "[ ! -e \"$RUNNER_TEMP/cache\" ] || chown -R \"$OWNER\" \"$RUNNER_TEMP/cache\"",
+      },
+
+      {
+        name: "bootstrap the pinned CI driver",
+        "working-directory": "ci",
+        shell: "${{ inputs.shell }}",
+        run: "sh ../.github/scripts/cosmic-driver.sh${{ inputs.zig-cache == 'true' && ' zig-cache' || '' }}",
+      },
+    ],
+  },
+}
