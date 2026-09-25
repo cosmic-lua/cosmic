@@ -511,3 +511,29 @@ local function test_run_passes_on_a_signal_sent_to_it_alone()
   assert(status == 42, tostring(status))
   assert(Time.monotonic_ns() - started < 5 * 1000 * 1000 * 1000)
 end
+
+--- A raise inside Zig.run releases its signal guard on the way out,
+--- so the next guard in this process opens.
+local function test_run_releases_its_guard_when_it_raises()
+  local ran, why = pcall(Zig.run, {})
+  assert(not ran and tostring(why):find("argv is empty", 1, true), tostring(why))
+  local g <close> = assert(Child.guard())
+  assert(g:take() == 0)
+end
+
+--- A signal sent to bin/zig alone that its child ends before it is
+--- passed on is not swallowed: bin/zig dies of it once the child has.
+local function test_run_reraises_a_signal_its_child_never_got(tmp: string)
+  -- A copy of build/zig.tl under `tmp`, so `build`'s snapshots walk
+  -- only `tmp`; the zig it runs interrupts it and exits at once.
+  assert(Fs.mkdirs(tmp .. "/build"))
+  assert(Fs.write(tmp .. "/build/zig.tl", (assert(Fs.read("build/zig.tl")))))
+  assert(Fs.write(tmp .. "/zig", "#!/bin/sh\nkill -INT $PPID\nexit 0\n", 0x1ed))
+  local r = assert(Child.run({ assert(Proc.executable()), "--standalone",
+      tmp .. "/build/zig.tl", "build" }, {
+    env = { COSMIC_ZIG = tmp .. "/zig", PATH = "/usr/bin:/bin",
+      XDG_CACHE_HOME = tmp .. "/cache" },
+    stdout = "capture", stderr = "capture", timeout_ms = 30000,
+  }))
+  assert(r.signal == sys.SIGINT, tostring(r.code) .. " " .. tostring(r.stderr))
+end

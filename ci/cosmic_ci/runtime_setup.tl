@@ -1,12 +1,6 @@
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
-local sys = require("cosmic.sys")
-
--- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
-local function chmod(path: string, mode: integer)
-  assert(sys.chmod(path, mode))
-end
 
 -- Copies a whole directory tree to `to`, which must not exist yet,
 -- matching identity_test.tl's own `copy_tree`.
@@ -173,10 +167,10 @@ function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
   for _, name in ipairs({ "runtime.release", "runtime.old", "runtime.new",
       "runtime.basis", "runtime.missing", "runtime.sanitized",
       "runtime.incompatible" }) do
-    chmod(out .. "/" .. name, 0x1ed)
+    assert(Fs.chmod(out .. "/" .. name, 0x1ed))
   end
   for _, one in ipairs(targets) do
-    chmod(out .. "/runtime.corrupt-" .. one.name, 0x1ed)
+    assert(Fs.chmod(out .. "/runtime.corrupt-" .. one.name, 0x1ed))
   end
 
   Fixture.copy(targets_path, out .. "/targets.tsv")

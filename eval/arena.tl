@@ -140,10 +140,9 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
     hashes[#hashes + 1] = Hash.hex_sha256(file[2]) .. "  " .. file[1] .. "\n"
   end
   -- The binary is 0755 whatever the umask, as `chmod 755` made it.
-  -- TODO: use Fs.chmod, once ci/cosmic-driver.pin names a release carrying it.
-  local executable, etrouble = sys.chmod(dir .. "/bin/cosmic", 0x1ed)
+  local executable, etrouble = Fs.chmod(dir .. "/bin/cosmic", 0x1ed)
   if not executable then
-    return nil, dir .. "/bin/cosmic: " .. etrouble
+    return nil, etrouble
   end
   local wrote, wtrouble = Fs.write(dir .. "/inputs.sha256", table.concat(hashes))
   if not wrote then
