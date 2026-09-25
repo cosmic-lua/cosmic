@@ -22,6 +22,7 @@ local refresh = require("build.refresh")
 observations.confine({ reads = observations.itself() })
 
 local bundle <const> = "vendor/cacert/cacert.pem"
+local zones <const> = "vendor/tzdata/zoneinfo"
 
 --- The version `vendor/<name>/PIN` names: what a binary built from the
 --- tree records.
@@ -29,7 +30,6 @@ local function pinned(name: string): string
   local text = assert(Fs.read("vendor/" .. name .. "/PIN"))
   return (assert(("\n" .. text):match("\nversion (%S+)")))
 end
-local zones <const> = "vendor/tzdata/zoneinfo"
 
 local datasets: {string:refresh.Dataset} = {}
 for _, dataset in ipairs(refresh.datasets) do
@@ -168,6 +168,23 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem })
   assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true), trouble)
   assert(not Fs.exists(out))
+
+  -- Among roots it can read, it is left out, as the binary would drop
+  -- it, and named.
+  local mixed = tmp .. "/mixed.pem"
+  assert(Fs.write(mixed, (assert(Fs.read(pem))) .. (assert(Fs.read(bundle)))))
+  lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = mixed })
+  assert(lines ~= nil, trouble)
+  assert(lines[1]:find("left out certificate 1 (Bad)", 1, true), lines[1])
+  local after = carried(out)
+  local want = carried(path)
+  local query = "SELECT hex(sha256), label FROM ca_roots ORDER BY rowid"
+  local now, was = rows(after, query), rows(want, query)
+  assert(#now == #was, #now .. " roots, not " .. #was)
+  assert(after:close())
+  assert(want:close())
+  assert(Fs.remove(out))
+  assert(not Fs.exists(out))
 end
 
 --- What is not an artifact is refused by name, before anything is read
@@ -224,6 +241,11 @@ local function test_a_bundle_is_named_by_its_mozilla_date()
   assert(refresh.cacert_date("##\n## Certificate data from Mozilla as of: Tue Sep  1 00:00:00 2026 GMT\n")
     == "2026-09-01")
   assert(refresh.cacert_date("no date here") == nil)
+  -- A day no month has, or one too long for an integer, is no date.
+  for _, day in ipairs({ "00", "32", "99999999999999999999" }) do
+    assert(refresh.cacert_date("\n## Certificate data from Mozilla as of: Thu Aug " .. day ..
+      " 03:12:01 2026 GMT\n") == nil, day)
+  end
   assert(refresh.cacert_date("\n## Certificate data from Mozilla as of: Tue Foo  1 00:00:00 2026 GMT\n") == nil)
 end
 

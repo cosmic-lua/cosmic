@@ -1141,6 +1141,10 @@ static const luaL_Reg handle_methods[] = {
  * and why when it does not. What `cosmic refresh` holds a
  * new bundle to, so a root the binary would drop is refused before it
  * is written. Raises when mbedtls had no memory to read it. */
+/* TODO: tell an allocation failure from a certificate mbedtls cannot
+ * read here too, as load_roots's TODO says: one that comes back as
+ * another code with ASN1_ALLOC_FAILED in it is reported unreadable, and
+ * the root left out, rather than raised. */
 static int http_check_certificate (lua_State *L) {
   size_t len;
   const char *der = luaL_checklstring(L, 1, &len);

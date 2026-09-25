@@ -79,7 +79,8 @@ end
 --- bundle listing one twice trusting it once, in digest order --
 --- `ca_roots` is a rowid table, so the order rows go in is the order of
 --- the file's bytes. `cosmic refresh` writes a bundle it fetched this
---- way too, so the same bundle makes the same table either way.
+--- way too, so a bundle whose every root the TLS stack reads makes the
+--- same table either way.
 function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): boolean, string
   local by_digest: {string:roots.Root} = {}
   local digests: {string} = {}
@@ -107,6 +108,11 @@ end
 --- database `db` holds as `qualifier` (`"out."`, say). A tree with no
 --- bundle writes none; one whose bundle holds no certificate fails, so
 --- a binary never ships trusting nothing by accident.
+--- TODO: hold the tree's bundle to `Http.check_certificate` as
+--- `cosmic refresh` holds a fetched one, refusing a root the TLS stack
+--- cannot read rather than shipping one `core/http.c` drops; the
+--- fixtures build/roots_test.tl fills from are bytes that are no
+--- certificate, and would need real ones first.
 function roots.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, string
   local path = root .. "/" .. bundle
   local exists, trouble = Fs.exists(path)

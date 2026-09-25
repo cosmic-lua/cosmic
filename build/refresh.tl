@@ -65,6 +65,8 @@ local record refresh
     version: string
     --- How many rows it makes.
     count: integer
+    --- What the file holds that it leaves out, and why, one line each.
+    left_out: {string}
     --- Replaces the dataset's rows in the database `db` with these.
     write: function(db: Sqlite.Handle): boolean, string
   end
@@ -115,11 +117,15 @@ local months <const>: {string:string} = {
 --- at its head; nil when it has no such line.
 function refresh.cacert_date(pem: string): string | nil
   local month, day, year = pem:match(
-    "\n## Certificate data from Mozilla as of: %a+ (%a+) +(%d+) [%d:]+ (%d%d%d%d) GMT")
+    "\n## Certificate data from Mozilla as of: %a+ (%a+) +(%d%d?) [%d:]+ (%d%d%d%d) GMT")
   if month == nil or months[month] == nil then
     return nil
   end
-  return ("%s-%s-%02d"):format(year, months[month], math.tointeger(tonumber(day)))
+  local number = math.tointeger(tonumber(day)) or 0
+  if number < 1 or number > 31 then
+    return nil
+  end
+  return ("%s-%s-%02d"):format(year, months[month], number)
 end
 
 --- What PyPI's JSON describes a package by, as far as a refresh reads it.
@@ -224,28 +230,40 @@ local cacert: refresh.Dataset = {
     if #found == 0 then
       return nil, path .. ": holds no certificate"
     end
+    -- A root the TLS stack cannot read is one `core/http.c` drops as it
+    -- loads them: left out here too, and named, so a bundle with one
+    -- root this build cannot read still refreshes the rest. A bundle
+    -- with none it can read would leave a binary trusting nothing.
     local distinct: {string:boolean} = {}
+    local readable: {roots.Root} = {}
+    local left_out: {string} = {}
     local count = 0
     for i, one in ipairs(found) do
-      local readable, why = Http.check_certificate(one.der)
-      if not readable then
-        return nil, ("%s: certificate %d (%s): %s"):format(path, i, one.label, why)
+      local ok, why = Http.check_certificate(one.der)
+      if not ok then
+        left_out[#left_out + 1] = ("certificate %d (%s): %s"):format(i, one.label, why)
+      else
+        readable[#readable + 1] = one
+        local digest = Hash.sha256(one.der)
+        if not distinct[digest] then
+          distinct[digest] = true
+          count = count + 1
+        end
       end
-      local digest = Hash.sha256(one.der)
-      if not distinct[digest] then
-        distinct[digest] = true
-        count = count + 1
-      end
+    end
+    if #readable == 0 then
+      return nil, path .. ": no certificate the TLS stack can read: " .. left_out[1]
     end
     return {
       version = refresh.cacert_date(pem) or "",
       count = count,
+      left_out = left_out,
       write = function(db: Sqlite.Handle): boolean, string
         local cleared, clear_trouble = db:exec("DELETE FROM ca_roots")
         if not cleared then
           return false, clear_trouble
         end
-        return roots.put(db, "", found)
+        return roots.put(db, "", readable)
       end,
     }, ""
   end,
@@ -328,6 +346,7 @@ local tzdata: refresh.Dataset = {
     return {
       version = version,
       count = count,
+      left_out = {},
       write = function(db: Sqlite.Handle): boolean, string
         return work.write_zones(db, zones)
       end,
@@ -397,7 +416,11 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     return nil, made_trouble
   end
   local change = sha256 == was[3] and version .. " (as it was)" or was[1] .. " -> " .. version
-  return ("%s %s, %d rows"):format(dataset.name, change, release.count), ""
+  local line = ("%s %s, %d rows"):format(dataset.name, change, release.count)
+  for _, why in ipairs(release.left_out) do
+    line = line .. "\n  left out " .. why
+  end
+  return line, ""
 end
 
 --- Whether `a` and `b` name the same file: never true when either is
