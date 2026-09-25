@@ -452,6 +452,31 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "JSON under refusal")
 end
 
+--- yyjson refusing its document alone -- which an allocation walk,
+--- refusing every allocation after, cannot arrange -- answers "out of
+--- memory", and a JSON Lines record's names its line.
+local function test_json_names_a_record_yyjson_could_not_allocate()
+  if not checked then return end
+  testing.fail_at("json_malloc")
+  local _, whole = Json.decode("[1]")
+  assert(not testing.fail_at(), "decode never reached json_malloc")
+  assert(whole == "out of memory", whole)
+  local named: {string: boolean} = {}
+  for skip = 0, 16 do
+    testing.fail_at("json_malloc", skip)
+    local values, why = Json.decode_lines('1\n[2]')
+    local unfired = testing.fail_at()
+    if unfired then
+      assert(values ~= nil, why)
+      break
+    end
+    assert(values == nil and why:match("^line %d: out of memory$"), tostring(why))
+    named[why] = true
+  end
+  assert(named["line 1: out of memory"] and named["line 2: out of memory"],
+    "each record's refusal names its line")
+end
+
 --- A whole reply: a status line, `head`'s header lines, and `body`.
 local function reply(status: string, head: string, body: string): string
   return "HTTP/1.1 " .. status .. "\r\n" .. head .. "Content-Length: " ..
