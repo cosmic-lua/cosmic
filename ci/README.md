@@ -15,7 +15,9 @@ again up to `COSMIC_BOOTSTRAP_ATTEMPTS` times (1 to 20, default 5); CI sets
 `COSMIC_BOOTSTRAP_VERIFY` so a cache actions/cache restored is checked against
 the pin again, and links the result to a runner path
 (`$RUNNER_TEMP/bin/cosmic-driver`, which CI then puts on `PATH` via
-`GITHUB_PATH`). CI then runs the driver in
+`GITHUB_PATH`). Each job does so through one step, the local
+`.github/actions/cosmic-driver` action, which restores that cache and
+runs `.github/scripts/cosmic-driver.sh`. CI then runs the driver in
 place, with cwd `ci`: `cosmic-driver cosmic_ci/driver.tl ...`.
 `COSMIC_BOOTSTRAP` names another host in place of the pin's, as it does for
 bin/zig; it is refused alongside `COSMIC_BOOTSTRAP_VERIFY`, which asks for the
@@ -82,8 +84,9 @@ unavailable and exits 0: no operation ran, which means the self-check
 failed first.
 
 `prerelease-stage` and `prerelease-publish` are prerelease.yml's publish
-job, which checks out only `ci/`, `bin/cosmic-bootstrap` and
-`.github/scripts/cosmic-driver.sh`, and holds a `contents: write` token.
+job, which checks out only `ci/`, `bin/cosmic-bootstrap`,
+`.github/scripts/cosmic-driver.sh` and the `.github/actions/cosmic-driver`
+action that runs it, and holds a `contents: write` token.
 The token reaches only the driver's `prerelease-publish` step, which hands
 it to the `gh` CLI; beyond the actions, the job otherwise runs only the
 scripts that fetch the pinned driver and verify it against the pin. The

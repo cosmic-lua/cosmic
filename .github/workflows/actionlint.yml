@@ -43,14 +43,6 @@
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
         },
         {
-          name: "cache the pinned bootstrap cosmic",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
-            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
-          },
-        },
-        {
           name: "cache the pinned actionlint",
           uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
           with: {
@@ -58,14 +50,16 @@
             key: "actionlint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/actionlint.pin') }}",
           },
         },
-        # A restored bootstrap cache is checked against the pin first.
-        # bin/actionlint holds what it downloads to the pin, but a
+        # The bootstrap cosmic bin/actionlint runs on is the CI driver's
+        # release: the action restores it and checks it against the pin
+        # (it also links it on PATH as cosmic-driver, which nothing here
+        # runs). bin/actionlint holds what it downloads to the pin, but a
         # restored actionlint cache only to being a non-empty executable
         # (see the TODO in build/actionlint.tl); the cache key is the
         # pin's hash, and only this workflow writes it.
         {
-          name: "verify the restored bootstrap cosmic",
-          run: "COSMIC_BOOTSTRAP_VERIFY=1 XDG_CACHE_HOME=\"$RUNNER_TEMP/cache\" sh bin/cosmic-bootstrap >/dev/null",
+          name: "restore and verify the pinned bootstrap cosmic",
+          uses: "./.github/actions/cosmic-driver",
         },
         {
           name: "check the workflows",

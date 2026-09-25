@@ -22,9 +22,10 @@
       steps: [
         # The job checks out, from the commit it publishes, only what the
         # pinned CI driver needs: ci/ (the driver runs cosmic_ci in place
-        # and keeps its database under ci/o/), bin/cosmic-bootstrap and the
-        # script that runs it (not cone mode, which would add the root's
-        # files), and keeps no credential in the checkout. Beyond the
+        # and keeps its database under ci/o/), bin/cosmic-bootstrap, and the
+        # script and the local action that run it (not cone mode, which
+        # would add the root's files), and keeps no credential in the
+        # checkout. Beyond the
         # actions, the job runs only the scripts that fetch the driver and
         # verify it against ci/cosmic-driver.pin's digest, and the driver
         # itself. The write token reaches only the driver's publish step,
@@ -34,23 +35,14 @@
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
-            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n",
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
             "sparse-checkout-cone-mode": false,
             "persist-credentials": false,
           },
         },
         {
-          name: "cache the pinned CI driver",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
-            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
-          },
-        },
-        {
           name: "bootstrap the pinned CI driver",
-          "working-directory": "ci",
-          run: "sh ../.github/scripts/cosmic-driver.sh",
+          uses: "./.github/actions/cosmic-driver",
         },
         {
           uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8

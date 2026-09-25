@@ -29,6 +29,7 @@
         "ci/cosmic-driver.pin",
         "bin/cosmic-bootstrap",
         ".github/scripts/cosmic-driver.sh",
+        ".github/actions/cosmic-driver/**",
       ],
     },
     workflow_dispatch: {},
@@ -68,18 +69,8 @@
         },
 
         {
-          name: "cache the pinned CI driver",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
-            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
-          },
-        },
-
-        {
           name: "bootstrap the pinned CI driver",
-          "working-directory": "ci",
-          run: "sh ../.github/scripts/cosmic-driver.sh",
+          uses: "./.github/actions/cosmic-driver",
         },
 
         {
@@ -125,18 +116,8 @@
         },
 
         {
-          name: "cache the pinned CI driver",
-          uses: "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830", # v4.3.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/bootstrap",
-            key: "cosmic-bootstrap-${{ hashFiles('ci/cosmic-driver.pin') }}",
-          },
-        },
-
-        {
           name: "bootstrap the pinned CI driver",
-          "working-directory": "ci",
-          run: "sh ../.github/scripts/cosmic-driver.sh",
+          uses: "./.github/actions/cosmic-driver",
         },
 
         {

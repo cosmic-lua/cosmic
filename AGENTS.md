@@ -7,9 +7,11 @@
   `bin/vendor` refetches a tree from its PIN, keeping only what the build reads.
   Generated output under `o/` must not be committed.
 - Run `bin/actionlint` (the pinned actionlint, over `.github/workflows/`)
-  before pushing a change under `.github/`. Workflows are YAML's flow
-  style, in the subset `build/workflows_test.tl` holds them to, and a
-  step's script longer than a line or two lives under `.github/scripts/`.
+  before pushing a change under `.github/`. Workflows, and the local
+  actions under `.github/actions/`, are YAML's flow style, in the subset
+  `build/workflows_test.tl` holds them to, and a step's script longer than
+  a line or two lives under `.github/scripts/`. A job gets the pinned CI
+  driver on its PATH with `uses: ./.github/actions/cosmic-driver`.
 
 ## Build, format, test
 
