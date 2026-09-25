@@ -344,34 +344,62 @@ function Fs.list(path: string): {string} | nil, string
   return sorted_names(entries), ""
 end
 
---- Every file under a root, sorted, as paths relative to that root, as
---- `find root -type f` lists them.
---- `skip` is asked about each entry's relative path, and its bare name
---- second, and may refuse a whole directory. The listing says what
---- each entry is, so nothing here is stat'd.
-function Fs.walk(root: string,
-                 skip?: function(string, string): boolean): {string} | nil, string
+--- The directories a following walk is inside, innermost first, each
+--- by its device and inode.
+local record Above
+  key: string
+  up: Above
+end
+
+--- A directory still to list, by its path relative to the root, and
+--- the directories it is inside.
+local record Pending
+  relative: string
+  above: Above
+end
+
+--- Both walks: `Fs.walk`, and with `follow`, `Fs.walk_following`.
+local function walk(root: string, skip: function(string, string): boolean,
+                    follow: boolean): {string} | nil, string
   local found: {string} = {}
-  local pending: {string} = { "" }
+  local pending: {Pending} = { { relative = "", above = nil } }
   while #pending > 0 do
-    local relative = table.remove(pending)
+    local next_one = table.remove(pending)
+    local relative = next_one.relative
     local directory = relative == "" and root or (root .. "/" .. relative)
-    local entries, trouble = sys.readdir(directory)
-    if entries == nil then
-      return nil, directory .. ": " .. trouble
+    local above = next_one.above
+    local inside = true
+    if follow then
+      local st, stat_trouble = sys.stat(directory)
+      if st == nil then
+        return nil, directory .. ": " .. stat_trouble
+      end
+      local key = tostring(st.dev) .. ":" .. tostring(st.ino)
+      local up = above
+      while up ~= nil and inside do
+        inside = up.key ~= key
+        up = up.up
+      end
+      above = { key = key, up = above }
+    end
+    local entries: {string:string} = {}
+    if inside then
+      local listed, trouble = sys.readdir(directory)
+      if listed == nil then
+        return nil, directory .. ": " .. trouble
+      end
+      entries = listed
     end
     for _, name in ipairs(sorted_names(entries)) do
       local entry = relative == "" and name or (relative .. "/" .. name)
       if skip == nil or not skip(entry, name) then
-        -- TODO: readdir answers a link as the kind it leads to, so a
-        -- link to a file is listed as a file and a link to a directory
-        -- is walked into (`loop -> .` fails the walk with ELOOP), unlike
-        -- `find -type f`; walk should lstat the entries that are links,
-        -- once readdir says which ones are, or its doc should say links
-        -- are followed.
         local kind = entries[name]
+        if kind == "link" and follow then
+          local st, _ = sys.stat(directory .. "/" .. name)
+          kind = st ~= nil and st.kind or "other"
+        end
         if kind == "dir" then
-          pending[#pending + 1] = entry
+          pending[#pending + 1] = { relative = entry, above = above }
         elseif kind == "file" then
           found[#found + 1] = entry
         end
@@ -380,6 +408,34 @@ function Fs.walk(root: string,
   end
   table.sort(found)
   return found, ""
+end
+
+--- Every file under a root, sorted, as paths relative to that root, as
+--- `find root -type f` lists them: a link is neither listed nor
+--- walked into, whatever it leads to.
+--- `skip` is asked about each entry's relative path, and its bare name
+--- second, and may refuse a whole directory. The listing says what
+--- each entry is, so nothing here is stat'd.
+function Fs.walk(root: string,
+                 skip?: function(string, string): boolean): {string} | nil, string
+  return walk(root, skip, false)
+end
+
+--- Every file under a root as `Fs.walk` lists them, but with each link
+--- taken for what it leads to, as `find -L root -type f` lists them: a
+--- link to a file is listed as a file, under the link's own path, and a
+--- link to a directory is walked into. A link that leads nowhere (or to
+--- a device, a socket or a pipe) is not listed. A directory already
+--- being walked, reached again through a link (`loop -> .`), is not
+--- walked a second time, so a loop ends the walk of that branch rather
+--- than failing it. As with `find -L`, a file reached along several
+--- paths (a diamond of links) is listed once per path, and a link to a
+--- directory above the root is walked in full, but for the directories
+--- the walk is already inside. `skip` is asked as `Fs.walk` asks it.
+--- Each directory, and each link, is stat'd.
+function Fs.walk_following(root: string,
+                           skip?: function(string, string): boolean): {string} | nil, string
+  return walk(root, skip, true)
 end
 
 --- A path with no link and no `..` left in it: `realpath`.

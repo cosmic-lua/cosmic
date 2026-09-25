@@ -239,6 +239,43 @@ local function parse_class(lines: {string}, at: {integer}): Class | nil, string
   return class
 end
 
+--- Whether the `COSMIC_CONSTANT` lines right after a `Constants` class's
+--- block, from `at` in `header`, name exactly its fields in their order:
+--- core/syscalls.c builds the table the constants are set from out of
+--- those lines, so a field without one would be declared and never set,
+--- and one without a field set and never declared.
+local function constants_follow(class: Class, header: string,
+                                at: integer): boolean, string
+  local named: {string} = {}
+  local from = at
+  while true do
+    local line_end = header:find("\n", from, true)
+    local line = header:sub(from, (line_end or #header + 1) - 1)
+    local name = line:match("^%s*COSMIC_CONSTANT%(([%w_]+)%)%s*$")
+    if name == nil and line:match("^%s*$") == nil then
+      break
+    end
+    if name ~= nil then
+      named[#named + 1] = name
+    end
+    if line_end == nil then
+      break
+    end
+    from = line_end + 1
+  end
+  for index, field in ipairs(class.fields) do
+    if named[index] ~= field.name then
+      return false, "Constants: the field " .. field.name .. " has no " ..
+        "COSMIC_CONSTANT(" .. field.name .. ") in its place after the block"
+    end
+  end
+  if #named > #class.fields then
+    return false, "Constants: COSMIC_CONSTANT(" .. named[#class.fields + 1] ..
+      ") names no field of the class"
+  end
+  return true, ""
+end
+
 --- Reads every annotated call and class out of the header. The two
 --- lists travel together in one record, so a fallible read stays two
 --- slots: the record, or nil and why.
@@ -288,6 +325,12 @@ function generator.read(header: string): Declarations | nil, string
           if class == nil then
             return nil, trouble
           end
+          if class.name == "Constants" then
+            local held, held_trouble = constants_follow(class, header, at)
+            if not held then
+              return nil, held_trouble
+            end
+          end
           classes[#classes + 1] = class
         end
       end
@@ -295,6 +338,21 @@ function generator.read(header: string): Declarations | nil, string
   end
   if #calls == 0 then
     return nil, "the header declares no calls"
+  end
+  -- core/syscalls.c registers every COSMIC_CONSTANT in the header, so
+  -- one anywhere but after the `Constants` block, where
+  -- `constants_follow` holds it to a field, would be set undeclared.
+  local declared = 0
+  for _, class in ipairs(classes) do
+    if class.name == "Constants" then
+      declared = declared + #class.fields
+    end
+  end
+  local _, written = header:gsub("\n%s*COSMIC_CONSTANT%(", "")
+  if written ~= declared then
+    return nil, "Constants: the header writes " .. tostring(written) ..
+      " COSMIC_CONSTANT lines for " .. tostring(declared) ..
+      " fields; one stands outside the block after `Constants`"
   end
   return { calls = calls, classes = classes }
 end

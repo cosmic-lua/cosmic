@@ -128,18 +128,17 @@ local function inside(path: string, root: string): boolean
   return path == root or path:sub(1, #root + 1) == root .. "/"
 end
 
---- Every link under `dir`, as paths, walking real directories only.
---- `readdir` answers a link as what it leads to, so each entry is
---- `lstat`ed: a link to a directory is found, not walked into.
+--- Every link under `dir`, as paths, walking real directories only:
+--- `readdir` names a link as one, so a link to a directory is found,
+--- not walked into.
 local function links_under(dir: string, found: {string})
   local entries = sys.readdir(dir)
   if entries == nil then return end
-  for name in pairs(entries) do
+  for name, kind in pairs(entries) do
     local path = dir .. "/" .. name
-    local st = sys.lstat(path)
-    if st ~= nil and st.kind == "link" then
+    if kind == "link" then
       found[#found + 1] = path
-    elseif st ~= nil and st.kind == "dir" then
+    elseif kind == "dir" then
       links_under(path, found)
     end
   end

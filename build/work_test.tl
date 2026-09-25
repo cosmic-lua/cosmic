@@ -148,6 +148,51 @@ local function test_a_settled_epoch_time_is_trusted(tmp: string)
   assert(work.close(handle))
 end
 
+--- A project whose module directory and one test are links into a
+--- tree beside it, and a `loop -> .`: `tmp/project`.
+local function linked_project(tmp: string): string
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(tmp .. "/shared/lib"))
+  assert(Fs.mkdirs(project))
+  assert(Fs.write(tmp .. "/shared/lib/util.tl", "local util = {}\nutil.answer = 42\nreturn util\n"))
+  assert(Fs.write(tmp .. "/shared/linked_test.tl",
+    'local util = require("lib.util")\n\nlocal function test_linked()\n  assert(util.answer == 42)\nend\n'))
+  assert(Fs.write(project .. "/main_test.tl",
+    'local util = require("lib.util")\n\nlocal function test_main()\n  assert(util.answer == 42)\nend\n'))
+  assert(Fs.symlink("../shared/lib", project .. "/lib"))
+  assert(Fs.symlink("../shared/linked_test.tl", project .. "/linked_test.tl"))
+  assert(Fs.symlink(".", project .. "/loop"))
+  return project
+end
+
+--- Staging takes a link for what it leads to: a module directory and a
+--- test reached through links are staged under the links' paths, and a
+--- loop of links ends its branch rather than the stage.
+local function test_stage_takes_a_link_for_what_it_leads_to(tmp: string)
+  local project = linked_project(tmp)
+  local handle = assert(work.open(project))
+  assert(work.stage(handle, false))
+  assert(staged_bytes(handle.db, "lib/util.tl") == assert(Fs.read(tmp .. "/shared/lib/util.tl")))
+  assert(staged_bytes(handle.db, "linked_test.tl") ~= nil, "the linked test is staged")
+  local looped = assert(Sqlite.text_rows(handle.db,
+    "SELECT count(*) FROM files WHERE path LIKE 'loop/%'"))
+  assert(looped[1][1] == "0", "nothing is staged through the loop")
+  assert(work.close(handle))
+end
+
+--- `cosmic test` in such a project compiles the linked modules and runs
+--- the linked test beside its own.
+local function test_cosmic_test_runs_a_project_reached_through_links(tmp: string)
+  local project = linked_project(tmp)
+  local result = assert(Child.run({ assert(Proc.executable()), "test" }, {
+    cwd = project, env = Env.all(), stdout = "capture", stderr = "capture",
+    timeout_ms = 60000,
+  }))
+  local out = (result.stdout or "") .. (result.stderr or "")
+  assert(result.code == 0, out)
+  assert(out:find("(2 tests, 2 modules", 1, true), out)
+end
+
 --- The zones a boot reads from a tree replace whatever the working
 --- database held, stay blobs, and read back out of any database that
 --- has them -- and out of one built before there was a table for them,

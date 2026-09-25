@@ -1507,111 +1507,31 @@ COSMIC_SYSCALL(cancelled_child_signal, 0) {
   return 1;
 }
 
-#define ENTRY(name) {#name, cosmic_sys_##name}
+/* The modules are filled from the headers' own entries (core/syscalls.h's
+ * X-macros), each a statement here: an entry there is a function or a
+ * constant of the table, and nothing else is. */
+#undef COSMIC_SYSCALL
+#undef COSMIC_CONSTANT
+#define COSMIC_SYSCALL(name, arity)                                      \
+  lua_pushcfunction(L, cosmic_sys_##name);                               \
+  lua_setfield(L, -2, #name)
+#define COSMIC_CONSTANT(name)                                            \
+  lua_pushinteger(L, name);                                              \
+  lua_setfield(L, -2, #name);
 
-static const luaL_Reg table[] = {
-  ENTRY(open),     ENTRY(open_temporary), ENTRY(close),
-  ENTRY(read),     ENTRY(pread),          ENTRY(write),
-  ENTRY(lseek),
-  ENTRY(fstat),    ENTRY(stat),          ENTRY(lstat),
-  ENTRY(mkdir),    ENTRY(rmdir),         ENTRY(unlink),
-  ENTRY(rename),   ENTRY(chmod),         ENTRY(readdir),  ENTRY(tree_digest),
-  ENTRY(getcwd),   ENTRY(chdir),         ENTRY(realpath),
-  ENTRY(mkdtemp),  ENTRY(executable),    ENTRY(getenv),
-  ENTRY(environ),  ENTRY(exit),          ENTRY(getpid),
-  ENTRY(getuid),   ENTRY(umask),         ENTRY(entropy),
-  ENTRY(clock_gettime), ENTRY(nanosleep), ENTRY(isatty), ENTRY(errno_name),
-  ENTRY(errno_message),
-  ENTRY(execve),   ENTRY(kill),          ENTRY(dup),
-  ENTRY(dup2),     ENTRY(cpu_count),     ENTRY(uname),
-  ENTRY(symlink), ENTRY(readlink), ENTRY(utimensat), ENTRY(fsync),
-  ENTRY(ftruncate),
-  {NULL, NULL},
-};
-
-/* core/process.h's calls, which only the raw `cosmic.internal.process`
- * module holds. */
-static const luaL_Reg process_table[] = {
-  ENTRY(spawn),    ENTRY(landlock_ruleset), ENTRY(waitpid),
-  ENTRY(relaunch), ENTRY(pipe),             ENTRY(set_nonblocking),
-  ENTRY(poll),     ENTRY(subreaper),        ENTRY(ignore_sigpipe),
-  ENTRY(guard_child_signals), ENTRY(unguard_child_signals),
-  ENTRY(cancelled_child_signal),
-  {NULL, NULL},
-};
-
-struct constant {
-  const char *name;
-  lua_Integer value;
-};
-
-/* The numbers a caller passes back in. They come from this libc, so a
- * Teal module never carries a platform's constant of its own. */
-static const struct constant constants[] = {
-  {"O_RDONLY", O_RDONLY},
-  {"O_WRONLY", O_WRONLY},
-  {"O_RDWR", O_RDWR},
-  {"O_CREAT", O_CREAT},
-  {"O_EXCL", O_EXCL},
-  {"O_TRUNC", O_TRUNC},
-  {"O_APPEND", O_APPEND},
-  {"SEEK_SET", SEEK_SET},
-  {"SEEK_CUR", SEEK_CUR},
-  {"SEEK_END", SEEK_END},
-  {"CLOCK_REALTIME", CLOCK_REALTIME},
-  {"CLOCK_MONOTONIC", CLOCK_MONOTONIC},
-  {"ENOENT", ENOENT},
-  {"EEXIST", EEXIST},
-  {"EACCES", EACCES},
-  {"EINTR", EINTR},
-  {"EISDIR", EISDIR},
-  {"ENOTDIR", ENOTDIR},
-  {"ENOTEMPTY", ENOTEMPTY},
-  {"EAGAIN", EAGAIN},
-  {"EPIPE", EPIPE},
-  {"EXDEV", EXDEV},
-  {"ECHILD", ECHILD},
-  {"ESRCH", ESRCH},
-  {"EBADF", EBADF},
-  {"ENOSYS", ENOSYS},
-  {"EOPNOTSUPP", EOPNOTSUPP},
-  {"EPERM", EPERM},
-  {"ENOSPC", ENOSPC},
-  {"EINVAL", EINVAL},
-  {"SIGHUP", SIGHUP},
-  {"SIGINT", SIGINT},
-  {"SIGQUIT", SIGQUIT},
-  {"SIGKILL", SIGKILL},
-  {"SIGPIPE", SIGPIPE},
-  {"SIGTERM", SIGTERM},
-  {"SIGUSR1", SIGUSR1},
-  {NULL, 0},
-};
-
-/* The numbers the raw process table's `poll` takes and gives back. */
-static const struct constant process_constants[] = {
-  {"POLLIN", POLLIN},
-  {"POLLOUT", POLLOUT},
-  {"POLLERR", POLLERR},
-  {"POLLHUP", POLLHUP},
-  {"POLLNVAL", POLLNVAL},
-  {NULL, 0},
-};
-
+/* core/process.h's calls and the numbers `poll` takes and gives back,
+ * which only the raw `cosmic.internal.process` module holds. */
 int cosmic_open_process (lua_State *L) {
-  luaL_newlib(L, process_table);
-  for (const struct constant *c = process_constants; c->name != NULL; c++) {
-    lua_pushinteger(L, c->value);
-    lua_setfield(L, -2, c->name);
-  }
+  lua_newtable(L);
+#include "process.h"
   return 1;
 }
 
+/* The calls, and the numbers a caller passes back in, which come from
+ * this libc, so a Teal module never carries a platform's constant of its
+ * own. */
 int cosmic_open_syscalls (lua_State *L) {
-  luaL_newlib(L, table);
-  for (const struct constant *c = constants; c->name != NULL; c++) {
-    lua_pushinteger(L, c->value);
-    lua_setfield(L, -2, c->name);
-  }
+  lua_newtable(L);
+#include "syscalls.h"
   return 1;
 }

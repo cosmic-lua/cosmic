@@ -34,6 +34,7 @@ local header = lines({
   " * ---@class Constants",
   " * ---@field O_RDONLY integer open for reading",
   " */",
+  "COSMIC_CONSTANT(O_RDONLY)",
 })
 
 --- The generated declaration's documented symbols, by symbol.
@@ -126,4 +127,52 @@ local function test_a_fallible_call_is_an_effect_or_a_value()
   assert(bare ~= nil and bare:find("fails with nil", 1, true), bare)
   assert(gen_syscalls.read(fallible("boolean")) ~= nil)
   assert(gen_syscalls.read(fallible("string|nil")) ~= nil)
+end
+
+--- The `COSMIC_CONSTANT` lines after the `Constants` block are what
+--- core/syscalls.c sets the constants from, so they name its fields
+--- exactly, in order: none missing, none extra, none out of place.
+local function test_constants_are_held_to_their_class()
+  local function with(entries: {string}): string
+    local parts: {string} = {
+      "/*",
+      " * --- Closes a descriptor.",
+      " * ---@param fd integer the descriptor",
+      " * ---@return boolean ok false on failure",
+      " * ---@return string error what went wrong",
+      " * ---@return integer errno the error number",
+      " */",
+      "COSMIC_SYSCALL(close, 1);",
+      "/*",
+      " * ---@class Constants",
+      " * ---@field A integer a",
+      " * ---@field B integer b",
+      " */",
+    }
+    for _, entry in ipairs(entries) do
+      parts[#parts + 1] = entry
+    end
+    return lines(parts)
+  end
+  assert(gen_syscalls.read(with({ "COSMIC_CONSTANT(A)", "", "COSMIC_CONSTANT(B)" })))
+  local record Case
+    entries: {string}
+    refusal: string
+  end
+  local cases: {Case} = {
+    { entries = { "COSMIC_CONSTANT(A)" },
+      refusal = "the field B has no COSMIC_CONSTANT(B)" },
+    { entries = { "COSMIC_CONSTANT(B)", "COSMIC_CONSTANT(A)" },
+      refusal = "the field A has no COSMIC_CONSTANT(A)" },
+    { entries = { "COSMIC_CONSTANT(A)", "COSMIC_CONSTANT(B)", "COSMIC_CONSTANT(C)" },
+      refusal = "COSMIC_CONSTANT(C) names no field" },
+  }
+  local stray = with({ "COSMIC_CONSTANT(A)", "COSMIC_CONSTANT(B)" }):gsub(
+    "COSMIC_SYSCALL%(close, 1%);", "COSMIC_SYSCALL(close, 1);\nCOSMIC_CONSTANT(C)")
+  local refused, refusal = gen_syscalls.read(stray)
+  assert(refused == nil and refusal:find("one stands outside", 1, true), refusal)
+  for _, case in ipairs(cases) do
+    local read, trouble = gen_syscalls.read(with(case.entries))
+    assert(read == nil and trouble:find(case.refusal, 1, true), trouble)
+  end
 end

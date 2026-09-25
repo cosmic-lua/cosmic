@@ -196,7 +196,17 @@ local function list_once(dir: string, install: string | nil, listed: {string: bo
   local entries, _ = sys.readdir(dir)
   if entries == nil or not below then return end
   for name, kind in pairs(entries) do
-    if kind == "dir" then list_once(dir .. "/" .. name, install, listed, true) end
+    local path = dir .. "/" .. name
+    -- The compiler looks through a link to a directory as through the
+    -- directory, so a listing follows one too.
+    local followed = kind
+    if kind == "link" then
+      local st, _ = sys.stat(path)
+      followed = st ~= nil and st.kind or "other"
+    end
+    if followed == "dir" then
+      list_once(path, install, listed, true)
+    end
   end
 end
 
