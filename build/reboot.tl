@@ -195,6 +195,12 @@ local function into(handle: work.Handle, built: compiler,
   if not written then
     return closing(handle, write_trouble)
   end
+  -- TODO: this is the stale tool's own `writer.carried`, not the
+  -- tree's, and nothing it writes is signed by the code that wrote it,
+  -- so a change to what the tool carries reaches a self-rebuilt tool
+  -- only at the next `bin/zig build boot`. Derive the carried database
+  -- in the tool this rebuild writes, when it re-enters the command, or
+  -- sign the carried rows with the writer's identity.
   local carried_path = handle.root .. "/o/carried.db"
   local carried, carry_trouble = writer.carried(database_path, carried_path)
   if not carried then

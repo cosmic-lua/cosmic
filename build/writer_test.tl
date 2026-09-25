@@ -10,6 +10,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local importer = require("build.importer")
+local schema = require("build.schema")
 local teal = require("build.teal")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -235,12 +236,19 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
   assert(in_whole[1][1] == "1", "the projection holds the test's catalog row")
   assert(about_dropped[1][1] == "0", "a row about a dropped module is carried")
+  -- `greet` is no public standard-library module, so its docs and the
+  -- example about it stay in the projection: `test_the_carried_docs_*`
+  -- below covers which docs rows are carried.
   local kept = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
-    "(SELECT count(*) FROM docs_fts WHERE docs_fts MATCH 'hello'), " ..
+    "(SELECT count(*) FROM docs WHERE module = 'greet'), " ..
     "(SELECT value FROM meta WHERE key = 'main')")
-  assert(kept[1][1] == "1", "the example's documentation for greet is kept")
-  assert(tonumber(kept[1][2]) > 0, "the docs index is rebuilt")
+  local documented = rows(tmp .. "/whole.db",
+    "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
+    "(SELECT count(*) FROM docs WHERE module = 'greet')")
+  assert(documented[1][1] == "1" and tonumber(documented[1][2]) > 0,
+    "the projection documents greet")
+  assert(kept[1][1] == "0" and kept[1][2] == "0", "greet's docs stay in the projection")
   assert(kept[1][3] == "cmd.hello.main", "meta is carried")
   local materials = rows(tmp .. "/carried.db",
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
@@ -297,4 +305,64 @@ local function test_the_zones_ship_and_sign_the_projection(tmp: string)
     "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
   assert(carried:close())
   assert(kept[1][1] == "A/Zone blob,Test/Zone blob", kept[1][1])
+end
+
+--- Of a projection's docs, uses and examples, the tool carries what a
+--- reader asks it for outside cosmic's own tree -- the public standard
+--- library's -- and, of every other doc row, those the catalog's
+--- guidance joins to: the doc comment of the function an error came
+--- from. A dropped module's rows go even so.
+local function test_the_carried_docs_are_the_public_standard_library_s(tmp: string)
+  local whole = tmp .. "/whole.db"
+  local db = assert(Sqlite.open(whole, true))
+  for _, statement in ipairs(schema.settings("")) do assert(db:exec(statement)) end
+  for _, statement in ipairs(schema.create("")) do assert(db:exec(statement)) end
+  for _, statement in ipairs({
+    "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
+      "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', ''), " ..
+      "('cosmic.fs_example', 'cosmic/fs_example.tl', 'example', '', '', '', '', ''), " ..
+      "('build.work', 'build/work.tl', 'module', '', '', '', '', ''), " ..
+      "('build.tree', 'build/tree.tl', 'module', '', '', '', '', '')",
+    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
+      "text, file, line) VALUES " ..
+      "('cosmic.fs', 'Fs.read', 'Fs.read', 1, 'function', '', 'Reads a file.', 'f', 1), " ..
+      "('cosmic.internal.fs', 'raw', 'raw', 1, 'function', '', 'Raw.', 'f', 1), " ..
+      "('cosmic.fs_example', 'Example.read', 'Example.read', 1, 'function', '', " ..
+      "'Shows it.', 'f', 1), " ..
+      "('build.work', 'work.open', 'work.open', 1, 'function', '', " ..
+      "'Opens the working database.', 'f', 1), " ..
+      "('build.tree', 'tree.is_own', 'tree.is_own', 1, 'function', '', " ..
+      "'Whether a tree is cosmic.', 'f', 1)",
+    "INSERT INTO catalog (kind, module, symbol, message, text, file, line) " ..
+      "VALUES ('error', 'build.work', 'work.open', 'cannot open', NULL, 'f', 1)",
+    "INSERT INTO uses (module, symbol, from_module, from_file, line) VALUES " ..
+      "('cosmic.fs', 'read', 'cosmic.fs', 'f', 1), " ..
+      "('cosmic.fs', 'read', 'build.work', 'f', 2), " ..
+      "('build.tree', 'is_own', 'build.work', 'f', 3), " ..
+      "('cosmic.fs', 'read', 'cosmic.fs_example', 'f', 4)",
+    "INSERT INTO examples (module, name, text, file, line, source) VALUES " ..
+      "('cosmic.fs', 'read', 'Reads.', 'f', 1, 'Fs.read(p)'), " ..
+      "('build.tree', 'own', 'Owns.', 'f', 1, 'tree.is_own(r)')",
+  }) do
+    assert(db:exec(statement))
+  end
+  assert(db:close())
+  assert(writer.carried(whole, tmp .. "/carried.db"))
+  local out = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local function column(sql: string): string
+    local found = assert(Sqlite.text_rows(out,
+      "SELECT coalesce(group_concat(v, ' '), '') FROM (" .. sql .. ")"))
+    return found[1][1]
+  end
+  local docs = column("SELECT module AS v FROM docs ORDER BY id")
+  local uses = column("SELECT from_module || '>' || module AS v FROM uses " ..
+    "ORDER BY module, symbol, from_module, line")
+  local examples = column("SELECT module AS v FROM examples ORDER BY id")
+  local indexed = column("SELECT d.module AS v FROM docs_fts JOIN docs d " ..
+    "ON d.id = docs_fts.rowid WHERE docs_fts MATCH 'opens OR reads' ORDER BY d.id")
+  assert(out:close())
+  assert(docs == "cosmic.fs build.work", "the docs carried: " .. docs)
+  assert(uses == "cosmic.fs>cosmic.fs", "the uses carried: " .. uses)
+  assert(examples == "cosmic.fs", "the examples carried: " .. examples)
+  assert(indexed == "cosmic.fs build.work", "the docs index: " .. indexed)
 end

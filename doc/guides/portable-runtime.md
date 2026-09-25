@@ -49,7 +49,9 @@ result into `o/cosmic.db`, a fresh host-neutral database. The projection has a
 smaller schema, deterministic insertion order, natural keys, and no working
 history. In cosmic's own tree, the database the tool carries is
 `o/carried.db`, which `writer.carried` derives from the projection by leaving
-out the tree's own tests and examples, and every row about one.
+out the tree's own tests and examples, and every row about one, and every
+docs, uses and examples row but the public standard library's (and the doc
+rows the error catalog's guidance joins to).
 
 The writer hashes the planned modules, declarations, build identities, main
 module, and format name. It stores that signature inside the projection. A

@@ -20,7 +20,8 @@
    delete them to reclaim the space. `o/bin/cosmic db` says what the
    databases under `o/` hold -- `o/cosmic.db`, the tree's projection;
    `o/carried.db`, that projection less the tree's own tests and
-   examples, which the tool carries; `o/build.db`, the working
+   examples and every doc but the public standard library's, which
+   the tool carries; `o/build.db`, the working
    database -- and how the last few builds went;
    `o/bin/cosmic sql [--build|--store|--db <path>] '<statement>'` runs one
    read-only query against one of them, with no script and no build;

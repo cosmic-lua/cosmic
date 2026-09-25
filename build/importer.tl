@@ -1218,14 +1218,23 @@ function importer.compile(handle: work.Handle, built: compiler,
   local typed: receivers.State | nil = nil
 
   -- Where a refused module's own hint (`with_docs_hint`) looks up the
-  -- name it could not resolve: this build's own working database
-  -- first -- unrestricted, the way a project's own `o/cosmic.db` is
-  -- for `cosmic docs` too -- then the running binary's own, which is
-  -- where a stdlib symbol like `cosmic.removed`'s own fields actually
-  -- live for any tree but cosmic's -- see `docs.databases`, the same
-  -- shape built for the same reason.
-  local hint_databases: {Sqlite.Handle} = { db }
-  local hint_public: {boolean} = { false }
+  -- name it could not resolve: this tree's own last projection first --
+  -- unrestricted, the way a project's own `o/cosmic.db` is for `cosmic
+  -- docs` too, and the only place cosmic's own `build.*` symbols are
+  -- documented, since the tool carries only the public standard
+  -- library's (`writer.carried`) -- then the running binary's own, which
+  -- is where a stdlib symbol like `cosmic.removed`'s own fields live for
+  -- any tree but cosmic's. See `docs.databases`, the same shape built for
+  -- the same reason. The working database cannot stand in: its `docs`
+  -- rows are keyed by source hash, with no module to name. A projection
+  -- that is missing or unreadable is left out; the hint is best effort.
+  local projection, _ = Sqlite.open(handle.root .. "/o/cosmic.db", false)
+  local hint_databases: {Sqlite.Handle} = {}
+  local hint_public: {boolean} = {}
+  if projection ~= nil then
+    hint_databases[1] = projection
+    hint_public[1] = false
+  end
   for _, store_db in ipairs(Store.databases()) do
     hint_databases[#hint_databases + 1] = store_db
     hint_public[#hint_public + 1] = not own_tree
@@ -1335,6 +1344,9 @@ function importer.compile(handle: work.Handle, built: compiler,
     return db:exec("DELETE FROM typed_refs WHERE key NOT IN (SELECT key FROM compiled)")
   end
   local made, compile_trouble = compile_all()
+  if projection ~= nil then
+    local _, _ = projection:close()
+  end
   if not made then
     return nil, compile_trouble
   end

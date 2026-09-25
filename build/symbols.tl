@@ -68,7 +68,7 @@ function symbols.used_where(alias: string): string
 end
 
 --- Every symbol `query` names exactly, across `databases` (searched in
---- order, a project's own working database ahead of the binary's),
+--- order, the tree's own last projection ahead of the binary's),
 --- named the way `symbol` itself already reads -- `Removed.io`,
 --- already qualified by its own record -- or the bare module name for
 --- a module's own row (`symbol` is `""` there). This is what a name a
