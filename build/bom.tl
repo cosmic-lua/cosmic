@@ -330,7 +330,8 @@ function bom.rows(db: Sqlite.Handle): {bom.Row} | nil, string
 end
 
 --- One line per component: name, version, license, and whether cosmic
---- patches it.
+--- patches it -- or, for data upstream releases on its own schedule (the
+--- CA roots, the time zones), that `cosmic refresh` updates it.
 local function lines_of(rows: {bom.Row}): {string}
   local lines: {string} = {}
   for _, row in ipairs(rows) do
@@ -339,6 +340,8 @@ local function lines_of(rows: {bom.Row}): {string}
       local _, breaks = row.patches:gsub("\n", "")
       local count = breaks + 1
       line = line .. "  (" .. count .. " patch" .. (count == 1 and "" or "es") .. ")"
+    elseif row.kind == "data" then
+      line = line .. "  (data: `cosmic refresh` updates it)"
     end
     lines[#lines + 1] = line
   end

@@ -181,6 +181,45 @@ local function test_a_negative_base256_mtime_decodes_as_negative()
   assert(entry.mtime == target, tostring(entry.mtime))
 end
 
+--- A one-file archive with the 12-byte field at `off` replaced by
+--- `field`, its checksum written again.
+local function with_field_12(off: integer, field: string): string
+  local c = Stream.collect()
+  local w = Tar.writer(c)
+  assert(w:add_file("f", "x", { mtime = 0 }))
+  assert(w:close())
+  local raw = c:result()
+  return recompute_checksum(raw:sub(1, off - 1) .. field .. raw:sub(off + 12))
+end
+
+local function test_a_base256_size_past_64_bits_is_refused_not_wrapped()
+  -- 2^64: its low 64 bits, all a wrap would keep, say 0.
+  local archive = with_field_12(125, "\x80\0\0\x01" .. string.rep("\0", 8))
+  local entry, trouble = Tar.reader(Stream.from_string(archive)):next()
+  assert(entry == nil and trouble:find("size field", 1, true) ~= nil, trouble)
+end
+
+local function test_a_base256_mtime_past_64_bits_either_way_is_refused()
+  -- 2^63, and -2^63 - 1: each one past an end of the integer range.
+  for _, field in ipairs({
+    "\x80\0\0\0\x80" .. string.rep("\0", 7),
+    "\xff\xff\xff\xff\x7f" .. string.rep("\xff", 7),
+  }) do
+    local entry, trouble = Tar.reader(Stream.from_string(with_field_12(137, field))):next()
+    assert(entry == nil and trouble:find("mtime field", 1, true) ~= nil, trouble)
+  end
+end
+
+local function test_a_base256_mtime_at_either_end_of_the_integer_range_is_read()
+  for _, n in ipairs({ math.maxinteger, math.mininteger }) do
+    -- A positive value's first byte needs the marker bit set.
+    local field = base256_field_12(n)
+    field = string.char(field:byte(1) | 0x80) .. field:sub(2)
+    local entry = assert(Tar.reader(Stream.from_string(with_field_12(137, field))):next())
+    assert(entry.mtime == n, tostring(entry.mtime))
+  end
+end
+
 local function test_opening_an_entry_a_second_time_is_refused()
   local c = Stream.collect()
   local w = Tar.writer(c)

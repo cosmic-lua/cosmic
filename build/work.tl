@@ -65,11 +65,19 @@ local record work
   --- from recompiling everything. `runtime_basis` is the host-independent
   --- hash of the Teal and Lua pins and patches. Portable startup combines
   --- it with the validated target, configuration and exact raw-core digest.
-  --- Both are computed over the tree being built and carried by its portable
-  --- projection, so a tool always names what it actually is.
+  --- `writer` is every module in `build.writer`'s import closure, the
+  --- standard library's included, and the core image: what turns
+  --- compiled rows into a projection, down to the SQLite that vacuums
+  --- it and the codec that decodes the CA roots into it. A projection is
+  --- signed with the identity of the writer that wrote it
+  --- (`build.writer`), so a tool whose writer has not moved writes the
+  --- same bytes as the tree's own, and one whose writer has is told apart.
+  --- All three are computed over the tree being built and carried by its
+  --- portable projection, so a tool always names what it actually is.
   record Identities
     compiler: string
     runtime_basis: string
+    writer: string
   end
 
   --- The statements that create the database, in order. `IF NOT
@@ -1064,16 +1072,27 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) " ..
     "ORDER BY path) FROM tool WHERE path IN ('vendor/tl/PIN', 'vendor/lua/PIN') " ..
     "OR path GLOB 'patch/tl/*' OR path GLOB 'patch/lua/*'), '')"
+  --- The hash of the modules in `root`'s import closure whose path
+  --- matches `glob`, then `extra`.
+  local function closure(root: string, glob: string, extra: string): string
+    return "WITH RECURSIVE closure(path) AS (SELECT '" .. root .. "' UNION " ..
+      "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
+      "JOIN requires r ON r.source_hash = i.source_hash) " ..
+      "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
+      "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
+      "(SELECT path FROM closure) AND path GLOB '" .. glob .. "'), '') || " ..
+      "char(10) || " .. extra .. ")))"
+  end
   local compilers, compiler_trouble = Sqlite.text_rows(db,
-    "WITH RECURSIVE closure(path) AS (SELECT 'build.importer' UNION " ..
-    "SELECT r.name FROM closure c JOIN inputs i ON i.path = c.path " ..
-    "JOIN requires r ON r.source_hash = i.source_hash) " ..
-    "SELECT lower(hex(sha256(coalesce((SELECT group_concat(path || ' ' || " ..
-    "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN " ..
-    "(SELECT path FROM closure) AND path GLOB 'build.*'), '') || char(10) || " ..
-    pins .. ")))")
+    closure("build.importer", "build.*", pins))
   if compilers == nil then
     return nil, compiler_trouble
+  end
+  local writers, writer_trouble = Sqlite.text_rows(db,
+    closure("build.writer", "*",
+      "coalesce((SELECT value FROM meta WHERE key = 'image_hash'), '')"))
+  if writers == nil then
+    return nil, writer_trouble
   end
   local bases, basis_trouble = Sqlite.text_rows(db,
     "SELECT lower(hex(sha256(" .. pins .. ")))")
@@ -1083,9 +1102,11 @@ function work.record_identities(handle: work.Handle): work.Identities | nil, str
   local identities: work.Identities = {
     compiler = compilers[1][1],
     runtime_basis = bases[1][1],
+    writer = writers[1][1],
   }
   for _, pair in ipairs({ { "compiler", identities.compiler },
-                          { "runtime_basis", identities.runtime_basis } }) do
+                          { "runtime_basis", identities.runtime_basis },
+                          { "writer", identities.writer } }) do
     local ok, why = Sqlite.run(db,
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair[1]), text(pair[2]) })
