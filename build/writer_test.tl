@@ -254,3 +254,28 @@ local function test_a_module_ships_its_bytecode_and_not_its_lua(tmp: string)
   assert(#rows == 1 and rows[1][1] == "1" and rows[1][2] == "1",
     tostring(#rows))
 end
+
+--- The zones the working database holds ship in the projection, and are
+--- part of what it is a function of: new zones write it again.
+local function test_the_zones_ship_and_sign_the_projection(tmp: string)
+  local out = tmp .. "/out.db"
+  local handle, result = build_and_write(tmp .. "/a", "world", out)
+  local before = projected(out)
+  assert(work.put_zoneinfo(handle, { ["Test/Zone"] = "TZif\0test", ["A/Zone"] = "TZif a" }))
+  assert(writer.write_result(handle, out, result))
+  assert(work.close(handle))
+  assert(projected(out) ~= before, "new zones sign a new projection")
+  local db = assert(Sqlite.open(out, false))
+  local rows = assert(Sqlite.text_rows(db,
+    "SELECT group_concat(name || ' ' || typeof(data) || ' ' || length(data), ',' ORDER BY rowid) " ..
+    "FROM zoneinfo"))
+  assert(db:close())
+  assert(rows[1][1] == "A/Zone blob 6,Test/Zone blob 9", rows[1][1])
+  -- And the tool built from the projection carries them too.
+  assert(writer.carried(out, tmp .. "/carried.db"))
+  local carried = assert(Sqlite.open(tmp .. "/carried.db", false))
+  local kept = assert(Sqlite.text_rows(carried,
+    "SELECT group_concat(name || ' ' || typeof(data), ',' ORDER BY rowid) FROM zoneinfo"))
+  assert(carried:close())
+  assert(kept[1][1] == "A/Zone blob,Test/Zone blob", kept[1][1])
+end

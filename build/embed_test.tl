@@ -111,6 +111,11 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   local about_build = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module LIKE 'build.%'")
   assert(about_build[1][1] == "0", "guidance about the build is not")
+  local databases = Store.databases()
+  local carried = assert(Sqlite.text_rows(databases[#databases], "SELECT count(*) FROM zoneinfo"))
+  local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
+  assert(zones[1][1] == carried[1][1] and tonumber(zones[1][1]) > 500 and zones[1][2] == "1",
+    "every zone the binary carries is in")
 end
 
 --- A project's tests and examples stay with the project: the program

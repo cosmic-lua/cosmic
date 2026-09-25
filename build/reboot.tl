@@ -159,6 +159,16 @@ local function into(handle: work.Handle, built: compiler,
   if not kept then
     return closing(handle, keep_trouble)
   end
+  -- And the zones it carries, which only a boot reads from the tree.
+  local databases = Store.databases()
+  local zones, zones_trouble = work.zoneinfo_of(databases[#databases])
+  if zones == nil then
+    return closing(handle, "the zones in this binary: " .. zones_trouble)
+  end
+  local zoned, zoned_trouble = work.put_zoneinfo(handle, zones)
+  if not zoned then
+    return closing(handle, zoned_trouble)
+  end
 
   -- Compiled and keyed as the tree's own work: the tool that replaces this one
   -- carries the tree's compiler identity, never the stale tool's identity.

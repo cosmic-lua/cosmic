@@ -80,7 +80,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "24"
+local version <const> = "25"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -154,6 +154,16 @@ local version <const> = "24"
 --- Raw cores remain build outputs under `o/core`; they are never copied into
 --- this working database. The compiler lives in `derived`, the one row there
 --- with no file behind it.
+---
+--- `zoneinfo` is the IANA time zone database the binary carries, one
+--- TZif file per zone name (`vendor/tzdata`), for `cosmic.time` to fall
+--- back on where the host has no zone files. Like the compiler, it has
+--- no staged file behind it: a boot reads the vendored tree, and a
+--- Teal-only rebuild copies the running binary's rows back in. It
+--- keeps a rowid, unlike the tables around it: a WITHOUT ROWID table
+--- keeps a row inside an index page, where a zone file past about a
+--- kilobyte spills into overflow pages, and rows are only ever written
+--- in name order, so the rowid never varies.
 ---
 --- `compiled` is one compile of one module, keyed by the module's key
 --- -- the hash of its kind, its source, its import closure's keys and
@@ -344,6 +354,8 @@ work.schema = {
                                        summary TEXT NOT NULL,
                                        boundary INTEGER NOT NULL,
                                        PRIMARY KEY (path, line)) WITHOUT ROWID]],
+  [[CREATE TABLE IF NOT EXISTS zoneinfo (name TEXT PRIMARY KEY,
+                                         data BLOB NOT NULL)]],
   [[CREATE TABLE IF NOT EXISTS compiled (key TEXT PRIMARY KEY,
                                          tool TEXT NOT NULL,
                                          lua TEXT NOT NULL,
@@ -1092,6 +1104,70 @@ function work.put_compiler(handle: work.Handle, source: string): boolean, string
     "source, source_hash) VALUES ('o/vendor/tl/tl.lua', 'vendor.tl', " ..
     "'vendor', 'vendor', lower(hex(sha256(?1))), ?1, lower(hex(sha256(?1))))",
     { text(source) })
+end
+
+--- Every TZif file under `dir`, a `zoneinfo` tree as `vendor/tzdata`
+--- holds it, by zone name: its path under `dir`.
+function work.read_zoneinfo(dir: string): {string:string} | nil, string
+  local names, trouble = Fs.walk(dir)
+  if names == nil then
+    return nil, trouble
+  end
+  local zones: {string:string} = {}
+  for _, name in ipairs(names) do
+    local data, read_trouble = Fs.read(dir .. "/" .. name)
+    if data == nil then
+      return nil, read_trouble
+    end
+    zones[name] = data
+  end
+  return zones, ""
+end
+
+--- Every zone the database `db` carries in its `zoneinfo` table, by
+--- name: none when it has no such table, as a binary built before
+--- there was one.
+function work.zoneinfo_of(db: Sqlite.Handle): {string:string} | nil, string
+  local tables, trouble = Sqlite.text_rows(db,
+    "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'zoneinfo'")
+  if tables == nil then
+    return nil, trouble
+  end
+  local zones: {string:string} = {}
+  if tables[1][1] == "0" then
+    return zones, ""
+  end
+  local rows, rows_trouble = Sqlite.rows(db, "SELECT name, data FROM zoneinfo")
+  if rows == nil then
+    return nil, rows_trouble
+  end
+  for _, row in ipairs(rows) do
+    zones[row[1].text] = row[2].blob or row[2].text
+  end
+  return zones, ""
+end
+
+--- Replaces the zones the binary will carry with `zones`, by name,
+--- written in name order so the table's rowids are a function of them.
+function work.put_zoneinfo(handle: work.Handle, zones: {string:string}): boolean, string
+  local cleared, trouble = handle.db:exec("DELETE FROM zoneinfo")
+  if not cleared then
+    return false, trouble
+  end
+  local names: {string} = {}
+  for name in pairs(zones) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local ok, why = Sqlite.run(handle.db,
+      "INSERT INTO zoneinfo (name, data) VALUES (?1, ?2)",
+      { text(name), { blob = zones[name] } })
+    if not ok then
+      return false, why
+    end
+  end
+  return true, ""
 end
 
 --- Writes this run's row into `builds`.
