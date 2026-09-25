@@ -26,6 +26,16 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
   assert(not test.matches("build", "builder.other_test", "builder/other_test.tl"))
 end
 
+local function test_a_selector_is_printed_as_one_shell_word()
+  assert(test.shell_word("build/test_test.tl:test_x") == "build/test_test.tl:test_x")
+  assert(test.shell_word("a b/c_test.tl:t") == "'a b/c_test.tl:t'")
+  assert(test.shell_word("it's_test.tl:t") == "'it'\\''s_test.tl:t'")
+  assert(test.shell_word("-x_test.tl:t") == "./-x_test.tl:t")
+  assert(test.shell_word("-a b_test.tl:t") == "'./-a b_test.tl:t'")
+  assert(test.shell_word("$x_test.tl:t") == "'$x_test.tl:t'")
+  assert(test.shell_word("") == "''")
+end
+
 local function test_a_selector_can_name_one_test_of_one_module()
   local path, file = "build.test_test", "build/test_test.tl"
   assert(test.selects("build/test_test.tl:test_a", path, file, "test_a"))
